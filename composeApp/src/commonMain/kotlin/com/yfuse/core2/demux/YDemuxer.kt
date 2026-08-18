@@ -1,9 +1,11 @@
 package com.yfuse.core2.demux
 
+import com.yfuse.core2.bitstream.YSamplePacking
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
+import com.yfuse.core2.dolby.YDolbyVisionConfig
 
 /** Stable track id owned by one demux session. */
 @JvmInline
@@ -28,8 +30,9 @@ enum class YSampleFlag {
 /**
  * Codec-private bytes that accompany compressed samples.
  *
- * The payload remains opaque to the demuxer contract. Bitstream adapters own AVC/HVCC/Dolby
- * interpretation so FFmpeg, MediaExtractor and future disc demuxers expose one stable API.
+ * The payload remains opaque to the demuxer contract. Bitstream adapters own AVC/HVCC parsing so
+ * FFmpeg, MediaExtractor and future disc demuxers expose one stable API. Dolby configuration is
+ * promoted separately because routing must understand its semantic profile before decode begins.
  */
 data class YCodecPrivateData(
     val entries: List<ByteArray> = emptyList(),
@@ -43,7 +46,10 @@ data class YVideoTrackFormat(
     val frameRate: Float = 0f,
     val bitDepth: Int = 8,
     val hdrType: YHdrType = YHdrType.Sdr,
+    /** Null for codecs/containers where NAL packing does not apply. */
+    val samplePacking: YSamplePacking? = null,
     val codecPrivateData: YCodecPrivateData = YCodecPrivateData(),
+    val dolbyVisionConfig: YDolbyVisionConfig? = null,
 )
 
 data class YAudioTrackFormat(
