@@ -16,6 +16,7 @@ class LibraryHomeComponent(
     registry: ServerRegistry,
     val onSeeAll: (libraryId: String, title: String) -> Unit,
     val onOpenItem: (itemId: String) -> Unit,
+    val onPlayItem: (itemId: String) -> Unit,
 ) : ComponentContext by componentContext {
 
     /** The library route stays in the Decompose back stack while detail covers it. */

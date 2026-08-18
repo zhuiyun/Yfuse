@@ -105,6 +105,12 @@ internal sealed interface DetailMsg {
         val value: Boolean,
     ) : DetailMsg
 
+    data class WatchLaterChanged(
+        val serverId: String,
+        val itemId: String,
+        val value: Boolean,
+    ) : DetailMsg
+
     data class ActionMessage(
         val value: String?,
     ) : DetailMsg

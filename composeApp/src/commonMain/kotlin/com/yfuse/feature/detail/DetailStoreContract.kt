@@ -57,6 +57,8 @@ data class DetailState(
     val related: List<MediaItem> = emptyList(),
     val error: String? = null,
     val actionMessage: String? = null,
+    /** Current route's optimistic/server-confirmed membership in Yfuse's 稍后观看 playlist. */
+    val watchLater: Boolean = false,
     val sourceFailure: SourceSelectionFailure? = null,
     val organizationContainers: List<MediaContainer> = emptyList(),
     val organizationLoading: Boolean = false,

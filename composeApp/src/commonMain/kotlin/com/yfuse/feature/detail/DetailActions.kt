@@ -17,8 +17,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,6 +49,7 @@ internal fun DetailActionDock(
     detailLine: String?,
     resolving: Boolean,
     favorite: Boolean,
+    watchLater: Boolean,
     /** Shown only when there is progress to discard. */
     canPlayFromStart: Boolean,
     onPlay: () -> Unit,
@@ -187,11 +186,13 @@ internal fun DetailActionDock(
                 modifier = Modifier.weight(1f),
             )
             GlassActionButton(
-                icon = AppIcons.Bookmark,
-                label = "稍后观看",
-                active = false,
+                icon = if (watchLater) AppIcons.Check else AppIcons.Bookmark,
+                label = if (watchLater) "已加入" else "稍后观看",
+                active = watchLater,
                 accent = accent,
-                onClick = onWatchLater,
+                onClick = {
+                    if (!watchLater) onWatchLater()
+                },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -211,13 +212,13 @@ private fun GlassActionButton(
     val palette = LocalPalette.current
     val fill =
         when {
-            active -> accent.copy(alpha = if (palette.isDark) 0.20f else 0.12f)
+            active -> accent.copy(alpha = if (palette.isDark) 0.30f else 0.20f)
             palette.isDark -> Color.White.copy(alpha = 0.075f)
             else -> Color.White.copy(alpha = 0.72f)
         }
     val edge =
         when {
-            active -> accent.copy(alpha = 0.38f)
+            active -> accent.copy(alpha = 0.58f)
             palette.isDark -> Color.White.copy(alpha = 0.19f)
             else -> Color(0xFFE0E7F1)
         }
@@ -243,13 +244,13 @@ private fun GlassActionButton(
                 .clip(CircleShape)
                 .background(
                     if (active) {
-                        accent.copy(alpha = 0.14f)
+                        accent.copy(alpha = 0.22f)
                     } else {
                         palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f)
                     },
                 ).border(
                     Dimens.hairline,
-                    if (active) accent.copy(alpha = 0.20f) else palette.border,
+                    if (active) accent.copy(alpha = 0.46f) else palette.border,
                     CircleShape,
                 ),
             contentAlignment = Alignment.Center,
@@ -260,6 +261,7 @@ private fun GlassActionButton(
                 contentDescription = label,
                 tint = if (active) accent else palette.body,
                 burstColor = accent,
+                iconSize = 16.dp,
             )
         }
         Text(
@@ -271,7 +273,7 @@ private fun GlassActionButton(
             modifier = Modifier.weight(1f),
         )
         if (active) {
-            Box(Modifier.size(5.dp).clip(CircleShape).background(accent))
+            Box(Modifier.size(6.dp).clip(CircleShape).background(accent))
         }
     }
 }

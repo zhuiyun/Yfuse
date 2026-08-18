@@ -130,6 +130,18 @@ class LibraryComponent(
                         onOpenItem = {
                             navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it))
                         },
+                        onPlayItem = {
+                            // Library hero entries are real Emby items, so this control can be
+                            // honest about being 播放: enter detail in auto-play mode and let the
+                            // existing resolver choose episode/source/version before Player opens.
+                            navigation.pushToFront(
+                                Config.Detail(
+                                    serverId = registry.defaultServer?.id,
+                                    itemId = it,
+                                    autoPlay = true,
+                                ),
+                            )
+                        },
                     ),
                 )
             is Config.Grid -> {
