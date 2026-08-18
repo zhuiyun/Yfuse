@@ -17,10 +17,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +49,7 @@ internal fun DetailActionDock(
     detailLine: String?,
     resolving: Boolean,
     favorite: Boolean,
+    watchLater: Boolean,
     /** Shown only when there is progress to discard. */
     canPlayFromStart: Boolean,
     onPlay: () -> Unit,
@@ -60,13 +57,6 @@ internal fun DetailActionDock(
     onFavorite: () -> Unit,
     onWatchLater: () -> Unit,
 ) {
-    // Emby has no native watch-later bit on MediaDetail: the action is backed by Yfuse's
-    // account playlist. Keep the successful intent visible for this detail route instead of
-    // letting the button snap straight back to its neutral appearance after the tap.
-    // `accent` is the poster-derived detail accent, so the selected state automatically
-    // follows the current artwork rather than introducing a fixed brand purple here.
-    var watchLaterSelected by remember { mutableStateOf(false) }
-
     Column(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -196,15 +186,12 @@ internal fun DetailActionDock(
                 modifier = Modifier.weight(1f),
             )
             GlassActionButton(
-                icon = if (watchLaterSelected) AppIcons.Check else AppIcons.Bookmark,
-                label = if (watchLaterSelected) "已加入" else "稍后观看",
-                active = watchLaterSelected,
+                icon = if (watchLater) AppIcons.Check else AppIcons.Bookmark,
+                label = if (watchLater) "已加入" else "稍后观看",
+                active = watchLater,
                 accent = accent,
                 onClick = {
-                    if (!watchLaterSelected) {
-                        watchLaterSelected = true
-                        onWatchLater()
-                    }
+                    if (!watchLater) onWatchLater()
                 },
                 modifier = Modifier.weight(1f),
             )
