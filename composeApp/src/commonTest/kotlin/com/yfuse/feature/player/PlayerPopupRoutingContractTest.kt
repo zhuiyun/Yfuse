@@ -40,6 +40,22 @@ class PlayerPopupRoutingContractTest {
     }
 
     @Test
+    fun native_disc_navigation_exposes_direct_title_and_chapter_rows() {
+        val panel = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt").readText()
+
+        assertTrue("GroupLabel(\"标题 / Playlist\")" in panel)
+        assertTrue("disc.titleOptions.forEach" in panel)
+        assertTrue("ActiveDiscNavigation.selectTitle(title.index)" in panel)
+        assertTrue("disc.chapterOptions.forEach" in panel)
+        assertTrue("ActiveDiscNavigation.selectChapter(chapter.index)" in panel)
+        assertTrue("chapter.timeLabel" in panel)
+        assertTrue("title.playlistLabel" in panel)
+        // Keep the legacy callbacks as a safe fallback for a non-bound navigation backend.
+        assertTrue("onClick = onNextDiscTitle" in panel)
+        assertTrue("onClick = onNextDiscChapter" in panel)
+    }
+
+    @Test
     fun function_popups_keep_the_picture_visible() {
         val panel = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerPanel.kt").readText()
 

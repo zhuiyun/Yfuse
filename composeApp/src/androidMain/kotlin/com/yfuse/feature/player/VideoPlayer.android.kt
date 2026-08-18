@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.resolveNetworkAwareQuality
 import com.yfuse.core.logging.AppLog
@@ -22,10 +23,14 @@ actual fun PlayerLauncher(
     val context = LocalContext.current
     LaunchedEffect(items, startIndex) {
         if (items.isEmpty()) return@LaunchedEffect
-        PlaybackSelection.update(items.getOrNull(startIndex))
+        val koin = GlobalContext.get()
+        val serverRegistry = runCatching { koin.get<ServerRegistry>() }.getOrNull()
+        val localPrepared = prepareNativeLocalBluRayRoute(items, startIndex, context)
+        val preparedItems = prepareNativeRemoteBluRayRoutes(localPrepared, startIndex, serverRegistry)
+        PlaybackSelection.update(preparedItems.getOrNull(startIndex))
         val preferencesResult =
             runCatching {
-                GlobalContext.get().get<ThemePreferences>()
+                koin.get<ThemePreferences>()
             }.onFailure {
                 AppLog.warning(
                     category = "feature.player",
@@ -37,9 +42,9 @@ actual fun PlayerLauncher(
         val preferences = preferencesResult.getOrNull()
         val playbackPreferences =
             runCatching {
-                GlobalContext.get().get<PlaybackPreferences>()
+                koin.get<PlaybackPreferences>()
             }.getOrNull()
-        val serverId = items.getOrNull(startIndex)?.serverId
+        val serverId = preparedItems.getOrNull(startIndex)?.serverId
         val preferredQuality =
             serverId
                 ?.let { playbackPreferences?.rememberedQuality(it) }
@@ -60,7 +65,7 @@ actual fun PlayerLauncher(
             PlayerActivity
                 .intent(
                     context = context,
-                    items = items,
+                    items = preparedItems,
                     startIndex = startIndex,
                     startPositionMs = startPositionMs,
                     // External .srt sidecars are mounted by the Media3 engine. Native
@@ -70,7 +75,7 @@ actual fun PlayerLauncher(
                     engine =
                         offlineSubtitlePlaybackEngine(
                             preferred = preferences?.engine?.value ?: PlayerEngine.Exo,
-                            items = items,
+                            items = preparedItems,
                         ),
                     decoder = preferences?.decoder?.value ?: com.yfuse.core.model.DecoderMode.Hardware,
                     autoNext = preferences?.autoNext?.value ?: true,
@@ -84,7 +89,15 @@ actual fun PlayerLauncher(
                 category = "feature.player",
                 event = "activity_launched",
                 message = "Player activity launched",
-                attributes = mapOf("itemCount" to items.size.toString()),
+                attributes =
+                    mapOf(
+                        "itemCount" to preparedItems.size.toString(),
+                        "nativeDisc" to
+                            preparedItems.getOrNull(startIndex)
+                                ?.url
+                                ?.isYfuseNativeBluRayRoute()
+                                .toString(),
+                    ),
             )
             onLaunched()
         }.onFailure {

@@ -13,8 +13,17 @@ enum class PlaybackDiscKind(
 
 enum class PlaybackDiscStrategy {
     NotRequired,
+
+    /** The server already selected a title and exposed it as a linear media stream. */
+    ServerResolvedLinear,
+
+    /** The server must still select/parse the feature, which normally starts an ffmpeg job. */
     ServerMainFeature,
+
+    /** A local ISO/folder can be handed to libbluray/libdvdread through the native engine. */
     NativeLocalImage,
+
+    /** Last-resort native attempt when no server-resolved stream exists. */
     NativeRemoteFallback,
 }
 
@@ -29,6 +38,13 @@ data class PlaybackDiscDecision(
     val requiresNativeEngine: Boolean
         get() =
             strategy == PlaybackDiscStrategy.NativeLocalImage ||
+                strategy == PlaybackDiscStrategy.NativeRemoteFallback
+
+    /** True when YCore can keep the title's encoded video/audio/subtitle elementary streams. */
+    val preservesOriginalStreams: Boolean
+        get() =
+            strategy == PlaybackDiscStrategy.ServerResolvedLinear ||
+                strategy == PlaybackDiscStrategy.NativeLocalImage ||
                 strategy == PlaybackDiscStrategy.NativeRemoteFallback
 }
 
@@ -65,6 +81,12 @@ fun planDiscPlayback(probe: PlaybackMediaProbe): PlaybackDiscDecision {
                 strategy = PlaybackDiscStrategy.ServerMainFeature,
                 reason = "服务器正在解析${kind.label}主标题",
             )
+        probe.discMainFeatureResolved ->
+            PlaybackDiscDecision(
+                kind = kind,
+                strategy = PlaybackDiscStrategy.ServerResolvedLinear,
+                reason = "服务器已解析${kind.label}主标题，保留原始音视频流直放",
+            )
         probe.hasServerTranscode ->
             PlaybackDiscDecision(
                 kind = kind,
@@ -75,13 +97,13 @@ fun planDiscPlayback(probe: PlaybackMediaProbe): PlaybackDiscDecision {
             PlaybackDiscDecision(
                 kind = kind,
                 strategy = PlaybackDiscStrategy.NativeLocalImage,
-                reason = "本地${kind.label}使用原生 FFmpeg 解封装",
+                reason = "本地${kind.label}使用原生 FFmpeg/libbluray 解封装",
             )
         else ->
             PlaybackDiscDecision(
                 kind = kind,
                 strategy = PlaybackDiscStrategy.NativeRemoteFallback,
-                reason = "服务器未提供${kind.label}转码地址，尝试原生读取",
+                reason = "服务器未提供${kind.label}可播放主标题，尝试原生读取",
             )
     }
 }

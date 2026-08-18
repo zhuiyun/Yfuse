@@ -239,7 +239,7 @@ class PlaybackPlannerTest {
     fun prores_12bit_prefers_original_ffmpeg_decode_even_when_server_can_transcode() {
         val proResProbe =
             PlaybackMediaProbe(
-                container = "mov",
+                container = "MOV",
                 discSource = false,
                 source =
                     PlaybackSourceRequirements(
@@ -254,19 +254,16 @@ class PlaybackPlannerTest {
                     ),
                 hasServerTranscode = true,
                 audioCodec = PlaybackAudioCodec.Pcm,
-                audioChannelCount = 6,
+                audioChannelCount = 2,
             )
-
         val plan =
             planPlayback(
                 probe = proResProbe,
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
-                preferredDecoderMode = DecoderMode.Hardware,
+                preferredDecoderMode = DecoderMode.Auto,
                 engineCosts = mapOf(PlayerEngine.Mpv to 100),
-                // Android vendors do not expose a stable ProRes MediaCodec MIME. The routing must
-                // remain deterministic even when the platform capability answer is merely Unknown.
-                videoSupport = PlaybackVideoSupport.unknown("ProRes 没有稳定的 Android 硬解能力声明"),
+                videoSupport = PlaybackVideoSupport.unsupported("Android 平台没有可验证的 ProRes 硬解"),
             )
 
         assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
