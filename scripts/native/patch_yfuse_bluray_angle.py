@@ -7,14 +7,15 @@ silently publishing an AAR whose Kotlin/UI layer advertises an angle feature tha
 from pathlib import Path
 import sys
 
-if len(sys.argv) != 4:
+if len(sys.argv) != 5:
     raise SystemExit(
-        "usage: patch_yfuse_bluray_angle.py <stream_yfuse_bluray.c> "
+        "usage: patch_yfuse_bluray_angle.py <stream_yfuse_bluray.c> <stream_yfuse_bdmv.c> "
         "<YfuseBluRayRegistry.java> <YfuseBdmvRegistry.java>"
     )
 
 stream_path = Path(sys.argv[1])
-registry_paths = [Path(sys.argv[2]), Path(sys.argv[3])]
+bdmv_path = Path(sys.argv[2])
+registry_paths = [Path(sys.argv[3]), Path(sys.argv[4])]
 text = stream_path.read_text()
 
 signature_old = 'jmethodID session_state = (*env)->GetMethodID(env, type, "onNativeSessionState", "(IIIIZZ)V");'
@@ -41,6 +42,20 @@ if insert_anchor not in text:
     raise SystemExit("unexpected Yfuse stream source: menu-command JNI insertion anchor missing")
 text = text.replace(insert_anchor, angle_function + insert_anchor, 1)
 stream_path.write_text(text)
+
+bdmv = bdmv_path.read_text()
+bdmv_define_anchor = '''#define Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeSendMenuCommand \\\n    Java_dev_yfuse_mpv_YfuseBdmvRegistry_nativeSendMenuCommand\n'''
+bdmv_define_angle = '''#define Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeSelectAngle \\\n    Java_dev_yfuse_mpv_YfuseBdmvRegistry_nativeSelectAngle\n'''
+if bdmv_define_anchor not in bdmv:
+    raise SystemExit("unexpected BDMV source: JNI namespace define anchor missing")
+bdmv = bdmv.replace(bdmv_define_anchor, bdmv_define_angle + bdmv_define_anchor, 1)
+
+bdmv_undef_anchor = '''#undef Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeSendMenuCommand\n'''
+bdmv_undef_angle = '''#undef Java_dev_yfuse_mpv_YfuseBluRayRegistry_nativeSelectAngle\n'''
+if bdmv_undef_anchor not in bdmv:
+    raise SystemExit("unexpected BDMV source: JNI namespace undef anchor missing")
+bdmv = bdmv.replace(bdmv_undef_anchor, bdmv_undef_angle + bdmv_undef_anchor, 1)
+bdmv_path.write_text(bdmv)
 
 for registry_path in registry_paths:
     java = registry_path.read_text()
