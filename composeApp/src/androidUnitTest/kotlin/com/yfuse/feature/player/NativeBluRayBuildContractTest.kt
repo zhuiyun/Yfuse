@@ -41,6 +41,19 @@ class NativeBluRayBuildContractTest {
         assertTrue("No-Go" in feasibility)
     }
 
+    @Test
+    fun r8_keeps_the_native_capability_and_registry_reflection_contract() {
+        val rules = repositoryFile("composeApp/proguard-rules.pro").readText()
+
+        listOf(
+            "dev.yfuse.mpv.YfuseMpvCapabilities",
+            "dev.yfuse.mpv.YfuseBluRayRegistry",
+            "dev.yfuse.mpv.YfuseBdmvRegistry",
+        ).forEach { className ->
+            assertTrue("-keep class $className { *; }" in rules, "R8 must keep $className")
+        }
+    }
+
     private fun repositoryFile(path: String): File = File(repositoryRoot(), path)
 
     private fun repositoryRoot(): File {

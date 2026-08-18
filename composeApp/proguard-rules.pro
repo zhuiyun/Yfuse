@@ -46,3 +46,7 @@
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }
+# The custom libmpv bridge is discovered through Class.forName and invokes these members by name.
+-keep class dev.yfuse.mpv.YfuseMpvCapabilities { *; }
+-keep class dev.yfuse.mpv.YfuseBluRayRegistry { *; }
+-keep class dev.yfuse.mpv.YfuseBdmvRegistry { *; }
