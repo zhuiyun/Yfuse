@@ -45,11 +45,26 @@ internal data class YCore2RouteDecision(
     val probe: YCore2ProbeResult.Success,
     val plan: YPlaybackPlan,
 ) {
-    /** Phase 1 player can execute only Platform + Hardware + SurfaceDirect today. */
+    val nativeTunnelExecutable: Boolean
+        get() =
+            plan.route == YPlaybackRoute.NativeTunnel &&
+                plan.demuxPath == YDemuxPath.Platform &&
+                plan.renderPath == YRenderPath.Tunnel &&
+                plan.nativeAudio &&
+                !plan.usesHdrFallback
+
     val nativeDirectExecutable: Boolean
         get() =
             plan.route == YPlaybackRoute.NativeDirect &&
                 plan.demuxPath == YDemuxPath.Platform &&
+                plan.renderPath == YRenderPath.SurfaceDirect &&
+                plan.nativeAudio &&
+                !plan.usesHdrFallback
+
+    val nativeEnhancedExecutable: Boolean
+        get() =
+            plan.route == YPlaybackRoute.NativeEnhanced &&
+                plan.demuxPath == YDemuxPath.Enhanced &&
                 plan.renderPath == YRenderPath.SurfaceDirect &&
                 plan.nativeAudio
 }
@@ -113,8 +128,7 @@ internal class AndroidCore2MediaProbe(
                         platformDemuxSupported = true,
                         enhancedDemuxSupported = true,
                         fallbackHdrType = dolbyVisionConfig?.compatibleBaseHdr,
-                        // Tunnel is implemented after the direct Surface lifecycle is hardened.
-                        preferTunnel = false,
+                        preferTunnel = true,
                     ),
                 videoMime = videoMime,
                 audioMime = audioMime,
@@ -129,20 +143,43 @@ internal class AndroidCore2MediaProbe(
     }
 }
 
-/** Evaluates the probe against the current hardware/display/audio snapshot. */
+/** Evaluates the best current route against platform and bounded FFmpeg metadata truth. */
 internal class AndroidCore2RouteEvaluator(
     context: Context,
     private val capabilityProvider: YCapabilityProvider = AndroidYCapabilityProvider(context),
     private val strategy: YPlaybackStrategy = DefaultYPlaybackStrategy(),
+    private val enhancedProbe: AndroidEnhancedMediaProbe = AndroidEnhancedMediaProbe(),
 ) {
-    private val probe = AndroidCore2MediaProbe(context)
+    private val platformProbe = AndroidCore2MediaProbe(context)
 
-    fun evaluate(item: YMediaItem): YCore2RouteDecision? {
-        val result = probe.probe(item) as? YCore2ProbeResult.Success ?: return null
-        val plan = strategy.plan(result.playbackRequest, capabilityProvider.current())
-        return YCore2RouteDecision(result, plan)
+    fun evaluate(
+        item: YMediaItem,
+        preferTunnel: Boolean = true,
+    ): YCore2RouteDecision? {
+        val platform = platformProbe.probe(item) as? YCore2ProbeResult.Success
+        val resolved =
+            when {
+                platform == null -> enhancedProbe.probe(item) as? YCore2ProbeResult.Success
+                platform.requiresEnhancedTruthProbe() -> {
+                    val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
+                    if (deep != null && deep.materiallyOverrides(platform)) deep else platform
+                }
+                else -> platform
+            } ?: return null
+        val request = resolved.playbackRequest.copy(preferTunnel = preferTunnel)
+        val normalizedProbe = resolved.copy(playbackRequest = request)
+        val plan = strategy.plan(request, capabilityProvider.current())
+        return YCore2RouteDecision(normalizedProbe, plan)
     }
 }
+
+private fun YCore2ProbeResult.Success.materiallyOverrides(
+    platform: YCore2ProbeResult.Success,
+): Boolean =
+    dolbyVisionConfig != null && platform.dolbyVisionConfig == null ||
+        playbackRequest.video.hdrType != platform.playbackRequest.video.hdrType ||
+        playbackRequest.video.codec != platform.playbackRequest.video.codec ||
+        playbackRequest.video.bitDepth > platform.playbackRequest.video.bitDepth
 
 private fun YMediaItem.toProbeSource(): YAndroidMediaSource =
     YAndroidMediaSource(uri = uri, headers = headers)
