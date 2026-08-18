@@ -2,6 +2,9 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.parseEpisodeWatchKey
+import com.yfuse.core2.api.YPlaybackPhase
+import com.yfuse.core2.api.YPlayer
+import com.yfuse.core2.legacy.LegacyYPlayerAdapter
 import kotlin.math.abs
 
 /** How often a guest re-checks its drift against the room's timeline. */
@@ -27,19 +30,18 @@ const val RATE_EPSILON = 0.001f
 private const val MISMATCH_GRACE_TICKS = 3
 
 /**
- * The single gate every play/pause/seek/episode change passes through on its way to a
- * [VideoEngine].
+ * The single gate every play/pause/seek/episode change passes through before playback.
  *
- * Reaching the engine directly breaks watch-together in two directions at once. A guest's
- * input lands, then gets silently undone by the reconcile loop a second later — the control
- * looks broken with no explanation. A host's input lands but is never published as a room
- * anchor, so everyone else keeps following a stale one, permanently, because the host has no
- * reason to touch anything again.
+ * The external constructor still accepts the Legacy [VideoEngine] supplier during the parallel
+ * migration, but every control operation inside this class now targets the product-level [YPlayer]
+ * contract. That makes watch-together one of the first system surfaces already independent from
+ * ExoPlayer/mpv/MDK and lets Core2 replace the underlying player later without rewriting room
+ * ownership or timeline rules.
  *
- * The in-player controls handled both by hand at each call site. The media session, the
- * notification buttons, the picture-in-picture action and the mini player each went straight
- * at the engine and missed both halves. Routing every surface through here is what stops that
- * recurring as entry points are added.
+ * Reaching playback directly breaks watch-together in two directions at once. A guest's input
+ * lands, then gets silently undone by the reconcile loop a second later. A host's input lands but
+ * is never published as a room anchor, so everyone else keeps following stale state. Routing every
+ * surface through here prevents that from recurring as entry points are added.
  */
 class WatchGatedPlayback(
     private val watchTogether: WatchTogetherClient,
@@ -49,47 +51,63 @@ class WatchGatedPlayback(
 ) {
     private var observedIndex: Int? = null
     private val playlistMatcher = WatchMediaMatcher(onWarning = {})
+    private var adaptedEngine: VideoEngine? = null
+    private var adaptedPlayer: YPlayer? = null
 
     /**
-     * Read straight off the engine rather than from a separately tracked copy: gating
-     * decisions compare against "playing right now", and a state mirrored through
-     * recomposition is a frame behind.
+     * Migration bridge only. The adapter is stable for the lifetime of one Legacy engine binding
+     * and is replaced atomically when PlayerRoot hands playback to another backend.
      */
-    private val state: PlaybackState? get() = engine()?.state?.value
+    private fun player(): YPlayer? {
+        val currentEngine = engine()
+        if (currentEngine == null) {
+            adaptedEngine = null
+            adaptedPlayer = null
+            return null
+        }
+        if (adaptedEngine !== currentEngine || adaptedPlayer == null) {
+            adaptedEngine = currentEngine
+            adaptedPlayer = LegacyYPlayerAdapter(currentEngine)
+        }
+        return adaptedPlayer
+    }
+
+    /** Read from YPlayer directly so gating never depends on a separately mirrored UI state. */
+    private val state get() = player()?.state?.value
 
     /** True while this member lacks room timeline control, so local input must be refused. */
     val locked: Boolean
         get() = watchTogether.state.value.let { it.connected && !it.canControl }
 
     fun togglePlayPause(): Boolean =
-        gated { engine ->
+        gated { player ->
             val willPlay = state?.playing != true
-            if (willPlay) engine.play() else engine.pause()
+            if (willPlay) player.play() else player.pause()
             publish(paused = !willPlay)
         }
 
     fun play(): Boolean =
-        gated { engine ->
-            engine.play()
+        gated { player ->
+            player.play()
             publish(paused = false)
         }
 
     fun pause(): Boolean =
-        gated { engine ->
-            engine.pause()
+        gated { player ->
+            player.pause()
             publish(paused = true)
         }
 
     fun seekTo(positionMs: Long): Boolean =
-        gated { engine ->
-            engine.seekTo(positionMs)
+        gated { player ->
+            player.seekTo(positionMs)
             publish(positionMs = positionMs)
         }
 
     fun selectItem(index: Int): Boolean {
         if (index !in items().indices) return false
-        return gated { engine ->
-            engine.selectItem(index)
+        return gated { player ->
+            player.selectItem(index)
             observedIndex = index
             publish(index = index, positionMs = 0L, paused = false)
         }
@@ -100,19 +118,19 @@ class WatchGatedPlayback(
     fun selectPrevious(): Boolean = selectItem((state?.currentIndex ?: 0) - 1)
 
     fun setSpeed(speed: Float): Boolean =
-        gated { engine ->
-            engine.setSpeed(speed)
+        gated { player ->
+            player.setSpeed(speed)
             publish(rate = speed)
         }
 
     /**
-     * Re-anchors the room on the entry the engine moved to on its own. Engines advance
-     * through the queue internally when auto-next is on, so an episode ending is the one
-     * timeline change no control surface can report.
+     * Re-anchors the room on the entry the player moved to on its own. Backends advance through the
+     * queue internally when auto-next is on, so an episode ending is the one timeline change no
+     * control surface can report.
      *
-     * This callback already runs on every observed engine-state tick. It also consumes the
-     * room dialog's one-shot playlist request here, which keeps playlist transport on the
-     * same gate as every other episode change without making PlayerControls own protocol state.
+     * This callback already runs on every observed player-state tick. It also consumes the room
+     * dialog's one-shot playlist request here, which keeps playlist transport on the same gate as
+     * every other episode change without making PlayerControls own protocol state.
      */
     fun onPlaybackIndexChanged(index: Int) {
         WatchPlaylistPlaybackRequest.consume()?.let { mediaKey ->
@@ -126,7 +144,7 @@ class WatchGatedPlayback(
         val previous = observedIndex
         observedIndex = index
         if (previous == null || previous == index || locked) return
-        publish(index = index, positionMs = engine()?.currentPositionMs() ?: 0L, paused = false)
+        publish(index = index, positionMs = player()?.currentPositionMs() ?: 0L, paused = false)
     }
 
     /** Publishes wherever playback actually is, for (re)gaining control of a room. */
@@ -135,38 +153,39 @@ class WatchGatedPlayback(
         publish()
     }
 
-    /** Retry is local recovery, but a guest still must not restart its engine behind the host. */
-    fun retry(): Boolean = gated(VideoEngine::retry)
+    /** Retry is local recovery, but a guest still must not restart playback behind the host. */
+    fun retry(): Boolean = gated(YPlayer::retry)
 
-    private inline fun gated(action: (VideoEngine) -> Unit): Boolean {
+    private inline fun gated(action: (YPlayer) -> Unit): Boolean {
         if (locked) {
             onLocked()
             return false
         }
-        val engine = engine() ?: return false
-        action(engine)
+        val player = player() ?: return false
+        action(player)
         return true
     }
 
     /**
      * [paused] and [rate] are passed explicitly by callers that just asked for a change: the
-     * engine's own state flow only ticks a couple of times a second, so reading it back here
-     * would publish the value the action was about to replace.
+     * player's state flow may tick after the command, so reading it back here could publish the
+     * value the action was about to replace.
      */
     private fun publish(
         index: Int = state?.currentIndex ?: 0,
         positionMs: Long? = null,
         paused: Boolean =
             watchTimelinePaused(
-                playbackRequested = engine()?.playbackRequested == true,
-                ended = state?.ended == true,
+                playbackRequested = player()?.playbackRequested == true,
+                ended = state?.phase == YPlaybackPhase.Ended,
             ),
         rate: Float = nominalRate(),
     ) {
         val item = items().getOrNull(index) ?: return
+        val player = player() ?: return
         watchTogether.publishTimeline(
             mediaKey = item.watchKey,
-            positionMs = positionMs ?: engine()?.currentPositionMs() ?: return,
+            positionMs = positionMs ?: player.currentPositionMs(),
             paused = paused,
             rate = rate,
         )
@@ -175,11 +194,10 @@ class WatchGatedPlayback(
     /**
      * The rate a host should publish.
      *
-     * A guest runs playback a couple of percent off the room's rate to close small gaps. A
-     * guest promoted to host mid-nudge would otherwise publish that off-nominal number as the
-     * room's new official rate — where everyone else nudges it again, and again on the next
-     * host change, so the drift compounds. Anything inside the nudge band is reported as the
-     * room's own rate; a genuine 倍速 change is well outside it and passes through.
+     * A guest runs playback a couple of percent off the room's rate to close small gaps. A guest
+     * promoted to host mid-nudge would otherwise publish that off-nominal number as the room's new
+     * official rate. Anything inside the nudge band is reported as the room's own rate; a genuine
+     * playback-speed change is well outside it and passes through.
      */
     private fun nominalRate(): Float {
         val measured = state?.speed ?: 1f
@@ -203,17 +221,17 @@ internal fun watchTimelinePaused(
 ): Boolean = !playbackRequested || ended
 
 /**
- * Tracks whether a guest can actually follow the room, so "connected but silently not
- * syncing" stops being indistinguishable from working.
+ * Tracks whether a guest can actually follow the room, so "connected but silently not syncing"
+ * stops being indistinguishable from working.
  *
  * The room identifies media by a cross-server key, which degrades to a server-specific
- * `emby:<id>` whenever provider ids are missing — common for episodes. Two people on
- * different servers then hold the same file under keys that never match, and the reconcile
- * loop simply finds nothing to do, forever, while the UI keeps saying 房主控制播放.
+ * `emby:<id>` whenever provider ids are missing — common for episodes. Two people on different
+ * servers then hold the same file under keys that never match, and the reconcile loop simply finds
+ * nothing to do while the UI keeps saying the host controls playback.
  *
- * That one comparison gates everything a room does: pause, play, seek, rate and entry
- * changes all sit behind a non-null answer from [resolve]. A miss is not a degraded room,
- * it is an inert one — which is why this tries three ways to say yes before giving up.
+ * That one comparison gates everything a room does: pause, play, seek, rate and entry changes all
+ * sit behind a non-null answer from [resolve]. A miss is not a degraded room, it is an inert one —
+ * which is why this tries three ways to say yes before giving up.
  */
 class WatchMediaMatcher(
     private val onWarning: (String?) -> Unit,
@@ -229,9 +247,9 @@ class WatchMediaMatcher(
             reset()
             return null
         }
-        // Against every name the entry answers to, not just the one it would publish: the
-        // room's key was chosen from the *other* library's metadata, and two libraries
-        // rarely hold the same subset of Tmdb/Tvdb/Imdb for one title.
+        // Against every name the entry answers to, not just the one it would publish: the room's
+        // key was chosen from the other library's metadata, and two libraries rarely hold the same
+        // subset of Tmdb/Tvdb/Imdb for one title.
         val index = items.indexOfFirst { it.watchKey == mediaKey || mediaKey in it.matchKeys }
         if (index >= 0) {
             reset()
@@ -239,15 +257,14 @@ class WatchMediaMatcher(
         }
         // Same episode, different spelling — or no spelling the two sides share at all.
         //
-        // A queue is one show, reached by resolving this room's media or by the user
-        // opening the show the room is on, so "the room is on s2e5" identifies an entry in
-        // it without the show's *name* having to match. That covers two libraries holding
-        // different provider ids for the show, and the case where one of them holds none:
-        // the published key is then `emby:<id>/s2e5`, half of which is meaningless to
-        // anyone else and the other half of which is all this needs.
+        // A queue is one show, reached by resolving this room's media or by the user opening the show
+        // the room is on, so "the room is on s2e5" identifies an entry in it without the show's name
+        // having to match. That covers two libraries holding different provider ids for the show,
+        // and the case where one of them holds none: the published key is then `emby:<id>/s2e5`, half
+        // of which is meaningless to anyone else and the other half of which is all this needs.
         //
-        // Refused only when the two sides both name a show and name different ones — the
-        // one case where a matching coordinate is provably a different episode.
+        // Refused only when the two sides both name a show and name different ones — the one case
+        // where a matching coordinate is provably a different episode.
         parseEpisodeWatchKey(mediaKey)?.let { coordinate ->
             val roomShow = coordinate.seriesKey.takeUnless { it.startsWith(LOCAL_KEY_PREFIX) }
             val byCoordinate =
@@ -283,8 +300,8 @@ class WatchMediaMatcher(
 private const val LOCAL_KEY_PREFIX = "emby:"
 
 /**
- * The shows this entry belongs to as named by *this* library, excluding server-local names
- * — those say nothing about whether two devices mean the same show.
+ * The shows this entry belongs to as named by this library, excluding server-local names — those
+ * say nothing about whether two devices mean the same show.
  */
 private fun PlayerMediaItem.knownSeriesKeys(): List<String> =
     matchKeys
