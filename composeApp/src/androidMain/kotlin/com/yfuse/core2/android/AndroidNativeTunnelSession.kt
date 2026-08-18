@@ -1,13 +1,12 @@
 package com.yfuse.core2.android
 
 import android.content.Context
-import android.media.MediaCodec
 import android.media.MediaFormat
 import android.view.Surface
+import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.yPlaybackStage
-import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.sync.YMediaClock
 import java.nio.ByteBuffer
@@ -20,20 +19,21 @@ internal data class YTunnelPlaybackSnapshot(
     val ended: Boolean,
     val videoDecoderName: String?,
     val audioDecoderName: String?,
+    val videoOutputVerified: Boolean,
     val audioClockReady: Boolean,
 )
 
 /**
  * Platform-demuxed multimedia tunneling session.
  *
- * Compressed video stays MediaExtractor -> tunneled MediaCodec -> Surface. Audio is decoded to PCM,
- * then timestamp-written to an AudioTrack carrying FLAG_HW_AV_SYNC and the exact same session id.
- * Video output buffers are released immediately to the tunneled codec; hardware owns presentation
- * timing from that point onward.
+ * Compressed video stays MediaExtractor -> tunneled MediaCodec -> Surface sideband. The app never
+ * dequeues video output buffers in this mode: compliant tunneled decoders may expose zero output
+ * buffers and hardware/HWC owns presentation. Audio is decoded to PCM and timestamp-written to an
+ * AudioTrack carrying FLAG_HW_AV_SYNC and the exact same session id.
  */
 internal class AndroidNativeTunnelSession(
     private val context: Context,
-    private val demuxer: AndroidMediaExtractorDemuxNode = AndroidMediaExtractorDemuxNode(context),
+    private val demuxer: AndroidTunnelPlatformDemuxer = AndroidTunnelPlatformDemuxer(context),
     private val videoDecoder: AndroidMediaCodecVideoNode = AndroidMediaCodecVideoNode(),
     private val audioDecoder: AndroidMediaCodecAudioNode = AndroidMediaCodecAudioNode(),
 ) {
@@ -51,12 +51,21 @@ internal class AndroidNativeTunnelSession(
     private var inputEnded = false
     private var videoInputEnded = false
     private var audioInputEnded = false
-    private var videoOutputEnded = false
     private var audioOutputEnded = false
-    private var firstVideoBufferReleased = false
     private var pendingAudioOutput: PendingAudioOutput? = null
     private var lastQueuedUs = 0L
+    private var lastAudioEndUs = 0L
     private var lastPositionUs = 0L
+    private var callbackGeneration = 0L
+
+    @Volatile
+    private var firstVideoFrameRendered = false
+
+    @Volatile
+    private var lastRenderedVideoUs = 0L
+
+    @Volatile
+    private var renderEvidenceFloorUs = 0L
 
     fun open(
         source: YAndroidMediaSource,
@@ -66,11 +75,34 @@ internal class AndroidNativeTunnelSession(
         close()
         require(surface.isValid) { "Tunnel session requires a valid Surface" }
         val tunnelConfig =
-            AndroidTunnelConfigurationFactory.create(context)
-                ?: error("Platform did not provide a valid tunnel audio session id")
-        demuxer.open(source)
-        val videoIndex = demuxer.findFirstTrack("video/") ?: error("Tunnel source has no video track")
-        val audioIndex = demuxer.findFirstTrack("audio/") ?: error("Tunnel source has no audio track")
+            yPlaybackStage(
+                category = YPlaybackFailureCategory.AudioSink,
+                stage = YPlaybackFailureStage.AudioRenderer,
+                safeDetail = "Tunnel audio session unavailable",
+            ) {
+                AndroidTunnelConfigurationFactory.create(context)
+                    ?: error("Platform did not provide a valid tunnel audio session id")
+            }
+        yPlaybackStage(
+            category = YPlaybackFailureCategory.Container,
+            stage = YPlaybackFailureStage.SourceOpen,
+        ) {
+            demuxer.open(source)
+        }
+        val videoIndex =
+            demuxer.findFirstTrack("video/")
+                ?: throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Container,
+                    stage = YPlaybackFailureStage.Demux,
+                    safeDetail = "Tunnel source has no video track",
+                )
+        val audioIndex =
+            demuxer.findFirstTrack("audio/")
+                ?: throw YPlaybackException(
+                    category = YPlaybackFailureCategory.AudioSink,
+                    stage = YPlaybackFailureStage.Demux,
+                    safeDetail = "Tunnel source has no audio track",
+                )
         val originalVideoFormat = demuxer.trackFormat(videoIndex)
         val videoFormat = tunnelConfig.configureVideoFormat(originalVideoFormat)
         val audioFormat = demuxer.trackFormat(audioIndex)
@@ -82,6 +114,16 @@ internal class AndroidNativeTunnelSession(
             ) {
                 videoDecoder.configure(videoFormat, surface)
             }
+            val generation = ++callbackGeneration
+            videoDecoder.setOnFrameRenderedListener { presentationTimeUs, _ ->
+                if (
+                    callbackGeneration == generation &&
+                    presentationTimeUs >= renderEvidenceFloorUs
+                ) {
+                    lastRenderedVideoUs = maxOf(lastRenderedVideoUs, presentationTimeUs)
+                    firstVideoFrameRendered = true
+                }
+            }
             yPlaybackStage(
                 category = YPlaybackFailureCategory.Decoder,
                 stage = YPlaybackFailureStage.AudioDecoderConfigure,
@@ -90,6 +132,7 @@ internal class AndroidNativeTunnelSession(
             }
             demuxer.selectTracks(setOf(videoIndex, audioIndex))
         } catch (failure: Throwable) {
+            callbackGeneration++
             frameRateManager.clear()
             runCatching(videoDecoder::release)
             runCatching(audioDecoder::release)
@@ -109,7 +152,7 @@ internal class AndroidNativeTunnelSession(
                 .maxOrNull()
                 ?: 0L
         prepared = true
-        resetEndState()
+        resetEndState(startPositionUs.coerceAtLeast(0L))
         if (startPositionUs > 0L) {
             seekTo(startPositionUs)
         } else {
@@ -131,6 +174,7 @@ internal class AndroidNativeTunnelSession(
         playing = false
         audioRenderer?.pause()
         fallbackClock.pause(position, System.nanoTime())
+        lastPositionUs = position
     }
 
     fun setOutputSurface(next: Surface) {
@@ -149,15 +193,25 @@ internal class AndroidNativeTunnelSession(
     fun seekTo(positionUs: Long) {
         check(prepared)
         val target = positionUs.coerceAtLeast(0L)
-        demuxer.seekTo(target)
-        videoDecoder.flush()
-        audioDecoder.flush()
+        yPlaybackStage(
+            category = YPlaybackFailureCategory.Container,
+            stage = YPlaybackFailureStage.Seek,
+        ) {
+            demuxer.seekTo(target)
+        }
+        yPlaybackStage(
+            category = YPlaybackFailureCategory.Decoder,
+            stage = YPlaybackFailureStage.Seek,
+        ) {
+            videoDecoder.flush()
+            audioDecoder.flush()
+        }
         pendingAudioOutput?.let { pending ->
             runCatching { audioDecoder.releaseOutput(pending.output) }
         }
         pendingAudioOutput = null
         audioRenderer?.flush()
-        resetEndState()
+        resetEndState(target)
         lastQueuedUs = target
         lastPositionUs = target
         fallbackClock.seek(target, System.nanoTime())
@@ -169,7 +223,6 @@ internal class AndroidNativeTunnelSession(
         if (!prepared || !playing || ended()) return false
         var didWork = false
         didWork = drainAudio() || didWork
-        didWork = drainVideo() || didWork
         didWork = feedInput() || didWork
         if (ended()) pauseAtEnd()
         return didWork
@@ -177,19 +230,22 @@ internal class AndroidNativeTunnelSession(
 
     fun snapshot(): YTunnelPlaybackSnapshot {
         val audioReady = audioRenderer?.clockSnapshot() != null
+        val isEnded = ended()
         return YTunnelPlaybackSnapshot(
             positionUs = currentPositionUs(),
             durationUs = durationUs,
-            playing = playing && !ended(),
-            buffering = playing && !audioReady && !ended(),
-            ended = ended(),
+            playing = playing && firstVideoFrameRendered && !isEnded,
+            buffering = playing && !firstVideoFrameRendered && !isEnded,
+            ended = isEnded,
             videoDecoderName = videoDecoder.decoderName,
             audioDecoderName = audioDecoder.decoderName,
+            videoOutputVerified = firstVideoFrameRendered,
             audioClockReady = audioReady,
         )
     }
 
     fun close() {
+        callbackGeneration++
         pendingAudioOutput?.let { pending ->
             runCatching { audioDecoder.releaseOutput(pending.output) }
         }
@@ -207,15 +263,22 @@ internal class AndroidNativeTunnelSession(
         durationUs = 0L
         prepared = false
         playing = false
-        resetEndState()
+        resetEndState(0L)
     }
 
     private fun feedInput(): Boolean {
         if (inputEnded) return queueEndOfStream()
         if (lastQueuedUs - currentPositionUs() > MAX_INPUT_AHEAD_US) return false
-        val sample = demuxer.readSample() ?: run {
+        val sample = demuxer.peekSample() ?: run {
             inputEnded = true
             return true
+        }
+        if (sample.extractorFlags and EXTRACTOR_SAMPLE_ENCRYPTED != 0) {
+            throw YPlaybackException(
+                category = YPlaybackFailureCategory.Drm,
+                stage = YPlaybackFailureStage.Demux,
+                safeDetail = "Encrypted tunnel sample requires MediaCrypto",
+            )
         }
         val queued =
             when (sample.trackIndex) {
@@ -227,7 +290,7 @@ internal class AndroidNativeTunnelSession(
                         videoDecoder.queueAccessUnit(
                             sample.data,
                             sample.presentationTimeUs,
-                            sample.flags,
+                            sample.extractorFlags,
                         )
                     }
                 audioTrackIndex ->
@@ -238,16 +301,14 @@ internal class AndroidNativeTunnelSession(
                         audioDecoder.queueAccessUnit(
                             sample.data,
                             sample.presentationTimeUs,
-                            sample.flags,
+                            sample.extractorFlags,
                         )
                     }
                 else -> YCodecQueueResult.Queued
             }
-        if (queued != YCodecQueueResult.Queued) {
-            demuxer.retainSample(sample)
-            return false
-        }
+        if (queued != YCodecQueueResult.Queued) return false
         lastQueuedUs = maxOf(lastQueuedUs, sample.presentationTimeUs)
+        demuxer.advance()
         return true
     }
 
@@ -268,25 +329,6 @@ internal class AndroidNativeTunnelSession(
         return queued
     }
 
-    private fun drainVideo(): Boolean =
-        when (val output = videoDecoder.dequeueOutput()) {
-            YCodecOutputResult.TryAgain -> false
-            is YCodecOutputResult.FormatChanged -> true
-            is YCodecOutputResult.Buffer -> {
-                val config = output.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
-                val render = !config && output.size > 0
-                yPlaybackStage(
-                    category = YPlaybackFailureCategory.Renderer,
-                    stage = YPlaybackFailureStage.VideoRenderer,
-                ) {
-                    videoDecoder.releaseOutput(output, render = render)
-                }
-                if (render) firstVideoBufferReleased = true
-                if (output.endOfStream) videoOutputEnded = true
-                true
-            }
-        }
-
     private fun drainAudio(): Boolean {
         val renderer = audioRenderer ?: return false
         val pending = pendingAudioOutput
@@ -296,10 +338,19 @@ internal class AndroidNativeTunnelSession(
                     category = YPlaybackFailureCategory.AudioSink,
                     stage = YPlaybackFailureStage.AudioRenderer,
                 ) {
-                    renderer.write(pending.data, pending.output.presentationTimeUs)
+                    renderer.write(
+                        data = pending.data,
+                        presentationTimeUs = pending.output.presentationTimeUs,
+                        byteOffsetFromAccessUnit = pending.bytesWritten,
+                    )
                 }
             if (written == 0) return false
+            pending.bytesWritten += written
             if (!pending.data.hasRemaining()) {
+                val outputEndUs =
+                    pending.output.presentationTimeUs.coerceAtLeast(0L) +
+                        renderer.durationUsForPcmBytes(pending.output.size)
+                lastAudioEndUs = maxOf(lastAudioEndUs, outputEndUs)
                 audioDecoder.releaseOutput(pending.output)
                 pendingAudioOutput = null
                 if (pending.output.endOfStream) audioOutputEnded = true
@@ -320,8 +371,9 @@ internal class AndroidNativeTunnelSession(
                 true
             }
             is YAudioCodecOutputResult.Buffer -> {
-                val config = output.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
-                if (config || output.size <= 0) {
+                val codecConfig = output.flags and android.media.MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+                if (codecConfig || output.size <= 0) {
+                    lastAudioEndUs = maxOf(lastAudioEndUs, output.presentationTimeUs.coerceAtLeast(0L))
                     audioDecoder.releaseOutput(output)
                     if (output.endOfStream) audioOutputEnded = true
                     true
@@ -337,31 +389,48 @@ internal class AndroidNativeTunnelSession(
         }
     }
 
-    private fun currentPositionUs(): Long =
-        audioRenderer?.clockSnapshot()?.positionUs
-            ?: if (playing) fallbackClock.positionUs(System.nanoTime()) else lastPositionUs
+    private fun currentPositionUs(): Long {
+        val resolved =
+            audioRenderer?.clockSnapshot()?.positionUs
+                ?: if (playing) fallbackClock.positionUs(System.nanoTime()) else lastPositionUs
+        lastPositionUs = maxOf(lastPositionUs, resolved)
+        return resolved
+    }
 
     private fun pauseAtEnd() {
-        lastPositionUs = maxOf(currentPositionUs(), durationUs)
+        val clockPosition = currentPositionUs()
+        lastPositionUs =
+            maxOf(clockPosition, lastAudioEndUs, lastRenderedVideoUs)
+                .let { position ->
+                    if (durationUs > 0L) position.coerceAtMost(durationUs) else position
+                }
         playing = false
         audioRenderer?.pause()
         fallbackClock.pause(lastPositionUs, System.nanoTime())
     }
 
-    private fun ended(): Boolean = videoOutputEnded && audioOutputEnded
+    private fun ended(): Boolean {
+        if (!videoInputEnded || !audioOutputEnded) return false
+        val targetUs = lastAudioEndUs.takeIf { it > 0L } ?: return false
+        val audioPositionUs = audioRenderer?.clockSnapshot()?.positionUs ?: return false
+        return audioPositionUs + AUDIO_END_TOLERANCE_US >= targetUs
+    }
 
-    private fun resetEndState() {
+    private fun resetEndState(positionUs: Long) {
         inputEnded = false
         videoInputEnded = false
         audioInputEnded = false
-        videoOutputEnded = false
         audioOutputEnded = false
-        firstVideoBufferReleased = false
+        firstVideoFrameRendered = false
+        lastRenderedVideoUs = positionUs
+        renderEvidenceFloorUs = positionUs
+        lastAudioEndUs = positionUs
     }
 
     private data class PendingAudioOutput(
         val output: YAudioCodecOutputResult.Buffer,
         val data: ByteBuffer,
+        var bytesWritten: Int = 0,
     )
 }
 
@@ -372,4 +441,6 @@ private fun formatDurationUs(format: MediaFormat): Long? =
         null
     }
 
+private const val EXTRACTOR_SAMPLE_ENCRYPTED = 2
 private const val MAX_INPUT_AHEAD_US = 1_500_000L
+private const val AUDIO_END_TOLERANCE_US = 30_000L
