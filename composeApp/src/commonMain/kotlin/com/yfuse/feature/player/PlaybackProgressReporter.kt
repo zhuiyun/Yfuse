@@ -216,9 +216,10 @@ internal class PlaybackProgressReporter(
      *
      * Updates are snapshots, so only the newest pending one after a control command matters.
      * Background is durable and supersedes stale pending progress. A rebind carries its own state
-     * and supersedes older queued updates/rebinds. Close retains at most the latest rebind (its item
-     * metadata may be needed by the final state), discards stale progress, and becomes the next
-     * command after any request already in flight.
+     * and supersedes older queued updates/rebinds, but preserves a pending background durability
+     * barrier after the rebind. Close retains at most the latest rebind (its item metadata may be
+     * needed by the final state), discards stale progress, and becomes the next command after any
+     * request already in flight.
      */
     private fun enqueue(command: Command) {
         val accepted =
@@ -233,10 +234,16 @@ internal class PlaybackProgressReporter(
                         true
                     }
                     is Command.Rebind -> {
+                        val preserveBackground = pendingCommands.any { it is Command.Background }
                         pendingCommands.removeAll {
                             it is Command.Update || it is Command.Background || it is Command.Rebind
                         }
                         pendingCommands.addLast(command)
+                        if (preserveBackground) {
+                            // Rebind is newer than the original signal and carries the same player
+                            // clock sampled against the new queue, so use it for the durable flush.
+                            pendingCommands.addLast(Command.Background(command.state))
+                        }
                         true
                     }
                     is Command.Close -> {
