@@ -1,6 +1,7 @@
 package com.yfuse
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.SharedPreferences
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -26,6 +27,7 @@ import com.yfuse.di.appModule
 import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.player.PlaybackSourcePreloader
+import com.yfuse.feature.player.notifyPlaybackAppBackground
 import com.yfuse.update.AppUpdateManager
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
@@ -96,6 +98,14 @@ class YfuseApp :
         // Built eagerly: it restores an interrupted download and starts watching the
         // foreground, both of which have to happen before the first screen appears.
         koinApplication.koin.get<AppUpdateManager>()
+    }
+
+    /** Persist the newest sampled position before Android backgrounds the whole UI. */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            notifyPlaybackAppBackground()
+        }
     }
 
     // Keep decoded images hot in memory and original responses on disk. This is
