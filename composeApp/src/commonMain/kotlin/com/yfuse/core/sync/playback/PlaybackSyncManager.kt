@@ -353,14 +353,14 @@ class PlaybackSyncManager(
 
     private companion object {
         const val CLOUD_DEBOUNCE_MS = 20_000L
-        const val MIN_URGENT_CLOUD_GAP_MS = 3_000L
+        const val MIN_URGENT_CLOUD_GAP_MS = 5_000L
         const val PERIODIC_CLOUD_SYNC_MS = 60_000L
         const val PREPLAY_SYNC_MAX_AGE_MS = 10_000L
         const val PREPLAY_SYNC_BUDGET_MS = 1_000L
         const val PULL_PAGE_SIZE = 100
         const val MAX_PULL_PAGES_PER_SYNC = 8
         const val PUSH_BATCH_SIZE = 8
-        const val MAX_PUSH_ROUNDS = 1
+        const val MAX_PUSH_ROUNDS = 2
         const val COMPLETED_RATIO = 0.95
     }
 }
