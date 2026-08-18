@@ -10,29 +10,25 @@ import com.yfuse.core2.api.YTrackType
 import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.VideoEngine
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 
 /**
  * Compatibility bridge that keeps the current Exo/mpv/MDK stack alive while the App moves to
  * [YPlayer]. New UI/control code can target the product API first; Core2 can then replace the
  * implementation without another screen-level migration.
+ *
+ * The adapter deliberately owns no coroutine scope. Its state is a live mapped view over the
+ * engine's StateFlow, so constructing or replacing an adapter cannot leak a collector during an
+ * engine handover.
  */
 internal class LegacyYPlayerAdapter(
     private val engine: VideoEngine,
-    scope: CoroutineScope,
 ) : YPlayer {
     override val state: StateFlow<YPlayerState> =
-        engine.state
-            .map { it.toYPlayerState(engine.playbackRequested) }
-            .stateIn(
-                scope = scope,
-                started = SharingStarted.Eagerly,
-                initialValue = engine.state.value.toYPlayerState(engine.playbackRequested),
-            )
+        MappedStateFlow(engine.state) { state ->
+            state.toYPlayerState(engine.playbackRequested)
+        }
 
     override val playbackRequested: Boolean get() = engine.playbackRequested
 
@@ -61,6 +57,18 @@ internal class LegacyYPlayerAdapter(
     override fun retry() = engine.retry()
 
     override fun release() = engine.release()
+}
+
+private class MappedStateFlow<Source, Target>(
+    private val source: StateFlow<Source>,
+    private val transform: (Source) -> Target,
+) : StateFlow<Target> {
+    override val value: Target get() = transform(source.value)
+
+    override val replayCache: List<Target> get() = listOf(value)
+
+    override suspend fun collect(collector: FlowCollector<Target>): Nothing =
+        source.collect { value -> collector.emit(transform(value)) }
 }
 
 private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerState =
