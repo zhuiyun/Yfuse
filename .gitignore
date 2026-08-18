@@ -50,3 +50,4 @@ tmp/
 
 # Downloaded GitHub Actions packages kept only for local verification
 artifacts/
+.native-build/
