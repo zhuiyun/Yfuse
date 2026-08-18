@@ -1,6 +1,7 @@
 package com.yfuse
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.SharedPreferences
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -19,12 +20,14 @@ import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.SafeLogcatOutputGate
 import com.yfuse.core.network.imageCacheKeyForUrl
 import com.yfuse.core.offline.offlineApplicationContext
+import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.di.appModule
 import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.player.PlaybackSourcePreloader
+import com.yfuse.feature.player.notifyPlaybackAppBackground
 import com.yfuse.update.AppUpdateManager
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
@@ -85,6 +88,9 @@ class YfuseApp :
                 )
             }
         koinApplication.koin.get<AccountRepository>().start()
+        // Local playback state is always available; cloud work begins automatically once the
+        // account repository restores an authenticated session.
+        koinApplication.koin.get<PlaybackSyncManager>().start()
         // Restores reporting work even when the previous process died after persisting an event.
         // Each server lane also keeps its foreground fast-path while WorkManager waits for a
         // connected network and survives this process being stopped again.
@@ -92,6 +98,14 @@ class YfuseApp :
         // Built eagerly: it restores an interrupted download and starts watching the
         // foreground, both of which have to happen before the first screen appears.
         koinApplication.koin.get<AppUpdateManager>()
+    }
+
+    /** Persist the newest sampled position before Android backgrounds the whole UI. */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            notifyPlaybackAppBackground()
+        }
     }
 
     // Keep decoded images hot in memory and original responses on disk. This is
