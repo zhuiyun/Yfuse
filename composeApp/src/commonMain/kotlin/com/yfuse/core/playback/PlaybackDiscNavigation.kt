@@ -35,6 +35,13 @@ data class PlaybackDiscChapter(
         get() = startMs?.takeIf { it >= 0L }?.let(::formatDiscNavigationTime)
 }
 
+/** One authored Blu-ray camera angle. Indices are zero based inside YCore. */
+data class PlaybackDiscAngle(
+    val index: Int,
+) {
+    val label: String get() = "视角 ${index + 1}"
+}
+
 /** Backend-neutral navigation state for DVD and Blu-ray sources. Indices are zero based. */
 data class PlaybackDiscNavigationState(
     val kind: PlaybackDiscKind = PlaybackDiscKind.None,
@@ -42,6 +49,9 @@ data class PlaybackDiscNavigationState(
     val selectedTitleIndex: Int = 0,
     val chapterCount: Int = 0,
     val selectedChapterIndex: Int = 0,
+    /** Multi-angle Blu-ray title state. Ordinary single-angle titles keep the defaults. */
+    val angleCount: Int = 0,
+    val selectedAngleIndex: Int = 0,
     /** Rich title metadata. Empty means the backend only exposed a count. */
     val titles: List<PlaybackDiscTitle> = emptyList(),
     /** Rich chapter metadata. Empty means the backend only exposed a count. */
@@ -52,6 +62,8 @@ data class PlaybackDiscNavigationState(
     val effectiveTitleCount: Int get() = maxOf(titleCount, titles.size)
 
     val effectiveChapterCount: Int get() = maxOf(chapterCount, chapters.size)
+
+    val effectiveAngleCount: Int get() = angleCount.coerceAtLeast(0)
 
     /** Always gives the control layer selectable rows, even on a count-only backend. */
     val titleOptions: List<PlaybackDiscTitle>
@@ -69,16 +81,27 @@ data class PlaybackDiscNavigationState(
             return List(effectiveChapterCount) { index -> byIndex[index] ?: PlaybackDiscChapter(index = index) }
         }
 
+    val angleOptions: List<PlaybackDiscAngle>
+        get() = List(effectiveAngleCount) { PlaybackDiscAngle(it) }
+
     val selectedTitle: PlaybackDiscTitle?
         get() = titleOptions.getOrNull(selectedTitleIndex)
 
     val selectedChapter: PlaybackDiscChapter?
         get() = chapterOptions.getOrNull(selectedChapterIndex)
 
+    val selectedAngle: PlaybackDiscAngle?
+        get() = angleOptions.getOrNull(selectedAngleIndex)
+
     val available: Boolean
         get() =
             kind != PlaybackDiscKind.None &&
-                (effectiveTitleCount > 0 || effectiveChapterCount > 0 || menuSupported)
+                (
+                    effectiveTitleCount > 0 ||
+                        effectiveChapterCount > 0 ||
+                        effectiveAngleCount > 1 ||
+                        menuSupported
+                )
 }
 
 enum class PlaybackDiscMenuCommand {
