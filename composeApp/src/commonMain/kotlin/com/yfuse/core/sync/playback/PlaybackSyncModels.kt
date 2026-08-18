@@ -6,10 +6,12 @@ import kotlinx.serialization.Serializable
 enum class PlaybackMutationKind {
     AutoProgress,
     AutoFinished,
+    ManualRestart,
     ManualWatched,
     ManualUnwatched,
     ;
 
+    /** Manual watched-state decisions outrank automatic state inside one playback generation. */
     val isManual: Boolean
         get() = this == ManualWatched || this == ManualUnwatched
 }
@@ -60,6 +62,12 @@ data class PlaybackStateRecord(
     val durationMs: Long = 0L,
     val played: Boolean = false,
     val lastPlayedAtEpochMs: Long = 0L,
+    /**
+     * Starts a new progress generation after an explicit restart/reset. Higher generations beat
+     * late progress from an older viewing cycle even when that stale position is numerically larger.
+     * Zero keeps documents written by older clients wire-compatible.
+     */
+    val progressEpoch: Long = 0L,
     val deviceId: String,
     val sessionId: String? = null,
     val serverId: String? = null,
