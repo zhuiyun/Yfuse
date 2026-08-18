@@ -67,6 +67,7 @@ actual_sha="$(sha256_of "$AAR")"
 [[ "$(manifest_value remote-raw-bluray)" == "true" ]] || die "remote raw Blu-ray bridge is not enabled in provenance"
 [[ "$(manifest_value bdmv-vfs)" == "true" ]] || die "BDMV bd_open_files bridge is not enabled in provenance"
 [[ "$(manifest_value hdmv-menu)" == "true" ]] || die "HDMV menu bridge is not enabled in provenance"
+[[ "$(manifest_value multi-angle)" == "true" ]] || die "Blu-ray multi-angle bridge is not enabled in provenance"
 [[ "$(manifest_value capability-class)" == "$EXPECTED_CAPABILITY_CLASS" ]] || die "native provenance is missing the Yfuse capability marker"
 [[ "$(manifest_value registry-class)" == "$EXPECTED_REGISTRY_CLASS" ]] || die "native provenance is missing the Yfuse remote registry marker"
 [[ "$(manifest_value bdmv-registry-class)" == "$EXPECTED_BDMV_REGISTRY_CLASS" ]] || die "native provenance is missing the Yfuse BDMV registry marker"
@@ -86,7 +87,7 @@ arm64_mpv="$staging/aar/jni/arm64-v8a/libmpv.so"
 for prefix in \
   Java_dev_yfuse_mpv_YfuseBluRayRegistry \
   Java_dev_yfuse_mpv_YfuseBdmvRegistry; do
-  for suffix in nativeRegister nativeUnregister nativeSendMenuCommand nativeSelectMenuPoint; do
+  for suffix in nativeRegister nativeUnregister nativeSelectAngle nativeSendMenuCommand nativeSelectMenuPoint; do
     symbol="${prefix}_${suffix}"
     readelf -Ws "$arm64_mpv" | grep -Fq "$symbol" || die "libmpv.so is missing JNI symbol: $symbol"
   done
@@ -106,5 +107,5 @@ done
 
 printf 'verified: %s\n' "$AAR"
 printf 'sha256:  %s\n' "$actual_sha"
-printf 'native:  libbluray + libudfread + remote ISO + local BDMV VFS + HDMV menu; BD-J disabled\n'
+printf 'native:  libbluray + libudfread + remote ISO + local BDMV VFS + HDMV menu + multi-angle; BD-J disabled\n'
 printf 'abi:     arm64-v8a, all PT_LOAD alignments >= 16 KiB\n'
