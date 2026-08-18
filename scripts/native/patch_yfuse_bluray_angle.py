@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Adds Yfuse multi-angle state/JNI to the pinned optical stream at native-build time.
+"""Adds Yfuse multi-angle state/JNI to the generated optical native sources.
 
-The source patch is deliberately exact-anchor based: upstream/source drift must fail the native build
-instead of silently publishing an AAR whose Kotlin marker claims an angle feature that was not linked.
+The patch is deliberately exact-anchor based: source drift must fail the native build instead of
+silently publishing an AAR whose Kotlin/UI layer advertises an angle feature that was not linked.
 """
 from pathlib import Path
 import sys
 
-if len(sys.argv) != 2:
-    raise SystemExit("usage: patch_yfuse_bluray_angle.py <stream_yfuse_bluray.c>")
+if len(sys.argv) != 4:
+    raise SystemExit(
+        "usage: patch_yfuse_bluray_angle.py <stream_yfuse_bluray.c> "
+        "<YfuseBluRayRegistry.java> <YfuseBdmvRegistry.java>"
+    )
 
-path = Path(sys.argv[1])
-text = path.read_text()
+stream_path = Path(sys.argv[1])
+registry_paths = [Path(sys.argv[2]), Path(sys.argv[3])]
+text = stream_path.read_text()
 
 signature_old = 'jmethodID session_state = (*env)->GetMethodID(env, type, "onNativeSessionState", "(IIIIZZ)V");'
 signature_new = 'jmethodID session_state = (*env)->GetMethodID(env, type, "onNativeSessionState", "(IIIIIIZZ)V");'
@@ -36,5 +40,19 @@ angle_function = '''JNIEXPORT jboolean JNICALL\nJava_dev_yfuse_mpv_YfuseBluRayRe
 if insert_anchor not in text:
     raise SystemExit("unexpected Yfuse stream source: menu-command JNI insertion anchor missing")
 text = text.replace(insert_anchor, angle_function + insert_anchor, 1)
+stream_path.write_text(text)
 
-path.write_text(text)
+for registry_path in registry_paths:
+    java = registry_path.read_text()
+    public_anchor = '''    public static boolean sendMenuCommand(long id, int command) {\n        return id > 0L && nativeSendMenuCommand(id, command);\n    }\n'''
+    public_angle = '''    public static boolean selectAngle(long id, int angle) {\n        return id > 0L && angle >= 0 && nativeSelectAngle(id, angle);\n    }\n\n'''
+    if public_anchor not in java:
+        raise SystemExit(f"unexpected registry source: public menu anchor missing in {registry_path}")
+    java = java.replace(public_anchor, public_angle + public_anchor, 1)
+
+    native_anchor = '''    private static native boolean nativeSendMenuCommand(long id, int command);\n'''
+    native_angle = '''    private static native boolean nativeSelectAngle(long id, int angle);\n'''
+    if native_anchor not in java:
+        raise SystemExit(f"unexpected registry source: native menu anchor missing in {registry_path}")
+    java = java.replace(native_anchor, native_angle + native_anchor, 1)
+    registry_path.write_text(java)
