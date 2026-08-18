@@ -11,8 +11,8 @@ internal data class AndroidTunnelEncodedSample(
     val trackIndex: Int,
     val data: ByteBuffer,
     val presentationTimeUs: Long,
-    val codecFlags: Int,
-    val encrypted: Boolean,
+    /** MediaExtractor-compatible SYNC/ENCRYPTED bits consumed by the shared codec nodes. */
+    val extractorFlags: Int,
 )
 
 /**
@@ -67,33 +67,34 @@ internal class AndroidTunnelPlatformDemuxer(
     fun peekSample(): AndroidTunnelEncodedSample? {
         cachedSample?.let { return it }
         val active = requireExtractor()
-        val trackIndex = active.sampleTrackIndex
-        if (trackIndex < 0) return null
-        if (trackIndex !in selectedTracks) {
-            // MediaExtractor should normally expose only selected tracks; defensively skip any
-            // unexpected stream rather than queueing it into the wrong decoder.
-            active.advance()
-            return peekSample()
+        while (true) {
+            val trackIndex = active.sampleTrackIndex
+            if (trackIndex < 0) return null
+            if (trackIndex !in selectedTracks) {
+                if (!active.advance()) return null
+                continue
+            }
+            val size = sampleSize(active)
+            val buffer = ByteBuffer.allocateDirect(size.coerceAtLeast(MIN_SAMPLE_BUFFER_BYTES))
+            val read = active.readSampleData(buffer, 0)
+            if (read < 0) return null
+            buffer.position(0)
+            buffer.limit(read)
+            val sampleFlags = active.sampleFlags
+            var extractorFlags = 0
+            if (sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) {
+                extractorFlags = extractorFlags or EXTRACTOR_SAMPLE_SYNC
+            }
+            if (sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED != 0) {
+                extractorFlags = extractorFlags or EXTRACTOR_SAMPLE_ENCRYPTED
+            }
+            return AndroidTunnelEncodedSample(
+                trackIndex = trackIndex,
+                data = buffer,
+                presentationTimeUs = active.sampleTime.coerceAtLeast(0L),
+                extractorFlags = extractorFlags,
+            ).also { cachedSample = it }
         }
-        val size = sampleSize(active)
-        val buffer = ByteBuffer.allocateDirect(size.coerceAtLeast(MIN_SAMPLE_BUFFER_BYTES))
-        val read = active.readSampleData(buffer, 0)
-        if (read < 0) return null
-        buffer.position(0)
-        buffer.limit(read)
-        val sampleFlags = active.sampleFlags
-        return AndroidTunnelEncodedSample(
-            trackIndex = trackIndex,
-            data = buffer,
-            presentationTimeUs = active.sampleTime.coerceAtLeast(0L),
-            codecFlags =
-                if (sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) {
-                    android.media.MediaCodec.BUFFER_FLAG_KEY_FRAME
-                } else {
-                    0
-                },
-            encrypted = sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED != 0,
-        ).also { cachedSample = it }
     }
 
     /** Call exactly once after the cached sample has been accepted by its decoder. */
@@ -134,6 +135,8 @@ internal class AndroidTunnelPlatformDemuxer(
         checkNotNull(extractor) { "Tunnel MediaExtractor is not opened" }
 }
 
+private const val EXTRACTOR_SAMPLE_SYNC = 1
+private const val EXTRACTOR_SAMPLE_ENCRYPTED = 2
 private const val MIN_SAMPLE_BUFFER_BYTES = 64 * 1024
 private const val DEFAULT_SAMPLE_BUFFER_BYTES = 8 * 1024 * 1024
 private const val MAX_SAMPLE_BUFFER_BYTES = 64 * 1024 * 1024
