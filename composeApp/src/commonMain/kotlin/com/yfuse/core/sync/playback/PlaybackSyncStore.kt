@@ -179,7 +179,9 @@ class PlaybackSyncStore(
                 serverId = serverId ?: previous?.serverId,
                 serverItemId = serverItemId ?: previous?.serverItemId,
                 revision = (previous?.revision ?: 0L) + 1L,
-                mutationKind = PlaybackMutationKind.ManualRestart,
+                // Keep the v1 enum closed for rolling-upgrade compatibility. The generation and
+                // zero position carry restart semantics for newer clients.
+                mutationKind = PlaybackMutationKind.AutoProgress,
             )
         val stored =
             StoredPlaybackDocument(
