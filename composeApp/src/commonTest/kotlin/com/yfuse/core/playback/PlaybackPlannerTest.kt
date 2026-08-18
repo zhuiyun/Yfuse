@@ -236,6 +236,45 @@ class PlaybackPlannerTest {
     }
 
     @Test
+    fun prores_12bit_prefers_original_ffmpeg_decode_even_when_server_can_transcode() {
+        val proResProbe =
+            PlaybackMediaProbe(
+                container = "MOV",
+                discSource = false,
+                source =
+                    PlaybackSourceRequirements(
+                        dolbyVision = false,
+                        needsDolbyDecoder = false,
+                        dynamicRange = "SDR",
+                        videoCodec = PlaybackVideoCodec.ProRes,
+                        width = 1_920,
+                        height = 1_080,
+                        frameRate = 24.0,
+                        bitDepth = 12,
+                    ),
+                hasServerTranscode = true,
+                audioCodec = PlaybackAudioCodec.Pcm,
+                audioChannelCount = 2,
+            )
+        val plan =
+            planPlayback(
+                probe = proResProbe,
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Auto,
+                engineCosts = mapOf(PlayerEngine.Mpv to 100),
+                videoSupport = PlaybackVideoSupport.unsupported("Android 平台没有可验证的 ProRes 硬解"),
+            )
+
+        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertEquals(DecoderMode.Software, plan.decoderMode)
+        assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
+        assertFalse(plan.requiresServerTranscode)
+        assertTrue(plan.reason.orEmpty().contains("ProRes"))
+        assertTrue(plan.reason.orEmpty().contains("FFmpeg"))
+    }
+
+    @Test
     fun unsupported_platform_audio_keeps_native_demux_ahead_of_performance_ranking() {
         val plan =
             planPlayback(
