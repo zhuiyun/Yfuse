@@ -12,22 +12,30 @@ internal enum class YCodecQueueResult {
     TryAgain,
 }
 
-internal sealed interface YCodecDrainResult {
-    data object TryAgain : YCodecDrainResult
+internal sealed interface YCodecOutputResult {
+    data object TryAgain : YCodecOutputResult
 
-    data class FrameRendered(
+    data class Buffer(
+        val index: Int,
         val presentationTimeUs: Long,
         val flags: Int,
-    ) : YCodecDrainResult
+        val size: Int,
+    ) : YCodecOutputResult {
+        val endOfStream: Boolean get() = flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+    }
 
-    data class OutputFormatChanged(
+    data class FormatChanged(
         val format: MediaFormat,
-    ) : YCodecDrainResult
+    ) : YCodecOutputResult
 }
 
 /**
- * Core2's first native video primitive: compressed access units enter MediaCodec and decoded output
- * goes straight to a Surface. No decoded YUV frame is copied back through the CPU or Compose.
+ * Core2's native video primitive: compressed access units enter MediaCodec and decoded output goes
+ * straight to a Surface. No decoded YUV frame is copied back through the CPU or Compose.
+ *
+ * Dequeue and release are deliberately separate. The future audio-master clock can decide exactly
+ * when a frame should be presented before `releaseOutputBuffer(index, renderTimeNs)` hands it to
+ * the Surface/OEM HDR pipeline.
  */
 internal class AndroidMediaCodecVideoNode(
     private val createDecoder: (String) -> MediaCodec = MediaCodec::createDecoderByType,
@@ -36,6 +44,8 @@ internal class AndroidMediaCodecVideoNode(
 
     private var codec: MediaCodec? = null
     private var started = false
+
+    val decoderName: String? get() = codec?.name
 
     fun configure(
         format: MediaFormat,
@@ -55,6 +65,11 @@ internal class AndroidMediaCodecVideoNode(
             runCatching { decoder.release() }
             throw throwable
         }
+    }
+
+    /** Changes the target without decoding through a texture or CPU buffer. */
+    fun setOutputSurface(surface: Surface) {
+        requireStartedCodec().setOutputSurface(surface)
     }
 
     /**
@@ -83,27 +98,61 @@ internal class AndroidMediaCodecVideoNode(
             0,
             size,
             presentationTimeUs,
-            flags,
+            flags.toCodecInputFlags(),
         )
         return YCodecQueueResult.Queued
     }
 
-    /** Non-blocking drain; successful buffers are released directly to the configured Surface. */
-    fun drainOutput(render: Boolean = true): YCodecDrainResult {
+    fun queueEndOfStream(presentationTimeUs: Long): YCodecQueueResult {
+        val decoder = requireStartedCodec()
+        val inputIndex = decoder.dequeueInputBuffer(0L)
+        if (inputIndex < 0) return YCodecQueueResult.TryAgain
+        decoder.queueInputBuffer(
+            inputIndex,
+            0,
+            0,
+            presentationTimeUs.coerceAtLeast(0L),
+            MediaCodec.BUFFER_FLAG_END_OF_STREAM,
+        )
+        return YCodecQueueResult.Queued
+    }
+
+    /** Non-blocking output dequeue. The caller owns the returned buffer until releaseOutput(). */
+    fun dequeueOutput(): YCodecOutputResult {
         val decoder = requireStartedCodec()
         val info = MediaCodec.BufferInfo()
         return when (val outputIndex = decoder.dequeueOutputBuffer(info, 0L)) {
-            MediaCodec.INFO_TRY_AGAIN_LATER -> YCodecDrainResult.TryAgain
+            MediaCodec.INFO_TRY_AGAIN_LATER -> YCodecOutputResult.TryAgain
             MediaCodec.INFO_OUTPUT_FORMAT_CHANGED ->
-                YCodecDrainResult.OutputFormatChanged(decoder.outputFormat)
+                YCodecOutputResult.FormatChanged(decoder.outputFormat)
             else -> {
-                if (outputIndex < 0) return YCodecDrainResult.TryAgain
-                decoder.releaseOutputBuffer(outputIndex, render)
-                YCodecDrainResult.FrameRendered(
+                if (outputIndex < 0) return YCodecOutputResult.TryAgain
+                YCodecOutputResult.Buffer(
+                    index = outputIndex,
                     presentationTimeUs = info.presentationTimeUs,
                     flags = info.flags,
+                    size = info.size,
                 )
             }
+        }
+    }
+
+    /**
+     * Releases a decoded frame directly to the Surface. A non-null [renderTimeNs] uses Android's
+     * timed release API; null renders immediately. `render=false` discards without touching a GPU.
+     */
+    fun releaseOutput(
+        output: YCodecOutputResult.Buffer,
+        render: Boolean,
+        renderTimeNs: Long? = null,
+    ) {
+        val decoder = requireStartedCodec()
+        if (!render) {
+            decoder.releaseOutputBuffer(output.index, false)
+        } else if (renderTimeNs != null) {
+            decoder.releaseOutputBuffer(output.index, renderTimeNs)
+        } else {
+            decoder.releaseOutputBuffer(output.index, true)
         }
     }
 
@@ -126,4 +175,18 @@ internal class AndroidMediaCodecVideoNode(
         checkNotNull(codec).also {
             check(started) { "MediaCodec video node has not been configured" }
         }
+}
+
+/** MediaExtractor's SYNC bit matches MediaCodec's key-frame bit; encrypted samples are not queued here. */
+private fun Int.toCodecInputFlags(): Int =
+    if (this and MediaExtractorFlags.ENCRYPTED != 0) {
+        error("Encrypted samples require a MediaCrypto queue path")
+    } else {
+        if (this and MediaExtractorFlags.SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+    }
+
+/** Kept local so the video node does not depend on MediaExtractor at runtime. */
+private object MediaExtractorFlags {
+    const val SYNC = 1
+    const val ENCRYPTED = 2
 }
