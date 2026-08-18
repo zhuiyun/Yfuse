@@ -193,7 +193,12 @@ class PlaybackSyncManager(
             val response = cloud.pull(accessToken, store.cursor(), PULL_PAGE_SIZE)
             response.changes.forEach { encrypted ->
                 val document = cipher.decrypt(encrypted) ?: return@forEach
-                val applied = store.applyRemote(document, encrypted.cursor)
+                val applied =
+                    store.applyRemote(
+                        remote = document,
+                        entityKey = encrypted.entityKey,
+                        cursor = encrypted.cursor,
+                    )
                 if (applied.changedLocal && document.state.deviceId != store.deviceId) {
                     scope.launch { serverApplier.apply(applied.document) }
                 }
@@ -210,24 +215,36 @@ class PlaybackSyncManager(
             val prepared =
                 pending.mapNotNull { stored ->
                     cipher.encrypt(stored.document, stored.mutationId)?.let { encrypted ->
-                        stored to PlaybackPutItem(stored.remoteCursor, encrypted)
+                        val baseCursor = stored.remoteCursors[encrypted.entityKey] ?: 0L
+                        stored to PlaybackPutItem(baseCursor, encrypted)
                     }
                 }
             if (prepared.isEmpty()) return
-            val response = cloud.push(accessToken, PlaybackPushRequest(prepared.map(Pair<StoredPlaybackDocument, PlaybackPutItem>::second)))
+            val response =
+                cloud.push(
+                    accessToken,
+                    PlaybackPushRequest(prepared.map { it.second }),
+                )
             response.accepted.forEach { accepted ->
-                val local = prepared.firstOrNull { it.second.entity.entityKey == accepted.entityKey }?.first
-                    ?: return@forEach
+                val local =
+                    prepared.firstOrNull { it.second.entity.entityKey == accepted.entityKey }?.first
+                        ?: return@forEach
                 store.markUploaded(
                     mediaKey = local.document.state.mediaKey,
                     aliases = local.document.state.aliases,
+                    entityKey = accepted.entityKey,
                     mutationId = accepted.mutationId,
                     cursor = accepted.cursor,
                 )
             }
             response.conflicts.forEach { conflict ->
                 val remote = cipher.decrypt(conflict) ?: return@forEach
-                val applied = store.applyRemote(remote, conflict.cursor)
+                val applied =
+                    store.applyRemote(
+                        remote = remote,
+                        entityKey = conflict.entityKey,
+                        cursor = conflict.cursor,
+                    )
                 if (applied.changedLocal && remote.state.deviceId != store.deviceId) {
                     scope.launch { serverApplier.apply(applied.document) }
                 }
@@ -279,7 +296,7 @@ class PlaybackSyncManager(
     private companion object {
         const val CLOUD_DEBOUNCE_MS = 20_000L
         const val PERIODIC_CLOUD_SYNC_MS = 60_000L
-        const val PULL_PAGE_SIZE = 200
+        const val PULL_PAGE_SIZE = 100
         const val MAX_PULL_PAGES_PER_SYNC = 8
         const val PUSH_BATCH_SIZE = 48
         const val MAX_PUSH_ROUNDS = 2
