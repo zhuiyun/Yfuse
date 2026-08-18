@@ -129,8 +129,10 @@ class DetailComponent(
         store.labels
             .onEach {
                 if (it is DetailLabel.Play) {
+                    val fromStart = explicitFromStartPending
+                    if (!fromStart) playbackSync?.refreshForPlayback()
                     val launchTicks =
-                        if (explicitFromStartPending) {
+                        if (fromStart) {
                             it.startPositionTicks
                         } else {
                             syncedStartPositionTicks(store.state, it.startPositionTicks)
