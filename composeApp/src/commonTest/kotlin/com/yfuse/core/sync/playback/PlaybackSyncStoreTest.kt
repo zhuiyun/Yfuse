@@ -37,4 +37,116 @@ class PlaybackSyncStoreTest {
         assertEquals(0L, store.cursor())
         assertEquals(null, store.find("tmdb:1", listOf("imdb:tt1")))
     }
+
+    @Test
+    fun matchedAliasKeepsExistingCanonicalMediaKey() {
+        val settings = MapSettings()
+        var now = 1_000L
+        val store = PlaybackSyncStore(settings) { now++ }
+        store.updatePlayback(
+            mediaKey = "tmdb:1",
+            aliases = listOf("imdb:tt1"),
+            positionMs = 10_000L,
+            durationMs = 100_000L,
+            played = false,
+            sessionId = "phone",
+            serverId = "server-a",
+            serverItemId = "item-a",
+            mutationKind = PlaybackMutationKind.AutoProgress,
+            trigger = PlaybackSyncTrigger.Periodic,
+        )
+
+        store.updatePlayback(
+            mediaKey = "imdb:tt1",
+            aliases = listOf("tmdb:1"),
+            positionMs = 20_000L,
+            durationMs = 100_000L,
+            played = false,
+            sessionId = "tv",
+            serverId = "server-b",
+            serverItemId = "item-b",
+            mutationKind = PlaybackMutationKind.AutoProgress,
+            trigger = PlaybackSyncTrigger.Periodic,
+        )
+
+        val state = requireNotNull(store.find("imdb:tt1", listOf("tmdb:1"))).document.state
+        assertEquals("tmdb:1", state.mediaKey)
+        assertTrue("imdb:tt1" in state.aliases)
+        assertEquals(20_000L, state.positionMs)
+    }
+
+    @Test
+    fun manualUnwatchedThenStartedCreatesFreshGeneration() {
+        val settings = MapSettings()
+        var now = 10_000L
+        val store = PlaybackSyncStore(settings) { now++.also { } }
+        store.updatePlayback(
+            mediaKey = "tmdb:1",
+            aliases = emptyList(),
+            positionMs = 70_000L,
+            durationMs = 100_000L,
+            played = false,
+            sessionId = "old",
+            serverId = "server-a",
+            serverItemId = "item-a",
+            mutationKind = PlaybackMutationKind.AutoProgress,
+            trigger = PlaybackSyncTrigger.Periodic,
+        )
+        val reset = store.markManual("tmdb:1", watched = false)
+        val resetEpoch = reset.document.state.progressEpoch
+
+        val started =
+            store.updatePlayback(
+                mediaKey = "tmdb:1",
+                aliases = emptyList(),
+                positionMs = 0L,
+                durationMs = 100_000L,
+                played = false,
+                sessionId = "new",
+                serverId = "server-a",
+                serverItemId = "item-a",
+                mutationKind = PlaybackMutationKind.AutoProgress,
+                trigger = PlaybackSyncTrigger.Started,
+            )
+
+        assertTrue(started.document.state.progressEpoch > resetEpoch)
+        assertEquals(PlaybackMutationKind.AutoProgress, started.document.state.mutationKind)
+    }
+
+    @Test
+    fun explicitRestartKeepsItsGenerationWhenPlayerStarts() {
+        val settings = MapSettings()
+        var now = 20_000L
+        val store = PlaybackSyncStore(settings) { now++ }
+        store.updatePlayback(
+            mediaKey = "tmdb:1",
+            aliases = emptyList(),
+            positionMs = 70_000L,
+            durationMs = 100_000L,
+            played = false,
+            sessionId = "old",
+            serverId = "server-a",
+            serverItemId = "item-a",
+            mutationKind = PlaybackMutationKind.AutoProgress,
+            trigger = PlaybackSyncTrigger.Periodic,
+        )
+        val restart = store.markRestarted("tmdb:1")
+        val restartEpoch = restart.document.state.progressEpoch
+
+        val started =
+            store.updatePlayback(
+                mediaKey = "tmdb:1",
+                aliases = emptyList(),
+                positionMs = 0L,
+                durationMs = 100_000L,
+                played = false,
+                sessionId = "new",
+                serverId = "server-a",
+                serverItemId = "item-a",
+                mutationKind = PlaybackMutationKind.AutoProgress,
+                trigger = PlaybackSyncTrigger.Started,
+            )
+
+        assertEquals(restartEpoch, started.document.state.progressEpoch)
+    }
 }
