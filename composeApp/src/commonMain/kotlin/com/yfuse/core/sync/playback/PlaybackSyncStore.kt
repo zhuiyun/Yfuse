@@ -92,7 +92,10 @@ class PlaybackSyncStore(
         val startsNewGeneration =
             trigger == PlaybackSyncTrigger.Started &&
                 positionMs.coerceAtLeast(0L) <= NEW_GENERATION_START_WINDOW_MS &&
-                previousState?.played == true
+                (
+                    previousState?.played == true ||
+                        previousState?.mutationKind?.isManual == true
+                )
         val state =
             PlaybackStateRecord(
                 mediaKey = canonicalMediaKey,
