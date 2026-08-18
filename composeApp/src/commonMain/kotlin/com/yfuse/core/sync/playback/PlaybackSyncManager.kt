@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 
 data class PlaybackCloudSyncState(
@@ -155,6 +156,21 @@ class PlaybackSyncManager(
         mediaKey: String,
         aliases: List<String> = emptyList(),
     ): Long? = startPositionMs(mediaKey, aliases)?.takeIf { it > 0L }
+
+    /**
+     * Best-effort pull immediately before an ordinary resume, closing the small gap between the
+     * 60-second background poll and a user who just moved from another device. Playback never
+     * waits on a slow/offline account service longer than [budgetMs].
+     */
+    suspend fun refreshForPlayback(
+        maxAgeMs: Long = PREPLAY_SYNC_MAX_AGE_MS,
+        budgetMs: Long = PREPLAY_SYNC_BUDGET_MS,
+    ) {
+        if (maxAgeMs < 0L || budgetMs <= 0L) return
+        val lastSuccess = _state.value.lastSyncedAtEpochMs
+        if (lastSuccess != null && nowEpochMs() - lastSuccess in 0L..maxAgeMs) return
+        withTimeoutOrNull(budgetMs) { syncNow() }
+    }
 
     suspend fun syncNow() {
         syncMutex.withLock {
@@ -327,6 +343,8 @@ class PlaybackSyncManager(
         const val CLOUD_DEBOUNCE_MS = 20_000L
         const val MIN_URGENT_CLOUD_GAP_MS = 3_000L
         const val PERIODIC_CLOUD_SYNC_MS = 60_000L
+        const val PREPLAY_SYNC_MAX_AGE_MS = 10_000L
+        const val PREPLAY_SYNC_BUDGET_MS = 1_000L
         const val PULL_PAGE_SIZE = 100
         const val MAX_PULL_PAGES_PER_SYNC = 8
         const val PUSH_BATCH_SIZE = 8
