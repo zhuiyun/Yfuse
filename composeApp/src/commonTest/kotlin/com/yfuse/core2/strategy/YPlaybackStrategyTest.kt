@@ -18,7 +18,7 @@ class YPlaybackStrategyTest {
     private val strategy = DefaultYPlaybackStrategy()
 
     @Test
-    fun `platform Dolby Vision uses tunnel when the decoder and display support it`() {
+    fun `platform Dolby Vision uses tunnel when the decoder and display support exact profile`() {
         val plan =
             strategy.plan(
                 request =
@@ -42,6 +42,7 @@ class YPlaybackStrategyTest {
                             listOf(
                                 decoder(
                                     hdr = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
+                                    dolbyProfiles = setOf(8),
                                     tunneled = true,
                                 ),
                             ),
@@ -67,6 +68,7 @@ class YPlaybackStrategyTest {
                                 codec = YVideoCodec.H265,
                                 hdrType = YHdrType.DolbyVision,
                                 bitDepth = 10,
+                                dolbyVisionProfile = 8,
                             ),
                         platformDemuxSupported = false,
                         enhancedDemuxSupported = true,
@@ -75,7 +77,10 @@ class YPlaybackStrategyTest {
                     YDeviceCapabilities(
                         videoDecoders =
                             listOf(
-                                decoder(hdr = setOf(YHdrType.Sdr, YHdrType.DolbyVision)),
+                                decoder(
+                                    hdr = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
+                                    dolbyProfiles = setOf(8),
+                                ),
                             ),
                         displayHdrTypes = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
                     ),
@@ -85,6 +90,38 @@ class YPlaybackStrategyTest {
         assertEquals(YDemuxPath.Enhanced, plan.demuxPath)
         assertEquals(YDecodePath.Hardware, plan.decodePath)
         assertEquals(YRenderPath.SurfaceDirect, plan.renderPath)
+    }
+
+    @Test
+    fun `wrong Dolby profile never qualifies the native decoder`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Mp4,
+                        video =
+                            YVideoRequirement(
+                                codec = YVideoCodec.H265,
+                                hdrType = YHdrType.DolbyVision,
+                                bitDepth = 10,
+                                dolbyVisionProfile = 7,
+                            ),
+                        platformDemuxSupported = true,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders =
+                            listOf(
+                                decoder(
+                                    hdr = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
+                                    dolbyProfiles = setOf(5, 8),
+                                ),
+                            ),
+                        displayHdrTypes = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
     }
 
     @Test
@@ -163,12 +200,14 @@ class YPlaybackStrategyTest {
 
     private fun decoder(
         hdr: Set<YHdrType>,
+        dolbyProfiles: Set<Int> = emptySet(),
         tunneled: Boolean = false,
     ): YVideoDecoderCapability =
         YVideoDecoderCapability(
             name = "test.hevc.decoder",
             codec = YVideoCodec.H265,
             hdrTypes = hdr,
+            dolbyVisionProfiles = dolbyProfiles,
             maxWidth = 7680,
             maxHeight = 4320,
             maxFrameRate = 120.0,
