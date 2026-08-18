@@ -40,8 +40,9 @@ fun MpvSurface(
     val frameRatePreference by playbackPreferences.frameRateMatch.collectAsState()
     val playbackState by engine.state.collectAsState()
     val nativeMenuSession by NativeRemoteBluRaySessionRegistry.activeSession.collectAsState()
+    val bdmvAngleBinding by NativeLocalBdmvAngleRegistry.binding.collectAsState()
     val overlayFrame by NativeRemoteBluRaySessionRegistry.overlay.collectAsState()
-    // Native menu events bump this revision through the backend listener.
+    // Native menu/angle events bump this revision through the backend listener/rebinding path.
     val discNavigationRevision by ActiveDiscNavigation.revision.collectAsState()
     val surfaceState = remember { mutableStateOf<Surface?>(null) }
     val frameRateMode = frameRatePreference.toPlayerMode()
@@ -65,13 +66,19 @@ fun MpvSurface(
         }
     }
 
-    DisposableEffect(engine, nativeMenuSession) {
+    DisposableEffect(engine, nativeMenuSession, bdmvAngleBinding) {
         val engineBackend = VideoEngineDiscNavigationBackend(engine)
         val backend =
             nativeMenuSession?.let { session ->
+                val opticalSession =
+                    if (bdmvAngleBinding != null) {
+                        BdmvAngleHdmvSession(session) { NativeLocalBdmvAngleRegistry.binding.value }
+                    } else {
+                        session
+                    }
                 CompositeDiscNavigationBackend(
                     engineBackend = engineBackend,
-                    menuBackend = HdmvDiscNavigationBackend(session),
+                    menuBackend = HdmvDiscNavigationBackend(opticalSession),
                 )
             } ?: engineBackend
         ActiveDiscNavigation.bind(owner = engine, backend = backend)
