@@ -59,6 +59,9 @@ interface DiscNavigationBackend {
 
     fun selectChapter(index: Int): Boolean
 
+    /** Optional multi-angle selection. Index is zero based. */
+    fun selectAngle(index: Int): Boolean = false
+
     fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
     /** Coordinates are in the menu overlay's authored pixel plane. */
@@ -110,12 +113,15 @@ internal class VideoEngineDiscNavigationBackend(
 
     override fun selectChapter(index: Int): Boolean = engine.selectDiscChapter(index)
 
+    override fun selectAngle(index: Int): Boolean = engine.selectDiscAngle(index)
+
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
         engine.sendDiscMenuCommand(command)
 }
 
 /**
- * Keeps title/chapter control on the video engine while an optional native runtime owns only menus.
+ * Keeps title/chapter control on the video engine while an optional native runtime owns menus and
+ * native-only optical state such as authored camera angles.
  *
  * This avoids opening a second libbluray title path merely to obtain HDMV input. The menu provider can
  * fail or disappear independently and the engine adapter remains able to select titles/chapters.
@@ -131,6 +137,10 @@ internal class CompositeDiscNavigationBackend(
             val engine = engineBackend.navigation
             val menu = menuBackend.navigation
             return engine.copy(
+                angleCount = menu.angleCount.takeIf { it > 0 } ?: engine.angleCount,
+                selectedAngleIndex =
+                    menu.selectedAngleIndex.takeIf { menu.angleCount > 0 }
+                        ?: engine.selectedAngleIndex,
                 menuSupported = menu.menuSupported,
                 menuActive = menu.menuActive,
             )
@@ -142,6 +152,13 @@ internal class CompositeDiscNavigationBackend(
     override fun selectTitle(index: Int): Boolean = engineBackend.selectTitle(index)
 
     override fun selectChapter(index: Int): Boolean = engineBackend.selectChapter(index)
+
+    override fun selectAngle(index: Int): Boolean =
+        if (menuBackend.navigation.effectiveAngleCount > 0) {
+            menuBackend.selectAngle(index)
+        } else {
+            engineBackend.selectAngle(index)
+        }
 
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
         menuBackend.sendMenuCommand(command)
