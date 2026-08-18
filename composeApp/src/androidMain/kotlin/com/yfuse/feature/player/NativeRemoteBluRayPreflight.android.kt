@@ -50,11 +50,18 @@ internal suspend fun probeNativeRemoteBluRayRangeSupport(
         ).use(HttpRangeDiscBlockSource::probeRangeSupport)
     }
 
+/**
+ * Builds the credential-free raw-disc address used by the Range reader.
+ *
+ * Authentication is intentionally header-only. Keeping [deviceIdentifier] injectable makes the
+ * security contract unit-testable without initializing the Android installation-id store.
+ */
 internal fun nativeRemoteBluRayRawDiscUrl(
     baseUrl: String,
     itemId: String,
     mediaSourceId: String,
     playSessionId: String,
+    deviceIdentifier: String = deviceId(),
 ): String? {
     val root = baseUrl.trim().trimEnd('/').takeIf(String::isNotEmpty) ?: return null
     val path = "$root/Videos/${Uri.encode(itemId)}/stream"
@@ -63,7 +70,7 @@ internal fun nativeRemoteBluRayRawDiscUrl(
             .buildUpon()
             .appendQueryParameter("static", "true")
             .appendQueryParameter("MediaSourceId", mediaSourceId)
-            .appendQueryParameter("DeviceId", deviceId())
+            .appendQueryParameter("DeviceId", deviceIdentifier)
             .apply {
                 playSessionId.takeIf(String::isNotBlank)?.let {
                     appendQueryParameter("PlaySessionId", it)
