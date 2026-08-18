@@ -1,10 +1,11 @@
 package com.yfuse.feature.player
 
-import android.net.Uri
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.deviceId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 /** Credential-free description of one raw remote Blu-ray origin to probe. */
 internal data class NativeRemoteBluRayPreflightRequest(
@@ -53,8 +54,10 @@ internal suspend fun probeNativeRemoteBluRayRangeSupport(
 /**
  * Builds the credential-free raw-disc address used by the Range reader.
  *
- * Authentication is intentionally header-only. Keeping [deviceIdentifier] injectable makes the
- * security contract unit-testable without initializing the Android installation-id store.
+ * Authentication is intentionally header-only. The builder uses JDK URL encoding instead of
+ * `android.net.Uri`, keeping the security contract executable in plain JVM unit tests as well as on
+ * device. `%20` is used for spaces so path/query components stay RFC-3986-friendly instead of form
+ * encoding's `+` representation.
  */
 internal fun nativeRemoteBluRayRawDiscUrl(
     baseUrl: String,
@@ -64,19 +67,21 @@ internal fun nativeRemoteBluRayRawDiscUrl(
     deviceIdentifier: String = deviceId(),
 ): String? {
     val root = baseUrl.trim().trimEnd('/').takeIf(String::isNotEmpty) ?: return null
-    val path = "$root/Videos/${Uri.encode(itemId)}/stream"
-    return runCatching {
-        Uri.parse(path)
-            .buildUpon()
-            .appendQueryParameter("static", "true")
-            .appendQueryParameter("MediaSourceId", mediaSourceId)
-            .appendQueryParameter("DeviceId", deviceIdentifier)
-            .apply {
-                playSessionId.takeIf(String::isNotBlank)?.let {
-                    appendQueryParameter("PlaySessionId", it)
-                }
+    val scheme = root.substringBefore("://", "").lowercase()
+    if (scheme !in setOf("http", "https")) return null
+    val query =
+        buildList {
+            add("static=true")
+            add("MediaSourceId=${mediaSourceId.urlComponent()}")
+            add("DeviceId=${deviceIdentifier.urlComponent()}")
+            playSessionId.takeIf(String::isNotBlank)?.let {
+                add("PlaySessionId=${it.urlComponent()}")
             }
-            .build()
-            .toString()
-    }.getOrNull()
+        }.joinToString("&")
+    return "$root/Videos/${itemId.urlComponent()}/stream?$query"
 }
+
+private fun String.urlComponent(): String =
+    URLEncoder
+        .encode(this, StandardCharsets.UTF_8.name())
+        .replace("+", "%20")
