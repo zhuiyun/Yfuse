@@ -61,7 +61,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             autoconf automake binutils build-essential cmake curl git libtool \
-            meson ninja-build pkg-config python3 unzip wget yasm
+            ninja-build pkg-config python3 python3-venv unzip wget yasm
+          python3 -m venv "$RUNNER_TEMP/yfuse-meson"
+          "$RUNNER_TEMP/yfuse-meson/bin/pip" install --disable-pip-version-check "meson==1.6.1"
+          echo "$RUNNER_TEMP/yfuse-meson/bin" >> "$GITHUB_PATH"
 
       - name: Resolve ABI set
         id: abi
