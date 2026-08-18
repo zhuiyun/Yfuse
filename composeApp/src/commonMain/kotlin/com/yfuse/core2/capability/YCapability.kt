@@ -51,6 +51,7 @@ data class YVideoRequirement(
     val frameRate: Float = 0f,
     val bitDepth: Int = 8,
     val hdrType: YHdrType = YHdrType.Sdr,
+    /** Semantic Dolby Vision bitstream profile (4/5/7/8/9/10), not Android's raw profile bit. */
     val dolbyVisionProfile: Int? = null,
 )
 
@@ -64,8 +65,10 @@ data class YVideoDecoderCapability(
     val name: String,
     val codec: YVideoCodec,
     val hdrTypes: Set<YHdrType> = setOf(YHdrType.Sdr),
-    /** Raw Android codec profile constants. Keeping them raw avoids inventing false cross-platform claims. */
+    /** Raw Android codec profile constants retained for diagnostics/quirk matching. */
     val rawProfiles: Set<Int> = emptySet(),
+    /** Semantic DV bitstream profiles derived from the Android profile constants. */
+    val dolbyVisionProfiles: Set<Int> = emptySet(),
     val maxWidth: Int = 0,
     val maxHeight: Int = 0,
     val maxFrameRate: Double = 0.0,
@@ -76,6 +79,13 @@ data class YVideoDecoderCapability(
     fun supports(requirement: YVideoRequirement): Boolean {
         if (codec != requirement.codec) return false
         if (requirement.hdrType !in hdrTypes) return false
+        if (
+            requirement.hdrType == YHdrType.DolbyVision &&
+            requirement.dolbyVisionProfile != null &&
+            requirement.dolbyVisionProfile !in dolbyVisionProfiles
+        ) {
+            return false
+        }
         if (maxWidth > 0 && requirement.width > maxWidth) return false
         if (maxHeight > 0 && requirement.height > maxHeight) return false
         if (maxFrameRate > 0.0 && requirement.frameRate > maxFrameRate) return false
