@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import com.yfuse.core.data.PlaybackPreferences
@@ -29,16 +30,6 @@ import org.koin.core.context.GlobalContext
 import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "YfusePlayer"
-
-/** A native load that cannot reach FILE_LOADED should not strand the fallback chain forever. */
-internal const val MPV_FILE_LOAD_TIMEOUT_MS = 8_000L
-
-internal fun shouldFailMpvFileLoad(
-    attempt: Long,
-    activeAttempt: Long,
-    released: Boolean,
-    buffering: Boolean,
-): Boolean = attempt == activeAttempt && !released && buffering
 
 /**
  * Native optical-disc URLs are explicit so Blu-ray always starts on the main feature instead of
@@ -96,6 +87,8 @@ class MpvVideoEngine(
     private var fallbackJob: Job? = null
     private var fileLoadWatchdogJob: Job? = null
     private val fileLoadAttempt = AtomicLong(0L)
+    private val fileLoadStartedAtMs = AtomicLong(-1L)
+    private val fileLoadLastProgressMs = AtomicLong(-1L)
     private val endFileTracker = MpvEndFileTracker()
 
     @Volatile
@@ -154,6 +147,9 @@ class MpvVideoEngine(
                 level: Int,
                 text: String,
             ) {
+                // Native open/probe log traffic is a useful heartbeat before cache properties exist.
+                // It extends only the stall timer; the policy hard limit can never be extended.
+                markFileLoadProgress()
                 if (level > MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN) return
                 val details = text.trim().take(600)
                 if (details.isEmpty()) return
@@ -269,7 +265,8 @@ class MpvVideoEngine(
                                     ),
                             )
                         }
-                    "cache-speed" ->
+                    "cache-speed" -> {
+                        markFileLoadProgress()
                         _state.update {
                             it.copy(
                                 diagnostics =
@@ -278,7 +275,9 @@ class MpvVideoEngine(
                                     ),
                             )
                         }
-                    "demuxer-cache-duration" ->
+                    }
+                    "demuxer-cache-duration" -> {
+                        markFileLoadProgress()
                         _state.update {
                             val bufferedDurationMs = (value * 1000.0).toLong().coerceAtLeast(0L)
                             it.copy(
@@ -294,6 +293,7 @@ class MpvVideoEngine(
                                     ),
                             )
                         }
+                    }
                     "avsync" ->
                         if (value.isFinite()) {
                             _state.update {
@@ -386,7 +386,8 @@ class MpvVideoEngine(
 
             override fun event(eventId: Int) {
                 when (eventId) {
-                    MPVLib.MpvEvent.MPV_EVENT_START_FILE ->
+                    MPVLib.MpvEvent.MPV_EVENT_START_FILE -> {
+                        markFileLoadProgress()
                         _state.update {
                             it.copy(
                                 buffering = true,
@@ -396,6 +397,7 @@ class MpvVideoEngine(
                                 diagnostics = it.diagnostics.copy(bufferedDurationMs = 0L),
                             )
                         }
+                    }
 
                     MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
                         cancelFileLoadWatchdog()
@@ -1175,6 +1177,7 @@ class MpvVideoEngine(
 
     /** Issues `loadfile replace` and reserves the END_FILE that closes its predecessor. */
     private fun replaceFile(url: String): Boolean {
+        val policy = currentFileLoadWatchdogPolicy(url)
         val replacing = endFileTracker.beforeLoad()
         val loaded =
             withMpvResult { instance ->
@@ -1182,8 +1185,9 @@ class MpvVideoEngine(
             }
         if (!loaded) {
             endFileTracker.rollbackLoad(replacing)
+            cancelFileLoadWatchdog()
         } else {
-            armFileLoadWatchdog()
+            armFileLoadWatchdog(policy)
         }
         return loaded
     }
@@ -1215,42 +1219,82 @@ class MpvVideoEngine(
         }
     }
 
-    private fun armFileLoadWatchdog() {
+    private fun currentFileLoadWatchdogPolicy(url: String): MpvFileLoadWatchdogPolicy {
+        val item = items.getOrNull(_state.value.currentIndex)
+        val version = item?.activeVersion
+        val transcoding = _state.value.transcoding
+        return mpvFileLoadWatchdogPolicy(
+            url = url,
+            container = version?.container.takeUnless { transcoding },
+            discSource = version?.discSource == true && !transcoding,
+            sourceVideoCodec = version?.sourceVideoCodec.takeUnless { transcoding },
+        )
+    }
+
+    private fun armFileLoadWatchdog(policy: MpvFileLoadWatchdogPolicy) {
         val attempt = fileLoadAttempt.incrementAndGet()
+        val startedAt = SystemClock.elapsedRealtime()
+        fileLoadStartedAtMs.set(startedAt)
+        fileLoadLastProgressMs.set(startedAt)
         fileLoadWatchdogJob?.cancel()
         fileLoadWatchdogJob =
             scope.launch {
-                delay(MPV_FILE_LOAD_TIMEOUT_MS)
-                val snapshot = _state.value
-                if (
-                    !shouldFailMpvFileLoad(
-                        attempt = attempt,
-                        activeAttempt = fileLoadAttempt.get(),
-                        released = released,
-                        buffering = snapshot.buffering,
-                    )
-                ) {
-                    return@launch
+                while (true) {
+                    delay(policy.pollMs)
+                    val snapshot = _state.value
+                    val now = SystemClock.elapsedRealtime()
+                    val decision =
+                        evaluateMpvFileLoadWatchdog(
+                            attempt = attempt,
+                            activeAttempt = fileLoadAttempt.get(),
+                            released = released,
+                            buffering = snapshot.buffering,
+                            startedAtMs = fileLoadStartedAtMs.get(),
+                            lastProgressMs = fileLoadLastProgressMs.get(),
+                            nowMs = now,
+                            policy = policy,
+                        )
+                    when (decision) {
+                        MpvFileLoadWatchdogDecision.Ignore -> return@launch
+                        MpvFileLoadWatchdogDecision.Wait -> Unit
+                        MpvFileLoadWatchdogDecision.StallTimeout,
+                        MpvFileLoadWatchdogDecision.HardTimeout,
+                        -> {
+                            AppLog.error(
+                                category = "player.mpv",
+                                event = "file_load_timeout",
+                                message = "mpv media open stopped making progress before FILE_LOADED",
+                                attributes =
+                                    mapOf(
+                                        "itemIndex" to snapshot.currentIndex.toString(),
+                                        "decision" to decision.name,
+                                        "graceMs" to policy.graceMs.toString(),
+                                        "stallMs" to policy.stallMs.toString(),
+                                        "hardLimitMs" to policy.hardLimitMs.toString(),
+                                        "elapsedMs" to (now - startedAt).coerceAtLeast(0L).toString(),
+                                        "transcoding" to snapshot.transcoding.toString(),
+                                    ),
+                            )
+                            markTerminalFailure("mpv 打开媒体长时间无进展，正在尝试其他播放器")
+                            return@launch
+                        }
+                    }
                 }
-                AppLog.error(
-                    category = "player.mpv",
-                    event = "file_load_timeout",
-                    message = "mpv did not finish opening media before the startup deadline",
-                    attributes =
-                        mapOf(
-                            "itemIndex" to snapshot.currentIndex.toString(),
-                            "timeoutMs" to MPV_FILE_LOAD_TIMEOUT_MS.toString(),
-                            "transcoding" to snapshot.transcoding.toString(),
-                        ),
-                )
-                markTerminalFailure("mpv 打开媒体超时，正在尝试其他播放器")
             }
+    }
+
+    /** Native log/cache activity is a startup heartbeat, not an excuse to exceed the hard limit. */
+    private fun markFileLoadProgress() {
+        if (fileLoadStartedAtMs.get() < 0L) return
+        fileLoadLastProgressMs.set(SystemClock.elapsedRealtime())
     }
 
     private fun cancelFileLoadWatchdog() {
         fileLoadAttempt.incrementAndGet()
         fileLoadWatchdogJob?.cancel()
         fileLoadWatchdogJob = null
+        fileLoadStartedAtMs.set(-1L)
+        fileLoadLastProgressMs.set(-1L)
     }
 
     private fun loadFileOrFail(url: String): Boolean {
