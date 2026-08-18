@@ -6,6 +6,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.os.Build
 import android.view.Display
+import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YCapabilityProvider
 import com.yfuse.core2.capability.YDeviceCapabilities
 import com.yfuse.core2.capability.YHdrType
@@ -23,18 +24,19 @@ internal class AndroidYCapabilityProvider(
     private val appContext = context.applicationContext
 
     override fun current(): YDeviceCapabilities {
-        val decoders = queryVideoDecoders()
+        val codecInfos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+        val videoDecoders = queryVideoDecoders(codecInfos)
         return YDeviceCapabilities(
-            videoDecoders = decoders,
+            videoDecoders = videoDecoders,
+            audioDecoders = queryAudioDecoders(codecInfos),
             displayHdrTypes = queryDisplayHdrTypes(),
             supportsSurfaceDirect = true,
-            supportsTunnel = decoders.any { it.tunneledPlayback },
+            supportsTunnel = videoDecoders.any { it.tunneledPlayback },
         )
     }
 
-    private fun queryVideoDecoders(): List<YVideoDecoderCapability> =
-        MediaCodecList(MediaCodecList.REGULAR_CODECS)
-            .codecInfos
+    private fun queryVideoDecoders(codecInfos: Array<MediaCodecInfo>): List<YVideoDecoderCapability> =
+        codecInfos
             .asSequence()
             .filterNot(MediaCodecInfo::isEncoder)
             .filter(MediaCodecInfo::isHardwareDecoderCompat)
@@ -43,6 +45,14 @@ internal class AndroidYCapabilityProvider(
                     .asSequence()
                     .mapNotNull { type -> info.toYDecoder(type) }
             }.toList()
+
+    private fun queryAudioDecoders(codecInfos: Array<MediaCodecInfo>): Set<YAudioCodec> =
+        codecInfos
+            .asSequence()
+            .filterNot(MediaCodecInfo::isEncoder)
+            .flatMap { info -> info.supportedTypes.asSequence() }
+            .mapNotNull { type -> type.lowercase().toYAudioCodec() }
+            .toSet()
 
     private fun MediaCodecInfo.toYDecoder(type: String): YVideoDecoderCapability? {
         val normalizedType = type.lowercase()
@@ -58,6 +68,7 @@ internal class AndroidYCapabilityProvider(
             maxWidth = videoCapabilities?.supportedWidths?.upper ?: 0,
             maxHeight = videoCapabilities?.supportedHeights?.upper ?: 0,
             maxFrameRate = videoCapabilities?.supportedFrameRates?.upper ?: 0.0,
+            maxBitDepth = decoderMaxBitDepth(normalizedType, profiles),
             tunneledPlayback =
                 capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback),
             adaptivePlayback =
@@ -172,6 +183,56 @@ private fun decoderHdrTypes(
         }
     }
 
+private fun decoderMaxBitDepth(
+    mimeType: String,
+    profiles: List<Int>,
+): Int =
+    when (mimeType) {
+        MIME_DOLBY_VISION -> 10
+        "video/hevc" ->
+            if (
+                profiles.any {
+                    it == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 ||
+                        it == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10 ||
+                        it == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus
+                }
+            ) {
+                10
+            } else {
+                8
+            }
+        "video/x-vnd.on2.vp9" ->
+            if (
+                profiles.any {
+                    it == MediaCodecInfo.CodecProfileLevel.VP9Profile2 ||
+                        it == MediaCodecInfo.CodecProfileLevel.VP9Profile3 ||
+                        it == MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR ||
+                        it == MediaCodecInfo.CodecProfileLevel.VP9Profile3HDR ||
+                        it == MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR10Plus ||
+                        it == MediaCodecInfo.CodecProfileLevel.VP9Profile3HDR10Plus
+                }
+            ) {
+                10
+            } else {
+                8
+            }
+        "video/av01" ->
+            if (
+                profiles.any {
+                    it == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10 ||
+                        it == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10 ||
+                        it == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus
+                }
+            ) {
+                10
+            } else {
+                8
+            }
+        "video/avc" ->
+            if (MediaCodecInfo.CodecProfileLevel.AVCProfileHigh10 in profiles) 10 else 8
+        else -> 8
+    }
+
 private fun String.toYVideoCodec(): YVideoCodec? =
     when (this) {
         "video/avc" -> YVideoCodec.H264
@@ -179,6 +240,19 @@ private fun String.toYVideoCodec(): YVideoCodec? =
         "video/av01" -> YVideoCodec.Av1
         "video/x-vnd.on2.vp9" -> YVideoCodec.Vp9
         "video/mpeg2" -> YVideoCodec.Mpeg2
+        else -> null
+    }
+
+internal fun String.toYAudioCodec(): YAudioCodec? =
+    when (lowercase()) {
+        "audio/mp4a-latm", "audio/aac", "audio/aac-adts" -> YAudioCodec.Aac
+        "audio/ac3" -> YAudioCodec.Ac3
+        "audio/eac3", "audio/eac3-joc" -> YAudioCodec.Eac3
+        "audio/flac" -> YAudioCodec.Flac
+        "audio/opus" -> YAudioCodec.Opus
+        "audio/true-hd" -> YAudioCodec.TrueHd
+        "audio/vnd.dts" -> YAudioCodec.Dts
+        "audio/vnd.dts.hd" -> YAudioCodec.DtsHd
         else -> null
     }
 
