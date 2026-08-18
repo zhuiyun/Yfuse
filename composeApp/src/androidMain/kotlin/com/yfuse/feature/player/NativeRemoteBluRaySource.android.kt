@@ -133,6 +133,8 @@ class NativeRemoteBluRayBlockSource(
         selectedTitleIndex: Int,
         chapterCount: Int,
         selectedChapterIndex: Int,
+        angleCount: Int,
+        selectedAngleIndex: Int,
         menuSupported: Boolean,
         menuActive: Boolean,
     ) {
@@ -142,6 +144,8 @@ class NativeRemoteBluRayBlockSource(
             selectedTitleIndex = selectedTitleIndex,
             chapterCount = chapterCount,
             selectedChapterIndex = selectedChapterIndex,
+            angleCount = angleCount,
+            selectedAngleIndex = selectedAngleIndex,
             menuSupported = menuSupported,
             menuActive = menuActive,
         )
@@ -274,6 +278,8 @@ private class NativeRemoteBluRayHdmvSession(
         selectedTitleIndex: Int,
         chapterCount: Int,
         selectedChapterIndex: Int,
+        angleCount: Int,
+        selectedAngleIndex: Int,
         menuSupported: Boolean,
         menuActive: Boolean,
     ) {
@@ -285,6 +291,11 @@ private class NativeRemoteBluRayHdmvSession(
                 selectedTitleIndex = selectedTitleIndex.coerceAtLeast(0),
                 chapterCount = chapterCount.coerceAtLeast(0),
                 selectedChapterIndex = selectedChapterIndex.coerceAtLeast(0),
+                angleCount = angleCount.coerceAtLeast(0),
+                selectedAngleIndex =
+                    selectedAngleIndex
+                        .coerceAtLeast(0)
+                        .coerceAtMost((angleCount - 1).coerceAtLeast(0)),
                 chapters =
                     List(chapterCount.coerceAtLeast(0)) { index ->
                         PlaybackDiscChapter(index = index)
@@ -308,6 +319,11 @@ private class NativeRemoteBluRayHdmvSession(
     override fun selectTitle(index: Int): Boolean = false
 
     override fun selectChapter(index: Int): Boolean = false
+
+    override fun selectAngle(index: Int): Boolean {
+        if (closed || index !in 0 until navigationState.effectiveAngleCount) return false
+        return NativeRemoteBluRayRegistry.selectAngle(nativeId, index)
+    }
 
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
         if (closed || !navigationState.menuSupported) return false
@@ -383,6 +399,19 @@ internal object NativeRemoteBluRayRegistry {
             val clazz = Class.forName(REGISTRY_CLASS, false, MpvVideoEngine::class.java.classLoader)
             clazz.getMethod("unregister", java.lang.Long.TYPE).invoke(null, id)
         }
+    }
+
+    fun selectAngle(
+        id: Long,
+        angle: Int,
+    ): Boolean {
+        if (id <= 0L || angle < 0 || !installedMpvNativeBuildCapabilities.remoteRawBluRay) return false
+        return runCatching {
+            val clazz = Class.forName(REGISTRY_CLASS, false, MpvVideoEngine::class.java.classLoader)
+            clazz
+                .getMethod("selectAngle", java.lang.Long.TYPE, Integer.TYPE)
+                .invoke(null, id, angle) as? Boolean
+        }.getOrNull() == true
     }
 
     fun sendMenuCommand(
