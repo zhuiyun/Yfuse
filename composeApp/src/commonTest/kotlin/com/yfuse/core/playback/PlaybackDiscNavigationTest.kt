@@ -54,6 +54,21 @@ class PlaybackDiscNavigationTest {
     }
 
     @Test
+    fun multi_angle_titles_expose_zero_based_selection_with_human_labels() {
+        val state =
+            PlaybackDiscNavigationState(
+                kind = PlaybackDiscKind.BluRay,
+                angleCount = 3,
+                selectedAngleIndex = 1,
+            )
+
+        assertTrue(state.available)
+        assertEquals(3, state.effectiveAngleCount)
+        assertEquals(listOf("视角 1", "视角 2", "视角 3"), state.angleOptions.map { it.label })
+        assertEquals("视角 2", state.selectedAngle?.label)
+    }
+
+    @Test
     fun explicit_mpls_hints_become_stable_playlist_numbers() {
         assertEquals(1, mplsPlaylistNumber("BDMV/PLAYLIST/00001.mpls"))
         assertEquals(802, mplsPlaylistNumber("mpls/00802"))
@@ -80,5 +95,6 @@ class PlaybackDiscNavigationTest {
         assertFalse(state.available)
         assertTrue(state.titleOptions.isEmpty())
         assertTrue(state.chapterOptions.isEmpty())
+        assertTrue(state.angleOptions.isEmpty())
     }
 }
