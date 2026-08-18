@@ -33,6 +33,12 @@ object PlaybackConflictResolver {
         local: PlaybackStateRecord,
         remote: PlaybackStateRecord,
     ): PlaybackStateRecord {
+        // An explicit restart/reset creates a new playback generation. Nothing arriving late from
+        // an older generation may resurrect its larger position or watched state.
+        if (local.progressEpoch != remote.progressEpoch) {
+            return if (local.progressEpoch > remote.progressEpoch) local else remote
+        }
+
         if (local.mutationKind.isManual != remote.mutationKind.isManual) {
             return if (local.mutationKind.isManual) local else remote
         }
