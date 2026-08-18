@@ -134,15 +134,29 @@ class PlaybackSyncManager(
         scheduleCloudSync(immediate = false)
     }
 
-    fun resumePositionMs(
+    /**
+     * The account-level position to use for an ordinary playback launch.
+     *
+     * `null` means Yfuse has no opinion and the media server's start position remains authoritative.
+     * A real synced record may deliberately resolve to `0` (finished, manually unwatched, or a
+     * newer restart), so callers must not collapse zero into the no-record case.
+     */
+    fun startPositionMs(
         mediaKey: String,
         aliases: List<String> = emptyList(),
     ): Long? {
         val state = store.find(mediaKey, aliases)?.document?.state ?: return null
-        if (state.played || state.positionMs <= 0L) return null
-        if (state.durationMs > 0L && state.positionMs >= (state.durationMs * COMPLETED_RATIO).toLong()) return null
-        return state.positionMs
+        if (state.played) return 0L
+        if (state.durationMs > 0L && state.positionMs >= (state.durationMs * COMPLETED_RATIO).toLong()) {
+            return 0L
+        }
+        return state.positionMs.coerceAtLeast(0L)
     }
+
+    fun resumePositionMs(
+        mediaKey: String,
+        aliases: List<String> = emptyList(),
+    ): Long? = startPositionMs(mediaKey, aliases)?.takeIf { it > 0L }
 
     suspend fun syncNow() {
         syncMutex.withLock {
