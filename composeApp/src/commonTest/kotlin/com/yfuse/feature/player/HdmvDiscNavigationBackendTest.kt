@@ -20,9 +20,11 @@ class HdmvDiscNavigationBackendTest {
         assertTrue(backend.navigation.menuActive)
         assertTrue(backend.selectTitle(1))
         assertTrue(backend.selectChapter(3))
+        assertTrue(backend.selectAngle(1))
         assertTrue(backend.sendMenuCommand(PlaybackDiscMenuCommand.Select))
         assertEquals(1, session.lastTitle)
         assertEquals(3, session.lastChapter)
+        assertEquals(1, session.lastAngle)
         assertEquals(PlaybackDiscMenuCommand.Select, session.lastCommand)
     }
 
@@ -39,6 +41,7 @@ class HdmvDiscNavigationBackendTest {
 
         // The failed provider stays inert instead of repeatedly entering native code.
         assertFalse(backend.selectTitle(0))
+        assertFalse(backend.selectAngle(0))
         assertEquals(null, session.lastTitle)
     }
 
@@ -62,6 +65,7 @@ private class FakeHdmvSession(
 ) : HdmvDiscSession {
     var lastTitle: Int? = null
     var lastChapter: Int? = null
+    var lastAngle: Int? = null
     var lastCommand: PlaybackDiscMenuCommand? = null
     var closeCount: Int = 0
 
@@ -70,6 +74,7 @@ private class FakeHdmvSession(
             kind = PlaybackDiscKind.BluRay,
             titleCount = 2,
             chapterCount = 4,
+            angleCount = 2,
             menuSupported = true,
             menuActive = true,
         )
@@ -82,6 +87,11 @@ private class FakeHdmvSession(
     override fun selectChapter(index: Int): Boolean {
         lastChapter = index
         return true
+    }
+
+    override fun selectAngle(index: Int): Boolean {
+        lastAngle = index
+        return index in 0..1
     }
 
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
