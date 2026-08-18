@@ -43,7 +43,7 @@ internal class AndroidYCapabilityProvider(
             .flatMap { info ->
                 info.supportedTypes
                     .asSequence()
-                    .mapNotNull { type -> info.toYDecoder(type) }
+                    .flatMap { type -> info.toYDecoders(type).asSequence() }
             }.toList()
 
     private fun queryAudioDecoders(codecInfos: Array<MediaCodecInfo>): Set<YAudioCodec> =
@@ -54,26 +54,57 @@ internal class AndroidYCapabilityProvider(
             .mapNotNull { type -> type.lowercase().toYAudioCodec() }
             .toSet()
 
-    private fun MediaCodecInfo.toYDecoder(type: String): YVideoDecoderCapability? {
+    private fun MediaCodecInfo.toYDecoders(type: String): List<YVideoDecoderCapability> {
         val normalizedType = type.lowercase()
-        val codec = normalizedType.toYVideoCodec() ?: return null
-        val capabilities = runCatching { getCapabilitiesForType(type) }.getOrNull() ?: return null
-        val profiles = capabilities.profileLevels.map { it.profile }
+        val capabilities = runCatching { getCapabilitiesForType(type) }.getOrNull() ?: return emptyList()
+        val profileLevels = capabilities.profileLevels.toList()
+        val profiles = profileLevels.map { it.profile }
         val videoCapabilities = runCatching { capabilities.videoCapabilities }.getOrNull()
-        return YVideoDecoderCapability(
-            name = name,
-            codec = codec,
-            hdrTypes = decoderHdrTypes(normalizedType, profiles),
-            rawProfiles = profiles.toSet(),
-            maxWidth = videoCapabilities?.supportedWidths?.upper ?: 0,
-            maxHeight = videoCapabilities?.supportedHeights?.upper ?: 0,
-            maxFrameRate = videoCapabilities?.supportedFrameRates?.upper ?: 0.0,
-            maxBitDepth = decoderMaxBitDepth(normalizedType, profiles),
-            tunneledPlayback =
-                capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback),
-            adaptivePlayback =
-                capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback),
-        )
+        val tunneled =
+            capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback)
+        val adaptive =
+            capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback)
+
+        fun capability(
+            codec: YVideoCodec,
+            rawProfileSet: Set<Int>,
+            dolbyProfiles: Set<Int> = emptySet(),
+        ): YVideoDecoderCapability =
+            YVideoDecoderCapability(
+                name = name,
+                codec = codec,
+                hdrTypes = decoderHdrTypes(normalizedType, profiles),
+                rawProfiles = rawProfileSet,
+                dolbyVisionProfiles = dolbyProfiles,
+                maxWidth = videoCapabilities?.supportedWidths?.upper ?: 0,
+                maxHeight = videoCapabilities?.supportedHeights?.upper ?: 0,
+                maxFrameRate = videoCapabilities?.supportedFrameRates?.upper ?: 0.0,
+                maxBitDepth = decoderMaxBitDepth(normalizedType, profiles),
+                tunneledPlayback = tunneled,
+                adaptivePlayback = adaptive,
+            )
+
+        if (normalizedType != MIME_DOLBY_VISION) {
+            val codec = normalizedType.toYVideoCodec() ?: return emptyList()
+            return listOf(capability(codec = codec, rawProfileSet = profiles.toSet()))
+        }
+
+        val semanticByRaw =
+            profileLevels.mapNotNull { profileLevel ->
+                profileLevel.profile.toSemanticDolbyVisionProfile()?.let { semantic ->
+                    profileLevel.profile to semantic
+                }
+            }
+        return semanticByRaw
+            .groupBy { (_, semantic) -> semantic.toDolbyVisionCodecFamily() }
+            .mapNotNull { (codec, entries) ->
+                codec ?: return@mapNotNull null
+                capability(
+                    codec = codec,
+                    rawProfileSet = entries.mapTo(mutableSetOf()) { it.first },
+                    dolbyProfiles = entries.mapTo(mutableSetOf()) { it.second },
+                )
+            }
     }
 
     private fun queryDisplayHdrTypes(): Set<YHdrType> {
@@ -106,6 +137,31 @@ private fun MediaCodecInfo.isHardwareDecoderCompat(): Boolean {
         !normalized.contains("software") &&
         !normalized.contains("sw.decoder")
 }
+
+/** Android raw profile bits -> semantic Dolby Vision bitstream profile numbers. */
+internal fun Int.toSemanticDolbyVisionProfile(): Int? =
+    when (this) {
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavPer -> 0
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavPen -> 1
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDer -> 2
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDen -> 3
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtr -> 4
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheStn -> 5
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDth -> 6
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtb -> 7
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheSt -> 8
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvavSe -> 9
+        MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvav110 -> 10
+        else -> null
+    }
+
+private fun Int.toDolbyVisionCodecFamily(): YVideoCodec? =
+    when (this) {
+        0, 1, 9 -> YVideoCodec.H264
+        2, 3, 4, 5, 6, 7, 8 -> YVideoCodec.H265
+        10 -> YVideoCodec.Av1
+        else -> null
+    }
 
 private fun decoderHdrTypes(
     mimeType: String,
@@ -236,7 +292,7 @@ private fun decoderMaxBitDepth(
 private fun String.toYVideoCodec(): YVideoCodec? =
     when (this) {
         "video/avc" -> YVideoCodec.H264
-        "video/hevc", MIME_DOLBY_VISION -> YVideoCodec.H265
+        "video/hevc" -> YVideoCodec.H265
         "video/av01" -> YVideoCodec.Av1
         "video/x-vnd.on2.vp9" -> YVideoCodec.Vp9
         "video/mpeg2" -> YVideoCodec.Mpeg2
