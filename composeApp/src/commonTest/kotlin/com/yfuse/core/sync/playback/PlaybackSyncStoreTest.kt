@@ -76,10 +76,51 @@ class PlaybackSyncStoreTest {
     }
 
     @Test
+    fun equivalentAliasRemoteDoesNotCauseUploadPingPong() {
+        val settings = MapSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        val local =
+            store.updatePlayback(
+                mediaKey = "tmdb:1",
+                aliases = listOf("imdb:tt1"),
+                positionMs = 20_000L,
+                durationMs = 100_000L,
+                played = false,
+                sessionId = "session",
+                serverId = "server-a",
+                serverItemId = "item-a",
+                mutationKind = PlaybackMutationKind.AutoProgress,
+                trigger = PlaybackSyncTrigger.Periodic,
+            )
+        store.markUploaded(
+            mediaKey = "tmdb:1",
+            aliases = listOf("imdb:tt1"),
+            entityKey = "local-entity",
+            mutationId = local.mutationId,
+            cursor = 1L,
+        )
+        val remote =
+            local.document.copy(
+                state =
+                    local.document.state.copy(
+                        mediaKey = "imdb:tt1",
+                        aliases = listOf("tmdb:1"),
+                    ),
+            )
+
+        val applied = store.applyRemote(remote, entityKey = "remote-entity", cursor = 2L)
+
+        assertFalse(applied.changedLocal)
+        assertFalse(applied.needsUpload)
+        assertTrue(store.pending().isEmpty())
+        assertEquals("tmdb:1", applied.document.state.mediaKey)
+    }
+
+    @Test
     fun manualUnwatchedThenStartedCreatesFreshGeneration() {
         val settings = MapSettings()
         var now = 10_000L
-        val store = PlaybackSyncStore(settings) { now++.also { } }
+        val store = PlaybackSyncStore(settings) { now++ }
         store.updatePlayback(
             mediaKey = "tmdb:1",
             aliases = emptyList(),
@@ -109,7 +150,7 @@ class PlaybackSyncStoreTest {
                 trigger = PlaybackSyncTrigger.Started,
             )
 
-        assertTrue(started.document.state.progressEpoch > resetEpoch)
+        assertEquals(resetEpoch + 1L, started.document.state.progressEpoch)
         assertEquals(PlaybackMutationKind.AutoProgress, started.document.state.mutationKind)
     }
 
