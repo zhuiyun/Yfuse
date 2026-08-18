@@ -75,6 +75,8 @@ class DetailComponent(
             currentVersions = detail.versions,
             seasonEpisodes = state.episodes,
             selection = selection,
+            currentSeriesId = detail.seriesId,
+            currentSeasonId = state.episodes.firstOrNull { it.id == detail.id }?.seasonId,
         ).forEach(dependencies.offlineMediaManager::enqueue)
     }
 

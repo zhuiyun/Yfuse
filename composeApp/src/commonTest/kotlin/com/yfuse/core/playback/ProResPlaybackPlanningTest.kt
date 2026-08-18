@@ -17,6 +17,7 @@ class ProResPlaybackPlanningTest {
                 source =
                     PlaybackSourceRequirements(
                         dolbyVision = false,
+                        needsDolbyDecoder = false,
                         dynamicRange = "SDR",
                         videoCodec = PlaybackVideoCodec.ProRes,
                         width = 1920,

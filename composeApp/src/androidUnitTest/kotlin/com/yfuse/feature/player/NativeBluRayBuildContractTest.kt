@@ -21,7 +21,7 @@ class NativeBluRayBuildContractTest {
             assertTrue(capability.substringBefore('=') in verifier, "verifier must gate $capability")
         }
 
-        assertTrue("MULTI_ANGLE = true" in anglePatch)
+        assertTrue("MULTI_ANGLE = true" in build)
         assertTrue("nativeSelectAngle" in anglePatch)
         assertTrue("nativeSelectAngle" in verifier)
         assertTrue("YfuseBluRayRegistry" in verifier)
@@ -44,7 +44,8 @@ class NativeBluRayBuildContractTest {
     private fun repositoryFile(path: String): File = File(repositoryRoot(), path)
 
     private fun repositoryRoot(): File {
-        var current = File(System.getProperty("user.dir")).canonicalFile
+        val workingDirectory = System.getProperty("user.dir") ?: error("JVM user.dir is unavailable")
+        var current = File(workingDirectory).canonicalFile
         repeat(8) {
             if (File(current, "settings.gradle.kts").isFile && File(current, "composeApp").isDirectory) {
                 return current

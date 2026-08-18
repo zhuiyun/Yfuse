@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -154,9 +155,6 @@ private fun HomeContent(
     val listState = component.listState
     // Same measurement as 媒体库's hero, off the same height token: the two roots open on the
     // same picture, so the point where the status bar flips its icons has to be the same one.
-    val scrolledPastHero by rememberScrolledPastHero(listState, MediaSizing.heroHeight)
-    val heroVisible = !scrolledPastHero
-    StatusBarIconStyle(darkIcons = !heroVisible && !palette.isDark)
     // The shelf opened out into a grid, or null. Held here rather than in the store: it is
     // which page is on screen, not anything about the data.
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
@@ -168,13 +166,21 @@ private fun HomeContent(
     // this tab is the one where tapping the tab again matters most.
     ScrollToTopOnReselect(listState)
 
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val heroHeight =
+            if (maxWidth >= 600.dp) {
+                (maxHeight * 0.60f).coerceIn(420.dp, 720.dp)
+            } else {
+                (maxHeight * 0.60f).coerceIn(350.dp, 520.dp)
+            }
+        val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
+        val heroVisible = !scrolledPastHero
+        StatusBarIconStyle(darkIcons = !heroVisible && !palette.isDark)
         // 首页 and 媒体库 open on the same full-bleed reel, and they used to disagree about how
         // tall it is: this one sized itself from the window and from whether 继续观看 had
         // anything in it, so the same carousel was one height on the library tab and a
         // different one — changing under the user as their resume list filled up — on the
         // home tab. Both read the shared token now.
-        val heroHeight = MediaSizing.heroHeight
         PullToRefreshBox(
             isRefreshing = state.refreshing,
             onRefresh = { component.store.accept(HomeIntent.Refresh) },
@@ -197,7 +203,8 @@ private fun HomeContent(
                         visible = heroVisible,
                         onOpenProfile = component.onOpenProfile,
                         onOpenCalendar = component.onOpenCalendar,
-                        onPlay = { component.store.accept(HomeIntent.Open(it)) },
+                        onPlay = { component.store.accept(HomeIntent.Play(it)) },
+                        onDetails = { component.store.accept(HomeIntent.Open(it)) },
                         onFavorite = { component.store.accept(HomeIntent.Favorite(it)) },
                         onAccent = onHeroAccent,
                     )
@@ -336,6 +343,7 @@ private fun HomeHeroCarousel(
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
     onPlay: (TmdbItem) -> Unit,
+    onDetails: (TmdbItem) -> Unit,
     onFavorite: (TmdbItem) -> Unit,
     onAccent: (Color) -> Unit,
 ) {
@@ -373,7 +381,7 @@ private fun HomeHeroCarousel(
 
     Box(Modifier.fillMaxWidth().height(height)) {
         if (items.isEmpty()) {
-            HeroSlide(item = null, onPlay = {}, onFavorite = {})
+            HeroSlide(item = null, onPlay = {}, onDetails = {}, onFavorite = {})
         } else {
             HorizontalPager(
                 state = pagerState,
@@ -389,6 +397,7 @@ private fun HomeHeroCarousel(
                 HeroSlide(
                     item = item,
                     onPlay = { onPlay(item) },
+                    onDetails = { onDetails(item) },
                     onFavorite = { onFavorite(item) },
                     settled = settled,
                     onAccent = onAccent,
@@ -447,6 +456,7 @@ private fun HomeHeroCarousel(
 private fun HeroSlide(
     item: TmdbItem?,
     onPlay: () -> Unit,
+    onDetails: () -> Unit,
     onFavorite: () -> Unit,
     settled: Boolean = false,
     onAccent: (Color) -> Unit = {},
@@ -491,7 +501,7 @@ private fun HeroSlide(
                     Modifier.pressable(
                         pressedScale = 1f,
                         onClickLabel = "查看${item.title}",
-                        onClick = onPlay,
+                        onClick = onDetails,
                     )
                 },
             ),
@@ -512,6 +522,7 @@ private fun HeroSlide(
             HeroCaption(
                 item = item,
                 onPlay = onPlay,
+                onDetails = onDetails,
                 onFavorite = onFavorite,
                 modifier = Modifier.align(Alignment.BottomStart),
             )
@@ -610,13 +621,14 @@ private fun HeroHeader(
 
 /**
  * Hero caption — ✦今日精选 badge, Display 片名, 类型 · 年份, then the action row:
- * 主按钮「查看详情」+ 收藏。TMDB picks are resolved only after the tap, so promising
+ * 主按钮「播放」+ 次级详情/收藏。TMDB picks are resolved only after the tap, so promising
  * immediate playback here was inaccurate whenever the title was not in the user's library.
  */
 @Composable
 private fun HeroCaption(
     item: TmdbItem,
     onPlay: () -> Unit,
+    onDetails: () -> Unit,
     onFavorite: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -710,34 +722,22 @@ private fun HeroCaption(
             Row(
                 Modifier
                     .height(48.dp)
-                    .pressable(onClickLabel = "查看影片详情", onClick = onPlay)
-                    .glass(
-                        shape = GlassShapes.chip,
-                        fill = Color(0xFF101722).copy(alpha = 0.30f),
-                        border = Color.White.copy(alpha = 0.40f),
-                    ).padding(start = 5.dp, end = 18.dp),
+                    .clip(GlassShapes.chip)
+                    .background(Color.White.copy(alpha = 0.94f))
+                    .pressable(onClickLabel = "播放影片", onClick = onPlay)
+                    .padding(horizontal = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    Modifier
-                        .size(34.dp)
-                        .glass(
-                            shape = CircleShape,
-                            fill = Color.White.copy(alpha = 0.22f),
-                            border = Color.White.copy(alpha = 0.54f),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        AppIcons.Info,
-                        contentDescription = "影片信息",
-                        tint = Color.White,
-                        modifier = Modifier.size(19.dp),
-                    )
-                }
-                Text("查看详情", style = AppTypography.body.strong, color = Color.White)
+                Icon(
+                    AppIcons.Play,
+                    contentDescription = null,
+                    tint = Color(0xFF101722),
+                    modifier = Modifier.size(19.dp),
+                )
+                Text("播放", style = AppTypography.body.strong, color = Color(0xFF101722))
             }
+            HeroCircleButton(AppIcons.Info, "查看详情", onDetails)
             HeroCircleButton(AppIcons.Add, "加入收藏", onFavorite)
         }
     }
@@ -754,11 +754,8 @@ private fun HeroCircleButton(
         Modifier
             .pressable(onClick = onClick)
             .size(48.dp)
-            .glass(
-                shape = CircleShape,
-                fill = Color(0xFF11151F).copy(alpha = 0.38f),
-                border = Color.White.copy(alpha = 0.34f),
-            ),
+            .clip(CircleShape)
+            .background(Color(0xFF11151F).copy(alpha = 0.42f)),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, label, tint = Color.White, modifier = Modifier.size(15.dp))

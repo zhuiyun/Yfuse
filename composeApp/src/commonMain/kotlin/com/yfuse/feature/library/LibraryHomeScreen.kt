@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -55,7 +56,6 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.core.data.FAVORITES_COLLECTION_ID
@@ -112,12 +112,6 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-/**
- * Hero carousel height. The status-bar switch threshold used to repeat this as a literal,
- * so resizing the hero silently moved the point where the status bar flips its icons.
- */
-private val HeroHeight = MediaSizing.heroHeight
 
 private val LibraryHeroIndicatorBottom = 12.dp
 
@@ -184,7 +178,7 @@ private fun utcDate(epochMs: Long): String {
     }
 }
 
-/** 媒体库 — a 432px hero carousel above `padding:16px 18px 100px; gap:22px` of rows. */
+/** 媒体库 — a viewport-aware hero carousel above the library rows. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryHomeScreen(component: LibraryHomeComponent) {
@@ -225,9 +219,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     var serverMenuOpen by remember { mutableStateOf(false) }
     val listState = component.listState
     val density = LocalDensity.current
-    val lightPageReached by rememberScrolledPastHero(listState, HeroHeight)
-    StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
-
     LaunchedEffect(slides.map { it.id }) {
         pagerState.scrollToPage(loopingCarouselStartPage(slides.size))
     }
@@ -266,7 +257,15 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val ground = pageTint(accent)
     val bottomContentInset = floatingNavigationContentInset()
     ArtworkAccent(accent) {
-        Box(Modifier.fillMaxSize().background(ground)) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(ground)) {
+            val heroHeight =
+                if (maxWidth >= 600.dp) {
+                    (maxHeight * 0.60f).coerceIn(420.dp, 720.dp)
+                } else {
+                    (maxHeight * 0.60f).coerceIn(350.dp, 520.dp)
+                }
+            val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
+            StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
             when {
                 state.currentServer == null ->
                     PageHint(
@@ -295,7 +294,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                         ) {
                             if (slide != null) {
                                 item {
-                                    Box(Modifier.fillMaxWidth().height(HeroHeight)) {
+                                    Box(Modifier.fillMaxWidth().height(heroHeight)) {
                                         HorizontalPager(
                                             state = pagerState,
                                             modifier =
@@ -334,7 +333,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 accent = animatedAccent,
                                                 serverId = state.currentServer?.id,
                                                 serverName = state.currentServer?.serverName.orEmpty(),
+                                                height = heroHeight,
                                                 onClick = { component.onOpenItem(animatedItem.id) },
+                                                onPlay = { component.onPlayItem(animatedItem.id) },
                                                 onToggleFavorite = {
                                                     store.accept(
                                                         LibraryIntent.ToggleFavorite(
@@ -625,7 +626,7 @@ private fun LibraryCountFooter(
 }
 
 /**
- * 432px hero — scrim `0deg rgba(10,14,26,.88) 0%, .55 42%, .05 62%, transparent`;
+ * Viewport-aware hero — scrim `0deg rgba(10,14,26,.88) 0%, .55 42%, .05 62%, transparent`;
  * 正在流行 chip at `left/top 20/52`; server switcher at `right/top 20/52`;
  * Copy and actions reserve the indicator's complete 44dp hit lane plus breathing room.
  */
@@ -636,7 +637,9 @@ private fun HeroCarousel(
     accent: Color,
     serverId: String?,
     serverName: String,
+    height: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit,
+    onPlay: () -> Unit,
     onToggleFavorite: () -> Unit,
     onToggleServerMenu: () -> Unit,
 ) {
@@ -646,7 +649,7 @@ private fun HeroCarousel(
     Box(
         Modifier
             .fillMaxWidth()
-            .height(HeroHeight)
+            .height(height)
             .pressable(onClick = openDetail),
     ) {
         FallbackImage(
@@ -742,22 +745,6 @@ private fun HeroCarousel(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (!item.overview.isNullOrBlank()) {
-                // `400 11.5px/1.6`, clamped to two lines. Opacity is up from .7: without a
-                // scrim under it, 70% white on a pale still is not copy any more.
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    item.overview,
-                    style =
-                        AppTypography.body.regular.copy(
-                            lineHeight = 20.8.sp,
-                            shadow = HeroTextShadow,
-                        ),
-                    color = Color.White.copy(alpha = 0.86f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
             Spacer(Modifier.height(14.dp))
             // `rgba(255,255,255,.92)`, `radius:18px`, `padding:8px 18px`, `700 12px`.
             Row(
@@ -766,36 +753,22 @@ private fun HeroCarousel(
             ) {
                 Row(
                     Modifier
-                        .pressable(onClickLabel = "查看详情", onClick = openDetail)
-                        .touchTarget()
-                        .height(42.dp)
-                        .glass(
-                            shape = GlassShapes.chip,
-                            fill = Color(0xFF101722).copy(alpha = 0.30f),
-                            border = Color.White.copy(alpha = 0.40f),
-                        ).padding(start = 4.dp, end = 16.dp),
+                        .height(48.dp)
+                        .clip(GlassShapes.chip)
+                        .background(Color.White.copy(alpha = 0.94f))
+                        .pressable(onClickLabel = "播放影片", onClick = onPlay)
+                        .padding(horizontal = 18.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(
-                        Modifier
-                            .size(34.dp)
-                            .glass(
-                                shape = CircleShape,
-                                fill = Color.White.copy(alpha = 0.22f),
-                                border = Color.White.copy(alpha = 0.54f),
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            AppIcons.Info,
-                            null,
-                            tint = Color.White,
-                            modifier = Modifier.size(19.dp),
-                        )
-                    }
-                    Text("查看详情", style = AppTypography.body.strong, color = Color.White)
+                    Icon(AppIcons.Play, null, tint = Color(0xFF101722), modifier = Modifier.size(19.dp))
+                    Text("播放", style = AppTypography.body.strong, color = Color(0xFF101722))
                 }
+                HeroCircleAction(
+                    icon = AppIcons.Info,
+                    description = "查看详情",
+                    onClick = openDetail,
+                )
                 HeroCircleAction(
                     active = item.isFavorite,
                     icon = if (item.isFavorite) AppIcons.HeartFilled else AppIcons.Heart,
@@ -813,7 +786,7 @@ private fun HeroCarousel(
  * It started at the bottom edge, on the rule that picking one value out of a short
  * reversible list belongs within thumb reach. It was the first to be centred instead,
  * because of where it is opened from — the switcher chip sits at the top right of the
- * hero, and answering it from the bottom of a 432px hero sends the eye the length of the
+ * hero, and answering it from the bottom of a tall hero sends the eye the length of the
  * screen and back — and the rest of the app has since followed.
  *
  * What it replaces: a 180dp menu anchored under the hero's switcher chip, hand-rolled
@@ -1306,12 +1279,9 @@ private fun HeroCircleAction(
                     Modifier.semantics { toggleableState = ToggleableState(active) }
                 },
             ).touchTarget()
-            .size(34.dp)
-            .glass(
-                shape = CircleShape,
-                fill = Color.White.copy(alpha = 0.14f),
-                border = Color.White.copy(alpha = 0.34f),
-            ),
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(Color(0xFF11151F).copy(alpha = 0.42f)),
         contentAlignment = Alignment.Center,
     ) {
         if (active == null) {

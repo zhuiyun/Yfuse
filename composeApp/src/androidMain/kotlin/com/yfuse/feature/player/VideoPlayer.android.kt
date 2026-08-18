@@ -93,7 +93,8 @@ actual fun PlayerLauncher(
                     mapOf(
                         "itemCount" to preparedItems.size.toString(),
                         "nativeDisc" to
-                            preparedItems.getOrNull(startIndex)
+                            preparedItems
+                                .getOrNull(startIndex)
                                 ?.url
                                 ?.isYfuseNativeBluRayRoute()
                                 .toString(),

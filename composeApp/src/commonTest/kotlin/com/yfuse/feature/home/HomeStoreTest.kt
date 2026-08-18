@@ -145,6 +145,43 @@ class HomeStoreTest {
         }
 
     @Test
+    fun hero_play_action_starts_a_matched_emby_item() =
+        runTest(scheduler) {
+            val server =
+                SavedServer(
+                    id = "one",
+                    baseUrl = "http://one",
+                    serverName = "One",
+                    userId = "u",
+                    userName = "User",
+                    accessToken = "token",
+                )
+            val registry = testRegistry().apply { addOrUpdate(server) }
+            val store =
+                HomeStoreFactory(
+                    storeFactory = DefaultStoreFactory(),
+                    tmdb = unavailableTmdb(),
+                    emby =
+                        testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                            if (request.url.parameters["AnyProviderIdEquals"] == "tmdb.42") {
+                                json("""{"Items":[{"Id":"emby-42","Name":"缓存推荐","Type":"Movie"}]}""")
+                            } else {
+                                homeRoutes(request)
+                            }
+                        },
+                    registry = registry,
+                    cache = TmdbHomeCache(MapSettings()),
+                    cacheDispatcher = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+
+            store.labels.test {
+                store.accept(HomeIntent.Play(CACHED_ITEM))
+                assertEquals(HomeLabel.PlayEmbyItem("one", "emby-42"), awaitItem())
+            }
+            store.dispose()
+        }
+
+    @Test
     fun canceled_old_cache_write_finishes_before_the_newer_write() =
         runTest(scheduler) {
             val firstWriteStarted = kotlinx.coroutines.CompletableDeferred<Unit>()

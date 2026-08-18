@@ -55,8 +55,7 @@ class RemoteDiscAuthRetryTest {
         val server = MockWebServer()
         server.dispatcher =
             object : Dispatcher() {
-                override fun dispatch(request: RecordedRequest): MockResponse =
-                    MockResponse().setResponseCode(403)
+                override fun dispatch(request: RecordedRequest): MockResponse = MockResponse().setResponseCode(403)
             }
         server.start()
         try {

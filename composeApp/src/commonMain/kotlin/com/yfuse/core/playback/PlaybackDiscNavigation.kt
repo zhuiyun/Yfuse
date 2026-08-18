@@ -117,8 +117,16 @@ enum class PlaybackDiscMenuCommand {
 /** Extracts a Blu-ray MPLS number only from explicit `12345.mpls`/`mpls/12345` style hints. */
 internal fun mplsPlaylistNumber(hint: String?): Int? {
     val value = hint?.trim()?.takeIf(String::isNotEmpty) ?: return null
-    return MPLS_FILE_REGEX.find(value)?.groupValues?.getOrNull(1)?.toIntOrNull()
-        ?: MPLS_PREFIX_REGEX.find(value)?.groupValues?.getOrNull(1)?.toIntOrNull()
+    return MPLS_FILE_REGEX
+        .find(value)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toIntOrNull()
+        ?: MPLS_PREFIX_REGEX
+            .find(value)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
 }
 
 private fun formatDiscNavigationTime(positionMs: Long): String {
@@ -127,7 +135,10 @@ private fun formatDiscNavigationTime(positionMs: Long): String {
     val minutes = (totalSeconds % 3_600L) / 60L
     val seconds = totalSeconds % 60L
     return if (hours > 0L) {
-        "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+        "${hours.toString().padStart(
+            2,
+            '0',
+        )}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
     } else {
         "${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
     }

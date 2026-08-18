@@ -2,16 +2,17 @@ package com.yfuse.feature.player
 
 import android.net.Uri
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.playback.PlaybackDiscChapter
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.deviceId
-import java.util.LinkedHashMap
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.LinkedHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Java object handed to the custom libmpv/libbluray JNI bridge.
@@ -36,7 +37,10 @@ class NativeRemoteBluRayBlockSource(
         val blockCount: Int,
         val bytes: ByteArray,
     ) {
-        fun contains(lba: Int, requestedBlocks: Int): Boolean {
+        fun contains(
+            lba: Int,
+            requestedBlocks: Int,
+        ): Boolean {
             if (requestedBlocks <= 0) return false
             val endExclusive = lba.toLong() + requestedBlocks.toLong()
             val windowEnd = startLba.toLong() + blockCount.toLong()
@@ -183,9 +187,21 @@ class NativeRemoteBluRayBlockSource(
         closed = true
         cache.clear()
         onNativeSessionClosed()
+        val finalMetrics = metrics()
+        AppLog.info(
+            category = "player.native",
+            event = "remote_bluray_session_metrics",
+            message = "Remote Blu-ray native session closed",
+            attributes =
+                mapOf(
+                    "rangeRequests" to finalMetrics.rangeRequests.toString(),
+                    "bytesFetched" to finalMetrics.bytesFetched.toString(),
+                    "cacheHits" to finalMetrics.cacheHits.toString(),
+                ),
+        )
     }
 
-    fun metrics(): NativeRemoteBluRayMetrics =
+    internal fun metrics(): NativeRemoteBluRayMetrics =
         NativeRemoteBluRayMetrics(
             rangeRequests = rangeRequests.get(),
             bytesFetched = bytesFetched.get(),
@@ -218,7 +234,8 @@ class NativeRemoteBluRayBlockSource(
         val root = baseUrl.trim().trimEnd('/').takeIf(String::isNotEmpty) ?: return null
         val path = "$root/Videos/${Uri.encode(itemId)}/stream"
         return runCatching {
-            Uri.parse(path)
+            Uri
+                .parse(path)
                 .buildUpon()
                 .appendQueryParameter("static", "true")
                 .appendQueryParameter("MediaSourceId", mediaSourceId)
@@ -227,8 +244,7 @@ class NativeRemoteBluRayBlockSource(
                     playSessionId.takeIf(String::isNotBlank)?.let {
                         appendQueryParameter("PlaySessionId", it)
                     }
-                }
-                .build()
+                }.build()
                 .toString()
         }.getOrNull()
     }
@@ -388,7 +404,9 @@ internal object NativeRemoteBluRayRegistry {
         return runCatching {
             val clazz = Class.forName(REGISTRY_CLASS, false, MpvVideoEngine::class.java.classLoader)
             val method = clazz.getMethod("register", Any::class.java)
-            (method.invoke(null, source) as? Number)?.toLong()?.takeIf { it > 0L }
+            (method.invoke(null, source) as? Number)
+                ?.toLong()
+                ?.takeIf { it > 0L }
                 ?.also(source::bindNativeId)
         }.getOrNull()
     }

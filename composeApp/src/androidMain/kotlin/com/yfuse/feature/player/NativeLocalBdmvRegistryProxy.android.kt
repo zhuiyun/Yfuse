@@ -175,7 +175,8 @@ internal object NativeLocalBdmvAngleRegistry {
     ): Boolean {
         val current = mutableBinding.value ?: return false
         if (
-            nativeId <= 0L || current.nativeId != nativeId ||
+            nativeId <= 0L ||
+            current.nativeId != nativeId ||
             angle !in 0 until current.angleCount
         ) {
             return false
@@ -216,8 +217,7 @@ internal class BdmvAngleHdmvSession(
         return NativeLocalBdmvAngleRegistry.selectAngle(binding.nativeId, index)
     }
 
-    override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
-        delegate.sendMenuCommand(command)
+    override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean = delegate.sendMenuCommand(command)
 
     override fun selectMenuPoint(
         x: Int,

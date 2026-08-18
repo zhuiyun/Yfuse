@@ -107,6 +107,11 @@ sealed interface HomeIntent {
         val item: TmdbItem,
     ) : HomeIntent
 
+    /** Hero primary action: play a matched library title immediately. */
+    data class Play(
+        val item: TmdbItem,
+    ) : HomeIntent
+
     data class Favorite(
         val item: TmdbItem,
     ) : HomeIntent
@@ -126,6 +131,11 @@ sealed interface HomeLabel {
     data class OpenTmdbItem(
         val item: TmdbItem,
         val embyItemId: String?,
+    ) : HomeLabel
+
+    data class PlayEmbyItem(
+        val serverId: String,
+        val itemId: String,
     ) : HomeLabel
 }
 
@@ -277,7 +287,8 @@ class HomeStoreFactory(
                     loadNextUp(registry.data.value.servers)
                 }
                 HomeIntent.DismissMessage -> dispatch(Msg.ActionMessage(null))
-                is HomeIntent.Open -> open(intent.item)
+                is HomeIntent.Open -> resolve(intent.item, play = false)
+                is HomeIntent.Play -> resolve(intent.item, play = true)
                 is HomeIntent.Favorite -> favorite(intent.item)
                 is HomeIntent.OpenResume ->
                     publish(
@@ -411,7 +422,10 @@ class HomeStoreFactory(
                     .filter { it.knownUnavailableEndpointReason() == null }
                     .map(SavedServer::homeConnection) == connection
 
-        private fun open(item: TmdbItem) {
+        private fun resolve(
+            item: TmdbItem,
+            play: Boolean,
+        ) {
             if (state().resolving) return
             val server = registry.defaultServer
             if (server == null) {
@@ -444,7 +458,13 @@ class HomeStoreFactory(
                     }
                 dispatch(Msg.Resolving(false))
                 if (match != null) {
-                    publish(HomeLabel.OpenEmbyItem(server.id, match.id))
+                    publish(
+                        if (play) {
+                            HomeLabel.PlayEmbyItem(server.id, match.id)
+                        } else {
+                            HomeLabel.OpenEmbyItem(server.id, match.id)
+                        },
+                    )
                 } else {
                     publish(HomeLabel.OpenTmdbItem(item, null))
                 }

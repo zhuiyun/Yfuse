@@ -62,13 +62,12 @@ data class OpticalPlaybackValidationReport(
  * Converts optional evidence into hard release gates. Missing observations are always NotMeasured,
  * never an implicit pass. This mirrors the numeric YCore release evaluator's evidence discipline.
  */
-fun evaluateOpticalPlaybackRelease(
-    input: OpticalPlaybackValidationInput,
-): OpticalPlaybackValidationReport =
+fun evaluateOpticalPlaybackRelease(input: OpticalPlaybackValidationInput): OpticalPlaybackValidationReport =
     OpticalPlaybackValidationReport(
         checks =
             linkedMapOf(
-                "nativeAar" to input.nativeAarBuiltAndVerified.check("custom libmpv/libbluray AAR + provenance verifier"),
+                "nativeAar" to
+                    input.nativeAarBuiltAndVerified.check("custom libmpv/libbluray AAR + provenance verifier"),
                 "pageSize16k" to input.arm64PageSize16kVerified.check("ARM64 PT_LOAD >= 16 KiB and Android load"),
                 "localIso" to input.localIsoMainFeatureVerified.check("local Blu-ray ISO main feature"),
                 "localBdmvFs" to input.localBdmvFilesystemVerified.check("filesystem BDMV VFS"),

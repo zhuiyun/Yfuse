@@ -181,7 +181,9 @@ internal class NativeLocalBluRaySource private constructor(
         }
 
         override fun navigation(): PlaybackDiscNavigationState = state
+
         override fun selectTitle(index: Int): Boolean = false
+
         override fun selectChapter(index: Int): Boolean = false
 
         override fun selectAngle(index: Int): Boolean =
@@ -192,8 +194,11 @@ internal class NativeLocalBluRaySource private constructor(
         override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
             !ended && NativeRemoteBluRayRegistry.sendMenuCommand(id, command.localNativeMenuCode())
 
-        override fun selectMenuPoint(x: Int, y: Int, activate: Boolean): Boolean =
-            !ended && state.menuActive && NativeRemoteBluRayRegistry.selectMenuPoint(id, x, y, activate)
+        override fun selectMenuPoint(
+            x: Int,
+            y: Int,
+            activate: Boolean,
+        ): Boolean = !ended && state.menuActive && NativeRemoteBluRayRegistry.selectMenuPoint(id, x, y, activate)
 
         override fun setNavigationChangedListener(listener: (() -> Unit)?) {
             this.listener = listener
@@ -205,7 +210,10 @@ internal class NativeLocalBluRaySource private constructor(
     }
 
     companion object {
-        fun create(context: Context, uri: String): NativeLocalBluRaySource? {
+        fun create(
+            context: Context,
+            uri: String,
+        ): NativeLocalBluRaySource? {
             val parsed = runCatching { Uri.parse(uri) }.getOrNull() ?: return null
             val descriptor =
                 when (parsed.scheme?.lowercase()) {
@@ -233,7 +241,9 @@ internal object NativeLocalBluRayRegistry {
         return runCatching {
             val clazz = Class.forName(REGISTRY_CLASS, false, MpvVideoEngine::class.java.classLoader)
             (clazz.getMethod("register", Any::class.java).invoke(null, source) as? Number)
-                ?.toLong()?.takeIf { it > 0L }?.also(source::bindNativeId)
+                ?.toLong()
+                ?.takeIf { it > 0L }
+                ?.also(source::bindNativeId)
         }.getOrNull()
     }
 

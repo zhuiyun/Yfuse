@@ -297,8 +297,7 @@ private fun parseUnsatisfiedLength(value: String?): Long? =
         ?.toLongOrNull()
         ?.takeIf { it >= 0L }
 
-private fun safeByteOffset(lba: Int): Long? =
-    lba.takeIf { it >= 0 }?.toLong()?.times(BLURAY_UDF_BLOCK_SIZE.toLong())
+private fun safeByteOffset(lba: Int): Long? = lba.takeIf { it >= 0 }?.toLong()?.times(BLURAY_UDF_BLOCK_SIZE.toLong())
 
 private fun safeByteCount(blockCount: Int): Long? =
     blockCount.takeIf { it > 0 }?.toLong()?.times(BLURAY_UDF_BLOCK_SIZE.toLong())

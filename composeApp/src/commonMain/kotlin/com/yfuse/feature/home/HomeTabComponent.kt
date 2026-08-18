@@ -130,6 +130,9 @@ class HomeTabComponent(
                         onOpenEmbyItem = { serverId, itemId ->
                             navigation.push(Config.Detail(serverId, itemId))
                         },
+                        onPlayEmbyItem = { serverId, itemId ->
+                            navigation.push(Config.Player(serverId, itemId, 0L))
+                        },
                         onOpenTmdbItem = { item, embyItemId ->
                             navigation.push(Config.Info(item, embyItemId))
                         },

@@ -105,6 +105,7 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineMedia
+import com.yfuse.core.offline.offlinePlaybackUri
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.sync.ServerSyncManager
@@ -567,11 +568,11 @@ fun ProfileScreen(component: ProfileComponent) {
                     listOf(
                         PlayerMediaItem(
                             id = offline.itemId,
-                            url = "file://$path",
-                            transcodeUrl = "file://$path",
+                            url = offlinePlaybackUri(path),
+                            transcodeUrl = offlinePlaybackUri(path),
                             title = offline.title,
                             serverId = offline.serverId,
-                            externalSubtitleUri = offline.subtitlePath?.let { "file://$it" },
+                            externalSubtitleUri = offline.subtitlePath?.let(::offlinePlaybackUri),
                             externalSubtitleLanguage = offline.subtitleLanguage,
                         ),
                     ),
@@ -636,8 +637,8 @@ fun ProfileScreen(component: ProfileComponent) {
 
             Sheet.Engine ->
                 OptionSheet(
-                    title = "播放内核",
-                    subtitle = "智能自动可切换后端；锁定时只保留 DRM 安全覆盖",
+                    title = "高级内核选择",
+                    subtitle = "普通使用建议保持自动选择，仅在兼容问题时锁定",
                     options =
                         PlaybackEngineSelection.entries.map {
                             it.playbackOptionCopy().label to (it == engineSelection)
@@ -916,7 +917,10 @@ internal val SettingsHeaderTop = 8.dp
 internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     val palette = LocalPalette.current
     Column(
-        Modifier.fillMaxWidth().glass(GlassShapes.card, palette.card2, palette.border).clip(GlassShapes.card),
+        Modifier
+            .fillMaxWidth()
+            .clip(GlassShapes.card)
+            .background(palette.card2),
         content = content,
     )
 }
@@ -950,13 +954,9 @@ internal fun Section(
                         Modifier
                             .pressable(onClick = onAction)
                             .touchTarget()
-                            .liquidGlass(
-                                shape = GlassShapes.chip,
-                                fill = palette.card2,
-                                border = palette.border,
-                                over = palette.background,
-                                sheen = 0.58f,
-                            ).padding(horizontal = 10.dp, vertical = 5.dp),
+                            .clip(GlassShapes.chip)
+                            .background(palette.card2)
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
         }

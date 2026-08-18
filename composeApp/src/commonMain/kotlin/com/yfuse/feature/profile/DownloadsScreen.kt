@@ -53,6 +53,7 @@ import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.offline.OfflineQueueSummary
+import com.yfuse.core.offline.rememberOfflineStorageDirectoryPicker
 import com.yfuse.core.offline.summarizeOfflineQueue
 
 enum class DownloadFilter(
@@ -112,6 +113,11 @@ internal fun DownloadsScreen(
     val items by manager.items.collectAsState()
     val wifiOnly by manager.wifiOnly.collectAsState()
     val policy by manager.policy.collectAsState()
+    val autoDownloadRuleCount by manager.autoDownloadRuleCount.collectAsState()
+    val pickStorageDirectory =
+        rememberOfflineStorageDirectoryPicker { treeUri, label ->
+            manager.setStorageDirectory(treeUri, label)
+        }
     var filter by remember { mutableStateOf(DownloadFilter.All) }
     var sort by remember { mutableStateOf(DownloadSort.Updated) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -181,6 +187,24 @@ internal fun DownloadsScreen(
         item {
             Section(title = "下载设置") {
                 SettingsCard {
+                    SettingRow(
+                        title = "保存位置",
+                        value = "${policy.storageLabel ?: "应用内部存储"} ›",
+                        embedded = true,
+                        onClick = pickStorageDirectory,
+                        icon = AppIcons.Download,
+                        iconTint = SettingTint.downloads,
+                    )
+                    if (policy.storageTreeUri != null) {
+                        SettingsDivider()
+                        SettingRow(
+                            title = "改回内部存储",
+                            value = "仅影响新下载 ›",
+                            embedded = true,
+                            onClick = { manager.setStorageDirectory(null) },
+                        )
+                    }
+                    SettingsDivider()
                     SwitchRow(
                         "仅 Wi-Fi 下载",
                         wifiOnly,
@@ -199,18 +223,63 @@ internal fun DownloadsScreen(
                         onChange = manager::setAutoDeleteWatched,
                     )
                     SettingsDivider()
-                    Row(
+                    SwitchRow(
+                        "自动下载新集",
+                        policy.autoDownloadEnabled,
+                        embedded = true,
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.downloads,
+                        onChange = manager::setAutoDownloadEnabled,
+                    )
+                    if (autoDownloadRuleCount > 0) {
+                        SettingsDivider()
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 13.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Column {
+                                Text("追更保留数量", style = AppTypography.body.medium, color = palette.text)
+                                Text(
+                                    "$autoDownloadRuleCount 条规则 · 每季最多保留",
+                                    style = AppTypography.caption.regular,
+                                    color = palette.sub2,
+                                )
+                            }
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(listOf(1, 3, 5, 10)) { count ->
+                                    DownloadChip(
+                                        label = count.toString(),
+                                        active = policy.autoDownloadItemLimit == count,
+                                        role = Role.RadioButton,
+                                        onClickLabel = "每季保留 $count 集",
+                                        onClick = { manager.setAutoDownloadItemLimit(count) },
+                                    )
+                                }
+                            }
+                        }
+                        SettingsDivider()
+                        SettingRow(
+                            title = "清除追更规则",
+                            value = "$autoDownloadRuleCount 条 ›",
+                            embedded = true,
+                            onClick = manager::clearAutoDownloadRules,
+                        )
+                    }
+                    SettingsDivider()
+                    Column(
                         Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 13.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Column(Modifier.weight(1f)) {
+                        Column {
                             Text("同时下载", style = AppTypography.body.medium, color = palette.text)
                             Text("1–3 个任务", style = AppTypography.caption.regular, color = palette.sub2)
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            (1..3).forEach { count ->
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items((1..3).toList()) { count ->
                                 DownloadChip(
                                     label = count.toString(),
                                     active = policy.maxConcurrentDownloads == count,

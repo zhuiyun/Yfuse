@@ -71,6 +71,7 @@ public final class YfuseMpvCapabilities {
     public static final boolean REMOTE_RAW_BLURAY = true;
     public static final boolean BDMV_VFS = true;
     public static final boolean HDMV_MENU = true;
+    public static final boolean MULTI_ANGLE = true;
     public static final String LIBMPV_ANDROID_REVISION = "$UPSTREAM_COMMIT";
     public static final String LIBBLURAY_REVISION = "$LIBBLURAY_COMMIT";
     public static final String LIBUDFREAD_REVISION = "$LIBUDFREAD_COMMIT";

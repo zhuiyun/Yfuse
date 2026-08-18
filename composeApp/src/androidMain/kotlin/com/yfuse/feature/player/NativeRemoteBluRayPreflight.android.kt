@@ -39,8 +39,9 @@ internal suspend fun probeNativeRemoteBluRayRangeSupport(
             ) ?: return@withContext false
         val headers =
             RemoteDiscHeaderProvider {
-                val current = serverRegistry.serverById(request.serverId)
-                    ?: return@RemoteDiscHeaderProvider emptyMap()
+                val current =
+                    serverRegistry.serverById(request.serverId)
+                        ?: return@RemoteDiscHeaderProvider emptyMap()
                 buildMap {
                     current.accessToken.takeIf(String::isNotBlank)?.let { put("X-Emby-Token", it) }
                 }

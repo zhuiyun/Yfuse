@@ -11,8 +11,8 @@ import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import org.koin.core.context.GlobalContext
@@ -49,24 +49,24 @@ internal fun PlaybackEngineSelection.playbackOptionCopy(): PlaybackOptionCopy =
     when (this) {
         PlaybackEngineSelection.Auto ->
             PlaybackOptionCopy(
-                label = "YCore 智能自动",
+                label = "自动选择（推荐）",
                 summary = "智能自动",
                 description = "按片源、设备能力、稳定性和功耗动态选择并安全切换内核",
             )
         PlaybackEngineSelection.LockExo ->
             PlayerEngine.Exo.playbackOptionCopy().copy(
-                label = "锁定 ExoPlayer",
-                description = "固定使用 Media3；仅受保护内容安全规则可覆盖选择",
+                label = "系统兼容模式",
+                description = "固定使用系统 Media3 内核；仅受保护内容安全规则可覆盖选择",
             )
         PlaybackEngineSelection.LockMpv ->
             PlayerEngine.Mpv.playbackOptionCopy().copy(
-                label = "锁定 MPV",
-                description = "固定使用 libmpv；仅受保护内容安全规则可覆盖选择",
+                label = "格式兼容模式",
+                description = "固定使用 MPV 内核，适合特殊封装和字幕格式",
             )
         PlaybackEngineSelection.LockMdk ->
             PlayerEngine.Mdk.playbackOptionCopy().copy(
-                label = "锁定 MDK",
-                description = "固定使用 MDK；仅受保护内容安全规则可覆盖选择",
+                label = "实验原生模式",
+                description = "固定使用 MDK 原生内核，供高级兼容性排查",
             )
     }
 

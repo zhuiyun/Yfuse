@@ -117,8 +117,7 @@ internal class VideoEngineDiscNavigationBackend(
     // authored Blu-ray angles directly; ordinary mpv `--bluray-angle` remains only an open-time knob.
     override fun selectAngle(index: Int): Boolean = false
 
-    override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
-        engine.sendDiscMenuCommand(command)
+    override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean = engine.sendDiscMenuCommand(command)
 }
 
 /**
@@ -162,8 +161,7 @@ internal class CompositeDiscNavigationBackend(
             engineBackend.selectAngle(index)
         }
 
-    override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
-        menuBackend.sendMenuCommand(command)
+    override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean = menuBackend.sendMenuCommand(command)
 
     override fun selectMenuPoint(
         x: Int,

@@ -683,6 +683,11 @@ class MpvVideoEngine(
 
     override fun selectAudioTrack(id: String) = selectTrack("aid", id)
 
+    override fun setAudioDelayMs(delayMs: Long): Boolean =
+        withMpvResult { instance ->
+            instance.setPropertyDouble("audio-delay", delayMs.coerceIn(-10_000L, 10_000L) / 1000.0)
+        }
+
     override fun selectSubtitleTrack(id: String) = selectTrack("sid", id)
 
     override fun selectDiscTitle(index: Int): Boolean {
@@ -735,6 +740,13 @@ class MpvVideoEngine(
                 "secondary-sub-ass-override",
                 if (luminance < 0.999f) "force" else "strip",
             )
+        }
+
+    override fun setSubtitlePosition(position: Float): Boolean =
+        withMpvResult { instance ->
+            val percent = position.coerceIn(0.60f, 0.96f) * 100.0
+            instance.setPropertyDouble("sub-pos", percent)
+            instance.setPropertyDouble("secondary-sub-pos", percent)
         }
 
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {

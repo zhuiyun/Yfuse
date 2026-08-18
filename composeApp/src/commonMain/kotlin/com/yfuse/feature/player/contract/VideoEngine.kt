@@ -228,6 +228,9 @@ interface VideoEngine {
 
     fun selectAudioTrack(id: String)
 
+    /** Positive values delay audio; negative values play it earlier. */
+    fun setAudioDelayMs(delayMs: Long): Boolean = delayMs == 0L
+
     /** [EngineTrack.OFF] disables subtitles. */
     fun selectSubtitleTrack(id: String)
 
@@ -254,6 +257,9 @@ interface VideoEngine {
 
     /** Relative subtitle luminance, primarily useful when HDR makes white captions dazzling. */
     fun setSubtitleBrightness(brightness: Float): Boolean = brightness == 1f
+
+    /** Fraction from the top edge, where 0 is top and 1 is bottom. */
+    fun setSubtitlePosition(position: Float): Boolean = position == DEFAULT_SUBTITLE_POSITION
 
     /** Temporarily prevents automatic queue advance after the current entry finishes. */
     fun setPauseAtEndOfCurrentItem(enabled: Boolean) = Unit

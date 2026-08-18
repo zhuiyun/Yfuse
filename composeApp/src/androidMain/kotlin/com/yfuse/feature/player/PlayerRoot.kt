@@ -219,6 +219,7 @@ internal fun PlayerRoot(
     var restoreSubtitlesOff by remember { mutableStateOf(false) }
     var scaleMode by remember { mutableStateOf(VideoScaleMode.Fit) }
     var subtitleControls by remember { mutableStateOf(SubtitleControlState()) }
+    var audioControls by remember { mutableStateOf(AudioControlState()) }
     var sleepTimerOption by remember { mutableStateOf(SleepTimerOption.Off) }
     var sleepTimerEndIndex by remember { mutableStateOf<Int?>(null) }
     var sleepTimerEndSessionRevision by remember { mutableStateOf<Long?>(null) }
@@ -802,6 +803,7 @@ internal fun PlayerRoot(
         secondarySubtitleTrackId = null
         restoreSubtitlesOff = remembered?.primarySubtitlesOff == true
         requestedPlaybackSpeed = remembered?.speed ?: 1f
+        audioControls = audioControls.copy(delayMs = remembered?.audioDelayMs ?: 0L)
         scaleMode =
             remembered
                 ?.aspectMode
@@ -812,6 +814,12 @@ internal fun PlayerRoot(
                 offsetMs = remembered?.subtitleOffsetMs ?: 0L,
                 scale = remembered?.subtitleScale ?: 1f,
                 brightness = remembered?.subtitleBrightness ?: 1f,
+                position = remembered?.subtitlePosition ?: DEFAULT_SUBTITLE_POSITION,
+                stylePreset =
+                    remembered
+                        ?.subtitleStylePreset
+                        ?.let { stored -> SubtitleStylePreset.entries.firstOrNull { it.name == stored } }
+                        ?: SubtitleStylePreset.Standard,
             )
     }
 
@@ -1651,6 +1659,17 @@ internal fun PlayerRoot(
             switchEngine(PlayerEngine.Mpv)
         }
     }
+    LaunchedEffect(engine, kind, audioControls.delayMs) {
+        val applied = engine.setAudioDelayMs(audioControls.delayMs)
+        if (
+            !applied &&
+            audioControls.delayMs != 0L &&
+            kind != PlayerEngine.Mpv &&
+            sessionEngineSelection == PlaybackEngineSelection.Auto
+        ) {
+            switchEngine(PlayerEngine.Mpv)
+        }
+    }
     LaunchedEffect(engine, kind, subtitleControls.scale) {
         if (kind != PlayerEngine.Exo) {
             val applied = engine.setSubtitleScale(subtitleControls.scale)
@@ -1673,6 +1692,19 @@ internal fun PlayerRoot(
             sessionEngineSelection == PlaybackEngineSelection.Auto
         ) {
             switchEngine(PlayerEngine.Mpv)
+        }
+    }
+    LaunchedEffect(engine, kind, subtitleControls.position) {
+        if (kind != PlayerEngine.Exo) {
+            val applied = engine.setSubtitlePosition(subtitleControls.position)
+            if (
+                !applied &&
+                subtitleControls.position != DEFAULT_SUBTITLE_POSITION &&
+                kind != PlayerEngine.Mpv &&
+                sessionEngineSelection == PlaybackEngineSelection.Auto
+            ) {
+                switchEngine(PlayerEngine.Mpv)
+            }
         }
     }
     LaunchedEffect(engine, scaleMode) {
@@ -1892,6 +1924,7 @@ internal fun PlayerRoot(
                     scaleMode = scaleMode,
                     subtitleScale = subtitleControls.scale,
                     subtitleBrightness = subtitleControls.brightness,
+                    subtitlePosition = subtitleControls.position,
                     modifier = Modifier.fillMaxSize(),
                 )
         }
@@ -2008,6 +2041,28 @@ internal fun PlayerRoot(
                     }
                     engine.selectAudioTrack(id)
                 },
+                audioControls =
+                    audioControls.copy(
+                        available =
+                            kind == PlayerEngine.Mpv ||
+                                sessionEngineSelection == PlaybackEngineSelection.Auto,
+                        unavailableReason =
+                            if (
+                                kind == PlayerEngine.Mpv ||
+                                sessionEngineSelection == PlaybackEngineSelection.Auto
+                            ) {
+                                null
+                            } else {
+                                "当前锁定模式不支持音频延迟，请在高级设置中改回自动选择。"
+                            },
+                    ),
+                audioActions =
+                    AudioControlActions(
+                        onDelay = {
+                            audioControls = audioControls.copy(delayMs = it)
+                            rememberSeriesPlayback { remembered -> remembered.copy(audioDelayMs = it) }
+                        },
+                    ),
                 onSelectSubtitle = { id ->
                     val track = state.subtitleTracks.firstOrNull { it.id == id }
                     if (id == EngineTrack.OFF) {
@@ -2089,15 +2144,59 @@ internal fun PlayerRoot(
                             }
                         },
                         onScale = {
-                            subtitleControls = subtitleControls.copy(scale = it)
+                            subtitleControls =
+                                subtitleControls.copy(
+                                    scale = it,
+                                    stylePreset = SubtitleStylePreset.Custom,
+                                )
                             rememberSeriesPlayback { remembered ->
-                                remembered.copy(subtitleScale = it)
+                                remembered.copy(
+                                    subtitleScale = it,
+                                    subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                )
                             }
                         },
                         onBrightness = {
-                            subtitleControls = subtitleControls.copy(brightness = it)
+                            subtitleControls =
+                                subtitleControls.copy(
+                                    brightness = it,
+                                    stylePreset = SubtitleStylePreset.Custom,
+                                )
                             rememberSeriesPlayback { remembered ->
-                                remembered.copy(subtitleBrightness = it)
+                                remembered.copy(
+                                    subtitleBrightness = it,
+                                    subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                )
+                            }
+                        },
+                        onPosition = {
+                            subtitleControls =
+                                subtitleControls.copy(
+                                    position = it,
+                                    stylePreset = SubtitleStylePreset.Custom,
+                                )
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(
+                                    subtitlePosition = it,
+                                    subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                )
+                            }
+                        },
+                        onStylePreset = { preset ->
+                            subtitleControls =
+                                subtitleControls.copy(
+                                    scale = preset.scale,
+                                    brightness = preset.brightness,
+                                    position = preset.position,
+                                    stylePreset = preset,
+                                )
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(
+                                    subtitleScale = preset.scale,
+                                    subtitleBrightness = preset.brightness,
+                                    subtitlePosition = preset.position,
+                                    subtitleStylePreset = preset.name,
+                                )
                             }
                         },
                         onSecondaryTrack = secondary@{ id ->

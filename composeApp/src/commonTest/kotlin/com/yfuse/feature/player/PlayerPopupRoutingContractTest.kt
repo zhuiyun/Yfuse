@@ -40,7 +40,7 @@ class PlayerPopupRoutingContractTest {
     }
 
     @Test
-    fun native_disc_navigation_exposes_direct_title_and_chapter_rows() {
+    fun native_disc_navigation_exposes_direct_title_chapter_and_angle_rows() {
         val panel = projectFile("src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt").readText()
 
         assertTrue("GroupLabel(\"标题 / Playlist\")" in panel)
@@ -50,6 +50,9 @@ class PlayerPopupRoutingContractTest {
         assertTrue("ActiveDiscNavigation.selectChapter(chapter.index)" in panel)
         assertTrue("chapter.timeLabel" in panel)
         assertTrue("title.playlistLabel" in panel)
+        assertTrue("GroupLabel(\"多视角\")" in panel)
+        assertTrue("disc.angleOptions.forEach" in panel)
+        assertTrue("ActiveDiscNavigation.selectAngle(angle.index)" in panel)
         // Keep the legacy callbacks as a safe fallback for a non-bound navigation backend.
         assertTrue("onClick = onNextDiscTitle" in panel)
         assertTrue("onClick = onNextDiscChapter" in panel)

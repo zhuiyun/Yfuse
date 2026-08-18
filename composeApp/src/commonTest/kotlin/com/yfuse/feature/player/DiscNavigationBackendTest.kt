@@ -191,8 +191,10 @@ private class FakeDiscEngine : VideoEngine {
                         titleCount = 2,
                         titles =
                             listOf(
-                                com.yfuse.core.playback.PlaybackDiscTitle(0, title = "正片"),
-                                com.yfuse.core.playback.PlaybackDiscTitle(1, title = "花絮"),
+                                com.yfuse.core.playback
+                                    .PlaybackDiscTitle(0, title = "正片"),
+                                com.yfuse.core.playback
+                                    .PlaybackDiscTitle(1, title = "花絮"),
                             ),
                     ),
             ),
@@ -203,10 +205,15 @@ private class FakeDiscEngine : VideoEngine {
     var lastChapter: Int? = null
 
     override fun play() = Unit
+
     override fun pause() = Unit
+
     override fun seekTo(positionMs: Long) = Unit
+
     override fun setSpeed(speed: Float) = Unit
+
     override fun selectAudioTrack(id: String) = Unit
+
     override fun selectSubtitleTrack(id: String) = Unit
 
     override fun selectDiscTitle(index: Int): Boolean {
@@ -220,7 +227,10 @@ private class FakeDiscEngine : VideoEngine {
     }
 
     override fun selectItem(index: Int) = Unit
+
     override fun currentPositionMs(): Long = 0L
+
     override fun retry() = Unit
+
     override fun release() = Unit
 }

@@ -1,5 +1,7 @@
 package com.yfuse.core.playback
 
+import com.yfuse.core.model.MediaVersion
+
 /**
  * What YCore can actually prove about a Profile 7 enhancement layer at the final output.
  *
@@ -46,9 +48,15 @@ data class DolbyVisionP7ValidationResult(
     val reason: String,
 )
 
-fun evaluateDolbyVisionP7Output(
-    evidence: DolbyVisionP7ValidationEvidence,
-): DolbyVisionP7ValidationResult {
+fun MediaVersion.dolbyVisionP7ValidationEvidence(): DolbyVisionP7ValidationEvidence =
+    DolbyVisionP7ValidationEvidence(
+        profile = dolbyProfile,
+        sourceRpuPresent = video?.dolbyRpuPresent,
+        sourceEnhancementLayerPresent = video?.dolbyEnhancementLayerPresent,
+        sourceBaseLayerPresent = video?.dolbyBaseLayerPresent,
+    )
+
+fun evaluateDolbyVisionP7Output(evidence: DolbyVisionP7ValidationEvidence): DolbyVisionP7ValidationResult {
     val profileSevenWithEl =
         evidence.profile == 7 && evidence.sourceEnhancementLayerPresent == true
     if (!profileSevenWithEl) {

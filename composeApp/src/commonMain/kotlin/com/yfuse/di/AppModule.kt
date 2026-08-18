@@ -112,7 +112,6 @@ fun appModule(
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }
     single<CastManager> { createCastManager() }
-    single<OfflineMediaManager> { createOfflineMediaManager(get(), get()) }
     single {
         val userAgent = get<UserAgentPreferences>()
         createEmbyClient(
@@ -131,6 +130,7 @@ fun appModule(
             },
         )
     }
+    single<OfflineMediaManager> { createOfflineMediaManager(get(), get(), get()) }
     single { PlaybackReportingCoordinator(get(), get(), get(), get()) }
     single { ServerHealthMonitor(get(), get()) }
     single { AiringScheduleCache(get()) }

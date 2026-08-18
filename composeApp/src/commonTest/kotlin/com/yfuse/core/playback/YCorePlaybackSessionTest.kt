@@ -123,6 +123,6 @@ class YCorePlaybackSessionTest {
     private companion object {
         const val SIGNATURE =
             "MKV|UnknownCodec|UnknownWidth|UnknownHeight|UnknownFps|UnknownDepth|Sdr|" +
-                "UnknownAudio|UnknownChannels|None|PlainSubtitles|Clear|Original"
+                "UnknownAudio|UnknownChannels|None|LinearMedia|PlainSubtitles|Clear|Original"
     }
 }

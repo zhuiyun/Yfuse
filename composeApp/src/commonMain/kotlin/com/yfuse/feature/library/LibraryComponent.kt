@@ -130,6 +130,9 @@ class LibraryComponent(
                         onOpenItem = {
                             navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it))
                         },
+                        onPlayItem = {
+                            navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it, autoPlay = true))
+                        },
                     ),
                 )
             is Config.Grid -> {

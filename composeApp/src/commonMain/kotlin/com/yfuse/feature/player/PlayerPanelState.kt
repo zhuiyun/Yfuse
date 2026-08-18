@@ -4,8 +4,8 @@ import com.yfuse.core.data.SkipMode
 import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchParticipant
-import com.yfuse.core.sync.WatchReactionBurst
 import com.yfuse.core.sync.WatchReaction
+import com.yfuse.core.sync.WatchReactionBurst
 
 /**
  * The 一起看 room, as the player chrome sees it.
@@ -119,6 +119,8 @@ data class SubtitleControlState(
     val offsetMs: Long = 0L,
     val scale: Float = 1f,
     val brightness: Float = 1f,
+    val position: Float = DEFAULT_SUBTITLE_POSITION,
+    val stylePreset: SubtitleStylePreset = SubtitleStylePreset.Standard,
     val secondaryTrackId: String? = null,
     val secondarySupported: Boolean = false,
     val secondaryUnavailableReason: String? = null,
@@ -128,8 +130,35 @@ data class SubtitleControlActions(
     val onOffset: (Long) -> Unit = {},
     val onScale: (Float) -> Unit = {},
     val onBrightness: (Float) -> Unit = {},
+    val onPosition: (Float) -> Unit = {},
+    val onStylePreset: (SubtitleStylePreset) -> Unit = {},
     val onSecondaryTrack: (String) -> Unit = {},
 )
+
+enum class SubtitleStylePreset(
+    val label: String,
+    val scale: Float,
+    val brightness: Float,
+    val position: Float,
+) {
+    Standard("标准", 1f, 1f, DEFAULT_SUBTITLE_POSITION),
+    Cinema("影院", 1.05f, 0.85f, 0.88f),
+    Compact("紧凑", 0.85f, 0.80f, 0.94f),
+    Accessible("大字幕", 1.30f, 1f, 0.84f),
+    Custom("自定义", 1f, 1f, DEFAULT_SUBTITLE_POSITION),
+}
+
+data class AudioControlState(
+    val delayMs: Long = 0L,
+    val available: Boolean = true,
+    val unavailableReason: String? = null,
+)
+
+data class AudioControlActions(
+    val onDelay: (Long) -> Unit = {},
+)
+
+const val DEFAULT_SUBTITLE_POSITION = 0.92f
 
 enum class SleepTimerOption(
     val label: String,

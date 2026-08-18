@@ -6,6 +6,8 @@ It is not a substitute for a release-time legal review or the generated SBOM.
 | Component | Pinned artifact | Upstream license/source reference | Notes |
 | --- | --- | --- | --- |
 | libmpv Android | `libmpv-android` v1.0.0 | <https://github.com/jarnedemeulemeester/libmpv-android> | Bundles mpv and FFmpeg-family native libraries. Preserve upstream notices and comply with the licenses of the exact build configuration. |
+| libbluray | `7d94f2660af5bfc16015291a03539329135c18f1` (1.4.1) | <https://code.videolan.org/videolan/libbluray/-/tree/7d94f2660af5bfc16015291a03539329135c18f1> | LGPL-2.1-or-later; see [LGPL-2.1.txt](LGPL-2.1.txt). The Yfuse build disables BD-J. |
+| libudfread | `139a2194525f2745b98a98e4d8fa627d07440176` | <https://code.videolan.org/videolan/libudfread/-/tree/139a2194525f2745b98a98e4d8fa627d07440176> | LGPL-2.1-or-later; see [LGPL-2.1.txt](LGPL-2.1.txt). Pulled as libbluray's pinned submodule. |
 | mpv | Included through libmpv Android | <https://github.com/mpv-player/mpv/blob/master/Copyright> | mpv's effective license depends on build options; verify the downloaded binary's configuration before distribution. |
 | FFmpeg | Included by native player engines | <https://ffmpeg.org/legal.html> | LGPL/GPL obligations depend on enabled components and link/build options. |
 | MDK SDK | `mdk-sdk` v0.37.0 | <https://github.com/wang-bin/mdk-sdk> | The artifact README states that free use is limited to specified categories. Commercial or other distribution requires confirming eligibility or obtaining an appropriate license. |

@@ -72,9 +72,12 @@ data class SeriesPlaybackPreference(
     val primarySubtitlesOff: Boolean? = null,
     val primarySubtitle: RememberedPlaybackTrack? = null,
     val secondarySubtitle: RememberedPlaybackTrack? = null,
+    val audioDelayMs: Long = 0L,
     val subtitleOffsetMs: Long = 0L,
     val subtitleScale: Float = 1f,
     val subtitleBrightness: Float = 1f,
+    val subtitlePosition: Float = 0.92f,
+    val subtitleStylePreset: String = "Standard",
     val speed: Float = 1f,
     val aspectMode: String = "Fit",
 )
@@ -494,9 +497,15 @@ class PlaybackPreferences(
             audio = audio?.normalized(),
             primarySubtitle = primarySubtitle?.normalized(),
             secondarySubtitle = secondarySubtitle?.normalized(),
+            audioDelayMs = audioDelayMs.coerceIn(-10_000L, 10_000L),
             subtitleOffsetMs = subtitleOffsetMs.coerceIn(-60_000L, 60_000L),
             subtitleScale = subtitleScale.coerceIn(0.6f, 1.8f),
             subtitleBrightness = subtitleBrightness.coerceIn(0.35f, 1f),
+            subtitlePosition = subtitlePosition.coerceIn(0.60f, 0.96f),
+            subtitleStylePreset =
+                subtitleStylePreset.takeIf { stored ->
+                    stored in setOf("Standard", "Cinema", "Compact", "Accessible", "Custom")
+                } ?: "Standard",
             speed = speed.coerceIn(0.25f, 4f),
             aspectMode = aspectMode.takeIf { it in SERIES_ASPECT_MODES } ?: "Fit",
         )

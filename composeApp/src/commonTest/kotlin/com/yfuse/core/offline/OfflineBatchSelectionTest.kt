@@ -10,6 +10,33 @@ import kotlin.test.assertNull
 
 class OfflineBatchSelectionTest {
     @Test
+    fun auto_download_selects_only_new_unwatched_episodes_within_remaining_capacity() {
+        val episodes =
+            listOf(
+                episode("episode-1", 1, emptyList()).copy(played = true),
+                episode("episode-2", 2, emptyList()),
+                episode("episode-3", 3, emptyList()),
+                episode("episode-4", 4, emptyList()),
+            )
+
+        assertEquals(
+            listOf("episode-3", "episode-4"),
+            selectNewAutoDownloadEpisodes(
+                episodes = episodes,
+                knownEpisodeIds = setOf("episode-1", "episode-2"),
+                existingItemIds = setOf("episode-2"),
+                itemLimit = 3,
+            ).map(Episode::id),
+        )
+    }
+
+    @Test
+    fun offline_playback_uri_preserves_saf_content_uri() {
+        assertEquals("content://downloads/tree/video", offlinePlaybackUri("content://downloads/tree/video"))
+        assertEquals("file:///data/user/0/video.media", offlinePlaybackUri("/data/user/0/video.media"))
+    }
+
+    @Test
     fun season_maps_version_and_subtitle_features_across_heterogeneous_ids_and_indices() {
         val current =
             episode(
@@ -90,6 +117,8 @@ class OfflineBatchSelectionTest {
                 currentVersions = current.versions,
                 seasonEpisodes = listOf(current, second, third),
                 selection = selection,
+                currentSeriesId = "series-1",
+                currentSeasonId = "season-1",
             )
 
         assertEquals(
@@ -97,6 +126,8 @@ class OfflineBatchSelectionTest {
             requests.map { it.mediaSourceId },
         )
         assertEquals(listOf(4, 17, 23), requests.map { it.subtitleStreamIndex })
+        assertEquals(setOf("episode-1", "episode-2", "episode-3"), requests.first().knownEpisodeIds)
+        assertEquals(List(3) { "series-1" }, requests.map { it.seriesId })
         assertEquals(listOf(1_000L, 2_000L, 3_000L).map { it + SUBTITLE_ESTIMATE }, requests.map { it.estimatedBytes })
         assertEquals(
             6_000L + 3L * SUBTITLE_ESTIMATE,

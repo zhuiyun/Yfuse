@@ -293,6 +293,9 @@ fun planPlayback(
                 unsupportedVideoCanUseLocalSoftware -> DecoderMode.Software
                 requiresServerTranscode -> DecoderMode.Hardware
                 strictPlatformPath -> DecoderMode.Hardware
+                lockedEngine == null &&
+                    optimizationMode == PlaybackOptimizationMode.PowerSaver &&
+                    primary == PlayerEngine.Exo -> DecoderMode.Hardware
                 else -> preferredDecoderMode
             },
         renderPath = renderPath,
@@ -302,21 +305,23 @@ fun planPlayback(
     )
 }
 
-private fun Int.resolutionBucket(): String = when {
-    this >= 3800 -> "Uhd"
-    this >= 2500 -> "Qhd"
-    this >= 1900 -> "Fhd"
-    this >= 1200 -> "Hd"
-    else -> "Sd"
-}
+private fun Int.resolutionBucket(): String =
+    when {
+        this >= 3800 -> "Uhd"
+        this >= 2500 -> "Qhd"
+        this >= 1900 -> "Fhd"
+        this >= 1200 -> "Hd"
+        else -> "Sd"
+    }
 
-private fun Double.frameRateBucket(): String = when {
-    this >= 100.0 -> "HighFps"
-    this >= 50.0 -> "50Plus"
-    this >= 29.0 -> "30ish"
-    this >= 23.0 -> "24ish"
-    else -> "LowFps"
-}
+private fun Double.frameRateBucket(): String =
+    when {
+        this >= 100.0 -> "HighFps"
+        this >= 50.0 -> "50Plus"
+        this >= 29.0 -> "30ish"
+        this >= 23.0 -> "24ish"
+        else -> "LowFps"
+    }
 
 private val NATIVE_FIRST_CONTAINERS =
     setOf(

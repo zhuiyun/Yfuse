@@ -25,7 +25,7 @@ class HomeSearchUiContractTest {
     }
 
     @Test
-    fun hero_detail_action_uses_an_information_glyph_and_semantics() {
+    fun hero_uses_play_as_primary_action_and_details_as_secondary_action() {
         val source = projectFile("src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt").readText()
         val caption =
             source
@@ -37,8 +37,8 @@ class HomeSearchUiContractTest {
                 .substringAfter("val Info =")
                 .substringBefore("// ------------------------------------------------- state glyphs")
 
-        assertTrue("onClickLabel = \"查看影片详情\"" in caption)
-        assertTrue("contentDescription = \"影片信息\"" in caption)
+        assertTrue("onClickLabel = \"播放影片\"" in caption)
+        assertTrue("HeroCircleButton(AppIcons.Info, \"查看详情\", onDetails)" in caption)
         assertTrue("verticalLineTo(18.2f)" in info)
         assertTrue("andDots(12f to 5.8f)" in info)
     }

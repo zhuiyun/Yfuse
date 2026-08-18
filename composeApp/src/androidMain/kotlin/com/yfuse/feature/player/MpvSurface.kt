@@ -141,12 +141,13 @@ fun MpvSurface(
             val frame = requireNotNull(overlayFrame)
             val bitmap =
                 remember(frame) {
-                    Bitmap.createBitmap(
-                        frame.argb,
-                        frame.width,
-                        frame.height,
-                        Bitmap.Config.ARGB_8888,
-                    ).asImageBitmap()
+                    Bitmap
+                        .createBitmap(
+                            frame.argb,
+                            frame.width,
+                            frame.height,
+                            Bitmap.Config.ARGB_8888,
+                        ).asImageBitmap()
                 }
             Image(
                 bitmap = bitmap,
@@ -184,9 +185,12 @@ internal fun mapHdmvOverlayPoint(
     overlayHeight: Int,
 ): Pair<Int, Int>? {
     if (
-        viewport.width <= 0 || viewport.height <= 0 ||
-        overlayWidth <= 0 || overlayHeight <= 0 ||
-        !position.x.isFinite() || !position.y.isFinite()
+        viewport.width <= 0 ||
+        viewport.height <= 0 ||
+        overlayWidth <= 0 ||
+        overlayHeight <= 0 ||
+        !position.x.isFinite() ||
+        !position.y.isFinite()
     ) {
         return null
     }
@@ -201,8 +205,10 @@ internal fun mapHdmvOverlayPoint(
     val left = (viewport.width - renderedWidth) / 2f
     val top = (viewport.height - renderedHeight) / 2f
     if (
-        position.x < left || position.y < top ||
-        position.x >= left + renderedWidth || position.y >= top + renderedHeight
+        position.x < left ||
+        position.y < top ||
+        position.x >= left + renderedWidth ||
+        position.y >= top + renderedHeight
     ) {
         return null
     }

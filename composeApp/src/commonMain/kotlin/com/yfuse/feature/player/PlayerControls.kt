@@ -114,6 +114,8 @@ internal fun PlayerControls(
     onNextItem: () -> Boolean,
     onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
+    audioControls: AudioControlState = AudioControlState(),
+    audioActions: AudioControlActions = AudioControlActions(),
     onSelectSubtitle: (String) -> Unit,
     subtitleControls: SubtitleControlState = SubtitleControlState(),
     subtitleActions: SubtitleControlActions = SubtitleControlActions(),
@@ -842,6 +844,8 @@ internal fun PlayerControls(
                     subtitleActions = subtitleActions,
                     remoteSubtitles = remoteSubtitles,
                     remoteSubtitleActions = remoteSubtitleActions,
+                    audioControls = audioControls,
+                    audioActions = audioActions,
                     onSelectAudio = {
                         onSelectAudio(it)
                         settingsPanelKind = null

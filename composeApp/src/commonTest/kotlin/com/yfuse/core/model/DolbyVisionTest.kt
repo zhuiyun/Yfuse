@@ -8,7 +8,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DolbyVisionTest {
-
     private fun version(
         videoRange: String? = null,
         codec: String? = null,
@@ -27,15 +26,16 @@ class DolbyVisionTest {
         videoCodec = codec,
         videoHeight = 2160,
         videoRange = videoRange,
-        video = VideoStreamInfo(
-            codec = codec,
-            profile = profile,
-            dolbyProfile = dolbyProfile,
-            dolbyBaseLayerCompatibility = baseLayer,
-            dolbyRpuPresent = rpuPresent,
-            dolbyEnhancementLayerPresent = enhancementLayerPresent,
-            dolbyBaseLayerPresent = baseLayerPresent,
-        ),
+        video =
+            VideoStreamInfo(
+                codec = codec,
+                profile = profile,
+                dolbyProfile = dolbyProfile,
+                dolbyBaseLayerCompatibility = baseLayer,
+                dolbyRpuPresent = rpuPresent,
+                dolbyEnhancementLayerPresent = enhancementLayerPresent,
+                dolbyBaseLayerPresent = baseLayerPresent,
+            ),
     )
 
     @Test
@@ -147,12 +147,13 @@ class DolbyVisionTest {
     fun a_reported_profile_is_dolby_even_when_every_other_field_says_hdr10() {
         // What a real Emby row for a profile 5 file often looks like: the range and the
         // profile both describe the HEVC base layer, and only DvProfile names the format.
-        val subject = version(
-            videoRange = "HDR10",
-            codec = "hevc",
-            profile = "Main 10",
-            dolbyProfile = 5,
-        )
+        val subject =
+            version(
+                videoRange = "HDR10",
+                codec = "hevc",
+                profile = "Main 10",
+                dolbyProfile = 5,
+            )
 
         assertTrue(subject.isDolbyVision)
         assertEquals(5, subject.dolbyProfile)

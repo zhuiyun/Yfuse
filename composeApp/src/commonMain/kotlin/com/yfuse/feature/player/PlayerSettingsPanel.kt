@@ -88,6 +88,8 @@ internal fun SettingsPanel(
     subtitleActions: SubtitleControlActions,
     remoteSubtitles: RemoteSubtitlePanelState,
     remoteSubtitleActions: RemoteSubtitleActions,
+    audioControls: AudioControlState,
+    audioActions: AudioControlActions,
     onSelectAudio: (String) -> Unit,
     sleepTimer: SleepTimerState,
     sleepTimerActions: SleepTimerActions,
@@ -170,6 +172,25 @@ internal fun SettingsPanel(
                                 color = Color.White.copy(alpha = 0.68f),
                             )
                         }
+                        GroupLabel("字幕样式")
+                        SubtitleStylePreset.entries
+                            .filterNot { it == SubtitleStylePreset.Custom }
+                            .forEach { preset ->
+                                OptionRow(
+                                    preset.label,
+                                    subtitleControls.stylePreset == preset,
+                                    onClick = { subtitleActions.onStylePreset(preset) },
+                                )
+                            }
+                        GroupLabel("字幕位置")
+                        listOf(0.76f to "靠上", 0.88f to "居中偏下", 0.92f to "标准", 0.96f to "靠下")
+                            .forEach { (position, label) ->
+                                OptionRow(
+                                    label,
+                                    subtitleControls.position == position,
+                                    onClick = { subtitleActions.onPosition(position) },
+                                )
+                            }
                         GroupLabel("字幕时间偏移")
                         listOf(-5_000L, -2_000L, 0L, 2_000L, 5_000L).forEach { offset ->
                             val label =
@@ -239,6 +260,28 @@ internal fun SettingsPanel(
                                 track.label,
                                 track.selected,
                                 onClick = { onSelectAudio(track.id) },
+                            )
+                        }
+                        GroupLabel("音频同步")
+                        if (audioControls.available) {
+                            listOf(-2_000L, -500L, 0L, 500L, 2_000L).forEach { delay ->
+                                val label =
+                                    when {
+                                        delay < 0L -> "提前 ${-delay} 毫秒"
+                                        delay > 0L -> "延后 $delay 毫秒"
+                                        else -> "同步"
+                                    }
+                                OptionRow(
+                                    label,
+                                    audioControls.delayMs == delay,
+                                    onClick = { audioActions.onDelay(delay) },
+                                )
+                            }
+                        } else {
+                            Text(
+                                audioControls.unavailableReason ?: "当前播放模式不支持音频延迟。",
+                                style = AppTypography.caption.medium,
+                                color = Color.White.copy(alpha = 0.68f),
                             )
                         }
                     } else {
@@ -413,6 +456,16 @@ internal fun SettingsPanel(
                                             ).joinToString(" · "),
                                             false,
                                             onClick = onNextDiscChapter,
+                                        )
+                                    }
+                                }
+                                if (disc.effectiveAngleCount > 1 && ActiveDiscNavigation.isBound) {
+                                    GroupLabel("多视角")
+                                    disc.angleOptions.forEach { angle ->
+                                        OptionRow(
+                                            label = angle.label,
+                                            selected = angle.index == disc.selectedAngleIndex,
+                                            onClick = { ActiveDiscNavigation.selectAngle(angle.index) },
                                         )
                                     }
                                 }

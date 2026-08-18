@@ -52,6 +52,7 @@ internal fun OfflineDownloadDialog(
     var quality by remember(detail.id) { mutableStateOf(OfflineDownloadQuality.Original) }
     var subtitleIndex by remember(detail.id) { mutableStateOf<Int?>(null) }
     var batchMode by remember(detail.id) { mutableStateOf(OfflineBatchMode.Current) }
+    var autoDownloadNewEpisodes by remember(detail.id) { mutableStateOf(false) }
     val selectedVersion = versions.firstOrNull { it.id == versionId } ?: versions.firstOrNull()
     val selectedSubtitle = selectedVersion?.subtitleTracks?.firstOrNull { it.index == subtitleIndex }
     val batchCount =
@@ -70,6 +71,7 @@ internal fun OfflineDownloadDialog(
             subtitleLanguage = selectedSubtitle?.language,
             subtitleDefault = selectedSubtitle?.default == true,
             subtitleForced = selectedSubtitle?.forced == true,
+            autoDownloadNewEpisodes = autoDownloadNewEpisodes,
         )
     val totalEstimate =
         estimateOfflineDownloadBytes(
@@ -130,6 +132,15 @@ internal fun OfflineDownloadDialog(
                     onClick = { subtitleIndex = index },
                 )
             }
+        }
+
+        if (detail.seriesId != null) {
+            Text("追更", style = AppTypography.caption.strong, color = palette.sub2)
+            OverlayOptionRow(
+                label = "自动下载后续新集",
+                selected = autoDownloadNewEpisodes,
+                onClick = { autoDownloadNewEpisodes = !autoDownloadNewEpisodes },
+            )
         }
 
         Text(

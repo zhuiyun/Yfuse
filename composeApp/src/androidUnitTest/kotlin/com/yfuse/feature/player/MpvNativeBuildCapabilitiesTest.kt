@@ -10,6 +10,26 @@ import kotlin.test.assertTrue
 
 class MpvNativeBuildCapabilitiesTest {
     @Test
+    fun only_the_complete_pinned_native_identity_satisfies_the_artifact_gate() {
+        val capabilities =
+            MpvNativeBuildCapabilities(
+                libbluray = true,
+                remoteRawBluRay = true,
+                bdmvVfs = true,
+                hdmvMenu = true,
+                multiAngle = true,
+                libmpvAndroidRevision = EXPECTED_LIBMPV_ANDROID_REVISION,
+                libblurayRevision = EXPECTED_LIBBLURAY_REVISION,
+                libudfreadRevision = EXPECTED_LIBUDFREAD_REVISION,
+            )
+
+        assertTrue(capabilities.pinnedYfuseBluRayArtifact)
+        assertFalse(capabilities.copy(multiAngle = false).pinnedYfuseBluRayArtifact)
+        assertFalse(capabilities.copy(libblurayRevision = "unexpected").pinnedYfuseBluRayArtifact)
+        assertFalse(capabilities.copy(bdj = true).pinnedYfuseBluRayArtifact)
+    }
+
+    @Test
     fun custom_aar_marker_is_read_without_a_compile_time_dependency() {
         val capabilities =
             detectMpvNativeBuildCapabilities(
@@ -22,6 +42,7 @@ class MpvNativeBuildCapabilitiesTest {
         assertTrue(capabilities.remoteRawBluRay)
         assertTrue(capabilities.bdmvVfs)
         assertTrue(capabilities.hdmvMenu)
+        assertTrue(capabilities.multiAngle)
         assertTrue(capabilities.nativeBluRay)
         assertTrue(capabilities.description.contains("ISO/BDMV"))
         assertEquals("mpv-rev", capabilities.libmpvAndroidRevision)
@@ -234,6 +255,9 @@ private class FakeCustomMpvMarker {
 
         @JvmField
         val HDMV_MENU = true
+
+        @JvmField
+        val MULTI_ANGLE = true
 
         @JvmField
         val LIBMPV_ANDROID_REVISION = "mpv-rev"

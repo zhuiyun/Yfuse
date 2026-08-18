@@ -4,5 +4,4 @@ package com.yfuse.feature.player
 internal const val YFUSE_REMOTE_BLURAY_SCHEME = "yfusebd"
 internal const val YFUSE_REMOTE_BLURAY_PREFIX = "$YFUSE_REMOTE_BLURAY_SCHEME://"
 
-internal fun String.isYfuseNativeRemoteBluRayUrl(): Boolean =
-    startsWith(YFUSE_REMOTE_BLURAY_PREFIX, ignoreCase = true)
+internal fun String.isYfuseNativeRemoteBluRayUrl(): Boolean = startsWith(YFUSE_REMOTE_BLURAY_PREFIX, ignoreCase = true)

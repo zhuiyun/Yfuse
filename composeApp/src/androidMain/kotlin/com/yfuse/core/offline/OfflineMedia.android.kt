@@ -10,25 +10,31 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.StatFs
 import android.os.storage.StorageManager
+import android.provider.DocumentsContract
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
+import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import com.russhwolf.settings.Settings
 import com.yfuse.MainActivity
+import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.redactDiagnosticText
+import com.yfuse.core.model.Episode
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import kotlinx.coroutines.CancellationException
@@ -67,11 +73,14 @@ internal lateinit var offlineApplicationContext: Context
 
 internal const val OFFLINE_STORAGE_RESERVE_BYTES = 256L * 1024L * 1024L
 internal const val OFFLINE_WAKE_WORK_NAME = "yfuse.offline.download.wake.v1"
+internal const val OFFLINE_AUTO_SYNC_WORK_NAME = "yfuse.offline.auto-sync.v1"
 internal const val MAX_OFFLINE_SUBTITLE_BYTES = 16L * 1024L * 1024L
 
 private const val OFFLINE_NOTIFICATION_CHANNEL_ID = "yfuse_downloads"
 private const val OFFLINE_SERVICE_NOTIFICATION_ID = 2410
 private const val OFFLINE_WORK_NOTIFICATION_ID = 2411
+private const val AUTO_SYNC_INTERVAL_HOURS = 6L
+private const val MAX_KNOWN_AUTO_EPISODES = 2_000
 
 private class OfflineHttpException(
     val statusCode: Int,
@@ -157,6 +166,17 @@ internal fun offlineWakeRequest(
             WorkRequest.MIN_BACKOFF_MILLIS,
             TimeUnit.MILLISECONDS,
         ).addTag(OFFLINE_WAKE_WORK_NAME)
+        .build()
+
+internal fun offlineAutoSyncRequest(wifiOnly: Boolean): PeriodicWorkRequest =
+    PeriodicWorkRequest
+        .Builder(OfflineDownloadWorker::class.java, AUTO_SYNC_INTERVAL_HOURS, TimeUnit.HOURS)
+        .setConstraints(
+            Constraints
+                .Builder()
+                .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
+                .build(),
+        ).addTag(OFFLINE_AUTO_SYNC_WORK_NAME)
         .build()
 
 internal fun hasSufficientOfflineStorage(
@@ -333,6 +353,9 @@ internal fun planOfflineEnqueue(
                 subtitleStreamIndex = request.subtitleStreamIndex,
                 subtitleCodec = request.subtitleCodec,
                 subtitleLanguage = request.subtitleLanguage,
+                seriesId = request.seriesId,
+                seasonId = request.seasonId,
+                automaticallyDownloaded = request.automaticallyDownloaded,
                 legacySourceUrl = null,
                 posterUrl = null,
                 localPath = old?.localPath.takeUnless { sourceChanged },
@@ -359,7 +382,8 @@ internal fun planOfflineEnqueue(
 actual fun createOfflineMediaManager(
     settings: Settings,
     registry: ServerRegistry,
-): OfflineMediaManager = AndroidOfflineMediaManager(offlineApplicationContext, settings, registry)
+    repository: EmbyRepository,
+): OfflineMediaManager = AndroidOfflineMediaManager(offlineApplicationContext, settings, registry, repository)
 
 internal fun sanitizeLegacyOfflineItem(item: OfflineMedia): OfflineMedia =
     item.copy(
@@ -546,10 +570,12 @@ internal class AndroidOfflineMediaManager(
     private val context: Context,
     private val settings: Settings,
     private val registry: ServerRegistry,
+    private val repository: EmbyRepository,
 ) : OfflineMediaManager {
     private companion object {
         const val INDEX_KEY = "offline.media.index.v1"
         const val WIFI_KEY = "offline.media.wifiOnly"
+        const val AUTO_RULES_KEY = "offline.media.auto.rules.v1"
         const val SPACE_CHECK_INTERVAL_BYTES = 8L * 1024L * 1024L
     }
 
@@ -559,12 +585,16 @@ internal class AndroidOfflineMediaManager(
             encodeDefaults = true
         }
     private val serializer = ListSerializer(OfflineMedia.serializer())
+    private val autoRuleSerializer = ListSerializer(OfflineAutoDownloadRule.serializer())
     private val directory = File(context.filesDir, "offline-media").apply { mkdirs() }
     private val indexLock = Any()
     private val _wifiOnly = MutableStateFlow(settings.getBoolean(WIFI_KEY, true))
     override val wifiOnly: StateFlow<Boolean> = _wifiOnly.asStateFlow()
     private val _policy = MutableStateFlow(loadOfflineDownloadPolicy(settings))
     override val policy: StateFlow<OfflineDownloadPolicy> = _policy.asStateFlow()
+    private val autoRulesState = MutableStateFlow(loadAutoRules())
+    private val _autoDownloadRuleCount = MutableStateFlow(autoRulesState.value.size)
+    override val autoDownloadRuleCount: StateFlow<Int> = _autoDownloadRuleCount.asStateFlow()
     private val _items = MutableStateFlow(loadIndex())
     override val items: StateFlow<List<OfflineMedia>> = _items.asStateFlow()
     private val runLock = Mutex()
@@ -579,7 +609,7 @@ internal class AndroidOfflineMediaManager(
                 when (item.status) {
                     DownloadStatus.Downloading -> item.copy(status = DownloadStatus.Queued)
                     DownloadStatus.Completed ->
-                        if (item.localPath?.let(::File)?.exists() == true) {
+                        if (item.localPath?.let(::offlinePathExists) == true) {
                             item
                         } else {
                             item.copy(
@@ -610,9 +640,11 @@ internal class AndroidOfflineMediaManager(
             )
         }
         rebuildWakeSchedule(ExistingWorkPolicy.KEEP)
+        rebuildAutoDownloadSchedule()
     }
 
     override fun enqueue(request: OfflineDownloadRequest) {
+        if (request.autoDownloadNewEpisodes) registerAutoDownloadRule(request)
         val id = "${request.serverId}#${request.itemId}"
         var sourceChanged = false
         lateinit var next: OfflineMedia
@@ -620,14 +652,19 @@ internal class AndroidOfflineMediaManager(
             val old = _items.value.firstOrNull { it.id == id }
             val plan = planOfflineEnqueue(old, request, System.currentTimeMillis())
             sourceChanged = plan.sourceChanged
-            next = plan.item
+            next =
+                plan.item.copy(
+                    storageTreeUri =
+                        old?.storageTreeUri?.takeUnless { plan.sourceChanged }
+                            ?: _policy.value.storageTreeUri,
+                )
             commitLocked(_items.value.filterNot { it.id == id } + next)
             if (old != null && sourceChanged) {
                 // Commit the new revision first so the active loop sees that it was superseded.
                 // Keep cleanup under the same lock so a replacement cannot claim its files before
                 // the old generation's deterministic artifacts have been removed.
-                old.localPath?.let(::File)?.delete()
-                old.subtitlePath?.let(::File)?.delete()
+                old.localPath?.let(::deleteOfflinePath)
+                old.subtitlePath?.let(::deleteOfflinePath)
                 completedFile(old).delete()
                 legacyCompletedFile(old.id).delete()
                 partFile(old).delete()
@@ -821,6 +858,7 @@ internal class AndroidOfflineMediaManager(
             )
         }
         if (!value) kick() else rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
+        rebuildAutoDownloadSchedule()
     }
 
     override fun setMaxConcurrentDownloads(value: Int) {
@@ -830,6 +868,33 @@ internal class AndroidOfflineMediaManager(
 
     override fun setAutoDeleteWatched(value: Boolean) {
         persistPolicy(_policy.value.copy(autoDeleteWatched = value))
+    }
+
+    override fun setAutoDownloadEnabled(value: Boolean) {
+        persistPolicy(_policy.value.copy(autoDownloadEnabled = value))
+        rebuildAutoDownloadSchedule()
+    }
+
+    override fun setAutoDownloadItemLimit(value: Int) {
+        persistPolicy(_policy.value.copy(autoDownloadItemLimit = value).normalized())
+        rebuildAutoDownloadSchedule()
+    }
+
+    override fun setStorageDirectory(
+        treeUri: String?,
+        label: String?,
+    ) {
+        persistPolicy(
+            _policy.value.copy(
+                storageTreeUri = treeUri,
+                storageLabel = label,
+            ),
+        )
+    }
+
+    override fun clearAutoDownloadRules() {
+        persistAutoRules(emptyList())
+        rebuildAutoDownloadSchedule()
     }
 
     override fun onPlaybackCompleted(
@@ -875,6 +940,113 @@ internal class AndroidOfflineMediaManager(
                 }
             }
         }
+
+    internal suspend fun refreshAutoDownloads() {
+        val activePolicy = _policy.value
+        if (!activePolicy.autoDownloadEnabled) return
+        autoRulesState.value.forEach { rule ->
+            val server = registry.serverById(rule.serverId) ?: return@forEach
+            val episodes =
+                repository
+                    .episodes(
+                        server = server,
+                        seriesId = rule.seriesId,
+                        seasonId = rule.seasonId,
+                        includeMediaSources = true,
+                    ).getOrElse { error ->
+                        AppLog.warning(
+                            category = "offline",
+                            event = "auto_download_refresh_failed",
+                            message = "Automatic episode refresh failed",
+                            throwable = error,
+                            attributes = mapOf("seriesId" to rule.seriesId),
+                        )
+                        return@forEach
+                    }
+            val ruleItems =
+                _items.value
+                    .asSequence()
+                    .filter {
+                        it.serverId == rule.serverId &&
+                            it.seriesId == rule.seriesId &&
+                            it.seasonId == rule.seasonId &&
+                            it.automaticallyDownloaded
+                    }.toList()
+            val existingIds = ruleItems.mapTo(linkedSetOf(), OfflineMedia::itemId)
+            val protectedStatuses =
+                setOf(
+                    DownloadStatus.Queued,
+                    DownloadStatus.WaitingForWifi,
+                    DownloadStatus.Downloading,
+                )
+            val nonReplaceableCount =
+                ruleItems.count { it.status in protectedStatuses }
+            val selected =
+                selectNewAutoDownloadEpisodes(
+                    episodes = episodes,
+                    knownEpisodeIds = rule.knownEpisodeIds,
+                    existingItemIds = existingIds,
+                    itemLimit = (activePolicy.autoDownloadItemLimit - nonReplaceableCount).coerceAtLeast(0),
+                )
+            val completedToKeep =
+                (activePolicy.autoDownloadItemLimit - nonReplaceableCount - selected.size)
+                    .coerceAtLeast(0)
+            ruleItems
+                .filter { it.status !in protectedStatuses }
+                .sortedByDescending(OfflineMedia::updatedAtEpochMs)
+                .drop(completedToKeep)
+                .forEach { remove(it.id) }
+            // Remember every item returned by this refresh. A temporary item limit must not
+            // make older episodes look newly published when capacity opens later.
+            updateAutoRule(rule.id) { current ->
+                current.copy(
+                    knownEpisodeIds =
+                        (current.knownEpisodeIds + episodes.map(Episode::id))
+                            .takeLastBounded(MAX_KNOWN_AUTO_EPISODES),
+                    updatedAtEpochMs = now(),
+                )
+            }
+            selected.forEach { episode ->
+                val version = episode.versions.firstOrNull()
+                val subtitle =
+                    matchOfflineSubtitleTrack(
+                        tracks = version?.subtitleTracks.orEmpty(),
+                        language = rule.subtitleLanguage,
+                        codec = rule.subtitleCodec,
+                        default = false,
+                        forced = false,
+                    )
+                enqueue(
+                    OfflineDownloadRequest(
+                        serverId = rule.serverId,
+                        itemId = episode.id,
+                        title =
+                            listOfNotNull(
+                                episode.seasonNumber?.let { "S$it" },
+                                episode.indexNumber?.let { "E$it" },
+                                episode.name,
+                            ).joinToString(" "),
+                        mediaSourceId = version?.id,
+                        quality = rule.quality,
+                        subtitleStreamIndex = subtitle?.index,
+                        subtitleCodec = subtitle?.codec,
+                        subtitleLanguage = subtitle?.language,
+                        estimatedBytes =
+                            estimateOfflineBytes(
+                                sourceSizeBytes = version?.sizeBytes,
+                                sourceBitrateBps = version?.bitrateBps,
+                                runtimeMinutes = episode.runtimeMinutes,
+                                quality = rule.quality,
+                                includeSubtitle = subtitle != null,
+                            ),
+                        seriesId = rule.seriesId,
+                        seasonId = episode.seasonId ?: rule.seasonId,
+                        automaticallyDownloaded = true,
+                    ),
+                )
+            }
+        }
+    }
 
     private suspend fun download(snapshot: OfflineMedia) =
         withContext(Dispatchers.IO) {
@@ -1336,10 +1508,10 @@ internal class AndroidOfflineMediaManager(
         snapshot: OfflineMedia,
         videoTarget: File,
         subtitlePart: File?,
-    ): Boolean =
-        synchronized(indexLock) {
-            val current = _items.value.firstOrNull { it.id == snapshot.id }
-            val completed =
+    ): Boolean {
+        val completed =
+            synchronized(indexLock) {
+                val current = _items.value.firstOrNull { it.id == snapshot.id }
                 publishOfflineCompletionLocked(
                     current = current,
                     snapshot = snapshot,
@@ -1347,10 +1519,69 @@ internal class AndroidOfflineMediaManager(
                     subtitlePart = subtitlePart,
                     subtitleTarget = subtitleFile(snapshot.id),
                     nowMs = now(),
-                ) ?: return@synchronized false
-            commitLocked(_items.value.map { if (it.id == snapshot.id) completed else it })
-            true
+                )
+            } ?: return false
+        val exported =
+            snapshot.storageTreeUri?.let { treeUri ->
+                val videoUri =
+                    publishOfflineFileToTree(
+                        context = context,
+                        treeUri = treeUri,
+                        source = videoTarget,
+                        displayName = completedFile(snapshot).name,
+                        mimeType = "video/*",
+                    )
+                val subtitleUri =
+                    completed.subtitlePath
+                        ?.let(::File)
+                        ?.takeIf(File::isFile)
+                        ?.let { subtitle ->
+                            runCatching {
+                                publishOfflineFileToTree(
+                                    context = context,
+                                    treeUri = treeUri,
+                                    source = subtitle,
+                                    displayName = subtitleFile(snapshot.id).name,
+                                    mimeType = "application/x-subrip",
+                                )
+                            }.onFailure { error -> logSubtitleFailure(snapshot, error) }
+                                .getOrNull()
+                        }
+                completed.copy(
+                    localPath = videoUri,
+                    subtitlePath = subtitleUri ?: completed.subtitlePath,
+                )
+            } ?: completed
+        val committed =
+            synchronized(indexLock) {
+                val current = _items.value.firstOrNull { it.id == snapshot.id }
+                if (
+                    current == null ||
+                    current.downloadRevision != snapshot.downloadRevision ||
+                    current.status != DownloadStatus.Downloading
+                ) {
+                    false
+                } else {
+                    commitLocked(_items.value.map { if (it.id == snapshot.id) exported else it })
+                    true
+                }
+            }
+        if (!committed) {
+            exported.localPath?.let(::deleteOfflinePath)
+            exported.subtitlePath?.let(::deleteOfflinePath)
+            videoTarget.delete()
+            completed.subtitlePath?.let(::File)?.delete()
+            return false
         }
+        if (exported.localPath != videoTarget.absolutePath) {
+            videoTarget.delete()
+            completed.subtitlePath
+                ?.takeUnless { it == exported.subtitlePath }
+                ?.let(::File)
+                ?.delete()
+        }
+        return committed
+    }
 
     private fun logSubtitleFailure(
         snapshot: OfflineMedia,
@@ -1410,10 +1641,10 @@ internal class AndroidOfflineMediaManager(
     }
 
     private fun deleteArtifactsLocked(item: OfflineMedia): Boolean {
+        val indexedPaths = listOfNotNull(item.localPath, item.subtitlePath)
+        indexedPaths.forEach(::deleteOfflinePath)
         val artifacts =
             listOfNotNull(
-                item.localPath?.let(::File),
-                item.subtitlePath?.let(::File),
                 completedFile(item),
                 legacyCompletedFile(item.id),
                 partFile(item),
@@ -1430,7 +1661,8 @@ internal class AndroidOfflineMediaManager(
             }
         }
         deleteSubtitlePartFiles(item.id)
-        return artifacts.none(File::exists) &&
+        return indexedPaths.none(::offlinePathExists) &&
+            artifacts.none(File::exists) &&
             directory.listFiles()?.none { candidate ->
                 candidate.name.startsWith(safeFileName(item.id) + ".") &&
                     candidate.name.endsWith(".subtitle.part")
@@ -1462,6 +1694,74 @@ internal class AndroidOfflineMediaManager(
         }
     }
 
+    private fun registerAutoDownloadRule(request: OfflineDownloadRequest) {
+        val seriesId = request.seriesId?.takeIf(String::isNotBlank) ?: return
+        val id = "${request.serverId}#$seriesId#${request.seasonId.orEmpty()}"
+        val existing = autoRulesState.value.firstOrNull { it.id == id }
+        val rule =
+            OfflineAutoDownloadRule(
+                id = id,
+                serverId = request.serverId,
+                seriesId = seriesId,
+                seasonId = request.seasonId,
+                quality = request.quality,
+                subtitleCodec = request.subtitleCodec,
+                subtitleLanguage = request.subtitleLanguage,
+                knownEpisodeIds =
+                    (
+                        existing?.knownEpisodeIds.orEmpty() +
+                            request.knownEpisodeIds +
+                            request.itemId
+                    ).takeLastBounded(MAX_KNOWN_AUTO_EPISODES),
+                updatedAtEpochMs = now(),
+            )
+        persistAutoRules(autoRulesState.value.filterNot { it.id == id } + rule)
+        rebuildAutoDownloadSchedule()
+    }
+
+    private fun loadAutoRules(): List<OfflineAutoDownloadRule> =
+        settings
+            .getStringOrNull(AUTO_RULES_KEY)
+            ?.let { stored ->
+                runCatching { json.decodeFromString(autoRuleSerializer, stored) }
+                    .onFailure { error ->
+                        AppLog.warning(
+                            category = "offline",
+                            event = "auto_download_rules_invalid",
+                            message = "Stored automatic download rules could not be decoded",
+                            throwable = error,
+                        )
+                    }.getOrNull()
+            }.orEmpty()
+            .distinctBy(OfflineAutoDownloadRule::id)
+
+    private fun persistAutoRules(value: List<OfflineAutoDownloadRule>) {
+        val normalized = value.distinctBy(OfflineAutoDownloadRule::id).takeLast(100)
+        autoRulesState.value = normalized
+        _autoDownloadRuleCount.value = normalized.size
+        settings.putString(AUTO_RULES_KEY, json.encodeToString(autoRuleSerializer, normalized))
+    }
+
+    private fun updateAutoRule(
+        id: String,
+        transform: (OfflineAutoDownloadRule) -> OfflineAutoDownloadRule,
+    ) {
+        persistAutoRules(autoRulesState.value.map { if (it.id == id) transform(it) else it })
+    }
+
+    private fun rebuildAutoDownloadSchedule() {
+        val workManager = WorkManager.getInstance(context)
+        if (autoRulesState.value.isEmpty() || !_policy.value.autoDownloadEnabled) {
+            workManager.cancelUniqueWork(OFFLINE_AUTO_SYNC_WORK_NAME)
+            return
+        }
+        workManager.enqueueUniquePeriodicWork(
+            OFFLINE_AUTO_SYNC_WORK_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            offlineAutoSyncRequest(_policy.value.wifiOnly),
+        )
+    }
+
     private fun persistPolicy(value: OfflineDownloadPolicy) {
         val normalized = persistOfflineDownloadPolicy(settings, value)
         _policy.value = normalized
@@ -1483,6 +1783,109 @@ internal class AndroidOfflineMediaManager(
     private fun safeFileName(value: String) = offlineArtifactPrefix(value)
 
     private fun now() = System.currentTimeMillis()
+}
+
+private fun Iterable<String>.takeLastBounded(limit: Int): Set<String> =
+    toList().takeLast(limit.coerceAtLeast(1)).toCollection(linkedSetOf())
+
+private fun offlinePathExists(path: String): Boolean =
+    if (path.startsWith("content://")) {
+        runCatching {
+            offlineApplicationContext.contentResolver
+                .openAssetFileDescriptor(Uri.parse(path), "r")
+                ?.use { it.length != 0L } == true
+        }.getOrDefault(false)
+    } else {
+        File(path).isFile
+    }
+
+private fun deleteOfflinePath(path: String): Boolean =
+    if (path.startsWith("content://")) {
+        runCatching {
+            DocumentsContract.deleteDocument(
+                offlineApplicationContext.contentResolver,
+                Uri.parse(path),
+            )
+        }.getOrDefault(false)
+    } else {
+        !File(path).exists() || File(path).delete()
+    }
+
+private fun publishOfflineFileToTree(
+    context: Context,
+    treeUri: String,
+    source: File,
+    displayName: String,
+    mimeType: String,
+): String {
+    if (!source.isFile) throw OfflineStorageException("待保存的离线文件不存在")
+    val resolver = context.contentResolver
+    val tree = Uri.parse(treeUri)
+    val root =
+        runCatching {
+            DocumentsContract.buildDocumentUriUsingTree(
+                tree,
+                DocumentsContract.getTreeDocumentId(tree),
+            )
+        }.getOrElse { throw OfflineStorageException("所选下载目录已失效", it) }
+    val temporaryName = "$displayName.${System.currentTimeMillis()}.downloading"
+    findTreeDocument(context, tree, temporaryName)?.let {
+        runCatching { DocumentsContract.deleteDocument(resolver, it) }
+    }
+    val temporary =
+        runCatching {
+            DocumentsContract.createDocument(resolver, root, mimeType, temporaryName)
+        }.getOrNull() ?: throw OfflineStorageException("无法在所选目录创建离线文件")
+    try {
+        val output =
+            resolver.openOutputStream(temporary, "wt")
+                ?: throw OfflineStorageException("无法写入所选下载目录")
+        source.inputStream().use { input ->
+            output.use { destination -> input.copyTo(destination, 128 * 1024) }
+        }
+        findTreeDocument(context, tree, displayName)?.let {
+            runCatching { DocumentsContract.deleteDocument(resolver, it) }
+                .getOrElse { error -> throw OfflineStorageException("无法替换所选目录中的旧文件", error) }
+        }
+        val published =
+            DocumentsContract.renameDocument(resolver, temporary, displayName)
+                ?: temporary
+        return published.toString()
+    } catch (error: Throwable) {
+        runCatching { DocumentsContract.deleteDocument(resolver, temporary) }
+        if (error is OfflineStorageException) throw error
+        throw OfflineStorageException("无法保存到所选下载目录", error)
+    }
+}
+
+private fun findTreeDocument(
+    context: Context,
+    tree: Uri,
+    displayName: String,
+): Uri? {
+    val resolver = context.contentResolver
+    val children =
+        DocumentsContract.buildChildDocumentsUriUsingTree(
+            tree,
+            DocumentsContract.getTreeDocumentId(tree),
+        )
+    val columns =
+        arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        )
+    return runCatching {
+        resolver.query(children, columns, null, null, null)?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                if (cursor.getString(nameColumn) == displayName) {
+                    return@use DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(idColumn))
+                }
+            }
+            null
+        }
+    }.getOrNull()
 }
 
 private fun allocatableOfflineBytes(
@@ -1570,6 +1973,7 @@ class OfflineDownloadWorker(
             }
         return try {
             setForeground(offlineForegroundInfo(applicationContext))
+            manager.refreshAutoDownloads()
             coroutineScope {
                 val updates =
                     launch {

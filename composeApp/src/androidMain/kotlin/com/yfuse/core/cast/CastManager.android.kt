@@ -32,6 +32,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.HttpURLConnection
@@ -1026,10 +1029,16 @@ private class AndroidCastManager(
 
     private fun readTarget(location: String): DlnaTarget? {
         val connection = URL(location).openConnection() as HttpURLConnection
-        connection.connectTimeout = 2_000
-        connection.readTimeout = 2_000
-        val xml = connection.inputStream.bufferedReader().use { it.readText() }
-        connection.disconnect()
+        val xml =
+            try {
+                connection.connectTimeout = 2_000
+                connection.readTimeout = 2_000
+                connection.inputStream.use {
+                    readCastResponseBounded(it, MAX_DEVICE_DESCRIPTION_BYTES)
+                }
+            } finally {
+                connection.disconnect()
+            }
         val name = xml.xmlTag("friendlyName")?.xmlUnescape() ?: return null
         val avService = xml.serviceControlUrl("AVTransport") ?: return null
         val renderingService = xml.serviceControlUrl("RenderingControl")
@@ -1056,27 +1065,52 @@ private class AndroidCastManager(
             |</s:Envelope>
             """.trimMargin()
         val connection = URL(controlUrl).openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.doOutput = true
-        connection.connectTimeout = SOAP_TIMEOUT_MS
-        connection.readTimeout = SOAP_TIMEOUT_MS
-        connection.setRequestProperty("Content-Type", "text/xml; charset=\"utf-8\"")
-        connection.setRequestProperty("SOAPACTION", "\"$service#$action\"")
-        connection.outputStream.use { it.write(body.encodeToByteArray()) }
-        val status = connection.responseCode
-        val response =
-            if (status in 200..299) {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                connection.errorStream
-                    ?.bufferedReader()
-                    ?.use { it.readText() }
-                    .orEmpty()
+        val (status, response) =
+            try {
+                connection.requestMethod = "POST"
+                connection.doOutput = true
+                connection.connectTimeout = SOAP_TIMEOUT_MS
+                connection.readTimeout = SOAP_TIMEOUT_MS
+                connection.setRequestProperty("Content-Type", "text/xml; charset=\"utf-8\"")
+                connection.setRequestProperty("SOAPACTION", "\"$service#$action\"")
+                connection.outputStream.use { it.write(body.encodeToByteArray()) }
+                val responseCode = connection.responseCode
+                val stream =
+                    if (responseCode in 200..299) {
+                        connection.inputStream
+                    } else {
+                        connection.errorStream
+                    }
+                responseCode to
+                    stream
+                        ?.use { readCastResponseBounded(it, MAX_SOAP_RESPONSE_BYTES) }
+                        .orEmpty()
+            } finally {
+                connection.disconnect()
             }
-        connection.disconnect()
         if (status !in 200..299) throw CastHttpException(status)
         return response
     }
+}
+
+internal fun readCastResponseBounded(
+    input: InputStream,
+    maxBytes: Int,
+): String {
+    require(maxBytes > 0) { "响应大小上限必须大于 0" }
+    val output = ByteArrayOutputStream(minOf(maxBytes, 8 * 1024))
+    val buffer = ByteArray(8 * 1024)
+    var total = 0
+    while (true) {
+        val read = input.read(buffer)
+        if (read < 0) break
+        if (read > maxBytes - total) {
+            throw IOException("投屏设备响应超过 ${maxBytes / 1024} KiB 上限")
+        }
+        output.write(buffer, 0, read)
+        total += read
+    }
+    return output.toByteArray().decodeToString()
 }
 
 private suspend fun PendingResult<out Result>.awaitSuccess(): Boolean =
@@ -1118,6 +1152,8 @@ private const val DLNA_CONFIRM_ATTEMPTS = 3
 private const val DLNA_CONFIRM_DELAY_MS = 300L
 private const val DLNA_SEEK_TOLERANCE_MS = 2_000L
 private const val SOAP_TIMEOUT_MS = 3_000
+private const val MAX_DEVICE_DESCRIPTION_BYTES = 64 * 1024
+private const val MAX_SOAP_RESPONSE_BYTES = 256 * 1024
 private const val AV_TRANSPORT_SERVICE = "urn:schemas-upnp-org:service:AVTransport:1"
 private const val RENDERING_CONTROL_SERVICE = "urn:schemas-upnp-org:service:RenderingControl:1"
 

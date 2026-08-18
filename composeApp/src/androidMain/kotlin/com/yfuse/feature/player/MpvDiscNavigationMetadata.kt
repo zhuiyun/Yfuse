@@ -48,14 +48,16 @@ internal fun readMpvDiscNavigationMetadata(
     properties: MpvDiscPropertyReader,
 ): PlaybackDiscNavigationState {
     val titleCount =
-        (properties.int("edition-list/count")
-            ?: properties.int("editions")
-            ?: previous.effectiveTitleCount)
-            .coerceAtLeast(0)
+        (
+            properties.int("edition-list/count")
+                ?: properties.int("editions")
+                ?: previous.effectiveTitleCount
+        ).coerceAtLeast(0)
     val titles =
         List(titleCount) { index ->
             val title =
-                properties.string("edition-list/$index/title")
+                properties
+                    .string("edition-list/$index/title")
                     ?.trim()
                     ?.takeIf(String::isNotEmpty)
             PlaybackDiscTitle(
@@ -74,10 +76,11 @@ internal fun readMpvDiscNavigationMetadata(
         )
 
     val chapterCount =
-        (properties.int("chapter-list/count")
-            ?: properties.int("chapters")
-            ?: previous.effectiveChapterCount)
-            .coerceAtLeast(0)
+        (
+            properties.int("chapter-list/count")
+                ?: properties.int("chapters")
+                ?: previous.effectiveChapterCount
+        ).coerceAtLeast(0)
     val chapters =
         List(chapterCount) { index ->
             PlaybackDiscChapter(

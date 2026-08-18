@@ -1,6 +1,7 @@
 package com.yfuse.core.offline
 
 import com.russhwolf.settings.Settings
+import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.AudioTrackInfo
 import com.yfuse.core.model.Episode
@@ -56,14 +57,29 @@ data class OfflineDownloadPolicy(
     val wifiOnly: Boolean = true,
     val maxConcurrentDownloads: Int = 2,
     val autoDeleteWatched: Boolean = false,
+    val autoDownloadEnabled: Boolean = true,
+    val autoDownloadItemLimit: Int = DEFAULT_AUTO_DOWNLOAD_ITEM_LIMIT,
+    val storageTreeUri: String? = null,
+    val storageLabel: String? = null,
 ) {
     fun normalized(): OfflineDownloadPolicy =
         copy(
             maxConcurrentDownloads = maxConcurrentDownloads.coerceIn(1, MAX_CONCURRENT_OFFLINE_DOWNLOADS),
+            autoDownloadItemLimit = autoDownloadItemLimit.coerceIn(1, MAX_AUTO_DOWNLOAD_ITEM_LIMIT),
+            storageTreeUri = storageTreeUri?.trim()?.takeIf(String::isNotEmpty),
+            storageLabel =
+                storageLabel
+                    ?.trim()
+                    ?.take(MAX_OFFLINE_STORAGE_LABEL_CHARS)
+                    ?.takeIf(String::isNotEmpty)
+                    ?.takeIf { !storageTreeUri.isNullOrBlank() },
         )
 }
 
 const val MAX_CONCURRENT_OFFLINE_DOWNLOADS = 3
+const val DEFAULT_AUTO_DOWNLOAD_ITEM_LIMIT = 3
+const val MAX_AUTO_DOWNLOAD_ITEM_LIMIT = 10
+private const val MAX_OFFLINE_STORAGE_LABEL_CHARS = 80
 
 data class OfflineBatchItem(
     val itemId: String,
@@ -79,7 +95,41 @@ data class OfflineDownloadSelection(
     val subtitleLanguage: String? = null,
     val subtitleDefault: Boolean = false,
     val subtitleForced: Boolean = false,
+    val autoDownloadNewEpisodes: Boolean = false,
 )
+
+@Serializable
+data class OfflineAutoDownloadRule(
+    val id: String,
+    val serverId: String,
+    val seriesId: String,
+    val seasonId: String? = null,
+    val quality: OfflineDownloadQuality = OfflineDownloadQuality.Original,
+    val subtitleCodec: String? = null,
+    val subtitleLanguage: String? = null,
+    val knownEpisodeIds: Set<String> = emptySet(),
+    val updatedAtEpochMs: Long = 0L,
+)
+
+internal fun selectNewAutoDownloadEpisodes(
+    episodes: List<Episode>,
+    knownEpisodeIds: Set<String>,
+    existingItemIds: Set<String>,
+    itemLimit: Int,
+): List<Episode> {
+    if (itemLimit <= 0) return emptyList()
+    val limit = itemLimit.coerceIn(1, MAX_AUTO_DOWNLOAD_ITEM_LIMIT)
+    return episodes
+        .asSequence()
+        .filterNot(Episode::played)
+        .filterNot { it.id in knownEpisodeIds || it.id in existingItemIds }
+        .sortedWith(
+            compareByDescending<Episode> { it.seasonNumber ?: Int.MIN_VALUE }
+                .thenByDescending { it.indexNumber ?: Int.MIN_VALUE },
+        ).take(limit)
+        .toList()
+        .sortedWith(compareBy<Episode>({ it.seasonNumber ?: Int.MAX_VALUE }, { it.indexNumber ?: Int.MAX_VALUE }))
+}
 
 /** Stable batch filtering shared by the dialog and tests. */
 fun selectOfflineBatchItems(
@@ -215,6 +265,11 @@ data class OfflineMedia(
     val subtitleStreamIndex: Int? = null,
     val subtitleCodec: String? = null,
     val subtitleLanguage: String? = null,
+    val seriesId: String? = null,
+    val seasonId: String? = null,
+    val automaticallyDownloaded: Boolean = false,
+    /** SAF tree selected when this request was queued; null keeps app-private storage. */
+    val storageTreeUri: String? = null,
     /** Read-once compatibility with v1 indexes; sanitized to null immediately after loading. */
     @SerialName("sourceUrl") val legacySourceUrl: String? = null,
     val posterUrl: String? = null,
@@ -258,7 +313,14 @@ data class OfflineDownloadRequest(
     val subtitleCodec: String? = null,
     val subtitleLanguage: String? = null,
     val estimatedBytes: Long? = null,
+    val seriesId: String? = null,
+    val seasonId: String? = null,
+    val autoDownloadNewEpisodes: Boolean = false,
+    val automaticallyDownloaded: Boolean = false,
+    val knownEpisodeIds: Set<String> = emptySet(),
 )
+
+fun offlinePlaybackUri(path: String): String = if ("://" in path) path else "file://$path"
 
 fun buildOfflineDownloadRequests(
     serverId: String,
@@ -268,6 +330,8 @@ fun buildOfflineDownloadRequests(
     currentVersions: List<MediaVersion>,
     seasonEpisodes: List<Episode>,
     selection: OfflineDownloadSelection,
+    currentSeriesId: String? = null,
+    currentSeasonId: String? = null,
 ): List<OfflineDownloadRequest> {
     val episodeIds =
         selectOfflineBatchItems(
@@ -348,6 +412,10 @@ fun buildOfflineDownloadRequests(
                     quality = selection.quality,
                     includeSubtitle = subtitleIndex != null,
                 ),
+            seriesId = currentSeriesId,
+            seasonId = episode?.seasonId ?: currentSeasonId,
+            autoDownloadNewEpisodes = selection.autoDownloadNewEpisodes,
+            knownEpisodeIds = seasonEpisodes.mapTo(linkedSetOf(), Episode::id),
         )
     }
 }
@@ -475,8 +543,9 @@ internal fun matchOfflineSubtitleTrack(
     default: Boolean,
     forced: Boolean,
 ): SubtitleTrackInfo? {
-    val normalizedLanguage = language?.normalizedOfflineFeature()?.takeIf(String::isNotEmpty)
-        ?: return null
+    val normalizedLanguage =
+        language?.normalizedOfflineFeature()?.takeIf(String::isNotEmpty)
+            ?: return null
     val normalizedCodec = codec?.normalizedOfflineFeature()?.takeIf(String::isNotEmpty)
     return tracks
         .asSequence()
@@ -554,6 +623,7 @@ interface OfflineMediaManager {
     val items: StateFlow<List<OfflineMedia>>
     val wifiOnly: StateFlow<Boolean>
     val policy: StateFlow<OfflineDownloadPolicy>
+    val autoDownloadRuleCount: StateFlow<Int>
 
     fun enqueue(request: OfflineDownloadRequest)
 
@@ -572,6 +642,17 @@ interface OfflineMediaManager {
     fun setMaxConcurrentDownloads(value: Int)
 
     fun setAutoDeleteWatched(value: Boolean)
+
+    fun setAutoDownloadEnabled(value: Boolean)
+
+    fun setAutoDownloadItemLimit(value: Int)
+
+    fun setStorageDirectory(
+        treeUri: String?,
+        label: String? = null,
+    )
+
+    fun clearAutoDownloadRules()
 
     fun onPlaybackCompleted(
         serverId: String,
@@ -610,4 +691,5 @@ internal fun persistOfflineDownloadPolicy(
 expect fun createOfflineMediaManager(
     settings: Settings,
     registry: ServerRegistry,
+    repository: EmbyRepository,
 ): OfflineMediaManager

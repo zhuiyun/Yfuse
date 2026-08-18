@@ -37,6 +37,9 @@ import com.yfuse.core.designsystem.sc
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStats
 import com.yfuse.core.logging.DiagnosticLogStore
+import com.yfuse.core.playback.OpticalPlaybackValidationInput
+import com.yfuse.core.playback.evaluateOpticalPlaybackRelease
+import com.yfuse.feature.player.installedMpvNativeBuildCapabilities
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -61,6 +64,13 @@ actual fun DiagnosticLogTools() {
     var status by remember { mutableStateOf<String?>(null) }
     var exporting by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    val nativeCapabilities = remember { installedMpvNativeBuildCapabilities }
+    val opticalReleaseReport =
+        evaluateOpticalPlaybackRelease(
+            OpticalPlaybackValidationInput(
+                nativeAarBuiltAndVerified = nativeCapabilities.pinnedYfuseBluRayArtifact,
+            ),
+        )
 
     fun exportTo(uri: Uri) {
         scope.launch {
@@ -171,6 +181,56 @@ actual fun DiagnosticLogTools() {
         )
     }
 
+    Spacer(Modifier.height(12.dp))
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .glass(GlassShapes.card, palette.card2, palette.border),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp)) {
+            Text("原生播放能力", style = sc(13f, 550), color = palette.text)
+            Spacer(Modifier.height(3.dp))
+            Text(
+                nativeCapabilities.description,
+                style = mr(10.5f, 400),
+                color = palette.sub2,
+            )
+        }
+        DiagnosticDivider()
+        DiagnosticValueRow(
+            title = "原生制品",
+            value =
+                if (nativeCapabilities.pinnedYfuseBluRayArtifact) {
+                    "Yfuse 蓝光 AAR"
+                } else {
+                    "未安装已验证蓝光 AAR"
+                },
+        )
+        DiagnosticDivider()
+        DiagnosticValueRow(
+            title = "libmpv-android",
+            value = nativeCapabilities.libmpvAndroidRevision.shortRevision(),
+        )
+        DiagnosticDivider()
+        DiagnosticValueRow(
+            title = "libbluray / libudfread",
+            value =
+                "${nativeCapabilities.libblurayRevision.shortRevision()} / " +
+                    nativeCapabilities.libudfreadRevision.shortRevision(),
+        )
+        DiagnosticDivider()
+        DiagnosticValueRow(
+            title = "蓝光发布门禁",
+            value =
+                if (opticalReleaseReport.releaseReady) {
+                    "全部通过"
+                } else {
+                    "${opticalReleaseReport.failed.size} 失败 · " +
+                        "${opticalReleaseReport.notMeasured.size} 待实测"
+                },
+        )
+    }
+
     status?.let {
         Text(
             it,
@@ -269,6 +329,24 @@ private fun DiagnosticActionRow(
         Text("›", style = mr(16f, 500), color = palette.sub2)
     }
 }
+
+@Composable
+private fun DiagnosticValueRow(
+    title: String,
+    value: String,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(title, style = mr(10.5f, 400), color = palette.sub2, modifier = Modifier.weight(1f))
+        Text(value, style = mr(10.5f, 600), color = palette.text)
+    }
+}
+
+private fun String?.shortRevision(): String = this?.take(12)?.takeIf(String::isNotBlank) ?: "未提供"
 
 @Composable
 private fun DiagnosticDivider() {

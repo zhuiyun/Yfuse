@@ -17,6 +17,7 @@ internal fun ExoSurface(
     scaleMode: VideoScaleMode,
     subtitleScale: Float,
     subtitleBrightness: Float,
+    subtitlePosition: Float,
     modifier: Modifier = Modifier,
 ) {
     AndroidView(
@@ -33,6 +34,7 @@ internal fun ExoSurface(
             if (view.player !== engine.player) view.player = engine.player
             view.subtitleView?.apply {
                 setFractionalTextSize(0.0533f * subtitleScale.coerceIn(0.6f, 1.8f))
+                setBottomPaddingFraction((1f - subtitlePosition.coerceIn(0.60f, 0.96f)).coerceIn(0.04f, 0.40f))
                 val channel = subtitleBrightnessByte(subtitleBrightness)
                 val preserveAuthoredStyle = subtitleBrightness >= 0.999f
                 setApplyEmbeddedStyles(preserveAuthoredStyle)

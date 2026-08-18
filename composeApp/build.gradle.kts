@@ -160,6 +160,11 @@ kotlin {
             implementation(libs.okhttp.tls)
         }
 
+        androidInstrumentedTest.dependencies {
+            implementation(libs.androidx.test.junit)
+            implementation(libs.androidx.test.runner)
+        }
+
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.coroutines.test)
@@ -213,6 +218,19 @@ val allowDebugSigning =
             else -> error("allowDebugSigning must be omitted, true, or false")
         }
     } ?: false
+val signDeviceTestsWithReleaseKey =
+    providers.gradleProperty("signDeviceTestsWithReleaseKey").orNull?.let { raw ->
+        when (raw.trim().lowercase()) {
+            "", "true" -> true
+            "false" -> false
+            else -> error("signDeviceTestsWithReleaseKey must be omitted, true, or false")
+        }
+    } ?: false
+if (signDeviceTestsWithReleaseKey) {
+    require(releaseSigningReady) {
+        "signDeviceTestsWithReleaseKey requires a complete release signing configuration"
+    }
+}
 
 val versionFile = rootProject.file("version.properties")
 val versionProperties =
@@ -284,6 +302,7 @@ android {
         targetSdk = 36
         versionCode = buildVersionCode
         versionName = buildVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
 
@@ -305,6 +324,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (signDeviceTestsWithReleaseKey) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

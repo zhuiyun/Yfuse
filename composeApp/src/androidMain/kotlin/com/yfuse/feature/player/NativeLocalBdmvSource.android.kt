@@ -51,10 +51,11 @@ internal class NativeLocalBdmvSource private constructor(
         if (closed) return 0L
         val normalized = normalizeBdmvRelativePath(relativePath) ?: return 0L
         val file = root.openFile(normalized) ?: return 0L
-        val handle = nextHandle.getAndIncrement().takeIf { it > 0L } ?: run {
-            file.close()
-            return 0L
-        }
+        val handle =
+            nextHandle.getAndIncrement().takeIf { it > 0L } ?: run {
+                file.close()
+                return 0L
+            }
         files[handle] = file
         return handle
     }
@@ -103,8 +104,7 @@ internal class NativeLocalBdmvSource private constructor(
 
     @Synchronized
     @Suppress("unused")
-    fun readDirNative(handle: Long): String? =
-        if (closed) null else directories[handle]?.nextName()
+    fun readDirNative(handle: Long): String? = if (closed) null else directories[handle]?.nextName()
 
     @Synchronized
     @Suppress("unused")
@@ -219,13 +219,19 @@ internal class NativeLocalBdmvSource private constructor(
         }
 
         override fun navigation(): PlaybackDiscNavigationState = state
+
         override fun selectTitle(index: Int): Boolean = false
+
         override fun selectChapter(index: Int): Boolean = false
+
         override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
             !ended && NativeLocalBdmvRegistry.sendMenuCommand(id, command.bdmvNativeMenuCode())
 
-        override fun selectMenuPoint(x: Int, y: Int, activate: Boolean): Boolean =
-            !ended && state.menuActive && NativeLocalBdmvRegistry.selectMenuPoint(id, x, y, activate)
+        override fun selectMenuPoint(
+            x: Int,
+            y: Int,
+            activate: Boolean,
+        ): Boolean = !ended && state.menuActive && NativeLocalBdmvRegistry.selectMenuPoint(id, x, y, activate)
 
         override fun setNavigationChangedListener(listener: (() -> Unit)?) {
             this.listener = listener
@@ -237,7 +243,10 @@ internal class NativeLocalBdmvSource private constructor(
     }
 
     companion object {
-        fun create(context: Context, uri: String): NativeLocalBdmvSource? {
+        fun create(
+            context: Context,
+            uri: String,
+        ): NativeLocalBdmvSource? {
             val parsed = runCatching { Uri.parse(uri) }.getOrNull() ?: return null
             val root =
                 when (parsed.scheme?.lowercase()) {
@@ -262,7 +271,9 @@ internal object NativeLocalBdmvRegistry {
         return runCatching {
             val clazz = Class.forName(REGISTRY_CLASS, false, MpvVideoEngine::class.java.classLoader)
             (clazz.getMethod("register", Any::class.java).invoke(null, source) as? Number)
-                ?.toLong()?.takeIf { it > 0L }?.also(source::bindNativeId)
+                ?.toLong()
+                ?.takeIf { it > 0L }
+                ?.also(source::bindNativeId)
         }.getOrNull()
     }
 
@@ -318,23 +329,38 @@ internal fun normalizeBdmvRelativePath(raw: String?): String? {
 
 private interface BdmvRoot : AutoCloseable {
     fun openFile(relativePath: String): BdmvOpenFile?
+
     fun openDirectory(relativePath: String): BdmvOpenDirectory?
+
     fun looksLikeBdmv(): Boolean
+
     override fun close() = Unit
 }
 
 private interface BdmvOpenFile : AutoCloseable {
-    fun read(target: ByteArray, targetOffset: Int, length: Int): Int
-    fun seek(offset: Long, origin: Int): Long
+    fun read(
+        target: ByteArray,
+        targetOffset: Int,
+        length: Int,
+    ): Int
+
+    fun seek(
+        offset: Long,
+        origin: Int,
+    ): Long
+
     fun tell(): Long
 }
 
 private interface BdmvOpenDirectory : AutoCloseable {
     fun nextName(): String?
+
     override fun close() = Unit
 }
 
-private class FileBdmvRoot(selected: File) : BdmvRoot {
+private class FileBdmvRoot(
+    selected: File,
+) : BdmvRoot {
     private val root: File? = discoverFileBdmvRoot(selected)
     private val rootPath: String? = root?.canonicalFile?.path
 
@@ -378,10 +404,23 @@ private fun discoverFileBdmvRoot(selected: File): File? {
 private class RandomAccessBdmvFile(
     private val file: RandomAccessFile,
 ) : BdmvOpenFile {
-    override fun read(target: ByteArray, targetOffset: Int, length: Int): Int =
-        if (length == 0) 0 else runCatching { file.read(target, targetOffset, length).coerceAtLeast(0) }.getOrDefault(-1)
+    override fun read(
+        target: ByteArray,
+        targetOffset: Int,
+        length: Int,
+    ): Int =
+        if (length ==
+            0
+        ) {
+            0
+        } else {
+            runCatching { file.read(target, targetOffset, length).coerceAtLeast(0) }.getOrDefault(-1)
+        }
 
-    override fun seek(offset: Long, origin: Int): Long =
+    override fun seek(
+        offset: Long,
+        origin: Int,
+    ): Long =
         runCatching {
             val base =
                 when (origin) {
@@ -396,6 +435,7 @@ private class RandomAccessBdmvFile(
         }.getOrDefault(-1L)
 
     override fun tell(): Long = runCatching { file.filePointer }.getOrDefault(-1L)
+
     override fun close() {
         runCatching { file.close() }
     }
@@ -446,35 +486,41 @@ private class SafBdmvRoot private constructor(
                 DocumentsContract.Document.COLUMN_MIME_TYPE,
             )
         return runCatching {
-            resolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
-                val idColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                val nameColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                val mimeColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-                buildList {
-                    while (cursor.moveToNext()) {
-                        val id = cursor.getString(idColumn) ?: continue
-                        val name = cursor.getString(nameColumn)?.takeIf(String::isNotBlank) ?: continue
-                        val mime = cursor.getString(mimeColumn).orEmpty()
-                        val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
-                        add(
-                            SafNode(
-                                documentId = id,
-                                uri = uri,
-                                name = name,
-                                directory = mime == DocumentsContract.Document.MIME_TYPE_DIR,
-                            ),
-                        )
+            resolver
+                .query(childrenUri, projection, null, null, null)
+                ?.use { cursor ->
+                    val idColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                    val nameColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    val mimeColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                    buildList {
+                        while (cursor.moveToNext()) {
+                            val id = cursor.getString(idColumn) ?: continue
+                            val name = cursor.getString(nameColumn)?.takeIf(String::isNotBlank) ?: continue
+                            val mime = cursor.getString(mimeColumn).orEmpty()
+                            val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
+                            add(
+                                SafNode(
+                                    documentId = id,
+                                    uri = uri,
+                                    name = name,
+                                    directory = mime == DocumentsContract.Document.MIME_TYPE_DIR,
+                                ),
+                            )
+                        }
                     }
-                }
-            }.orEmpty()
+                }.orEmpty()
         }.getOrDefault(emptyList())
     }
 
     companion object {
-        fun create(resolver: ContentResolver, treeUri: Uri): SafBdmvRoot? {
+        fun create(
+            resolver: ContentResolver,
+            treeUri: Uri,
+        ): SafBdmvRoot? {
             if (!DocumentsContract.isTreeUri(treeUri)) return null
             val rootId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull() ?: return null
-            val rootDocument = runCatching { DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId) }.getOrNull() ?: return null
+            val rootDocument =
+                runCatching { DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId) }.getOrNull() ?: return null
             val projection =
                 arrayOf(
                     DocumentsContract.Document.COLUMN_DISPLAY_NAME,
@@ -518,7 +564,11 @@ private class SafBdmvFile private constructor(
 ) : BdmvOpenFile {
     private var position = 0L
 
-    override fun read(target: ByteArray, targetOffset: Int, length: Int): Int {
+    override fun read(
+        target: ByteArray,
+        targetOffset: Int,
+        length: Int,
+    ): Int {
         if (length == 0) return 0
         return try {
             val count = Os.pread(descriptor.fileDescriptor, target, targetOffset, length, position)
@@ -529,7 +579,10 @@ private class SafBdmvFile private constructor(
         }
     }
 
-    override fun seek(offset: Long, origin: Int): Long {
+    override fun seek(
+        offset: Long,
+        origin: Int,
+    ): Long {
         val base =
             when (origin) {
                 SEEK_SET -> 0L
@@ -567,10 +620,14 @@ private class ListBdmvDirectory(
     private val names: List<String>,
 ) : BdmvOpenDirectory {
     private var index = 0
+
     override fun nextName(): String? = names.getOrNull(index)?.also { index++ }
 }
 
-private fun checkedAdd(a: Long, b: Long): Long? {
+private fun checkedAdd(
+    a: Long,
+    b: Long,
+): Long? {
     if (b > 0L && a > Long.MAX_VALUE - b) return null
     if (b < 0L && a < Long.MIN_VALUE - b) return null
     return a + b
