@@ -187,7 +187,8 @@ PY
 
 cat >"$LIBBLURAY_BUILD" <<'SH'
 #!/usr/bin/env bash
-set -euo pipefail
+# Upstream path.sh probes unset variables before assigning defaults, so nounset is incompatible here.
+set -eo pipefail
 . ../../include/depinfo.sh
 . ../../include/path.sh
 
