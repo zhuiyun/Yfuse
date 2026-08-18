@@ -24,7 +24,7 @@ private const val DEFAULT_PLAY_METHOD = "DirectPlay"
  * Serializes media-server and Yfuse playback events so item transitions always stop the old
  * session before starting the new one. Local cross-platform state is persisted before native
  * network reporting. Position updates are throttled to ten seconds, while pause/resume, seeks,
- * item changes and terminal state are immediate.
+ * app-background, item changes and terminal state are immediate.
  */
 internal class PlaybackProgressReporter(
     items: List<PlayerMediaItem>,
@@ -41,6 +41,10 @@ internal class PlaybackProgressReporter(
 ) {
     private sealed interface Command {
         data class Update(
+            val state: PlaybackState,
+        ) : Command
+
+        data class Background(
             val state: PlaybackState,
         ) : Command
 
@@ -62,6 +66,10 @@ internal class PlaybackProgressReporter(
 
     @Volatile
     private var closed = false
+
+    @Volatile
+    private var latestState: PlaybackState? = null
+
     private var observedIndex = -1
     private var observedPlaying: Boolean? = null
     private var observedPositionMs = 0L
@@ -83,6 +91,14 @@ internal class PlaybackProgressReporter(
     private var reportedPositionMs = Long.MIN_VALUE
     private var terminalIndex = -1
 
+    private val removeBackgroundListener =
+        PlaybackBackgroundNotifier.register {
+            val state = latestState
+            if (!closed && state != null && items.isNotEmpty()) {
+                enqueue(Command.Background(state))
+            }
+        }
+
     init {
         scope.launch {
             for (ignored in commandWakeups) {
@@ -95,6 +111,7 @@ internal class PlaybackProgressReporter(
                     try {
                         when (command) {
                             is Command.Update -> handleUpdate(command.state)
+                            is Command.Background -> handleBackground(command.state)
                             is Command.Rebind -> handleRebind(command.items, command.state)
                             is Command.Close ->
                                 try {
@@ -130,6 +147,7 @@ internal class PlaybackProgressReporter(
 
     fun update(state: PlaybackState) {
         if (closed || items.isEmpty()) return
+        latestState = state
         preloadNextIfNeeded(state)
 
         val itemChanged = state.currentIndex != observedIndex
@@ -178,6 +196,7 @@ internal class PlaybackProgressReporter(
         state: PlaybackState,
     ) {
         if (closed || items.isEmpty()) return
+        latestState = state
         val binding = items.reportingBinding()
         if (binding == observedBinding) return
         observedBinding = binding
@@ -186,7 +205,9 @@ internal class PlaybackProgressReporter(
 
     fun close(state: PlaybackState) {
         if (closed) return
+        latestState = state
         closed = true
+        removeBackgroundListener()
         enqueue(Command.Close(state))
     }
 
@@ -194,17 +215,27 @@ internal class PlaybackProgressReporter(
      * Keeps report memory independent of seek frequency and server latency.
      *
      * Updates are snapshots, so only the newest pending one after a control command matters.
-     * A rebind carries its own state and supersedes older queued updates/rebinds. Close retains
-     * at most the latest rebind (its item metadata may be needed by the final state), discards
-     * stale progress, and becomes the next command after any request already in flight.
+     * Background is durable and supersedes stale pending progress. A rebind carries its own state
+     * and supersedes older queued updates/rebinds. Close retains at most the latest rebind (its item
+     * metadata may be needed by the final state), discards stale progress, and becomes the next
+     * command after any request already in flight.
      */
     private fun enqueue(command: Command) {
         val accepted =
             synchronized(commandLock) {
                 when (command) {
                     is Command.Update -> enqueueUpdate(command)
+                    is Command.Background -> {
+                        pendingCommands.removeAll {
+                            it is Command.Update || it is Command.Background
+                        }
+                        pendingCommands.addLast(command)
+                        true
+                    }
                     is Command.Rebind -> {
-                        pendingCommands.removeAll { it is Command.Update || it is Command.Rebind }
+                        pendingCommands.removeAll {
+                            it is Command.Update || it is Command.Background || it is Command.Rebind
+                        }
                         pendingCommands.addLast(command)
                         true
                     }
@@ -304,6 +335,33 @@ internal class PlaybackProgressReporter(
         }
     }
 
+    /** Writes the freshest sample even when the ten-second network/report interval is not due. */
+    private suspend fun handleBackground(state: PlaybackState) {
+        if (items.isEmpty()) return
+        if (state.ended) {
+            handleUpdate(state)
+            return
+        }
+        val index = state.currentIndex.coerceIn(0, items.lastIndex)
+        if (index != activeIndex) handleUpdate(state)
+        if (activeIndex < 0) return
+
+        val item = items.getOrNull(activeIndex) ?: return
+        activePositionMs = state.positionMs
+        activeDurationMs = state.durationMs
+        activePaused = !state.playing
+        activePlayMethod = state.playMethodFor(item)
+        reportedPositionMs = state.positionMs
+        recordCrossPlatform(item, PlaybackSyncTrigger.Background)
+        sink.progressWithMethod(
+            itemId = item.id,
+            sessionId = activeSessionId,
+            positionTicks = state.positionMs.toTicks(),
+            isPaused = activePaused,
+            playMethod = activePlayMethod,
+        )
+    }
+
     private suspend fun handleRebind(
         newItems: List<PlayerMediaItem>,
         state: PlaybackState,
@@ -400,6 +458,7 @@ internal class PlaybackProgressReporter(
         get() =
             when (this) {
                 is Command.Update -> "update"
+                is Command.Background -> "background"
                 is Command.Rebind -> "rebind"
                 is Command.Close -> "close"
             }
