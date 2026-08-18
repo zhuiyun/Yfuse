@@ -6,6 +6,8 @@ import com.russhwolf.settings.Settings
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.account.AccountApi
 import com.yfuse.core.account.AccountRepository
+import com.yfuse.core.account.PlaybackCloudApi
+import com.yfuse.core.account.PlaybackVaultCipher
 import com.yfuse.core.account.createAccountClient
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.createCastManager
@@ -54,6 +56,8 @@ import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.createSecureStore
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.core.sync.playback.PlaybackSyncManager
+import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.watch.WatchInviteResolver
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +92,7 @@ fun appModule(
     single { PlaybackFailoverRequest() }
     single { PlaybackRecoveryStore(get()) }
     single { PlaybackEventOutbox(get()) }
+    single { PlaybackSyncStore(get()) }
     single { ServerActivityStore(get()) }
     single { ServerStatsStore(get()) }
     single { UserAgentPreferences(get()) }
@@ -162,6 +167,18 @@ fun appModule(
             serverSync = get(),
             accessTokenSource = get(),
             mutationDispatcher = Dispatchers.Main.immediate,
+        )
+    }
+    single { PlaybackCloudApi(createAccountClient()) }
+    single { PlaybackVaultCipher(get(), get(), get()) }
+    single {
+        PlaybackSyncManager(
+            store = get(),
+            cloud = get(),
+            cipher = get(),
+            accessTokens = get(),
+            repo = get(),
+            registry = get(),
         )
     }
     // Own client (different host + bearer auth), built inline so Koin keeps a
