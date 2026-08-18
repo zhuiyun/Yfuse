@@ -392,41 +392,28 @@ private class EmbyCompatiblePlaybackStateApplier(
                     .firstOrNull()
                     ?: return@forEach
             val isOrigin = server.id == state.serverId && item.id == state.serverItemId
-            if (
-                isOrigin &&
-                state.mutationKind != PlaybackMutationKind.ManualRestart &&
-                state.mutationKind != PlaybackMutationKind.ManualUnwatched
-            ) {
+            if (isOrigin && state.mutationKind != PlaybackMutationKind.ManualUnwatched) {
                 return@forEach
             }
             when (state.mutationKind) {
                 PlaybackMutationKind.ManualWatched,
                 PlaybackMutationKind.AutoFinished,
                 -> repo.setPlayed(server, item.id, true)
-                PlaybackMutationKind.ManualRestart,
-                PlaybackMutationKind.ManualUnwatched,
-                ->
-                    repo.setPlayed(server, item.id, false).fold(
-                        onSuccess = {
+                PlaybackMutationKind.ManualUnwatched -> resetServerProgress(server, item.id, state.deviceId)
+                PlaybackMutationKind.AutoProgress -> {
+                    when {
+                        state.positionMs > 0L ->
                             repo.reportPlaybackStopped(
                                 server = server,
                                 itemId = item.id,
-                                playSessionId = "yfuse-cloud-reset-${state.deviceId.takeLast(12)}",
-                                positionTicks = 0L,
+                                playSessionId = "yfuse-cloud-${state.deviceId.takeLast(12)}",
+                                positionTicks =
+                                    state.positionMs.coerceAtMost(Long.MAX_VALUE / 10_000L) * 10_000L,
                                 isPaused = true,
                             )
-                        },
-                        onFailure = { Result.failure(it) },
-                    )
-                PlaybackMutationKind.AutoProgress -> {
-                    if (state.positionMs <= 0L) return@forEach
-                    repo.reportPlaybackStopped(
-                        server = server,
-                        itemId = item.id,
-                        playSessionId = "yfuse-cloud-${state.deviceId.takeLast(12)}",
-                        positionTicks = state.positionMs.coerceAtMost(Long.MAX_VALUE / 10_000L) * 10_000L,
-                        isPaused = true,
-                    )
+                        state.progressEpoch > 0L -> resetServerProgress(server, item.id, state.deviceId)
+                        else -> Result.success(Unit)
+                    }
                 }
             }.onFailure { error ->
                 AppLog.warning(
@@ -439,4 +426,22 @@ private class EmbyCompatiblePlaybackStateApplier(
             }
         }
     }
+
+    private suspend fun resetServerProgress(
+        server: com.yfuse.core.model.SavedServer,
+        itemId: String,
+        deviceId: String,
+    ): Result<Unit> =
+        repo.setPlayed(server, itemId, false).fold(
+            onSuccess = {
+                repo.reportPlaybackStopped(
+                    server = server,
+                    itemId = itemId,
+                    playSessionId = "yfuse-cloud-reset-${deviceId.takeLast(12)}",
+                    positionTicks = 0L,
+                    isPaused = true,
+                )
+            },
+            onFailure = { Result.failure(it) },
+        )
 }
