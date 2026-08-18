@@ -2,6 +2,8 @@ package com.yfuse.core2.android
 
 import android.media.MediaCodec
 import android.media.MediaFormat
+import android.os.Build
+import android.os.Handler
 import android.view.Surface
 import com.yfuse.core2.graph.YVideoDecodeNode
 import java.nio.ByteBuffer
@@ -33,9 +35,9 @@ internal sealed interface YCodecOutputResult {
  * Core2's native video primitive: compressed access units enter MediaCodec and decoded output goes
  * straight to a Surface. No decoded YUV frame is copied back through the CPU or Compose.
  *
- * Dequeue and release are deliberately separate. The future audio-master clock can decide exactly
- * when a frame should be presented before `releaseOutputBuffer(index, renderTimeNs)` hands it to
- * the Surface/OEM HDR pipeline.
+ * Direct mode dequeues/release buffers so the audio-master clock can schedule them. Tunnel mode is
+ * different: the decoder may expose no app-owned output buffers at all, so callers observe its
+ * sideband output with [setOnFrameRenderedListener] instead of draining it.
  */
 internal class AndroidMediaCodecVideoNode(
     private val createDecoder: (String) -> MediaCodec = MediaCodec::createDecoderByType,
@@ -70,6 +72,41 @@ internal class AndroidMediaCodecVideoNode(
     /** Changes the target without decoding through a texture or CPU buffer. */
     fun setOutputSurface(surface: Surface) {
         requireStartedCodec().setOutputSurface(surface)
+    }
+
+    /** Informational render evidence used by tunnel mode; never drives presentation timing. */
+    fun setOnFrameRenderedListener(
+        handler: Handler? = null,
+        listener: ((presentationTimeUs: Long, nanoTime: Long) -> Unit)?,
+    ) {
+        val decoder = requireStartedCodec()
+        decoder.setOnFrameRenderedListener(
+            listener?.let { callback ->
+                MediaCodec.OnFrameRenderedListener { _, presentationTimeUs, nanoTime ->
+                    callback(presentationTimeUs, nanoTime)
+                }
+            },
+            handler,
+        )
+    }
+
+    /**
+     * API 31+ evidence that a tunneled first frame is decoded and ready. Older releases simply do
+     * not expose this callback, so callers must rely on the rendered-frame listener instead.
+     */
+    fun setOnFirstTunnelFrameReadyListener(
+        handler: Handler? = null,
+        listener: (() -> Unit)?,
+    ): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        val decoder = requireStartedCodec()
+        decoder.setOnFirstTunnelFrameReadyListener(
+            handler,
+            listener?.let { callback ->
+                MediaCodec.OnFirstTunnelFrameReadyListener { callback() }
+            },
+        )
+        return true
     }
 
     /**
