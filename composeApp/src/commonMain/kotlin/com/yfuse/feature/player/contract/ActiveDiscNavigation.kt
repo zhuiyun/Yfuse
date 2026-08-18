@@ -10,8 +10,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * Process-local binding for the disc-navigation popup and platform remote input.
  *
  * The player already owns the backend lifecycle; this bridge only lets common UI issue a direct
- * title/chapter/menu command without threading an engine instance through every composable. The owner
- * identity check prevents an outgoing engine from clearing a newer handover binding.
+ * title/chapter/angle/menu command without threading an engine instance through every composable. The
+ * owner identity check prevents an outgoing engine from clearing a newer handover binding.
  */
 object ActiveDiscNavigation {
     private data class Binding(
@@ -63,6 +63,8 @@ object ActiveDiscNavigation {
     fun selectTitle(index: Int): Boolean = binding?.backend?.selectTitle(index) == true
 
     fun selectChapter(index: Int): Boolean = binding?.backend?.selectChapter(index) == true
+
+    fun selectAngle(index: Int): Boolean = binding?.backend?.selectAngle(index) == true
 
     fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
         val backend = binding?.backend ?: return false
