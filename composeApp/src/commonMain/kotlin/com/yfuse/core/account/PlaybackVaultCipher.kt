@@ -96,7 +96,11 @@ class PlaybackVaultCipher(
         innerPad.fill(0)
         outerPad.fill(0)
         inner.fill(0)
-        return digest.toBase64Url()
+        return try {
+            digest.toBase64Url()
+        } finally {
+            digest.fill(0)
+        }
     }
 
     private fun requireVaultKey(userId: String): ByteArray? {
