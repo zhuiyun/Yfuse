@@ -56,12 +56,12 @@ fun interface YPlaybackStrategy {
 }
 
 /**
- * Core2's first deterministic route planner.
+ * Core2's deterministic route planner.
  *
- * Policy order is intentionally Apple-like: keep the compressed stream in the platform hardware
- * path whenever possible; use enhanced demux only to make the bitstream acceptable to that path;
- * use GPU processing only when native display output cannot satisfy the requested dynamic range;
- * software decoding is the terminal compatibility fallback.
+ * Policy order is intentionally hardware-first: keep the compressed stream in the platform
+ * hardware path whenever possible; use enhanced demux only to make the bitstream acceptable to
+ * that path; use GPU processing only when native display output cannot satisfy the requested
+ * dynamic range; software decoding is the terminal compatibility fallback.
  */
 class DefaultYPlaybackStrategy : YPlaybackStrategy {
     override fun plan(
@@ -106,10 +106,8 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             val renderPath =
                 when {
                     !displayCanPresent -> YRenderPath.Gpu
-                    request.preferTunnel &&
-                        demuxPath == YDemuxPath.Platform &&
-                        capabilities.supportsTunnel &&
-                        selectedDecoder.tunneledPlayback -> YRenderPath.Tunnel
+                    demuxPath == YDemuxPath.Platform &&
+                        canUseNativeTunnel(request, capabilities, selectedDecoder) -> YRenderPath.Tunnel
                     else -> YRenderPath.SurfaceDirect
                 }
             val route =
@@ -137,7 +135,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                         demuxPath == YDemuxPath.Enhanced ->
                             "Platform extractor is insufficient; normalize compressed samples then keep hardware decode"
                         renderPath == YRenderPath.Tunnel ->
-                            "Platform demux, hardware decode and tunneled presentation are all available"
+                            "Platform demux, tunneled hardware video and HW_AV_SYNC audio are available"
                         renderPath == YRenderPath.Gpu ->
                             "Hardware decode is available but the display cannot present ${selectedRequirement.hdrType}; tone-map through GPU"
                         else ->
