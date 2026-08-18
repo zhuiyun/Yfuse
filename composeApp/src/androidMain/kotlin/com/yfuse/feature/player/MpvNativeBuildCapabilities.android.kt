@@ -16,6 +16,8 @@ internal data class MpvNativeBuildCapabilities(
     val bdmvVfs: Boolean = false,
     /** Native HDMV event/overlay menu runtime; title/chapter-only access does not set this. */
     val hdmvMenu: Boolean = false,
+    /** Runtime JNI path for authored Blu-ray seamless-angle selection. */
+    val multiAngle: Boolean = false,
     val libmpvAndroidRevision: String? = null,
     val libblurayRevision: String? = null,
     val libudfreadRevision: String? = null,
@@ -26,6 +28,8 @@ internal data class MpvNativeBuildCapabilities(
         get() =
             when {
                 libbluray && bdj -> "libbluray + BD-J"
+                libbluray && hdmvMenu && remoteRawBluRay && bdmvVfs && multiAngle ->
+                    "libbluray · HDMV · ISO/BDMV · 多视角"
                 libbluray && hdmvMenu && remoteRawBluRay && bdmvVfs ->
                     "libbluray · HDMV · ISO/BDMV 原盘"
                 libbluray && hdmvMenu && remoteRawBluRay -> "libbluray · HDMV · 远程原盘"
@@ -51,6 +55,7 @@ internal fun detectMpvNativeBuildCapabilities(
             remoteRawBluRay = marker.booleanField("REMOTE_RAW_BLURAY"),
             bdmvVfs = marker.booleanField("BDMV_VFS"),
             hdmvMenu = marker.booleanField("HDMV_MENU"),
+            multiAngle = marker.booleanField("MULTI_ANGLE"),
             libmpvAndroidRevision = marker.stringField("LIBMPV_ANDROID_REVISION"),
             libblurayRevision = marker.stringField("LIBBLURAY_REVISION"),
             libudfreadRevision = marker.stringField("LIBUDFREAD_REVISION"),
