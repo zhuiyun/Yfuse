@@ -144,14 +144,12 @@ class PlaybackSyncManager(
     fun startPositionMs(
         mediaKey: String,
         aliases: List<String> = emptyList(),
-    ): Long? {
-        val state = store.find(mediaKey, aliases)?.document?.state ?: return null
-        if (state.played) return 0L
-        if (state.durationMs > 0L && state.positionMs >= (state.durationMs * COMPLETED_RATIO).toLong()) {
-            return 0L
-        }
-        return state.positionMs.coerceAtLeast(0L)
-    }
+    ): Long? =
+        store.authoritativeStartPositionMs(
+            mediaKey = mediaKey,
+            aliases = aliases,
+            completedRatio = COMPLETED_RATIO,
+        )
 
     fun resumePositionMs(
         mediaKey: String,
