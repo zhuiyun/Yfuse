@@ -18,6 +18,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +60,13 @@ internal fun DetailActionDock(
     onFavorite: () -> Unit,
     onWatchLater: () -> Unit,
 ) {
+    // Emby has no native watch-later bit on MediaDetail: the action is backed by Yfuse's
+    // account playlist. Keep the successful intent visible for this detail route instead of
+    // letting the button snap straight back to its neutral appearance after the tap.
+    // `accent` is the poster-derived detail accent, so the selected state automatically
+    // follows the current artwork rather than introducing a fixed brand purple here.
+    var watchLaterSelected by remember { mutableStateOf(false) }
+
     Column(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -187,11 +196,16 @@ internal fun DetailActionDock(
                 modifier = Modifier.weight(1f),
             )
             GlassActionButton(
-                icon = AppIcons.Bookmark,
-                label = "稍后观看",
-                active = false,
+                icon = if (watchLaterSelected) AppIcons.Check else AppIcons.Bookmark,
+                label = if (watchLaterSelected) "已加入" else "稍后观看",
+                active = watchLaterSelected,
                 accent = accent,
-                onClick = onWatchLater,
+                onClick = {
+                    if (!watchLaterSelected) {
+                        watchLaterSelected = true
+                        onWatchLater()
+                    }
+                },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -211,13 +225,13 @@ private fun GlassActionButton(
     val palette = LocalPalette.current
     val fill =
         when {
-            active -> accent.copy(alpha = if (palette.isDark) 0.20f else 0.12f)
+            active -> accent.copy(alpha = if (palette.isDark) 0.30f else 0.20f)
             palette.isDark -> Color.White.copy(alpha = 0.075f)
             else -> Color.White.copy(alpha = 0.72f)
         }
     val edge =
         when {
-            active -> accent.copy(alpha = 0.38f)
+            active -> accent.copy(alpha = 0.58f)
             palette.isDark -> Color.White.copy(alpha = 0.19f)
             else -> Color(0xFFE0E7F1)
         }
@@ -243,13 +257,13 @@ private fun GlassActionButton(
                 .clip(CircleShape)
                 .background(
                     if (active) {
-                        accent.copy(alpha = 0.14f)
+                        accent.copy(alpha = 0.22f)
                     } else {
                         palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f)
                     },
                 ).border(
                     Dimens.hairline,
-                    if (active) accent.copy(alpha = 0.20f) else palette.border,
+                    if (active) accent.copy(alpha = 0.46f) else palette.border,
                     CircleShape,
                 ),
             contentAlignment = Alignment.Center,
@@ -260,6 +274,7 @@ private fun GlassActionButton(
                 contentDescription = label,
                 tint = if (active) accent else palette.body,
                 burstColor = accent,
+                iconSize = 16.dp,
             )
         }
         Text(
@@ -271,7 +286,7 @@ private fun GlassActionButton(
             modifier = Modifier.weight(1f),
         )
         if (active) {
-            Box(Modifier.size(5.dp).clip(CircleShape).background(accent))
+            Box(Modifier.size(6.dp).clip(CircleShape).background(accent))
         }
     }
 }
