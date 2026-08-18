@@ -14,12 +14,17 @@ on:
   push:
     branches:
       - feature/uhd-bluray
+      - agent/ycore2-foundation
     paths:
       - .github/workflows/build-yfuse-mpv-bluray.yml
       - scripts/build-yfuse-mpv-bluray.sh
+      - scripts/build-ycore-native.sh
+      - scripts/build-ycore-demux.sh
       - scripts/install-yfuse-mpv-bluray.sh
       - scripts/verify-yfuse-mpv-bluray-aar.sh
+      - scripts/verify-ycore-native.sh
       - scripts/native/**
+      - composeApp/src/androidMain/kotlin/com/yfuse/core2/android/FfmpegNativeBridge.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeRemoteBluRaySource.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/RemoteDiscBlockSource.android.kt
@@ -31,9 +36,13 @@ on:
     paths:
       - .github/workflows/build-yfuse-mpv-bluray.yml
       - scripts/build-yfuse-mpv-bluray.sh
+      - scripts/build-ycore-native.sh
+      - scripts/build-ycore-demux.sh
       - scripts/install-yfuse-mpv-bluray.sh
       - scripts/verify-yfuse-mpv-bluray-aar.sh
+      - scripts/verify-ycore-native.sh
       - scripts/native/**
+      - composeApp/src/androidMain/kotlin/com/yfuse/core2/android/FfmpegNativeBridge.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvSource.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvRegistryProxy.android.kt
@@ -48,7 +57,7 @@ concurrency:
 
 jobs:
   build:
-    name: libmpv + libbluray
+    name: libmpv + libbluray + YCore demux
     runs-on: ubuntu-24.04
     timeout-minutes: 180
 
@@ -76,17 +85,22 @@ jobs:
       - name: Build pinned native engine
         shell: bash
         run: |
-          chmod +x scripts/build-yfuse-mpv-bluray.sh scripts/verify-yfuse-mpv-bluray-aar.sh
+          chmod +x \
+            scripts/build-yfuse-mpv-bluray.sh \
+            scripts/build-ycore-native.sh \
+            scripts/build-ycore-demux.sh \
+            scripts/verify-yfuse-mpv-bluray-aar.sh \
+            scripts/verify-ycore-native.sh
           if [[ "${{ steps.abi.outputs.value }}" == "arm64" ]]; then
-            scripts/build-yfuse-mpv-bluray.sh --arch arm64
+            scripts/build-ycore-native.sh --arch arm64
           else
-            scripts/build-yfuse-mpv-bluray.sh
+            scripts/build-ycore-native.sh
           fi
 
       - name: Verify native release gates
         shell: bash
         run: |
-          scripts/verify-yfuse-mpv-bluray-aar.sh
+          scripts/verify-ycore-native.sh
 
       - name: Record artifact manifest
         shell: bash
