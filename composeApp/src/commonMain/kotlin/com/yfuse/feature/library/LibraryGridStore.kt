@@ -58,6 +58,8 @@ data class GridState(
     val locallyRemovedRowIds: Set<String> = emptySet(),
     val removingRowIds: Set<String> = emptySet(),
     val actionMessage: String? = null,
+    /** True only while old cards bridge a sort/filter request to prevent a blank-frame flash. */
+    val retainingPreviousCriteria: Boolean = false,
 ) {
     val canLoadMore: Boolean get() = nextStartIndex < totalCount
     val loadedCount: Int get() = if (directoryKind != null) containers.size else items.size
@@ -511,6 +513,7 @@ class LibraryGridStoreFactory(
                         totalCount = (msg.page.totalCount - locallyRemovedRowIds.size).coerceAtLeast(0),
                         nextStartIndex = msg.page.startIndex + msg.page.items.size,
                         error = null,
+                        retainingPreviousCriteria = false,
                     )
                 is GridMsg.ContainersLoaded ->
                     copy(
@@ -521,6 +524,7 @@ class LibraryGridStoreFactory(
                         totalCount = msg.page.totalCount,
                         nextStartIndex = msg.page.startIndex + msg.page.containers.size,
                         error = null,
+                        retainingPreviousCriteria = false,
                     )
                 is GridMsg.Appended -> {
                     // Two pages can hold the same title when the server's order is not total
@@ -569,7 +573,21 @@ class LibraryGridStoreFactory(
                         nextStartIndex = nextStartIndex,
                     )
                 }
-                is GridMsg.Failed -> copy(loading = false, loadingMore = false, error = msg.message)
+                is GridMsg.Failed ->
+                    if (retainingPreviousCriteria) {
+                        copy(
+                            loading = false,
+                            loadingMore = false,
+                            items = emptyList(),
+                            containers = emptyList(),
+                            totalCount = 0,
+                            nextStartIndex = 0,
+                            error = msg.message,
+                            retainingPreviousCriteria = false,
+                        )
+                    } else {
+                        copy(loading = false, loadingMore = false, error = msg.message)
+                    }
                 is GridMsg.AppendFailed -> copy(loadingMore = false, loadMoreError = msg.message)
                 GridMsg.GenresLoading -> copy(genresLoading = true, genreLoadError = null)
                 is GridMsg.GenresLoaded ->
@@ -586,20 +604,16 @@ class LibraryGridStoreFactory(
                 is GridMsg.Sort ->
                     copy(
                         sort = msg.value,
-                        items = emptyList(),
-                        totalCount = 0,
-                        nextStartIndex = 0,
                         error = null,
                         loadMoreError = null,
+                        retainingPreviousCriteria = true,
                     )
                 is GridMsg.Genre ->
                     copy(
                         genre = msg.value,
-                        items = emptyList(),
-                        totalCount = 0,
-                        nextStartIndex = 0,
                         error = null,
                         loadMoreError = null,
+                        retainingPreviousCriteria = true,
                     )
                 is GridMsg.RemovalRequested -> copy(pendingRemoval = msg.item, actionMessage = null)
                 GridMsg.RemovalCancelled -> copy(pendingRemoval = null)

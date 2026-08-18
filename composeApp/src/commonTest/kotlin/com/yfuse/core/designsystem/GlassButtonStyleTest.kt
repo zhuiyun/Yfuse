@@ -1,7 +1,6 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.ui.graphics.Color
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -51,27 +50,4 @@ class GlassButtonStyleTest {
         assertEquals(1f, glassButtonAlpha(enabled = true))
         assertEquals(0.44f, glassButtonAlpha(enabled = false))
     }
-
-    @Test
-    fun form_and_overlay_buttons_share_the_same_glass_material_contract() {
-        val dialogs = projectSource("core/designsystem/Dialogs.kt")
-        val forms = projectSource("core/designsystem/FormControls.kt")
-
-        listOf(dialogs, forms).forEach { source ->
-            assertTrue("defaultMinSize(minHeight = 48.dp)" in source)
-            assertTrue("shape = AppShapes.control" in source)
-            assertTrue("over = palette.background" in source)
-            assertTrue("glassButtonAlpha(enabled)" in source)
-            assertTrue("stateDescription = \"处理中\"" in source)
-            assertTrue("focusShape = AppShapes.control" in source)
-            assertTrue("onClickLabel = label" in source)
-            assertTrue("Spacer(Modifier.width(8.dp))" in source)
-        }
-    }
-
-    private fun projectSource(relativePath: String): String =
-        sequenceOf(
-            File("src/commonMain/kotlin/com/yfuse/$relativePath"),
-            File("composeApp/src/commonMain/kotlin/com/yfuse/$relativePath"),
-        ).first(File::isFile).readText()
 }

@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import android.content.Context
+import android.os.Handler
 import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -215,6 +216,7 @@ class ExoVideoEngine(
                     videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                 }
         }
+    private val playerApplicationHandler = Handler(player.applicationLooper)
 
     override val playbackRequested: Boolean
         get() = player.playWhenReady && player.playbackState != Player.STATE_ENDED
@@ -227,25 +229,30 @@ class ExoVideoEngine(
     private var lastAvSyncSampleAtNs = 0L
     private val videoFrameMetadataListener =
         VideoFrameMetadataListener { presentationTimeUs, releaseTimeNs, _, _ ->
-            val nowNs = System.nanoTime()
-            if (nowNs - lastAvSyncSampleAtNs < AV_SYNC_SAMPLE_INTERVAL_NS) {
+            val callbackAtNs = System.nanoTime()
+            if (callbackAtNs - lastAvSyncSampleAtNs < AV_SYNC_SAMPLE_INTERVAL_NS) {
                 return@VideoFrameMetadataListener
             }
-            lastAvSyncSampleAtNs = nowNs
-            val releaseDelayMs =
-                ((releaseTimeNs - nowNs) / 1_000_000L).coerceIn(-MAX_RELEASE_DELAY_MS, MAX_RELEASE_DELAY_MS)
-            val mediaClockAtReleaseMs = player.currentPosition + releaseDelayMs
-            val offsetMs =
-                (presentationTimeUs / 1_000L - mediaClockAtReleaseMs)
-                    .coerceIn(-MAX_REPORTED_AV_SYNC_OFFSET_MS, MAX_REPORTED_AV_SYNC_OFFSET_MS)
-            _state.update {
-                it.copy(
-                    diagnostics =
-                        it.diagnostics.copy(
-                            avSyncOffsetMs = offsetMs,
-                            avSyncMeasurement = "Media3 呈现/播放时钟",
-                        ),
-                )
+            lastAvSyncSampleAtNs = callbackAtNs
+            playerApplicationHandler.post {
+                if (released) return@post
+                val sampledAtNs = System.nanoTime()
+                val releaseDelayMs =
+                    ((releaseTimeNs - sampledAtNs) / 1_000_000L)
+                        .coerceIn(-MAX_RELEASE_DELAY_MS, MAX_RELEASE_DELAY_MS)
+                val mediaClockAtReleaseMs = player.currentPosition + releaseDelayMs
+                val offsetMs =
+                    (presentationTimeUs / 1_000L - mediaClockAtReleaseMs)
+                        .coerceIn(-MAX_REPORTED_AV_SYNC_OFFSET_MS, MAX_REPORTED_AV_SYNC_OFFSET_MS)
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                avSyncOffsetMs = offsetMs,
+                                avSyncMeasurement = "Media3 呈现/播放时钟",
+                            ),
+                    )
+                }
             }
         }
 

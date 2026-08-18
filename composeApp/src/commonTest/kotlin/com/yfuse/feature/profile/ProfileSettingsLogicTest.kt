@@ -60,6 +60,22 @@ class ProfileSettingsLogicTest {
     }
 
     @Test
+    fun ordinary_playback_settings_expose_goals_without_backend_names() {
+        assertEquals(
+            listOf(
+                PlaybackOptimizationMode.Balanced,
+                PlaybackOptimizationMode.Compatibility,
+                PlaybackOptimizationMode.Quality,
+            ),
+            simplePlaybackModes,
+        )
+        assertEquals(listOf("自动", "兼容优先", "画质优先"), simplePlaybackModes.map { it.simplePlaybackLabel() })
+        simplePlaybackModes.map { it.simplePlaybackLabel() }.forEach { label ->
+            PlayerEngine.selectable.forEach { engine -> assertFalse(engine.label in label) }
+        }
+    }
+
+    @Test
     fun download_filters_and_sorts_keep_the_expected_real_tasks() {
         val queued = media("queued", "Beta", DownloadStatus.Queued, total = 20, updated = 1)
         val paused = media("paused", "alpha", DownloadStatus.Paused, total = 10, updated = 3)

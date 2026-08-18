@@ -9,6 +9,7 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -139,6 +140,37 @@ class SearchStoreTest {
 
             preferences.setSmartCrossServerSource(false)
             assertTrue(search().aggregated.isEmpty())
+        }
+
+    @Test
+    fun fast_server_results_are_visible_while_a_slow_server_is_still_loading() =
+        runTest {
+            val slowServerRelease = CompletableDeferred<Unit>()
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("slow", "http://slow:8096", "慢服务器", "u1", "user", "tok"))
+                    addOrUpdate(SavedServer("fast", "http://fast:8096", "快服务器", "u2", "user", "tok"))
+                }
+            val repo =
+                testRepo(dispatcher) { request ->
+                    if (request.url.host == "slow") slowServerRelease.await()
+                    json(
+                        """{"Items":[{"Id":"${request.url.host}","Name":"沙丘","Type":"Movie"}]}""",
+                    )
+                }
+            val store = SearchStoreFactory(DefaultStoreFactory(), repo, registry).create()
+
+            store.accept(SearchIntent.QueryChanged("沙丘"))
+            store.accept(SearchIntent.Submit)
+
+            val partial = store.states.first { it.loading && it.groups.any { group -> group.serverId == "fast" } }
+            assertEquals(listOf("fast"), partial.groups.map { it.serverId })
+            assertEquals("沙丘", partial.items.single().title)
+
+            slowServerRelease.complete(Unit)
+            val complete = store.states.first { it.hasSearched && !it.loading }
+            assertEquals(listOf("slow", "fast"), complete.groups.map { it.serverId })
+            store.dispose()
         }
 
     @Test

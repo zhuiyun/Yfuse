@@ -62,10 +62,8 @@ private class AndroidPlaybackDeviceCapabilitiesProvider(
         }
 
     init {
-        if (Build.VERSION.SDK_INT >= 23) {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            audioManager.registerAudioDeviceCallback(audioDeviceCallback, callbackHandler)
-        }
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager.registerAudioDeviceCallback(audioDeviceCallback, callbackHandler)
         val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         displayManager.registerDisplayListener(displayListener, callbackHandler)
     }
@@ -143,12 +141,7 @@ private class AndroidPlaybackDeviceCapabilitiesProbe(
         val decoders = decoderCapabilities()
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val directAudio = directAudioFormats()
-        val outputDevices =
-            if (Build.VERSION.SDK_INT >= 23) {
-                audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
-            } else {
-                emptyList()
-            }
+        val outputDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
         return PlaybackDeviceCapabilities(
             hdrFormats = displayHdrFormats(),
             videoDecoders = decoders.video,
@@ -240,7 +233,6 @@ private class AndroidPlaybackDeviceCapabilitiesProbe(
 
     @Suppress("DEPRECATION")
     fun displayHdrFormats(): Set<PlaybackHdrFormat> {
-        if (Build.VERSION.SDK_INT < 24) return emptySet()
         val manager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         val display = manager.getDisplay(Display.DEFAULT_DISPLAY) ?: manager.displays.firstOrNull()
         val supported =
@@ -355,6 +347,7 @@ private data class DecoderCapabilities(
     val maxAudioChannels: Int,
 )
 
+@SuppressLint("InlinedApi")
 internal fun decoderHdrFormats(
     codec: PlaybackVideoCodec,
     profiles: List<Int>,
@@ -439,6 +432,7 @@ internal fun decoderHdrFormats(
         }
     }
 
+@SuppressLint("InlinedApi")
 internal fun decoderSupportsBitDepth(
     codec: PlaybackVideoCodec,
     profiles: List<Int>,
@@ -595,6 +589,7 @@ private val AUDIO_MIME_TYPES =
         "audio/raw" to PlaybackAudioCodec.Pcm,
     )
 
+@SuppressLint("InlinedApi")
 @Suppress("DEPRECATION")
 private val DIRECT_AUDIO_ENCODINGS =
     listOf(

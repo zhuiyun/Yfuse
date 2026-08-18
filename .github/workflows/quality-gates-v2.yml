@@ -52,6 +52,8 @@ jobs:
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
       - name: Compile and run unit tests
         run: ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
+      - name: Compile startup and frame-time Macrobenchmark APK
+        run: ./gradlew :macrobenchmark:assembleBenchmark --no-daemon
       - name: Verify design-system usage
         run: ./gradlew :composeApp:verifyDesignSystemUsage --no-daemon
       - name: Run Android lint
@@ -84,7 +86,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew :composeApp:dependencies :mdkAndroid:dependencies :watchTogetherProtocol:dependencies :watchTogetherServer:dependencies --no-daemon >/dev/null
+          ./gradlew :composeApp:dependencies :macrobenchmark:dependencies :mdkAndroid:dependencies :watchTogetherProtocol:dependencies :watchTogetherServer:dependencies --no-daemon >/dev/null
           git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
       - name: Upload preview APK
         if: github.event_name == 'pull_request'

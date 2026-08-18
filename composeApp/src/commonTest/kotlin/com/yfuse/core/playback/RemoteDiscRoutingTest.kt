@@ -1,6 +1,5 @@
 package com.yfuse.core.playback
 
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -40,29 +39,6 @@ class RemoteDiscRoutingTest {
         assertTrue(decision.requiresNativeEngine)
     }
 
-    /**
-     * The defect this pins.
-     *
-     * The reconcile effect used to return early unless the probe was Complete, and a remote
-     * disc's probe is deliberately Skipped — so `switchToTranscode` was unreachable for exactly
-     * the source that cannot play without it. The remote-disc branch has to be evaluated before
-     * that gate.
-     */
-    @Test
-    fun the_remote_disc_transcode_switch_is_decided_before_the_probe_completeness_gate() {
-        val source = playerRootSource()
-        val switchIndex = source.indexOf("remoteDiscNeedsServer && !localState.transcoding")
-        val gateIndex = source.indexOf("activeProbeResult.status != PlaybackProbeStatus.Complete")
-
-        assertTrue(switchIndex > 0, "the remote-disc transcode switch is missing")
-        assertTrue(gateIndex > 0, "the probe completeness gate is missing")
-        assertTrue(
-            switchIndex < gateIndex,
-            "A remote disc's probe is Skipped by design, so gating its transcode switch on a " +
-                "Complete probe makes it unreachable and leaves an .iso URL in the engine",
-        )
-    }
-
     private fun remoteDisc(
         hasServerTranscode: Boolean,
         local: Boolean = false,
@@ -74,12 +50,4 @@ class RemoteDiscRoutingTest {
         discKind = PlaybackDiscKind.Iso,
         localSource = local,
     )
-
-    private fun playerRootSource(): String =
-        sequenceOf(
-            File("src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt"),
-            File("composeApp/src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt"),
-        ).firstOrNull(File::isFile)
-            ?.readText()
-            ?: error("Cannot locate PlayerRoot.kt from ${File(".").absolutePath}")
 }

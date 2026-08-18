@@ -1,4 +1,4 @@
-# SHA-256 values for the exact upstream artifacts downloaded by fetch-engines.sh.
+# SHA-256 values for the exact artifacts downloaded by fetch-engines.sh.
 # Update the URL/version and its independently verified digest in the same review.
-df146592480fc8418415a06b1f1a1d6318b0088e21f52254b0e9a82b61ca8fa2  libmpv-release.aar
+cd43b184678e7be6c6ec8fb34299c75513f6e90eaca34da613b2515349c29cc8  libmpv-release.aar
 87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba  mdk-sdk-android.7z

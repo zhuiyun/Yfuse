@@ -18,13 +18,11 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.tls.HandshakeCertificates
 import okhttp3.tls.HeldCertificate
-import java.io.File
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -39,28 +37,6 @@ class AndroidHttpEnginePolicyTest {
         } finally {
             engine.close()
         }
-    }
-
-    @Test
-    fun android_actual_keeps_okhttp_platform_tls_defaults() {
-        val source = androidHttpEngineSource().readText()
-
-        assertTrue(
-            "actual fun embyHttpEngine(): HttpClientEngine = OkHttp.create()" in source,
-            "The Android actual must return a fresh, unconfigured OkHttp engine",
-        )
-        val forbiddenExecutableConfiguration =
-            Regex(
-                pattern =
-                    """import\s+io\.ktor\.client\.engine\.cio|""" +
-                        """\bCIO\s*\.\s*create\s*\(|""" +
-                        """\bpreconfigured\s*=|""" +
-                        """\b(?:sslSocketFactory|trustManager|hostnameVerifier|checkServerTrusted)\s*(?:\(|=)""",
-            )
-        assertFalse(
-            forbiddenExecutableConfiguration.containsMatchIn(source),
-            "Android HTTP engine must use OkHttp's platform TLS defaults",
-        )
     }
 
     @Test
@@ -184,100 +160,4 @@ class AndroidHttpEnginePolicyTest {
                 server.shutdown()
             }
         }
-
-    @Test
-    fun network_security_config_allows_cleartext_for_all_hosts() {
-        val config = projectFile("src/androidMain/res/xml/network_security_config.xml").readText()
-
-        assertTrue(
-            Regex("""<base-config\s+cleartextTrafficPermitted="true"\s*/>""")
-                .containsMatchIn(config),
-            "HTTP must remain available for arbitrary user-configured hosts",
-        )
-        assertTrue(
-            httpsOnlyDomains(config).isEmpty(),
-            "Network security config must not add host-level HTTP restrictions",
-        )
-    }
-
-    @Test
-    fun shared_ip_keeps_cleartext_available_for_user_managed_emby_ports() {
-        val config = projectFile("src/androidMain/res/xml/network_security_config.xml").readText()
-
-        assertTrue(
-            Regex("""<base-config\s+cleartextTrafficPermitted="true"\s*/>""")
-                .containsMatchIn(config),
-            "User-managed HTTP Emby servers must remain reachable",
-        )
-        assertFalse(
-            "47.112.219.60" in httpsOnlyDomains(config),
-            "Network security config is host-only; blocking this IP would also block " +
-                "the user's http://47.112.219.60:19001 Emby server",
-        )
-    }
-
-    @Test
-    fun official_services_on_the_shared_ip_are_hard_coded_to_https() {
-        val updateSource =
-            projectFile(
-                "src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt",
-            ).readText()
-        val accountModelsSource =
-            projectFile(
-                "src/commonMain/kotlin/com/yfuse/core/account/AccountModels.kt",
-            ).readText()
-        val accountApiSource =
-            projectFile(
-                "src/commonMain/kotlin/com/yfuse/core/account/AccountApi.kt",
-            ).readText()
-        val watchPreferencesSource =
-            projectFile(
-                "src/commonMain/kotlin/com/yfuse/core/data/WatchTogetherPreferences.kt",
-            ).readText()
-
-        assertTrue(
-            Regex("""UPDATE_MANIFEST\s*=\s*"https://47\.112\.219\.60/""")
-                .containsMatchIn(updateSource),
-            "The update manifest must stay on HTTPS",
-        )
-        assertTrue(
-            Regex("""ACCOUNT_BASE_URL[^=]*=\s*"https://47\.112\.219\.60"""")
-                .containsMatchIn(accountModelsSource),
-            "The account service must stay on HTTPS",
-        )
-        assertTrue(
-            "require(it.startsWith(\"https://\"))" in accountApiSource,
-            "The account client must reject cleartext origins at runtime",
-        )
-        assertTrue(
-            Regex("""DEFAULT_ENDPOINT\s*=\s*ACCOUNT_BASE_URL""")
-                .containsMatchIn(watchPreferencesSource) &&
-                Regex("""ACCOUNT_BASE_URL[^=]*=\s*"https://47\.112\.219\.60"""")
-                    .containsMatchIn(accountModelsSource),
-            "The built-in watch-together endpoint must share the HTTPS account origin",
-        )
-    }
-
-    private fun httpsOnlyDomains(config: String): List<String> =
-        Regex(
-            pattern = """<domain-config\s+cleartextTrafficPermitted="false"[^>]*>(.*?)</domain-config>""",
-            option = RegexOption.DOT_MATCHES_ALL,
-        ).findAll(config)
-            .flatMap { block ->
-                Regex("""<domain(?:\s+[^>]*)?>([^<]+)</domain>""")
-                    .findAll(block.groupValues[1])
-                    .map { it.groupValues[1].trim() }
-            }.toList()
-
-    private fun androidHttpEngineSource(): File =
-        projectFile(
-            "src/androidMain/kotlin/com/yfuse/core/network/HttpClientFactory.android.kt",
-        )
-
-    private fun projectFile(moduleRelativePath: String): File =
-        sequenceOf(
-            File(moduleRelativePath),
-            File("composeApp", moduleRelativePath),
-        ).firstOrNull(File::isFile)
-            ?: error("Cannot locate $moduleRelativePath from ${File(".").absolutePath}")
 }

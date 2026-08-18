@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- Dependency upgrades are reviewed by the dedicated supply-chain workflow. -->
+    <issue id="AndroidGradlePluginVersion" severity="ignore" />
+    <issue id="GradleDependency" severity="ignore" />
+    <issue id="NewerVersionAvailable" severity="ignore" />
+
+    <!-- Style-only suggestions are enforced consistently by ktlint instead. -->
+    <issue id="UseKtx" severity="ignore" />
+
+    <!-- Yfuse ships an ARM64-only custom mpv AAR and intentionally supports LAN HTTP servers. -->
+    <issue id="ChromeOsAbiSupport" severity="ignore" />
+    <issue id="InsecureBaseConfiguration" severity="ignore" />
+</lint>

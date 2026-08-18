@@ -1,6 +1,7 @@
 package com.yfuse.core.network
 
 import android.Manifest
+import android.annotation.SuppressLint
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -11,6 +12,7 @@ import androidx.compose.runtime.remember
  * A denial intentionally does not block manual server entry or regular Internet playback.
  */
 @Composable
+@SuppressLint("InlinedApi")
 actual fun rememberLocalNetworkPermissionRequest(
     onGranted: () -> Unit,
     onDenied: () -> Unit,

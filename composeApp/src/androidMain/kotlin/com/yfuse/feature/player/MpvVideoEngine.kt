@@ -31,6 +31,34 @@ import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "YfusePlayer"
 
+internal data class MpvScaleModeProperties(
+    val panscan: Double,
+    val keepAspect: Boolean,
+)
+
+internal fun mpvScaleModeProperties(mode: VideoScaleMode): MpvScaleModeProperties =
+    MpvScaleModeProperties(
+        panscan = if (mode == VideoScaleMode.Fill) 1.0 else 0.0,
+        keepAspect = mode != VideoScaleMode.Stretch,
+    )
+
+internal fun mpvAudioOutputReadiness(
+    outputDriver: String?,
+    outputFormat: String?,
+): PlaybackOutputReadiness {
+    val driver = outputDriver?.trim().orEmpty()
+    val format = outputFormat?.trim().orEmpty()
+    return if (
+        driver.isNotEmpty() &&
+        !driver.equals("null", ignoreCase = true) &&
+        format.isNotEmpty()
+    ) {
+        PlaybackOutputReadiness.Rendering
+    } else {
+        PlaybackOutputReadiness.Waiting
+    }
+}
+
 /**
  * Native optical-disc URLs are explicit so Blu-ray always starts on the main feature instead of
  * relying on whichever playlist libbluray happens to expose first. mpv documents `bd://longest`
@@ -646,11 +674,10 @@ class MpvVideoEngine(
 
     fun setScaleMode(mode: VideoScaleMode) {
         withMpv { instance ->
-            instance.setPropertyDouble("panscan", if (mode == VideoScaleMode.Fill) 1.0 else 0.0)
-            instance.setPropertyString(
-                "video-aspect-override",
-                if (mode == VideoScaleMode.Stretch) "window" else "-1",
-            )
+            val properties = mpvScaleModeProperties(mode)
+            instance.setPropertyDouble("panscan", properties.panscan)
+            instance.setPropertyString("video-aspect-override", "-1")
+            instance.setPropertyBoolean("keepaspect", properties.keepAspect)
         }
     }
 
@@ -1108,8 +1135,10 @@ class MpvVideoEngine(
     private fun logAudioOutput() {
         val instance = mpv ?: return
         runCatching {
-            val outputFormat = instance.getPropertyString("audio-params/format")
+            val outputDriver = instance.getPropertyString("current-ao")
+            val outputFormat = instance.getPropertyString("audio-out-params/format")
             val decoder = instance.getPropertyString("audio-codec-name")
+            val readiness = mpvAudioOutputReadiness(outputDriver, outputFormat)
             val passthroughStatus =
                 mpvAudioPassthroughStatus(
                     mode = audioPassthroughMode,
@@ -1121,31 +1150,47 @@ class MpvVideoEngine(
                     diagnostics =
                         state.diagnostics.copy(
                             audioOutput =
-                                playbackOutputDiagnosticLabel(
-                                    status = passthroughStatus,
-                                    activeLabel = "源码输出 · ${decoder ?: outputFormat ?: "未知编码"}",
-                                ),
-                            audioReadiness = PlaybackOutputReadiness.Rendering,
+                                if (readiness == PlaybackOutputReadiness.Rendering) {
+                                    playbackOutputDiagnosticLabel(
+                                        status = passthroughStatus,
+                                        activeLabel = "源码输出 · ${decoder ?: outputFormat ?: "未知编码"}",
+                                    )
+                                } else {
+                                    "等待音频输出"
+                                },
+                            audioReadiness = readiness,
                             // mpv names the codec rather than exposing an encoding constant,
                             // so the identifier is matched — a backend codec name, not a
                             // sentence written for the diagnostics panel.
                             dolbyAtmosOutput =
-                                passthroughStatus is PlaybackOutputStatus.Active &&
+                                readiness == PlaybackOutputReadiness.Rendering &&
+                                    passthroughStatus is PlaybackOutputStatus.Active &&
                                     isDolbyObjectAudioCodec(decoder ?: outputFormat),
                         ),
                 )
             }
             AppLog.info(
                 category = "player.mpv",
-                event = "audio_output_configured",
-                message = "mpv audio output was configured",
+                event =
+                    if (readiness == PlaybackOutputReadiness.Rendering) {
+                        "audio_output_configured"
+                    } else {
+                        "audio_output_pending"
+                    },
+                message =
+                    if (readiness == PlaybackOutputReadiness.Rendering) {
+                        "mpv audio output was configured"
+                    } else {
+                        "mpv audio output is not established yet"
+                    },
                 attributes =
                     mapOf(
-                        "output" to (instance.getPropertyString("current-ao") ?: "unknown"),
+                        "output" to (outputDriver ?: "unknown"),
                         "format" to (outputFormat ?: "unknown"),
                         "codec" to (decoder ?: "unknown"),
                         "track" to (instance.getPropertyString("aid") ?: "unknown"),
                         "passthrough" to passthroughStatus.toString(),
+                        "readiness" to readiness.name,
                     ),
             )
         }.onFailure {

@@ -28,6 +28,7 @@ dependencyResolutionManagement {
 }
 
 include(":composeApp")
+include(":macrobenchmark")
 include(":mdkAndroid")
 include(":watchTogetherProtocol")
 include(":watchTogetherServer")

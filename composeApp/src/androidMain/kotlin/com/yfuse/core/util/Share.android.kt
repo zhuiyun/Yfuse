@@ -1,5 +1,6 @@
 package com.yfuse.core.util
 
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
@@ -43,6 +44,7 @@ private class AndroidShareHandler(
         }
     }
 
+    @SuppressLint("InlinedApi")
     override fun copySensitiveText(text: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val clip = ClipData.newPlainText("Yfuse 安全凭证", text)

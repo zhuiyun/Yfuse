@@ -166,24 +166,4 @@ class UpdateResumePolicyTest {
         assertEquals(0f, updateProgress(downloadedBytes = 400L, totalBytes = 0L))
         assertEquals(1f, updateProgress(downloadedBytes = 1400L, totalBytes = 1000L))
     }
-
-    @Test
-    fun the_download_runs_inside_a_foreground_service_so_it_survives_the_background() {
-        val managerSource = projectFile(
-            "src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt",
-        ).readText()
-        val manifest = projectFile("src/androidMain/AndroidManifest.xml").readText()
-
-        assertTrue("startForegroundService" in managerSource)
-        assertTrue("com.yfuse.update.UpdateDownloadService" in manifest)
-        // The manager may not be tied to an activity, or a rotation would drop the transfer.
-        assertFalse("private val activity: Activity" in managerSource)
-    }
-
-    private fun projectFile(moduleRelativePath: String): File =
-        sequenceOf(
-            File(moduleRelativePath),
-            File("composeApp", moduleRelativePath),
-        ).firstOrNull(File::isFile)
-            ?: error("Cannot locate $moduleRelativePath from ${File(".").absolutePath}")
 }

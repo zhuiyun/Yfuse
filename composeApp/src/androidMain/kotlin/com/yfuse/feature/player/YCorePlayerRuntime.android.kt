@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -45,7 +46,7 @@ internal fun rememberPlaybackRuntimeEnvironment(): PlaybackRuntimeEnvironment {
     val revisionFlow = remember(provider) { provider?.revisions() }
     val revisionState =
         revisionFlow?.collectAsState(initial = 0L)
-            ?: remember { mutableStateOf(0L) }
+            ?: remember { mutableLongStateOf(0L) }
     val revision by revisionState
     return remember(provider, revision) {
         runCatching { provider?.current() }
@@ -149,7 +150,7 @@ internal fun rememberYCoreRuntimeAssessment(
             val observed =
                 session.observe(
                     current.runtimeObservation(
-                        engine = engine,
+                        playbackRequested = engine.playbackRequested,
                         probe = latestProbe,
                         runtimeEnvironment = latestRuntimeEnvironment,
                     ),
@@ -195,15 +196,16 @@ internal fun rememberYCoreRuntimeAssessment(
     return assessment
 }
 
-private fun PlaybackState.runtimeObservation(
-    engine: VideoEngine,
+internal fun PlaybackState.runtimeObservation(
+    playbackRequested: Boolean,
     probe: PlaybackMediaProbe,
     runtimeEnvironment: PlaybackRuntimeEnvironment,
+    nowEpochMs: Long = System.currentTimeMillis(),
 ): YCoreRuntimeObservation =
     YCoreRuntimeObservation(
-        nowEpochMs = System.currentTimeMillis(),
+        nowEpochMs = nowEpochMs,
         positionMs = positionMs,
-        playbackRequested = engine.playbackRequested,
+        playbackRequested = playbackRequested,
         buffering = buffering,
         // Read from the backend's own report rather than from the wording of its diagnostic
         // label. Deciding this by substring meant MDK — whose label says, accurately, that it
@@ -216,9 +218,10 @@ private fun PlaybackState.runtimeObservation(
         videoReady = videoHeight > 0 || diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering,
         videoExpected = probe.source.videoCodec != null,
         videoOutputVerifiable = diagnostics.videoReadiness.verifiable,
-        audioReady =
-            audioTracks.any { it.selected } ||
-                diagnostics.audioReadiness == PlaybackOutputReadiness.Rendering,
+        // A selected track proves only demux/selection, not that an AudioTrack or native output
+        // device was established. Treating selection as output masked real video-without-sound
+        // failures from the runtime detector.
+        audioReady = diagnostics.audioReadiness == PlaybackOutputReadiness.Rendering,
         audioExpected = probe.audioCodec != null || audioTracks.isNotEmpty(),
         audioOutputVerifiable = diagnostics.audioReadiness.verifiable,
         errorPresent = error != null,

@@ -13,6 +13,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -157,7 +158,7 @@ internal fun PlayerRoot(
     val capabilityRevisionFlow = remember(capabilityProvider) { capabilityProvider?.revisions() }
     val capabilityRevisionState =
         capabilityRevisionFlow?.collectAsState(initial = 0L)
-            ?: remember { mutableStateOf(0L) }
+            ?: remember { mutableLongStateOf(0L) }
     val capabilityRevision by capabilityRevisionState
     val deviceCapabilities =
         remember(capabilityProvider, capabilityRevision) {
@@ -366,7 +367,7 @@ internal fun PlayerRoot(
     }
 
     val localState by engine.state.collectAsState()
-    var appliedCapabilityRevision by remember { mutableStateOf(capabilityRevision) }
+    var appliedCapabilityRevision by remember { mutableLongStateOf(capabilityRevision) }
     var appliedOptimizationMode by remember { mutableStateOf(effectiveOptimizationMode) }
     LaunchedEffect(capabilityRevision, effectiveOptimizationMode) {
         if (
@@ -1595,129 +1596,26 @@ internal fun PlayerRoot(
         }
     }
 
-    LaunchedEffect(engine, requestedPlaybackSpeed) {
-        if (state.speed != requestedPlaybackSpeed) engine.setSpeed(requestedPlaybackSpeed)
-    }
-    LaunchedEffect(engine, currentItem?.id, state.audioTracks, audioRestore) {
-        if (currentItem?.id != handoverItemId) return@LaunchedEffect
-        val target = audioRestore?.let(state.audioTracks::bestRestoreMatch) ?: return@LaunchedEffect
-        if (!target.selected) engine.selectAudioTrack(target.id)
-    }
-    LaunchedEffect(
-        engine,
-        currentItem?.id,
-        state.subtitleTracks,
-        subtitleRestore,
-        restoreSubtitlesOff,
-    ) {
-        if (currentItem?.id != handoverItemId || state.subtitleTracks.isEmpty()) {
-            return@LaunchedEffect
-        }
-        if (restoreSubtitlesOff) {
-            if (state.subtitleTracks.any { it.selected }) engine.selectSubtitleTrack(EngineTrack.OFF)
-            return@LaunchedEffect
-        }
-        val target =
-            subtitleRestore?.let(state.subtitleTracks::bestRestoreMatch)
-                ?: return@LaunchedEffect
-        if (!target.selected) engine.selectSubtitleTrack(target.id)
-    }
-    LaunchedEffect(
-        engine,
-        currentItem?.id,
-        state.subtitleTracks,
-        secondarySubtitleRestore,
-        engine.supportsSecondarySubtitleTrack,
-    ) {
-        if (currentItem?.id != handoverItemId || state.subtitleTracks.isEmpty()) {
-            return@LaunchedEffect
-        }
-        if (!engine.supportsSecondarySubtitleTrack) {
-            secondarySubtitleTrackId = null
-            return@LaunchedEffect
-        }
-        val target =
-            secondarySubtitleRestore?.let(state.subtitleTracks::bestRestoreMatch)
-        if (target == null || target.selected) {
-            engine.selectSecondarySubtitleTrack(EngineTrack.OFF)
-            secondarySubtitleTrackId = null
-            return@LaunchedEffect
-        }
-        if (engine.selectSecondarySubtitleTrack(target.id)) {
-            secondarySubtitleTrackId = target.id
-        }
-    }
-
-    LaunchedEffect(engine, kind, subtitleControls.offsetMs) {
-        val applied = engine.setSubtitleOffsetMs(subtitleControls.offsetMs)
-        if (
-            !applied &&
-            subtitleControls.offsetMs != 0L &&
-            kind != PlayerEngine.Mpv &&
-            sessionEngineSelection == PlaybackEngineSelection.Auto
-        ) {
-            switchEngine(PlayerEngine.Mpv)
-        }
-    }
-    LaunchedEffect(engine, kind, audioControls.delayMs) {
-        val applied = engine.setAudioDelayMs(audioControls.delayMs)
-        if (
-            !applied &&
-            audioControls.delayMs != 0L &&
-            kind != PlayerEngine.Mpv &&
-            sessionEngineSelection == PlaybackEngineSelection.Auto
-        ) {
-            switchEngine(PlayerEngine.Mpv)
-        }
-    }
-    LaunchedEffect(engine, kind, subtitleControls.scale) {
-        if (kind != PlayerEngine.Exo) {
-            val applied = engine.setSubtitleScale(subtitleControls.scale)
-            if (
-                !applied &&
-                subtitleControls.scale != 1f &&
-                kind != PlayerEngine.Mpv &&
-                sessionEngineSelection == PlaybackEngineSelection.Auto
-            ) {
-                switchEngine(PlayerEngine.Mpv)
-            }
-        }
-    }
-    LaunchedEffect(engine, kind, subtitleControls.brightness) {
-        val applied = engine.setSubtitleBrightness(subtitleControls.brightness)
-        if (
-            !applied &&
-            subtitleControls.brightness != 1f &&
-            kind != PlayerEngine.Mpv &&
-            sessionEngineSelection == PlaybackEngineSelection.Auto
-        ) {
-            switchEngine(PlayerEngine.Mpv)
-        }
-    }
-    LaunchedEffect(engine, kind, subtitleControls.position) {
-        if (kind != PlayerEngine.Exo) {
-            val applied = engine.setSubtitlePosition(subtitleControls.position)
-            if (
-                !applied &&
-                subtitleControls.position != DEFAULT_SUBTITLE_POSITION &&
-                kind != PlayerEngine.Mpv &&
-                sessionEngineSelection == PlaybackEngineSelection.Auto
-            ) {
-                switchEngine(PlayerEngine.Mpv)
-            }
-        }
-    }
-    LaunchedEffect(engine, scaleMode) {
-        (engine as? MpvVideoEngine)?.setScaleMode(scaleMode)
-        (engine as? MdkVideoEngine)?.setFill(scaleMode != VideoScaleMode.Fit)
-    }
-    LaunchedEffect(engine, state.subtitleTracks, pendingSubtitleLanguage) {
-        val language = pendingSubtitleLanguage ?: return@LaunchedEffect
-        state.subtitleTracks.matchingLanguage(language)?.let { trackId ->
-            engine.selectSubtitleTrack(trackId)
-            pendingSubtitleLanguage = null
-        }
-    }
+    PlayerTrackEffects(
+        engine = engine,
+        engineKind = kind,
+        state = state,
+        currentItemId = currentItem?.id,
+        handoverItemId = handoverItemId,
+        requestedSpeed = requestedPlaybackSpeed,
+        audioRestore = audioRestore,
+        subtitleRestore = subtitleRestore,
+        secondarySubtitleRestore = secondarySubtitleRestore,
+        restoreSubtitlesOff = restoreSubtitlesOff,
+        subtitleControls = subtitleControls,
+        audioControls = audioControls,
+        scaleMode = scaleMode,
+        pendingSubtitleLanguage = pendingSubtitleLanguage,
+        automaticEngineSelection = sessionEngineSelection == PlaybackEngineSelection.Auto,
+        onSecondarySubtitleTrackChanged = { secondarySubtitleTrackId = it },
+        onPendingSubtitleLanguageApplied = { pendingSubtitleLanguage = null },
+        onRequestMpv = { switchEngine(PlayerEngine.Mpv) },
+    )
 
     LaunchedEffect(
         state.fallbacksExhausted,

@@ -23,7 +23,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class ServerSearchGroup(
     val serverId: String,
@@ -227,6 +230,12 @@ private sealed interface SearchMsg {
     ) : SearchMsg
 
     data class Loaded(
+        val query: String,
+        val groups: List<ServerSearchGroup>,
+        val aggregated: List<CrossServerMediaGroup> = emptyList(),
+    ) : SearchMsg
+
+    data class PartialLoaded(
         val query: String,
         val groups: List<ServerSearchGroup>,
         val aggregated: List<CrossServerMediaGroup> = emptyList(),
@@ -561,21 +570,42 @@ class SearchStoreFactory(
             val snapshot = state()
             val filter = searchFilter(snapshot)
             dispatch(SearchMsg.Loading(query))
-            searchJob =
+            val aggregate =
+                playbackPreferences?.smartCrossServerSource?.value != false &&
+                    snapshot.serverId == null &&
+                    snapshot.person == null
+
+            fun aggregated(groups: List<ServerSearchGroup>): List<CrossServerMediaGroup> =
+                if (aggregate) {
+                    aggregateCrossServerMedia(
+                        hits =
+                            groups.flatMap { group ->
+                                group.items.map { item ->
+                                    CrossServerMediaHit(group.serverId, group.serverName, item)
+                                }
+                            },
+                        health = healthMonitor?.health?.value.orEmpty(),
+                    )
+                } else {
+                    emptyList()
+                }
+            val completedGroups = mutableMapOf<String, ServerSearchGroup>()
+            val completedGroupsMutex = Mutex()
+            val titleJob =
                 scope.launch {
-                    val groups =
-                        coroutineScope {
-                            servers
-                                .map { server ->
-                                    async {
-                                        val first = repo.searchPage(server, query, filter = filter)
-                                        val result =
-                                            if (first.isFailure) {
-                                                delay(300L)
-                                                repo.searchPage(server, query, filter = filter)
-                                            } else {
-                                                first
-                                            }
+                    coroutineScope {
+                        servers
+                            .map { server ->
+                                launch {
+                                    val first = repo.searchPage(server, query, filter = filter)
+                                    val result =
+                                        if (first.isFailure) {
+                                            delay(300L)
+                                            repo.searchPage(server, query, filter = filter)
+                                        } else {
+                                            first
+                                        }
+                                    val group =
                                         result.fold(
                                             onSuccess = {
                                                 ServerSearchGroup(
@@ -593,40 +623,31 @@ class SearchStoreFactory(
                                                 )
                                             },
                                         )
-                                    }
-                                }.awaitAll()
-                        }
+                                    val partial =
+                                        completedGroupsMutex.withLock {
+                                            completedGroups[server.id] = group
+                                            servers.mapNotNull { completedGroups[it.id] }
+                                        }
+                                    dispatch(SearchMsg.PartialLoaded(query, partial, aggregated(partial)))
+                                }
+                            }.joinAll()
+                    }
+                    val groups = completedGroupsMutex.withLock { servers.mapNotNull { completedGroups[it.id] } }
                     // Preserve per-server failures even when every server failed. The result page
                     // can then name each unavailable server and offer the direct re-login action,
                     // instead of collapsing useful recovery context into one generic error.
-                    val aggregate =
-                        playbackPreferences?.smartCrossServerSource?.value != false &&
-                            snapshot.serverId == null &&
-                            snapshot.person == null
                     dispatch(
                         SearchMsg.Loaded(
                             query,
                             groups,
-                            aggregated =
-                                if (aggregate) {
-                                    aggregateCrossServerMedia(
-                                        hits =
-                                            groups.flatMap { group ->
-                                                group.items.map { item ->
-                                                    CrossServerMediaHit(group.serverId, group.serverName, item)
-                                                }
-                                            },
-                                        health = healthMonitor?.health?.value.orEmpty(),
-                                    )
-                                } else {
-                                    emptyList()
-                                },
+                            aggregated = aggregated(groups),
                         ),
                     )
                     if (groups.any { it.items.isNotEmpty() }) {
                         history?.remember(query)?.let { dispatch(SearchMsg.Recent(it)) }
                     }
                 }
+            searchJob = titleJob
             val advanced =
                 snapshot.libraryId != null ||
                     snapshot.year != null ||
@@ -638,6 +659,9 @@ class SearchStoreFactory(
                         dispatch(SearchMsg.People(emptyList()))
                         return@launch
                     }
+                    // Cast is secondary content. Let the title requests release their server and
+                    // connection capacity first so actor discovery cannot delay the first result.
+                    titleJob.join()
                     val people =
                         coroutineScope {
                             servers
@@ -672,15 +696,38 @@ class SearchStoreFactory(
                         type = if (msg.value.trim() == query.trim()) type else SearchType.All,
                     )
                 is SearchMsg.Loading ->
-                    copy(
-                        query = msg.query,
-                        searchedQuery = msg.query,
-                        loading = true,
-                        error = null,
-                        people = emptyList(),
-                        person = null,
-                        aggregated = emptyList(),
-                    )
+                    if (msg.query == searchedQuery && groups.isNotEmpty()) {
+                        copy(
+                            query = msg.query,
+                            loading = true,
+                            error = null,
+                            people = emptyList(),
+                            person = null,
+                        )
+                    } else {
+                        copy(
+                            query = msg.query,
+                            searchedQuery = msg.query,
+                            loading = true,
+                            items = emptyList(),
+                            groups = emptyList(),
+                            error = null,
+                            people = emptyList(),
+                            person = null,
+                            aggregated = emptyList(),
+                        )
+                    }
+                is SearchMsg.PartialLoaded ->
+                    if (msg.query != query.trim()) {
+                        this
+                    } else {
+                        copy(
+                            items = msg.groups.flatMap(ServerSearchGroup::items),
+                            groups = msg.groups,
+                            aggregated = msg.aggregated,
+                            error = null,
+                        )
+                    }
                 is SearchMsg.Loaded ->
                     if (msg.query != query.trim()) {
                         this

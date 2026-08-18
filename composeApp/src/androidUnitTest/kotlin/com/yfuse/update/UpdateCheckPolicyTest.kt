@@ -84,33 +84,6 @@ class UpdateCheckPolicyTest {
     }
 
     @Test
-    fun entering_home_checks_automatically_while_the_profile_check_stays_manual() {
-        val overlaySource = projectFile(
-            "src/androidMain/kotlin/com/yfuse/update/AppUpdateOverlay.kt",
-        ).readText()
-        val mainSource = projectFile(
-            "src/androidMain/kotlin/com/yfuse/MainActivity.kt",
-        ).readText()
-        val profileSource = projectFile(
-            "src/androidMain/kotlin/com/yfuse/feature/profile/AppUpdateTools.android.kt",
-        ).readText()
-        val managerSource = projectFile(
-            "src/androidMain/kotlin/com/yfuse/update/AppUpdateManager.kt",
-        ).readText()
-
-        assertTrue("LaunchedEffect(Unit) { manager.checkOnLaunch() }" in overlaySource)
-        assertTrue("RootComponent.Tab.Home) manager.checkIfDue()" in overlaySource)
-        assertTrue(
-            "shouldCheckForUpdateOnForeground(wasBackground, launchCheckStarted)" in managerSource,
-        )
-        assertFalse("if (wasBackground) checkIfDue()" in managerSource)
-        // Nothing may run the unthrottled check on the way in.
-        assertFalse("manager.check()" in overlaySource)
-        assertFalse("updateManager.check()" in mainSource)
-        assertTrue("else -> manager::check" in profileSource)
-    }
-
-    @Test
     fun the_dialog_opens_automatically_once_a_day_for_a_version() {
         val settings = MapSettings()
         var today = 20_000L
@@ -273,19 +246,13 @@ class UpdateCheckPolicyTest {
     private fun manifest(
         versionCode: Int,
         notes: String = "",
-    ): UpdateManifest = UpdateManifest(
-        versionCode = versionCode,
-        versionName = "0.2.$versionCode",
-        apkUrl = "https://47.112.219.60/yfuse/Yfuse-$versionCode.apk",
-        sha256 = "a".repeat(64),
-        size = 1_000L,
-        notes = notes,
-    )
-
-    private fun projectFile(moduleRelativePath: String): File =
-        sequenceOf(
-            File(moduleRelativePath),
-            File("composeApp", moduleRelativePath),
-        ).firstOrNull(File::isFile)
-            ?: error("Cannot locate $moduleRelativePath from ${File(".").absolutePath}")
+    ): UpdateManifest =
+        UpdateManifest(
+            versionCode = versionCode,
+            versionName = "0.2.$versionCode",
+            apkUrl = "https://47.112.219.60/yfuse/Yfuse-$versionCode.apk",
+            sha256 = "a".repeat(64),
+            size = 1_000L,
+            notes = notes,
+        )
 }

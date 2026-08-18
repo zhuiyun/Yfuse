@@ -22,8 +22,8 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.call
 import io.ktor.server.application.install
-import io.ktor.server.engine.embeddedServer
 import io.ktor.server.cio.CIO
+import io.ktor.server.engine.embeddedServer
 import io.ktor.server.http.content.staticFiles
 import io.ktor.server.plugins.origin
 import io.ktor.server.response.respondText
@@ -37,13 +37,6 @@ import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
-import java.io.File
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.sql.SQLTransientException
-import java.util.Base64
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ThreadLocalRandom
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
@@ -55,6 +48,9 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.sql.SQLTransientException
+import java.util.concurrent.ThreadLocalRandom
 
 /**
  * Wire protocol v6, wire-compatible with authenticated v5 for a rolling server-first upgrade.
@@ -76,186 +72,12 @@ import kotlinx.serialization.json.Json
  * Clock samples use `pong` specifically, because only it echoes the correlation id needed
  * to measure round-trip latency with the client's monotonic clock.
  */
-/**
- * The room's shared understanding of "what's playing and where". Replaced wholesale (not
- * mutated in place) on every host action, so a reference to one [Timeline] is always a
- * consistent, immutable snapshot — no torn reads across its fields.
- *
- * Position is never itself a live number: [anchorPositionMs] is only valid *at*
- * [anchorAtServerMs]. Anyone who wants "the position right now" computes
- * `anchorPositionMs + (serverNow - anchorAtServerMs) * rate` when [paused] is false, or just
- * `anchorPositionMs` when paused.
- */
-private data class Timeline(
-    val mediaKey: String,
-    val anchorPositionMs: Long,
-    val anchorAtServerMs: Long,
-    val rate: Float = 1f,
-    val paused: Boolean = true,
-    val seq: Long = 0L,
-)
 
-private class Participant(
-    val id: String,
-    var name: String,
-    var avatarId: Int,
-    val session: WebSocketSession,
-    val sessionGeneration: Long,
-    val accountUserId: String,
-    var authorizedHostEpoch: Long? = null,
-    var statusKnown: Boolean = false,
-    var ready: Boolean = false,
-    var buffering: Boolean = false,
-    var mediaAvailable: Boolean = true,
-    var latencyMs: Long? = null,
-    var syncDriftMs: Long? = null,
-)
-
-/** Long-lived room membership. The digest is never sent or logged. */
-private class Membership(
-    val clientId: String,
-    val accountUserId: String,
-    var resumeCapabilityDigest: ByteArray,
-    var sessionGeneration: Long = 0L,
-)
-
-private enum class ControlMode(val wireValue: String) {
-    HostOnly("hostOnly"),
-    Everyone("everyone"),
-    Moderators("moderators"),
-    ;
-
-    companion object {
-        fun fromWire(value: String?): ControlMode? = entries.firstOrNull { it.wireValue == value }
+private val json =
+    Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = false
     }
-}
-
-/**
- * All mutable fields are only ever read or written from inside `synchronized(this)` —
- * matching the discipline the v1 server already used. [hostId] is a client id, not a
- * session, so replacing a stale session for the same id (reconnect) never disturbs who is
- * host: the room's notion of "who's in charge" survives a network blip untouched.
- */
-private class Room(
-    val code: String,
-    /** Network identity that consumed the creation quota for this room. */
-    val creatorIp: String,
-    var hostId: String,
-    var hostCapabilityDigest: ByteArray,
-    /** Creation-only plaintext, consumed by the creator's private welcome frame. */
-    var initialHostCapability: String? = null,
-    var hostEpoch: Long = 1L,
-    var timeline: Timeline,
-    var controlMode: ControlMode = ControlMode.HostOnly,
-    val moderatorIds: MutableSet<String> = linkedSetOf(),
-    /** Account ids removed by the host cannot re-enter under a fresh public client id. */
-    val removedAccountUserIds: MutableSet<String> = linkedSetOf(),
-    /** Keyed by immutable account id in production, and by a client-scoped test id otherwise. */
-    val memberships: LinkedHashMap<String, Membership> = linkedMapOf(),
-    val participants: LinkedHashMap<String, Participant> = linkedMapOf(),
-    /** Recent text only; discarded with the room and bounded independently of frame size. */
-    val chatHistory: ArrayDeque<WatchWireChatMessage> = ArrayDeque(),
-    var nextChatId: Long = 0L,
-    /** Ephemeral, room-scoped media references. Discarded with the in-memory room. */
-    val playlist: MutableList<WatchWirePlaylistEntry> = mutableListOf(),
-    var playlistRevision: Long = 0L,
-    /** Null while occupied; set to the moment the last participant left. */
-    var emptySinceMs: Long? = null,
-    /**
-     * Null while the host is connected; set to the moment it dropped. For as long as this is
-     * inside [HOST_GRACE_MS], [hostId] keeps pointing at the absent host and nobody else may
-     * claim the slot — see [HOST_GRACE_MS] for why.
-     */
-    var hostAbsentSinceMs: Long? = null,
-) {
-    fun isAuthorizedHost(participant: Participant): Boolean =
-        participant.id == hostId && participant.authorizedHostEpoch == hostEpoch
-
-    fun canControl(participant: Participant): Boolean = when (controlMode) {
-        ControlMode.HostOnly -> isAuthorizedHost(participant)
-        ControlMode.Everyone -> participants[participant.id] === participant
-        ControlMode.Moderators -> isAuthorizedHost(participant) || participant.id in moderatorIds
-    }
-
-    /** Playlist editing stays privileged even when ordinary playback control is open to everyone. */
-    fun canEditPlaylist(participant: Participant): Boolean =
-        isAuthorizedHost(participant) || participant.id in moderatorIds
-
-    /** Revokes the previous host credential before granting a private replacement. */
-    fun transferHostTo(participant: Participant): String {
-        val capability = newCapability()
-        hostId = participant.id
-        hostEpoch++
-        hostCapabilityDigest = capabilityDigest(
-            roomCode = code,
-            clientId = participant.id,
-            kind = CapabilityKind.Host,
-            capability = capability,
-        )
-        participant.authorizedHostEpoch = hostEpoch
-        hostAbsentSinceMs = null
-        return capability
-    }
-
-    /** True once an absent host has been gone long enough to lose the room. */
-    fun hostGraceExpired(graceMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean {
-        val since = hostAbsentSinceMs ?: return true
-        return nowMs - since >= graceMs
-    }
-}
-
-private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
-private val capabilityRandom = SecureRandom()
-
-private enum class CapabilityKind(val domain: String) {
-    Resume("resume-v1"),
-    Host("host-v1"),
-}
-
-private fun newCapability(): String = ByteArray(32)
-    .also(capabilityRandom::nextBytes)
-    .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
-
-private fun capabilityDigest(
-    roomCode: String,
-    clientId: String,
-    kind: CapabilityKind,
-    capability: String,
-): ByteArray = MessageDigest.getInstance("SHA-256").digest(
-    "${kind.domain}\u0000$roomCode\u0000$clientId\u0000$capability".toByteArray(Charsets.UTF_8),
-)
-
-private fun capabilityMatches(
-    roomCode: String,
-    clientId: String,
-    kind: CapabilityKind,
-    candidate: String?,
-    expectedDigest: ByteArray,
-): Boolean {
-    if (!WatchProtocol.isValidCapability(candidate)) return false
-    return MessageDigest.isEqual(
-        expectedDigest,
-        capabilityDigest(roomCode, clientId, kind, candidate!!),
-    )
-}
-
-private fun newMembership(
-    roomCode: String,
-    clientId: String,
-    accountUserId: String,
-): Pair<Membership, String> {
-    val capability = newCapability()
-    return Membership(
-        clientId = clientId,
-        accountUserId = accountUserId,
-        resumeCapabilityDigest = capabilityDigest(
-            roomCode,
-            clientId,
-            CapabilityKind.Resume,
-            capability,
-        ),
-    ) to capability
-}
 
 /**
  * How long an emptied room is kept around for its last occupants to reconnect into before
@@ -280,7 +102,7 @@ private const val HOST_GRACE_MS = 20_000L
  * real watch-along does; they exist to bound the damage from a loop or a scanner, not to
  * ration normal use.
  */
-private const val MAX_ROOMS = 500
+internal const val MAX_ROOMS = 500
 private const val DEFAULT_MAX_ACTIVE_ROOMS_PER_IP = 8
 private const val DEFAULT_MAX_WATCH_CONNECTIONS = 256
 private const val DEFAULT_MAX_WATCH_CONNECTIONS_PER_IP = 32
@@ -304,6 +126,7 @@ private const val CHAT_RATE_WINDOW_MS = 3_000L
  * that can arrive several times a second.
  */
 private val REACTIONS = setOf("😂", "😮", "😍", "😭", "👏", "🔥", "🤔", "💀")
+
 /** Bursts are the point, so this is looser than chat — but still bounded. */
 private const val MAX_REACTIONS_PER_WINDOW = 6
 private const val REACTION_RATE_WINDOW_MS = 3_000L
@@ -386,7 +209,9 @@ internal class WatchConnectionGate(
 }
 
 private sealed interface WatchAccountAuthentication {
-    data class Accepted(val account: AuthenticatedAccount) : WatchAccountAuthentication
+    data class Accepted(
+        val account: AuthenticatedAccount,
+    ) : WatchAccountAuthentication
 
     data object Rejected : WatchAccountAuthentication
 
@@ -398,29 +223,30 @@ private sealed interface WatchAccountAuthentication {
 private suspend fun authenticateWatchAccount(
     authenticator: suspend (String) -> AuthenticatedAccount,
     accessToken: String,
-): WatchAccountAuthentication = try {
-    WatchAccountAuthentication.Accepted(
-        withTimeout(ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS) {
-            authenticator(accessToken)
-        },
-    )
-} catch (failure: AccountServiceException) {
-    if (failure.problem == AccountProblem.Unauthorized) {
-        WatchAccountAuthentication.Rejected
-    } else {
+): WatchAccountAuthentication =
+    try {
+        WatchAccountAuthentication.Accepted(
+            withTimeout(ACCOUNT_AUTH_ATTEMPT_TIMEOUT_MS) {
+                authenticator(accessToken)
+            },
+        )
+    } catch (failure: AccountServiceException) {
+        if (failure.problem == AccountProblem.Unauthorized) {
+            WatchAccountAuthentication.Rejected
+        } else {
+            WatchAccountAuthentication.Failed
+        }
+    } catch (_: AccountWorkRejectedException) {
+        WatchAccountAuthentication.TemporarilyUnavailable
+    } catch (_: TimeoutCancellationException) {
+        WatchAccountAuthentication.TemporarilyUnavailable
+    } catch (_: SQLTransientException) {
+        WatchAccountAuthentication.TemporarilyUnavailable
+    } catch (failure: CancellationException) {
+        throw failure
+    } catch (_: Exception) {
         WatchAccountAuthentication.Failed
     }
-} catch (_: AccountWorkRejectedException) {
-    WatchAccountAuthentication.TemporarilyUnavailable
-} catch (_: TimeoutCancellationException) {
-    WatchAccountAuthentication.TemporarilyUnavailable
-} catch (_: SQLTransientException) {
-    WatchAccountAuthentication.TemporarilyUnavailable
-} catch (failure: CancellationException) {
-    throw failure
-} catch (_: Exception) {
-    WatchAccountAuthentication.Failed
-}
 
 private fun nextWatchAuthFailureCount(current: Int): Int =
     (current + 1).coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_EXPONENT + 1)
@@ -429,29 +255,31 @@ private fun nextWatchAuthFailureCount(current: Int): Int =
 internal fun watchAuthTransientRetryDelayMs(failureCount: Int): Long {
     require(failureCount > 0) { "failureCount must be positive" }
     val exponent = (failureCount - 1).coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_EXPONENT)
-    val ceiling = (ACCOUNT_AUTH_RETRY_BASE_MS shl exponent)
-        .coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_MS)
+    val ceiling =
+        (ACCOUNT_AUTH_RETRY_BASE_MS shl exponent)
+            .coerceAtMost(ACCOUNT_AUTH_RETRY_MAX_MS)
     val floor = (ceiling / 2L).coerceAtLeast(1L)
     return ThreadLocalRandom.current().nextLong(floor, ceiling + 1L)
 }
 
-private val AUTHENTICATED_MESSAGE_TYPES = setOf(
-    "sync",
-    "requestControl",
-    "grantControl",
-    "denyControl",
-    "setControlMode",
-    "setModerator",
-    "kickParticipant",
-    "updateProfile",
-    "playbackStatus",
-    "chat",
-    "reaction",
-    "playlistAdd",
-    "playlistUpdate",
-    "playlistRemove",
-    "playlistReorder",
-)
+private val AUTHENTICATED_MESSAGE_TYPES =
+    setOf(
+        "sync",
+        "requestControl",
+        "grantControl",
+        "denyControl",
+        "setControlMode",
+        "setModerator",
+        "kickParticipant",
+        "updateProfile",
+        "playbackStatus",
+        "chat",
+        "reaction",
+        "playlistAdd",
+        "playlistUpdate",
+        "playlistRemove",
+        "playlistReorder",
+    )
 
 private enum class PlaylistMutationResult {
     Changed,
@@ -489,9 +317,10 @@ private fun Room.mutatePlaylist(
 fun main() {
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
     val host = resolveServerHost(System.getenv("HOST"))
-    val accountBackend = AccountBackend.sqlite(
-        File(System.getenv("ACCOUNT_DB_PATH") ?: "/var/lib/yfuse/account.db"),
-    )
+    val accountBackend =
+        AccountBackend.sqlite(
+            File(System.getenv("ACCOUNT_DB_PATH") ?: "/var/lib/yfuse/account.db"),
+        )
     val migrationRelayBackend = MigrationRelayBackend.fromEnvironment()
     embeddedServer(CIO, host = host, port = port) {
         productionWatchTogetherModule(
@@ -517,10 +346,12 @@ internal fun Application.watchTogetherModule(
     hostGraceMs: Long = HOST_GRACE_MS,
     /** Empty rooms retain their code briefly for reconnects, then release quota on sweep. */
     roomGraceMs: Long = ROOM_GRACE_MS,
-    maxActiveRoomsPerIp: Int = System.getenv("WATCH_MAX_ACTIVE_ROOMS_PER_IP")
-        ?.toIntOrNull()
-        ?.coerceIn(1, MAX_ROOMS)
-        ?: DEFAULT_MAX_ACTIVE_ROOMS_PER_IP,
+    maxActiveRoomsPerIp: Int =
+        System
+            .getenv("WATCH_MAX_ACTIVE_ROOMS_PER_IP")
+            ?.toIntOrNull()
+            ?.coerceIn(1, MAX_ROOMS)
+            ?: DEFAULT_MAX_ACTIVE_ROOMS_PER_IP,
     maxWatchConnections: Int =
         System
             .getenv("WATCH_MAX_CONNECTIONS")
@@ -546,9 +377,11 @@ internal fun Application.watchTogetherModule(
             perAccountLimit = maxWatchConnectionsPerAccount,
         ),
     /** Only enable when the reverse proxy overwrites client-supplied forwarding headers. */
-    trustProxyHeaders: Boolean = System.getenv("WATCH_TRUST_PROXY_HEADERS")
-        ?.equals("true", ignoreCase = true)
-        ?: false,
+    trustProxyHeaders: Boolean =
+        System
+            .getenv("WATCH_TRUST_PROXY_HEADERS")
+            ?.equals("true", ignoreCase = true)
+            ?: false,
     /** Test seam; production normally uses the socket/proxy-aware resolver below. */
     clientIpResolver: ((ApplicationCall) -> String)? = null,
     /** Account persistence is independent of the ephemeral watch-room store. */
@@ -583,10 +416,11 @@ internal fun Application.watchTogetherModule(
     require(maxWatchConnectionsPerIp in 1..maxWatchConnections)
     require(maxWatchConnectionsPerAccount in 1..maxWatchConnections)
     require(watchAuthRevalidationMs > 0L) { "watchAuthRevalidationMs must be positive" }
-    val roomStore = RoomStore(
-        roomGraceMs = roomGraceMs,
-        maxActiveRoomsPerIp = maxActiveRoomsPerIp,
-    )
+    val roomStore =
+        RoomStore(
+            roomGraceMs = roomGraceMs,
+            maxActiveRoomsPerIp = maxActiveRoomsPerIp,
+        )
     // Outlives any one socket, which is what a delayed host handover needs: the connection
     // whose loss starts the clock is precisely the one that can't run the timer.
     val appScope: CoroutineScope = this
@@ -620,7 +454,9 @@ internal fun Application.watchTogetherModule(
         }
         get("/watch/version") {
             call.respondText(
-                """{"protocolVersion":${WatchProtocol.VERSION},"minProtocolVersion":${WatchProtocol.MIN_SUPPORTED_VERSION},"capabilities":[${WatchProtocol.SERVER_CAPABILITIES.joinToString { "\"$it\"" }}]}""",
+                """{"protocolVersion":${WatchProtocol.VERSION},"minProtocolVersion":${WatchProtocol.MIN_SUPPORTED_VERSION},"capabilities":[${WatchProtocol.SERVER_CAPABILITIES.joinToString {
+                    "\"$it\""
+                }}]}""",
                 ContentType.Application.Json,
             )
         }
@@ -652,129 +488,29 @@ internal fun Application.watchTogetherModule(
                 .invokeOnCompletion {
                     connectionLease.close()
                 }
-            val accessToken = call.request.headers["Authorization"]
-                ?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
-                ?.substringAfter(' ')
-                ?.takeIf { it.isNotBlank() && it.none(Char::isWhitespace) }
+            val accessToken =
+                call.request.headers["Authorization"]
+                    ?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
+                    ?.substringAfter(' ')
+                    ?.takeIf { it.isNotBlank() && it.none(Char::isWhitespace) }
             if (requireWatchAuthentication && accessToken == null) {
                 close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "account_auth_required"))
                 return@webSocket
             }
-            val authenticatedAccount = if (requireWatchAuthentication) {
-                var transientFailures = 0
-                var acceptedAccount: AuthenticatedAccount? = null
-                while (acceptedAccount == null) {
-                    when (
-                        val authentication = authenticateWatchAccount(
-                            watchAccountAuthenticator,
-                            checkNotNull(accessToken),
-                        )
-                    ) {
-                        is WatchAccountAuthentication.Accepted -> {
-                            acceptedAccount = authentication.account
-                        }
-                        WatchAccountAuthentication.Rejected -> {
-                            close(
-                                CloseReason(
-                                    CloseReason.Codes.VIOLATED_POLICY,
-                                    "account_auth_expired",
-                                ),
-                            )
-                            return@webSocket
-                        }
-                        WatchAccountAuthentication.TemporarilyUnavailable -> {
-                            transientFailures++
-                            if (transientFailures >= ACCOUNT_INITIAL_AUTH_MAX_TRANSIENT_FAILURES) {
-                                close(
-                                    CloseReason(
-                                        CloseReason.Codes.TRY_AGAIN_LATER,
-                                        "account_auth_temporarily_unavailable",
-                                    ),
-                                )
-                                return@webSocket
-                            }
-                            delay(watchAuthRetryDelayMs(transientFailures).coerceAtLeast(1L))
-                        }
-                        WatchAccountAuthentication.Failed -> {
-                            close(
-                                CloseReason(
-                                    CloseReason.Codes.INTERNAL_ERROR,
-                                    "account_auth_unavailable",
-                                ),
-                            )
-                            return@webSocket
-                        }
-                    }
-                }
-                checkNotNull(acceptedAccount)
-            } else {
-                AuthenticatedAccount(
-                    userId = "watch-test-account",
-                    sessionId = "watch-test-session",
-                    username = "watch-test",
-                    nickname = "Watch Test",
-                    avatarId = 0,
-                    accessExpiresAtEpochMs = Long.MAX_VALUE,
-                )
-            }
-            if (
-                requireWatchAuthentication &&
-                !connectionLease.tryBindAccount(authenticatedAccount.userId)
-            ) {
-                close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "account_connection_limit"))
-                return@webSocket
-            }
-            val authWatchdog = if (requireWatchAuthentication) {
-                launch {
+            val authenticatedAccount =
+                if (requireWatchAuthentication) {
                     var transientFailures = 0
-                    while (true) {
-                        val untilExpiry = authenticatedAccount.accessExpiresAtEpochMs -
-                            watchAuthClock()
-                        if (untilExpiry <= 0L) {
-                            close(
-                                CloseReason(
-                                    CloseReason.Codes.VIOLATED_POLICY,
-                                    "account_auth_expired",
-                                ),
-                            )
-                            break
-                        }
-                        val delayMs = if (transientFailures == 0) {
-                            watchAuthRevalidationMs
-                        } else {
-                            watchAuthRetryDelayMs(transientFailures).coerceAtLeast(1L)
-                        }
-                        delay(minOf(delayMs, untilExpiry))
-                        if (watchAuthClock() >= authenticatedAccount.accessExpiresAtEpochMs) {
-                            close(
-                                CloseReason(
-                                    CloseReason.Codes.VIOLATED_POLICY,
-                                    "account_auth_expired",
-                                ),
-                            )
-                            break
-                        }
+                    var acceptedAccount: AuthenticatedAccount? = null
+                    while (acceptedAccount == null) {
                         when (
-                            val authentication = authenticateWatchAccount(
-                                watchAccountRevalidator,
-                                checkNotNull(accessToken),
-                            )
+                            val authentication =
+                                authenticateWatchAccount(
+                                    watchAccountAuthenticator,
+                                    checkNotNull(accessToken),
+                                )
                         ) {
                             is WatchAccountAuthentication.Accepted -> {
-                                if (
-                                    authentication.account.sessionId !=
-                                    authenticatedAccount.sessionId ||
-                                    authentication.account.userId != authenticatedAccount.userId
-                                ) {
-                                    close(
-                                        CloseReason(
-                                            CloseReason.Codes.VIOLATED_POLICY,
-                                            "account_auth_expired",
-                                        ),
-                                    )
-                                    break
-                                }
-                                transientFailures = 0
+                                acceptedAccount = authentication.account
                             }
                             WatchAccountAuthentication.Rejected -> {
                                 close(
@@ -783,10 +519,20 @@ internal fun Application.watchTogetherModule(
                                         "account_auth_expired",
                                     ),
                                 )
-                                break
+                                return@webSocket
                             }
                             WatchAccountAuthentication.TemporarilyUnavailable -> {
-                                transientFailures = nextWatchAuthFailureCount(transientFailures)
+                                transientFailures++
+                                if (transientFailures >= ACCOUNT_INITIAL_AUTH_MAX_TRANSIENT_FAILURES) {
+                                    close(
+                                        CloseReason(
+                                            CloseReason.Codes.TRY_AGAIN_LATER,
+                                            "account_auth_temporarily_unavailable",
+                                        ),
+                                    )
+                                    return@webSocket
+                                }
+                                delay(watchAuthRetryDelayMs(transientFailures).coerceAtLeast(1L))
                             }
                             WatchAccountAuthentication.Failed -> {
                                 close(
@@ -795,14 +541,111 @@ internal fun Application.watchTogetherModule(
                                         "account_auth_unavailable",
                                     ),
                                 )
-                                break
+                                return@webSocket
                             }
                         }
                     }
+                    checkNotNull(acceptedAccount)
+                } else {
+                    AuthenticatedAccount(
+                        userId = "watch-test-account",
+                        sessionId = "watch-test-session",
+                        username = "watch-test",
+                        nickname = "Watch Test",
+                        avatarId = 0,
+                        accessExpiresAtEpochMs = Long.MAX_VALUE,
+                    )
                 }
-            } else {
-                null
+            if (
+                requireWatchAuthentication &&
+                !connectionLease.tryBindAccount(authenticatedAccount.userId)
+            ) {
+                close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "account_connection_limit"))
+                return@webSocket
             }
+            val authWatchdog =
+                if (requireWatchAuthentication) {
+                    launch {
+                        var transientFailures = 0
+                        while (true) {
+                            val untilExpiry =
+                                authenticatedAccount.accessExpiresAtEpochMs -
+                                    watchAuthClock()
+                            if (untilExpiry <= 0L) {
+                                close(
+                                    CloseReason(
+                                        CloseReason.Codes.VIOLATED_POLICY,
+                                        "account_auth_expired",
+                                    ),
+                                )
+                                break
+                            }
+                            val delayMs =
+                                if (transientFailures == 0) {
+                                    watchAuthRevalidationMs
+                                } else {
+                                    watchAuthRetryDelayMs(transientFailures).coerceAtLeast(1L)
+                                }
+                            delay(minOf(delayMs, untilExpiry))
+                            if (watchAuthClock() >= authenticatedAccount.accessExpiresAtEpochMs) {
+                                close(
+                                    CloseReason(
+                                        CloseReason.Codes.VIOLATED_POLICY,
+                                        "account_auth_expired",
+                                    ),
+                                )
+                                break
+                            }
+                            when (
+                                val authentication =
+                                    authenticateWatchAccount(
+                                        watchAccountRevalidator,
+                                        checkNotNull(accessToken),
+                                    )
+                            ) {
+                                is WatchAccountAuthentication.Accepted -> {
+                                    if (
+                                        authentication.account.sessionId !=
+                                        authenticatedAccount.sessionId ||
+                                        authentication.account.userId != authenticatedAccount.userId
+                                    ) {
+                                        close(
+                                            CloseReason(
+                                                CloseReason.Codes.VIOLATED_POLICY,
+                                                "account_auth_expired",
+                                            ),
+                                        )
+                                        break
+                                    }
+                                    transientFailures = 0
+                                }
+                                WatchAccountAuthentication.Rejected -> {
+                                    close(
+                                        CloseReason(
+                                            CloseReason.Codes.VIOLATED_POLICY,
+                                            "account_auth_expired",
+                                        ),
+                                    )
+                                    break
+                                }
+                                WatchAccountAuthentication.TemporarilyUnavailable -> {
+                                    transientFailures = nextWatchAuthFailureCount(transientFailures)
+                                }
+                                WatchAccountAuthentication.Failed -> {
+                                    close(
+                                        CloseReason(
+                                            CloseReason.Codes.INTERNAL_ERROR,
+                                            "account_auth_unavailable",
+                                        ),
+                                    )
+                                    break
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    null
+                }
             var joinedRoom: Room? = null
             var joinedClientId: String? = null
             var windowStartedAtMs = System.currentTimeMillis()
@@ -837,25 +680,28 @@ internal fun Application.watchTogetherModule(
                     }
                     val textFrame = frame as Frame.Text
 
-                    val message = runCatching {
-                        json.decodeFromString(WatchWireMessage.serializer(), textFrame.readText())
-                    }.getOrNull() ?: return@consumeEach sendError(
-                        "消息格式无效",
-                        "message_invalid",
-                    )
+                    val message =
+                        runCatching {
+                            json.decodeFromString(WatchWireMessage.serializer(), textFrame.readText())
+                        }.getOrNull() ?: return@consumeEach sendError(
+                            "消息格式无效",
+                            "message_invalid",
+                        )
 
                     if (message.type !in WatchProtocol.CLIENT_MESSAGE_TYPES) {
                         return@consumeEach sendError("消息类型无效", "message_type_invalid")
                     }
                     if (message.type in AUTHENTICATED_MESSAGE_TYPES) {
-                        val room = joinedRoom ?: return@consumeEach sendError(
-                            "请先加入房间",
-                            "not_joined",
-                        )
+                        val room =
+                            joinedRoom ?: return@consumeEach sendError(
+                                "请先加入房间",
+                                "not_joined",
+                            )
                         val clientId = joinedClientId ?: return@consumeEach
-                        val active = synchronized(room) {
-                            room.participants[clientId]?.session === this
-                        }
+                        val active =
+                            synchronized(room) {
+                                room.participants[clientId]?.session === this
+                            }
                         if (!active) {
                             close(
                                 CloseReason(
@@ -877,11 +723,12 @@ internal fun Application.watchTogetherModule(
                                 )
                             }
                             val negotiatedProtocolVersion = checkNotNull(message.protocolVersion)
-                            val clientId = normalizeClientId(message.clientId)
-                                ?: return@consumeEach sendError(
-                                    "客户端标识无效",
-                                    "client_id_invalid",
-                                )
+                            val clientId =
+                                normalizeClientId(message.clientId)
+                                    ?: return@consumeEach sendError(
+                                        "客户端标识无效",
+                                        "client_id_invalid",
+                                    )
                             val membershipAccountUserId =
                                 if (requireWatchAuthentication) {
                                     authenticatedAccount.userId
@@ -891,16 +738,18 @@ internal fun Application.watchTogetherModule(
                                     // still model multiple people without weakening production rules.
                                     "test-client:$clientId"
                                 }
-                            val name = if (requireWatchAuthentication) {
-                                authenticatedAccount.nickname
-                            } else {
-                                normalizeName(message.name)
-                            }
-                            val avatarId = if (requireWatchAuthentication) {
-                                authenticatedAccount.avatarId
-                            } else {
-                                normalizeAvatarId(message.avatarId, clientId)
-                            }
+                            val name =
+                                if (requireWatchAuthentication) {
+                                    authenticatedAccount.nickname
+                                } else {
+                                    normalizeName(message.name)
+                                }
+                            val avatarId =
+                                if (requireWatchAuthentication) {
+                                    authenticatedAccount.avatarId
+                                } else {
+                                    normalizeAvatarId(message.avatarId, clientId)
+                                }
                             if (
                                 message.playlistRevision != null ||
                                 message.playlistEntry != null ||
@@ -915,63 +764,67 @@ internal fun Application.watchTogetherModule(
 
                             roomStore.sweepExpiredRooms()
 
-                            val room = if (message.roomCode == null) {
-                                if (message.resumeCapability != null || message.hostCapability != null) {
-                                    return@consumeEach sendError("建房凭据无效", "credential_invalid")
-                                }
-                                val mediaKey = message.mediaKey
-                                    ?.takeIf(WatchProtocol::isValidMediaKey)
-                                    ?: return@consumeEach sendError(
-                                        "媒体标识无效",
-                                        "media_key_invalid",
-                                    )
-                                val initialPlaylist = message.playlist ?: emptyList()
-                                if (!WatchProtocol.isValidPlaylist(initialPlaylist)) {
-                                    return@consumeEach sendError(
-                                        "房间播放列表无效",
-                                        "playlist_invalid",
-                                    )
-                                }
-                                when (
-                                    val created = roomStore.createRoom(
-                                        mediaKey = mediaKey,
-                                        hostId = clientId,
-                                        creatorIp = clientIp,
-                                        initialPlaylist = initialPlaylist,
-                                    )
-                                ) {
-                                    is RoomCreationResult.Created -> created.room
-                                    RoomCreationResult.IpLimitReached -> {
+                            val room =
+                                if (message.roomCode == null) {
+                                    if (message.resumeCapability != null || message.hostCapability != null) {
+                                        return@consumeEach sendError("建房凭据无效", "credential_invalid")
+                                    }
+                                    val mediaKey =
+                                        message.mediaKey
+                                            ?.takeIf(WatchProtocol::isValidMediaKey)
+                                            ?: return@consumeEach sendError(
+                                                "媒体标识无效",
+                                                "media_key_invalid",
+                                            )
+                                    val initialPlaylist = message.playlist ?: emptyList()
+                                    if (!WatchProtocol.isValidPlaylist(initialPlaylist)) {
                                         return@consumeEach sendError(
-                                            "当前网络创建的活跃房间过多，请稍后再试",
-                                            "room_ip_limit",
+                                            "房间播放列表无效",
+                                            "playlist_invalid",
                                         )
                                     }
-                                    RoomCreationResult.ServiceFull -> {
+                                    when (
+                                        val created =
+                                            roomStore.createRoom(
+                                                mediaKey = mediaKey,
+                                                hostId = clientId,
+                                                creatorIp = clientIp,
+                                                initialPlaylist = initialPlaylist,
+                                            )
+                                    ) {
+                                        is RoomCreationResult.Created -> created.room
+                                        RoomCreationResult.IpLimitReached -> {
+                                            return@consumeEach sendError(
+                                                "当前网络创建的活跃房间过多，请稍后再试",
+                                                "room_ip_limit",
+                                            )
+                                        }
+                                        RoomCreationResult.ServiceFull -> {
+                                            return@consumeEach sendError(
+                                                "一起看服务房间已满，请稍后再试",
+                                                "room_service_full",
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    if (message.playlist != null) {
                                         return@consumeEach sendError(
-                                            "一起看服务房间已满，请稍后再试",
-                                            "room_service_full",
+                                            "仅创建房间时可以设置初始播放列表",
+                                            "playlist_initial_only",
                                         )
                                     }
+                                    val requestedRoomCode =
+                                        message.roomCode
+                                            ?: return@consumeEach sendError(
+                                                "房间码无效",
+                                                "room_code_invalid",
+                                            )
+                                    if (!WatchProtocol.isValidRoomCode(requestedRoomCode)) {
+                                        return@consumeEach sendError("房间码无效", "room_code_invalid")
+                                    }
+                                    roomStore.find(requestedRoomCode)
+                                        ?: return@consumeEach sendError("房间不存在或已关闭")
                                 }
-                            } else {
-                                if (message.playlist != null) {
-                                    return@consumeEach sendError(
-                                        "仅创建房间时可以设置初始播放列表",
-                                        "playlist_initial_only",
-                                    )
-                                }
-                                val requestedRoomCode = message.roomCode
-                                    ?: return@consumeEach sendError(
-                                        "房间码无效",
-                                        "room_code_invalid",
-                                    )
-                                if (!WatchProtocol.isValidRoomCode(requestedRoomCode)) {
-                                    return@consumeEach sendError("房间码无效", "room_code_invalid")
-                                }
-                                roomStore.find(requestedRoomCode)
-                                    ?: return@consumeEach sendError("房间不存在或已关闭")
-                            }
 
                             var roomFull = false
                             var removedByHost = false
@@ -981,97 +834,103 @@ internal fun Application.watchTogetherModule(
                             var staleSession: WebSocketSession? = null
                             var issuedResumeCapability: String? = null
                             var issuedHostCapability: String? = null
-                            val roomStillCurrent = roomStore.mutateIfCurrent(room) {
-                                if (membershipAccountUserId in room.removedAccountUserIds) {
-                                    removedByHost = true
-                                    return@mutateIfCurrent
-                                }
-                                val membership = room.memberships[membershipAccountUserId]
-                                if (membership != null && membership.clientId != clientId) {
-                                    accountIdentityConflict = true
-                                    return@mutateIfCurrent
-                                }
-                                if (membership != null && !capabilityMatches(
-                                        room.code,
-                                        clientId,
-                                        CapabilityKind.Resume,
-                                        message.resumeCapability,
-                                        membership.resumeCapabilityDigest,
-                                    )
-                                ) {
-                                    authenticationFailed = true
-                                    return@mutateIfCurrent
-                                }
-                                if (membership == null && message.resumeCapability != null) {
-                                    authenticationFailed = true
-                                    return@mutateIfCurrent
-                                }
-                                if (membership == null &&
-                                    room.memberships.size >= MAX_MEMBERSHIPS_PER_ROOM
-                                ) {
-                                    roomFull = true
-                                    return@mutateIfCurrent
-                                }
-                                val isHost = clientId == room.hostId
-                                if (isHost && membership != null && !capabilityMatches(
-                                        room.code,
-                                        clientId,
-                                        CapabilityKind.Host,
-                                        message.hostCapability,
-                                        room.hostCapabilityDigest,
-                                    )
-                                ) {
-                                    hostAuthenticationFailed = true
-                                    return@mutateIfCurrent
-                                }
-                                val rejoining = membership != null
-                                if (!rejoining &&
-                                    room.participants.size >= MAX_PARTICIPANTS_PER_ROOM
-                                ) {
-                                    roomFull = true
-                                    return@mutateIfCurrent
-                                }
-                                staleSession = room.participants[clientId]?.session
-                                val activeMembership = membership ?: newMembership(
-                                    roomCode = room.code,
-                                    clientId = clientId,
-                                    accountUserId = membershipAccountUserId,
-                                ).let { (createdMembership, capability) ->
-                                    room.memberships[membershipAccountUserId] = createdMembership
-                                    issuedResumeCapability = capability
-                                    createdMembership
-                                }
-                                activeMembership.sessionGeneration++
-                                val participant = Participant(
-                                    clientId,
-                                    name,
-                                    avatarId,
-                                    this,
-                                    sessionGeneration = activeMembership.sessionGeneration,
-                                    accountUserId = membershipAccountUserId,
-                                    authorizedHostEpoch = if (isHost) room.hostEpoch else null,
-                                )
-                                room.participants[clientId] = participant
-                                room.emptySinceMs = null
-                                if (isHost) {
-                                    // The host is back inside its grace window; the slot was
-                                    // being held open for exactly this.
-                                    room.hostAbsentSinceMs = null
-                                    if (membership == null) {
-                                        issuedHostCapability = room.initialHostCapability
-                                        room.initialHostCapability = null
+                            val roomStillCurrent =
+                                roomStore.mutateIfCurrent(room) {
+                                    if (membershipAccountUserId in room.removedAccountUserIds) {
+                                        removedByHost = true
+                                        return@mutateIfCurrent
                                     }
-                                } else if (
-                                    !room.participants.containsKey(room.hostId) &&
-                                    room.hostGraceExpired(hostGraceMs)
-                                ) {
-                                    // The host slot points at someone who left and did not
-                                    // come back in time. Whoever joins now takes it, rather
-                                    // than leaving the room locked to a host who may never
-                                    // return.
-                                    issuedHostCapability = room.transferHostTo(participant)
+                                    val membership = room.memberships[membershipAccountUserId]
+                                    if (membership != null && membership.clientId != clientId) {
+                                        accountIdentityConflict = true
+                                        return@mutateIfCurrent
+                                    }
+                                    if (membership != null &&
+                                        !capabilityMatches(
+                                            room.code,
+                                            clientId,
+                                            CapabilityKind.Resume,
+                                            message.resumeCapability,
+                                            membership.resumeCapabilityDigest,
+                                        )
+                                    ) {
+                                        authenticationFailed = true
+                                        return@mutateIfCurrent
+                                    }
+                                    if (membership == null && message.resumeCapability != null) {
+                                        authenticationFailed = true
+                                        return@mutateIfCurrent
+                                    }
+                                    if (membership == null &&
+                                        room.memberships.size >= MAX_MEMBERSHIPS_PER_ROOM
+                                    ) {
+                                        roomFull = true
+                                        return@mutateIfCurrent
+                                    }
+                                    val isHost = clientId == room.hostId
+                                    if (isHost &&
+                                        membership != null &&
+                                        !capabilityMatches(
+                                            room.code,
+                                            clientId,
+                                            CapabilityKind.Host,
+                                            message.hostCapability,
+                                            room.hostCapabilityDigest,
+                                        )
+                                    ) {
+                                        hostAuthenticationFailed = true
+                                        return@mutateIfCurrent
+                                    }
+                                    val rejoining = membership != null
+                                    if (!rejoining &&
+                                        room.participants.size >= MAX_PARTICIPANTS_PER_ROOM
+                                    ) {
+                                        roomFull = true
+                                        return@mutateIfCurrent
+                                    }
+                                    staleSession = room.participants[clientId]?.session
+                                    val activeMembership =
+                                        membership ?: newMembership(
+                                            roomCode = room.code,
+                                            clientId = clientId,
+                                            accountUserId = membershipAccountUserId,
+                                        ).let { (createdMembership, capability) ->
+                                            room.memberships[membershipAccountUserId] = createdMembership
+                                            issuedResumeCapability = capability
+                                            createdMembership
+                                        }
+                                    activeMembership.sessionGeneration++
+                                    val participant =
+                                        Participant(
+                                            clientId,
+                                            name,
+                                            avatarId,
+                                            this,
+                                            sessionGeneration = activeMembership.sessionGeneration,
+                                            accountUserId = membershipAccountUserId,
+                                            authorizedHostEpoch = if (isHost) room.hostEpoch else null,
+                                        )
+                                    room.participants[clientId] = participant
+                                    room.emptySinceMs = null
+                                    if (isHost) {
+                                        // The host is back inside its grace window; the slot was
+                                        // being held open for exactly this.
+                                        room.hostAbsentSinceMs = null
+                                        if (membership == null) {
+                                            issuedHostCapability = room.initialHostCapability
+                                            room.initialHostCapability = null
+                                        }
+                                    } else if (
+                                        !room.participants.containsKey(room.hostId) &&
+                                        room.hostGraceExpired(hostGraceMs)
+                                    ) {
+                                        // The host slot points at someone who left and did not
+                                        // come back in time. Whoever joins now takes it, rather
+                                        // than leaving the room locked to a host who may never
+                                        // return.
+                                        issuedHostCapability = room.transferHostTo(participant)
+                                    }
                                 }
-                            }
                             if (!roomStillCurrent) {
                                 return@consumeEach sendError("房间不存在或已关闭")
                             }
@@ -1135,47 +994,54 @@ internal fun Application.watchTogetherModule(
                             val room = joinedRoom ?: return@consumeEach
                             val clientId = joinedClientId ?: return@consumeEach
                             var controlDenied = false
-                            val timeline = synchronized(room) {
-                                val participant = room.participants[clientId]
-                                    ?.takeIf { it.session === this }
-                                    ?: return@synchronized null
-                                if (!room.canControl(participant)) {
-                                    controlDenied = true
-                                    return@synchronized null
+                            val timeline =
+                                synchronized(room) {
+                                    val participant =
+                                        room.participants[clientId]
+                                            ?.takeIf { it.session === this }
+                                            ?: return@synchronized null
+                                    if (!room.canControl(participant)) {
+                                        controlDenied = true
+                                        return@synchronized null
+                                    }
+                                    if (!WatchProtocol.isValidTimeline(
+                                            message.positionMs,
+                                            message.paused,
+                                            message.rate,
+                                        ) ||
+                                        (
+                                            message.mediaKey != null &&
+                                                !WatchProtocol.isValidMediaKey(message.mediaKey)
+                                        ) ||
+                                        message.seq != null ||
+                                        message.anchorAtMs != null ||
+                                        message.serverAtMs != null
+                                    ) {
+                                        return@synchronized null
+                                    }
+                                    Timeline(
+                                        mediaKey = message.mediaKey ?: room.timeline.mediaKey,
+                                        anchorPositionMs = message.positionMs!!,
+                                        anchorAtServerMs = System.currentTimeMillis(),
+                                        rate = message.rate!!,
+                                        paused = message.paused!!,
+                                        seq = room.timeline.seq + 1,
+                                    ).also { room.timeline = it }
                                 }
-                                if (!WatchProtocol.isValidTimeline(
-                                        message.positionMs,
-                                        message.paused,
-                                        message.rate,
-                                    ) ||
-                                    (message.mediaKey != null &&
-                                        !WatchProtocol.isValidMediaKey(message.mediaKey)) ||
-                                    message.seq != null ||
-                                    message.anchorAtMs != null ||
-                                    message.serverAtMs != null
-                                ) {
-                                    return@synchronized null
-                                }
-                                Timeline(
-                                    mediaKey = message.mediaKey ?: room.timeline.mediaKey,
-                                    anchorPositionMs = message.positionMs!!,
-                                    anchorAtServerMs = System.currentTimeMillis(),
-                                    rate = message.rate!!,
-                                    paused = message.paused!!,
-                                    seq = room.timeline.seq + 1,
-                                ).also { room.timeline = it }
-                            }
                             if (controlDenied) {
                                 sendError("当前没有播放控制权限")
                                 return@consumeEach
                             }
-                            if (timeline == null && !WatchProtocol.isValidTimeline(
+                            if (timeline == null &&
+                                !WatchProtocol.isValidTimeline(
                                     message.positionMs,
                                     message.paused,
                                     message.rate,
                                 ) ||
-                                (message.mediaKey != null &&
-                                    !WatchProtocol.isValidMediaKey(message.mediaKey)) ||
+                                (
+                                    message.mediaKey != null &&
+                                        !WatchProtocol.isValidMediaKey(message.mediaKey)
+                                ) ||
                                 message.seq != null ||
                                 message.anchorAtMs != null ||
                                 message.serverAtMs != null
@@ -1195,14 +1061,16 @@ internal fun Application.watchTogetherModule(
                         "requestControl" -> {
                             val room = joinedRoom ?: return@consumeEach
                             val clientId = joinedClientId ?: return@consumeEach
-                            val (hostSession, askerName) = synchronized(room) {
-                                val participant = room.participants[clientId]
-                                    ?.takeIf { it.session === this }
-                                    ?: return@consumeEach
-                                if (room.canControl(participant)) return@consumeEach
-                                room.participants[room.hostId]?.session to
-                                    room.participants[clientId]?.name
-                            }
+                            val (hostSession, askerName) =
+                                synchronized(room) {
+                                    val participant =
+                                        room.participants[clientId]
+                                            ?.takeIf { it.session === this }
+                                            ?: return@consumeEach
+                                    if (room.canControl(participant)) return@consumeEach
+                                    room.participants[room.hostId]?.session to
+                                        room.participants[clientId]?.name
+                                }
                             hostSession?.let { session ->
                                 runCatching {
                                     session.sendMessage(
@@ -1218,25 +1086,30 @@ internal fun Application.watchTogetherModule(
 
                         "grantControl" -> {
                             val room = joinedRoom ?: return@consumeEach
-                            val target = normalizeClientId(message.targetClientId)
-                                ?: return@consumeEach
+                            val target =
+                                normalizeClientId(message.targetClientId)
+                                    ?: return@consumeEach
                             var grantedHostCapability: String? = null
-                            val handed = synchronized(room) {
-                                val actor = room.participants[joinedClientId]
-                                    ?.takeIf { it.session === this }
-                                val isHost = actor != null && room.isAuthorizedHost(actor)
-                                val present = room.participants.containsKey(target)
-                                if (isHost && present) {
-                                    grantedHostCapability = room.transferHostTo(
-                                        room.participants.getValue(target),
-                                    )
+                            val handed =
+                                synchronized(room) {
+                                    val actor =
+                                        room.participants[joinedClientId]
+                                            ?.takeIf { it.session === this }
+                                    val isHost = actor != null && room.isAuthorizedHost(actor)
+                                    val present = room.participants.containsKey(target)
+                                    if (isHost && present) {
+                                        grantedHostCapability =
+                                            room.transferHostTo(
+                                                room.participants.getValue(target),
+                                            )
+                                    }
+                                    isHost && present
                                 }
-                                isHost && present
-                            }
                             if (handed) {
-                                val targetSession = synchronized(room) {
-                                    room.participants[target]?.session
-                                }
+                                val targetSession =
+                                    synchronized(room) {
+                                        room.participants[target]?.session
+                                    }
                                 targetSession?.sendMessage(
                                     WatchWireMessage(
                                         type = "hostCapabilityGranted",
@@ -1249,17 +1122,20 @@ internal fun Application.watchTogetherModule(
 
                         "denyControl" -> {
                             val room = joinedRoom ?: return@consumeEach
-                            val target = normalizeClientId(message.targetClientId)
-                                ?: return@consumeEach
-                            val targetSession = synchronized(room) {
-                                val actor = room.participants[joinedClientId]
-                                    ?.takeIf { it.session === this }
-                                if (actor == null || !room.isAuthorizedHost(actor)) {
-                                    null
-                                } else {
-                                    room.participants[target]?.session
+                            val target =
+                                normalizeClientId(message.targetClientId)
+                                    ?: return@consumeEach
+                            val targetSession =
+                                synchronized(room) {
+                                    val actor =
+                                        room.participants[joinedClientId]
+                                            ?.takeIf { it.session === this }
+                                    if (actor == null || !room.isAuthorizedHost(actor)) {
+                                        null
+                                    } else {
+                                        room.participants[target]?.session
+                                    }
                                 }
-                            }
                             targetSession?.let { session ->
                                 runCatching {
                                     session.sendMessage(WatchWireMessage(type = "controlDenied"))
@@ -1270,46 +1146,55 @@ internal fun Application.watchTogetherModule(
                         "setControlMode" -> {
                             val room = joinedRoom ?: return@consumeEach
                             val clientId = joinedClientId ?: return@consumeEach
-                            val requested = ControlMode.fromWire(message.controlMode)
-                                ?: return@consumeEach sendError(
-                                    "控制权限模式无效",
-                                    "control_mode_invalid",
-                                )
-                            val changed = synchronized(room) {
-                                val actor = room.participants[clientId]
-                                    ?.takeIf { it.session === this }
-                                if (actor == null ||
-                                    !room.isAuthorizedHost(actor) ||
-                                    room.controlMode == requested
-                                ) {
-                                    return@synchronized false
+                            val requested =
+                                ControlMode.fromWire(message.controlMode)
+                                    ?: return@consumeEach sendError(
+                                        "控制权限模式无效",
+                                        "control_mode_invalid",
+                                    )
+                            val changed =
+                                synchronized(room) {
+                                    val actor =
+                                        room.participants[clientId]
+                                            ?.takeIf { it.session === this }
+                                    if (actor == null ||
+                                        !room.isAuthorizedHost(actor) ||
+                                        room.controlMode == requested
+                                    ) {
+                                        return@synchronized false
+                                    }
+                                    room.controlMode = requested
+                                    true
                                 }
-                                room.controlMode = requested
-                                true
-                            }
                             if (changed) broadcastRoomUpdate(room)
                         }
 
                         "setModerator" -> {
                             val room = joinedRoom ?: return@consumeEach
                             val clientId = joinedClientId ?: return@consumeEach
-                            val target = normalizeClientId(message.targetClientId)
-                                ?: return@consumeEach
+                            val target =
+                                normalizeClientId(message.targetClientId)
+                                    ?: return@consumeEach
                             val enabled = message.moderator ?: return@consumeEach
-                            val changed = synchronized(room) {
-                                val actor = room.participants[clientId]
-                                    ?.takeIf { it.session === this }
-                                if (
-                                    actor == null ||
-                                    !room.isAuthorizedHost(actor) ||
-                                    target == room.hostId ||
-                                    !room.participants.containsKey(target)
-                                ) {
-                                    return@synchronized false
+                            val changed =
+                                synchronized(room) {
+                                    val actor =
+                                        room.participants[clientId]
+                                            ?.takeIf { it.session === this }
+                                    if (
+                                        actor == null ||
+                                        !room.isAuthorizedHost(actor) ||
+                                        target == room.hostId ||
+                                        !room.participants.containsKey(target)
+                                    ) {
+                                        return@synchronized false
+                                    }
+                                    if (enabled) {
+                                        room.moderatorIds.add(target)
+                                    } else {
+                                        room.moderatorIds.remove(target)
+                                    }
                                 }
-                                if (enabled) room.moderatorIds.add(target)
-                                else room.moderatorIds.remove(target)
-                            }
                             if (changed) broadcastRoomUpdate(room)
                         }
 
@@ -1468,34 +1353,38 @@ internal fun Application.watchTogetherModule(
                         "kickParticipant" -> {
                             val room = joinedRoom ?: return@consumeEach
                             val clientId = joinedClientId ?: return@consumeEach
-                            val target = normalizeClientId(message.targetClientId)
-                                ?: return@consumeEach
+                            val target =
+                                normalizeClientId(message.targetClientId)
+                                    ?: return@consumeEach
                             var denied = false
                             var removalLimitReached = false
-                            val targetSession = synchronized(room) {
-                                val actor = room.participants[clientId]
-                                    ?.takeIf { it.session === this }
-                                if (actor == null || !room.isAuthorizedHost(actor)) {
-                                    denied = true
-                                    return@synchronized null
+                            val targetSession =
+                                synchronized(room) {
+                                    val actor =
+                                        room.participants[clientId]
+                                            ?.takeIf { it.session === this }
+                                    if (actor == null || !room.isAuthorizedHost(actor)) {
+                                        denied = true
+                                        return@synchronized null
+                                    }
+                                    if (target == room.hostId) return@synchronized null
+                                    val participant =
+                                        room.participants[target]
+                                            ?: return@synchronized null
+                                    if (
+                                        !rememberRemovedAccountUserId(
+                                            room.removedAccountUserIds,
+                                            participant.accountUserId,
+                                        )
+                                    ) {
+                                        removalLimitReached = true
+                                        return@synchronized null
+                                    }
+                                    room.participants.remove(target)
+                                    room.memberships.remove(participant.accountUserId)
+                                    room.moderatorIds.remove(target)
+                                    participant.session
                                 }
-                                if (target == room.hostId) return@synchronized null
-                                val participant = room.participants[target]
-                                    ?: return@synchronized null
-                                if (
-                                    !rememberRemovedAccountUserId(
-                                        room.removedAccountUserIds,
-                                        participant.accountUserId,
-                                    )
-                                ) {
-                                    removalLimitReached = true
-                                    return@synchronized null
-                                }
-                                room.participants.remove(target)
-                                room.memberships.remove(participant.accountUserId)
-                                room.moderatorIds.remove(target)
-                                participant.session
-                            }
                             if (denied) {
                                 sendError("仅房主可以移出成员", "host_only")
                                 return@consumeEach
@@ -1540,19 +1429,22 @@ internal fun Application.watchTogetherModule(
                             }
                             lastProfileUpdateAtMs = now
                             synchronized(room) {
-                                val current = room.participants[clientId]
-                                    ?.takeIf { it.session === this }
-                                    ?: return@synchronized
-                                current.name = if (requireWatchAuthentication) {
-                                    authenticatedAccount.nickname
-                                } else {
-                                    normalizeName(message.name)
-                                }
-                                current.avatarId = if (requireWatchAuthentication) {
-                                    authenticatedAccount.avatarId
-                                } else {
-                                    normalizeAvatarId(message.avatarId, clientId)
-                                }
+                                val current =
+                                    room.participants[clientId]
+                                        ?.takeIf { it.session === this }
+                                        ?: return@synchronized
+                                current.name =
+                                    if (requireWatchAuthentication) {
+                                        authenticatedAccount.nickname
+                                    } else {
+                                        normalizeName(message.name)
+                                    }
+                                current.avatarId =
+                                    if (requireWatchAuthentication) {
+                                        authenticatedAccount.avatarId
+                                    } else {
+                                        normalizeAvatarId(message.avatarId, clientId)
+                                    }
                             }
                             broadcastRoomUpdate(room)
                         }
@@ -1571,30 +1463,35 @@ internal fun Application.watchTogetherModule(
                                     "playback_status_invalid",
                                 )
                             }
-                            val changed = synchronized(room) {
-                                val participant = room.participants[clientId]
-                                    ?.takeIf { it.session === this }
-                                    ?: return@synchronized false
-                                val nextMediaAvailable = message.mediaAvailable ?: true
-                                val nextBuffering = message.buffering == true && nextMediaAvailable
-                                val nextReady = message.ready == true &&
-                                    nextMediaAvailable && !nextBuffering
-                                val nextLatencyMs = message.latencyMs
-                                val nextSyncDriftMs = message.syncDriftMs
-                                val differs = !participant.statusKnown ||
-                                    participant.ready != nextReady ||
-                                    participant.buffering != nextBuffering ||
-                                    participant.mediaAvailable != nextMediaAvailable ||
-                                    participant.latencyMs != nextLatencyMs ||
-                                    participant.syncDriftMs != nextSyncDriftMs
-                                participant.statusKnown = true
-                                participant.ready = nextReady
-                                participant.buffering = nextBuffering
-                                participant.mediaAvailable = nextMediaAvailable
-                                participant.latencyMs = nextLatencyMs
-                                participant.syncDriftMs = nextSyncDriftMs
-                                differs
-                            }
+                            val changed =
+                                synchronized(room) {
+                                    val participant =
+                                        room.participants[clientId]
+                                            ?.takeIf { it.session === this }
+                                            ?: return@synchronized false
+                                    val nextMediaAvailable = message.mediaAvailable ?: true
+                                    val nextBuffering = message.buffering == true && nextMediaAvailable
+                                    val nextReady =
+                                        message.ready == true &&
+                                            nextMediaAvailable &&
+                                            !nextBuffering
+                                    val nextLatencyMs = message.latencyMs
+                                    val nextSyncDriftMs = message.syncDriftMs
+                                    val differs =
+                                        !participant.statusKnown ||
+                                            participant.ready != nextReady ||
+                                            participant.buffering != nextBuffering ||
+                                            participant.mediaAvailable != nextMediaAvailable ||
+                                            participant.latencyMs != nextLatencyMs ||
+                                            participant.syncDriftMs != nextSyncDriftMs
+                                    participant.statusKnown = true
+                                    participant.ready = nextReady
+                                    participant.buffering = nextBuffering
+                                    participant.mediaAvailable = nextMediaAvailable
+                                    participant.latencyMs = nextLatencyMs
+                                    participant.syncDriftMs = nextSyncDriftMs
+                                    differs
+                                }
                             if (changed) broadcastRoomUpdate(room)
                         }
 
@@ -1623,21 +1520,23 @@ internal fun Application.watchTogetherModule(
                                     "chat_invalid",
                                 )
                             }
-                            val text = normalizeChat(message.text)
-                                ?: return@consumeEach sendError(
-                                    "消息为空、超过 30 字或内容过长",
-                                    "chat_invalid",
-                                    clientMessageId,
-                                )
+                            val text =
+                                normalizeChat(message.text)
+                                    ?: return@consumeEach sendError(
+                                        "消息为空、超过 30 字或内容过长",
+                                        "chat_invalid",
+                                        clientMessageId,
+                                    )
 
-                            val existing = clientMessageId?.let { requestedId ->
-                                synchronized(room) {
-                                    room.chatHistory.firstOrNull {
-                                        it.clientId == clientId &&
-                                            it.clientMessageId == requestedId
+                            val existing =
+                                clientMessageId?.let { requestedId ->
+                                    synchronized(room) {
+                                        room.chatHistory.firstOrNull {
+                                            it.clientId == clientId &&
+                                                it.clientMessageId == requestedId
+                                        }
                                     }
                                 }
-                            }
                             if (existing != null) {
                                 sendMessage(WatchWireMessage(type = "chat", chat = existing))
                                 return@consumeEach
@@ -1659,34 +1558,36 @@ internal fun Application.watchTogetherModule(
                             }
                             recentChatAtMs.addLast(now)
 
-                            val chat = synchronized(room) {
-                                val sender = room.participants[clientId] ?: return@synchronized null
-                                WatchWireChatMessage(
-                                    id = ++room.nextChatId,
-                                    clientId = clientId,
-                                    name = sender.name,
-                                    avatarId = sender.avatarId,
-                                    text = text,
-                                    sentAtMs = now,
-                                    clientMessageId = clientMessageId,
-                                ).also { item ->
-                                    room.chatHistory.addLast(item)
-                                    while (room.chatHistory.size > MAX_CHAT_HISTORY) {
-                                        room.chatHistory.removeFirst()
+                            val chat =
+                                synchronized(room) {
+                                    val sender = room.participants[clientId] ?: return@synchronized null
+                                    WatchWireChatMessage(
+                                        id = ++room.nextChatId,
+                                        clientId = clientId,
+                                        name = sender.name,
+                                        avatarId = sender.avatarId,
+                                        text = text,
+                                        sentAtMs = now,
+                                        clientMessageId = clientMessageId,
+                                    ).also { item ->
+                                        room.chatHistory.addLast(item)
+                                        while (room.chatHistory.size > MAX_CHAT_HISTORY) {
+                                            room.chatHistory.removeFirst()
+                                        }
                                     }
-                                }
-                            } ?: return@consumeEach
+                                } ?: return@consumeEach
                             broadcastChat(room, chat)
                         }
 
                         "reaction" -> {
                             val room = joinedRoom ?: return@consumeEach
                             val clientId = joinedClientId ?: return@consumeEach
-                            val reaction = message.reaction?.takeIf { it in REACTIONS }
-                                ?: return@consumeEach sendError(
-                                    "不支持这个表情",
-                                    "reaction_invalid",
-                                )
+                            val reaction =
+                                message.reaction?.takeIf { it in REACTIONS }
+                                    ?: return@consumeEach sendError(
+                                        "不支持这个表情",
+                                        "reaction_invalid",
+                                    )
 
                             val now = System.currentTimeMillis()
                             while (
@@ -1703,8 +1604,9 @@ internal fun Application.watchTogetherModule(
                             }
                             recentReactionAtMs.addLast(now)
 
-                            val sender = synchronized(room) { room.participants[clientId] }
-                                ?: return@consumeEach
+                            val sender =
+                                synchronized(room) { room.participants[clientId] }
+                                    ?: return@consumeEach
                             broadcastReaction(room, clientId, sender.name, reaction)
                         }
 
@@ -1715,9 +1617,10 @@ internal fun Application.watchTogetherModule(
                             ) {
                                 return@consumeEach sendError("时钟消息无效", "clock_invalid")
                             }
-                            val sentAt = message.clientSentAtMs
-                                ?.takeIf { it in 0L..Long.MAX_VALUE }
-                                ?: return@consumeEach sendError("时钟序号无效", "clock_invalid")
+                            val sentAt =
+                                message.clientSentAtMs
+                                    ?.takeIf { it in 0L..Long.MAX_VALUE }
+                                    ?: return@consumeEach sendError("时钟序号无效", "clock_invalid")
                             sendMessage(WatchWireMessage(type = "pong", clientSentAtMs = sentAt))
                         }
                     }
@@ -1731,24 +1634,25 @@ internal fun Application.watchTogetherModule(
                     // has already reconnected on a new session: only the session currently
                     // on record for `clientId` is allowed to remove it.
                     var hostWentAbsent = false
-                    val removedNow = synchronized(room) {
-                        val isActiveSession = room.participants[clientId]?.session === this
-                        if (isActiveSession) {
-                            room.participants.remove(clientId)
-                            if (room.hostId == clientId) {
-                                // The host keeps the room while it is away. Handing over the
-                                // instant the socket dropped turned a few seconds of no
-                                // signal into a permanent loss of control; a delayed
-                                // handover still covers a host that genuinely doesn't return.
-                                room.hostAbsentSinceMs = System.currentTimeMillis()
-                                hostWentAbsent = true
+                    val removedNow =
+                        synchronized(room) {
+                            val isActiveSession = room.participants[clientId]?.session === this
+                            if (isActiveSession) {
+                                room.participants.remove(clientId)
+                                if (room.hostId == clientId) {
+                                    // The host keeps the room while it is away. Handing over the
+                                    // instant the socket dropped turned a few seconds of no
+                                    // signal into a permanent loss of control; a delayed
+                                    // handover still covers a host that genuinely doesn't return.
+                                    room.hostAbsentSinceMs = System.currentTimeMillis()
+                                    hostWentAbsent = true
+                                }
+                                if (room.participants.isEmpty()) {
+                                    room.emptySinceMs = System.currentTimeMillis()
+                                }
                             }
-                            if (room.participants.isEmpty()) {
-                                room.emptySinceMs = System.currentTimeMillis()
-                            }
+                            isActiveSession
                         }
-                        isActiveSession
-                    }
                     if (hostWentAbsent) {
                         appScope.scheduleHostHandover(room, hostGraceMs)
                     }
@@ -1765,26 +1669,30 @@ internal fun Application.watchTogetherModule(
  * expires. The room is checked again after the delay because the host may have reconnected,
  * or a newer disconnect may have started a fresh grace window, while this coroutine slept.
  */
-private fun CoroutineScope.scheduleHostHandover(room: Room, graceMs: Long) {
+private fun CoroutineScope.scheduleHostHandover(
+    room: Room,
+    graceMs: Long,
+) {
     launch {
         delay(graceMs)
         var grantedCapability: String? = null
-        val newHost = synchronized(room) {
-            if (
-                room.participants.containsKey(room.hostId) ||
-                !room.hostGraceExpired(graceMs)
-            ) {
-                null
-            } else {
-                val nextHost = room.participants.values.firstOrNull()
-                if (nextHost == null) {
+        val newHost =
+            synchronized(room) {
+                if (
+                    room.participants.containsKey(room.hostId) ||
+                    !room.hostGraceExpired(graceMs)
+                ) {
                     null
                 } else {
-                    grantedCapability = room.transferHostTo(nextHost)
-                    nextHost
+                    val nextHost = room.participants.values.firstOrNull()
+                    if (nextHost == null) {
+                        null
+                    } else {
+                        grantedCapability = room.transferHostTo(nextHost)
+                        nextHost
+                    }
                 }
             }
-        }
         if (newHost != null) {
             runCatching {
                 newHost.session.sendMessage(
@@ -1799,194 +1707,36 @@ private fun CoroutineScope.scheduleHostHandover(room: Room, graceMs: Long) {
     }
 }
 
-private sealed interface RoomCreationResult {
-    data class Created(val room: Room) : RoomCreationResult
-    data object IpLimitReached : RoomCreationResult
-    data object ServiceFull : RoomCreationResult
-}
-
-/**
- * Application-local room index. Quota is derived from the rooms that are actually present
- * instead of a second mutable counter, so every successful expiry/removal releases it in
- * the same atomic operation and a failed creation can never leak a slot.
- */
-private class RoomStore(
-    private val roomGraceMs: Long,
-    private val maxActiveRoomsPerIp: Int,
-    private val roomCodeRandom: SecureRandom = SecureRandom(),
-) {
-    private val rooms = ConcurrentHashMap<String, Room>()
-
-    /** Serializes expiry, quota checks, and insertion under concurrent create bursts. */
-    private val creationLock = Any()
-
-    fun find(code: String): Room? = rooms[code]
-
-    /**
-     * Registers a join while holding the same store→room lock order used by expiry. A room
-     * found just before its grace elapsed therefore cannot be removed between lookup and
-     * clearing `emptySinceMs`.
-     */
-    fun mutateIfCurrent(room: Room, block: (Room) -> Unit): Boolean =
-        synchronized(creationLock) {
-            if (rooms[room.code] !== room) return@synchronized false
-            synchronized(room) { block(room) }
-            true
-        }
-
-    fun createRoom(
-        mediaKey: String,
-        hostId: String,
-        creatorIp: String,
-        initialPlaylist: List<WatchWirePlaylistEntry>,
-    ): RoomCreationResult = synchronized(creationLock) {
-        sweepExpiredRoomsLocked(System.currentTimeMillis())
-        if (rooms.size >= MAX_ROOMS) return@synchronized RoomCreationResult.ServiceFull
-        if (rooms.values.count { it.creatorIp == creatorIp } >= maxActiveRoomsPerIp) {
-            return@synchronized RoomCreationResult.IpLimitReached
-        }
-        while (true) {
-            val code = buildString(WatchProtocol.ROOM_CODE_LENGTH) {
-                repeat(WatchProtocol.ROOM_CODE_LENGTH) {
-                    append(
-                        WatchProtocol.ROOM_CODE_ALPHABET[
-                            roomCodeRandom.nextInt(WatchProtocol.ROOM_CODE_ALPHABET.length)
-                        ],
-                    )
-                }
-            }
-            val hostCredential = newCapability()
-            val room = Room(
-                code = code,
-                creatorIp = creatorIp,
-                hostId = hostId,
-                hostCapabilityDigest = capabilityDigest(
-                    code,
-                    hostId,
-                    CapabilityKind.Host,
-                    hostCredential,
-                ),
-                initialHostCapability = hostCredential,
-                timeline = Timeline(
-                    mediaKey = mediaKey,
-                    anchorPositionMs = 0L,
-                    anchorAtServerMs = System.currentTimeMillis(),
-                ),
-                playlist = initialPlaylist.toMutableList(),
-            )
-            if (rooms.putIfAbsent(code, room) == null) {
-                return@synchronized RoomCreationResult.Created(room)
-            }
-        }
-        @Suppress("UNREACHABLE_CODE")
-        RoomCreationResult.ServiceFull
-    }
-
-    /**
-     * Swept opportunistically on `hello`: no timer is required, but stale rooms and their
-     * per-IP quota are reclaimed before any lookup or new creation can consume capacity.
-     */
-    fun sweepExpiredRooms(nowMs: Long = System.currentTimeMillis()) {
-        synchronized(creationLock) {
-            sweepExpiredRoomsLocked(nowMs)
-        }
-    }
-
-    private fun sweepExpiredRoomsLocked(nowMs: Long) {
-        rooms.values.forEach { room ->
-            // Registration uses the same store→room lock order, so an expired room cannot
-            // be removed between lookup and clearing `emptySinceMs`.
-            synchronized(room) {
-                val since = room.emptySinceMs
-                if (since != null && nowMs - since >= roomGraceMs) {
-                    rooms.remove(room.code, room)
-                }
-            }
-        }
-    }
-}
-
-/**
- * Resolves the quota identity. Forwarding headers are intentionally ignored unless the
- * deployment opts in; otherwise a direct client could rotate a spoofed header to bypass
- * the limit. The trusted proxy must overwrite, rather than append to, inbound headers.
- */
-internal fun resolveClientIp(
-    remoteHost: String,
-    xForwardedFor: String?,
-    forwarded: String?,
-    trustProxyHeaders: Boolean,
-): String {
-    val direct = remoteHost.trim().take(128).ifBlank { "unknown" }
-    if (!trustProxyHeaders) return direct
-
-    val forwardedFor = xForwardedFor
-        ?.substringBefore(',')
-        ?.let(::normalizeForwardedAddress)
-        ?: forwarded
-            ?.substringBefore(',')
-            ?.split(';')
-            ?.firstNotNullOfOrNull { part ->
-                part.substringAfter('=', missingDelimiterValue = "")
-                    .takeIf { part.substringBefore('=').trim().equals("for", ignoreCase = true) }
-                    ?.let(::normalizeForwardedAddress)
-            }
-    return forwardedFor ?: direct
-}
-
-/** Sensitive account credentials may only enter through TLS or the trusted local proxy. */
-internal fun ApplicationCall.isSecureServiceTransport(trustProxyHeaders: Boolean): Boolean {
-    if (request.origin.scheme.equals("https", ignoreCase = true)) return true
-    val directIsLoopback = com.yfuse.watch.account.isLoopbackHost(request.origin.remoteHost)
-    if (!directIsLoopback) return false
-    val forwardedProto = request.headers["X-Forwarded-Proto"] ?: return true
-    if (!trustProxyHeaders || ',' in forwardedProto) return false
-    return forwardedProto.trim().equals("https", ignoreCase = true)
-}
-
-private fun normalizeForwardedAddress(raw: String): String? {
-    var value = raw.trim().removeSurrounding("\"")
-    if (value.equals("unknown", ignoreCase = true) || value.startsWith('_')) return null
-    if (value.startsWith('[')) {
-        value = value.substringAfter('[').substringBefore(']')
-    } else if (value.count { it == ':' } == 1 && value.substringBeforeLast(':').contains('.')) {
-        value = value.substringBeforeLast(':')
-    }
-    return value
-        .trim()
-        .lowercase()
-        .takeIf { it.isNotBlank() && it.length <= 128 }
-}
-
 private fun Room.welcomeMessage(
     clientId: String,
     resumeCapability: String?,
     hostCapability: String?,
     protocolVersion: Int,
-): WatchWireMessage = synchronized(this) {
-    WatchWireMessage(
-        type = "welcome",
-        protocolVersion = protocolVersion,
-        capabilities = WatchProtocol.SERVER_CAPABILITIES,
-        roomCode = code,
-        resumeCapability = resumeCapability,
-        hostCapability = hostCapability,
-        isHost = hostId == clientId,
-        canControl = participants[clientId]?.let(::canControl) ?: false,
-        controlMode = controlMode.wireValue,
-        participantCount = participants.size,
-        participants = wireParticipants(),
-        chatHistory = chatHistory.toList(),
-        playlist = playlist.toList(),
-        playlistRevision = playlistRevision,
-        mediaKey = timeline.mediaKey,
-        positionMs = timeline.anchorPositionMs,
-        paused = timeline.paused,
-        rate = timeline.rate,
-        seq = timeline.seq,
-        anchorAtMs = timeline.anchorAtServerMs,
-    )
-}
+): WatchWireMessage =
+    synchronized(this) {
+        WatchWireMessage(
+            type = "welcome",
+            protocolVersion = protocolVersion,
+            capabilities = WatchProtocol.SERVER_CAPABILITIES,
+            roomCode = code,
+            resumeCapability = resumeCapability,
+            hostCapability = hostCapability,
+            isHost = hostId == clientId,
+            canControl = participants[clientId]?.let(::canControl) ?: false,
+            controlMode = controlMode.wireValue,
+            participantCount = participants.size,
+            participants = wireParticipants(),
+            chatHistory = chatHistory.toList(),
+            playlist = playlist.toList(),
+            playlistRevision = playlistRevision,
+            mediaKey = timeline.mediaKey,
+            positionMs = timeline.anchorPositionMs,
+            paused = timeline.paused,
+            rate = timeline.rate,
+            seq = timeline.seq,
+            anchorAtMs = timeline.anchorAtServerMs,
+        )
+    }
 
 private suspend fun WebSocketSession.sendMessage(message: WatchWireMessage) {
     send(
@@ -2052,39 +1802,42 @@ private suspend fun WebSocketSession.finishPlaylistMutation(
 
 /** Membership or host changed; every member gets the current timeline too so a client that missed a `sync` can resync from this alone. */
 private suspend fun broadcastRoomUpdate(room: Room) {
-    val snapshot = synchronized(room) {
-        RoomBroadcastSnapshot(
-            members = room.participants.values.toList(),
-            participants = room.wireParticipants(),
-            timeline = room.timeline,
-            hostId = room.hostId,
-            controlMode = room.controlMode,
-            playlist = room.playlist.toList(),
-            playlistRevision = room.playlistRevision,
-            canControlIds = room.participants.keys
-                .filterTo(linkedSetOf()) { id ->
-                    room.participants[id]?.let(room::canControl) == true
-                },
-        )
-    }
+    val snapshot =
+        synchronized(room) {
+            RoomBroadcastSnapshot(
+                members = room.participants.values.toList(),
+                participants = room.wireParticipants(),
+                timeline = room.timeline,
+                hostId = room.hostId,
+                controlMode = room.controlMode,
+                playlist = room.playlist.toList(),
+                playlistRevision = room.playlistRevision,
+                canControlIds =
+                    room.participants.keys
+                        .filterTo(linkedSetOf()) { id ->
+                            room.participants[id]?.let(room::canControl) == true
+                        },
+            )
+        }
     snapshot.members.forEach { member ->
-        val payload = WatchWireMessage(
-            type = "roomUpdate",
-            roomCode = room.code,
-            isHost = member.id == snapshot.hostId,
-            canControl = member.id in snapshot.canControlIds,
-            controlMode = snapshot.controlMode.wireValue,
-            participantCount = snapshot.members.size,
-            participants = snapshot.participants,
-            playlist = snapshot.playlist,
-            playlistRevision = snapshot.playlistRevision,
-            mediaKey = snapshot.timeline.mediaKey,
-            positionMs = snapshot.timeline.anchorPositionMs,
-            paused = snapshot.timeline.paused,
-            rate = snapshot.timeline.rate,
-            seq = snapshot.timeline.seq,
-            anchorAtMs = snapshot.timeline.anchorAtServerMs,
-        )
+        val payload =
+            WatchWireMessage(
+                type = "roomUpdate",
+                roomCode = room.code,
+                isHost = member.id == snapshot.hostId,
+                canControl = member.id in snapshot.canControlIds,
+                controlMode = snapshot.controlMode.wireValue,
+                participantCount = snapshot.members.size,
+                participants = snapshot.participants,
+                playlist = snapshot.playlist,
+                playlistRevision = snapshot.playlistRevision,
+                mediaKey = snapshot.timeline.mediaKey,
+                positionMs = snapshot.timeline.anchorPositionMs,
+                paused = snapshot.timeline.paused,
+                rate = snapshot.timeline.rate,
+                seq = snapshot.timeline.seq,
+                anchorAtMs = snapshot.timeline.anchorAtServerMs,
+            )
         runCatching { member.session.sendMessage(payload) }
     }
 }
@@ -2100,24 +1853,28 @@ private data class RoomBroadcastSnapshot(
     val canControlIds: Set<String>,
 )
 
-private fun Room.wireParticipants(): List<WatchWireParticipant> = participants.values.map { participant ->
-    WatchWireParticipant(
-        clientId = participant.id,
-        name = participant.name,
-        avatarId = participant.avatarId,
-        isHost = participant.id == hostId,
-        statusKnown = participant.statusKnown,
-        ready = participant.ready,
-        buffering = participant.buffering,
-        mediaAvailable = participant.mediaAvailable,
-        latencyMs = participant.latencyMs,
-        syncDriftMs = participant.syncDriftMs,
-        canControl = canControl(participant),
-        isModerator = participant.id in moderatorIds,
-    )
-}
+private fun Room.wireParticipants(): List<WatchWireParticipant> =
+    participants.values.map { participant ->
+        WatchWireParticipant(
+            clientId = participant.id,
+            name = participant.name,
+            avatarId = participant.avatarId,
+            isHost = participant.id == hostId,
+            statusKnown = participant.statusKnown,
+            ready = participant.ready,
+            buffering = participant.buffering,
+            mediaAvailable = participant.mediaAvailable,
+            latencyMs = participant.latencyMs,
+            syncDriftMs = participant.syncDriftMs,
+            canControl = canControl(participant),
+            isModerator = participant.id in moderatorIds,
+        )
+    }
 
-private suspend fun broadcastChat(room: Room, chat: WatchWireChatMessage) {
+private suspend fun broadcastChat(
+    room: Room,
+    chat: WatchWireChatMessage,
+) {
     val members = synchronized(room) { room.participants.values.toList() }
     members.forEach { member ->
         runCatching { member.session.sendMessage(WatchWireMessage(type = "chat", chat = chat)) }
@@ -2149,27 +1906,27 @@ private suspend fun broadcastReaction(
     }
 }
 
-private fun normalizeName(raw: String?): String = raw
-    .orEmpty()
-    .replace('\r', ' ')
-    .replace('\n', ' ')
-    .filterNot { it.code in 0x00..0x1F || it.code in 0x7F..0x9F }
-    .trim()
-    .takeGraphemes(WatchProtocol.MAX_NAME_GRAPHEMES)
-    .takeGraphemesWithinUtf8Bytes(WatchProtocol.MAX_NAME_BYTES)
-    .ifBlank { "影友" }
+private fun normalizeName(raw: String?): String =
+    raw
+        .orEmpty()
+        .replace('\r', ' ')
+        .replace('\n', ' ')
+        .filterNot { it.code in 0x00..0x1F || it.code in 0x7F..0x9F }
+        .trim()
+        .takeGraphemes(WatchProtocol.MAX_NAME_GRAPHEMES)
+        .takeGraphemesWithinUtf8Bytes(WatchProtocol.MAX_NAME_BYTES)
+        .ifBlank { "影友" }
 
-private fun normalizeAvatarId(raw: Int?, clientId: String): Int =
+private fun normalizeAvatarId(
+    raw: Int?,
+    clientId: String,
+): Int =
     raw?.takeIf { it in 0 until WatchProtocol.AVATAR_COUNT }
         ?: ((clientId.hashCode() and Int.MAX_VALUE) % WatchProtocol.AVATAR_COUNT)
 
-private fun normalizeChat(raw: String?): String? {
-    return raw?.takeIf(WatchProtocol::isValidChat)
-}
+private fun normalizeChat(raw: String?): String? = raw?.takeIf(WatchProtocol::isValidChat)
 
-internal fun normalizeClientId(raw: String?): String? {
-    return raw?.takeIf(WatchProtocol::isValidClientId)
-}
+internal fun normalizeClientId(raw: String?): String? = raw?.takeIf(WatchProtocol::isValidClientId)
 
 internal fun rememberRemovedAccountUserId(
     removedAccountUserIds: MutableSet<String>,
@@ -2183,9 +1940,7 @@ internal fun rememberRemovedAccountUserId(
     return true
 }
 
-private fun normalizeClientMessageId(raw: String?): String? {
-    return raw?.takeIf(WatchProtocol::isValidClientMessageId)
-}
+private fun normalizeClientMessageId(raw: String?): String? = raw?.takeIf(WatchProtocol::isValidClientMessageId)
 
 private fun String.takeGraphemes(limit: Int): String =
     graphemeRegex.findAll(this).take(limit).joinToString(separator = "") { it.value }
@@ -2202,17 +1957,21 @@ private fun String.takeGraphemesWithinUtf8Bytes(limit: Int): String {
     }
 }
 
-private suspend fun broadcastSync(room: Room, timeline: Timeline) {
+private suspend fun broadcastSync(
+    room: Room,
+    timeline: Timeline,
+) {
     val members = synchronized(room) { room.participants.values.toList() }
-    val payload = WatchWireMessage(
-        type = "sync",
-        roomCode = room.code,
-        mediaKey = timeline.mediaKey,
-        positionMs = timeline.anchorPositionMs,
-        paused = timeline.paused,
-        rate = timeline.rate,
-        seq = timeline.seq,
-        anchorAtMs = timeline.anchorAtServerMs,
-    )
+    val payload =
+        WatchWireMessage(
+            type = "sync",
+            roomCode = room.code,
+            mediaKey = timeline.mediaKey,
+            positionMs = timeline.anchorPositionMs,
+            paused = timeline.paused,
+            rate = timeline.rate,
+            seq = timeline.seq,
+            anchorAtMs = timeline.anchorAtServerMs,
+        )
     members.forEach { member -> runCatching { member.session.sendMessage(payload) } }
 }

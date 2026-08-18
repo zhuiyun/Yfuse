@@ -120,6 +120,7 @@ private enum class Sheet {
     StartupTab,
     Background,
     PlaybackMode,
+    AdvancedPlaybackMode,
     Engine,
     Decoder,
     DanmakuSource,
@@ -141,6 +142,7 @@ private enum class ProfilePage {
     Account,
     AccountSessions,
     Playback,
+    AdvancedPlayback,
     Danmaku,
     WatchTogether,
     Appearance,
@@ -253,8 +255,6 @@ fun ProfileScreen(component: ProfileComponent) {
                     PlaybackSettingsScreen(
                         onBack = ::closePage,
                         optimizationMode = optimizationMode,
-                        engineSelection = engineSelection,
-                        decoder = decoder,
                         autoNext = autoNext,
                         smartCrossServerSource = smartCrossServerSource,
                         wifiQualityCap = wifiQualityCap,
@@ -265,9 +265,8 @@ fun ProfileScreen(component: ProfileComponent) {
                         resumePrompt = resumePrompt,
                         videoCacheSize = videoCacheSize,
                         skipSegments = if (skipTimesBySeries.isEmpty()) "${skipMode.label} · 跟随服务器 ›" else "${skipMode.label} ›",
-                        onOptimizationMode = { sheet = Sheet.PlaybackMode },
-                        onEngine = { sheet = Sheet.Engine },
-                        onDecoder = { sheet = Sheet.Decoder },
+                        onPlaybackMode = { sheet = Sheet.PlaybackMode },
+                        onOpenAdvanced = { openPage(ProfilePage.AdvancedPlayback) },
                         onAutoNext = prefs::setAutoNext,
                         onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
                         onWifiQuality = { sheet = Sheet.WifiQuality },
@@ -278,6 +277,17 @@ fun ProfileScreen(component: ProfileComponent) {
                         onResumePrompt = component.playbackPreferences::setResumePrompt,
                         onVideoCache = { sheet = Sheet.VideoCache },
                         onSkipSegments = { sheet = Sheet.SkipSegments },
+                    )
+
+                ProfilePage.AdvancedPlayback ->
+                    AdvancedPlaybackSettingsScreen(
+                        onBack = ::closePage,
+                        optimizationMode = optimizationMode,
+                        engineSelection = engineSelection,
+                        decoder = decoder,
+                        onOptimizationMode = { sheet = Sheet.AdvancedPlaybackMode },
+                        onEngine = { sheet = Sheet.Engine },
+                        onDecoder = { sheet = Sheet.Decoder },
                     )
 
                 ProfilePage.Danmaku ->
@@ -616,16 +626,34 @@ fun ProfileScreen(component: ProfileComponent) {
 
             Sheet.PlaybackMode ->
                 OptionSheet(
+                    title = "播放模式",
+                    subtitle = "自动模式会根据片源和设备选择合适的播放方式",
+                    options =
+                        simplePlaybackModes.map {
+                            it.simplePlaybackLabel() to (it == optimizationMode)
+                        },
+                    descriptions =
+                        simplePlaybackModes.map {
+                            it.playbackOptionCopy().description
+                        },
+                    onSelect = { index ->
+                        component.playbackPreferences.setOptimizationMode(
+                            simplePlaybackModes[index],
+                        )
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
+            Sheet.AdvancedPlaybackMode ->
+                OptionSheet(
                     title = "YCore 播放策略",
-                    subtitle = "自动策略会综合片源、设备能力、稳定性与功耗",
+                    subtitle = "高级策略会同时影响内核选择、稳定性、画质与功耗",
                     options =
                         PlaybackOptimizationMode.entries.map {
                             it.playbackOptionCopy().label to (it == optimizationMode)
                         },
-                    descriptions =
-                        PlaybackOptimizationMode.entries.map {
-                            it.playbackOptionCopy().description
-                        },
+                    descriptions = PlaybackOptimizationMode.entries.map { it.playbackOptionCopy().description },
                     onSelect = { index ->
                         component.playbackPreferences.setOptimizationMode(
                             PlaybackOptimizationMode.entries[index],

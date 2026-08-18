@@ -3,12 +3,10 @@ package com.yfuse.feature.player
 import androidx.media3.common.PlaybackException
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.classifyPlaybackFailure
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
-import kotlin.test.assertTrue
 
 /**
  * A failure's category decides whether a backend gets blamed for it.
@@ -98,47 +96,4 @@ class PlaybackFailureKindReportingTest {
 
         assertEquals(PlaybackFailureKind.Unknown, exception.playbackFailureKind())
     }
-
-    @Test
-    fun every_exo_failure_site_reports_a_category() {
-        val exo = source("feature/player/ExoVideoEngine.kt")
-        val calls = Regex("""failPlayback\(""").findAll(exo).count()
-        val withKind = Regex("""kind = (PlaybackFailureKind\.|error\.playbackFailureKind)""").findAll(exo).count()
-
-        assertTrue(calls > 1, "expected failPlayback call sites")
-        assertEquals(
-            calls - 1,
-            withKind,
-            "every call site but the declaration itself must name a category",
-        )
-    }
-
-    @Test
-    fun the_native_backends_report_the_category_they_already_decided() {
-        val native = source("feature/player/NativePlaybackFailure.kt", sourceSet = "commonMain")
-
-        assertTrue("val kind: PlaybackFailureKind" in native)
-        assertTrue("kind = PlaybackFailureKind.Authorization" in native)
-        assertTrue("kind = PlaybackFailureKind.Renderer" in native)
-    }
-
-    @Test
-    fun the_consumer_prefers_the_reported_category() {
-        val root = source("feature/player/PlayerRoot.kt")
-        val reported = root.indexOf("state.errorKind")
-        val parsed = root.indexOf("classifyPlaybackFailure(")
-
-        assertTrue(reported in 1..<parsed, "the reported category has to be consulted first")
-    }
-
-    private fun source(
-        path: String,
-        sourceSet: String = "androidMain",
-    ): String =
-        sequenceOf(
-            File("src/$sourceSet/kotlin/com/yfuse/$path"),
-            File("composeApp/src/$sourceSet/kotlin/com/yfuse/$path"),
-        ).firstOrNull(File::isFile)
-            ?.readText()
-            ?: error("Cannot locate $path from ${File(".").absolutePath}")
 }

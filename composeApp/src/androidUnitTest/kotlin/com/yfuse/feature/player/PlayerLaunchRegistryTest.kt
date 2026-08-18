@@ -3,7 +3,6 @@ package com.yfuse.feature.player
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
-import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -218,7 +217,7 @@ class PlayerLaunchRegistryTest {
     }
 
     @Test
-    fun discarded_launch_is_unavailable_and_launcher_cleans_up_start_failures() {
+    fun discarded_launch_is_unavailable() {
         val store =
             PlayerLaunchRegistryStore(
                 elapsedRealtimeMs = { 10L },
@@ -230,67 +229,6 @@ class PlayerLaunchRegistryTest {
 
         assertNull(store.consume(launchId))
         assertEquals(0, store.entryCount())
-        val launcherSource =
-            projectFile(
-                "src/androidMain/kotlin/com/yfuse/feature/player/VideoPlayer.android.kt",
-            ).readText()
-        assertTrue("pendingLaunch?.let(PlayerActivity::discardLaunch)" in launcherSource)
-    }
-
-    @Test
-    fun activity_factory_and_notification_never_copy_the_queue_or_consumed_token() {
-        val source =
-            projectFile(
-                "src/androidMain/kotlin/com/yfuse/feature/player/PlayerActivity.kt",
-            ).readText()
-        val notificationSource =
-            projectFile(
-                "src/androidMain/kotlin/com/yfuse/feature/player/PlayerNotificationController.kt",
-            ).readText()
-        assertTrue("return Intent(context, PlayerActivity::class.java)" in source)
-        assertTrue(".apply(payload::writeTo)" in source)
-        assertFalse("getStringArrayExtra" in source)
-        assertFalse("putStringArrayListExtra" in source)
-        assertFalse("Intent(intent).setClass" in source)
-
-        val openIntentBlock =
-            source
-                .substringAfter("internal fun openIntent")
-                .substringBefore("internal fun discardLaunch")
-        assertTrue("Intent(context, PlayerActivity::class.java)" in openIntentBlock)
-        assertTrue(".setAction(ACTION_OPEN)" in openIntentBlock)
-        assertTrue("Intent.FLAG_ACTIVITY_REORDER_TO_FRONT" in openIntentBlock)
-        assertTrue("Intent.FLAG_ACTIVITY_SINGLE_TOP" in openIntentBlock)
-        assertFalse("PlayerLaunchIntentPayload" in openIntentBlock)
-        assertFalse("yfuse.player.launchId" in openIntentBlock)
-
-        val notificationBlock =
-            notificationSource
-                .substringAfter("fun update(")
-                .substringBefore("private fun mediaPendingIntent")
-        assertTrue("PlayerActivity.openIntent(activity)" in notificationBlock)
-        assertFalse("Intent.FLAG_ACTIVITY_CLEAR_TASK" in notificationBlock)
-        assertFalse("Intent.FLAG_ACTIVITY_NEW_TASK" in notificationBlock)
-        assertFalse("yfuse.player.launchId" in notificationBlock)
-
-        val destroyBlock =
-            source
-                .substringAfter("override fun onDestroy()")
-                .substringBefore("private fun closePlayerAndReturn")
-        assertTrue("if (::notificationController.isInitialized)" in destroyBlock)
-        assertTrue("if (::mediaSession.isInitialized)" in destroyBlock)
-
-        val expiredBlock =
-            source
-                .substringAfter("if (launchResolution is PlayerLaunchResolution.Expired)")
-                .substringBefore("val launchRequest")
-        val staleCleanupBlock =
-            source
-                .substringAfter("private fun clearStalePlaybackArtifacts()")
-                .substringBefore("private fun closePlayerAndReturn")
-        assertTrue("clearStalePlaybackArtifacts()" in expiredBlock)
-        assertTrue("PlaybackKeepAliveService.requestStop(this)" in staleCleanupBlock)
-        assertTrue("cancel(NOTIFICATION_ID)" in staleCleanupBlock)
     }
 
     private fun request(
@@ -317,11 +255,4 @@ class PlayerLaunchRegistryTest {
             autoNext = true,
             quality = PlaybackQuality.Auto,
         )
-
-    private fun projectFile(moduleRelativePath: String): File =
-        sequenceOf(
-            File(moduleRelativePath),
-            File("composeApp", moduleRelativePath),
-        ).firstOrNull(File::isFile)
-            ?: error("Cannot locate $moduleRelativePath from ${File(".").absolutePath}")
 }

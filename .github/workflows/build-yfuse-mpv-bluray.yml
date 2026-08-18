@@ -11,6 +11,16 @@ on:
         options:
           - arm64
           - all
+      publish_release:
+        description: Publish this verified arm64 build as a new immutable native dependency release
+        required: true
+        default: false
+        type: boolean
+      release_tag:
+        description: New native dependency tag (must not already exist)
+        required: true
+        default: native-mpv-fcf6745-yfuse1-arm64
+        type: string
   push:
     branches:
       - feature/uhd-bluray
@@ -118,3 +128,59 @@ jobs:
             .native-build/artifacts/BUILD-MANIFEST.txt
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    name: Publish pinned native dependency
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Require the production ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.architectures }}" != "arm64" ]]; then
+            echo "::error::The app ships arm64-v8a only; native releases must use architectures=arm64"
+            exit 1
+          fi
+
+      - name: Download verified native artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: libmpv-yfuse-bluray-arm64
+          path: native-release
+
+      - name: Publish a non-replaceable native release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^native-mpv-[a-zA-Z0-9._-]+$ ]]
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Native release $RELEASE_TAG already exists; refusing to replace it"
+            exit 1
+          fi
+          aar="$(find native-release -type f -name 'libmpv-yfuse-bluray.aar' -print -quit)"
+          sha="$(find native-release -type f -name 'libmpv-yfuse-bluray.aar.sha256' -print -quit)"
+          sources="$(find native-release -type f -name 'NATIVE-SOURCES.txt' -print -quit)"
+          manifest="$(find native-release -type f -name 'BUILD-MANIFEST.txt' -print -quit)"
+          test -s "$aar"
+          test -s "$sha"
+          test -s "$sources"
+          test -s "$manifest"
+          cp "$aar" native-release/libmpv-release.aar
+          sha256sum native-release/libmpv-release.aar |
+            sed 's#  .*#  libmpv-release.aar#' > native-release/libmpv-release.aar.sha256
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Yfuse native mpv $RELEASE_TAG" \
+            --notes "Pinned arm64-v8a Yfuse libmpv build with libbluray, remote ISO, SAF BDMV, HDMV menus and multi-angle support. BD-J is disabled. Source revisions and SHA-256 are attached." \
+            native-release/libmpv-release.aar \
+            native-release/libmpv-release.aar.sha256 \
+            "$sources" \
+            "$manifest"

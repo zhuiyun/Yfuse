@@ -1,0 +1,42 @@
+package com.yfuse.feature.player
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class MpvOutputStateTest {
+    @Test
+    fun scale_modes_use_supported_mpv_properties() {
+        assertEquals(
+            MpvScaleModeProperties(panscan = 0.0, keepAspect = true),
+            mpvScaleModeProperties(VideoScaleMode.Fit),
+        )
+        assertEquals(
+            MpvScaleModeProperties(panscan = 1.0, keepAspect = true),
+            mpvScaleModeProperties(VideoScaleMode.Fill),
+        )
+        assertEquals(
+            MpvScaleModeProperties(panscan = 0.0, keepAspect = false),
+            mpvScaleModeProperties(VideoScaleMode.Stretch),
+        )
+    }
+
+    @Test
+    fun audio_is_rendering_only_after_android_output_is_established() {
+        assertEquals(
+            PlaybackOutputReadiness.Waiting,
+            mpvAudioOutputReadiness(outputDriver = null, outputFormat = null),
+        )
+        assertEquals(
+            PlaybackOutputReadiness.Waiting,
+            mpvAudioOutputReadiness(outputDriver = "audiotrack", outputFormat = null),
+        )
+        assertEquals(
+            PlaybackOutputReadiness.Waiting,
+            mpvAudioOutputReadiness(outputDriver = "null", outputFormat = "s16"),
+        )
+        assertEquals(
+            PlaybackOutputReadiness.Rendering,
+            mpvAudioOutputReadiness(outputDriver = "audiotrack", outputFormat = "s16"),
+        )
+    }
+}

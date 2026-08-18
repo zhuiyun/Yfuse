@@ -66,11 +66,10 @@ internal class EmbySearchService(
                         }
                         parameter(
                             "Fields",
-                            "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
-                                "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+                            "ProductionYear,ProviderIds,SeriesPrimaryImageTag,UserData",
                         )
-                        parameter("EnableImageTypes", "Primary,Backdrop")
-                        parameter("ImageTypeLimit", 2)
+                        parameter("EnableImageTypes", "Primary")
+                        parameter("ImageTypeLimit", 1)
                         if (offset > 0) parameter("StartIndex", offset)
                         parameter("Limit", limit)
                     }.body()

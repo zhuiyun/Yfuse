@@ -23,6 +23,8 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.designsystem.resolveDark
+import com.yfuse.core.logging.AppLog
+import com.yfuse.core.performance.AppJankMonitor
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.feature.player.PlaybackSourcePreloader
@@ -37,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var serverHealthMonitor: ServerHealthMonitor
     private lateinit var serverSyncManager: ServerSyncManager
     private var rootComponent: RootComponent? = null
+    private var jankMonitor: AppJankMonitor? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,6 +116,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        jankMonitor =
+            runCatching { AppJankMonitor(window) }
+                .onFailure { error ->
+                    AppLog.warning(
+                        category = "performance.ui",
+                        event = "jank_monitor_unavailable",
+                        message = "JankStats could not attach to the main window",
+                        throwable = error,
+                    )
+                }.getOrNull()
 
         // A cold start from a shared link arrives here rather than in onNewIntent.
         consumeInviteIntent(intent)
@@ -145,6 +158,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        jankMonitor?.start()
         serverHealthMonitor.setAppForeground(true)
         serverSyncManager.setAppForeground(true)
     }
@@ -158,6 +172,7 @@ class MainActivity : ComponentActivity() {
      * costs nothing; see [com.yfuse.feature.profile.applyPendingAppIconVariant].
      */
     override fun onStop() {
+        jankMonitor?.stop()
         serverHealthMonitor.setAppForeground(false)
         serverSyncManager.setAppForeground(false)
         super.onStop()

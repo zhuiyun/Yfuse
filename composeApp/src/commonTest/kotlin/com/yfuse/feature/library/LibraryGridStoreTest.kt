@@ -9,6 +9,7 @@ import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import io.ktor.http.HttpMethod
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -186,6 +187,45 @@ class LibraryGridStoreTest {
             assertEquals(listOf<String?>("DateCreated", "SortName"), sorts)
             store.dispose()
             runCurrent()
+        }
+
+    @Test
+    fun changing_sort_keeps_the_existing_grid_until_the_replacement_page_arrives() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val releaseSortedPage = CompletableDeferred<Unit>()
+            val repo =
+                testRepo(dispatcher) { request ->
+                    if (request.url.encodedPath.endsWith("/Genres")) {
+                        json("""{"Items":[]}""")
+                    } else {
+                        if (request.url.parameters["SortBy"] == "SortName") releaseSortedPage.await()
+                        json(page(from = 0, count = 2, total = 2))
+                    }
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    "lib1",
+                    mainContext = dispatcher,
+                ).create()
+            advanceUntilIdle()
+            val previousIds = store.state.items.map { it.id }
+
+            store.accept(GridIntent.SetSort(LibrarySort.Name))
+            runCurrent()
+
+            assertTrue(store.state.loading)
+            assertTrue(store.state.retainingPreviousCriteria)
+            assertEquals(previousIds, store.state.items.map { it.id })
+
+            releaseSortedPage.complete(Unit)
+            advanceUntilIdle()
+            assertFalse(store.state.retainingPreviousCriteria)
+            assertEquals(previousIds, store.state.items.map { it.id })
+            store.dispose()
         }
 
     @Test

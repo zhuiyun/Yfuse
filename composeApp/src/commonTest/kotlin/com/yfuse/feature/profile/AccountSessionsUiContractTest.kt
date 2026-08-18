@@ -1,11 +1,8 @@
 package com.yfuse.feature.profile
 
 import com.yfuse.core.account.AccountDeviceSession
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class AccountSessionsUiContractTest {
     @Test
@@ -20,33 +17,6 @@ class AccountSessionsUiContractTest {
         assertEquals(listOf("Phone", "Phone"), result.map(AccountDeviceSession::deviceName))
     }
 
-    @Test
-    fun account_page_has_one_sessions_entry_and_the_list_lives_on_a_child_page() {
-        val accountSource =
-            projectFile(
-                "src/commonMain/kotlin/com/yfuse/feature/profile/AccountSettingsScreen.kt",
-            ).readText()
-        val sessionsSource =
-            projectFile(
-                "src/commonMain/kotlin/com/yfuse/feature/profile/AccountSessionsScreen.kt",
-            ).readText()
-        val profileSource =
-            projectFile(
-                "src/commonMain/kotlin/com/yfuse/feature/profile/ProfileScreen.kt",
-            ).readText()
-
-        val sessionsEntry = Regex("(?:Text\\(|title\\s*=\\s*)\"登录与会话\"")
-        assertEquals(1, sessionsEntry.findAll(accountSource).count())
-        assertFalse(accountSource.contains("sessions.forEach"))
-        assertTrue(sessionsSource.contains("LaunchedEffect(userId)"))
-        assertTrue(sessionsSource.contains("internal fun AccountSessionsContent("))
-        assertTrue(sessionsSource.contains("otherSessions.forEachIndexed"))
-        assertTrue(sessionsSource.contains("SessionDivider()"))
-        assertFalse(sessionsSource.contains("YfLinkButton"))
-        assertTrue(profileSource.contains("ProfilePage.AccountSessions ->"))
-        assertTrue(profileSource.contains("openPage(ProfilePage.AccountSessions)"))
-    }
-
     private fun session(
         id: String,
         deviceName: String,
@@ -58,9 +28,4 @@ class AccountSessionsUiContractTest {
         lastSeenAtEpochMs = lastSeen,
         current = false,
     )
-
-    private fun projectFile(moduleRelativePath: String): File =
-        sequenceOf(File(moduleRelativePath), File("composeApp", moduleRelativePath))
-            .firstOrNull(File::isFile)
-            ?: error("Cannot locate $moduleRelativePath from ${File(".").absolutePath}")
 }

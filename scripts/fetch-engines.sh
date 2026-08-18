@@ -8,10 +8,13 @@ CHECKSUMS="$ROOT/scripts/engine-checksums.sha256"
 
 MPV_FILE="libmpv-release.aar"
 MDK_FILE="mdk-sdk-android.7z"
-MPV_URL="https://github.com/jarnedemeulemeester/libmpv-android/releases/download/v1.0.0/$MPV_FILE"
+MPV_RELEASE_TAG="native-mpv-fcf6745-yfuse1-arm64"
+MPV_URL="https://github.com/zhuiyun/Yfuse/releases/download/$MPV_RELEASE_TAG/$MPV_FILE"
 MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/$MDK_FILE"
 MPV_CUSTOM_SHA="$LIBS/libmpv-release.aar.sha256"
 MPV_CUSTOM_SOURCES="$LIBS/libmpv-release.sources.txt"
+MPV_PINNED_SOURCES="$ROOT/scripts/yfuse-mpv-sources.txt"
+MPV_VERIFIER="$ROOT/scripts/verify-yfuse-mpv-bluray-aar.sh"
 
 die() {
   printf 'error: %s\n' "$*" >&2
@@ -47,10 +50,6 @@ verify_file() {
     die "SHA-256 mismatch for $(basename "$file"): expected $expected, got $actual"
 }
 
-clear_stock_mpv_sidecars() {
-  rm -f "$MPV_CUSTOM_SHA" "$MPV_CUSTOM_SOURCES"
-}
-
 fetch_verified() {
   local name="$1"
   local url="$2"
@@ -60,7 +59,6 @@ fetch_verified() {
 
   if [[ -f "$destination" ]]; then
     verify_file "$destination" "$expected"
-    [[ "$name" != "$MPV_FILE" ]] || clear_stock_mpv_sidecars
     printf '==> %s already verified\n' "$name"
     return
   fi
@@ -81,8 +79,16 @@ fetch_verified() {
     "$url"
   verify_file "$temporary" "$expected"
   mv -f "$temporary" "$destination"
-  [[ "$name" != "$MPV_FILE" ]] || clear_stock_mpv_sidecars
   trap - RETURN
+}
+
+install_custom_mpv_sidecars() {
+  local expected="$1"
+  [[ -r "$MPV_PINNED_SOURCES" ]] || die "pinned Yfuse mpv source manifest is missing"
+  [[ -x "$MPV_VERIFIER" ]] || chmod +x "$MPV_VERIFIER"
+  printf '%s  %s\n' "$expected" "$MPV_FILE" >"$MPV_CUSTOM_SHA"
+  cp -f "$MPV_PINNED_SOURCES" "$MPV_CUSTOM_SOURCES"
+  "$MPV_VERIFIER" "$LIBS/$MPV_FILE" "$MPV_CUSTOM_SHA" "$MPV_CUSTOM_SOURCES"
 }
 
 extract_mdk() {
@@ -121,7 +127,9 @@ extract_mdk() {
 [[ -r "$CHECKSUMS" ]] || die "checksum manifest not found: $CHECKSUMS"
 mkdir -p "$LIBS"
 
-fetch_verified "$MPV_FILE" "$MPV_URL" "$(checksum_for "$MPV_FILE")"
+mpv_checksum="$(checksum_for "$MPV_FILE")"
+fetch_verified "$MPV_FILE" "$MPV_URL" "$mpv_checksum"
+install_custom_mpv_sidecars "$mpv_checksum"
 fetch_verified "$MDK_FILE" "$MDK_URL" "$(checksum_for "$MDK_FILE")"
 extract_mdk
 

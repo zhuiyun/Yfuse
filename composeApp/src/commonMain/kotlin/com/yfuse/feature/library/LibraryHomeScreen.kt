@@ -124,6 +124,29 @@ private val LibraryHeroContentBottom = HeroCaptionClearance
 /** How far the content column is pulled up over the lower edge of the hero. */
 private val HeroLift = 52.dp
 
+internal data class LibraryHeroPresentation(
+    val playActionLabel: String,
+    val detailActionLabel: String,
+    val showOverview: Boolean,
+)
+
+internal val libraryHeroPresentation =
+    LibraryHeroPresentation(
+        playActionLabel = "播放影片",
+        detailActionLabel = "查看详情",
+        showOverview = false,
+    )
+
+internal fun libraryHeroHeight(
+    viewportHeight: androidx.compose.ui.unit.Dp,
+    wideLayout: Boolean,
+): androidx.compose.ui.unit.Dp =
+    if (wideLayout) {
+        (viewportHeight * 0.60f).coerceIn(420.dp, 720.dp)
+    } else {
+        (viewportHeight * 0.60f).coerceIn(350.dp, 520.dp)
+    }
+
 /** Poster rail column width, shared by the real rails and the loading skeleton. */
 private val PosterWidth = MediaSizing.posterRailWidth
 
@@ -258,12 +281,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val bottomContentInset = floatingNavigationContentInset()
     ArtworkAccent(accent) {
         BoxWithConstraints(Modifier.fillMaxSize().background(ground)) {
-            val heroHeight =
-                if (maxWidth >= 600.dp) {
-                    (maxHeight * 0.60f).coerceIn(420.dp, 720.dp)
-                } else {
-                    (maxHeight * 0.60f).coerceIn(350.dp, 520.dp)
-                }
+            val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
             when {
@@ -756,8 +774,10 @@ private fun HeroCarousel(
                         .height(48.dp)
                         .clip(GlassShapes.chip)
                         .background(Color.White.copy(alpha = 0.94f))
-                        .pressable(onClickLabel = "播放影片", onClick = onPlay)
-                        .padding(horizontal = 18.dp),
+                        .pressable(
+                            onClickLabel = libraryHeroPresentation.playActionLabel,
+                            onClick = onPlay,
+                        ).padding(horizontal = 18.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -766,7 +786,7 @@ private fun HeroCarousel(
                 }
                 HeroCircleAction(
                     icon = AppIcons.Info,
-                    description = "查看详情",
+                    description = libraryHeroPresentation.detailActionLabel,
                     onClick = openDetail,
                 )
                 HeroCircleAction(

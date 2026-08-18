@@ -648,6 +648,16 @@ class OfflineMediaSecurityTest {
         }
     }
 
+    @Test
+    fun download_progress_is_persisted_only_at_eight_megabyte_checkpoints() {
+        val checkpoint = OFFLINE_PROGRESS_CHECKPOINT_BYTES
+
+        assertFalse(shouldPersistOfflineProgress(0L, checkpoint - 1L))
+        assertTrue(shouldPersistOfflineProgress(0L, checkpoint))
+        assertFalse(shouldPersistOfflineProgress(checkpoint, checkpoint * 2L - 1L))
+        assertTrue(shouldPersistOfflineProgress(checkpoint, checkpoint * 2L))
+    }
+
     private fun downloadingItem(revision: Long) =
         OfflineMedia(
             id = "server#episode",

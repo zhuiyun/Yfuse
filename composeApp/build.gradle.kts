@@ -4,6 +4,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -91,8 +92,103 @@ val verifyDesignSystemUsage by tasks.registering {
     }
 }
 
+val verifyCustomMpvArtifact by tasks.registering {
+    group = "verification"
+    description = "Rejects stock or unverified libmpv AARs before Android compilation or packaging."
+    val aar = layout.projectDirectory.file("libs/libmpv-release.aar")
+    val checksum = layout.projectDirectory.file("libs/libmpv-release.aar.sha256")
+    val sources = layout.projectDirectory.file("libs/libmpv-release.sources.txt")
+    val pinnedChecksum = layout.projectDirectory.file("../scripts/engine-checksums.sha256")
+    inputs.files(aar, checksum, sources, pinnedChecksum)
+
+    doLast {
+        val aarFile = aar.asFile
+        val checksumFile = checksum.asFile
+        val sourcesFile = sources.asFile
+        require(aarFile.isFile) { "Missing native player artifact: ${aarFile.path}" }
+        require(checksumFile.isFile && sourcesFile.isFile) {
+            "libmpv must include Yfuse SHA-256 and native-source sidecars; run scripts/fetch-engines.sh"
+        }
+        val expected =
+            pinnedChecksum.asFile
+                .readLines()
+                .firstOrNull { it.trim().endsWith("  libmpv-release.aar") }
+                ?.trim()
+                ?.substringBefore(' ')
+                ?.lowercase()
+                ?: throw GradleException("Pinned Yfuse libmpv checksum is missing")
+        val sidecar =
+            checksumFile
+                .readText()
+                .trim()
+                .substringBefore(' ')
+                .lowercase()
+        val digest = MessageDigest.getInstance("SHA-256")
+        aarFile.inputStream().use { input ->
+            val buffer = ByteArray(128 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        require(expected == sidecar && expected == actual) {
+            "Unverified libmpv AAR: pinned=$expected sidecar=$sidecar actual=$actual"
+        }
+        val provenance = sourcesFile.readText()
+        listOf(
+            "remote-raw-bluray=true",
+            "bdmv-vfs=true",
+            "hdmv-menu=true",
+            "multi-angle=true",
+            "capability-class=dev/yfuse/mpv/YfuseMpvCapabilities.class",
+        ).forEach { marker -> require(marker in provenance) { "libmpv provenance is missing $marker" } }
+    }
+}
+
+val verifyBehavioralTestBoundaries by tasks.registering {
+    group = "verification"
+    description = "Rejects tests that assert production source text instead of behavior."
+    val testSources =
+        fileTree("src") {
+            include("**/*Test.kt")
+        }
+    inputs.files(testSources)
+
+    doLast {
+        val forbidden =
+            Regex(
+                """src/(?:commonMain|androidMain)|\bprojectFile\s*\(|\bsourceRoot\b""",
+            )
+        val violations =
+            testSources.files
+                .sortedBy { it.path }
+                .flatMap { source ->
+                    source.readLines().mapIndexedNotNull { index, line ->
+                        if (forbidden.containsMatchIn(line)) {
+                            "${source.relativeTo(projectDir)}:${index + 1}"
+                        } else {
+                            null
+                        }
+                    }
+                }
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "Tests must exercise public/internal behavior instead of production source text:\n" +
+                    violations.joinToString("\n"),
+            )
+        }
+    }
+}
+
 tasks.matching { it.name == "check" }.configureEach {
     dependsOn(verifyDesignSystemUsage)
+    dependsOn(verifyBehavioralTestBoundaries)
+}
+
+tasks.matching { it.name.startsWith("test", ignoreCase = true) }.configureEach {
+    dependsOn(verifyBehavioralTestBoundaries)
 }
 
 kotlin {
@@ -153,6 +249,8 @@ kotlin {
             implementation(libs.androidx.work.runtime)
             implementation(libs.zxing.core)
             implementation(libs.google.cast.framework)
+            implementation(libs.androidx.metrics.performance)
+            implementation(libs.androidx.profileinstaller)
         }
 
         androidUnitTest.dependencies {
@@ -350,6 +448,12 @@ android {
                     null
                 }
         }
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+        }
     }
 
     compileOptions {
@@ -488,6 +592,9 @@ tasks.register<BumpVersionTask>("bumpVersion") {
 }
 
 tasks.configureEach {
+    if (name == "preBuild") {
+        dependsOn(verifyCustomMpvArtifact)
+    }
     val releasePackagingTask =
         name.contains("Release", ignoreCase = true) &&
             listOf("assemble", "bundle", "package").any { name.startsWith(it, ignoreCase = true) }

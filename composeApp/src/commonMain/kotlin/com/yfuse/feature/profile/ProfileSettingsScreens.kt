@@ -125,12 +125,25 @@ internal fun playbackSettingsSummary(
     decoder: DecoderMode,
 ): String = "${optimizationMode.playbackOptionCopy().summary} · ${decoder.playbackOptionCopy().summary}"
 
+internal val simplePlaybackModes =
+    listOf(
+        PlaybackOptimizationMode.Balanced,
+        PlaybackOptimizationMode.Compatibility,
+        PlaybackOptimizationMode.Quality,
+    )
+
+internal fun PlaybackOptimizationMode.simplePlaybackLabel(): String =
+    when (this) {
+        PlaybackOptimizationMode.Balanced -> "自动"
+        PlaybackOptimizationMode.Compatibility -> "兼容优先"
+        PlaybackOptimizationMode.Quality -> "画质优先"
+        PlaybackOptimizationMode.PowerSaver -> "省电优先"
+    }
+
 @Composable
 internal fun PlaybackSettingsScreen(
     onBack: () -> Unit,
     optimizationMode: PlaybackOptimizationMode,
-    engineSelection: PlaybackEngineSelection,
-    decoder: DecoderMode,
     autoNext: Boolean,
     smartCrossServerSource: Boolean,
     wifiQualityCap: PlaybackQuality,
@@ -141,9 +154,8 @@ internal fun PlaybackSettingsScreen(
     resumePrompt: Boolean,
     videoCacheSize: VideoCacheSize,
     skipSegments: String,
-    onOptimizationMode: () -> Unit,
-    onEngine: () -> Unit,
-    onDecoder: () -> Unit,
+    onPlaybackMode: () -> Unit,
+    onOpenAdvanced: () -> Unit,
     onAutoNext: (Boolean) -> Unit,
     onSmartCrossServerSource: (Boolean) -> Unit,
     onWifiQuality: () -> Unit,
@@ -155,13 +167,9 @@ internal fun PlaybackSettingsScreen(
     onVideoCache: () -> Unit,
     onSkipSegments: () -> Unit,
 ) {
-    val outputPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
-    val frameRateMatch by outputPreferences.frameRateMatch.collectAsState()
-    val audioPassthrough by outputPreferences.audioPassthrough.collectAsState()
-
     SettingsPage(
         title = "播放",
-        subtitle = "播放行为与高级兼容选项",
+        subtitle = "播放行为、网络与画质",
         onBack = onBack,
     ) {
         item {
@@ -213,6 +221,90 @@ internal fun PlaybackSettingsScreen(
             }
         }
         item {
+            Section(title = "播放模式") {
+                SettingsCard {
+                    SettingRow(
+                        "播放模式",
+                        "${optimizationMode.simplePlaybackLabel()} ›",
+                        true,
+                        onPlaybackMode,
+                    )
+                }
+            }
+        }
+        item {
+            Section(title = "高级") {
+                SettingsCard {
+                    SettingRow(
+                        "高级播放设置",
+                        "内核、解码与音视频输出 ›",
+                        true,
+                        onOpenAdvanced,
+                    )
+                }
+            }
+        }
+        item {
+            Section(title = "隐私") {
+                SettingsCard {
+                    SwitchRow(
+                        "匿名播放质量分享",
+                        anonymousQoeSharing,
+                        true,
+                        onChange = onAnonymousQoeSharing,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AdvancedPlaybackSettingsScreen(
+    onBack: () -> Unit,
+    optimizationMode: PlaybackOptimizationMode,
+    engineSelection: PlaybackEngineSelection,
+    decoder: DecoderMode,
+    onOptimizationMode: () -> Unit,
+    onEngine: () -> Unit,
+    onDecoder: () -> Unit,
+) {
+    val outputPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
+    val frameRateMatch by outputPreferences.frameRateMatch.collectAsState()
+    val audioPassthrough by outputPreferences.audioPassthrough.collectAsState()
+
+    SettingsPage(
+        title = "高级播放设置",
+        subtitle = "内核锁定、解码与设备输出",
+        onBack = onBack,
+    ) {
+        item {
+            Section(title = "策略与内核") {
+                SettingsCard {
+                    SettingRow(
+                        "YCore 播放策略",
+                        "${optimizationMode.playbackOptionCopy().label} ›",
+                        true,
+                        onOptimizationMode,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "播放内核",
+                        "${engineSelection.playbackOptionCopy().label} ›",
+                        true,
+                        onEngine,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "解码方式",
+                        "${decoder.playbackOptionCopy().label} ›",
+                        true,
+                        onDecoder,
+                    )
+                }
+            }
+        }
+        item {
             Section(title = "显示与音频输出") {
                 SettingsCard {
                     if (engineSelection == PlaybackEngineSelection.LockMdk) {
@@ -242,44 +334,6 @@ internal fun PlaybackSettingsScreen(
                             iconTint = SettingTint.advanced,
                         )
                     }
-                }
-            }
-        }
-        item {
-            Section(title = "高级播放内核") {
-                SettingsCard {
-                    SettingRow(
-                        "YCore 播放策略",
-                        "${optimizationMode.playbackOptionCopy().label} ›",
-                        true,
-                        onOptimizationMode,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "播放内核",
-                        "${engineSelection.playbackOptionCopy().label} ›",
-                        true,
-                        onEngine,
-                    )
-                    SettingsDivider()
-                    SettingRow(
-                        "解码方式",
-                        "${decoder.playbackOptionCopy().label} ›",
-                        true,
-                        onDecoder,
-                    )
-                }
-            }
-        }
-        item {
-            Section(title = "隐私") {
-                SettingsCard {
-                    SwitchRow(
-                        "匿名播放质量分享",
-                        anonymousQoeSharing,
-                        true,
-                        onChange = onAnonymousQoeSharing,
-                    )
                 }
             }
         }

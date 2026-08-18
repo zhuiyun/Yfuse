@@ -1,0 +1,11 @@
+libmpv-android=fcf6745703dc1265bca88f12fee8fc355ddf251e
+libbluray=7d94f2660af5bfc16015291a03539329135c18f1
+libudfread=139a2194525f2745b98a98e4d8fa627d07440176
+bdj_jar=disabled
+remote-raw-bluray=true
+bdmv-vfs=true
+hdmv-menu=true
+multi-angle=true
+capability-class=dev/yfuse/mpv/YfuseMpvCapabilities.class
+registry-class=dev/yfuse/mpv/YfuseBluRayRegistry.class
+bdmv-registry-class=dev/yfuse/mpv/YfuseBdmvRegistry.class
