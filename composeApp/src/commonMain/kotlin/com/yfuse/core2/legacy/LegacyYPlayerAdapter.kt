@@ -10,6 +10,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.feature.player.EngineTrack
+import com.yfuse.feature.player.PlaybackOutputReadiness
 import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.VideoEngine
 import kotlinx.coroutines.flow.FlowCollector
@@ -104,6 +105,10 @@ private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerSta
                 dynamicRange = diagnostics.dynamicRange,
                 videoOutput = diagnostics.videoOutput,
                 audioOutput = diagnostics.audioOutput,
+                videoOutputVerified = diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering,
+                audioOutputVerified = diagnostics.audioReadiness == PlaybackOutputReadiness.Rendering,
+                dolbyVisionOutput = diagnostics.dolbyVisionOutput,
+                dolbyAtmosOutput = diagnostics.dolbyAtmosOutput,
                 reason = diagnostics.planningReason ?: diagnostics.fallbackReason,
             ),
     )
