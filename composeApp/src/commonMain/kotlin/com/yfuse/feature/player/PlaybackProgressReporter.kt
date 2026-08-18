@@ -94,7 +94,7 @@ internal class PlaybackProgressReporter(
     private val removeBackgroundListener =
         PlaybackBackgroundNotifier.register {
             val state = latestState
-            if (!closed && state != null && items.isNotEmpty()) {
+            if (!closed && state != null) {
                 enqueue(Command.Background(state))
             }
         }
