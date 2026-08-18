@@ -25,6 +25,7 @@ class DiscNavigationBackendTest {
         assertEquals(1, engine.lastTitle)
         assertTrue(backend.selectChapter(4))
         assertEquals(4, engine.lastChapter)
+        assertFalse(backend.selectAngle(1))
         assertFalse(backend.sendMenuCommand(PlaybackDiscMenuCommand.ShowMenu))
     }
 
@@ -47,6 +48,7 @@ class DiscNavigationBackendTest {
         ActiveDiscNavigation.unbind(secondOwner)
         assertFalse(ActiveDiscNavigation.isBound)
         assertFalse(ActiveDiscNavigation.selectChapter(1))
+        assertFalse(ActiveDiscNavigation.selectAngle(1))
     }
 
     @Test
@@ -73,7 +75,7 @@ class DiscNavigationBackendTest {
     }
 
     @Test
-    fun composite_backend_keeps_title_control_on_engine_and_menu_control_on_hdmv_runtime() {
+    fun composite_backend_keeps_title_control_on_engine_and_menu_angle_control_on_native_runtime() {
         val engine = FakeDiscEngine()
         val menu = FakeInteractiveMenuBackend().apply { setMenuActive(true) }
         val backend =
@@ -86,6 +88,10 @@ class DiscNavigationBackendTest {
         assertEquals(1, engine.lastTitle)
         assertTrue(backend.selectChapter(3))
         assertEquals(3, engine.lastChapter)
+        assertTrue(backend.selectAngle(2))
+        assertEquals(2, menu.lastAngle)
+        assertEquals(3, backend.navigation.effectiveAngleCount)
+        assertEquals(1, backend.navigation.selectedAngleIndex)
         assertTrue(backend.sendMenuCommand(PlaybackDiscMenuCommand.Select))
         assertEquals(listOf(PlaybackDiscMenuCommand.Select), menu.commands)
         assertTrue(backend.navigation.menuActive)
@@ -119,12 +125,15 @@ private class FakeInteractiveMenuBackend : DiscNavigationBackend {
     var closed: Boolean = false
     val commands = mutableListOf<PlaybackDiscMenuCommand>()
     var lastPoint: Triple<Int, Int, Boolean>? = null
+    var lastAngle: Int? = null
 
     override val navigation: PlaybackDiscNavigationState
         get() =
             PlaybackDiscNavigationState(
                 kind = PlaybackDiscKind.BluRay,
                 titleCount = 1,
+                angleCount = 3,
+                selectedAngleIndex = 1,
                 menuSupported = true,
                 menuActive = menuActive,
             )
@@ -138,6 +147,11 @@ private class FakeInteractiveMenuBackend : DiscNavigationBackend {
     override fun selectTitle(index: Int): Boolean = index == 0
 
     override fun selectChapter(index: Int): Boolean = false
+
+    override fun selectAngle(index: Int): Boolean {
+        lastAngle = index
+        return index in 0..2
+    }
 
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
         commands += command
