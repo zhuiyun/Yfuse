@@ -16,6 +16,9 @@ interface HdmvDiscSession {
 
     fun selectChapter(index: Int): Boolean
 
+    /** Seamless Blu-ray angle selection where the active playlist advertises multiple angles. */
+    fun selectAngle(index: Int): Boolean = false
+
     fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean
 
     /** Authored overlay coordinates; [activate] maps a tap to selection + Enter. */
@@ -96,6 +99,11 @@ class HdmvDiscNavigationBackend(
     override fun selectChapter(index: Int): Boolean =
         runSafely(false) {
             session.selectChapter(index).also { selected -> if (selected) notifyChanged() }
+        }
+
+    override fun selectAngle(index: Int): Boolean =
+        runSafely(false) {
+            session.selectAngle(index).also { selected -> if (selected) notifyChanged() }
         }
 
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
