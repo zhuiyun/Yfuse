@@ -35,6 +35,15 @@ data class YParameterSets(
     val pps: List<ByteArray> = emptyList(),
 )
 
+/** Stream-level evidence only; enhancement-layer presence must never be promoted to a FEL claim. */
+data class YDolbyVisionNalEvidence(
+    val rpuCount: Int,
+    val enhancementLayerCount: Int,
+) {
+    val rpuPresent: Boolean get() = rpuCount > 0
+    val enhancementLayerPresent: Boolean get() = enhancementLayerCount > 0
+}
+
 /**
  * Container-neutral NAL parser/normalizer.
  *
@@ -89,12 +98,31 @@ object YBitstream {
         }
     }
 
-    /** Dolby Vision RPU is commonly carried as HEVC UNSPEC62. Presence is evidence, not a FEL claim. */
+    /**
+     * Dolby Vision HEVC carries RPU and enhancement-layer units in the reserved UNSPEC62/63 NAL
+     * types used by the established FFmpeg Dolby-Vision bitstream path. Counts are evidence only:
+     * an EL NAL proves an enhancement layer exists, not that a decoder actually composed FEL.
+     */
+    fun dolbyVisionEvidence(
+        data: ByteArray,
+        packing: YSamplePacking,
+    ): YDolbyVisionNalEvidence {
+        val units = scan(data, YNalCodec.H265, packing)
+        return YDolbyVisionNalEvidence(
+            rpuCount = units.count { it.type == H265_DOLBY_VISION_RPU },
+            enhancementLayerCount = units.count { it.type == H265_DOLBY_VISION_EL },
+        )
+    }
+
     fun containsDolbyVisionRpu(
         data: ByteArray,
         packing: YSamplePacking,
-    ): Boolean =
-        scan(data, YNalCodec.H265, packing).any { it.type == H265_DOLBY_VISION_RPU }
+    ): Boolean = dolbyVisionEvidence(data, packing).rpuPresent
+
+    fun containsDolbyVisionEnhancementLayer(
+        data: ByteArray,
+        packing: YSamplePacking,
+    ): Boolean = dolbyVisionEvidence(data, packing).enhancementLayerPresent
 }
 
 private fun scanAnnexB(
@@ -229,7 +257,7 @@ private fun List<YNalUnitSpan>.toLengthPrefixed(
     source: ByteArray,
     lengthBytes: Int,
 ): ByteArray {
-    val maxLength = (1L shl (lengthBytes * 8)).let { if (lengthBytes == 4) UINT32_SIZE else it } - 1L
+    val maxLength = (if (lengthBytes == 4) UINT32_SIZE else 1L shl (lengthBytes * 8)) - 1L
     forEach { require(it.length.toLong() <= maxLength) { "NAL unit is too large for $lengthBytes-byte length field" } }
     val total = sumOf { lengthBytes + it.length }
     val output = ByteArray(total)
@@ -262,4 +290,5 @@ private const val H265_VPS = 32
 private const val H265_SPS = 33
 private const val H265_PPS = 34
 private const val H265_DOLBY_VISION_RPU = 62
+private const val H265_DOLBY_VISION_EL = 63
 private const val UINT32_SIZE = 1L shl 32
