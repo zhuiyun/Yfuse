@@ -87,7 +87,7 @@ class PlaybackSyncStore(
                         preference = previous?.preference,
                         history = history,
                     ),
-                remoteCursor = existing?.remoteCursor ?: 0L,
+                remoteCursors = existing?.remoteCursors.orEmpty(),
                 dirty = true,
                 mutationId = newId("mutation"),
             )
@@ -153,7 +153,7 @@ class PlaybackSyncStore(
                         preference = existing?.document?.preference,
                         history = existing?.document?.history.orEmpty(),
                     ),
-                remoteCursor = existing?.remoteCursor ?: 0L,
+                remoteCursors = existing?.remoteCursors.orEmpty(),
                 dirty = true,
                 mutationId = newId("mutation"),
             )
@@ -169,6 +169,7 @@ class PlaybackSyncStore(
 
     fun applyRemote(
         remote: PlaybackSyncDocument,
+        entityKey: String,
         cursor: Long,
     ): RemoteApplyResult = synchronized(lock) {
         val index = findIndexLocked(remote.state.mediaKey, remote.state.aliases)
@@ -177,7 +178,7 @@ class PlaybackSyncStore(
             val stored =
                 StoredPlaybackDocument(
                     document = remote,
-                    remoteCursor = cursor,
+                    remoteCursors = mapOf(entityKey to cursor),
                     dirty = false,
                     mutationId = newId("remote"),
                 )
@@ -190,7 +191,7 @@ class PlaybackSyncStore(
         val stored =
             existing.copy(
                 document = merged,
-                remoteCursor = cursor,
+                remoteCursors = existing.remoteCursors + (entityKey to cursor),
                 dirty = needsUpload,
                 mutationId =
                     if (needsUpload && existing.dirty) existing.mutationId
@@ -204,13 +205,20 @@ class PlaybackSyncStore(
     fun markUploaded(
         mediaKey: String,
         aliases: List<String>,
+        entityKey: String,
         mutationId: String,
         cursor: Long,
     ) = synchronized(lock) {
         val index = findIndexLocked(mediaKey, aliases)
         val existing = documents.getOrNull(index) ?: return@synchronized
         if (existing.mutationId != mutationId) return@synchronized
-        replaceLocked(index, existing.copy(remoteCursor = cursor, dirty = false))
+        replaceLocked(
+            index,
+            existing.copy(
+                remoteCursors = existing.remoteCursors + (entityKey to cursor),
+                dirty = false,
+            ),
+        )
     }
 
     private fun updateHistory(
