@@ -19,8 +19,28 @@ YFUSE_BDMV_STREAM_SOURCE="$ROOT/scripts/native/stream_yfuse_bdmv.c"
 YFUSE_ANGLE_PATCH="$ROOT/scripts/native/patch_yfuse_bluray_angle.py"
 
 ARCH_ARGS=()
+REQUESTED_ABI=""
 if [[ $# -gt 0 ]]; then
   ARCH_ARGS=("$@")
+  for ((i = 0; i < ${#ARCH_ARGS[@]}; i++)); do
+    if [[ "${ARCH_ARGS[$i]}" == "--arch" ]]; then
+      [[ $((i + 1)) -lt ${#ARCH_ARGS[@]} ]] || {
+        echo 'error: --arch requires a value' >&2
+        exit 2
+      }
+      case "${ARCH_ARGS[$((i + 1))]}" in
+        armv7l) REQUESTED_ABI="armeabi-v7a" ;;
+        arm64) REQUESTED_ABI="arm64-v8a" ;;
+        x86) REQUESTED_ABI="x86" ;;
+        x86_64) REQUESTED_ABI="x86_64" ;;
+        *)
+          printf 'error: unsupported architecture: %s\n' "${ARCH_ARGS[$((i + 1))]}" >&2
+          exit 2
+          ;;
+      esac
+      break
+    fi
+  done
 fi
 
 need() {
@@ -60,6 +80,26 @@ LIBBLURAY_BUILD="$SOURCE/buildscripts/scripts/libbluray.sh"
 CAPABILITY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseMpvCapabilities.java"
 REGISTRY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseBluRayRegistry.java"
 BDMV_REGISTRY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseBdmvRegistry.java"
+
+if [[ -n "$REQUESTED_ABI" ]]; then
+  python3 - "$SOURCE/libmpv/build.gradle.kts" "$REQUESTED_ABI" <<'PY'
+from pathlib import Path
+import sys
+
+build_file = Path(sys.argv[1])
+abi = sys.argv[2]
+text = build_file.read_text()
+anchor = "    defaultConfig {\n        minSdk = 26\n"
+if anchor not in text:
+    raise SystemExit("unexpected upstream Gradle file: defaultConfig anchor missing")
+text = text.replace(
+    anchor,
+    f'    defaultConfig {{\n        ndk {{\n            abiFilters += "{abi}"\n        }}\n        minSdk = 26\n',
+    1,
+)
+build_file.write_text(text)
+PY
+fi
 
 mkdir -p "$(dirname "$CAPABILITY_SOURCE")"
 cat >"$CAPABILITY_SOURCE" <<EOF
