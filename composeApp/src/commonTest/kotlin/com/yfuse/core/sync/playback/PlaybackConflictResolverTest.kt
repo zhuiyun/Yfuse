@@ -44,6 +44,61 @@ class PlaybackConflictResolverTest {
     }
 
     @Test
+    fun explicitRestartGenerationBeatsLaterStaleLargerProgress() {
+        val restart =
+            document(
+                positionMs = 0L,
+                updatedAt = 5_000L,
+                deviceId = "phone",
+                sessionId = "new",
+                kind = PlaybackMutationKind.ManualRestart,
+                progressEpoch = 5_000L,
+            )
+        val stale =
+            document(
+                positionMs = 70_000L,
+                updatedAt = 9_000L,
+                deviceId = "tv",
+                sessionId = "old",
+                progressEpoch = 0L,
+            )
+
+        val merged = PlaybackConflictResolver.merge(restart, stale)
+
+        assertEquals(0L, merged.state.positionMs)
+        assertEquals(5_000L, merged.state.progressEpoch)
+        assertEquals(PlaybackMutationKind.ManualRestart, merged.state.mutationKind)
+    }
+
+    @Test
+    fun progressAfterRestartAdvancesInsideSameGeneration() {
+        val restart =
+            document(
+                positionMs = 0L,
+                updatedAt = 5_000L,
+                deviceId = "phone",
+                sessionId = "new",
+                kind = PlaybackMutationKind.ManualRestart,
+                progressEpoch = 5_000L,
+            )
+        val progress =
+            document(
+                positionMs = 8_000L,
+                updatedAt = 6_000L,
+                deviceId = "phone",
+                sessionId = "new",
+                kind = PlaybackMutationKind.AutoProgress,
+                progressEpoch = 5_000L,
+            )
+
+        val merged = PlaybackConflictResolver.merge(restart, progress)
+
+        assertEquals(8_000L, merged.state.positionMs)
+        assertEquals(PlaybackMutationKind.AutoProgress, merged.state.mutationKind)
+        assertEquals(5_000L, merged.state.progressEpoch)
+    }
+
+    @Test
     fun laterIndependentSessionWinsOutsideConcurrentWindow() {
         val local =
             document(
@@ -104,6 +159,7 @@ class PlaybackConflictResolverTest {
         aliases: List<String> = emptyList(),
         played: Boolean = false,
         kind: PlaybackMutationKind = PlaybackMutationKind.AutoProgress,
+        progressEpoch: Long = 0L,
         preference: PlaybackTrackPreference? = null,
         history: List<PlaybackHistoryEntry> = emptyList(),
     ) =
@@ -116,6 +172,7 @@ class PlaybackConflictResolverTest {
                     durationMs = 100_000L,
                     played = played,
                     lastPlayedAtEpochMs = updatedAt,
+                    progressEpoch = progressEpoch,
                     deviceId = deviceId,
                     sessionId = sessionId,
                     revision = updatedAt,
