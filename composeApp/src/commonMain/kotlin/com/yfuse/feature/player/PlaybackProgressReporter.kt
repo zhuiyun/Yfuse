@@ -1,6 +1,8 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.sync.playback.PlaybackSyncManager
+import com.yfuse.core.sync.playback.PlaybackSyncTrigger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,9 +21,10 @@ private const val MAX_PENDING_REPORT_COMMANDS = 8
 private const val DEFAULT_PLAY_METHOD = "DirectPlay"
 
 /**
- * Serializes Emby playback events so item transitions always stop the old
- * session before starting the new one. Position updates are throttled to ten
- * seconds, but pause/resume and seeks are reported immediately.
+ * Serializes media-server and Yfuse playback events so item transitions always stop the old
+ * session before starting the new one. Local cross-platform state is persisted before native
+ * network reporting. Position updates are throttled to ten seconds, while pause/resume, seeks,
+ * item changes and terminal state are immediate.
  */
 internal class PlaybackProgressReporter(
     items: List<PlayerMediaItem>,
@@ -30,6 +33,10 @@ internal class PlaybackProgressReporter(
     private val sourcePreloader: PlaybackSourcePreloader? =
         runCatching {
             GlobalContext.get().get<PlaybackSourcePreloader>()
+        }.getOrNull(),
+    private val playbackSync: PlaybackSyncManager? =
+        runCatching {
+            GlobalContext.get().get<PlaybackSyncManager>()
         }.getOrNull(),
 ) {
     private sealed interface Command {
@@ -70,6 +77,7 @@ internal class PlaybackProgressReporter(
     private var activeBindingSessionId = ""
     private var activeSessionId = ""
     private var activePositionMs = 0L
+    private var activeDurationMs = 0L
     private var activePaused = true
     private var activePlayMethod = DEFAULT_PLAY_METHOD
     private var reportedPositionMs = Long.MIN_VALUE
@@ -94,7 +102,10 @@ internal class PlaybackProgressReporter(
                                         handleUpdate(command.state)
                                     }
                                 } finally {
-                                    stopActive()
+                                    stopActive(
+                                        if (command.state.ended) PlaybackSyncTrigger.Completed
+                                        else PlaybackSyncTrigger.Stop,
+                                    )
                                 }
                         }
                     } catch (cancelled: CancellationException) {
@@ -231,17 +242,19 @@ internal class PlaybackProgressReporter(
         val terminal = state.ended
         if (terminal && index == terminalIndex && activeIndex < 0) return
         if (index != activeIndex) {
-            stopActive()
+            stopActive(PlaybackSyncTrigger.Stop)
             activeIndex = index
             terminalIndex = -1
             activeSessionId = sessionIdFor(index)
             activePositionMs = state.positionMs
+            activeDurationMs = state.durationMs
             activePaused = !state.playing
             reportedPositionMs = state.positionMs
             val item = items[index]
             activePlayMethod = state.playMethodFor(item)
             activeItemId = item.id
             activeBindingSessionId = item.playSessionId
+            recordCrossPlatform(item, PlaybackSyncTrigger.Started)
             sink.startedWithMethod(
                 item.id,
                 activeSessionId,
@@ -254,14 +267,16 @@ internal class PlaybackProgressReporter(
 
         if (terminal) {
             activePositionMs = state.positionMs
+            activeDurationMs = state.durationMs
             activePaused = !state.playing
             terminalIndex = index
-            stopActive()
+            stopActive(PlaybackSyncTrigger.Completed)
             return
         }
 
         val seeked = abs(state.positionMs - activePositionMs) >= SEEK_THRESHOLD_MS
         activePositionMs = state.positionMs
+        activeDurationMs = state.durationMs
         val paused = !state.playing
         activePlayMethod = state.playMethodFor(items[index])
         val pauseChanged = paused != activePaused
@@ -272,6 +287,13 @@ internal class PlaybackProgressReporter(
             activePaused = paused
             reportedPositionMs = state.positionMs
             val item = items[index]
+            val trigger =
+                when {
+                    seeked -> PlaybackSyncTrigger.Seek
+                    pauseChanged && paused -> PlaybackSyncTrigger.Pause
+                    else -> PlaybackSyncTrigger.Periodic
+                }
+            recordCrossPlatform(item, trigger)
             sink.progressWithMethod(
                 item.id,
                 activeSessionId,
@@ -314,8 +336,8 @@ internal class PlaybackProgressReporter(
         val newActive = newItems.getOrNull(newIndex)
         val activeChanged =
             oldActiveId != newActive?.id ||
-                activeBindingSessionId != newActive.playSessionId
-        if (activeChanged) stopActive()
+                activeBindingSessionId != newActive?.playSessionId
+        if (activeChanged) stopActive(PlaybackSyncTrigger.Stop)
         items = newItems
         if (activeChanged) {
             terminalIndex = -1
@@ -325,10 +347,12 @@ internal class PlaybackProgressReporter(
         }
     }
 
-    private suspend fun stopActive() {
-        val itemId = activeItemId.ifBlank { items.getOrNull(activeIndex)?.id.orEmpty() }
+    private suspend fun stopActive(trigger: PlaybackSyncTrigger) {
+        val item = items.getOrNull(activeIndex)
+        val itemId = activeItemId.ifBlank { item?.id.orEmpty() }
         try {
             if (activeIndex >= 0 && itemId.isNotBlank()) {
+                item?.let { recordCrossPlatform(it, trigger) }
                 sink.stoppedWithMethod(
                     itemId = itemId,
                     sessionId = activeSessionId,
@@ -342,9 +366,27 @@ internal class PlaybackProgressReporter(
             activeItemId = ""
             activeBindingSessionId = ""
             activeSessionId = ""
+            activePositionMs = 0L
+            activeDurationMs = 0L
             activePlayMethod = DEFAULT_PLAY_METHOD
             reportedPositionMs = Long.MIN_VALUE
         }
+    }
+
+    private fun recordCrossPlatform(
+        item: PlayerMediaItem,
+        trigger: PlaybackSyncTrigger,
+    ) {
+        playbackSync?.recordPlayback(
+            mediaKey = item.watchKey,
+            aliases = item.matchKeys,
+            positionMs = activePositionMs,
+            durationMs = activeDurationMs,
+            sessionId = activeSessionId,
+            serverId = item.serverId,
+            serverItemId = item.id,
+            trigger = trigger,
+        )
     }
 
     private fun sessionIdFor(index: Int): String =
