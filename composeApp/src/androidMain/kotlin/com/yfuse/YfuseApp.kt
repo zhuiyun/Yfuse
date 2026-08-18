@@ -19,6 +19,7 @@ import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.SafeLogcatOutputGate
 import com.yfuse.core.network.imageCacheKeyForUrl
 import com.yfuse.core.offline.offlineApplicationContext
+import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.di.appModule
@@ -85,6 +86,9 @@ class YfuseApp :
                 )
             }
         koinApplication.koin.get<AccountRepository>().start()
+        // Local playback state is always available; cloud work begins automatically once the
+        // account repository restores an authenticated session.
+        koinApplication.koin.get<PlaybackSyncManager>().start()
         // Restores reporting work even when the previous process died after persisting an event.
         // Each server lane also keeps its foreground fast-path while WorkManager waits for a
         // connected network and survives this process being stopped again.
