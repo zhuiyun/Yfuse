@@ -136,9 +136,16 @@ data class YPlayerDiagnostics(
     val demuxer: String = "",
     val decoder: String = "",
     val renderer: String = "",
+    /** Source/track metadata. Never use this field alone as proof of active HDR/DV output. */
     val dynamicRange: String = "",
     val videoOutput: String = "",
     val audioOutput: String = "",
+    /** Backend-observed frame/sample output, independent from the human-readable labels above. */
+    val videoOutputVerified: Boolean = false,
+    val audioOutputVerified: Boolean = false,
+    /** Verified active output claims; source metadata must not set these booleans. */
+    val dolbyVisionOutput: Boolean = false,
+    val dolbyAtmosOutput: Boolean = false,
     val reason: String? = null,
 )
 
