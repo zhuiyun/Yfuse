@@ -124,6 +124,10 @@ data class MediaStreamDto(
      */
     val DvProfile: Int? = null,
     val DvLevel: Int? = null,
+    /** Presence flags reported by Jellyfin/Emby probing; non-zero means present. */
+    val RpuPresentFlag: Int? = null,
+    val ElPresentFlag: Int? = null,
+    val BlPresentFlag: Int? = null,
     /** 1 = HDR10 base layer, 2 = SDR, 4 = HLG. 0 means there is no compatible layer. */
     val DvBlSignalCompatibilityId: Int? = null,
 )
@@ -547,6 +551,9 @@ fun MediaSourceDto.toMediaVersion(
                         stream.DvProfile
                             ?: dolbyProfileFromCodecTag(stream.Codec, stream.Profile),
                     dolbyBaseLayerCompatibility = stream.DvBlSignalCompatibilityId,
+                    dolbyRpuPresent = stream.RpuPresentFlag?.let { it != 0 },
+                    dolbyEnhancementLayerPresent = stream.ElPresentFlag?.let { it != 0 },
+                    dolbyBaseLayerPresent = stream.BlPresentFlag?.let { it != 0 },
                 )
             },
         audioTracks =

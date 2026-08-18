@@ -15,6 +15,9 @@ class DolbyVisionTest {
         profile: String? = null,
         dolbyProfile: Int? = null,
         baseLayer: Int? = null,
+        rpuPresent: Boolean? = null,
+        enhancementLayerPresent: Boolean? = null,
+        baseLayerPresent: Boolean? = null,
     ) = MediaVersion(
         id = "v1",
         name = "文件",
@@ -29,6 +32,9 @@ class DolbyVisionTest {
             profile = profile,
             dolbyProfile = dolbyProfile,
             dolbyBaseLayerCompatibility = baseLayer,
+            dolbyRpuPresent = rpuPresent,
+            dolbyEnhancementLayerPresent = enhancementLayerPresent,
+            dolbyBaseLayerPresent = baseLayerPresent,
         ),
     )
 
@@ -66,13 +72,67 @@ class DolbyVisionTest {
     }
 
     @Test
+    fun a_stream_with_no_base_layer_never_falls_back_to_plain_hevc() {
+        val subject =
+            version(
+                videoRange = "DOVI",
+                dolbyProfile = 7,
+                baseLayer = 1,
+                baseLayerPresent = false,
+            )
+
+        assertTrue(subject.needsDolbyCapableDecoder)
+    }
+
+    @Test
+    fun profile_seven_enhancement_layer_is_recorded_without_claiming_fel() {
+        val subject =
+            version(
+                videoRange = "DOVI",
+                dolbyProfile = 7,
+                rpuPresent = true,
+                enhancementLayerPresent = true,
+                baseLayerPresent = true,
+            )
+
+        assertTrue(subject.hasDolbyVisionRpu)
+        assertTrue(subject.hasDolbyVisionEnhancementLayer)
+        assertTrue(subject.requiresDolbyVisionEnhancementValidation)
+        assertEquals("Dolby Vision P7 · 双层", subject.rangeLabel)
+        assertEquals("4K Dolby Vision P7 · 双层", subject.qualityLabel)
+        assertFalse(subject.rangeLabel.contains("FEL", ignoreCase = true))
+    }
+
+    @Test
+    fun single_layer_profile_eight_does_not_require_enhancement_validation() {
+        val subject =
+            version(
+                videoRange = "DOVI",
+                dolbyProfile = 8,
+                rpuPresent = true,
+                enhancementLayerPresent = false,
+                baseLayerPresent = true,
+            )
+
+        assertTrue(subject.hasDolbyVisionRpu)
+        assertFalse(subject.hasDolbyVisionEnhancementLayer)
+        assertFalse(subject.requiresDolbyVisionEnhancementValidation)
+        assertEquals("Dolby Vision P8", subject.rangeLabel)
+        assertEquals("4K Dolby Vision P8", subject.qualityLabel)
+    }
+
+    @Test
     fun nothing_about_dolby_applies_to_a_file_that_is_not_dolby() {
         val sdr = version(videoRange = "SDR", codec = "hevc")
 
         assertFalse(sdr.isDolbyVision)
         assertNull(sdr.dolbyProfile)
+        assertFalse(sdr.hasDolbyVisionRpu)
+        assertFalse(sdr.hasDolbyVisionEnhancementLayer)
+        assertFalse(sdr.requiresDolbyVisionEnhancementValidation)
         assertFalse(sdr.needsDolbyCapableDecoder)
         assertEquals("SDR", sdr.rangeLabel)
+        assertEquals("4K SDR", sdr.qualityLabel)
     }
 
     @Test
@@ -96,6 +156,8 @@ class DolbyVisionTest {
 
         assertTrue(subject.isDolbyVision)
         assertEquals(5, subject.dolbyProfile)
+        assertEquals("Dolby Vision P5", subject.rangeLabel)
+        assertEquals("4K Dolby Vision P5", subject.qualityLabel)
         // The whole point: this is the file the P5 guard exists for.
         assertTrue(subject.needsDolbyCapableDecoder)
     }

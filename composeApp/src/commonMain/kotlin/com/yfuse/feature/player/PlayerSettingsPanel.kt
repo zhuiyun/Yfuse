@@ -354,22 +354,82 @@ internal fun SettingsPanel(
                             val disc = state.discNavigation
                             if (disc.available) {
                                 GroupLabel("${disc.kind.label}导航")
-                                if (disc.titleCount > 1) {
-                                    OptionRow(
-                                        "标题 ${disc.selectedTitleIndex + 1} / ${disc.titleCount}",
-                                        false,
-                                        onClick = onNextDiscTitle,
-                                    )
+                                if (disc.effectiveTitleCount > 1) {
+                                    if (ActiveDiscNavigation.isBound) {
+                                        GroupLabel("标题 / Playlist")
+                                        disc.titleOptions.forEach { title ->
+                                            val authored = title.title?.trim()?.takeIf(String::isNotEmpty)
+                                            val playlist = title.playlistLabel
+                                            val authoredIsPlaylist =
+                                                authored?.contains(".mpls", ignoreCase = true) == true ||
+                                                    authored?.contains("mpls/", ignoreCase = true) == true ||
+                                                    authored?.contains("mpls\\", ignoreCase = true) == true
+                                            val label =
+                                                listOfNotNull(
+                                                    authored?.takeUnless { authoredIsPlaylist }
+                                                        ?: playlist
+                                                        ?: "标题 ${title.index + 1}",
+                                                    playlist?.takeUnless {
+                                                        authoredIsPlaylist ||
+                                                            it == authored
+                                                    },
+                                                    "默认".takeIf { title.isDefault },
+                                                ).joinToString(" · ")
+                                            OptionRow(
+                                                label = label,
+                                                selected = title.index == disc.selectedTitleIndex,
+                                                onClick = { ActiveDiscNavigation.selectTitle(title.index) },
+                                            )
+                                        }
+                                    } else {
+                                        OptionRow(
+                                            listOfNotNull(
+                                                disc.selectedTitle?.label,
+                                                "${disc.selectedTitleIndex + 1} / ${disc.effectiveTitleCount}",
+                                            ).joinToString(" · "),
+                                            false,
+                                            onClick = onNextDiscTitle,
+                                        )
+                                    }
                                 }
-                                if (disc.chapterCount > 1) {
-                                    OptionRow(
-                                        "章节 ${disc.selectedChapterIndex + 1} / ${disc.chapterCount}",
-                                        false,
-                                        onClick = onNextDiscChapter,
-                                    )
+                                if (disc.effectiveChapterCount > 1) {
+                                    if (ActiveDiscNavigation.isBound) {
+                                        GroupLabel("章节")
+                                        disc.chapterOptions.forEach { chapter ->
+                                            OptionRow(
+                                                label =
+                                                    listOfNotNull(chapter.timeLabel, chapter.label)
+                                                        .joinToString(" · "),
+                                                selected = chapter.index == disc.selectedChapterIndex,
+                                                onClick = { ActiveDiscNavigation.selectChapter(chapter.index) },
+                                            )
+                                        }
+                                    } else {
+                                        OptionRow(
+                                            listOfNotNull(
+                                                disc.selectedChapter?.timeLabel,
+                                                disc.selectedChapter?.label,
+                                                "${disc.selectedChapterIndex + 1} / ${disc.effectiveChapterCount}",
+                                            ).joinToString(" · "),
+                                            false,
+                                            onClick = onNextDiscChapter,
+                                        )
+                                    }
                                 }
                                 if (disc.menuSupported) {
-                                    OptionRow("打开光盘菜单", disc.menuActive, onClick = onShowDiscMenu)
+                                    OptionRow(
+                                        "打开光盘菜单",
+                                        disc.menuActive,
+                                        onClick = {
+                                            if (
+                                                !ActiveDiscNavigation.sendMenuCommand(
+                                                    com.yfuse.core.playback.PlaybackDiscMenuCommand.ShowMenu,
+                                                )
+                                            ) {
+                                                onShowDiscMenu()
+                                            }
+                                        },
+                                    )
                                 }
                             }
                             OptionRow("锁定控制", false, onClick = onLock)

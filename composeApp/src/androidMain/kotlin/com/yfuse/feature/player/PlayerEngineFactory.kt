@@ -6,7 +6,10 @@ import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
+import com.yfuse.core.playback.detectPlaybackDiscKind
 import kotlinx.coroutines.CoroutineScope
 
 /** Android engine construction boundary; callers depend only on [VideoEngine]. */
@@ -44,21 +47,32 @@ internal fun createVideoEngine(
                 stopEncoding = stopEncoding,
             )
 
-        PlayerEngine.Mpv ->
-            MpvVideoEngine(
-                context = context,
-                items = items,
-                startIndex = startIndex,
-                startPositionMs = startPositionMs,
-                startPlaybackRequested = startPlaybackRequested,
-                startSpeed = startSpeed,
-                decoderMode = decoderMode,
-                autoNext = autoNext,
-                quality = quality,
-                customUserAgent = customUserAgent,
-                scope = scope,
-                stopEncoding = stopEncoding,
-            )
+        PlayerEngine.Mpv -> {
+            val missingDiscCapability = missingNativeBluRayCapability(items, startIndex)
+            if (missingDiscCapability != null) {
+                MissingNativeCapabilityVideoEngine(
+                    message = missingDiscCapability,
+                    startIndex = startIndex,
+                    itemCount = items.size,
+                    startPositionMs = startPositionMs,
+                )
+            } else {
+                MpvVideoEngine(
+                    context = context,
+                    items = items,
+                    startIndex = startIndex,
+                    startPositionMs = startPositionMs,
+                    startPlaybackRequested = startPlaybackRequested,
+                    startSpeed = startSpeed,
+                    decoderMode = decoderMode,
+                    autoNext = autoNext,
+                    quality = quality,
+                    customUserAgent = customUserAgent,
+                    scope = scope,
+                    stopEncoding = stopEncoding,
+                )
+            }
+        }
 
         else ->
             ExoVideoEngine(
@@ -78,3 +92,48 @@ internal fun createVideoEngine(
                 stopEncoding = stopEncoding,
             )
     }
+
+/**
+ * Fails fast only when the selected source provably needs a feature the installed native AAR lacks.
+ *
+ * Generic ISO remains ungated until the bounded image inspector classifies it: a DVD image must not
+ * be rejected merely because the Blu-ray bridge is absent. File-system BDMV can still use mpv's
+ * native path when libbluray is present, while a SAF `content://` BDMV tree specifically requires
+ * Yfuse's `bd_open_files()` VFS and a seekable `content://` ISO requires the block/JNI bridge.
+ */
+internal fun missingNativeBluRayCapability(
+    items: List<PlayerMediaItem>,
+    startIndex: Int,
+    nativeCapabilities: MpvNativeBuildCapabilities = installedMpvNativeBuildCapabilities,
+): String? {
+    val item = items.getOrNull(startIndex) ?: return null
+    val url = item.url
+    if (
+        !url.startsWith("file://", ignoreCase = true) &&
+        !url.startsWith("content://", ignoreCase = true)
+    ) {
+        return null
+    }
+    val version = item.activeVersion
+    val declared =
+        detectPlaybackDiscKind(
+            container = version?.container,
+            labelHint = version?.label,
+            declaredDiscSource = version?.discSource == true,
+        )
+    val kind = cachedLocalPlaybackDiscKind(url) ?: declared
+    if (kind != PlaybackDiscKind.BluRay && kind != PlaybackDiscKind.Bdmv) return null
+
+    if (!nativeCapabilities.nativeBluRay) {
+        return "当前 libmpv AAR 未包含 libbluray，无法直读本地 ${kind.label}；请安装 Yfuse Blu-ray native AAR"
+    }
+    if (url.startsWith("content://", ignoreCase = true)) {
+        if (kind == PlaybackDiscKind.Bdmv && !nativeCapabilities.bdmvVfs) {
+            return "当前 native AAR 未包含 BDMV VFS，无法从 Android 文件树直读 BDMV；请安装完整 Yfuse Blu-ray AAR"
+        }
+        if (kind == PlaybackDiscKind.BluRay && !nativeCapabilities.remoteRawBluRay) {
+            return "当前 native AAR 未包含 ISO 随机块桥接，无法从 content URI 直读 Blu-ray ISO；请安装完整 Yfuse Blu-ray AAR"
+        }
+    }
+    return null
+}

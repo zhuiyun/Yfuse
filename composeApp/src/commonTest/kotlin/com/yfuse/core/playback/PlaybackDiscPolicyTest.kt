@@ -19,7 +19,25 @@ class PlaybackDiscPolicyTest {
     }
 
     @Test
-    fun remote_iso_prefers_server_main_feature_parsing() {
+    fun server_resolved_bluray_main_feature_preserves_original_streams() {
+        val decision =
+            planDiscPlayback(
+                probe(
+                    kind = PlaybackDiscKind.BluRay,
+                    local = false,
+                    transcode = true,
+                    resolved = true,
+                ),
+            )
+
+        assertEquals(PlaybackDiscStrategy.ServerResolvedLinear, decision.strategy)
+        assertFalse(decision.requiresServerTranscode)
+        assertFalse(decision.requiresNativeEngine)
+        assertTrue(decision.preservesOriginalStreams)
+    }
+
+    @Test
+    fun remote_iso_prefers_server_main_feature_parsing_when_no_linear_stream_exists() {
         val decision =
             planDiscPlayback(
                 probe(
@@ -32,6 +50,7 @@ class PlaybackDiscPolicyTest {
         assertEquals(PlaybackDiscStrategy.ServerMainFeature, decision.strategy)
         assertTrue(decision.requiresServerTranscode)
         assertFalse(decision.requiresNativeEngine)
+        assertFalse(decision.preservesOriginalStreams)
     }
 
     @Test
@@ -47,6 +66,7 @@ class PlaybackDiscPolicyTest {
 
         assertEquals(PlaybackDiscStrategy.NativeLocalImage, decision.strategy)
         assertTrue(decision.requiresNativeEngine)
+        assertTrue(decision.preservesOriginalStreams)
     }
 
     @Test
@@ -69,6 +89,7 @@ class PlaybackDiscPolicyTest {
         kind: PlaybackDiscKind,
         local: Boolean,
         transcode: Boolean,
+        resolved: Boolean = false,
     ) = PlaybackMediaProbe(
         container = kind.name,
         discSource = true,
@@ -76,5 +97,6 @@ class PlaybackDiscPolicyTest {
         hasServerTranscode = transcode,
         discKind = kind,
         localSource = local,
+        discMainFeatureResolved = resolved,
     )
 }

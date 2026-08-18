@@ -10,6 +10,8 @@ MPV_FILE="libmpv-release.aar"
 MDK_FILE="mdk-sdk-android.7z"
 MPV_URL="https://github.com/jarnedemeulemeester/libmpv-android/releases/download/v1.0.0/$MPV_FILE"
 MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/$MDK_FILE"
+MPV_CUSTOM_SHA="$LIBS/libmpv-release.aar.sha256"
+MPV_CUSTOM_SOURCES="$LIBS/libmpv-release.sources.txt"
 
 die() {
   printf 'error: %s\n' "$*" >&2
@@ -45,6 +47,10 @@ verify_file() {
     die "SHA-256 mismatch for $(basename "$file"): expected $expected, got $actual"
 }
 
+clear_stock_mpv_sidecars() {
+  rm -f "$MPV_CUSTOM_SHA" "$MPV_CUSTOM_SOURCES"
+}
+
 fetch_verified() {
   local name="$1"
   local url="$2"
@@ -54,6 +60,7 @@ fetch_verified() {
 
   if [[ -f "$destination" ]]; then
     verify_file "$destination" "$expected"
+    [[ "$name" != "$MPV_FILE" ]] || clear_stock_mpv_sidecars
     printf '==> %s already verified\n' "$name"
     return
   fi
@@ -74,6 +81,7 @@ fetch_verified() {
     "$url"
   verify_file "$temporary" "$expected"
   mv -f "$temporary" "$destination"
+  [[ "$name" != "$MPV_FILE" ]] || clear_stock_mpv_sidecars
   trap - RETURN
 }
 

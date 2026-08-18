@@ -6,6 +6,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.KeyEvent
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -14,7 +17,9 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.view.ViewCompat
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import kotlin.math.roundToInt
 
 @Composable
@@ -98,6 +103,69 @@ internal fun rememberSystemVolume(): Pair<Float, (Float) -> Unit> {
             )
     }
 }
+
+/**
+ * Installs platform input only while a verified HDMV/BD-J menu is active.
+ *
+ * Ordinary playback keeps the Activity's normal key/back behavior, including predictive-back. A
+ * menu runtime gets remote D-pad/enter keys plus system back, and a runtime failure immediately falls
+ * through to the Activity instead of trapping the viewer inside a dead menu.
+ */
+@Composable
+internal fun DiscNavigationPlatformInputEffect(menuActive: Boolean) {
+    val activity = LocalActivity.current as? ComponentActivity
+    val interactive = menuActive && ActiveDiscNavigation.status.interactiveMenuReady
+
+    DisposableEffect(activity, interactive) {
+        if (activity == null || !interactive) {
+            return@DisposableEffect onDispose { }
+        }
+
+        val backCallback =
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Back)) return
+                    // Provider disappeared between state publication and the back gesture. Do not
+                    // strand the user: remove this interception and continue the normal dispatcher.
+                    isEnabled = false
+                    activity.onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        activity.onBackPressedDispatcher.addCallback(activity, backCallback)
+
+        val keyListener =
+            ViewCompat.OnUnhandledKeyEventListenerCompat { _, event ->
+                if (event.action != KeyEvent.ACTION_DOWN || !ActiveDiscNavigation.menuActive) {
+                    false
+                } else {
+                    discMenuCommandForAndroidKey(event.keyCode)
+                        ?.let(ActiveDiscNavigation::routeActiveMenuCommand)
+                        ?: false
+                }
+            }
+        val decor = activity.window.decorView
+        ViewCompat.addOnUnhandledKeyEventListener(decor, keyListener)
+
+        onDispose {
+            backCallback.remove()
+            ViewCompat.removeOnUnhandledKeyEventListener(decor, keyListener)
+        }
+    }
+}
+
+internal fun discMenuCommandForAndroidKey(keyCode: Int): PlaybackDiscMenuCommand? =
+    when (keyCode) {
+        KeyEvent.KEYCODE_DPAD_UP -> PlaybackDiscMenuCommand.Up
+        KeyEvent.KEYCODE_DPAD_DOWN -> PlaybackDiscMenuCommand.Down
+        KeyEvent.KEYCODE_DPAD_LEFT -> PlaybackDiscMenuCommand.Left
+        KeyEvent.KEYCODE_DPAD_RIGHT -> PlaybackDiscMenuCommand.Right
+        KeyEvent.KEYCODE_DPAD_CENTER,
+        KeyEvent.KEYCODE_ENTER,
+        KeyEvent.KEYCODE_NUMPAD_ENTER,
+        -> PlaybackDiscMenuCommand.Select
+        KeyEvent.KEYCODE_MENU -> PlaybackDiscMenuCommand.ShowMenu
+        else -> null
+    }
 
 internal fun streamVolumeFraction(
     current: Int,

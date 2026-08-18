@@ -17,15 +17,137 @@ below. CI cannot replace these measurements.
 ## Corpus lanes
 
 - Containers: MP4/MOV, MKV, MPEG-TS, WebM, AVI, FLV, ISO, DVD and BDMV.
-- Video: H.264 8/10-bit, HEVC Main/Main10, VP9, AV1, MPEG-2 and VC-1 where available.
+- Video: H.264 8/10-bit, HEVC Main/Main10, VP9, AV1, MPEG-2, ProRes 10/12-bit and VC-1 where available.
 - Dynamic range: SDR, HDR10, HDR10+, HLG and every Dolby Vision profile the device advertises.
-- Audio: AAC, MP3, FLAC, Opus, AC-3, E-AC3/JOC, DTS variants and TrueHD/Atmos.
+- Audio: AAC, MP3, FLAC, Opus, AC-3, E-AC3/JOC, DTS variants, TrueHD/Atmos and PCM 16/24-bit.
 - Subtitles: SRT/WebVTT, ASS/SSA effects, PGS, VobSub and DVB; single, dual and offset tracks.
+- UHD Blu-ray: local ISO, filesystem BDMV, persisted SAF BDMV tree and server-resolved M2TS/TS
+  main-feature streams; HDR10/HDR10+/HLG, Dolby Vision P7/P8 where legally available, TrueHD/Atmos,
+  DTS-HD and PGS.
+- Optical navigation: one disc with authored edition names, one count-only disc, one explicit MPLS
+  title hint, and chapters with timestamps; include direct non-adjacent title/chapter selection.
+- Remote raw ISO transport: a range-capable authenticated origin, an origin that ignores ranges, a
+  redirecting origin, EOF/416, expiring credentials and at least one 80–100+ GiB image.
+- BDMV VFS: a normal filesystem tree, a tree URI whose selected node is the disc root, a tree URI whose
+  selected node is `BDMV`, and a malformed/traversal corpus that must never escape the selected root.
+- Large media: 4 GiB+ and 100 GiB+ samples must cover random seek, resume and EOF without 32-bit
+  offset truncation. Include MOV/ProRes and Blu-ray image/main-feature cases when available.
 - Faults: truncated manifests, corrupt timestamps, missing tracks, slow origin, 401/403/404/5xx,
   discontinuities and random seek/track/subtitle operations.
 
 Every sample has a redacted manifest entry containing capability signature, expected route, expected
 output and allowed fallback. Media URLs, tokens, account ids and server ids must never be committed.
+
+### UHD Blu-ray route gates
+
+- A valid server-resolved `.m2ts` / `.mts` / `.ts` main feature must remain direct-stream playback;
+  the original MediaSource being ISO/BDMV is not by itself a reason to start server ffmpeg.
+- Native raw ISO and BDMV are **binary capabilities**, not source-code assumptions. The exact AAR
+  shipped in the release must come from the Yfuse libbluray build lane (or equivalent), have a pinned
+  SHA-256, prove mpv was configured with `HAVE_LIBBLURAY=1`, and contain the embedded
+  `dev.yfuse.mpv.YfuseMpvCapabilities` marker. The stock upstream v1.0.0 AAR does not satisfy this gate.
+- Runtime capability detection must come from the installed AAR marker. A current full optical build
+  must prove `REMOTE_RAW_BLURAY=true`, `BDMV_VFS=true`, `HDMV_MENU=true` and `BDJ=false`; missing/newer
+  marker fields are treated as unsupported rather than guessed.
+- The AAR verifier must find both `YfuseBluRayRegistry` and `YfuseBdmvRegistry`, both JNI symbol sets,
+  both `yfusebd` and `yfusebdmv` stream protocols, AArch64 ELF output and PT_LOAD alignment of at least
+  16 KiB for every bundled ARM64 shared library.
+- Restoring the stock mpv AAR must remove custom provenance sidecars; stale metadata may never make a
+  stock binary appear libbluray-capable.
+- A known local Blu-ray/BDMV source without libbluray must fail fast instead of entering mpv and timing
+  out. Generic ISO must remain unclassified until the bounded image inspector knows Blu-ray vs DVD.
+- A `content://` Blu-ray ISO additionally requires the random-block/JNI bridge. A `content://` BDMV
+  tree additionally requires `BDMV_VFS`; an older custom AAR containing only libbluray is not enough.
+- Local Blu-ray ISO must start on the selected main feature and allow direct non-adjacent title/chapter
+  navigation. Extracted BDMV must expose equivalent navigation/menu state through the same isolated
+  HDMV provider contract.
+- Rich optical metadata is optional: authored title/chapter names, ids, default flags, explicit MPLS
+  hints and chapter timestamps must survive when present, while count-only backends remain usable.
+- MPLS metadata may be surfaced only from an explicit `.mpls` / `MPLS/00001`-shaped hint. Arbitrary
+  numbers in authored titles must not be guessed into playlist ids.
+- During an engine handover, an outgoing navigation owner must not clear or receive commands intended
+  for the newer active navigation backend. Replacing a backend for the same owner must close the old
+  backend exactly once.
+
+### Local BDMV VFS gates
+
+The BDMV bridge is read-only and maps libbluray `bd_open_files(open_dir, open_file)` to Android. Before
+shipping the route, all of the following must pass:
+
+- filesystem selection accepts a disc root containing `BDMV/`, the `BDMV` directory itself, or an
+  authored `index.bdmv` / `MovieObject.bdmv` selection and resolves them to one disc root;
+- persisted SAF tree selection works both when the tree root is the disc root and when the selected
+  tree itself is `BDMV`;
+- absolute paths, NUL, `.` and `..` components are rejected before I/O; canonical filesystem children
+  must remain underneath the selected root so symlinks cannot escape the sandbox;
+- VFS file handles support read/tell/SEEK_SET/SEEK_CUR/SEEK_END with 64-bit positions and close exactly
+  once; directory handles enumerate authored names and close exactly once;
+- native `BD_FILE_H` and `BD_DIR_H` callbacks must compile against the pinned public libbluray 1.4.1
+  filesystem ABI and propagate EOF/failure without native memory or JNI-global-reference leaks;
+- BDMV navigation/menu failure remains optional: a provider failure clears interactive state but may
+  not crash or tear down ordinary main-feature video playback;
+- the source registry may contain no raw filesystem path, access token or account id in diagnostics.
+
+### Remote raw ISO transport gates
+
+`HttpRangeDiscBlockSource` is the transport contract for the libbluray `bd_open_stream` bridge. Before
+native remote ISO is release-enabled, the following must pass:
+
+- logical UDF blocks are exactly 2048 bytes and LBA-to-byte conversion uses 64-bit offsets; test at
+  least one range whose start is above 4 GiB and one real image above 80 GiB;
+- every random read receives HTTP `206 Partial Content` with a matching `Content-Range`; ordinary
+  `200 OK` is a hard failure so Yfuse never turns a one-block request into a whole-image download;
+- requests force `Accept-Encoding: identity` and `Cache-Control: no-transform`; a compressed/rewritten
+  range response is rejected because byte offsets are no longer trustworthy;
+- redirects are not followed while authorization headers are attached. A redirecting origin must fail
+  locally rather than leak credentials to the redirect target;
+- authentication headers are resolved per request so a refreshed token can be used without rebuilding
+  the native disc session; logs/diagnostics may contain neither the URL nor token;
+- HTTP `416` with `Content-Range: bytes */N` is accepted as EOF and records the total image length;
+- the reader must never perform blocking range I/O on Android's main thread and must become inert after
+  close;
+- read-ahead/cache remains bounded, preserves exact requested blocks, and does not retain stale data
+  after session close or source switch;
+- transport unit tests are necessary but not sufficient: release additionally requires the actual JNI
+  `bd_open_stream` callback, libbluray title/seek/event integration, cancellation and physical-device
+  seeks across the image.
+
+### Startup / large-source gates
+
+- A fixed eight-second mpv `FILE_LOADED` deadline is not acceptable for optical images or very large
+  MOV/ProRes. Runtime must use the source-aware adaptive/stall policy rather than only defining it in
+  tests/helpers.
+- Optical-disc startup receives a long initial grace period and may continue while real load/cache
+  progress is observed, but a hard upper bound still prevents a dead backend from hanging forever.
+- MOV/ProRes 10/12-bit startup has a separate large-source window; the 100 GiB+ validation sample must
+  start, random-seek, resume and reach EOF without 32-bit truncation or a false watchdog failure.
+- A stale attempt, released engine or already-loaded media must never fire a later watchdog callback.
+- Stall and hard-timeout diagnostics report bounded policy/decision metadata only; media URL/token may
+  never be logged.
+
+### HDR, audio, subtitle and menu gates
+
+- PGS may change the local backend to the native subtitle renderer, but must not change a valid
+  direct-stream URL into a server transcode.
+- TrueHD/Atmos or DTS-HD is reported as passthrough only when the active Android route proves encoded
+  output; speaker/Bluetooth fallback to PCM is a passing outcome.
+- Dolby Vision source metadata must preserve RPU/EL/BL presence flags. A P7 source with EL present is
+  a dual-layer source, but `ElPresentFlag` alone is not accepted as evidence of MEL/FEL type or FEL
+  composition.
+- Dolby Vision P7 FEL is `NotMeasured` unless a physical-device trace proves the enhancement layer is
+  being composed. Base-layer playback is not sufficient evidence for an FEL-support claim.
+- An HDMV provider must report lifecycle and runtime capability independently of video decode. Any
+  native exception/failed command must mark only that optional provider failed, clear active-menu
+  state and leave main-feature playback alive.
+- Asynchronous native menu/title changes must push a navigation revision; UI/platform input must not
+  poll a native handle or stay stale after overlay/menu events.
+- Android D-pad/enter/system-back events may be consumed only while a provider reports a ready
+  interactive runtime **and** an active menu. When the provider closes/fails, normal Activity key and
+  predictive-back behavior must resume.
+- Interactive Graphics and movie PGS stay separate planes; clearing/closing a menu must not clear the
+  selected movie subtitle renderer or leave stale menu pixels on screen.
+- BD-J remains unsupported until a separately verified Java runtime/provider exists. Building
+  libbluray with `bdj_jar=disabled` is never accepted as BD-J evidence.
 
 ## Release gates
 
@@ -57,13 +179,13 @@ exact device/build labels belong in the validation artifact, never in anonymous 
 carry only the protocol's fixed SoC-vendor enum so codec regressions can be grouped without a model id.
 
 The repository unit tests validate evaluator math and boundary behavior. They are not physical-device,
-Widevine-license-server, power, thermal or 8/24-hour soak evidence.
+Widevine-license-server, native libbluray build, power, thermal or 8/24-hour soak evidence.
 
 ## External capability boundaries
 
 - Dolby Vision/Atmos claims require licensed components, advertised hardware support and device
   certification. YCore only preserves secure routing and safe fallback.
-- BD-J and licensed optical-disc navigation depend on external runtimes. Unsupported menu commands
-  remain explicit instead of being simulated.
-- A backend may be enabled only when its bundled build, license notice, native symbols and ABI/page
-  size checks pass the release workflow.
+- HDMV navigation requires a real libbluray-backed provider; BD-J additionally requires a verified
+  Java runtime. Unsupported menu commands remain explicit instead of being simulated.
+- A backend may be enabled only when its bundled build, license notice, native symbols, capability
+  marker, registry ABI and ABI/page-size checks pass the release workflow.

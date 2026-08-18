@@ -19,6 +19,7 @@ internal fun PlayerMediaItem.effectivePlaybackMethod(quality: PlaybackQuality): 
 /** Human-readable cause paired with the actual method, never inferred from a badge. */
 internal fun PlayerMediaItem.initialFallbackReason(quality: PlaybackQuality): String? =
     when {
+        url.isYfuseNativeRemoteBluRayUrl() -> "远程 Blu-ray 原盘使用客户端随机块读取"
         forcedTranscodeReason != null && transcodeUrl.isNotBlank() -> forcedTranscodeReason
         quality.requiresServerTranscode && transcodeUrl.isNotBlank() -> "用户选择 ${quality.label}"
         quality.requiresServerTranscode -> "服务器未提供转码地址，已保留原始播放方式"
@@ -54,13 +55,19 @@ internal fun PlayerMediaVersion.sourceRequirements(): PlaybackSourceRequirements
 
 /** Fast PlaybackInfo-backed probe; FFmpeg probing can enrich the same core model later. */
 internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean = false): PlaybackMediaProbe {
-    val version = this?.activeVersion
+    val item = this
+    val version = item?.activeVersion
     val sourceUrl =
         if (usingServerTranscode) {
-            this?.transcodeUrl
+            item?.transcodeUrl
         } else {
-            this?.url
+            item?.url
         }.orEmpty()
+    val nativeRemoteDisc = !usingServerTranscode && sourceUrl.isYfuseNativeRemoteBluRayUrl()
+    val serverResolvedDiscMainFeature =
+        version?.discSource == true &&
+            !usingServerTranscode &&
+            item?.playMethod == PlaybackMethod.DirectStream
     return PlaybackMediaProbe(
         container = version?.container,
         discSource = version?.discSource == true,
@@ -71,11 +78,15 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
                     needsDolbyDecoder = false,
                     dynamicRange = null,
                 ),
+        // The custom native route deliberately keeps transcode URLs on the item as a recovery
+        // chain. They must not win initial disc planning, otherwise YCore would immediately undo
+        // the registered raw-ISO route before libbluray gets one attempt.
         hasServerTranscode =
-            this?.let { item ->
-                item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
-            } == true,
-        drmProtected = this?.drmConfiguration != null || version?.drmConfiguration != null,
+            !nativeRemoteDisc &&
+                item?.let { media ->
+                    media.transcodeUrl.isNotBlank() || media.fallbackTranscodeUrl.isNotBlank()
+                } == true,
+        drmProtected = item?.drmConfiguration != null || version?.drmConfiguration != null,
         usingServerTranscode = usingServerTranscode,
         discKind =
             detectPlaybackDiscKind(
@@ -86,6 +97,7 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
         localSource =
             sourceUrl.startsWith("file://", ignoreCase = true) ||
                 sourceUrl.startsWith("content://", ignoreCase = true),
+        discMainFeatureResolved = serverResolvedDiscMainFeature,
     )
 }
 
