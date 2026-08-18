@@ -51,6 +51,8 @@ class PlaybackSyncManager(
     private val serverApplier = EmbyCompatiblePlaybackStateApplier(repo, registry)
     private var started = false
     private var debounceJob: Job? = null
+    private var urgentJob: Job? = null
+    private var lastCloudAttemptAtEpochMs = Long.MIN_VALUE
     private val _state =
         MutableStateFlow(
             PlaybackCloudSyncState(
@@ -143,6 +145,7 @@ class PlaybackSyncManager(
     suspend fun syncNow() {
         syncMutex.withLock {
             val accessToken = accessTokens.validAccessTokenFor(cloud.origin) ?: return
+            lastCloudAttemptAtEpochMs = nowEpochMs()
             _state.value = _state.value.copy(syncing = true, error = null)
             try {
                 syncWithToken(accessToken)
@@ -258,10 +261,21 @@ class PlaybackSyncManager(
         if (immediate) {
             debounceJob?.cancel()
             debounceJob = null
-            scope.launch { syncNow() }
+            if (urgentJob?.isActive == true) return
+            urgentJob =
+                scope.launch {
+                    val now = nowEpochMs()
+                    val elapsed =
+                        if (lastCloudAttemptAtEpochMs == Long.MIN_VALUE) Long.MAX_VALUE
+                        else (now - lastCloudAttemptAtEpochMs).coerceAtLeast(0L)
+                    if (elapsed < MIN_URGENT_CLOUD_GAP_MS) {
+                        delay(MIN_URGENT_CLOUD_GAP_MS - elapsed)
+                    }
+                    syncNow()
+                }
             return
         }
-        if (debounceJob?.isActive == true) return
+        if (debounceJob?.isActive == true || urgentJob?.isActive == true) return
         debounceJob =
             scope.launch {
                 delay(CLOUD_DEBOUNCE_MS)
@@ -295,6 +309,7 @@ class PlaybackSyncManager(
 
     private companion object {
         const val CLOUD_DEBOUNCE_MS = 20_000L
+        const val MIN_URGENT_CLOUD_GAP_MS = 3_000L
         const val PERIODIC_CLOUD_SYNC_MS = 60_000L
         const val PULL_PAGE_SIZE = 100
         const val MAX_PULL_PAGES_PER_SYNC = 8
