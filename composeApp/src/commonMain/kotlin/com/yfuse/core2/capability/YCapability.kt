@@ -23,6 +23,19 @@ enum class YVideoCodec {
     Unknown,
 }
 
+enum class YAudioCodec {
+    Aac,
+    Ac3,
+    Eac3,
+    Flac,
+    Opus,
+    TrueHd,
+    Dts,
+    DtsHd,
+    Pcm,
+    Unknown,
+}
+
 enum class YHdrType {
     Sdr,
     Hdr10,
@@ -41,6 +54,12 @@ data class YVideoRequirement(
     val dolbyVisionProfile: Int? = null,
 )
 
+data class YAudioRequirement(
+    val codec: YAudioCodec,
+    val channelCount: Int = 2,
+    val sampleRate: Int = 48_000,
+)
+
 data class YVideoDecoderCapability(
     val name: String,
     val codec: YVideoCodec,
@@ -50,6 +69,7 @@ data class YVideoDecoderCapability(
     val maxWidth: Int = 0,
     val maxHeight: Int = 0,
     val maxFrameRate: Double = 0.0,
+    val maxBitDepth: Int = 8,
     val tunneledPlayback: Boolean = false,
     val adaptivePlayback: Boolean = false,
 ) {
@@ -59,12 +79,14 @@ data class YVideoDecoderCapability(
         if (maxWidth > 0 && requirement.width > maxWidth) return false
         if (maxHeight > 0 && requirement.height > maxHeight) return false
         if (maxFrameRate > 0.0 && requirement.frameRate > maxFrameRate) return false
+        if (maxBitDepth > 0 && requirement.bitDepth > maxBitDepth) return false
         return true
     }
 }
 
 data class YDeviceCapabilities(
     val videoDecoders: List<YVideoDecoderCapability>,
+    val audioDecoders: Set<YAudioCodec> = emptySet(),
     val displayHdrTypes: Set<YHdrType> = setOf(YHdrType.Sdr),
     val supportsSurfaceDirect: Boolean = true,
     val supportsTunnel: Boolean = videoDecoders.any { it.tunneledPlayback },
@@ -78,6 +100,9 @@ data class YDeviceCapabilities(
                     .thenByDescending { it.adaptivePlayback },
             ).firstOrNull()
 
+    fun supportsAudio(requirement: YAudioRequirement?): Boolean =
+        requirement == null || requirement.codec in audioDecoders
+
     fun supportsDisplayHdr(type: YHdrType): Boolean =
         type == YHdrType.Sdr || type in displayHdrTypes
 
@@ -85,6 +110,7 @@ data class YDeviceCapabilities(
         fun conservative(): YDeviceCapabilities =
             YDeviceCapabilities(
                 videoDecoders = emptyList(),
+                audioDecoders = emptySet(),
                 displayHdrTypes = setOf(YHdrType.Sdr),
                 supportsSurfaceDirect = true,
                 supportsTunnel = false,
