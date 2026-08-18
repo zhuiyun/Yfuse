@@ -1,6 +1,8 @@
 package com.yfuse.core2.strategy
 
 import com.yfuse.core2.api.YPlaybackRoute
+import com.yfuse.core2.capability.YAudioCodec
+import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YDeviceCapabilities
 import com.yfuse.core2.capability.YHdrType
@@ -118,6 +120,29 @@ class YPlaybackStrategyTest {
     }
 
     @Test
+    fun `unsupported audio prevents a native video route from becoming silent playback`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Mp4,
+                        video = YVideoRequirement(codec = YVideoCodec.H265),
+                        audio = YAudioRequirement(codec = YAudioCodec.DtsHd, channelCount = 8),
+                        platformDemuxSupported = true,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders = listOf(decoder(hdr = setOf(YHdrType.Sdr))),
+                        audioDecoders = setOf(YAudioCodec.Aac, YAudioCodec.Ac3),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
+        assertFalse(plan.nativeAudio)
+        assertTrue("audio" in plan.reason.lowercase())
+    }
+
+    @Test
     fun `unsupported hardware reaches universal software fallback`() {
         val plan =
             strategy.plan(
@@ -147,6 +172,7 @@ class YPlaybackStrategyTest {
             maxWidth = 7680,
             maxHeight = 4320,
             maxFrameRate = 120.0,
+            maxBitDepth = 10,
             tunneledPlayback = tunneled,
             adaptivePlayback = true,
         )
