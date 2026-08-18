@@ -16,6 +16,7 @@ REGISTRY_CLASS_PATH="dev/yfuse/mpv/YfuseBluRayRegistry.class"
 BDMV_REGISTRY_CLASS_PATH="dev/yfuse/mpv/YfuseBdmvRegistry.class"
 YFUSE_STREAM_SOURCE="$ROOT/scripts/native/stream_yfuse_bluray.c"
 YFUSE_BDMV_STREAM_SOURCE="$ROOT/scripts/native/stream_yfuse_bdmv.c"
+YFUSE_ANGLE_PATCH="$ROOT/scripts/native/patch_yfuse_bluray_angle.py"
 
 ARCH_ARGS=()
 if [[ $# -gt 0 ]]; then
@@ -32,9 +33,9 @@ need() {
 for tool in git python3 meson ninja unzip sha256sum; do
   need "$tool"
 done
-for native_source in "$YFUSE_STREAM_SOURCE" "$YFUSE_BDMV_STREAM_SOURCE"; do
+for native_source in "$YFUSE_STREAM_SOURCE" "$YFUSE_BDMV_STREAM_SOURCE" "$YFUSE_ANGLE_PATCH"; do
   [[ -f "$native_source" ]] || {
-    printf 'error: native stream source not found: %s\n' "$native_source" >&2
+    printf 'error: native source/patch not found: %s\n' "$native_source" >&2
     exit 1
   }
 done
@@ -232,6 +233,11 @@ UDFREAD_HEAD="$(git -C "$BLURAY_ROOT/contrib/libudfread" rev-parse HEAD)"
 MPV_ROOT="$SOURCE/buildscripts/deps/mpv"
 cp "$YFUSE_STREAM_SOURCE" "$MPV_ROOT/stream/stream_yfuse_bluray.c"
 cp "$YFUSE_BDMV_STREAM_SOURCE" "$MPV_ROOT/stream/stream_yfuse_bdmv.c"
+python3 "$YFUSE_ANGLE_PATCH" \
+  "$MPV_ROOT/stream/stream_yfuse_bluray.c" \
+  "$MPV_ROOT/stream/stream_yfuse_bdmv.c" \
+  "$REGISTRY_SOURCE" \
+  "$BDMV_REGISTRY_SOURCE"
 python3 - "$MPV_ROOT/meson.build" "$MPV_ROOT/stream/stream.c" <<'PY'
 from pathlib import Path
 import sys
@@ -319,6 +325,7 @@ sha256sum "$DEST" | tee "$DEST.sha256"
   printf 'remote-raw-bluray=true\n'
   printf 'bdmv-vfs=true\n'
   printf 'hdmv-menu=true\n'
+  printf 'multi-angle=true\n'
   printf 'capability-class=%s\n' "$CAPABILITY_CLASS_PATH"
   printf 'registry-class=%s\n' "$REGISTRY_CLASS_PATH"
   printf 'bdmv-registry-class=%s\n' "$BDMV_REGISTRY_CLASS_PATH"
