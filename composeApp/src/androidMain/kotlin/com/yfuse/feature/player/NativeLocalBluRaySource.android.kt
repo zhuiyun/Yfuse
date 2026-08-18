@@ -15,8 +15,7 @@ import java.io.File
  * Seekable local ISO source for the same `yfusebd://` runtime used by authenticated remote ISO.
  *
  * Both `file://` and seekable `content://` ISO sources use `pread(2)` so offsets stay 64-bit and no
- * temporary 50–100 GiB copy is created. BDMV directories deliberately remain on mpv's existing
- * `bd://` directory route until a real `bd_open_files` SAF/filesystem VFS bridge is validated.
+ * temporary 50–100 GiB copy is created. BDMV directories use the dedicated `bd_open_files` VFS.
  */
 internal class NativeLocalBluRaySource private constructor(
     private val descriptor: ParcelFileDescriptor,
@@ -74,6 +73,8 @@ internal class NativeLocalBluRaySource private constructor(
         selectedTitleIndex: Int,
         chapterCount: Int,
         selectedChapterIndex: Int,
+        angleCount: Int,
+        selectedAngleIndex: Int,
         menuSupported: Boolean,
         menuActive: Boolean,
     ) {
@@ -83,6 +84,8 @@ internal class NativeLocalBluRaySource private constructor(
             selectedTitleIndex,
             chapterCount,
             selectedChapterIndex,
+            angleCount,
+            selectedAngleIndex,
             menuSupported,
             menuActive,
         )
@@ -145,6 +148,8 @@ internal class NativeLocalBluRaySource private constructor(
             selectedTitleIndex: Int,
             chapterCount: Int,
             selectedChapterIndex: Int,
+            angleCount: Int,
+            selectedAngleIndex: Int,
             menuSupported: Boolean,
             menuActive: Boolean,
         ) {
@@ -156,6 +161,11 @@ internal class NativeLocalBluRaySource private constructor(
                     selectedTitleIndex = selectedTitleIndex.coerceAtLeast(0),
                     chapterCount = chapterCount.coerceAtLeast(0),
                     selectedChapterIndex = selectedChapterIndex.coerceAtLeast(0),
+                    angleCount = angleCount.coerceAtLeast(0),
+                    selectedAngleIndex =
+                        selectedAngleIndex
+                            .coerceAtLeast(0)
+                            .coerceAtMost((angleCount - 1).coerceAtLeast(0)),
                     chapters = List(chapterCount.coerceAtLeast(0)) { PlaybackDiscChapter(it) },
                     menuSupported = menuSupported,
                     menuActive = menuSupported && menuActive,
@@ -173,6 +183,12 @@ internal class NativeLocalBluRaySource private constructor(
         override fun navigation(): PlaybackDiscNavigationState = state
         override fun selectTitle(index: Int): Boolean = false
         override fun selectChapter(index: Int): Boolean = false
+
+        override fun selectAngle(index: Int): Boolean =
+            !ended &&
+                index in 0 until state.effectiveAngleCount &&
+                NativeRemoteBluRayRegistry.selectAngle(id, index)
+
         override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
             !ended && NativeRemoteBluRayRegistry.sendMenuCommand(id, command.localNativeMenuCode())
 
