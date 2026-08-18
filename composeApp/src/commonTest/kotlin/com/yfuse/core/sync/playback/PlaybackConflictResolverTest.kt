@@ -51,8 +51,8 @@ class PlaybackConflictResolverTest {
                 updatedAt = 5_000L,
                 deviceId = "phone",
                 sessionId = "new",
-                kind = PlaybackMutationKind.ManualRestart,
-                progressEpoch = 5_000L,
+                kind = PlaybackMutationKind.AutoProgress,
+                progressEpoch = 5L,
             )
         val stale =
             document(
@@ -66,8 +66,8 @@ class PlaybackConflictResolverTest {
         val merged = PlaybackConflictResolver.merge(restart, stale)
 
         assertEquals(0L, merged.state.positionMs)
-        assertEquals(5_000L, merged.state.progressEpoch)
-        assertEquals(PlaybackMutationKind.ManualRestart, merged.state.mutationKind)
+        assertEquals(5L, merged.state.progressEpoch)
+        assertEquals(PlaybackMutationKind.AutoProgress, merged.state.mutationKind)
     }
 
     @Test
@@ -78,8 +78,8 @@ class PlaybackConflictResolverTest {
                 updatedAt = 5_000L,
                 deviceId = "phone",
                 sessionId = "new",
-                kind = PlaybackMutationKind.ManualRestart,
-                progressEpoch = 5_000L,
+                kind = PlaybackMutationKind.AutoProgress,
+                progressEpoch = 5L,
             )
         val progress =
             document(
@@ -88,14 +88,14 @@ class PlaybackConflictResolverTest {
                 deviceId = "phone",
                 sessionId = "new",
                 kind = PlaybackMutationKind.AutoProgress,
-                progressEpoch = 5_000L,
+                progressEpoch = 5L,
             )
 
         val merged = PlaybackConflictResolver.merge(restart, progress)
 
         assertEquals(8_000L, merged.state.positionMs)
         assertEquals(PlaybackMutationKind.AutoProgress, merged.state.mutationKind)
-        assertEquals(5_000L, merged.state.progressEpoch)
+        assertEquals(5L, merged.state.progressEpoch)
     }
 
     @Test
