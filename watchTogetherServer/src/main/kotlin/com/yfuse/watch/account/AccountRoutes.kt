@@ -19,12 +19,12 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.utils.io.readAvailable
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.io.ByteArrayOutputStream
 
 internal fun Route.accountRoutes(
     backend: AccountBackend,
@@ -158,7 +158,7 @@ internal fun Route.accountRoutes(
             get("/playback") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.SyncRead) {
                     val accessToken = call.requireBearerToken()
-                    val account = backend.authenticateAccessToken(accessToken)
+                    val account = backend.validateAccessToken(accessToken)
                     val after = call.request.queryParameters["after"]?.toLongOrNull() ?: 0L
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
                     if (after < 0L || limit !in 1..200) {
@@ -176,7 +176,7 @@ internal fun Route.accountRoutes(
             post("/playback") {
                 call.handleAccountEndpoint(rateLimiter, AccountRateLimitBucket.SyncWrite) {
                     val accessToken = call.requireBearerToken()
-                    val account = backend.authenticateAccessToken(accessToken)
+                    val account = backend.validateAccessToken(accessToken)
                     val request = call.receiveLimitedJson<PlaybackPushRequest>()
                     val response =
                         try {
@@ -275,7 +275,7 @@ private suspend fun ApplicationCall.handleAccountEndpoint(
         respondError(
             HttpStatusCode.TooManyRequests,
             "rate_limited",
-            "尝试次数过多，请稍后再试",
+            "尝试次数过多，请稍后重试",
         )
     } catch (_: ResponseTooLargeException) {
         application.log.error("Account API response exceeded its configured limit")
