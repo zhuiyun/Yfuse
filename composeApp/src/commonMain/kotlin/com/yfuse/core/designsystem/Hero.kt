@@ -1,14 +1,12 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -72,16 +70,17 @@ val HeroTextShadow: Shadow =
 
 private val HeroDockFill = HeroInk.copy(alpha = 0.58f)
 private val HeroDockBorder = Color.White.copy(alpha = 0.22f)
-private val HeroPlayFill = Color.White.copy(alpha = 0.92f)
-private val HeroPlayInk = Color(0xFF111824)
-private val HeroToolSelectedFill = Color.White.copy(alpha = 0.12f)
+private val HeroPlayFill = HeroInk.copy(alpha = 0.68f)
+private val HeroPlayBorder = Color.White.copy(alpha = 0.30f)
+private val HeroPlayInk = Color.White.copy(alpha = 0.94f)
+private val HeroToolSelectedFill = Color.White.copy(alpha = 0.20f)
 
 /**
- * Unified action dock shared by the 首页 and 媒体库 reels.
+ * Artwork-safe action row shared by the 首页 and 媒体库 reels.
  *
- * One artwork-safe glass surface keeps the three related actions together. Play owns the
- * light key and a small brand-colour icon well; favorite and details stay quiet until used.
- * The dock follows the selected 毛玻璃/液态玻璃 material and its reduced-transparency fallback.
+ * Play uses a wider dark-glass pill; secondary tools use matching glass circles. Keeping each
+ * control to one material layer avoids both a white block over the artwork and the previous
+ * toolbar-inside-toolbar look.
  */
 @Composable
 fun HeroActionDock(
@@ -94,45 +93,37 @@ fun HeroActionDock(
     detailsActionLabel: String = "查看详情",
     favoriteActionLabel: String = if (favorite == true) "取消收藏" else "加入收藏",
 ) {
-    val playWell = LocalAccentColors.current.accent.copy(alpha = 0.96f)
     Row(
-        modifier
-            .height(52.dp)
-            .shadow(GlassLift.control, AppShapes.control)
-            .liquidGlass(
-                shape = AppShapes.control,
-                fill = HeroDockFill,
-                border = HeroDockBorder,
-                over = HeroInk,
-                sheen = 0.72f,
-            ).padding(4.dp),
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
             Modifier
-                .height(44.dp)
-                .pressable(onClickLabel = playActionLabel, onClick = onPlay)
-                .background(HeroPlayFill, AppShapes.thumb)
-                .padding(start = 7.dp, end = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
+                .height(46.dp)
+                .pressable(
+                    focusShape = AppShapes.pill,
+                    onClickLabel = playActionLabel,
+                    onClick = onPlay,
+                ).shadow(GlassLift.control, AppShapes.pill)
+                .liquidGlass(
+                    shape = AppShapes.pill,
+                    fill = HeroPlayFill,
+                    border = HeroPlayBorder,
+                    over = HeroInk,
+                    sheen = 0.68f,
+                ).padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier.size(30.dp).background(playWell, AppShapes.thumb),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    AppIcons.Play,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
+            Icon(
+                AppIcons.Play,
+                contentDescription = null,
+                tint = HeroPlayInk,
+                modifier = Modifier.size(17.dp),
+            )
             Text("播放", style = AppTypography.body.strong, color = HeroPlayInk, maxLines = 1)
         }
-        Spacer(Modifier.width(4.dp))
-        Box(Modifier.width(Dimens.hairline).height(24.dp).background(Color.White.copy(alpha = 0.16f)))
-        Spacer(Modifier.width(4.dp))
         HeroDockTool(
             icon = if (favorite == true) AppIcons.HeartFilled else AppIcons.Heart,
             description = favoriteActionLabel,
@@ -154,12 +145,14 @@ private fun HeroDockTool(
     onClick: () -> Unit,
     active: Boolean? = null,
 ) {
+    val shape = CircleShape
     Box(
         Modifier
-            .size(44.dp)
+            .size(46.dp)
             .pressable(
                 haptic = HapticSignal.Confirm.takeIf { active != null },
                 role = if (active == null) Role.Button else Role.Checkbox,
+                focusShape = shape,
                 onClickLabel = description,
                 onClick = onClick,
             ).then(
@@ -168,9 +161,13 @@ private fun HeroDockTool(
                 } else {
                     Modifier.semantics { toggleableState = ToggleableState(active) }
                 },
-            ).background(
-                color = if (active == true) HeroToolSelectedFill else Color.Transparent,
-                shape = AppShapes.thumb,
+            ).shadow(GlassLift.control, shape)
+            .liquidGlass(
+                shape = shape,
+                fill = if (active == true) HeroToolSelectedFill else HeroDockFill,
+                border = HeroDockBorder,
+                over = HeroInk,
+                sheen = 0.58f,
             ),
         contentAlignment = Alignment.Center,
     ) {
