@@ -26,8 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 internal class YPlayerVideoEngineAdapter(
     val player: YPlayer,
 ) : VideoEngine {
-    override val state: StateFlow<PlaybackState> =
-        ReverseMappedStateFlow(player.state, YPlayerState::toLegacyPlaybackState)
+    override val state: StateFlow<PlaybackState> = player.asPlaybackStateFlow()
 
     override val playbackRequested: Boolean get() = player.playbackRequested
 
@@ -55,6 +54,17 @@ internal class YPlayerVideoEngineAdapter(
 /** Returns the product player without wrapping a Core2 player back through the Legacy contract. */
 internal fun VideoEngine.asYPlayer(): YPlayer =
     if (this is YPlayerVideoEngineAdapter) player else LegacyYPlayerAdapter(this)
+
+/**
+ * Product presentation bridge used while YPlayerState intentionally omits Legacy-only extensions.
+ * Legacy keeps its full state object; native Core2 state is translated once at the UI boundary.
+ */
+internal fun YPlayer.asPlaybackStateFlow(): StateFlow<PlaybackState> =
+    if (this is LegacyYPlayerAdapter) {
+        presentationState
+    } else {
+        ReverseMappedStateFlow(state, YPlayerState::toLegacyPlaybackState)
+    }
 
 private class ReverseMappedStateFlow<Source, Target>(
     private val source: StateFlow<Source>,

@@ -28,6 +28,9 @@ import kotlinx.coroutines.flow.StateFlow
 internal class LegacyYPlayerAdapter(
     private val engine: VideoEngine,
 ) : YPlayer {
+    /** Full product presentation state retained until YPlayerState covers backend extensions. */
+    internal val presentationState: StateFlow<PlaybackState> get() = engine.state
+
     override val state: StateFlow<YPlayerState> =
         MappedStateFlow(engine.state) { state ->
             state.toYPlayerState(engine.playbackRequested)

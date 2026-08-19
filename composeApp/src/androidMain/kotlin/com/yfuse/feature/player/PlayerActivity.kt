@@ -137,7 +137,6 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private var activePlayer: YPlayer? = null
-    private var activeEngine: VideoEngine? = null
     private var activeQueueAppender: ((List<PlayerMediaItem>) -> Boolean)? = null
     private var playbackGate: WatchGatedPlayback? = null
     private var activeState = PlaybackState()
@@ -460,17 +459,15 @@ class PlayerActivity : ComponentActivity() {
                     accountTokens = accountTokens,
                     watchTogetherPreferences = watchTogetherPreferences,
                     playbackGate = playbackController,
-                    onPlayerAttached = { player, engine, appendItems ->
+                    onPlayerAttached = { player, appendItems ->
                         activePlayer = player
-                        activeEngine = engine
                         activeQueueAppender = appendItems
                     },
-                    onPlayerDetached = { player, engine ->
+                    onPlayerDetached = { player ->
                         if (activePlayer === player) {
                             activePlayer = null
                             activeQueueAppender = null
                         }
-                        if (activeEngine === engine) activeEngine = null
                     },
                     onPlaybackState = { state, item ->
                         activeState = state
@@ -668,7 +665,6 @@ class PlayerActivity : ComponentActivity() {
         activePlayer?.release()
         activePlayer = null
         activeQueueAppender = null
-        activeEngine = null
         abandonAudioFocus()
         ActivePlayback.clear()
         stopPlaybackKeepAliveService()
@@ -692,7 +688,6 @@ class PlayerActivity : ComponentActivity() {
         activePlayer?.release()
         activePlayer = null
         activeQueueAppender = null
-        activeEngine = null
         abandonAudioFocus()
         ActivePlayback.clear()
         stopPlaybackKeepAliveService()
@@ -929,9 +924,7 @@ class PlayerActivity : ComponentActivity() {
                 val appended = current.appendedBy(refreshed)
                 val absorbedByPlayer =
                     appended != null && activeQueueAppender?.invoke(appended) == true
-                val absorbed =
-                    appended != null &&
-                        (absorbedByPlayer || activeEngine?.appendItems(appended) == true)
+                val absorbed = appended != null && absorbedByPlayer
                 val playbackSourcesChanged =
                     !absorbed && !current.hasSamePlaybackSourcesAs(refreshed)
                 if (playbackSourcesChanged) {

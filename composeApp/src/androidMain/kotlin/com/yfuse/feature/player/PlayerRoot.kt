@@ -74,6 +74,7 @@ import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.android.canUseCore2Trial
 import com.yfuse.core2.android.toCore2MediaItems
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
+import com.yfuse.core2.legacy.asPlaybackStateFlow
 import com.yfuse.core2.legacy.asYPlayer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -122,8 +123,8 @@ internal fun PlayerRoot(
     accountTokens: AccountAccessTokenSource,
     watchTogetherPreferences: WatchTogetherPreferences,
     playbackGate: WatchGatedPlayback,
-    onPlayerAttached: (YPlayer, VideoEngine, (List<PlayerMediaItem>) -> Boolean) -> Unit,
-    onPlayerDetached: (YPlayer, VideoEngine) -> Unit,
+    onPlayerAttached: (YPlayer, (List<PlayerMediaItem>) -> Boolean) -> Unit,
+    onPlayerDetached: (YPlayer) -> Unit,
     onPlaybackState: (PlaybackState, PlayerMediaItem?) -> Unit,
     onVideoBounds: (Rect) -> Unit,
     onBack: () -> Unit,
@@ -355,6 +356,7 @@ internal fun PlayerRoot(
             )
         }
     val player = remember(engine) { engine.asYPlayer() }
+    val presentationState = remember(player) { player.asPlaybackStateFlow() }
     val latestQueueAppender =
         rememberUpdatedState<(List<PlayerMediaItem>) -> Boolean> { appended ->
             if (appended.isEmpty()) {
@@ -364,10 +366,12 @@ internal fun PlayerRoot(
                     appended.map { item ->
                         preflightItem(item.withPlaybackQuality(selectedQuality))
                     }
-                prepared.canUseCore2Trial(startIndex = 0) &&
-                    player.appendItems(
-                        prepared.toCore2MediaItems(customUserAgent, selectedQuality),
-                    )
+                val appendedToPlayer =
+                    prepared.canUseCore2Trial(startIndex = 0) &&
+                        player.appendItems(
+                            prepared.toCore2MediaItems(customUserAgent, selectedQuality),
+                        )
+                appendedToPlayer || engine.appendItems(prepared)
             }
         }
 
@@ -382,9 +386,9 @@ internal fun PlayerRoot(
                     "implementation" to engine::class.java.name,
                 ),
         )
-        onPlayerAttached(player, engine) { appended -> latestQueueAppender.value(appended) }
+        onPlayerAttached(player) { appended -> latestQueueAppender.value(appended) }
         onDispose {
-            onPlayerDetached(player, engine)
+            onPlayerDetached(player)
             engine.release()
             AppLog.info(
                 category = "player",
@@ -399,7 +403,7 @@ internal fun PlayerRoot(
         }
     }
 
-    val localState by engine.state.collectAsState()
+    val localState by presentationState.collectAsState()
     LaunchedEffect(engine, localState.error, localState.fallbacksExhausted) {
         if (
             engine !is YPlayerVideoEngineAdapter ||

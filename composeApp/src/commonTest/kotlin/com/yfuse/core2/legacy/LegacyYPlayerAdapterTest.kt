@@ -8,6 +8,7 @@ import com.yfuse.feature.player.VideoEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class LegacyYPlayerAdapterTest {
@@ -37,6 +38,7 @@ class LegacyYPlayerAdapterTest {
         assertEquals(12_345L, player.state.value.positionMs)
         assertEquals(YPlaybackRoute.Legacy, player.state.value.diagnostics.route)
         assertEquals("audio-1", player.state.value.audioTracks.single().id)
+        assertSame(engine.mutableState, player.asPlaybackStateFlow())
     }
 
     @Test

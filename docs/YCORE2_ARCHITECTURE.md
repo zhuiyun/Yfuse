@@ -123,7 +123,8 @@ Planned handling:
 - [x] add first MediaCodec → Surface primitive;
 - [x] add route and compatibility tests;
 - [x] bind Activity, MediaSession, audio-focus and watch-together controls to `YPlayer`;
-- [ ] migrate PlayerRoot presentation and backend-specific queue mutation off `VideoEngine`.
+- [x] bind PlayerRoot presentation and live queue-extension ownership to `YPlayer`;
+- [ ] replace remaining backend-specific quality, subtitle, disc and output extensions.
 
 ### Phase 1 — Native Direct baseline
 
@@ -230,9 +231,11 @@ Activity lifecycle, MediaSession/notification actions, audio focus, runtime moni
 watch-together controls now bind directly to `YPlayer`. A native Core2 player is unwrapped instead
 of being routed back through the Legacy adapter. PlayerRoot handovers, network recovery, cast
 handoffs, primary track restoration, and ordinary playback controls also call `YPlayer` directly.
-The remaining migration boundary is still material: PlayerRoot presentation state, backend-specific
-quality/transcode/output tuning, secondary subtitles, disc navigation, and queue hot append still
-use `VideoEngine` on Legacy backends. Core2 also does not yet claim the disc, GPU-enhanced, or
+PlayerRoot now reads presentation through the active `YPlayer` binding: Legacy preserves its full
+state while native Core2 is translated at that single compatibility boundary. Live queue extension
+is also owned by the binding, with Legacy engines used only as its fallback implementation. The
+remaining migration boundary is backend-specific quality/transcode/output tuning, secondary
+subtitles, and disc navigation. Core2 also does not yet claim the disc, GPU-enhanced, or
 software-fallback tiers.
 Physical-device startup, seek, surface recreation, HDR, audio-route, and background/foreground
 regression gates must pass before any eligible cohort can default to Core2.
