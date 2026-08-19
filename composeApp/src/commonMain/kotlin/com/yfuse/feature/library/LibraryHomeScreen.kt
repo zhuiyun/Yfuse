@@ -52,8 +52,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,17 +64,15 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.Brand
-import com.yfuse.core.designsystem.BurstIcon
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroCaptionClearance
 import com.yfuse.core.designsystem.HeroPageIndicator
-import com.yfuse.core.designsystem.HeroPlayButton
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -92,7 +88,6 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.heroGlassAction
 import com.yfuse.core.designsystem.heroReelScrim
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
@@ -768,27 +763,14 @@ private fun HeroCarousel(
                 )
             }
             Spacer(Modifier.height(14.dp))
-            // 主播放操作复用全局液态玻璃控件，收藏和详情保持轻量圆形玻璃按钮。
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                HeroPlayButton(
-                    actionLabel = libraryHeroPresentation.playActionLabel,
-                    onClick = onPlay,
-                )
-                HeroCircleAction(
-                    active = item.isFavorite,
-                    icon = if (item.isFavorite) AppIcons.HeartFilled else AppIcons.Heart,
-                    description = if (item.isFavorite) "取消收藏" else "加入收藏",
-                    onClick = onToggleFavorite,
-                )
-                HeroCircleAction(
-                    icon = AppIcons.Info,
-                    description = libraryHeroPresentation.detailActionLabel,
-                    onClick = openDetail,
-                )
-            }
+            HeroActionDock(
+                favorite = item.isFavorite,
+                playActionLabel = libraryHeroPresentation.playActionLabel,
+                detailsActionLabel = libraryHeroPresentation.detailActionLabel,
+                onPlay = onPlay,
+                onFavorite = onToggleFavorite,
+                onDetails = openDetail,
+            )
         }
     }
 }
@@ -1282,44 +1264,4 @@ internal fun PosterCard(
         sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
         modifier = modifier.fillMaxWidth(),
     )
-}
-
-@Composable
-private fun HeroCircleAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    description: String,
-    onClick: () -> Unit,
-    /** Non-null for a toggle, so the glyph can answer being switched on. */
-    active: Boolean? = null,
-) {
-    Box(
-        Modifier
-            .pressable(
-                haptic = if (active != null) HapticSignal.Confirm else null,
-                role = if (active == null) Role.Button else Role.Checkbox,
-                onClickLabel = description,
-                onClick = onClick,
-            ).then(
-                if (active == null) {
-                    Modifier
-                } else {
-                    Modifier.semantics { toggleableState = ToggleableState(active) }
-                },
-            ).touchTarget()
-            .size(48.dp)
-            .heroGlassAction(),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (active == null) {
-            Icon(icon, description, tint = Color.White, modifier = Modifier.size(14.dp))
-        } else {
-            BurstIcon(
-                icon = icon,
-                active = active,
-                contentDescription = description,
-                tint = Color.White,
-                burstColor = Color.White,
-            )
-        }
-    }
 }

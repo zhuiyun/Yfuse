@@ -44,7 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,9 +60,9 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HeroActionDock
 import com.yfuse.core.designsystem.HeroCaptionClearance
 import com.yfuse.core.designsystem.HeroPageIndicator
-import com.yfuse.core.designsystem.HeroPlayButton
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -80,7 +79,6 @@ import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.heroGlassAction
 import com.yfuse.core.designsystem.heroReelScrim
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
@@ -717,32 +715,11 @@ private fun HeroCaption(
             )
         }
         Spacer(Modifier.height(14.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            HeroPlayButton(onClick = onPlay)
-            HeroCircleButton(AppIcons.Info, "查看详情", onDetails)
-            HeroCircleButton(AppIcons.Add, "加入收藏", onFavorite)
-        }
-    }
-}
-
-/** 次级玻璃圆钮 beside the hero's main CTA. */
-@Composable
-private fun HeroCircleButton(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit = {},
-) {
-    Box(
-        Modifier
-            .pressable(onClick = onClick)
-            .size(48.dp)
-            .heroGlassAction(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, label, tint = Color.White, modifier = Modifier.size(15.dp))
+        HeroActionDock(
+            onPlay = onPlay,
+            onFavorite = onFavorite,
+            onDetails = onDetails,
+        )
     }
 }
 

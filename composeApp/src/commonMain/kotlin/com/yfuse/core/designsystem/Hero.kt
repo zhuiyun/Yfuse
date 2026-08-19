@@ -1,12 +1,15 @@
 package com.yfuse.core.designsystem
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +33,10 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -63,64 +70,124 @@ val HeroTextShadow: Shadow =
         blurRadius = 12f,
     )
 
-private val HeroPlayFill = Color.White.copy(alpha = 0.82f)
-private val HeroPlayBorder = Color.White.copy(alpha = 0.62f)
-private val HeroPlayInk = Color(0xFF101722)
-private val HeroSecondaryFill = HeroInk.copy(alpha = 0.44f)
-private val HeroSecondaryBorder = Color.White.copy(alpha = 0.24f)
+private val HeroDockFill = HeroInk.copy(alpha = 0.58f)
+private val HeroDockBorder = Color.White.copy(alpha = 0.22f)
+private val HeroPlayFill = Color.White.copy(alpha = 0.92f)
+private val HeroPlayInk = Color(0xFF111824)
+private val HeroToolSelectedFill = Color.White.copy(alpha = 0.12f)
 
 /**
- * Primary action shared by the 首页 and 媒体库 reels.
+ * Unified action dock shared by the 首页 and 媒体库 reels.
  *
- * The old copies were opaque white pills painted outside the glass system, so changing
- * 毛玻璃/液态玻璃 left the largest hero control untouched. This surface deliberately goes
- * through [liquidGlass]: liquid gets a shallow body and highlight, frosted gets diffused
- * tones, and 减弱透明度 receives the opaque accessible counterpart.
+ * One artwork-safe glass surface keeps the three related actions together. Play owns the
+ * light key and a small brand-colour icon well; favorite and details stay quiet until used.
+ * The dock follows the selected 毛玻璃/液态玻璃 material and its reduced-transparency fallback.
  */
 @Composable
-fun HeroPlayButton(
-    onClick: () -> Unit,
+fun HeroActionDock(
+    onPlay: () -> Unit,
+    onFavorite: () -> Unit,
+    onDetails: () -> Unit,
     modifier: Modifier = Modifier,
-    label: String = "播放",
-    actionLabel: String = "播放影片",
+    favorite: Boolean? = null,
+    playActionLabel: String = "播放影片",
+    detailsActionLabel: String = "查看详情",
+    favoriteActionLabel: String = if (favorite == true) "取消收藏" else "加入收藏",
 ) {
+    val playWell = LocalAccentColors.current.accent.copy(alpha = 0.96f)
     Row(
         modifier
-            .height(48.dp)
-            .pressable(onClickLabel = actionLabel, onClick = onClick)
-            .shadow(GlassLift.control, GlassShapes.chip)
+            .height(52.dp)
+            .shadow(GlassLift.control, AppShapes.control)
             .liquidGlass(
-                shape = GlassShapes.chip,
-                fill = HeroPlayFill,
-                border = HeroPlayBorder,
+                shape = AppShapes.control,
+                fill = HeroDockFill,
+                border = HeroDockBorder,
                 over = HeroInk,
-                sheen = 0.76f,
-            ).padding(horizontal = 18.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                sheen = 0.72f,
+            ).padding(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            AppIcons.Play,
-            contentDescription = null,
-            tint = HeroPlayInk,
-            modifier = Modifier.size(18.dp),
+        Row(
+            Modifier
+                .height(44.dp)
+                .pressable(onClickLabel = playActionLabel, onClick = onPlay)
+                .background(HeroPlayFill, AppShapes.thumb)
+                .padding(start = 7.dp, end = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(30.dp).background(playWell, AppShapes.thumb),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    AppIcons.Play,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            Text("播放", style = AppTypography.body.strong, color = HeroPlayInk, maxLines = 1)
+        }
+        Spacer(Modifier.width(4.dp))
+        Box(Modifier.width(Dimens.hairline).height(24.dp).background(Color.White.copy(alpha = 0.16f)))
+        Spacer(Modifier.width(4.dp))
+        HeroDockTool(
+            icon = if (favorite == true) AppIcons.HeartFilled else AppIcons.Heart,
+            description = favoriteActionLabel,
+            onClick = onFavorite,
+            active = favorite,
         )
-        Text(label, style = AppTypography.body.strong, color = HeroPlayInk)
+        HeroDockTool(
+            icon = AppIcons.Info,
+            description = detailsActionLabel,
+            onClick = onDetails,
+        )
     }
 }
 
-/** Artwork-safe secondary control material for hero action rows. */
 @Composable
-fun Modifier.heroGlassAction(): Modifier =
-    this
-        .shadow(GlassLift.control, CircleShape)
-        .liquidGlass(
-            shape = CircleShape,
-            fill = HeroSecondaryFill,
-            border = HeroSecondaryBorder,
-            over = HeroInk,
-            sheen = 0.58f,
-        )
+private fun HeroDockTool(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    active: Boolean? = null,
+) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .pressable(
+                haptic = HapticSignal.Confirm.takeIf { active != null },
+                role = if (active == null) Role.Button else Role.Checkbox,
+                onClickLabel = description,
+                onClick = onClick,
+            ).then(
+                if (active == null) {
+                    Modifier
+                } else {
+                    Modifier.semantics { toggleableState = ToggleableState(active) }
+                },
+            ).background(
+                color = if (active == true) HeroToolSelectedFill else Color.Transparent,
+                shape = AppShapes.thumb,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (active == null) {
+            Icon(icon, description, tint = Color.White.copy(alpha = 0.88f), modifier = Modifier.size(18.dp))
+        } else {
+            BurstIcon(
+                icon = icon,
+                active = active,
+                contentDescription = description,
+                tint = Color.White.copy(alpha = 0.88f),
+                burstColor = Color.White,
+                iconSize = 18.dp,
+            )
+        }
+    }
+}
 
 /**
  * Scrim for a hero whose lower edge dissolves into the page — dark at the top, where the
