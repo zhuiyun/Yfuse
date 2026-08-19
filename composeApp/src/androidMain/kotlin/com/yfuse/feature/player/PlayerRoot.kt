@@ -58,7 +58,6 @@ import com.yfuse.core.playback.PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS
 import com.yfuse.core.playback.PlaybackAdaptiveNetworkController
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
-import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackNetworkRecoveryController
@@ -356,6 +355,7 @@ internal fun PlayerRoot(
             )
         }
     val player = remember(engine) { engine.asYPlayer() }
+    val backendExtensions = remember(engine) { PlayerBackendExtensions(engine) }
     val presentationState = remember(player) { player.asPlaybackStateFlow() }
     val latestQueueAppender =
         rememberUpdatedState<(List<PlayerMediaItem>) -> Boolean> { appended ->
@@ -371,7 +371,7 @@ internal fun PlayerRoot(
                         player.appendItems(
                             prepared.toCore2MediaItems(customUserAgent, selectedQuality),
                         )
-                appendedToPlayer || engine.appendItems(prepared)
+                appendedToPlayer || backendExtensions.appendItems(prepared)
             }
         }
 
@@ -666,7 +666,7 @@ internal fun PlayerRoot(
                 !activeProbe.localSource &&
                 activePlan.requiresServerTranscode
         if (remoteDiscNeedsServer && !localState.transcoding) {
-            engine.switchToTranscode(activePlan.reason)
+            backendExtensions.switchToTranscode(activePlan.reason)
             return@LaunchedEffect
         }
 
@@ -674,7 +674,7 @@ internal fun PlayerRoot(
         // need the probe to have finished.
         if (activeProbeResult.status != PlaybackProbeStatus.Complete) return@LaunchedEffect
         if (activePlan.requiresServerTranscode && !localState.transcoding) {
-            engine.switchToTranscode(activePlan.reason)
+            backendExtensions.switchToTranscode(activePlan.reason)
             return@LaunchedEffect
         }
         val baselineDiscKind =
@@ -737,8 +737,10 @@ internal fun PlayerRoot(
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
-    LaunchedEffect(engine, sleepTimerOption) {
-        engine.setPauseAtEndOfCurrentItem(sleepTimerOption == SleepTimerOption.EndOfEpisode)
+    LaunchedEffect(backendExtensions, sleepTimerOption) {
+        backendExtensions.setPauseAtEndOfCurrentItem(
+            sleepTimerOption == SleepTimerOption.EndOfEpisode,
+        )
     }
     LaunchedEffect(sleepTimerOption, sleepTimerRevision) {
         val durationMs = sleepTimerOption.durationMs ?: return@LaunchedEffect
@@ -824,7 +826,7 @@ internal fun PlayerRoot(
             } else {
                 "当前设备缺少 Dolby Vision 显示或硬件解码能力"
             }
-        val switched = engine.switchToTranscode(reason)
+        val switched = backendExtensions.switchToTranscode(reason)
         AppLog.warning(
             category = "player",
             event = if (switched) "dolby_requires_transcode" else "dolby_undecodable",
@@ -1492,7 +1494,7 @@ internal fun PlayerRoot(
         val decoderChanged = selectionPlan.decoderMode != effectiveDecoderMode
         effectiveDecoderMode = selectionPlan.decoderMode
         if (selectionPlan.requiresServerTranscode && !state.transcoding) {
-            engine.switchToTranscode(selectionPlan.reason)
+            backendExtensions.switchToTranscode(selectionPlan.reason)
         }
         if (selectionPlan.primaryEngine != kind) {
             switchEngine(selectionPlan.primaryEngine)
@@ -1530,7 +1532,7 @@ internal fun PlayerRoot(
             enginesTried = tried + nextEngine
             switchEngine(nextEngine)
         } else if (activeProbe.hasServerTranscode && !state.transcoding) {
-            engine.switchToTranscode(fault.reason)
+            backendExtensions.switchToTranscode(fault.reason)
         }
     }
 
@@ -1543,7 +1545,7 @@ internal fun PlayerRoot(
             onQualityChanged(target, currentItem?.serverId)
         }
         if (target == selectedQuality) return
-        if (engine.setQualityCeiling(target)) {
+        if (backendExtensions.setQualityCeiling(target)) {
             AppLog.info(
                 category = "player.quality",
                 event = "adaptive_track_ceiling_changed",
@@ -1666,7 +1668,7 @@ internal fun PlayerRoot(
 
     PlayerTrackEffects(
         player = player,
-        engine = engine,
+        backendExtensions = backendExtensions,
         engineKind = kind,
         state = state,
         currentItemId = currentItem?.id,
@@ -2079,7 +2081,7 @@ internal fun PlayerRoot(
                             subtitleRestore = it.toRestorePreference()
                             restoreSubtitlesOff = false
                             if (secondarySubtitleTrackId == id) {
-                                engine.selectSecondarySubtitleTrack(EngineTrack.OFF)
+                                backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
                                 secondarySubtitleTrackId = null
                                 secondarySubtitleRestore = null
                             }
@@ -2100,9 +2102,9 @@ internal fun PlayerRoot(
                 subtitleControls =
                     subtitleControls.copy(
                         secondaryTrackId = secondarySubtitleTrackId,
-                        secondarySupported = engine.supportsSecondarySubtitleTrack,
+                        secondarySupported = backendExtensions.supportsSecondarySubtitleTrack,
                         secondaryUnavailableReason =
-                            if (engine.supportsSecondarySubtitleTrack) {
+                            if (backendExtensions.supportsSecondarySubtitleTrack) {
                                 null
                             } else {
                                 "ExoPlayer 当前仅支持单字幕；切换至 MPV 或 MDK 可启用副字幕。"
@@ -2174,7 +2176,7 @@ internal fun PlayerRoot(
                         },
                         onSecondaryTrack = secondary@{ id ->
                             if (id == EngineTrack.OFF) {
-                                engine.selectSecondarySubtitleTrack(EngineTrack.OFF)
+                                backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
                                 secondarySubtitleTrackId = null
                                 secondarySubtitleRestore = null
                                 rememberSeriesPlayback { remembered ->
@@ -2191,7 +2193,7 @@ internal fun PlayerRoot(
                                     .show()
                                 return@secondary
                             }
-                            if (!engine.selectSecondarySubtitleTrack(id)) {
+                            if (!backendExtensions.selectSecondarySubtitleTrack(id)) {
                                 Toast
                                     .makeText(context, "当前播放器内核不支持副字幕", Toast.LENGTH_SHORT)
                                     .show()
@@ -2229,8 +2231,7 @@ internal fun PlayerRoot(
                     ),
                 onToggleFill = {
                     scaleMode = scaleMode.next()
-                    (engine as? MpvVideoEngine)?.setScaleMode(scaleMode)
-                    (engine as? MdkVideoEngine)?.setFill(scaleMode != VideoScaleMode.Fit)
+                    backendExtensions.setVideoScaleMode(scaleMode)
                     rememberSeriesPlayback { remembered ->
                         remembered.copy(aspectMode = scaleMode.name)
                     }
@@ -2272,7 +2273,7 @@ internal fun PlayerRoot(
                 transcodeActive = state.transcoding,
                 onTranscode = {
                     if (!state.transcoding) {
-                        engine.switchToTranscode("用户手动选择服务器转码")
+                        backendExtensions.switchToTranscode("用户手动选择服务器转码")
                     }
                 },
                 onResetAdaptiveLearning = {
@@ -2285,17 +2286,21 @@ internal fun PlayerRoot(
                 onNextDiscTitle = {
                     val disc = state.discNavigation
                     if (disc.titleCount > 1) {
-                        engine.selectDiscTitle((disc.selectedTitleIndex + 1) % disc.titleCount)
+                        backendExtensions.selectDiscTitle(
+                            (disc.selectedTitleIndex + 1) % disc.titleCount,
+                        )
                     }
                 },
                 onNextDiscChapter = {
                     val disc = state.discNavigation
                     if (disc.chapterCount > 1) {
-                        engine.selectDiscChapter((disc.selectedChapterIndex + 1) % disc.chapterCount)
+                        backendExtensions.selectDiscChapter(
+                            (disc.selectedChapterIndex + 1) % disc.chapterCount,
+                        )
                     }
                 },
                 onShowDiscMenu = {
-                    engine.sendDiscMenuCommand(PlaybackDiscMenuCommand.ShowMenu)
+                    backendExtensions.showDiscMenu()
                 },
                 castDevices = castState.devices.map { it.id to it.name },
                 castingDeviceId = castState.activeDeviceId,

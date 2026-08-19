@@ -10,7 +10,7 @@ import com.yfuse.core2.api.YTrackType
 @Composable
 internal fun PlayerTrackEffects(
     player: YPlayer,
-    engine: VideoEngine,
+    backendExtensions: PlayerBackendExtensions,
     engineKind: PlayerEngine,
     state: PlaybackState,
     currentItemId: String?,
@@ -59,67 +59,66 @@ internal fun PlayerTrackEffects(
         if (!target.selected) player.selectTrack(YTrackType.Subtitle, target.id)
     }
     LaunchedEffect(
-        engine,
+        backendExtensions,
         currentItemId,
         state.subtitleTracks,
         secondarySubtitleRestore,
-        engine.supportsSecondarySubtitleTrack,
+        backendExtensions.supportsSecondarySubtitleTrack,
     ) {
         if (currentItemId != handoverItemId || state.subtitleTracks.isEmpty()) {
             return@LaunchedEffect
         }
-        if (!engine.supportsSecondarySubtitleTrack) {
+        if (!backendExtensions.supportsSecondarySubtitleTrack) {
             onSecondarySubtitleTrackChanged(null)
             return@LaunchedEffect
         }
         val target = secondarySubtitleRestore?.let(state.subtitleTracks::bestRestoreMatch)
         if (target == null || target.selected) {
-            engine.selectSecondarySubtitleTrack(EngineTrack.OFF)
+            backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
             onSecondarySubtitleTrackChanged(null)
             return@LaunchedEffect
         }
-        if (engine.selectSecondarySubtitleTrack(target.id)) {
+        if (backendExtensions.selectSecondarySubtitleTrack(target.id)) {
             onSecondarySubtitleTrackChanged(target.id)
         }
     }
 
-    LaunchedEffect(engine, engineKind, subtitleControls.offsetMs) {
-        val applied = engine.setSubtitleOffsetMs(subtitleControls.offsetMs)
+    LaunchedEffect(backendExtensions, engineKind, subtitleControls.offsetMs) {
+        val applied = backendExtensions.setSubtitleOffsetMs(subtitleControls.offsetMs)
         if (!applied && subtitleControls.offsetMs != 0L) {
             requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
         }
     }
-    LaunchedEffect(engine, engineKind, audioControls.delayMs) {
-        val applied = engine.setAudioDelayMs(audioControls.delayMs)
+    LaunchedEffect(backendExtensions, engineKind, audioControls.delayMs) {
+        val applied = backendExtensions.setAudioDelayMs(audioControls.delayMs)
         if (!applied && audioControls.delayMs != 0L) {
             requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
         }
     }
-    LaunchedEffect(engine, engineKind, subtitleControls.scale) {
+    LaunchedEffect(backendExtensions, engineKind, subtitleControls.scale) {
         if (engineKind != PlayerEngine.Exo) {
-            val applied = engine.setSubtitleScale(subtitleControls.scale)
+            val applied = backendExtensions.setSubtitleScale(subtitleControls.scale)
             if (!applied && subtitleControls.scale != 1f) {
                 requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
             }
         }
     }
-    LaunchedEffect(engine, engineKind, subtitleControls.brightness) {
-        val applied = engine.setSubtitleBrightness(subtitleControls.brightness)
+    LaunchedEffect(backendExtensions, engineKind, subtitleControls.brightness) {
+        val applied = backendExtensions.setSubtitleBrightness(subtitleControls.brightness)
         if (!applied && subtitleControls.brightness != 1f) {
             requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
         }
     }
-    LaunchedEffect(engine, engineKind, subtitleControls.position) {
+    LaunchedEffect(backendExtensions, engineKind, subtitleControls.position) {
         if (engineKind != PlayerEngine.Exo) {
-            val applied = engine.setSubtitlePosition(subtitleControls.position)
+            val applied = backendExtensions.setSubtitlePosition(subtitleControls.position)
             if (!applied && subtitleControls.position != DEFAULT_SUBTITLE_POSITION) {
                 requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
             }
         }
     }
-    LaunchedEffect(engine, scaleMode) {
-        (engine as? MpvVideoEngine)?.setScaleMode(scaleMode)
-        (engine as? MdkVideoEngine)?.setFill(scaleMode != VideoScaleMode.Fit)
+    LaunchedEffect(backendExtensions, scaleMode) {
+        backendExtensions.setVideoScaleMode(scaleMode)
     }
     LaunchedEffect(player, state.subtitleTracks, pendingSubtitleLanguage) {
         val language = pendingSubtitleLanguage ?: return@LaunchedEffect

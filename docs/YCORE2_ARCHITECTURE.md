@@ -124,7 +124,8 @@ Planned handling:
 - [x] add route and compatibility tests;
 - [x] bind Activity, MediaSession, audio-focus and watch-together controls to `YPlayer`;
 - [x] bind PlayerRoot presentation and live queue-extension ownership to `YPlayer`;
-- [ ] replace remaining backend-specific quality, subtitle, disc and output extensions.
+- [x] isolate remaining backend-specific quality, subtitle, disc and output extensions behind one
+  session capability facade.
 
 ### Phase 1 — Native Direct baseline
 
@@ -233,9 +234,11 @@ of being routed back through the Legacy adapter. PlayerRoot handovers, network r
 handoffs, primary track restoration, and ordinary playback controls also call `YPlayer` directly.
 PlayerRoot now reads presentation through the active `YPlayer` binding: Legacy preserves its full
 state while native Core2 is translated at that single compatibility boundary. Live queue extension
-is also owned by the binding, with Legacy engines used only as its fallback implementation. The
-remaining migration boundary is backend-specific quality/transcode/output tuning, secondary
-subtitles, and disc navigation. Core2 also does not yet claim the disc, GPU-enhanced, or
-software-fallback tiers.
+is also owned by the binding, with Legacy engines used only as its fallback implementation.
+Backend-specific quality/transcode/output tuning, secondary subtitles, and disc navigation are now
+isolated behind `PlayerBackendExtensions`; unsupported Core2 operations continue to return an
+explicit unsupported result and preserve the existing rebuild/fallback policy. This completes the
+Phase 0 product-control migration without claiming those optional capabilities in the stable
+`YPlayer` API. Core2 still does not claim the disc, GPU-enhanced, or software-fallback tiers.
 Physical-device startup, seek, surface recreation, HDR, audio-route, and background/foreground
 regression gates must pass before any eligible cohort can default to Core2.
