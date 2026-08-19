@@ -1,6 +1,7 @@
 package com.yfuse.core2.legacy
 
 import com.yfuse.core.playback.PlaybackFailureKind
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
@@ -15,6 +16,7 @@ import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.VideoEngine
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 
 /**
  * Compatibility bridge that keeps the current Exo/mpv/MDK stack alive while the App moves to
@@ -58,6 +60,13 @@ internal class LegacyYPlayerAdapter(
 
     override fun selectItem(index: Int) = engine.selectItem(index)
 
+    override fun selectDiscTitle(index: Int): Boolean = engine.selectDiscTitle(index)
+
+    override fun selectDiscChapter(index: Int): Boolean = engine.selectDiscChapter(index)
+
+    override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
+        engine.sendDiscMenuCommand(command)
+
     override fun currentPositionMs(): Long = engine.currentPositionMs()
 
     override fun retry() = engine.retry()
@@ -65,6 +74,7 @@ internal class LegacyYPlayerAdapter(
     override fun release() = engine.release()
 }
 
+@OptIn(ExperimentalForInheritanceCoroutinesApi::class)
 private class MappedStateFlow<Source, Target>(
     private val source: StateFlow<Source>,
     private val transform: (Source) -> Target,
@@ -97,6 +107,7 @@ private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerSta
         itemCount = itemCount,
         audioTracks = audioTracks.map { it.toYTrack(YTrackType.Audio) },
         subtitleTracks = subtitleTracks.map { it.toYTrack(YTrackType.Subtitle) },
+        discNavigation = discNavigation,
         error = error,
         errorCategory = errorKind?.toYPlaybackFailureCategory(),
         diagnostics =

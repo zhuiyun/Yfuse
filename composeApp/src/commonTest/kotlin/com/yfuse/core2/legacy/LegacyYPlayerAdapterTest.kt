@@ -1,5 +1,8 @@
 package com.yfuse.core2.legacy
 
+import com.yfuse.core.playback.PlaybackDiscKind
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.feature.player.EngineTrack
@@ -22,6 +25,11 @@ class LegacyYPlayerAdapterTest {
                 buffering = false,
                 positionMs = 12_345L,
                 durationMs = 90_000L,
+                discNavigation =
+                    PlaybackDiscNavigationState(
+                        kind = PlaybackDiscKind.BluRay,
+                        titleCount = 2,
+                    ),
                 audioTracks =
                     listOf(
                         EngineTrack(
@@ -38,6 +46,7 @@ class LegacyYPlayerAdapterTest {
         assertEquals(12_345L, player.state.value.positionMs)
         assertEquals(YPlaybackRoute.Legacy, player.state.value.diagnostics.route)
         assertEquals("audio-1", player.state.value.audioTracks.single().id)
+        assertEquals(PlaybackDiscKind.BluRay, player.state.value.discNavigation.kind)
         assertSame(engine.mutableState, player.asPlaybackStateFlow())
     }
 
@@ -52,6 +61,9 @@ class LegacyYPlayerAdapterTest {
         player.selectTrack(YTrackType.Audio, "a2")
         player.selectTrack(YTrackType.Subtitle, "s2")
         player.selectItem(3)
+        assertTrue(player.selectDiscTitle(1))
+        assertTrue(player.selectDiscChapter(2))
+        assertTrue(player.sendDiscMenuCommand(PlaybackDiscMenuCommand.ShowMenu))
 
         assertTrue(engine.playCalled)
         assertEquals(42_000L, engine.seekPositionMs)
@@ -59,6 +71,9 @@ class LegacyYPlayerAdapterTest {
         assertEquals("a2", engine.audioTrack)
         assertEquals("s2", engine.subtitleTrack)
         assertEquals(3, engine.itemIndex)
+        assertEquals(1, engine.discTitle)
+        assertEquals(2, engine.discChapter)
+        assertEquals(PlaybackDiscMenuCommand.ShowMenu, engine.discCommand)
     }
 
     private class FakeVideoEngine : VideoEngine {
@@ -72,6 +87,9 @@ class LegacyYPlayerAdapterTest {
         var audioTrack: String? = null
         var subtitleTrack: String? = null
         var itemIndex = 0
+        var discTitle: Int? = null
+        var discChapter: Int? = null
+        var discCommand: PlaybackDiscMenuCommand? = null
 
         override fun play() {
             playCalled = true
@@ -99,6 +117,21 @@ class LegacyYPlayerAdapterTest {
 
         override fun selectItem(index: Int) {
             itemIndex = index
+        }
+
+        override fun selectDiscTitle(index: Int): Boolean {
+            discTitle = index
+            return true
+        }
+
+        override fun selectDiscChapter(index: Int): Boolean {
+            discChapter = index
+            return true
+        }
+
+        override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
+            discCommand = command
+            return true
         }
 
         override fun currentPositionMs(): Long = seekPositionMs

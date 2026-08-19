@@ -43,6 +43,7 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val request: YPlayerOpenRequest,
     private val routeEvaluator: AndroidCore2RouteEvaluator = AndroidCore2RouteEvaluator(context),
     private val fallbackRouteFactory: AndroidCore2FallbackRouteFactory? = null,
+    private val discRouteFactory: AndroidCore2DiscRouteFactory? = null,
 ) : YPlayer {
     private val queueLock = Any()
 
@@ -73,6 +74,9 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     @Volatile
     private var released = false
+
+    @Volatile
+    private var activeChild: YPlayer? = null
 
     override fun prepare() = send(Command.Prepare)
 
@@ -124,6 +128,16 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
         commands.trySend(Command.SelectItem(index))
     }
+
+    override fun selectDiscTitle(index: Int): Boolean =
+        !released && activeChild?.selectDiscTitle(index) == true
+
+    override fun selectDiscChapter(index: Int): Boolean =
+        !released && activeChild?.selectDiscChapter(index) == true
+
+    override fun sendDiscMenuCommand(
+        command: com.yfuse.core.playback.PlaybackDiscMenuCommand,
+    ): Boolean = !released && activeChild?.sendDiscMenuCommand(command) == true
 
     override fun appendItems(items: List<YMediaItem>): Boolean =
         synchronized(queueLock) {
@@ -179,6 +193,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             childCollector = null
             child?.release()
             child = null
+            activeChild = null
         }
 
         fun publishUnavailable(reason: String) {
@@ -207,13 +222,6 @@ internal class AndroidAdaptiveCore2YPlayer(
         fun createChild(positionMs: Long): YPlayer? {
             val item = queueItems[currentIndex]
             val tunnelAllowed = allowTunnel && kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
-            val decision = routeEvaluator.evaluate(item, preferTunnel = tunnelAllowed) ?: return null
-            val plan =
-                if (forceSoftwareFallback) {
-                    decision.plan.toSoftwareFallbackPlan("A previous local route failed at runtime")
-                } else {
-                    decision.plan
-                }
             val singleRequest =
                 YPlayerOpenRequest(
                     items = listOf(item),
@@ -222,6 +230,21 @@ internal class AndroidAdaptiveCore2YPlayer(
                     autoPlay = requestedPlay,
                     autoNext = false,
                 )
+            if (item.disc != null) {
+                return discRouteFactory?.create(
+                    item = item,
+                    request = singleRequest,
+                    startSpeed = speed,
+                    forceSoftwareDecode = forceSoftwareFallback,
+                )
+            }
+            val decision = routeEvaluator.evaluate(item, preferTunnel = tunnelAllowed) ?: return null
+            val plan =
+                if (forceSoftwareFallback) {
+                    decision.plan.toSoftwareFallbackPlan("A previous local route failed at runtime")
+                } else {
+                    decision.plan
+                }
             return when {
                 !forceSoftwareFallback && tunnelAllowed && decision.nativeTunnelExecutable ->
                     AndroidNativeTunnelYPlayer(context, singleRequest, routeEvaluator)
@@ -241,6 +264,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         fun attachChild(next: YPlayer) {
             stopChild()
             child = next
+            activeChild = next
             val childIndex = currentIndex
             next.setSpeed(speed)
             next.setVideoOutput(output)
@@ -420,12 +444,15 @@ internal class AndroidAdaptiveCore2YPlayer(
 internal class AndroidCore2PlayerFactory(
     private val context: Context,
 ) : YPlayerFactory {
-    override fun create(request: YPlayerOpenRequest): YPlayer =
-        AndroidAdaptiveCore2YPlayer(
+    override fun create(request: YPlayerOpenRequest): YPlayer {
+        val compatibilityFactory = AndroidMpvCore2FallbackFactory(context)
+        return AndroidAdaptiveCore2YPlayer(
             context = context,
             request = request,
-            fallbackRouteFactory = AndroidMpvCore2FallbackFactory(context),
+            fallbackRouteFactory = compatibilityFactory,
+            discRouteFactory = compatibilityFactory,
         )
+    }
 }
 
 private inline fun MutableStateFlow<YPlayerState>.updateState(

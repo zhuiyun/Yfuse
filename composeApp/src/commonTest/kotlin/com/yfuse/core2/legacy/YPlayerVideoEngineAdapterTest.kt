@@ -1,5 +1,8 @@
 package com.yfuse.core2.legacy
 
+import com.yfuse.core.playback.PlaybackDiscKind
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
@@ -33,6 +36,11 @@ class YPlayerVideoEngineAdapterTest {
                 phase = YPlaybackPhase.Failed,
                 positionMs = 5_000L,
                 durationMs = 10_000L,
+                discNavigation =
+                    PlaybackDiscNavigationState(
+                        kind = PlaybackDiscKind.BluRay,
+                        chapterCount = 8,
+                    ),
                 error = "failed",
                 errorCategory = YPlaybackFailureCategory.Decoder,
                 diagnostics =
@@ -54,6 +62,7 @@ class YPlayerVideoEngineAdapterTest {
         assertFalse(state.automaticFallbackBlocked)
         assertTrue(state.diagnostics.dolbyVisionOutput)
         assertEquals("c2.vendor.hevc.decoder", state.diagnostics.decoder)
+        assertEquals(8, state.discNavigation.chapterCount)
     }
 
     @Test
@@ -82,6 +91,9 @@ class YPlayerVideoEngineAdapterTest {
         engine.selectAudioTrack("audio:2")
         engine.selectSubtitleTrack("sub:3")
         engine.selectItem(4)
+        assertTrue(engine.selectDiscTitle(1))
+        assertTrue(engine.selectDiscChapter(3))
+        assertTrue(engine.sendDiscMenuCommand(PlaybackDiscMenuCommand.ShowMenu))
 
         assertTrue(player.playCalled)
         assertEquals(12_000L, player.seekMs)
@@ -89,6 +101,9 @@ class YPlayerVideoEngineAdapterTest {
         assertEquals(YTrackType.Audio to "audio:2", player.selectedTracks[0])
         assertEquals(YTrackType.Subtitle to "sub:3", player.selectedTracks[1])
         assertEquals(4, player.itemIndex)
+        assertEquals(1, player.discTitle)
+        assertEquals(3, player.discChapter)
+        assertEquals(PlaybackDiscMenuCommand.ShowMenu, player.discCommand)
     }
 
     private class FakeYPlayer : YPlayer {
@@ -99,6 +114,9 @@ class YPlayerVideoEngineAdapterTest {
         var recordedSpeed = 1f
         val selectedTracks = mutableListOf<Pair<YTrackType, String>>()
         var itemIndex = 0
+        var discTitle: Int? = null
+        var discChapter: Int? = null
+        var discCommand: PlaybackDiscMenuCommand? = null
 
         override fun setVideoOutput(output: YVideoOutput?): Boolean = true
 
@@ -124,6 +142,21 @@ class YPlayerVideoEngineAdapterTest {
 
         override fun selectItem(index: Int) {
             itemIndex = index
+        }
+
+        override fun selectDiscTitle(index: Int): Boolean {
+            discTitle = index
+            return true
+        }
+
+        override fun selectDiscChapter(index: Int): Boolean {
+            discChapter = index
+            return true
+        }
+
+        override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean {
+            discCommand = command
+            return true
         }
 
         override fun retry() = Unit

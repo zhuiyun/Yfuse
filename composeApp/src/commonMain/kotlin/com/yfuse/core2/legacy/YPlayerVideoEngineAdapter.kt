@@ -1,6 +1,7 @@
 package com.yfuse.core2.legacy
 
 import com.yfuse.core.playback.PlaybackFailureKind
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayer
@@ -14,6 +15,7 @@ import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.VideoEngine
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 
 /**
  * Temporary reverse bridge used while PlayerRoot presentation still speaks [VideoEngine].
@@ -44,6 +46,13 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun selectItem(index: Int) = player.selectItem(index)
 
+    override fun selectDiscTitle(index: Int): Boolean = player.selectDiscTitle(index)
+
+    override fun selectDiscChapter(index: Int): Boolean = player.selectDiscChapter(index)
+
+    override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
+        player.sendDiscMenuCommand(command)
+
     override fun currentPositionMs(): Long = player.currentPositionMs()
 
     override fun retry() = player.retry()
@@ -66,6 +75,7 @@ internal fun YPlayer.asPlaybackStateFlow(): StateFlow<PlaybackState> =
         ReverseMappedStateFlow(state, YPlayerState::toLegacyPlaybackState)
     }
 
+@OptIn(ExperimentalForInheritanceCoroutinesApi::class)
 private class ReverseMappedStateFlow<Source, Target>(
     private val source: StateFlow<Source>,
     private val transform: (Source) -> Target,
@@ -90,6 +100,7 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
         itemCount = itemCount,
         audioTracks = audioTracks.map(YTrack::toEngineTrack),
         subtitleTracks = subtitleTracks.map(YTrack::toEngineTrack),
+        discNavigation = discNavigation,
         error = error,
         errorKind = errorCategory?.toLegacyFailureKind(),
         ended = phase == YPlaybackPhase.Ended,

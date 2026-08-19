@@ -4,6 +4,7 @@ import android.content.Context
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core2.android.AndroidCore2FallbackRouteFactory
+import com.yfuse.core2.android.AndroidCore2DiscRouteFactory
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackRoute
@@ -13,8 +14,13 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.strategy.YPlaybackPlan
+import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.strategy.YDecodePath
+import com.yfuse.core2.strategy.YDemuxPath
+import com.yfuse.core2.strategy.YRenderPath
 import com.yfuse.feature.player.MpvVideoEngine
 import com.yfuse.feature.player.PlayerMediaItem
+import com.yfuse.feature.player.PlayerMediaVersion
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
@@ -30,7 +36,9 @@ import kotlinx.coroutines.flow.StateFlow
  */
 internal class AndroidMpvCore2FallbackFactory(
     context: Context,
-) : AndroidCore2FallbackRouteFactory {
+    private val sourceItems: Map<String, PlayerMediaItem> = emptyMap(),
+) : AndroidCore2FallbackRouteFactory,
+    AndroidCore2DiscRouteFactory {
     private val appContext = context.applicationContext
 
     override fun create(
@@ -48,6 +56,27 @@ internal class AndroidMpvCore2FallbackFactory(
         return AndroidMpvCore2FallbackPlayer(
             context = appContext,
             item = item,
+            sourceItem = null,
+            request = request,
+            plan = plan,
+            startSpeed = startSpeed,
+        )
+    }
+
+    override fun create(
+        item: YMediaItem,
+        request: YPlayerOpenRequest,
+        startSpeed: Float,
+        forceSoftwareDecode: Boolean,
+    ): YPlayer? {
+        val disc = item.disc ?: return null
+        val plan = core2DiscCompatibilityPlan(disc, forceSoftwareDecode)
+        return AndroidMpvCore2FallbackPlayer(
+            context = appContext,
+            item = item,
+            sourceItem =
+                sourceItems[item.id]?.forCore2DiscUri(item.uri)
+                    ?: item.toDiscPlayerMediaItem(),
             request = request,
             plan = plan,
             startSpeed = startSpeed,
@@ -58,6 +87,7 @@ internal class AndroidMpvCore2FallbackFactory(
 private class AndroidMpvCore2FallbackPlayer(
     context: Context,
     item: YMediaItem,
+    sourceItem: PlayerMediaItem?,
     request: YPlayerOpenRequest,
     private val plan: YPlaybackPlan,
     startSpeed: Float,
@@ -68,14 +98,15 @@ private class AndroidMpvCore2FallbackPlayer(
             context = context,
             items =
                 listOf(
-                    PlayerMediaItem(
-                        id = item.id,
-                        url = item.uri,
-                        transcodeUrl = "",
-                        fallbackTranscodeUrl = "",
-                        title = item.title ?: item.id,
-                        serverId = item.providerKey,
-                    ),
+                    sourceItem
+                        ?: PlayerMediaItem(
+                            id = item.id,
+                            url = item.uri,
+                            transcodeUrl = "",
+                            fallbackTranscodeUrl = "",
+                            title = item.title ?: item.id,
+                            serverId = item.providerKey,
+                        ),
                 ),
             startIndex = 0,
             startPositionMs = request.startPositionMs,
@@ -141,6 +172,14 @@ private class AndroidMpvCore2FallbackPlayer(
 
     override fun selectItem(index: Int) = delegate.selectItem(index)
 
+    override fun selectDiscTitle(index: Int): Boolean = delegate.selectDiscTitle(index)
+
+    override fun selectDiscChapter(index: Int): Boolean = delegate.selectDiscChapter(index)
+
+    override fun sendDiscMenuCommand(
+        command: com.yfuse.core.playback.PlaybackDiscMenuCommand,
+    ): Boolean = delegate.sendDiscMenuCommand(command)
+
     override fun currentPositionMs(): Long = delegate.currentPositionMs()
 
     override fun retry() = delegate.retry()
@@ -183,3 +222,60 @@ private class MappedFallbackStateFlow(
 }
 
 private const val USER_AGENT_HEADER = "User-Agent"
+
+private fun PlayerMediaItem.forCore2DiscUri(uri: String): PlayerMediaItem {
+    val activeId = versionId ?: activeVersion?.id
+    return copy(
+        url = uri,
+        versions =
+            versions.map { version ->
+                if (version.id == activeId) version.copy(url = uri) else version
+            },
+    )
+}
+
+internal fun core2DiscCompatibilityPlan(
+    disc: com.yfuse.core2.api.YDiscMedia,
+    forceSoftwareDecode: Boolean,
+): YPlaybackPlan =
+    YPlaybackPlan(
+        route =
+            if (forceSoftwareDecode) {
+                YPlaybackRoute.SoftwareFallback
+            } else {
+                YPlaybackRoute.GpuEnhanced
+            },
+        demuxPath =
+            if (forceSoftwareDecode) YDemuxPath.Software else YDemuxPath.Enhanced,
+        decodePath =
+            if (forceSoftwareDecode) YDecodePath.Software else YDecodePath.Hardware,
+        renderPath = YRenderPath.Gpu,
+        outputHdrType = YHdrType.Sdr,
+        nativeAudio = !forceSoftwareDecode,
+        reason = "Direct ${disc.kind} through the verified libbluray compatibility executor",
+    )
+
+internal fun YMediaItem.toDiscPlayerMediaItem(): PlayerMediaItem {
+    val descriptor = requireNotNull(disc)
+    val version =
+        PlayerMediaVersion(
+            id = id,
+            label = descriptor.label ?: descriptor.kind.name,
+            detail = descriptor.container ?: descriptor.kind.name,
+            url = uri,
+            transcodeUrl = "",
+            fallbackTranscodeUrl = "",
+            container = descriptor.container,
+            discSource = true,
+        )
+    return PlayerMediaItem(
+        id = id,
+        url = uri,
+        transcodeUrl = "",
+        fallbackTranscodeUrl = "",
+        title = title ?: id,
+        serverId = providerKey,
+        versions = listOf(version),
+        versionId = version.id,
+    )
+}

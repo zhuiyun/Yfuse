@@ -1,5 +1,7 @@
 package com.yfuse.core2.api
 
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackDiscNavigationState
 import kotlinx.coroutines.flow.StateFlow
 
 /** Public product-level playback API shared by Legacy and YCore 2.0 implementations. */
@@ -35,6 +37,12 @@ interface YPlayer {
     )
 
     fun selectItem(index: Int)
+
+    fun selectDiscTitle(index: Int): Boolean = false
+
+    fun selectDiscChapter(index: Int): Boolean = false
+
+    fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
     /**
      * Adds entries to the tail without disturbing the active item.
@@ -81,7 +89,23 @@ data class YMediaItem(
     val headers: Map<String, String> = emptyMap(),
     /** Opaque provider identity; Core2 must not require Emby/Jellyfin-specific models. */
     val providerKey: String? = null,
+    /** Optional backend-neutral optical-disc descriptor for libbluray/libdvdnav routing. */
+    val disc: YDiscMedia? = null,
 )
+
+data class YDiscMedia(
+    val kind: YDiscKind,
+    val container: String? = null,
+    val label: String? = null,
+)
+
+enum class YDiscKind {
+    Iso,
+    Dvd,
+    BluRay,
+    Bdmv,
+    Unknown,
+}
 
 /** Returns an extended queue, or null when appending would make item identity ambiguous. */
 internal fun List<YMediaItem>.appendingDistinct(items: List<YMediaItem>): List<YMediaItem>? {
@@ -179,6 +203,7 @@ data class YPlayerState(
     val itemCount: Int = 1,
     val audioTracks: List<YTrack> = emptyList(),
     val subtitleTracks: List<YTrack> = emptyList(),
+    val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
     val error: String? = null,
     val errorCategory: YPlaybackFailureCategory? = null,
     val diagnostics: YPlayerDiagnostics = YPlayerDiagnostics(),

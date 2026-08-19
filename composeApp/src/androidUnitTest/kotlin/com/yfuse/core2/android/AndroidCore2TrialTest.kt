@@ -13,15 +13,17 @@ import kotlin.test.assertTrue
 
 class AndroidCore2TrialTest {
     @Test
-    fun ordinary_supported_queue_is_trial_eligible() {
+    fun supported_file_and_native_disc_schemes_are_trial_eligible() {
         val items =
             listOf(
                 mediaItem("https://media.example.test/movie.mkv"),
                 mediaItem("content://media/external/video/1"),
+                mediaItem("yfusebdmv://42"),
             )
 
         assertTrue(items.canUseCore2Trial(startIndex = 0))
         assertTrue(items.canUseCore2Trial(startIndex = 1))
+        assertTrue(items.canUseCore2Trial(startIndex = 2))
     }
 
     @Test
@@ -32,7 +34,7 @@ class AndroidCore2TrialTest {
     }
 
     @Test
-    fun unsupported_queue_features_stay_on_legacy() {
+    fun drm_and_external_subtitle_queues_stay_on_legacy_while_disc_is_eligible() {
         val drmItem =
             mediaItem("https://media.example.test/secure.mpd").copy(
                 drmConfiguration =
@@ -63,7 +65,7 @@ class AndroidCore2TrialTest {
 
         assertFalse(listOf(drmItem).canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(subtitleItem).canUseCore2Trial(startIndex = 0))
-        assertFalse(listOf(discItem).canUseCore2Trial(startIndex = 0))
+        assertTrue(listOf(discItem).canUseCore2Trial(startIndex = 0))
         assertFalse(
             listOf(mediaItem("https://media/movie"), subtitleItem)
                 .canUseCore2Trial(startIndex = 0),
@@ -105,6 +107,66 @@ class AndroidCore2TrialTest {
                 .single()
 
         assertEquals(item.transcodeUrl, mapped.uri)
+        assertEquals(null, mapped.disc)
+    }
+
+    @Test
+    fun server_resolved_disc_stream_does_not_expose_native_navigation() {
+        val version =
+            PlayerMediaVersion(
+                id = "disc",
+                label = "Blu-ray",
+                detail = "BDMV",
+                url = "file:///storage/movie/BDMV",
+                transcodeUrl = "https://media.example.test/transcode.m3u8",
+                fallbackTranscodeUrl = "https://media.example.test/fallback.mp4",
+                container = "BDMV",
+                discSource = true,
+                playMethod = PlaybackMethod.Transcode,
+            )
+        val item =
+            mediaItem(version.transcodeUrl).copy(
+                transcodeUrl = version.transcodeUrl,
+                playMethod = PlaybackMethod.Transcode,
+                versions = listOf(version),
+                versionId = version.id,
+            )
+
+        val mapped =
+            listOf(item)
+                .toCore2MediaItems("", PlaybackQuality.Original)
+                .single()
+
+        assertEquals(version.transcodeUrl, mapped.uri)
+        assertEquals(null, mapped.disc)
+    }
+
+    @Test
+    fun core2_queue_mapping_preserves_direct_disc_identity() {
+        val version =
+            PlayerMediaVersion(
+                id = "disc",
+                label = "Blu-ray",
+                detail = "BDMV",
+                url = "yfusebdmv://42",
+                transcodeUrl = "https://media.example.test/transcode.m3u8",
+                fallbackTranscodeUrl = "https://media.example.test/fallback.mp4",
+                container = "BDMV",
+                discSource = true,
+            )
+        val item =
+            mediaItem(version.url).copy(
+                versions = listOf(version),
+                versionId = version.id,
+            )
+
+        val mapped =
+            listOf(item)
+                .toCore2MediaItems("", PlaybackQuality.Original)
+                .single()
+
+        assertEquals(com.yfuse.core2.api.YDiscKind.Bdmv, mapped.disc?.kind)
+        assertEquals("BDMV", mapped.disc?.container)
     }
 
     private fun mediaItem(url: String) =

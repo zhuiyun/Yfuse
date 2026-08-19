@@ -176,6 +176,14 @@ Planned handling:
 - reuse existing libbluray work behind Core2 demux/navigation contracts;
 - keep BD-J and licensed/protected-disc runtime as explicit capability boundaries.
 
+Current compatibility milestone: direct disc items now carry a backend-neutral descriptor through
+`YMediaItem` and enter the pinned libmpv/libbluray executor from the adaptive Core2 router. The
+temporary executor preserves the original prepared `yfusebd://` or `yfusebdmv://` source, forwards
+title/chapter/menu commands through `YPlayer`, and shares the existing HDMV input/overlay plane with
+Legacy. Server-resolved disc streams deliberately remain ordinary media streams and do not expose
+native navigation. Native Core2 MPLS/CLPI graph nodes, BD-J, protected-disc support, and physical-disc
+release evidence remain explicit future gates.
+
 ### Phase 7 — GPU and universal fallback
 
 - AHardwareBuffer/Vulkan path;
@@ -228,8 +236,9 @@ As of 2026-08-19, the opt-in path has these production boundaries:
   failure retries the same item on a non-Tunnel Core2 route;
 - an exhausted Core2 failure rebuilds the user's selected Legacy engine with the current queue item,
   position, playback intent, and requested speed;
-- DRM, external subtitle, disc-media, unsupported-scheme, and otherwise ineligible queues bypass the
-  trial and continue directly on Legacy;
+- DRM, external subtitle, unsupported-scheme, and otherwise ineligible queues bypass the trial and
+  continue directly on Legacy; direct ISO/BDMV items may enter the capability-gated compatibility
+  executor, while server-resolved disc streams stay on the ordinary media route;
 - queue auto-next is owned by the adaptive Core2 layer, with every new item receiving a fresh route
   evaluation;
 - eligible episodes discovered during a live series refresh append through `YPlayer` without
@@ -246,10 +255,12 @@ Backend-specific quality/transcode/output tuning, secondary subtitles, and disc 
 isolated behind `PlayerBackendExtensions`; unsupported Core2 operations continue to return an
 explicit unsupported result and preserve the existing rebuild/fallback policy. This completes the
 Phase 0 product-control migration without claiming those optional capabilities in the stable
-`YPlayer` API. Core2 still does not claim the disc tier. `GpuEnhanced` and `SoftwareFallback` are
-executable through the verified libmpv compatibility executor, including native-route-to-software
-runtime fallback for container/decoder/renderer/audio-sink failures. Network, authorization and DRM
-failures skip that retry. Native Vulkan and standalone avcodec nodes remain Phase 7 replacement
-work, rather than being misrepresented as already implemented.
+`YPlayer` API. Disc navigation is now part of the stable API and the direct-disc route is executable
+through the verified libmpv/libbluray compatibility layer; this is not a claim that native Core2 disc
+graph nodes or physical-disc release validation are complete. `GpuEnhanced` and `SoftwareFallback`
+are likewise executable through the verified libmpv compatibility executor, including
+native-route-to-software runtime fallback for container/decoder/renderer/audio-sink failures.
+Network, authorization and DRM failures skip that retry. Native Vulkan and standalone avcodec nodes
+remain Phase 7 replacement work, rather than being misrepresented as already implemented.
 Physical-device startup, seek, surface recreation, HDR, audio-route, and background/foreground
 regression gates must pass before any eligible cohort can default to Core2.

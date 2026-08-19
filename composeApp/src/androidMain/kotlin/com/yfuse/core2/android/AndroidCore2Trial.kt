@@ -2,6 +2,10 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackDiscKind
+import com.yfuse.core.playback.detectPlaybackDiscKind
+import com.yfuse.core2.api.YDiscKind
+import com.yfuse.core2.api.YDiscMedia
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
@@ -37,11 +41,17 @@ internal object AndroidCore2TrialFactory {
                 autoPlay = startPlaybackRequested,
                 autoNext = autoNext,
             )
+        val compatibilityFactory =
+            AndroidMpvCore2FallbackFactory(
+                context = context,
+                sourceItems = items.associateBy(PlayerMediaItem::id),
+            )
         val player =
             AndroidAdaptiveCore2YPlayer(
                 context = context.applicationContext,
                 request = request,
-                fallbackRouteFactory = AndroidMpvCore2FallbackFactory(context),
+                fallbackRouteFactory = compatibilityFactory,
+                discRouteFactory = compatibilityFactory,
             )
         player.setSpeed(startSpeed)
         player.prepare()
@@ -52,10 +62,9 @@ internal object AndroidCore2TrialFactory {
 internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     if (isEmpty() || startIndex !in indices) return false
     return all { item ->
-        item.drmConfiguration == null &&
+            item.drmConfiguration == null &&
             item.activeVersion?.drmConfiguration == null &&
             item.externalSubtitleUri.isNullOrBlank() &&
-            item.activeVersion?.discSource != true &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
     }
 }
@@ -76,11 +85,13 @@ internal fun List<PlayerMediaItem>.toCore2MediaItems(
 private fun PlayerMediaItem.toCore2MediaItem(
     headers: Map<String, String>,
     quality: PlaybackQuality,
-): YMediaItem =
-    YMediaItem(
+): YMediaItem {
+    val usingServerTranscode = startsWithServerTranscode(quality)
+    val version = activeVersion
+    return YMediaItem(
         id = id,
         uri =
-            if (startsWithServerTranscode(quality)) {
+            if (usingServerTranscode) {
                 transcodeUrl.ifBlank { fallbackTranscodeUrl }
             } else {
                 url
@@ -88,7 +99,43 @@ private fun PlayerMediaItem.toCore2MediaItem(
         title = title,
         headers = headers,
         providerKey = serverId,
+        disc =
+            if (!usingServerTranscode && version?.discSource == true) {
+                YDiscMedia(
+                    kind =
+                        detectPlaybackDiscKind(
+                            container = version.container,
+                            labelHint = version.label,
+                            declaredDiscSource = true,
+                        ).toCore2DiscKind(),
+                    container = version.container,
+                    label = version.label,
+                )
+            } else {
+                null
+            },
     )
+}
 
-private val CORE2_SOURCE_SCHEMES = setOf("http", "https", "file", "content", "android.resource")
+private fun PlaybackDiscKind.toCore2DiscKind(): YDiscKind =
+    when (this) {
+        PlaybackDiscKind.Iso -> YDiscKind.Iso
+        PlaybackDiscKind.Dvd -> YDiscKind.Dvd
+        PlaybackDiscKind.BluRay -> YDiscKind.BluRay
+        PlaybackDiscKind.Bdmv -> YDiscKind.Bdmv
+        PlaybackDiscKind.None,
+        PlaybackDiscKind.Unknown,
+        -> YDiscKind.Unknown
+    }
+
+private val CORE2_SOURCE_SCHEMES =
+    setOf(
+        "http",
+        "https",
+        "file",
+        "content",
+        "android.resource",
+        "yfusebd",
+        "yfusebdmv",
+    )
 private const val USER_AGENT_HEADER = "User-Agent"
