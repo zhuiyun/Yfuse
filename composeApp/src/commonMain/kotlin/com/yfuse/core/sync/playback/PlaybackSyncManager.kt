@@ -53,6 +53,8 @@ class PlaybackSyncManager(
     private var debounceJob: Job? = null
     private var urgentJob: Job? = null
     private var lastCloudAttemptAtEpochMs = Long.MIN_VALUE
+    private var cloudFailureStreak = 0
+    private var retryNotBeforeEpochMs = Long.MIN_VALUE
     private val _state =
         MutableStateFlow(
             PlaybackCloudSyncState(
@@ -192,10 +194,13 @@ class PlaybackSyncManager(
             val userId = cipher.currentUserId() ?: return
             if (store.bindAccount(userId)) updatePendingState()
             val accessToken = accessTokens.validAccessTokenFor(cloud.origin) ?: return
-            lastCloudAttemptAtEpochMs = nowEpochMs()
+            val now = nowEpochMs()
+            if (now < retryNotBeforeEpochMs) return
+            lastCloudAttemptAtEpochMs = now
             _state.value = _state.value.copy(syncing = true, error = null)
             try {
                 syncWithToken(accessToken)
+                markCloudSyncSucceeded()
                 _state.value =
                     _state.value.copy(
                         syncing = false,
@@ -213,6 +218,7 @@ class PlaybackSyncManager(
                     if (refreshed != null) {
                         runCatching { syncWithToken(refreshed) }
                             .onSuccess {
+                                markCloudSyncSucceeded()
                                 _state.value =
                                     _state.value.copy(
                                         syncing = false,
@@ -341,11 +347,24 @@ class PlaybackSyncManager(
     }
 
     private fun recordFailure(error: Throwable) {
+        cloudFailureStreak = (cloudFailureStreak + 1).coerceAtMost(MAX_CLOUD_FAILURE_STREAK)
+        val backoffMs = playbackCloudRetryBackoffMs(cloudFailureStreak)
+        retryNotBeforeEpochMs = nowEpochMs() + backoffMs
+        val apiError = error as? AccountApiException
         AppLog.warning(
             category = "playback.sync",
             event = "cloud_sync_failed",
             message = "Cross-platform playback synchronization was deferred",
             throwable = error,
+            attributes =
+                buildMap {
+                    put("failureStreak", cloudFailureStreak.toString())
+                    put("backoffMs", backoffMs.toString())
+                    apiError?.let {
+                        put("status", it.status.value.toString())
+                        put("code", it.code.take(64))
+                    }
+                },
         )
         _state.value =
             _state.value.copy(
@@ -356,9 +375,15 @@ class PlaybackSyncManager(
             )
     }
 
+    private fun markCloudSyncSucceeded() {
+        cloudFailureStreak = 0
+        retryNotBeforeEpochMs = Long.MIN_VALUE
+    }
+
     private companion object {
         const val CLOUD_DEBOUNCE_MS = 20_000L
         const val MIN_URGENT_CLOUD_GAP_MS = 5_000L
+        const val MAX_CLOUD_FAILURE_STREAK = 6
         const val PERIODIC_CLOUD_SYNC_MS = 60_000L
         const val PREPLAY_SYNC_MAX_AGE_MS = 10_000L
         const val PREPLAY_SYNC_BUDGET_MS = 1_000L
@@ -368,6 +393,11 @@ class PlaybackSyncManager(
         const val MAX_PUSH_ROUNDS = 2
         const val COMPLETED_RATIO = 0.95
     }
+}
+
+internal fun playbackCloudRetryBackoffMs(failureStreak: Int): Long {
+    val exponent = (failureStreak - 1).coerceIn(0, 5)
+    return (30_000L * (1L shl exponent)).coerceAtMost(15 * 60_000L)
 }
 
 private val PlaybackSyncTrigger.isImmediateCloudTrigger: Boolean

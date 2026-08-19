@@ -1241,8 +1241,16 @@ class EmbyRepositoryTest {
             val total = 4_500
             val repo =
                 testRepo { request ->
-                    requested += request.url.parameters["StartIndex"].orEmpty()
+                    val query =
+                        when {
+                            request.url.parameters["Filters"] == "IsFavorite" -> "favorite"
+                            request.url.parameters["Filters"] == "IsResumable" -> "resumable"
+                            request.url.parameters["IsPlayed"] == "true" -> "played"
+                            else -> error("Missing user-state filter")
+                        }
                     val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+                    requested += "$query:$start"
+                    if (query != "played") return@testRepo json("""{"Items":[],"TotalRecordCount":0}""")
                     val limit = request.url.parameters["Limit"]?.toInt() ?: 0
                     val page =
                         (start until minOf(start + limit, total)).map { index ->
@@ -1257,7 +1265,39 @@ class EmbyRepositoryTest {
             assertEquals(total, res.getOrThrow().size)
             assertEquals("i0", res.getOrThrow().first().id)
             assertEquals("i4499", res.getOrThrow().last().id)
-            assertEquals(listOf("0", "2000", "4000"), requested)
+            assertEquals(
+                listOf(
+                    "favorite:0",
+                    "resumable:0",
+                    "played:0",
+                    "played:2000",
+                    "played:4000",
+                ),
+                requested,
+            )
+        }
+
+    @Test
+    fun user_library_snapshot_tolerates_an_overlapping_page_and_deduplicates_state() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    if (request.url.parameters["IsPlayed"] != "true") {
+                        return@testRepo json("""{"Items":[],"TotalRecordCount":0}""")
+                    }
+                    val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+                    val ids = if (start == 0) listOf("i0", "i1") else listOf("i1", "i2")
+                    json(
+                        """{"Items":[${ids.joinToString(",") { id ->
+                            """{"Id":"$id","Name":"$id","UserData":{"Played":true}}"""
+                        }}],"TotalRecordCount":3}""",
+                    )
+                }
+
+            val result = repo.userLibrarySnapshot(server)
+
+            assertTrue(result.isSuccess, result.toString())
+            assertEquals(listOf("i0", "i1", "i2"), result.getOrThrow().map { it.id })
         }
 
     @Test
@@ -1274,7 +1314,7 @@ class EmbyRepositoryTest {
 
             assertTrue(res.isSuccess, res.toString())
             assertEquals(0, res.getOrThrow().size)
-            assertEquals(1, calls)
+            assertEquals(3, calls)
         }
 
     @Test
@@ -1305,10 +1345,10 @@ class EmbyRepositoryTest {
         }
 
     @Test
-    fun a_snapshot_that_hits_the_safety_ceiling_is_not_authoritative() {
-        assertTrue(userLibrarySnapshotIsTruncated(100_000, 100_001, 100_000))
-        assertFalse(userLibrarySnapshotIsTruncated(100_000, 100_000, 100_000))
-        assertFalse(userLibrarySnapshotIsTruncated(99_999, Int.MAX_VALUE, 100_000))
+    fun a_snapshot_that_hits_the_page_budget_is_not_authoritative() {
+        assertTrue(userLibrarySnapshotPageBudgetExhausted(250, 500_000, 500_001, 250))
+        assertFalse(userLibrarySnapshotPageBudgetExhausted(250, 500_000, 500_000, 250))
+        assertFalse(userLibrarySnapshotPageBudgetExhausted(249, 498_000, Int.MAX_VALUE, 250))
     }
 
     /** Emby uses 403 as well as 401 when a token/account is no longer valid. */

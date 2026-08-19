@@ -835,7 +835,7 @@ class PlayerStoreFactory(
                 val detail = detailResult.getOrNull()
                 val requestedSessionId = EmbyStream.newPlaySessionId()
                 val playbackInfoResult =
-                    withTimeoutOrNull(5_000L) {
+                    withTimeoutOrNull(PLAYBACK_NEGOTIATION_TIMEOUT_MS) {
                         repo.playbackInfo(
                             server = server,
                             itemId = effectiveItemId,
@@ -1205,6 +1205,7 @@ class PlayerStoreFactory(
 
 private const val SERVER_FALLBACK_CANDIDATE_TIMEOUT_MS = 6_000L
 private const val SERVER_FALLBACK_TOTAL_TIMEOUT_MS = 9_000L
+internal const val PLAYBACK_NEGOTIATION_TIMEOUT_MS = 15_000L
 
 // watchKey now lives in com.yfuse.core.sync alongside the invite payload that carries it.
 

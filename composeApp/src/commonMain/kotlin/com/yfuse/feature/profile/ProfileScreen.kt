@@ -1618,7 +1618,7 @@ private fun RecoveryCenterScreen(
                             Text(
                                 status.error ?: when {
                                     status.syncing -> "同步中…"
-                                    status.online == true -> "${status.itemCount} 项 · 已连接"
+                                    status.online == true -> "${status.itemCount} 条用户状态 · 已连接"
                                     status.online == false -> "离线"
                                     else -> "等待同步"
                                 },

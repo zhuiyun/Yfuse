@@ -1,5 +1,6 @@
 package com.yfuse.core.data
 
+import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
@@ -12,7 +13,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 
-/** User-scoped mutations and complete sync snapshots. */
+/** User-scoped mutations and paged user-state snapshots. */
 internal class EmbyUserDataService(
     private val client: HttpClient,
 ) {
@@ -46,29 +47,50 @@ internal class EmbyUserDataService(
 
     suspend fun snapshot(server: SavedServer): Result<List<SyncedUserItem>> =
         embyApiCall("user_library_snapshot") {
-            val collected = mutableListOf<SyncedUserItem>()
-            val seenIds = HashSet<String>()
-            var startIndex = 0
-            var total = Int.MAX_VALUE
-            while (startIndex < total && collected.size < SNAPSHOT_MAX_ITEMS) {
-                val dto: ItemsResponseDto =
-                    client
-                        .get("${server.baseUrl}/Users/${server.userId}/Items") {
-                            header("X-Emby-Token", server.accessToken)
-                            parameter("Recursive", true)
-                            parameter("IncludeItemTypes", "Movie,Series,Episode")
-                            parameter("Fields", "UserData,DateModified")
-                            parameter("EnableImages", false)
-                            parameter("SortBy", "Id")
-                            parameter("StartIndex", startIndex)
-                            parameter("Limit", SNAPSHOT_PAGE_SIZE)
-                        }.body()
-                if (dto.Items.isEmpty()) break
-                check(dto.Items.all { seenIds.add(it.Id) }) {
-                    "服务器分页未前进，已取消本次同步"
-                }
-                collected +=
-                    dto.Items.map { item ->
+            val collected = linkedMapOf<String, SyncedUserItem>()
+            UserSnapshotQuery.entries.forEach { query ->
+                collectUserState(server, query, collected)
+            }
+            collected.values.toList()
+        }
+
+    private suspend fun collectUserState(
+        server: SavedServer,
+        query: UserSnapshotQuery,
+        collected: MutableMap<String, SyncedUserItem>,
+    ) {
+        val seenResponseIds = HashSet<String>()
+        var startIndex = 0
+        var total = Int.MAX_VALUE
+        var pagesRead = 0
+        while (startIndex < total && pagesRead < SNAPSHOT_MAX_PAGES_PER_QUERY) {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Recursive", true)
+                        parameter("IncludeItemTypes", "Movie,Series,Episode")
+                        parameter("Fields", "UserData,DateModified")
+                        parameter("EnableImages", false)
+                        parameter("SortBy", "Id")
+                        parameter("StartIndex", startIndex)
+                        parameter("Limit", SNAPSHOT_PAGE_SIZE)
+                        when (query) {
+                            UserSnapshotQuery.Favorite -> parameter("Filters", "IsFavorite")
+                            UserSnapshotQuery.Resumable -> parameter("Filters", "IsResumable")
+                            UserSnapshotQuery.Played -> parameter("IsPlayed", true)
+                        }
+                    }.body()
+            if (dto.Items.isEmpty()) break
+            val newResponseItems = dto.Items.filter { seenResponseIds.add(it.Id) }
+            check(newResponseItems.isNotEmpty()) {
+                "服务器分页未前进，已取消本次同步"
+            }
+            newResponseItems
+                .asSequence()
+                .filter(query::matches)
+                .forEach { item ->
+                    collected[item.Id] =
                         SyncedUserItem(
                             id = item.Id,
                             title = item.Name.orEmpty(),
@@ -77,24 +99,46 @@ internal class EmbyUserDataService(
                             positionTicks = item.UserData?.PlaybackPositionTicks ?: 0L,
                             dateModified = item.DateModified,
                         )
-                    }
-                dto.TotalRecordCount?.takeIf { it > 0 }?.let { total = it }
-                startIndex += dto.Items.size
-            }
-            if (userLibrarySnapshotIsTruncated(collected.size, total, SNAPSHOT_MAX_ITEMS)) {
-                AppLog.warning(
-                    category = "emby",
-                    event = "library_snapshot_truncated",
-                    message = "User library snapshot hit the client ceiling and is incomplete",
-                    attributes =
-                        mapOf(
-                            "serverId" to server.id,
-                            "collected" to collected.size.toString(),
-                            "total" to total.toString(),
-                        ),
-                )
-                error("媒体库项目过多，本次同步已取消以避免使用不完整快照")
-            }
-            collected
+                }
+            dto.TotalRecordCount?.takeIf { it >= 0 }?.let { total = it }
+            startIndex += dto.Items.size
+            pagesRead++
         }
+        if (
+            userLibrarySnapshotPageBudgetExhausted(
+                pagesRead = pagesRead,
+                startIndex = startIndex,
+                reportedTotal = total,
+                maxPages = SNAPSHOT_MAX_PAGES_PER_QUERY,
+            )
+        ) {
+            AppLog.warning(
+                category = "emby",
+                event = "user_state_snapshot_page_budget_exhausted",
+                message = "User-state snapshot exceeded the safe paging budget",
+                attributes =
+                    mapOf(
+                        "serverId" to server.id,
+                        "query" to query.name,
+                        "pagesRead" to pagesRead.toString(),
+                        "reportedTotal" to total.toString(),
+                    ),
+            )
+            error("媒体库用户状态分页异常，本次同步已取消")
+        }
+    }
+
+    private enum class UserSnapshotQuery {
+        Favorite,
+        Resumable,
+        Played,
+        ;
+
+        fun matches(item: BaseItemDto): Boolean =
+            when (this) {
+                Favorite -> item.UserData?.IsFavorite == true
+                Resumable -> (item.UserData?.PlaybackPositionTicks ?: 0L) > 0L
+                Played -> item.UserData?.Played == true
+            }
+    }
 }

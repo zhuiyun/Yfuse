@@ -92,14 +92,15 @@ private const val PERSON_ITEMS_LIMIT = 60
 /** One page of [EmbyRepository.userLibrarySnapshot]; small enough to arrive inside a timeout. */
 internal const val SNAPSHOT_PAGE_SIZE = 2_000
 
-/** Backstop against a server whose `TotalRecordCount` is wrong, or a paging loop. */
-internal const val SNAPSHOT_MAX_ITEMS = 100_000
+/** Per-filter backstop against a server whose `TotalRecordCount` is wrong, or a paging loop. */
+internal const val SNAPSHOT_MAX_PAGES_PER_QUERY = 250
 
-internal fun userLibrarySnapshotIsTruncated(
-    collectedItems: Int,
+internal fun userLibrarySnapshotPageBudgetExhausted(
+    pagesRead: Int,
+    startIndex: Int,
     reportedTotal: Int,
-    maxItems: Int,
-): Boolean = collectedItems >= maxItems && reportedTotal > maxItems
+    maxPages: Int,
+): Boolean = pagesRead >= maxPages && startIndex < reportedTotal
 
 /**
  * Resolves the total used by the grid when an Emby-compatible endpoint omits it.

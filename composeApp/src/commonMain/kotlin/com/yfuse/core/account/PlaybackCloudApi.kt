@@ -54,7 +54,7 @@ private suspend inline fun <reified T> HttpResponse.decodedPlayback(): T {
     val envelope = runCatching { body<ErrorEnvelope>() }.getOrNull()
     throw AccountApiException(
         code = envelope?.error?.code ?: "http_${status.value}",
-        message = envelope?.error?.message ?: "播放记录同步暂时不可用",
+        message = envelope?.error?.message ?: "播放记录同步暂时不可用（HTTP ${status.value}）",
         status = status,
         currentVersion = envelope?.error?.currentVersion,
     )

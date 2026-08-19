@@ -11,6 +11,7 @@ import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -326,11 +328,13 @@ class ServerSyncManager(
         desired: Boolean,
     ): Result<Unit> {
         val base =
-            snapshots[server.id]?.firstOrNull { it.id == itemId }?.let {
-                when (kind) {
-                    SyncMutationKind.Favorite -> it.favorite
-                    SyncMutationKind.Played -> it.played
-                }
+            snapshots[server.id]?.let { snapshot ->
+                snapshot.firstOrNull { it.id == itemId }?.let {
+                    when (kind) {
+                        SyncMutationKind.Favorite -> it.favorite
+                        SyncMutationKind.Played -> it.played
+                    }
+                } ?: false
             }
         val mutation =
             PendingSyncMutation(
@@ -422,7 +426,10 @@ class ServerSyncManager(
         setStatus(server) { it.copy(syncing = true, error = null) }
         val snapshotResult =
             try {
-                repo.userLibrarySnapshot(server)
+                // Keep JSON decoding and page merging off the UI caller.
+                withContext(Dispatchers.Default) {
+                    repo.userLibrarySnapshot(server)
+                }
             } catch (cancelled: CancellationException) {
                 setStatus(server) { it.copy(syncing = false) }
                 throw cancelled
@@ -639,15 +646,16 @@ class ServerSyncManager(
     private fun detectConflicts(
         serverId: String,
         remote: List<SyncedUserItem>,
-    ): List<SyncConflict> =
-        pending.value
+    ): List<SyncConflict> {
+        val remoteById = remote.associateBy(SyncedUserItem::id)
+        return pending.value
             .filter { it.serverId == serverId }
             .mapNotNull { mutation ->
-                val item = remote.firstOrNull { it.id == mutation.itemId } ?: return@mapNotNull null
+                val item = remoteById[mutation.itemId]
                 val remoteValue =
                     when (mutation.kind) {
-                        SyncMutationKind.Favorite -> item.favorite
-                        SyncMutationKind.Played -> item.played
+                        SyncMutationKind.Favorite -> item?.favorite == true
+                        SyncMutationKind.Played -> item?.played == true
                     }
                 if (
                     mutation.baseValue != null &&
@@ -659,6 +667,7 @@ class ServerSyncManager(
                     null
                 }
             }
+    }
 
     private fun setStatus(
         server: SavedServer,

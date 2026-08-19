@@ -52,7 +52,7 @@ class ServerSyncManagerTest {
             ServerSyncManager(repo, ServerRegistry(settings, secrets), settings).syncAll(force = true)
             ServerSyncManager(repo, ServerRegistry(settings, secrets), settings).syncAll()
 
-            assertEquals(3, requests)
+            assertEquals(7, requests)
         }
 
     @Test
