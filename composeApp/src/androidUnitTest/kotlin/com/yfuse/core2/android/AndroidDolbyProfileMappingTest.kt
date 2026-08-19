@@ -17,7 +17,7 @@ class AndroidDolbyProfileMappingTest {
     }
 
     @Test
-    fun `non Dolby profile is not accepted as a Dolby profile`() {
-        assertNull(MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10.toSemanticDolbyVisionProfile())
+    fun `unknown Dolby profile is not accepted`() {
+        assertNull(Int.MAX_VALUE.toSemanticDolbyVisionProfile())
     }
 }

@@ -441,6 +441,16 @@ private fun formatDurationUs(format: MediaFormat): Long? =
         null
     }
 
+private fun MediaFormat.core2FrameRateHint() =
+    if (containsKey(MediaFormat.KEY_FRAME_RATE)) {
+        val frameRate =
+            runCatching { getFloat(MediaFormat.KEY_FRAME_RATE) }.getOrNull()
+                ?: runCatching { getInteger(MediaFormat.KEY_FRAME_RATE).toFloat() }.getOrNull()
+        frameRate?.let(::videoFrameRateHint)
+    } else {
+        null
+    }
+
 private const val EXTRACTOR_SAMPLE_ENCRYPTED = 2
 private const val MAX_INPUT_AHEAD_US = 1_500_000L
 private const val AUDIO_END_TOLERANCE_US = 30_000L

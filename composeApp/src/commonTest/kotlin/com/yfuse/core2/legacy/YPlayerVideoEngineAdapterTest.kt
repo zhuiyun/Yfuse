@@ -77,7 +77,7 @@ class YPlayerVideoEngineAdapterTest {
 
         assertTrue(player.playCalled)
         assertEquals(12_000L, player.seekMs)
-        assertEquals(1.5f, player.speed)
+        assertEquals(1.5f, player.recordedSpeed)
         assertEquals(YTrackType.Audio to "audio:2", player.selectedTracks[0])
         assertEquals(YTrackType.Subtitle to "sub:3", player.selectedTracks[1])
         assertEquals(4, player.itemIndex)
@@ -88,7 +88,7 @@ class YPlayerVideoEngineAdapterTest {
         override val state = mutableState
         var playCalled = false
         var seekMs = 0L
-        var speed = 1f
+        var recordedSpeed = 1f
         val selectedTracks = mutableListOf<Pair<YTrackType, String>>()
         var itemIndex = 0
 
@@ -107,7 +107,7 @@ class YPlayerVideoEngineAdapterTest {
         }
 
         override fun setSpeed(speed: Float) {
-            this.speed = speed
+            recordedSpeed = speed
         }
 
         override fun selectTrack(type: YTrackType, id: String) {

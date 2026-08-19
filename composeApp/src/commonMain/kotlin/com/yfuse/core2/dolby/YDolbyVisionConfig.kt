@@ -50,6 +50,30 @@ data class YDolbyVisionConfig(
             }
         }
 
+    /** Encodes the ISOBMFF Dolby Vision decoder configuration record used as Android csd-2. */
+    fun toConfigurationBytes(): ByteArray {
+        require(versionMajor in 0..0xff)
+        require(versionMinor in 0..0xff)
+        require(profile in 0..0x7f)
+        require(level in 0..0x3f)
+        require(baseLayerCompatibilityId in 0..0x0f)
+        require(metadataCompression in 0..0x03)
+
+        val packed =
+            (profile shl 9) or
+                (level shl 3) or
+                (if (rpuPresent) 0x04 else 0) or
+                (if (enhancementLayerPresent) 0x02 else 0) or
+                (if (baseLayerPresent) 0x01 else 0)
+        return byteArrayOf(
+            versionMajor.toByte(),
+            versionMinor.toByte(),
+            (packed ushr 8).toByte(),
+            packed.toByte(),
+            ((baseLayerCompatibilityId shl 4) or (metadataCompression shl 2)).toByte(),
+        )
+    }
+
     companion object {
         /**
          * Parses the payload of an ISOBMFF `dvcC` / `dvvC` / `dvwC` record or an equivalent

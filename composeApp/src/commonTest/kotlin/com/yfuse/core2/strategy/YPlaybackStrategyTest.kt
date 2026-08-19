@@ -18,7 +18,7 @@ class YPlaybackStrategyTest {
     private val strategy = DefaultYPlaybackStrategy()
 
     @Test
-    fun `platform Dolby Vision uses tunnel when the decoder and display support exact profile`() {
+    fun `platform Dolby Vision uses tunnel when video display and audio clock are supported`() {
         val plan =
             strategy.plan(
                 request =
@@ -34,6 +34,7 @@ class YPlaybackStrategyTest {
                                 hdrType = YHdrType.DolbyVision,
                                 dolbyVisionProfile = 8,
                             ),
+                        audio = YAudioRequirement(codec = YAudioCodec.Aac),
                         platformDemuxSupported = true,
                     ),
                 capabilities =
@@ -46,6 +47,7 @@ class YPlaybackStrategyTest {
                                     tunneled = true,
                                 ),
                             ),
+                        audioDecoders = setOf(YAudioCodec.Aac),
                         displayHdrTypes = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
                     ),
             )

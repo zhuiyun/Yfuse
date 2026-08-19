@@ -32,6 +32,10 @@ internal class AndroidFrameRateManager {
         surface?.let { apply(it, hint) }
     }
 
+    fun reattach(surface: Surface) {
+        attach(surface, hint)
+    }
+
     fun clear() {
         clearSurface(surface)
         surface = null

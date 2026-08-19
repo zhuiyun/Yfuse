@@ -78,7 +78,7 @@ internal class AndroidYCapabilityProvider(
                 dolbyVisionProfiles = dolbyProfiles,
                 maxWidth = videoCapabilities?.supportedWidths?.upper ?: 0,
                 maxHeight = videoCapabilities?.supportedHeights?.upper ?: 0,
-                maxFrameRate = videoCapabilities?.supportedFrameRates?.upper ?: 0.0,
+                maxFrameRate = videoCapabilities?.supportedFrameRates?.upper?.toDouble() ?: 0.0,
                 maxBitDepth = decoderMaxBitDepth(normalizedType, profiles),
                 tunneledPlayback = tunneled,
                 adaptivePlayback = adaptive,

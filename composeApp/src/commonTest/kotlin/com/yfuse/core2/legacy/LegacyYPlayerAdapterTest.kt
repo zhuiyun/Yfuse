@@ -53,7 +53,7 @@ class LegacyYPlayerAdapterTest {
 
         assertTrue(engine.playCalled)
         assertEquals(42_000L, engine.seekPositionMs)
-        assertEquals(1.25f, engine.speed)
+        assertEquals(1.25f, engine.recordedSpeed)
         assertEquals("a2", engine.audioTrack)
         assertEquals("s2", engine.subtitleTrack)
         assertEquals(3, engine.itemIndex)
@@ -66,7 +66,7 @@ class LegacyYPlayerAdapterTest {
 
         var playCalled = false
         var seekPositionMs = 0L
-        var speed = 1f
+        var recordedSpeed = 1f
         var audioTrack: String? = null
         var subtitleTrack: String? = null
         var itemIndex = 0
@@ -84,7 +84,7 @@ class LegacyYPlayerAdapterTest {
         }
 
         override fun setSpeed(speed: Float) {
-            this.speed = speed
+            recordedSpeed = speed
         }
 
         override fun selectAudioTrack(id: String) {
