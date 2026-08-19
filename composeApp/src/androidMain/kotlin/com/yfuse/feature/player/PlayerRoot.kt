@@ -71,6 +71,8 @@ import com.yfuse.core.playback.resolvePlaybackOptimization
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YTrackType
+import com.yfuse.core2.android.canUseCore2Trial
+import com.yfuse.core2.android.toCore2MediaItems
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.core2.legacy.asYPlayer
 import kotlinx.coroutines.CancellationException
@@ -120,7 +122,7 @@ internal fun PlayerRoot(
     accountTokens: AccountAccessTokenSource,
     watchTogetherPreferences: WatchTogetherPreferences,
     playbackGate: WatchGatedPlayback,
-    onPlayerAttached: (YPlayer, VideoEngine) -> Unit,
+    onPlayerAttached: (YPlayer, VideoEngine, (List<PlayerMediaItem>) -> Boolean) -> Unit,
     onPlayerDetached: (YPlayer, VideoEngine) -> Unit,
     onPlaybackState: (PlaybackState, PlayerMediaItem?) -> Unit,
     onVideoBounds: (Rect) -> Unit,
@@ -265,6 +267,34 @@ internal fun PlayerRoot(
                 }
             versionedItems.map { it.withPlaybackQuality(selectedQuality) }
         }
+    fun preflightItem(item: PlayerMediaItem): PlayerMediaItem {
+        val probe = item.playbackMediaProbe()
+        val videoSupport =
+            capabilityProvider?.videoSupport(probe.source.videoRequirements)
+                ?: deviceCapabilities.videoSupport(probe.source.videoRequirements)
+        val plan =
+            planPlayback(
+                probe = probe,
+                capabilities = deviceCapabilities,
+                preferredEngine = kind,
+                preferredDecoderMode = effectiveDecoderMode,
+                optimizationMode = effectiveOptimizationMode,
+                engineSelection = sessionEngineSelection,
+                engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
+                videoSupport = videoSupport,
+            )
+        val incompatibleQueuedDolbyEngine =
+            probe.source.needsDolbyDecoder && plan.primaryEngine != kind
+        return if (plan.requiresServerTranscode || incompatibleQueuedDolbyEngine) {
+            item.withForcedServerTranscode(
+                plan.reason
+                    ?: "队列当前内核无法无损切换 Dolby Vision，已预先选择服务器转码",
+            )
+        } else {
+            item
+        }
+    }
+
     val preflightItems =
         remember(
             activeItems,
@@ -276,33 +306,7 @@ internal fun PlayerRoot(
             effectiveOptimizationMode,
             sessionEngineSelection,
         ) {
-            activeItems.map { item ->
-                val probe = item.playbackMediaProbe()
-                val videoSupport =
-                    capabilityProvider?.videoSupport(probe.source.videoRequirements)
-                        ?: deviceCapabilities.videoSupport(probe.source.videoRequirements)
-                val plan =
-                    planPlayback(
-                        probe = probe,
-                        capabilities = deviceCapabilities,
-                        preferredEngine = kind,
-                        preferredDecoderMode = effectiveDecoderMode,
-                        optimizationMode = effectiveOptimizationMode,
-                        engineSelection = sessionEngineSelection,
-                        engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
-                        videoSupport = videoSupport,
-                    )
-                val incompatibleQueuedDolbyEngine =
-                    probe.source.needsDolbyDecoder && plan.primaryEngine != kind
-                if (plan.requiresServerTranscode || incompatibleQueuedDolbyEngine) {
-                    item.withForcedServerTranscode(
-                        plan.reason
-                            ?: "队列当前内核无法无损切换 Dolby Vision，已预先选择服务器转码",
-                    )
-                } else {
-                    item
-                }
-            }
+            activeItems.map(::preflightItem)
         }
 
     fun cachedPlaybackSink(item: PlayerMediaItem?): PlaybackEventSink? {
@@ -351,6 +355,21 @@ internal fun PlayerRoot(
             )
         }
     val player = remember(engine) { engine.asYPlayer() }
+    val latestQueueAppender =
+        rememberUpdatedState<(List<PlayerMediaItem>) -> Boolean> { appended ->
+            if (appended.isEmpty()) {
+                true
+            } else {
+                val prepared =
+                    appended.map { item ->
+                        preflightItem(item.withPlaybackQuality(selectedQuality))
+                    }
+                prepared.canUseCore2Trial(startIndex = 0) &&
+                    player.appendItems(
+                        prepared.toCore2MediaItems(customUserAgent, selectedQuality),
+                    )
+            }
+        }
 
     DisposableEffect(engine, player, kind) {
         AppLog.info(
@@ -363,7 +382,7 @@ internal fun PlayerRoot(
                     "implementation" to engine::class.java.name,
                 ),
         )
-        onPlayerAttached(player, engine)
+        onPlayerAttached(player, engine) { appended -> latestQueueAppender.value(appended) }
         onDispose {
             onPlayerDetached(player, engine)
             engine.release()

@@ -43,6 +43,7 @@ internal fun createVideoEngine(
                 startPlaybackRequested = startPlaybackRequested,
                 startSpeed = startSpeed,
                 autoNext = autoNext,
+                quality = quality,
                 customUserAgent = customUserAgent,
             )
             ?.let { return it }

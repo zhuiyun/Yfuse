@@ -138,6 +138,7 @@ class PlayerActivity : ComponentActivity() {
 
     private var activePlayer: YPlayer? = null
     private var activeEngine: VideoEngine? = null
+    private var activeQueueAppender: ((List<PlayerMediaItem>) -> Boolean)? = null
     private var playbackGate: WatchGatedPlayback? = null
     private var activeState = PlaybackState()
     private lateinit var audioManager: AudioManager
@@ -459,12 +460,16 @@ class PlayerActivity : ComponentActivity() {
                     accountTokens = accountTokens,
                     watchTogetherPreferences = watchTogetherPreferences,
                     playbackGate = playbackController,
-                    onPlayerAttached = { player, engine ->
+                    onPlayerAttached = { player, engine, appendItems ->
                         activePlayer = player
                         activeEngine = engine
+                        activeQueueAppender = appendItems
                     },
                     onPlayerDetached = { player, engine ->
-                        if (activePlayer === player) activePlayer = null
+                        if (activePlayer === player) {
+                            activePlayer = null
+                            activeQueueAppender = null
+                        }
                         if (activeEngine === engine) activeEngine = null
                     },
                     onPlaybackState = { state, item ->
@@ -662,6 +667,7 @@ class PlayerActivity : ComponentActivity() {
         stopRequested = true
         activePlayer?.release()
         activePlayer = null
+        activeQueueAppender = null
         activeEngine = null
         abandonAudioFocus()
         ActivePlayback.clear()
@@ -685,6 +691,7 @@ class PlayerActivity : ComponentActivity() {
         stopRequested = true
         activePlayer?.release()
         activePlayer = null
+        activeQueueAppender = null
         activeEngine = null
         abandonAudioFocus()
         ActivePlayback.clear()
@@ -920,7 +927,11 @@ class PlayerActivity : ComponentActivity() {
                 // the engine can take it as an extension of its playlist. Only a change it
                 // cannot absorb that way is worth interrupting the viewer for.
                 val appended = current.appendedBy(refreshed)
-                val absorbed = appended != null && activeEngine?.appendItems(appended) == true
+                val absorbedByPlayer =
+                    appended != null && activeQueueAppender?.invoke(appended) == true
+                val absorbed =
+                    appended != null &&
+                        (absorbedByPlayer || activeEngine?.appendItems(appended) == true)
                 val playbackSourcesChanged =
                     !absorbed && !current.hasSamePlaybackSourcesAs(refreshed)
                 if (playbackSourcesChanged) {

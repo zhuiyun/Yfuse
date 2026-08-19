@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
@@ -11,6 +12,7 @@ import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
+import com.yfuse.core2.api.appendingDistinct
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,6 +37,11 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val request: YPlayerOpenRequest,
     private val routeEvaluator: AndroidCore2RouteEvaluator = AndroidCore2RouteEvaluator(context),
 ) : YPlayer {
+    private val queueLock = Any()
+
+    @Volatile
+    private var queueItems = request.items
+
     private val mutableState =
         MutableStateFlow(
             YPlayerState(
@@ -42,7 +49,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 playbackRequested = request.autoPlay,
                 positionMs = request.startPositionMs,
                 currentIndex = request.startIndex,
-                itemCount = request.items.size,
+                itemCount = queueItems.size,
                 diagnostics =
                     YPlayerDiagnostics(
                         route = YPlaybackRoute.Legacy,
@@ -96,7 +103,7 @@ internal class AndroidAdaptiveCore2YPlayer(
     override fun selectTrack(type: YTrackType, id: String) = send(Command.SelectTrack(type, id))
 
     override fun selectItem(index: Int) {
-        if (released || index !in request.items.indices) return
+        if (released || index !in queueItems.indices) return
         mutableState.updateState {
             it.copy(
                 phase = YPlaybackPhase.Preparing,
@@ -110,6 +117,21 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
         commands.trySend(Command.SelectItem(index))
     }
+
+    override fun appendItems(items: List<YMediaItem>): Boolean =
+        synchronized(queueLock) {
+            if (released) return@synchronized false
+            val previous = queueItems
+            val extended = previous.appendingDistinct(items) ?: return@synchronized false
+            if (extended === previous) return@synchronized true
+            queueItems = extended
+            if (commands.trySend(Command.QueueExtended).isSuccess) {
+                true
+            } else {
+                queueItems = previous
+                false
+            }
+        }
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
 
@@ -175,7 +197,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
 
         fun createChild(positionMs: Long): YPlayer? {
-            val item = request.items[currentIndex]
+            val item = queueItems[currentIndex]
             val tunnelAllowed = allowTunnel && kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
             val decision = routeEvaluator.evaluate(item, preferTunnel = tunnelAllowed) ?: return null
             val singleRequest =
@@ -216,13 +238,13 @@ internal class AndroidAdaptiveCore2YPlayer(
                         mutableState.value =
                             childState.copy(
                                 currentIndex = childIndex,
-                                itemCount = request.items.size,
+                                itemCount = queueItems.size,
                                 playbackRequested = requestedPlay && childState.phase != YPlaybackPhase.Ended,
                             )
                         if (
                             childState.phase == YPlaybackPhase.Ended &&
                             request.autoNext &&
-                            childIndex + 1 < request.items.size
+                            childIndex + 1 < queueItems.size
                         ) {
                             commands.trySend(Command.SelectItem(childIndex + 1))
                         }
@@ -312,6 +334,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                             allowTunnel = true
                             rebuild(0L)
                         }
+                        Command.QueueExtended -> {
+                            mutableState.updateState { it.copy(itemCount = queueItems.size) }
+                        }
                         is Command.FallbackFromTunnel -> {
                             if (
                                 command.index == currentIndex &&
@@ -338,6 +363,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         data object Play : Command
         data object Pause : Command
         data object Retry : Command
+        data object QueueExtended : Command
 
         data class Seek(val positionMs: Long) : Command
         data class SetSpeed(val speed: Float) : Command

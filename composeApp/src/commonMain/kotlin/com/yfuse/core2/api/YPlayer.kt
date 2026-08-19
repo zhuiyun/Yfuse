@@ -36,6 +36,14 @@ interface YPlayer {
 
     fun selectItem(index: Int)
 
+    /**
+     * Adds entries to the tail without disturbing the active item.
+     *
+     * Implementations that cannot extend their live queue return false so the product can rebuild
+     * at the current item and position. An empty extension is always already satisfied.
+     */
+    fun appendItems(items: List<YMediaItem>): Boolean = items.isEmpty()
+
     fun currentPositionMs(): Long = state.value.positionMs
 
     fun retry()
@@ -74,6 +82,14 @@ data class YMediaItem(
     /** Opaque provider identity; Core2 must not require Emby/Jellyfin-specific models. */
     val providerKey: String? = null,
 )
+
+/** Returns an extended queue, or null when appending would make item identity ambiguous. */
+internal fun List<YMediaItem>.appendingDistinct(items: List<YMediaItem>): List<YMediaItem>? {
+    if (items.isEmpty()) return this
+    val ids = mapTo(mutableSetOf(), YMediaItem::id)
+    if (items.any { item -> !ids.add(item.id) }) return null
+    return this + items
+}
 
 enum class YTrackType {
     Audio,

@@ -222,7 +222,9 @@ As of 2026-08-19, the opt-in path has these production boundaries:
 - DRM, external subtitle, disc-media, unsupported-scheme, and otherwise ineligible queues bypass the
   trial and continue directly on Legacy;
 - queue auto-next is owned by the adaptive Core2 layer, with every new item receiving a fresh route
-  evaluation.
+  evaluation;
+- eligible episodes discovered during a live series refresh append through `YPlayer` without
+  restarting Core2; unsupported additions deliberately trigger the existing Legacy rebuild path.
 
 Activity lifecycle, MediaSession/notification actions, audio focus, runtime monitoring, and
 watch-together controls now bind directly to `YPlayer`. A native Core2 player is unwrapped instead
@@ -230,6 +232,7 @@ of being routed back through the Legacy adapter. PlayerRoot handovers, network r
 handoffs, primary track restoration, and ordinary playback controls also call `YPlayer` directly.
 The remaining migration boundary is still material: PlayerRoot presentation state, backend-specific
 quality/transcode/output tuning, secondary subtitles, disc navigation, and queue hot append still
-use `VideoEngine`. Core2 also does not yet claim the disc, GPU-enhanced, or software-fallback tiers.
+use `VideoEngine` on Legacy backends. Core2 also does not yet claim the disc, GPU-enhanced, or
+software-fallback tiers.
 Physical-device startup, seek, surface recreation, HDR, audio-route, and background/foreground
 regression gates must pass before any eligible cohort can default to Core2.

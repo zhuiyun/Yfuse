@@ -1,11 +1,13 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
+import com.yfuse.feature.player.startsWithServerTranscode
 
 /**
  * Separate construction boundary for the opt-in Core2 trial.
@@ -22,18 +24,13 @@ internal object AndroidCore2TrialFactory {
         startPlaybackRequested: Boolean,
         startSpeed: Float,
         autoNext: Boolean,
+        quality: PlaybackQuality,
         customUserAgent: String,
     ): VideoEngine? {
         if (!items.canUseCore2Trial(startIndex)) return null
-        val headers =
-            customUserAgent
-                .trim()
-                .takeIf(String::isNotEmpty)
-                ?.let { mapOf(USER_AGENT_HEADER to it) }
-                .orEmpty()
         val request =
             YPlayerOpenRequest(
-                items = items.map { it.toCore2MediaItem(headers) },
+                items = items.toCore2MediaItems(customUserAgent, quality),
                 startIndex = startIndex,
                 startPositionMs = startPositionMs.coerceAtLeast(0L),
                 autoPlay = startPlaybackRequested,
@@ -57,10 +54,31 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     }
 }
 
-private fun PlayerMediaItem.toCore2MediaItem(headers: Map<String, String>): YMediaItem =
+internal fun List<PlayerMediaItem>.toCore2MediaItems(
+    customUserAgent: String,
+    quality: PlaybackQuality,
+): List<YMediaItem> {
+    val headers =
+        customUserAgent
+            .trim()
+            .takeIf(String::isNotEmpty)
+            ?.let { mapOf(USER_AGENT_HEADER to it) }
+            .orEmpty()
+    return map { item -> item.toCore2MediaItem(headers, quality) }
+}
+
+private fun PlayerMediaItem.toCore2MediaItem(
+    headers: Map<String, String>,
+    quality: PlaybackQuality,
+): YMediaItem =
     YMediaItem(
         id = id,
-        uri = url,
+        uri =
+            if (startsWithServerTranscode(quality)) {
+                transcodeUrl.ifBlank { fallbackTranscodeUrl }
+            } else {
+                url
+            },
         title = title,
         headers = headers,
         providerKey = serverId,
