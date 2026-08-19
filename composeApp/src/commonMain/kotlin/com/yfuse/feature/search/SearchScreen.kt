@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -72,6 +73,7 @@ import com.yfuse.core.designsystem.SkeletonBlock
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
@@ -607,7 +609,12 @@ private fun ServerGroup(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                items(group.items, key = { it.id }) { item ->
+                itemsIndexed(
+                    items = group.items,
+                    key = { index, item ->
+                        mediaLazyItemKey("search:${group.serverId}", index, item.id)
+                    },
+                ) { _, item ->
                     ResultRow(
                         baseUrl = baseUrl,
                         accessToken = accessToken,

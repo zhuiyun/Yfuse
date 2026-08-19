@@ -20,6 +20,16 @@ data class MediaSharedElementKey(
 )
 
 /**
+ * A backend can return the same media id more than once in a rail. Compose requires every key
+ * in one lazy layout to be unique, so include both the rail scope and the stable occurrence.
+ */
+internal fun mediaLazyItemKey(
+    scope: String,
+    index: Int,
+    itemId: String,
+): String = "media:$scope:$index:$itemId"
+
+/**
  * Starts a shared transition only for a deliberate forward tap.
  *
  * The key is cleared after the push settles, so a later pop remains the hard cut selected

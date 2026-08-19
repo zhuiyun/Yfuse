@@ -41,6 +41,10 @@
 -dontwarn kotlinx.coroutines.**
 -keepclassmembers class io.ktor.** { volatile <fields>; }
 
+# R8 full-mode argument removal can desynchronize MVIKotlin's generic AtomicRef interface
+# from its generated JVM implementation on Android 9, causing AbstractMethodError at startup.
+-keep,allowobfuscation class com.arkivanov.mvikotlin.core.utils.internal.Atomic** { *; }
+
 # ---- Enums used by libraries via valueOf ----
 -keepclassmembers enum * {
     public static **[] values();

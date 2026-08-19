@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.selection.selectableGroup
@@ -98,6 +99,7 @@ import com.yfuse.core.designsystem.loopingCarouselPageCount
 import com.yfuse.core.designsystem.loopingCarouselSemantics
 import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
+import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.pageTint
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedDominantColor
@@ -1047,7 +1049,12 @@ private fun PlaybackHistory(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(items, key = { it.id }) { item ->
+            itemsIndexed(
+                items = items,
+                key = { index, item ->
+                    mediaLazyItemKey("library-history:${serverId.orEmpty()}", index, item.id)
+                },
+            ) { _, item ->
                 CaptionedPoster(
                     url =
                         EmbyImages.backdrop(
@@ -1159,7 +1166,16 @@ private fun CategorySection(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(row.items, key = { it.id }) { item ->
+            itemsIndexed(
+                items = row.items,
+                key = { index, item ->
+                    mediaLazyItemKey(
+                        "library-category:${serverId.orEmpty()}:${row.libraryId}",
+                        index,
+                        item.id,
+                    )
+                },
+            ) { _, item ->
                 CaptionedPoster(
                     url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
                     title = item.title,
