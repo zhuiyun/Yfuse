@@ -1,0 +1,185 @@
+package com.yfuse.core2.legacy
+
+import android.content.Context
+import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core2.android.AndroidCore2FallbackRouteFactory
+import com.yfuse.core2.android.AndroidSurfaceVideoOutput
+import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YPlaybackRoute
+import com.yfuse.core2.api.YPlayer
+import com.yfuse.core2.api.YPlayerOpenRequest
+import com.yfuse.core2.api.YPlayerState
+import com.yfuse.core2.api.YTrackType
+import com.yfuse.core2.api.YVideoOutput
+import com.yfuse.core2.strategy.YPlaybackPlan
+import com.yfuse.feature.player.MpvVideoEngine
+import com.yfuse.feature.player.PlayerMediaItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.StateFlow
+
+/**
+ * Executes the two unfinished Core2 fallback tiers through the bundled, verified libmpv runtime.
+ * This is deliberately in `core2.legacy`: strategy and graph packages remain backend-independent,
+ * while users get a real FFmpeg/GPU path before native Vulkan and avcodec nodes replace it.
+ */
+internal class AndroidMpvCore2FallbackFactory(
+    context: Context,
+) : AndroidCore2FallbackRouteFactory {
+    private val appContext = context.applicationContext
+
+    override fun create(
+        item: YMediaItem,
+        request: YPlayerOpenRequest,
+        plan: YPlaybackPlan,
+        startSpeed: Float,
+    ): YPlayer? {
+        if (
+            plan.route != YPlaybackRoute.GpuEnhanced &&
+            plan.route != YPlaybackRoute.SoftwareFallback
+        ) {
+            return null
+        }
+        return AndroidMpvCore2FallbackPlayer(
+            context = appContext,
+            item = item,
+            request = request,
+            plan = plan,
+            startSpeed = startSpeed,
+        )
+    }
+}
+
+private class AndroidMpvCore2FallbackPlayer(
+    context: Context,
+    item: YMediaItem,
+    request: YPlayerOpenRequest,
+    private val plan: YPlaybackPlan,
+    startSpeed: Float,
+) : YPlayer {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val engine =
+        MpvVideoEngine(
+            context = context,
+            items =
+                listOf(
+                    PlayerMediaItem(
+                        id = item.id,
+                        url = item.uri,
+                        transcodeUrl = "",
+                        fallbackTranscodeUrl = "",
+                        title = item.title ?: item.id,
+                        serverId = item.providerKey,
+                    ),
+                ),
+            startIndex = 0,
+            startPositionMs = request.startPositionMs,
+            startPlaybackRequested = request.autoPlay,
+            startSpeed = startSpeed,
+            decoderMode =
+                if (plan.route == YPlaybackRoute.SoftwareFallback) {
+                    DecoderMode.Software
+                } else {
+                    DecoderMode.Hardware
+                },
+            autoNext = false,
+            quality = PlaybackQuality.Original,
+            customUserAgent = item.headers[USER_AGENT_HEADER].orEmpty(),
+            scope = scope,
+        )
+    private val delegate = LegacyYPlayerAdapter(engine)
+
+    override val state: StateFlow<YPlayerState> =
+        MappedFallbackStateFlow(delegate.state) { state ->
+            state.copy(
+                diagnostics =
+                    state.diagnostics.copy(
+                        route = resolvedMpvFallbackRoute(plan.route, state.diagnostics.decoder),
+                        demuxer = "libavformat compatibility executor",
+                        renderer = "libmpv GPU",
+                        reason = "${plan.reason}; compatibility executor active",
+                    ),
+            )
+        }
+
+    override val playbackRequested: Boolean get() = delegate.playbackRequested
+
+    override fun prepare() = Unit
+
+    override fun setVideoOutput(output: YVideoOutput?): Boolean =
+        when (output) {
+            null -> {
+                engine.detach()
+                true
+            }
+
+            is AndroidSurfaceVideoOutput -> {
+                engine.attach(output.surface)
+                true
+            }
+
+            else -> false
+        }
+
+    override fun play() = delegate.play()
+
+    override fun pause() = delegate.pause()
+
+    override fun seekTo(positionMs: Long) = delegate.seekTo(positionMs)
+
+    override fun setSpeed(speed: Float) = delegate.setSpeed(speed)
+
+    override fun selectTrack(
+        type: YTrackType,
+        id: String,
+    ) = delegate.selectTrack(type, id)
+
+    override fun selectItem(index: Int) = delegate.selectItem(index)
+
+    override fun currentPositionMs(): Long = delegate.currentPositionMs()
+
+    override fun retry() = delegate.retry()
+
+    override fun release() {
+        engine.detach()
+        delegate.release()
+        scope.cancel()
+    }
+}
+
+internal fun resolvedMpvFallbackRoute(
+    plannedRoute: YPlaybackRoute,
+    decoderLabel: String,
+): YPlaybackRoute {
+    if (plannedRoute == YPlaybackRoute.SoftwareFallback) return plannedRoute
+    val normalized = decoderLabel.lowercase()
+    return if (
+        "software" in normalized ||
+        "ffmpeg" in normalized ||
+        "软件" in normalized
+    ) {
+        YPlaybackRoute.SoftwareFallback
+    } else {
+        plannedRoute
+    }
+}
+
+@OptIn(ExperimentalForInheritanceCoroutinesApi::class)
+private class MappedFallbackStateFlow(
+    private val source: StateFlow<YPlayerState>,
+    private val transform: (YPlayerState) -> YPlayerState,
+) : StateFlow<YPlayerState> {
+    override val value: YPlayerState get() = transform(source.value)
+
+    override val replayCache: List<YPlayerState> get() = listOf(value)
+
+    override suspend fun collect(collector: FlowCollector<YPlayerState>): Nothing =
+        source.collect { value -> collector.emit(transform(value)) }
+}
+
+private const val USER_AGENT_HEADER = "User-Agent"

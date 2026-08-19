@@ -59,6 +59,13 @@ internal fun mpvAudioOutputReadiness(
     }
 }
 
+internal fun mpvDecoderDiagnostic(hwdecCurrent: String?): String =
+    hwdecCurrent
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && !it.equals("no", ignoreCase = true) }
+        ?.let { "硬件解码 · $it" }
+        ?: "FFmpeg 软件解码"
+
 /**
  * Native optical-disc URLs are explicit so Blu-ray always starts on the main feature instead of
  * relying on whichever playlist libbluray happens to expose first. mpv documents `bd://longest`
@@ -208,7 +215,18 @@ class MpvVideoEngine(
 
     private val observer =
         object : MPVLib.EventObserver {
-            override fun eventProperty(property: String) = Unit
+            override fun eventProperty(property: String) {
+                if (property == "hwdec-current") {
+                    _state.update {
+                        it.copy(
+                            diagnostics =
+                                it.diagnostics.copy(
+                                    decoder = mpvDecoderDiagnostic(null),
+                                ),
+                        )
+                    }
+                }
+            }
 
             override fun eventProperty(
                 property: String,
@@ -391,6 +409,15 @@ class MpvVideoEngine(
                     "video-codec" ->
                         _state.update {
                             it.copy(diagnostics = it.diagnostics.copy(videoCodec = value))
+                        }
+                    "hwdec-current" ->
+                        _state.update {
+                            it.copy(
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        decoder = mpvDecoderDiagnostic(value),
+                                    ),
+                            )
                         }
                     "video-params/gamma" ->
                         _state.update {
@@ -596,6 +623,7 @@ class MpvVideoEngine(
             instance.observeProperty("video-params/w", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("video-params/gamma", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("video-codec", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("hwdec-current", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("audio-codec-name", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("audio-params/channel-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("estimated-vf-fps", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)

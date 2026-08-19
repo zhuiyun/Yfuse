@@ -183,6 +183,13 @@ Planned handling:
 - tone mapping, gamut mapping, dithering/debanding;
 - FFmpeg software decode fallback only after native routes are exhausted.
 
+Current compatibility milestone: the adaptive Core2 router can execute `GpuEnhanced` and
+`SoftwareFallback` through the repository's pinned libmpv build. The former requests hardware
+decode plus libmpv GPU tone mapping; the latter disables hardware decode and uses FFmpeg plus the GPU
+renderer. Active `hwdec-current` evidence corrects the reported route if hardware decode falls back
+internally. This executor lives under `core2.legacy` and is an explicit bridge, not a claim that the
+planned AHardwareBuffer/Vulkan and standalone avcodec graph nodes are complete.
+
 ### Phase 8 — Device intelligence and retirement of Legacy
 
 - device/SoC/codec quirk database;
@@ -239,6 +246,10 @@ Backend-specific quality/transcode/output tuning, secondary subtitles, and disc 
 isolated behind `PlayerBackendExtensions`; unsupported Core2 operations continue to return an
 explicit unsupported result and preserve the existing rebuild/fallback policy. This completes the
 Phase 0 product-control migration without claiming those optional capabilities in the stable
-`YPlayer` API. Core2 still does not claim the disc, GPU-enhanced, or software-fallback tiers.
+`YPlayer` API. Core2 still does not claim the disc tier. `GpuEnhanced` and `SoftwareFallback` are
+executable through the verified libmpv compatibility executor, including native-route-to-software
+runtime fallback for container/decoder/renderer/audio-sink failures. Network, authorization and DRM
+failures skip that retry. Native Vulkan and standalone avcodec nodes remain Phase 7 replacement
+work, rather than being misrepresented as already implemented.
 Physical-device startup, seek, surface recreation, HDR, audio-route, and background/foreground
 regression gates must pass before any eligible cohort can default to Core2.

@@ -13,6 +13,11 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.appendingDistinct
+import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
+import com.yfuse.core2.strategy.YDecodePath
+import com.yfuse.core2.strategy.YDemuxPath
+import com.yfuse.core2.strategy.YPlaybackPlan
+import com.yfuse.core2.strategy.YRenderPath
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,15 +32,17 @@ import kotlinx.coroutines.launch
 /**
  * Per-item Core2 router. It never assumes one queue shares one codec/HDR/audio route.
  *
- * Each selected item is probed independently and receives NativeTunnel, NativeDirect, or
- * NativeEnhanced.
- * If Core2 cannot prove an executable route, state becomes Failed/Unknown so the product-level
- * Legacy fallback can take over without poisoning any decoder-specific failure memory.
+ * Each selected item is probed independently and receives NativeTunnel, NativeDirect,
+ * NativeEnhanced, GpuEnhanced, or SoftwareFallback. GPU/software tiers use an injected
+ * compatibility executor until their native graph nodes are ready. If no executable route can be
+ * proven, state becomes Failed/Unknown so the product-level Legacy fallback can take over without
+ * poisoning any decoder-specific failure memory.
  */
 internal class AndroidAdaptiveCore2YPlayer(
     private val context: Context,
     private val request: YPlayerOpenRequest,
     private val routeEvaluator: AndroidCore2RouteEvaluator = AndroidCore2RouteEvaluator(context),
+    private val fallbackRouteFactory: AndroidCore2FallbackRouteFactory? = null,
 ) : YPlayer {
     private val queueLock = Any()
 
@@ -165,6 +172,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         var speed = 1f
         var pendingPositionMs = request.startPositionMs
         var allowTunnel = true
+        var forceSoftwareFallback = false
 
         fun stopChild() {
             childCollector?.cancel()
@@ -181,7 +189,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     playing = false,
                     playbackRequested = requestedPlay,
                     buffering = false,
-                    error = "YCore 2.0 当前没有可证明安全的原生路径，交回 Legacy",
+                    error = "YCore 2.0 当前没有可证明安全的本地路径，交回 Legacy",
                     errorCategory = YPlaybackFailureCategory.Unknown,
                     diagnostics =
                         it.diagnostics.copy(
@@ -200,6 +208,12 @@ internal class AndroidAdaptiveCore2YPlayer(
             val item = queueItems[currentIndex]
             val tunnelAllowed = allowTunnel && kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
             val decision = routeEvaluator.evaluate(item, preferTunnel = tunnelAllowed) ?: return null
+            val plan =
+                if (forceSoftwareFallback) {
+                    decision.plan.toSoftwareFallbackPlan("A previous local route failed at runtime")
+                } else {
+                    decision.plan
+                }
             val singleRequest =
                 YPlayerOpenRequest(
                     items = listOf(item),
@@ -209,12 +223,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                     autoNext = false,
                 )
             return when {
-                tunnelAllowed && decision.nativeTunnelExecutable ->
+                !forceSoftwareFallback && tunnelAllowed && decision.nativeTunnelExecutable ->
                     AndroidNativeTunnelYPlayer(context, singleRequest, routeEvaluator)
-                decision.nativeDirectExecutable && !decision.plan.usesHdrFallback ->
+                !forceSoftwareFallback &&
+                    decision.nativeDirectExecutable &&
+                    !decision.plan.usesHdrFallback ->
                     AndroidNativeDirectYPlayer(context, singleRequest)
-                decision.nativeEnhancedExecutable ->
+                !forceSoftwareFallback && decision.nativeEnhancedExecutable ->
                     AndroidNativeEnhancedYPlayer(context, singleRequest, routeEvaluator)
+                plan.route == YPlaybackRoute.GpuEnhanced ||
+                    plan.route == YPlaybackRoute.SoftwareFallback ->
+                    fallbackRouteFactory?.create(item, singleRequest, plan, speed)
                 else -> null
             }
         }
@@ -233,6 +252,16 @@ internal class AndroidAdaptiveCore2YPlayer(
                             childState.diagnostics.route == YPlaybackRoute.NativeTunnel
                         ) {
                             commands.trySend(Command.FallbackFromTunnel(childIndex, childState.positionMs))
+                            return@collect
+                        }
+                        if (
+                            childState.phase == YPlaybackPhase.Failed &&
+                            childState.diagnostics.route != YPlaybackRoute.SoftwareFallback &&
+                            childState.errorCategory.allowsCore2LocalSoftwareFallback()
+                        ) {
+                            commands.trySend(
+                                Command.FallbackToSoftware(childIndex, childState.positionMs),
+                            )
                             return@collect
                         }
                         mutableState.value =
@@ -272,7 +301,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
             val next = createChild(positionMs)
             if (next == null) {
-                publishUnavailable("No executable NativeTunnel/NativeDirect/NativeEnhanced route for item $currentIndex")
+                publishUnavailable("No executable Core2 or compatibility route for item $currentIndex")
             } else {
                 attachChild(next)
             }
@@ -332,6 +361,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             pendingPositionMs = 0L
                             currentIndex = command.index
                             allowTunnel = true
+                            forceSoftwareFallback = false
                             rebuild(0L)
                         }
                         Command.QueueExtended -> {
@@ -343,6 +373,18 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 child?.state?.value?.diagnostics?.route == YPlaybackRoute.NativeTunnel
                             ) {
                                 allowTunnel = false
+                                pendingPositionMs = command.positionMs
+                                rebuild(pendingPositionMs)
+                            }
+                        }
+                        is Command.FallbackToSoftware -> {
+                            if (
+                                command.index == currentIndex &&
+                                child?.state?.value?.diagnostics?.route !=
+                                YPlaybackRoute.SoftwareFallback
+                            ) {
+                                allowTunnel = false
+                                forceSoftwareFallback = true
                                 pendingPositionMs = command.positionMs
                                 rebuild(pendingPositionMs)
                             }
@@ -371,6 +413,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         data class SetVideoOutput(val output: YVideoOutput?) : Command
         data class SelectItem(val index: Int) : Command
         data class FallbackFromTunnel(val index: Int, val positionMs: Long) : Command
+        data class FallbackToSoftware(val index: Int, val positionMs: Long) : Command
     }
 }
 
@@ -378,7 +421,11 @@ internal class AndroidCore2PlayerFactory(
     private val context: Context,
 ) : YPlayerFactory {
     override fun create(request: YPlayerOpenRequest): YPlayer =
-        AndroidAdaptiveCore2YPlayer(context, request)
+        AndroidAdaptiveCore2YPlayer(
+            context = context,
+            request = request,
+            fallbackRouteFactory = AndroidMpvCore2FallbackFactory(context),
+        )
 }
 
 private inline fun MutableStateFlow<YPlayerState>.updateState(
@@ -388,3 +435,23 @@ private inline fun MutableStateFlow<YPlayerState>.updateState(
 }
 
 private const val TUNNEL_SPEED_EPSILON = 0.001f
+
+internal fun YPlaybackFailureCategory?.allowsCore2LocalSoftwareFallback(): Boolean =
+    this == null ||
+        this == YPlaybackFailureCategory.Container ||
+        this == YPlaybackFailureCategory.Decoder ||
+        this == YPlaybackFailureCategory.Renderer ||
+        this == YPlaybackFailureCategory.AudioSink ||
+        this == YPlaybackFailureCategory.Unknown
+
+internal fun YPlaybackPlan.toSoftwareFallbackPlan(reason: String): YPlaybackPlan =
+    copy(
+        route = YPlaybackRoute.SoftwareFallback,
+        demuxPath = YDemuxPath.Software,
+        decodePath = YDecodePath.Software,
+        renderPath = YRenderPath.Gpu,
+        decoderName = null,
+        nativeAudio = false,
+        usesHdrFallback = false,
+        reason = reason,
+    )

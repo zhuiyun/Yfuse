@@ -39,4 +39,11 @@ class MpvOutputStateTest {
             mpvAudioOutputReadiness(outputDriver = "audiotrack", outputFormat = "s16"),
         )
     }
+
+    @Test
+    fun active_decoder_reports_hardware_or_ffmpeg_from_mpv_evidence() {
+        assertEquals("硬件解码 · mediacodec", mpvDecoderDiagnostic("mediacodec"))
+        assertEquals("FFmpeg 软件解码", mpvDecoderDiagnostic("no"))
+        assertEquals("FFmpeg 软件解码", mpvDecoderDiagnostic(null))
+    }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlayerOpenRequest
+import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
@@ -36,7 +37,12 @@ internal object AndroidCore2TrialFactory {
                 autoPlay = startPlaybackRequested,
                 autoNext = autoNext,
             )
-        val player = AndroidAdaptiveCore2YPlayer(context.applicationContext, request)
+        val player =
+            AndroidAdaptiveCore2YPlayer(
+                context = context.applicationContext,
+                request = request,
+                fallbackRouteFactory = AndroidMpvCore2FallbackFactory(context),
+            )
         player.setSpeed(startSpeed)
         player.prepare()
         return YPlayerVideoEngineAdapter(player)
