@@ -190,7 +190,12 @@ function Invoke-RemoteBash {
         [string]$FailureMessage
     )
 
-    $output = @($Script | & ssh -p $SshPort $Server bash -s -- @ArgumentList 2>&1)
+    # PowerShell writes pipeline records with the host newline. Normalize embedded Bash to LF,
+    # then leave the pipeline-added CRLF on a comment so it cannot become part of a shell word.
+    $normalizedScript =
+        $Script.Replace("`r`n", "`n").Replace("`r", "`n").TrimEnd([char[]]"`n") +
+        "`n# pipeline terminator"
+    $output = @($normalizedScript | & ssh -p $SshPort $Server bash -s -- @ArgumentList 2>&1)
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         $details = ($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
