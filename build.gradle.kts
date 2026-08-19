@@ -24,6 +24,7 @@ plugins {
 val ktlintVersion = libs.versions.ktlint.asProvider()
 val secureNettyVersion = "4.1.136.Final"
 val secureProtobufVersion = "3.25.5"
+val secureWireVersion = "6.3.0"
 
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
@@ -46,6 +47,11 @@ subprojects {
                     ) -> {
                     useVersion(secureProtobufVersion)
                     because("Protobuf versions before 3.25.5 allow unbounded recursion while parsing unknown fields")
+                }
+                requested.group == "com.squareup.wire" &&
+                    requested.name in setOf("wire-runtime", "wire-runtime-jvm") -> {
+                    useVersion(secureWireVersion)
+                    because("Wire versions before 6.3.0 allow malformed groups to escape the documented decode failure path")
                 }
             }
         }
