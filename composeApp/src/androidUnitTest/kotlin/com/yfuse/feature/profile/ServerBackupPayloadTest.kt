@@ -6,7 +6,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class ServerBackupPayloadTest {
-
     @Test
     fun qrPayloadRoundTripPreservesProtectedEnvelope() {
         val backup =

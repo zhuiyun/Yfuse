@@ -1,34 +1,34 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.BlurEffect
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -84,6 +84,7 @@ fun FallbackImage(
     var candidateIndex by remember(candidates) { mutableIntStateOf(0) }
     var loaded by remember(candidates, candidateIndex) { mutableStateOf(false) }
     var exhausted by remember(candidates) { mutableStateOf(candidates.isEmpty()) }
+
     /**
      * Whether this particular picture is allowed the entrance.
      *
@@ -101,10 +102,11 @@ fun FallbackImage(
     // 0 while the picture is still arriving, 1 once it has settled into place.
     val settle by animateFloatAsState(
         targetValue = if (loaded || !animate) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (animate) revealDurationMillis else 0,
-            easing = Motion.Curve,
-        ),
+        animationSpec =
+            tween(
+                durationMillis = if (animate) revealDurationMillis else 0,
+                easing = Motion.Curve,
+            ),
         label = "imageIn",
     )
     Box(modifier) {
@@ -119,27 +121,30 @@ fun FallbackImage(
                         model = candidate,
                         contentDescription = contentDescription,
                         contentScale = contentScale,
-                        modifier = Modifier.fillMaxSize().graphicsLayer {
-                            // The placeholder underneath is the caller's — [Poster] tints its
-                            // own well — because artwork colour is unknown before arrival.
-                            val remaining = 1f - settle
-                            val scale = if (alphaOnly) {
-                                1f
-                            } else {
-                                1f + (revealScaleFrom - 1f) * remaining
-                            }
-                            scaleX = scale
-                            scaleY = scale
-                            alpha = settle
-                            // Below API 31 renderEffect is ignored, so the load resolves as a
-                            // scale-and-fade on those devices rather than not at all.
-                            renderEffect = if (!alphaOnly && remaining > 0.01f) {
-                                val radius = revealBlur.toPx() * remaining
-                                BlurEffect(radius, radius)
-                            } else {
-                                null
-                            }
-                        },
+                        modifier =
+                            Modifier.fillMaxSize().graphicsLayer {
+                                // The placeholder underneath is the caller's — [Poster] tints its
+                                // own well — because artwork colour is unknown before arrival.
+                                val remaining = 1f - settle
+                                val scale =
+                                    if (alphaOnly) {
+                                        1f
+                                    } else {
+                                        1f + (revealScaleFrom - 1f) * remaining
+                                    }
+                                scaleX = scale
+                                scaleY = scale
+                                alpha = settle
+                                // Below API 31 renderEffect is ignored, so the load resolves as a
+                                // scale-and-fade on those devices rather than not at all.
+                                renderEffect =
+                                    if (!alphaOnly && remaining > 0.01f) {
+                                        val radius = revealBlur.toPx() * remaining
+                                        BlurEffect(radius, radius)
+                                    } else {
+                                        null
+                                    }
+                            },
                         onSuccess = { success ->
                             // Order matters: [instant] has to be true before [loaded] flips, or
                             // the animation starts on this frame and the flag lands on the next.
@@ -196,7 +201,11 @@ private fun BoxScope.FailedImagePlaceholder(description: String?) {
 }
 
 internal fun imageFallbackMonogram(description: String?): String =
-    description?.trim()?.firstOrNull()?.uppercaseChar()?.toString() ?: "—"
+    description
+        ?.trim()
+        ?.firstOrNull()
+        ?.uppercaseChar()
+        ?.toString() ?: "—"
 
 /**
  * `.poster` — a rounded, cropped artwork tile, optionally captioned by
@@ -222,17 +231,19 @@ fun Poster(
     val palette = LocalPalette.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val sharedController = LocalSharedMediaTransitionController.current
-    val resolvedOnClick = onClick?.let { click ->
-        {
-            if (!reduceMotion && sharedTransitionKey != null) {
-                sharedController?.begin(sharedTransitionKey)
+    val resolvedOnClick =
+        onClick?.let { click ->
+            {
+                if (!reduceMotion && sharedTransitionKey != null) {
+                    sharedController?.begin(sharedTransitionKey)
+                }
+                click()
             }
-            click()
         }
-    }
-    val candidates = remember(url, fallbackUrl, fallbackUrls) {
-        (listOfNotNull(url, fallbackUrl) + fallbackUrls).filter { it.isNotBlank() }.distinct()
-    }
+    val candidates =
+        remember(url, fallbackUrl, fallbackUrls) {
+            (listOfNotNull(url, fallbackUrl) + fallbackUrls).filter { it.isNotBlank() }.distinct()
+        }
     Box(
         modifier
             .clip(shape)
@@ -246,8 +257,7 @@ fun Poster(
                 } else {
                     cssLinearGradient(180f, 0f to Color(0xFFE4E9F1), 1f to Color(0xFFD3DAE5))
                 },
-            )
-            .let {
+            ).let {
                 // 触摸反馈全应用统一走 [pressable]：压缩 0.97、无涟漪、跟随
                 // 「减弱动态效果」。这里原来是裸 clickable，也就是 Material 涟漪，
                 // 于是同一个海报组件在首页/媒体库点下去是涟漪、在详情页（外层套了
@@ -257,12 +267,13 @@ fun Poster(
                 // 海报是全 app 唯一开 tilt 的地方：它足够大，倾斜看得出来，而且这是
                 // 用户唯一会盯着看的图像内容。
                 when {
-                    resolvedOnClick != null || onLongClick != null -> it.pressable(
-                        tilt = true,
-                        focusShape = shape,
-                        onLongClick = onLongClick,
-                        onClick = { resolvedOnClick?.invoke() },
-                    )
+                    resolvedOnClick != null || onLongClick != null ->
+                        it.pressable(
+                            tilt = true,
+                            focusShape = shape,
+                            onLongClick = onLongClick,
+                            onClick = { resolvedOnClick?.invoke() },
+                        )
                     else -> it
                 }
             },
@@ -270,9 +281,10 @@ fun Poster(
         FallbackImage(
             urls = candidates,
             contentDescription = contentDescription,
-            modifier = Modifier
-                .sharedMediaArtwork(sharedTransitionKey)
-                .fillMaxSize(),
+            modifier =
+                Modifier
+                    .sharedMediaArtwork(sharedTransitionKey)
+                    .fillMaxSize(),
             alphaOnly = true,
             revealDurationMillis = PosterFadeDurationMs,
         )
@@ -294,21 +306,24 @@ fun Poster(
                     ),
             )
             Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(start = 9.dp, end = 9.dp, bottom = 7.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(start = 9.dp, end = 9.dp, bottom = 7.dp),
             ) {
                 Text(
                     text = title,
-                    style = AppTypography.body.strong.copy(
-                        lineHeight = 16.sp,
-                        shadow = Shadow(
-                            color = Color.Black.copy(alpha = 0.5f),
-                            offset = Offset(0f, 1f),
-                            blurRadius = 4f,
+                    style =
+                        AppTypography.body.strong.copy(
+                            lineHeight = 16.sp,
+                            shadow =
+                                Shadow(
+                                    color = Color.Black.copy(alpha = 0.5f),
+                                    offset = Offset(0f, 1f),
+                                    blurRadius = 4f,
+                                ),
                         ),
-                    ),
                     color = Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -368,14 +383,15 @@ fun CaptionedPoster(
     val palette = LocalPalette.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val sharedController = LocalSharedMediaTransitionController.current
-    val resolvedOnClick = onClick?.let { click ->
-        {
-            if (!reduceMotion && sharedTransitionKey != null) {
-                sharedController?.begin(sharedTransitionKey)
+    val resolvedOnClick =
+        onClick?.let { click ->
+            {
+                if (!reduceMotion && sharedTransitionKey != null) {
+                    sharedController?.begin(sharedTransitionKey)
+                }
+                click()
             }
-            click()
         }
-    }
     Column(
         // The press lands on the whole tile, caption included — scaling only the artwork
         // and leaving the title behind reads as the image slipping out from under it.

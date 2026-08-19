@@ -7,10 +7,11 @@ import kotlin.test.assertTrue
 class SecureStoreEnvelopeCodecTest {
     @Test
     fun envelopeRoundTrips() {
-        val expected = SecureStoreEnvelope(
-            nonce = ByteArray(12) { it.toByte() },
-            ciphertext = ByteArray(32) { (it * 3).toByte() },
-        )
+        val expected =
+            SecureStoreEnvelope(
+                nonce = ByteArray(12) { it.toByte() },
+                ciphertext = ByteArray(32) { (it * 3).toByte() },
+            )
 
         val actual = SecureStoreEnvelopeCodec.decode(SecureStoreEnvelopeCodec.encode(expected))
 
@@ -20,9 +21,10 @@ class SecureStoreEnvelopeCodecTest {
 
     @Test
     fun decoderRejectsModifiedHeaderTruncationAndTrailingBytes() {
-        val encoded = SecureStoreEnvelopeCodec.encode(
-            SecureStoreEnvelope(ByteArray(12), ByteArray(16)),
-        )
+        val encoded =
+            SecureStoreEnvelopeCodec.encode(
+                SecureStoreEnvelope(ByteArray(12), ByteArray(16)),
+            )
         val wrongMagic = encoded.copyOf().apply { this[0] = 0 }
         val wrongVersion = encoded.copyOf().apply { this[4] = 2 }
         val wrongNonceSize = encoded.copyOf().apply { this[5] = 11 }

@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class SharedMediaTransitionTest {
-
     @Test
     fun only_the_matching_forward_transition_can_clear_the_active_artwork() {
         val controller = SharedMediaTransitionController()

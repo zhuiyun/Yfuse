@@ -28,8 +28,9 @@ class WatchInviteResolver(
     private val registry: ServerRegistry,
 ) {
     suspend fun resolve(invite: WatchInvite): InviteResolution {
-        val mediaKey = invite.mediaKey
-            ?: return InviteResolution.Missing(invite.title)
+        val mediaKey =
+            invite.mediaKey
+                ?: return InviteResolution.Missing(invite.title)
 
         val servers = orderedServers()
         if (servers.isEmpty()) {
@@ -44,17 +45,18 @@ class WatchInviteResolver(
         var sawFailure = false
         for (server in servers) {
             val result = repo.findByMediaKey(server, mediaKey)
-            val item = result.getOrElse {
-                sawFailure = true
-                AppLog.warning(
-                    category = "watch_together",
-                    event = "invite_lookup_failed",
-                    message = "Watch-together invite lookup failed on a server",
-                    throwable = it,
-                    attributes = mapOf("serverId" to server.id),
-                )
-                null
-            } ?: continue
+            val item =
+                result.getOrElse {
+                    sawFailure = true
+                    AppLog.warning(
+                        category = "watch_together",
+                        event = "invite_lookup_failed",
+                        message = "Watch-together invite lookup failed on a server",
+                        throwable = it,
+                        attributes = mapOf("serverId" to server.id),
+                    )
+                    null
+                } ?: continue
             return InviteResolution.Found(
                 serverName = server.serverName,
                 title = item.title,

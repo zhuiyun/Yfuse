@@ -46,8 +46,8 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -55,11 +55,11 @@ import com.yfuse.core.designsystem.heroPanelBrush
 import com.yfuse.core.designsystem.heroScrim
 import com.yfuse.core.designsystem.heroSurface
 import com.yfuse.core.designsystem.liftOverHero
+import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedDominantColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
-import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.TmdbImages
@@ -74,27 +74,31 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
     val themeAccent = LocalAccentColors.current.accent
     // image.tmdb.org is the primary CDN and media.themoviedb.org the official mirror for
     // when it is unreachable; the dominant-colour probe follows whichever one is showing.
-    val heroUrls = listOf(
-        TmdbImages.backdrop(item.backdropPath),
-        TmdbImages.media(item.backdropPath, "w1280"),
-        TmdbImages.poster(item.posterPath, "w780"),
-        TmdbImages.media(item.posterPath, "w780"),
-    )
+    val heroUrls =
+        listOf(
+            TmdbImages.backdrop(item.backdropPath),
+            TmdbImages.media(item.backdropPath, "w1280"),
+            TmdbImages.poster(item.posterPath, "w780"),
+            TmdbImages.media(item.posterPath, "w780"),
+        )
     val heroUrl = heroUrls.firstOrNull { it != null }
-    val accent = rememberAnimatedDominantColor(
-        heroUrl,
-        Brand.Primary, // design-system: brand-identity
-    )
+    val accent =
+        rememberAnimatedDominantColor(
+            heroUrl,
+            Brand.Primary, // design-system: brand-identity
+        )
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = maxHeight * 0.34f
         val density = LocalDensity.current
-        val detailSurface = remember(accent, palette.isDark) {
-            heroSurface(accent, palette.isDark)
-        }
-        val panelBrush = remember(detailSurface, density) {
-            heroPanelBrush(detailSurface, density, height = 220.dp)
-        }
+        val detailSurface =
+            remember(accent, palette.isDark) {
+                heroSurface(accent, palette.isDark)
+            }
+        val panelBrush =
+            remember(detailSurface, density) {
+                heroPanelBrush(detailSurface, density, height = 220.dp)
+            }
         val listState = rememberLazyListState()
         val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
         StatusBarIconStyle(darkIcons = lightPageReached)
@@ -121,19 +125,19 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                         AppIcons.ChevronLeft,
                         contentDescription = "返回",
                         tint = Color.White,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .statusBarsPadding()
-                            .padding(start = 18.dp, top = 12.dp)
-                            .pressable(onClickLabel = "返回上一页", onClick = component.onBack)
-                            .touchTarget()
-                            .size(38.dp)
-                            .solidGlass(
-                                shape = CircleShape,
-                                fill = Color(0xFF11151F).copy(alpha = 0.28f),
-                                border = Color.White.copy(alpha = 0.34f),
-                            )
-                            .padding(10.dp),
+                        modifier =
+                            Modifier
+                                .align(Alignment.TopStart)
+                                .statusBarsPadding()
+                                .padding(start = 18.dp, top = 12.dp)
+                                .pressable(onClickLabel = "返回上一页", onClick = component.onBack)
+                                .touchTarget()
+                                .size(38.dp)
+                                .solidGlass(
+                                    shape = CircleShape,
+                                    fill = Color(0xFF11151F).copy(alpha = 0.28f),
+                                    border = Color.White.copy(alpha = 0.34f),
+                                ).padding(10.dp),
                     )
                 }
             }
@@ -158,18 +162,19 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             .shadow(Shadows.sheet, GlassShapes.sheet)
                             .solidGlass(
                                 shape = GlassShapes.card,
-                                    fill = if (palette.isDark) {
+                                fill =
+                                    if (palette.isDark) {
                                         palette.glassStrong
                                     } else {
                                         Color(0xFFEAF0FA).copy(alpha = 0.82f)
-                                },
-                                border = if (palette.isDark) {
-                                    palette.border
-                                } else {
-                                    Color.White.copy(alpha = 0.94f)
-                                },
-                            )
-                            .padding(10.dp),
+                                    },
+                                border =
+                                    if (palette.isDark) {
+                                        palette.border
+                                    } else {
+                                        Color.White.copy(alpha = 0.94f)
+                                    },
+                            ).padding(10.dp),
                     ) {
                         Row(
                             Modifier.fillMaxWidth(),
@@ -178,16 +183,18 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                         ) {
                             Poster(
                                 url = TmdbImages.poster(item.posterPath),
-                                fallbackUrls = listOfNotNull(
-                                    TmdbImages.media(item.posterPath),
-                                    TmdbImages.backdrop(item.backdropPath, "w780"),
-                                    TmdbImages.media(item.backdropPath, "w780"),
-                                ),
-                                modifier = Modifier
-                                    .width(78.dp)
-                                    .height(110.dp)
-                                    .shadow(Shadows.detailPoster, GlassShapes.poster)
-                                    .border(2.dp, Color.White, GlassShapes.poster),
+                                fallbackUrls =
+                                    listOfNotNull(
+                                        TmdbImages.media(item.posterPath),
+                                        TmdbImages.backdrop(item.backdropPath, "w780"),
+                                        TmdbImages.media(item.backdropPath, "w780"),
+                                    ),
+                                modifier =
+                                    Modifier
+                                        .width(78.dp)
+                                        .height(110.dp)
+                                        .shadow(Shadows.detailPoster, GlassShapes.poster)
+                                        .border(2.dp, Color.White, GlassShapes.poster),
                             )
                             Column(Modifier.weight(1f)) {
                                 Text(
@@ -216,13 +223,13 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         "TMDB ${(rating * 10).toInt() / 10.0}",
                                         style = AppTypography.caption.strong,
                                         color = Brand.Imdb,
-                                        modifier = Modifier
-                                            .solidGlass(
-                                                shape = GlassShapes.thumb,
-                                                fill = Brand.Imdb.copy(alpha = 0.14f),
-                                                border = Brand.Imdb.copy(alpha = 0.24f),
-                                            )
-                                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                                        modifier =
+                                            Modifier
+                                                .solidGlass(
+                                                    shape = GlassShapes.thumb,
+                                                    fill = Brand.Imdb.copy(alpha = 0.14f),
+                                                    border = Brand.Imdb.copy(alpha = 0.24f),
+                                                ).padding(horizontal = 7.dp, vertical = 3.dp),
                                     )
                                 }
                             }
@@ -238,7 +245,8 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
 
                     if (state.sources.any {
                             it.reachable && it.source != null && it.itemId != null
-                        }) {
+                        }
+                    ) {
                         TmdbSourceStrip(
                             sources = state.sources,
                             accent = themeAccent,
@@ -252,11 +260,12 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             style = AppTypography.body.strong,
                             color = palette.error,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .pressable(onClick = component::dismissError)
-                                .solidGlass(GlassShapes.card)
-                                .padding(12.dp),
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .pressable(onClick = component::dismissError)
+                                    .solidGlass(GlassShapes.card)
+                                    .padding(12.dp),
                         )
                     }
 
@@ -287,9 +296,10 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                     genre,
                                     style = AppTypography.body.strong,
                                     color = palette.sub,
-                                    modifier = Modifier
-                                        .solidGlass(GlassShapes.thumb)
-                                        .padding(horizontal = 11.dp, vertical = 7.dp),
+                                    modifier =
+                                        Modifier
+                                            .solidGlass(GlassShapes.thumb)
+                                            .padding(horizontal = 11.dp, vertical = 7.dp),
                                 )
                             }
                         }
@@ -305,20 +315,22 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                     ) {
                                         FallbackImage(
-                                            urls = listOf(
-                                                TmdbImages.poster(person.profilePath, "w185"),
-                                                TmdbImages.media(person.profilePath, "w185"),
-                                            ),
-                                            contentDescription = person.name,
-                                            modifier = Modifier
-                                                .size(58.dp)
-                                                .clip(CircleShape)
-                                                .background(palette.card)
-                                                .border(
-                                                    1.dp,
-                                                    Color.White.copy(alpha = 0.88f),
-                                                    CircleShape,
+                                            urls =
+                                                listOf(
+                                                    TmdbImages.poster(person.profilePath, "w185"),
+                                                    TmdbImages.media(person.profilePath, "w185"),
                                                 ),
+                                            contentDescription = person.name,
+                                            modifier =
+                                                Modifier
+                                                    .size(58.dp)
+                                                    .clip(CircleShape)
+                                                    .background(palette.card)
+                                                    .border(
+                                                        1.dp,
+                                                        Color.White.copy(alpha = 0.88f),
+                                                        CircleShape,
+                                                    ),
                                         )
                                         Spacer(Modifier.height(6.dp))
                                         Text(
@@ -368,9 +380,10 @@ private fun TmdbSourceStrip(
     onSelect: (serverId: String, itemId: String) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val availableSources = remember(sources) {
-        sources.filter { it.reachable && it.source != null && it.itemId != null }
-    }
+    val availableSources =
+        remember(sources) {
+            sources.filter { it.reachable && it.source != null && it.itemId != null }
+        }
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -384,21 +397,21 @@ private fun TmdbSourceStrip(
                     .heightIn(min = 52.dp)
                     .pressable {
                         entry.itemId?.let { onSelect(entry.serverId, it) }
-                    }
-                    .solidGlass(
+                    }.solidGlass(
                         shape = GlassShapes.thumb,
-                        fill = if (palette.isDark) {
-                            Color.White.copy(alpha = 0.07f)
-                        } else {
-                            Color(0xFFEFF3FA).copy(alpha = 0.72f)
-                        },
-                        border = if (palette.isDark) {
-                            Color.White.copy(alpha = 0.20f)
-                        } else {
-                            Color(0xFFD7DDE9)
-                        },
-                    )
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                        fill =
+                            if (palette.isDark) {
+                                Color.White.copy(alpha = 0.07f)
+                            } else {
+                                Color(0xFFEFF3FA).copy(alpha = 0.72f)
+                            },
+                        border =
+                            if (palette.isDark) {
+                                Color.White.copy(alpha = 0.20f)
+                            } else {
+                                Color(0xFFD7DDE9)
+                            },
+                    ).padding(horizontal = 10.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -448,14 +461,14 @@ private fun TmdbPlayDock(
             .fillMaxWidth()
             .solidGlass(
                 shape = GlassShapes.card,
-                fill = if (palette.isDark) {
-                    Color.White.copy(alpha = 0.08f)
-                } else {
-                    Color.White.copy(alpha = 0.72f)
-                },
+                fill =
+                    if (palette.isDark) {
+                        Color.White.copy(alpha = 0.08f)
+                    } else {
+                        Color.White.copy(alpha = 0.72f)
+                    },
                 border = if (palette.isDark) palette.border else Color.White.copy(alpha = 0.96f),
-            )
-            .padding(7.dp),
+            ).padding(7.dp),
     ) {
         if (playable) {
             Row(

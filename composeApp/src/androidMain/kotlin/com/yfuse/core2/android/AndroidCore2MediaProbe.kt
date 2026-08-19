@@ -84,14 +84,17 @@ internal class AndroidCore2MediaProbe(
         val demux = AndroidMediaExtractorDemuxNode(appContext)
         return try {
             demux.open(item.toProbeSource())
-            val videoIndex = demux.findFirstTrack("video/")
-                ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.NoVideoTrack)
+            val videoIndex =
+                demux.findFirstTrack("video/")
+                    ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.NoVideoTrack)
             val videoFormat = demux.trackFormat(videoIndex)
-            val videoMime = videoFormat.getString(MediaFormat.KEY_MIME)?.lowercase()
-                ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.UnknownVideoCodec)
+            val videoMime =
+                videoFormat.getString(MediaFormat.KEY_MIME)?.lowercase()
+                    ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.UnknownVideoCodec)
             val dolbyVisionConfig = videoFormat.dolbyVisionConfigOrNull(videoMime)
-            val videoCodec = videoMime.toCore2VideoCodec(videoFormat, dolbyVisionConfig)
-                ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.UnknownVideoCodec)
+            val videoCodec =
+                videoMime.toCore2VideoCodec(videoFormat, dolbyVisionConfig)
+                    ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.UnknownVideoCodec)
             val audioIndex = demux.findFirstTrack("audio/")
             val audioFormat = audioIndex?.let(demux::trackFormat)
             val audioMime = audioFormat?.getString(MediaFormat.KEY_MIME)?.lowercase()
@@ -173,16 +176,14 @@ internal class AndroidCore2RouteEvaluator(
     }
 }
 
-private fun YCore2ProbeResult.Success.materiallyOverrides(
-    platform: YCore2ProbeResult.Success,
-): Boolean =
-    dolbyVisionConfig != null && platform.dolbyVisionConfig == null ||
+private fun YCore2ProbeResult.Success.materiallyOverrides(platform: YCore2ProbeResult.Success): Boolean =
+    dolbyVisionConfig != null &&
+        platform.dolbyVisionConfig == null ||
         playbackRequest.video.hdrType != platform.playbackRequest.video.hdrType ||
         playbackRequest.video.codec != platform.playbackRequest.video.codec ||
         playbackRequest.video.bitDepth > platform.playbackRequest.video.bitDepth
 
-private fun YMediaItem.toProbeSource(): YAndroidMediaSource =
-    YAndroidMediaSource(uri = uri, headers = headers)
+private fun YMediaItem.toProbeSource(): YAndroidMediaSource = YAndroidMediaSource(uri = uri, headers = headers)
 
 private fun String.toCore2VideoCodec(
     format: MediaFormat,

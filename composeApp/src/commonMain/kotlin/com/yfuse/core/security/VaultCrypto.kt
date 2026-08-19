@@ -112,12 +112,13 @@ class VaultCrypto internal constructor(
         val nonce = primitives.randomBytes(GCM_NONCE_SIZE_BYTES)
         return AesGcmPayload(
             nonce = nonce,
-            ciphertext = primitives.aesGcmEncrypt(
-                key = key,
-                nonce = nonce,
-                plaintext = plaintext,
-                aad = aad,
-            ),
+            ciphertext =
+                primitives.aesGcmEncrypt(
+                    key = key,
+                    nonce = nonce,
+                    plaintext = plaintext,
+                    aad = aad,
+                ),
         )
     }
 
@@ -175,16 +176,18 @@ class VaultCrypto internal constructor(
                 version = RecoveryKeyEnvelope.CURRENT_VERSION,
                 salt = salt,
                 iterations = iterations,
-                wrappedKey = encrypt(
-                    key = wrappingKey,
-                    plaintext = vaultKey,
-                    aad = recoveryAad(
-                        version = RecoveryKeyEnvelope.CURRENT_VERSION,
-                        salt = salt,
-                        iterations = iterations,
-                        callerAad = aad,
+                wrappedKey =
+                    encrypt(
+                        key = wrappingKey,
+                        plaintext = vaultKey,
+                        aad =
+                            recoveryAad(
+                                version = RecoveryKeyEnvelope.CURRENT_VERSION,
+                                salt = salt,
+                                iterations = iterations,
+                                callerAad = aad,
+                            ),
                     ),
-                ),
             )
         } finally {
             wrappingKey.fill(0)
@@ -202,12 +205,13 @@ class VaultCrypto internal constructor(
             decrypt(
                 key = wrappingKey,
                 payload = envelope.wrappedKey,
-                aad = recoveryAad(
-                    version = envelope.version,
-                    salt = salt,
-                    iterations = envelope.iterations,
-                    callerAad = aad,
-                ),
+                aad =
+                    recoveryAad(
+                        version = envelope.version,
+                        salt = salt,
+                        iterations = envelope.iterations,
+                        callerAad = aad,
+                    ),
             ).also(::requireAesKey)
         } finally {
             wrappingKey.fill(0)
@@ -226,14 +230,15 @@ class VaultCrypto internal constructor(
         iterations: Int,
         callerAad: ByteArray,
     ): ByteArray {
-        val result = ByteArray(
-            RECOVERY_AAD_PREFIX.size +
-                1 +
-                Int.SIZE_BYTES +
-                1 +
-                salt.size +
-                callerAad.size,
-        )
+        val result =
+            ByteArray(
+                RECOVERY_AAD_PREFIX.size +
+                    1 +
+                    Int.SIZE_BYTES +
+                    1 +
+                    salt.size +
+                    callerAad.size,
+            )
         var offset = 0
         RECOVERY_AAD_PREFIX.copyInto(result, destinationOffset = offset)
         offset += RECOVERY_AAD_PREFIX.size

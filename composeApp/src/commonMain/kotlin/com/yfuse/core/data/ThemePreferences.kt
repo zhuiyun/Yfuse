@@ -82,15 +82,18 @@ class ThemePreferences(
     private val _serverLayout = MutableStateFlow(load(KEY_SERVER_LAYOUT, ServerLayout.entries, ServerLayout.Grid))
     val serverLayout: StateFlow<ServerLayout> = _serverLayout.asStateFlow()
 
-    private val _backgroundImage = MutableStateFlow(settings.getStringOrNull(KEY_BACKGROUND_IMAGE)?.takeIf(String::isNotBlank))
+    private val _backgroundImage =
+        MutableStateFlow(settings.getStringOrNull(KEY_BACKGROUND_IMAGE)?.takeIf(String::isNotBlank))
     val backgroundImage: StateFlow<String?> = _backgroundImage.asStateFlow()
 
-    private val _backgroundDim = MutableStateFlow(
-        settings.getFloat(KEY_BACKGROUND_DIM, DEFAULT_BACKGROUND_DIM).coerceIn(0f, 1f),
-    )
+    private val _backgroundDim =
+        MutableStateFlow(
+            settings.getFloat(KEY_BACKGROUND_DIM, DEFAULT_BACKGROUND_DIM).coerceIn(0f, 1f),
+        )
     val backgroundDim: StateFlow<Float> = _backgroundDim.asStateFlow()
 
-    private val _splashVariant = MutableStateFlow(load(KEY_SPLASH_VARIANT, SplashAnimation.entries, SplashAnimation.One))
+    private val _splashVariant =
+        MutableStateFlow(load(KEY_SPLASH_VARIANT, SplashAnimation.entries, SplashAnimation.One))
     val splashVariant: StateFlow<SplashAnimation> = _splashVariant.asStateFlow()
 
     fun setEngine(engine: PlayerEngine) {
@@ -132,7 +135,13 @@ class ThemePreferences(
     fun setBackgroundImage(uri: String?) {
         val normalized = uri?.trim()?.takeIf { it.isNotEmpty() && it.length <= MAX_BACKGROUND_URI_CHARS }
         _backgroundImage.value = normalized
-        if (normalized == null) settings.remove(KEY_BACKGROUND_IMAGE) else settings.putString(KEY_BACKGROUND_IMAGE, normalized)
+        if (normalized ==
+            null
+        ) {
+            settings.remove(KEY_BACKGROUND_IMAGE)
+        } else {
+            settings.putString(KEY_BACKGROUND_IMAGE, normalized)
+        }
     }
 
     fun setBackgroundDim(value: Float) {
@@ -171,7 +180,11 @@ class ThemePreferences(
         settings.putString(KEY_SPLASH_VARIANT, variant.name)
     }
 
-    private fun <T : Enum<T>> load(key: String, values: List<T>, fallback: T): T {
+    private fun <T : Enum<T>> load(
+        key: String,
+        values: List<T>,
+        fallback: T,
+    ): T {
         val stored = settings.getStringOrNull(key) ?: return fallback
         return values.firstOrNull { it.name == stored } ?: fallback
     }

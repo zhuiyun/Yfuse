@@ -3,11 +3,12 @@ package com.yfuse.feature.profile
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
-import com.yfuse.core.data.DanmakuPreferences
+import com.yfuse.app.AppDependencies
 import com.yfuse.core.account.AccountRepository
+import com.yfuse.core.data.DanmakuPreferences
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
-import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
@@ -19,7 +20,6 @@ import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.clearImageCache
 import com.yfuse.feature.player.PlayerMediaItem
-import com.yfuse.app.AppDependencies
 
 class ProfileComponent(
     componentContext: ComponentContext,
@@ -32,7 +32,6 @@ class ProfileComponent(
     val onOpenServers: () -> Unit,
     val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
-
     val store = ProfileStoreFactory(storeFactory, registry).create()
 
     val offlineMedia: OfflineMediaManager = dependencies.offlineMediaManager
@@ -61,8 +60,7 @@ class ProfileComponent(
         nowEpochSeconds: Long,
     ): Result<Int> = registry.importProtectedBackup(payload, passphrase, nowEpochSeconds)
 
-    fun exportRelayServers(createdAtEpochSeconds: Long) =
-        registry.exportRelayBackup(createdAtEpochSeconds)
+    fun exportRelayServers(createdAtEpochSeconds: Long) = registry.exportRelayBackup(createdAtEpochSeconds)
 
     fun inspectRelayServers(payload: String) = registry.inspectRelayBackup(payload)
 

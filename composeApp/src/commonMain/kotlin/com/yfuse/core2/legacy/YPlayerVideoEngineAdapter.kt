@@ -1,7 +1,7 @@
 package com.yfuse.core2.legacy
 
-import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayer
@@ -13,9 +13,9 @@ import com.yfuse.feature.player.PlaybackDiagnostics
 import com.yfuse.feature.player.PlaybackOutputReadiness
 import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.VideoEngine
+import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 
 /**
  * Temporary reverse bridge used while PlayerRoot presentation still speaks [VideoEngine].
@@ -50,8 +50,7 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun selectDiscChapter(index: Int): Boolean = player.selectDiscChapter(index)
 
-    override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
-        player.sendDiscMenuCommand(command)
+    override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = player.sendDiscMenuCommand(command)
 
     override fun currentPositionMs(): Long = player.currentPositionMs()
 

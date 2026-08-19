@@ -8,11 +8,12 @@ import kotlin.test.assertTrue
 class WatchInviteTest {
     @Test
     fun uri_round_trips_including_a_chinese_title() {
-        val invite = WatchInvite(
-            roomCode = "ABC234",
-            mediaKey = "tmdb:12345",
-            title = "奥德赛",
-        )
+        val invite =
+            WatchInvite(
+                roomCode = "ABC234",
+                mediaKey = "tmdb:12345",
+                title = "奥德赛",
+            )
         val parsed = WatchInvite.parse(invite.toUri())
         assertEquals(invite, parsed)
     }
@@ -59,11 +60,12 @@ class WatchInviteTest {
 
     @Test
     fun parse_from_text_finds_the_link_inside_a_pasted_share_block() {
-        val shared = WatchInvite(
-            roomCode = "PQR345",
-            mediaKey = "tmdb:99",
-            title = "星海彼岸",
-        ).shareText()
+        val shared =
+            WatchInvite(
+                roomCode = "PQR345",
+                mediaKey = "tmdb:99",
+                title = "星海彼岸",
+            ).shareText()
         val found = WatchInvite.parseFromText("朋友发来：\n$shared\n快来")
         assertEquals("PQR345", found?.roomCode)
         assertEquals("tmdb:99", found?.mediaKey)
@@ -105,13 +107,14 @@ class WatchInviteTest {
     fun an_episode_without_its_own_ids_is_keyed_by_the_show_and_its_place_in_it() {
         // The case that made cross-server watch-together fail for every series: Emby
         // libraries almost never carry provider ids on individual episodes.
-        val key = episodeWatchKey(
-            ownProviderIds = emptyMap(),
-            seriesProviderIds = mapOf("Tmdb" to "1399"),
-            seasonNumber = 2,
-            episodeNumber = 5,
-            fallbackId = "local-episode-id",
-        )
+        val key =
+            episodeWatchKey(
+                ownProviderIds = emptyMap(),
+                seriesProviderIds = mapOf("Tmdb" to "1399"),
+                seasonNumber = 2,
+                episodeNumber = 5,
+                fallbackId = "local-episode-id",
+            )
         assertEquals("tmdb:1399/s2e5", key)
         assertEquals(EpisodeCoordinate("tmdb:1399", 2, 5), parseEpisodeWatchKey(key))
     }
@@ -139,20 +142,22 @@ class WatchInviteTest {
     /** Two libraries holding different provider ids for the same episode still agree. */
     @Test
     fun differently_scraped_libraries_produce_the_same_episode_key() {
-        val host = episodeWatchKey(
-            ownProviderIds = mapOf("Tvdb" to "7654321"),
-            seriesProviderIds = mapOf("Tmdb" to "1399", "Tvdb" to "121361"),
-            seasonNumber = 2,
-            episodeNumber = 5,
-            fallbackId = "host-local-id",
-        )
-        val guest = episodeWatchKey(
-            ownProviderIds = emptyMap(),
-            seriesProviderIds = mapOf("Tmdb" to "1399"),
-            seasonNumber = 2,
-            episodeNumber = 5,
-            fallbackId = "guest-local-id",
-        )
+        val host =
+            episodeWatchKey(
+                ownProviderIds = mapOf("Tvdb" to "7654321"),
+                seriesProviderIds = mapOf("Tmdb" to "1399", "Tvdb" to "121361"),
+                seasonNumber = 2,
+                episodeNumber = 5,
+                fallbackId = "host-local-id",
+            )
+        val guest =
+            episodeWatchKey(
+                ownProviderIds = emptyMap(),
+                seriesProviderIds = mapOf("Tmdb" to "1399"),
+                seasonNumber = 2,
+                episodeNumber = 5,
+                fallbackId = "guest-local-id",
+            )
 
         assertEquals(host, guest)
     }
@@ -165,13 +170,14 @@ class WatchInviteTest {
      */
     @Test
     fun an_episode_answers_to_the_coordinate_its_own_ids_and_its_server_local_id() {
-        val keys = watchMatchKeys(
-            ownProviderIds = mapOf("Tvdb" to "7654321"),
-            seriesProviderIds = mapOf("Tmdb" to "1399", "Tvdb" to "121361"),
-            seasonNumber = 2,
-            episodeNumber = 5,
-            fallbackId = "local",
-        )
+        val keys =
+            watchMatchKeys(
+                ownProviderIds = mapOf("Tvdb" to "7654321"),
+                seriesProviderIds = mapOf("Tmdb" to "1399", "Tvdb" to "121361"),
+                seasonNumber = 2,
+                episodeNumber = 5,
+                fallbackId = "local",
+            )
 
         assertEquals(
             listOf(

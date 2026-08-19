@@ -157,11 +157,12 @@ private fun buildAudioTrack(format: MediaFormat): AudioTrack {
             channelMaskForCount(channelCount)
         }
     val minBuffer =
-        AudioTrack.getMinBufferSize(
-            sampleRate,
-            channelMask,
-            encoding,
-        ).takeIf { it > 0 } ?: DEFAULT_AUDIO_BUFFER_BYTES
+        AudioTrack
+            .getMinBufferSize(
+                sampleRate,
+                channelMask,
+                encoding,
+            ).takeIf { it > 0 } ?: DEFAULT_AUDIO_BUFFER_BYTES
     val audioFormat =
         AudioFormat
             .Builder()

@@ -8,22 +8,22 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class AiringCalendarTest {
-
     private val today = "2026-07-31"
 
-    private fun episode(played: Boolean) = Episode(
-        id = "ep1",
-        name = "第 5 集",
-        indexNumber = 5,
-        seasonNumber = 2,
-        seasonId = "s2",
-        overview = null,
-        runtimeMinutes = 45,
-        primaryTag = null,
-        playedPercentage = null,
-        played = played,
-        resumePositionTicks = null,
-    )
+    private fun episode(played: Boolean) =
+        Episode(
+            id = "ep1",
+            name = "第 5 集",
+            indexNumber = 5,
+            seasonNumber = 2,
+            seasonId = "s2",
+            overview = null,
+            runtimeMinutes = 45,
+            primaryTag = null,
+            playedPercentage = null,
+            played = played,
+            resumePositionTicks = null,
+        )
 
     @Test
     fun an_episode_on_the_server_is_available_or_watched() {
@@ -71,16 +71,17 @@ class AiringCalendarTest {
 
     @Test
     fun media_key_matches_the_coordinate_emby_lookup_resolves() {
-        val airing = AiringEpisode(
-            showTmdbId = 1399,
-            showTitle = "权力的游戏",
-            posterPath = null,
-            seasonNumber = 2,
-            episodeNumber = 5,
-            episodeTitle = null,
-            airDate = today,
-            origin = ShowOrigin.Foreign,
-        )
+        val airing =
+            AiringEpisode(
+                showTmdbId = 1399,
+                showTitle = "权力的游戏",
+                posterPath = null,
+                seasonNumber = 2,
+                episodeNumber = 5,
+                episodeTitle = null,
+                airDate = today,
+                origin = ShowOrigin.Foreign,
+            )
         assertEquals("tmdb:1399/s2e5", airing.mediaKey)
     }
 }

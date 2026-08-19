@@ -86,8 +86,7 @@ internal fun SearchFilterBar(
                             border = if (active) accent.border else palette.border,
                             over = palette.background,
                             sheen = if (active) 0.70f else 0.58f,
-                        )
-                        .padding(horizontal = 13.dp, vertical = 7.dp),
+                        ).padding(horizontal = 13.dp, vertical = 7.dp),
             )
         }
         if (state.filterCount > 0) {
@@ -106,8 +105,7 @@ internal fun SearchFilterBar(
                                 border = accent.border,
                                 over = palette.background,
                                 sheen = 0.74f,
-                            )
-                            .padding(horizontal = 13.dp, vertical = 7.dp),
+                            ).padding(horizontal = 13.dp, vertical = 7.dp),
                 )
             }
         }
@@ -124,24 +122,26 @@ private fun Modifier.horizontalScrollEdgeFade(
             val fadeWidth = width.toPx().coerceAtMost(size.width / 3f)
             if (state.canScrollBackward) {
                 drawRect(
-                    brush = Brush.horizontalGradient(
-                        0f to Color.Transparent,
-                        1f to Color.Black,
-                        startX = 0f,
-                        endX = fadeWidth,
-                    ),
+                    brush =
+                        Brush.horizontalGradient(
+                            0f to Color.Transparent,
+                            1f to Color.Black,
+                            startX = 0f,
+                            endX = fadeWidth,
+                        ),
                     size = Size(fadeWidth, size.height),
                     blendMode = BlendMode.DstIn,
                 )
             }
             if (state.canScrollForward) {
                 drawRect(
-                    brush = Brush.horizontalGradient(
-                        0f to Color.Black,
-                        1f to Color.Transparent,
-                        startX = size.width - fadeWidth,
-                        endX = size.width,
-                    ),
+                    brush =
+                        Brush.horizontalGradient(
+                            0f to Color.Black,
+                            1f to Color.Transparent,
+                            startX = size.width - fadeWidth,
+                            endX = size.width,
+                        ),
                     topLeft = Offset(size.width - fadeWidth, 0f),
                     size = Size(fadeWidth, size.height),
                     blendMode = BlendMode.DstIn,
@@ -158,32 +158,35 @@ internal fun SearchFilterDialog(
 ) {
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
-            title = when (sheet) {
-                SearchFilterSheet.Server -> "服务器"
-                SearchFilterSheet.Library -> "媒体库"
-                SearchFilterSheet.Year -> "年份"
-                SearchFilterSheet.Genre -> "流派"
-                SearchFilterSheet.Status -> "观看状态"
-                SearchFilterSheet.Sort -> "排序"
-            },
+            title =
+                when (sheet) {
+                    SearchFilterSheet.Server -> "服务器"
+                    SearchFilterSheet.Library -> "媒体库"
+                    SearchFilterSheet.Year -> "年份"
+                    SearchFilterSheet.Genre -> "流派"
+                    SearchFilterSheet.Status -> "观看状态"
+                    SearchFilterSheet.Sort -> "排序"
+                },
             subtitle = if (sheet == SearchFilterSheet.Library && state.serverId == null) "先选择一台服务器" else null,
             onClose = onDismiss,
         )
         when (sheet) {
-            SearchFilterSheet.Server -> optionList(
-                listOf(SearchOption("", "全部服务器")) + state.serverOptions,
-                state.serverId.orEmpty(),
-            ) {
-                onIntent(SearchIntent.SetServer(it.ifBlank { null }))
-                onDismiss()
-            }
-            SearchFilterSheet.Library -> optionList(
-                listOf(SearchOption("", "全部媒体库")) + state.libraryOptions,
-                state.libraryId.orEmpty(),
-            ) {
-                onIntent(SearchIntent.SetLibrary(it.ifBlank { null }))
-                onDismiss()
-            }
+            SearchFilterSheet.Server ->
+                optionList(
+                    listOf(SearchOption("", "全部服务器")) + state.serverOptions,
+                    state.serverId.orEmpty(),
+                ) {
+                    onIntent(SearchIntent.SetServer(it.ifBlank { null }))
+                    onDismiss()
+                }
+            SearchFilterSheet.Library ->
+                optionList(
+                    listOf(SearchOption("", "全部媒体库")) + state.libraryOptions,
+                    state.libraryId.orEmpty(),
+                ) {
+                    onIntent(SearchIntent.SetLibrary(it.ifBlank { null }))
+                    onDismiss()
+                }
             SearchFilterSheet.Year -> {
                 OverlayOptionRow("全部年份", state.year == null, onClick = {
                     onIntent(SearchIntent.SetYear(null))
@@ -208,18 +211,20 @@ internal fun SearchFilterDialog(
                     })
                 }
             }
-            SearchFilterSheet.Status -> SearchWatchStatus.entries.forEach { value ->
-                OverlayOptionRow(value.label, value == state.watchStatus, onClick = {
-                    onIntent(SearchIntent.SetWatchStatus(value))
-                    onDismiss()
-                })
-            }
-            SearchFilterSheet.Sort -> SearchSort.entries.forEach { value ->
-                OverlayOptionRow(value.label, value == state.sort, onClick = {
-                    onIntent(SearchIntent.SetSort(value))
-                    onDismiss()
-                })
-            }
+            SearchFilterSheet.Status ->
+                SearchWatchStatus.entries.forEach { value ->
+                    OverlayOptionRow(value.label, value == state.watchStatus, onClick = {
+                        onIntent(SearchIntent.SetWatchStatus(value))
+                        onDismiss()
+                    })
+                }
+            SearchFilterSheet.Sort ->
+                SearchSort.entries.forEach { value ->
+                    OverlayOptionRow(value.label, value == state.sort, onClick = {
+                        onIntent(SearchIntent.SetSort(value))
+                        onDismiss()
+                    })
+                }
         }
     }
 }

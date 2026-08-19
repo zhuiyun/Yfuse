@@ -335,8 +335,11 @@ internal class AndroidNativeTunnelYPlayer(
                                 prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
                             Command.Play -> {
                                 requestedPlay = true
-                                if (prepared) session.play() else
+                                if (prepared) {
+                                    session.play()
+                                } else {
                                     prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
+                                }
                             }
                             Command.Pause -> {
                                 requestedPlay = false
@@ -351,8 +354,11 @@ internal class AndroidNativeTunnelYPlayer(
                                 val next = command.output?.surface?.takeIf { it.isValid }
                                 if (next == null) {
                                     val positionUs =
-                                        if (prepared) session.snapshot().positionUs else
+                                        if (prepared) {
+                                            session.snapshot().positionUs
+                                        } else {
                                             mutableState.value.positionMs * MICROS_PER_MILLISECOND
+                                        }
                                     session.close()
                                     prepared = false
                                     mutableState.updateState {
@@ -403,7 +409,9 @@ internal class AndroidNativeTunnelYPlayer(
 
     private sealed interface Command {
         data object Prepare : Command
+
         data object Play : Command
+
         data object Pause : Command
 
         data class Seek(
@@ -420,12 +428,9 @@ internal class AndroidNativeTunnelYPlayer(
     }
 }
 
-private fun YMediaItem.toAndroidTunnelSource(): YAndroidMediaSource =
-    YAndroidMediaSource(uri = uri, headers = headers)
+private fun YMediaItem.toAndroidTunnelSource(): YAndroidMediaSource = YAndroidMediaSource(uri = uri, headers = headers)
 
-private inline fun MutableStateFlow<YPlayerState>.updateState(
-    transform: (YPlayerState) -> YPlayerState,
-) {
+private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     value = transform(value)
 }
 

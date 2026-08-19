@@ -49,10 +49,11 @@ object YDolbyVisionRouter {
         outputEvidence: YDolbyVisionOutputEvidence? = null,
     ): YDolbyVisionRouteDecision {
         val config = evidence.config
-        val codec = config.codecFamily.toVideoCodec()
-            ?: return YDolbyVisionRouteDecision.Unsupported(
-                YDolbyVisionUnsupportedReason.UnsupportedProfileFamily,
-            )
+        val codec =
+            config.codecFamily.toVideoCodec()
+                ?: return YDolbyVisionRouteDecision.Unsupported(
+                    YDolbyVisionUnsupportedReason.UnsupportedProfileFamily,
+                )
         val exactRequirement =
             video.copy(
                 codec = codec,

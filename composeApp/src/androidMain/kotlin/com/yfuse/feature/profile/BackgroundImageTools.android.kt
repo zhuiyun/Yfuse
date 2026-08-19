@@ -16,31 +16,33 @@ actual fun rememberBackgroundImagePicker(onPicked: (String?) -> Unit): () -> Uni
     // OpenDocument rather than PickVisualMedia: only the Storage Access Framework issues a
     // grant that survives a reboot, and a wallpaper that stops loading on the next launch is
     // worse than no wallpaper at all.
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri: Uri? ->
-        if (uri == null) {
-            onPicked(null)
-            return@rememberLauncherForActivityResult
+    val launcher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument(),
+        ) { uri: Uri? ->
+            if (uri == null) {
+                onPicked(null)
+                return@rememberLauncherForActivityResult
+            }
+            val persisted =
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }.isSuccess
+            if (!persisted) {
+                // Some providers hand back a one-shot URI. It still displays now, and the
+                // preference is cleared on the next launch when the read fails, so accepting it
+                // is better than refusing a picture the user just chose.
+                AppLog.warning(
+                    category = "appearance.background",
+                    event = "persist_permission_unavailable",
+                    message = "Background image URI could not be persisted; it may not survive a restart",
+                )
+            }
+            onPicked(uri.toString())
         }
-        val persisted = runCatching {
-            context.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-        }.isSuccess
-        if (!persisted) {
-            // Some providers hand back a one-shot URI. It still displays now, and the
-            // preference is cleared on the next launch when the read fails, so accepting it
-            // is better than refusing a picture the user just chose.
-            AppLog.warning(
-                category = "appearance.background",
-                event = "persist_permission_unavailable",
-                message = "Background image URI could not be persisted; it may not survive a restart",
-            )
-        }
-        onPicked(uri.toString())
-    }
     return remember(launcher) { { launcher.launch(arrayOf("image/*")) } }
 }
 

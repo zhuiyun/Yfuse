@@ -8,19 +8,19 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class AiringScheduleCacheTest {
-
     private val window = "2026-07-24..2026-08-14"
 
-    private fun episode(id: Int) = AiringEpisode(
-        showTmdbId = id,
-        showTitle = "剧 $id",
-        posterPath = "/p$id.jpg",
-        seasonNumber = 1,
-        episodeNumber = 3,
-        episodeTitle = null,
-        airDate = "2026-07-31",
-        origin = ShowOrigin.Domestic,
-    )
+    private fun episode(id: Int) =
+        AiringEpisode(
+            showTmdbId = id,
+            showTitle = "剧 $id",
+            posterPath = "/p$id.jpg",
+            seasonNumber = 1,
+            episodeNumber = 3,
+            episodeTitle = null,
+            airDate = "2026-07-31",
+            origin = ShowOrigin.Domestic,
+        )
 
     @Test
     fun round_trips_within_the_same_day_and_window() {

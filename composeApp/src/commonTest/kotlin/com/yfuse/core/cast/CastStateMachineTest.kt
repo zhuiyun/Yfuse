@@ -7,7 +7,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CastStateMachineTest {
-
     private val receiver = CastDevice("chromecast:lounge", "客厅电视")
 
     @Test
@@ -20,11 +19,12 @@ class CastStateMachineTest {
         assertFalse(connecting.positionConfirmed)
         assertFalse(connecting.hasActiveSession)
 
-        val buffering = connecting.remoteUpdate(
-            status = CastPlaybackStatus.Buffering,
-            positionMs = 42_500L,
-            durationMs = 120_000L,
-        )
+        val buffering =
+            connecting.remoteUpdate(
+                status = CastPlaybackStatus.Buffering,
+                positionMs = 42_500L,
+                durationMs = 120_000L,
+            )
         assertTrue(buffering.sessionConfirmed)
         assertTrue(buffering.positionConfirmed)
         assertTrue(buffering.hasActiveSession)
@@ -42,10 +42,11 @@ class CastStateMachineTest {
 
     @Test
     fun command_failure_preserves_last_confirmed_transport_intent() {
-        val failed = CastState()
-            .connectingTo(receiver, positionMs = 0L)
-            .remoteUpdate(CastPlaybackStatus.Playing, positionMs = 15_000L)
-            .commandFailed("接收端拒绝调节音量")
+        val failed =
+            CastState()
+                .connectingTo(receiver, positionMs = 0L)
+                .remoteUpdate(CastPlaybackStatus.Playing, positionMs = 15_000L)
+                .commandFailed("接收端拒绝调节音量")
 
         assertEquals(CastPlaybackStatus.Error, failed.status)
         assertTrue(failed.sessionConfirmed)
@@ -55,10 +56,11 @@ class CastStateMachineTest {
 
     @Test
     fun unexpected_disconnect_recovers_from_last_confirmed_remote_position() {
-        val disconnected = CastState()
-            .connectingTo(receiver, positionMs = 0L)
-            .remoteUpdate(CastPlaybackStatus.Playing, positionMs = 91_250L)
-            .unexpectedDisconnect("连接中断")
+        val disconnected =
+            CastState()
+                .connectingTo(receiver, positionMs = 0L)
+                .remoteUpdate(CastPlaybackStatus.Playing, positionMs = 91_250L)
+                .unexpectedDisconnect("连接中断")
 
         assertEquals(
             CastRecoveryDecision(positionMs = 91_250L, resumePlayback = true),
@@ -68,9 +70,10 @@ class CastStateMachineTest {
 
     @Test
     fun unconfirmed_remote_position_uses_local_fallback_on_disconnect() {
-        val disconnected = CastState()
-            .connectingTo(receiver, positionMs = 30_000L)
-            .unexpectedDisconnect("加载期间连接中断")
+        val disconnected =
+            CastState()
+                .connectingTo(receiver, positionMs = 30_000L)
+                .unexpectedDisconnect("加载期间连接中断")
 
         assertEquals(
             CastRecoveryDecision(positionMs = 12_000L, resumePlayback = false),
@@ -80,10 +83,11 @@ class CastStateMachineTest {
 
     @Test
     fun explicit_stop_never_triggers_disconnect_recovery() {
-        val stopped = CastState()
-            .connectingTo(receiver, positionMs = 1_000L)
-            .remoteUpdate(CastPlaybackStatus.Paused, positionMs = 2_000L)
-            .userStopped()
+        val stopped =
+            CastState()
+                .connectingTo(receiver, positionMs = 1_000L)
+                .remoteUpdate(CastPlaybackStatus.Paused, positionMs = 2_000L)
+                .userStopped()
 
         assertEquals(CastTermination.UserStop, stopped.termination)
         assertFalse(stopped.hasActiveSession)

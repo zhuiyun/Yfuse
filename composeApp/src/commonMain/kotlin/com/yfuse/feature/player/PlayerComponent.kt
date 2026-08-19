@@ -3,9 +3,9 @@ package com.yfuse.feature.player
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
+import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.app.AppDependencies
 
 class PlayerComponent(
     componentContext: ComponentContext,
@@ -19,13 +19,13 @@ class PlayerComponent(
     private val dependencies: AppDependencies,
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
-
-    private val preloadKey = PlaybackPreloadKey(
-        serverId = serverId,
-        itemId = itemId,
-        startPositionTicks = startPositionTicks,
-        mediaSourceId = mediaSourceId,
-    )
+    private val preloadKey =
+        PlaybackPreloadKey(
+            serverId = serverId,
+            itemId = itemId,
+            startPositionTicks = startPositionTicks,
+            mediaSourceId = mediaSourceId,
+        )
     private val preparedStore = PreparedPlaybackRegistry.claim(preloadKey)
 
     /**
@@ -35,18 +35,19 @@ class PlayerComponent(
      * the registry: its play-session ids belong to this launch and must never be reused by the
      * next PlayerActivity after this one's asynchronous cleanup starts.
      */
-    val store = preparedStore
-        ?: PlayerStoreFactory(
-            storeFactory,
-            repo,
-            registry,
-            itemId,
-            startPositionTicks,
-            serverId = serverId,
-        mediaSourceId = mediaSourceId,
-        failoverRequest = dependencies.playbackFailoverRequest,
-        healthMonitor = dependencies.serverHealthMonitor,
-    ).create()
+    val store =
+        preparedStore
+            ?: PlayerStoreFactory(
+                storeFactory,
+                repo,
+                registry,
+                itemId,
+                startPositionTicks,
+                serverId = serverId,
+                mediaSourceId = mediaSourceId,
+                failoverRequest = dependencies.playbackFailoverRequest,
+                healthMonitor = dependencies.serverHealthMonitor,
+            ).create()
 
     init {
         // Claiming transfers ownership from DetailComponent. Both claimed and fallback stores now

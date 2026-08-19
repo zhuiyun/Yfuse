@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class PlaybackTrackRequestTest {
-
     @Test
     fun the_request_reaches_the_entry_it_was_made_for() {
         val request = PlaybackTrackRequest()

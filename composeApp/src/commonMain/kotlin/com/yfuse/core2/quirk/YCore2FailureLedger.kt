@@ -160,8 +160,7 @@ fun YPlaybackFailureCategory.penalizesCore2Route(): Boolean =
 private fun saturatingAdd(
     value: Long,
     increment: Long,
-): Long =
-    if (Long.MAX_VALUE - value < increment) Long.MAX_VALUE else value + increment
+): Long = if (Long.MAX_VALUE - value < increment) Long.MAX_VALUE else value + increment
 
 private const val DEFAULT_COOLDOWN_MS = 7L * 24L * 60L * 60L * 1_000L
 private const val DEFAULT_MAX_RECORDS = 128

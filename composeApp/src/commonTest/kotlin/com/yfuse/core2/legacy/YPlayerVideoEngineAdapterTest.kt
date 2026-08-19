@@ -136,7 +136,10 @@ class YPlayerVideoEngineAdapterTest {
             recordedSpeed = speed
         }
 
-        override fun selectTrack(type: YTrackType, id: String) {
+        override fun selectTrack(
+            type: YTrackType,
+            id: String,
+        ) {
             selectedTracks += type to id
         }
 

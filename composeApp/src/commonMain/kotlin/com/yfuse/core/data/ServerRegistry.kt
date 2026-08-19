@@ -7,9 +7,9 @@ import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServersData
 import com.yfuse.core.model.normalizedRoutes
 import com.yfuse.core.network.validateEmbyServerEndpoint
+import com.yfuse.core.security.RelayMigrationPackage
 import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.ServerMigrationCrypto
-import com.yfuse.core.security.RelayMigrationPackage
 import com.yfuse.core.security.ServerMigrationRelayCrypto
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.toBase64Url
@@ -605,59 +605,71 @@ class ServerRegistry(
         }
 
     private fun portableBackupBytes(current: ServersData): ByteArray =
-        json.encodeToString(
-            PortableServerBackup.serializer(),
-            PortableServerBackup(
-                defaultServerId = current.defaultServerId,
-                servers = current.servers.map {
-                    PortableServer(
-                        baseUrl = it.primaryUrl,
-                        serverName = it.serverName,
-                        userId = it.userId,
-                        userName = it.userName,
-                        accessToken = it.accessToken,
-                        routes = it.routes,
-                        iconEmoji = it.iconEmoji,
-                        iconTint = it.iconTint,
-                    )
-                },
-            ),
-        ).encodeToByteArray()
+        json
+            .encodeToString(
+                PortableServerBackup.serializer(),
+                PortableServerBackup(
+                    defaultServerId = current.defaultServerId,
+                    servers =
+                        current.servers.map {
+                            PortableServer(
+                                baseUrl = it.primaryUrl,
+                                serverName = it.serverName,
+                                userId = it.userId,
+                                userName = it.userName,
+                                accessToken = it.accessToken,
+                                routes = it.routes,
+                                iconEmoji = it.iconEmoji,
+                                iconTint = it.iconTint,
+                            )
+                        },
+                ),
+            ).encodeToByteArray()
 
     private fun importPortableBackup(plaintext: ByteArray): Int {
-        val backup = try {
-            json.decodeFromString(PortableServerBackup.serializer(), plaintext.decodeToString())
-        } catch (_: Exception) {
-            throw IllegalArgumentException("受保护迁移包中的服务器数据已损坏")
-        }
+        val backup =
+            try {
+                json.decodeFromString(PortableServerBackup.serializer(), plaintext.decodeToString())
+            } catch (_: Exception) {
+                throw IllegalArgumentException("受保护迁移包中的服务器数据已损坏")
+            }
         require(backup.version == PORTABLE_BACKUP_VERSION) { "不支持的服务器数据版本" }
         require(backup.servers.isNotEmpty()) { "迁移包中没有服务器" }
         require(backup.servers.size <= MAX_SERVERS) { "迁移包中的服务器数量过多" }
         val current = _data.value
-        val imported = backup.servers.map { portable ->
-            val id = SavedServer.idOf(portable.baseUrl.trim().trimEnd('/'), portable.userId.trim())
-            normalizeImportedServer(
-                baseUrl = portable.baseUrl,
-                serverName = portable.serverName,
-                userId = portable.userId,
-                userName = portable.userName,
-                accessToken = portable.accessToken,
-                previousIds = current.servers.firstOrNull { it.id == id }?.previousIds.orEmpty(),
-                invalidMessagePrefix = "迁移包中的",
-                routes = portable.routes,
-                iconEmoji = portable.iconEmoji,
-                iconTint = portable.iconTint,
-            )
-        }
+        val imported =
+            backup.servers.map { portable ->
+                val id = SavedServer.idOf(portable.baseUrl.trim().trimEnd('/'), portable.userId.trim())
+                normalizeImportedServer(
+                    baseUrl = portable.baseUrl,
+                    serverName = portable.serverName,
+                    userId = portable.userId,
+                    userName = portable.userName,
+                    accessToken = portable.accessToken,
+                    previousIds =
+                        current.servers
+                            .firstOrNull { it.id == id }
+                            ?.previousIds
+                            .orEmpty(),
+                    invalidMessagePrefix = "迁移包中的",
+                    routes = portable.routes,
+                    iconEmoji = portable.iconEmoji,
+                    iconTint = portable.iconTint,
+                )
+            }
         require(imported.map { it.id }.distinct().size == imported.size) { "迁移包中包含重复服务器" }
         val ids = imported.mapTo(hashSetOf()) { it.id }
-        val merged = current.servers.filterNot { it.id in ids }
-            .map { it.copy(previousIds = it.previousIds - ids) } + imported
-        val importedDefault = backup.defaultServerId?.let { oldId ->
-            backup.servers.firstOrNull {
-                SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) == oldId
-            }?.let { SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) }
-        }
+        val merged =
+            current.servers
+                .filterNot { it.id in ids }
+                .map { it.copy(previousIds = it.previousIds - ids) } + imported
+        val importedDefault =
+            backup.defaultServerId?.let { oldId ->
+                backup.servers
+                    .firstOrNull {
+                        SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) == oldId
+                    }?.let { SavedServer.idOf(it.baseUrl.trim().trimEnd('/'), it.userId.trim()) }
+            }
         commit(
             ServersData(
                 servers = merged,
@@ -930,7 +942,9 @@ class ServerRegistry(
                     AppLog.warning(
                         category = "server.registry",
                         event = "saved_session_unavailable",
-                        message = "A saved session was removed because its secure secret is unavailable; login is required",
+                        message =
+                            "A saved session was removed because its secure secret is unavailable; " +
+                                "login is required",
                         throwable = error,
                         attributes = mapOf("serverId" to stored.id),
                     )
@@ -1281,7 +1295,7 @@ private fun sanitizeIconEmoji(value: String?): String? =
     value
         ?.trim()
         ?.takeIf { it.isNotEmpty() && it.none(Char::isWhitespace) }
-        ?.take(ServerIconEmojiMaxChars)
+        ?.take(SERVER_ICON_EMOJI_MAX_CHARS)
 
 /** A surrogate pair plus a variation selector or two — enough for one composed emoji. */
-internal const val ServerIconEmojiMaxChars = 8
+internal const val SERVER_ICON_EMOJI_MAX_CHARS = 8

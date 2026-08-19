@@ -8,14 +8,16 @@ import kotlin.test.assertNull
 class PlaybackSegmentsTest {
     @Test
     fun emby_markers_become_intro_and_open_credits_segments() {
-        val item = BaseItemDto(
-            Id = "episode",
-            Chapters = listOf(
-                ChapterDto(50_000_000L, "IntroStart"),
-                ChapterDto(900_000_000L, "IntroEnd"),
-                ChapterDto(20_000_000_000L, "CreditsStart"),
-            ),
-        )
+        val item =
+            BaseItemDto(
+                Id = "episode",
+                Chapters =
+                    listOf(
+                        ChapterDto(50_000_000L, "IntroStart"),
+                        ChapterDto(900_000_000L, "IntroEnd"),
+                        ChapterDto(20_000_000_000L, "CreditsStart"),
+                    ),
+            )
 
         val segments = item.playbackSegments()
 

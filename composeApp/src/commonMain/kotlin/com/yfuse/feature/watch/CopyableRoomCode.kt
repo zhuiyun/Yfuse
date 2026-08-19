@@ -15,8 +15,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
@@ -47,15 +47,15 @@ fun CopyableRoomCode(
     }
 
     Column(
-        modifier = modifier
-            .pressable(
-                onClickLabel = "复制房间码",
-                onLongClickLabel = "复制房间码",
-                onLongClick = copyCode,
-                onClick = copyCode,
-            )
-            .touchTarget()
-            .padding(horizontal = 8.dp, vertical = 2.dp),
+        modifier =
+            modifier
+                .pressable(
+                    onClickLabel = "复制房间码",
+                    onLongClickLabel = "复制房间码",
+                    onLongClick = copyCode,
+                    onClick = copyCode,
+                ).touchTarget()
+                .padding(horizontal = 8.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(

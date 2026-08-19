@@ -5,7 +5,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NavigationIdentityTest {
-
     @Test
     fun tab_reselection_only_targets_its_own_tab() {
         val event = TabReselection(tabIdentity = "Search", occurrence = 1L)
@@ -14,5 +13,4 @@ class NavigationIdentityTest {
         assertFalse(event.targets("Home"))
         assertFalse(event.targets(null))
     }
-
 }

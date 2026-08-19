@@ -24,7 +24,8 @@ internal data class AndroidTunnelConfiguration(
         }
 
     fun audioAttributes(): AudioAttributes =
-        AudioAttributes.Builder()
+        AudioAttributes
+            .Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
             .setFlags(AudioAttributes.FLAG_HW_AV_SYNC)

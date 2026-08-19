@@ -27,13 +27,13 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.LocalPalette
-import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.TmdbImages
 
@@ -84,12 +84,13 @@ internal fun TmdbRowPage(
                         AppIcons.ChevronLeft,
                         contentDescription = "返回",
                         tint = palette.text,
-                        modifier = Modifier
-                            .pressable(onClickLabel = "关闭全部内容", onClick = onDismiss)
-                            .touchTarget()
-                            .size(36.dp)
-                            .solidGlass(CircleShape, palette.card2, palette.border)
-                            .padding(10.dp),
+                        modifier =
+                            Modifier
+                                .pressable(onClickLabel = "关闭全部内容", onClick = onDismiss)
+                                .touchTarget()
+                                .size(36.dp)
+                                .solidGlass(CircleShape, palette.card2, palette.border)
+                                .padding(10.dp),
                     )
                     Column(Modifier.weight(1f)) {
                         Text(title, style = AppTypography.section.strong, color = palette.text)
@@ -105,30 +106,34 @@ internal fun TmdbRowPage(
                 LazyVerticalGrid(
                     // Three across on a phone, more on anything wider — see [PosterMinWidth].
                     columns = GridCells.Adaptive(PosterMinWidth),
-                    contentPadding = PaddingValues(
-                        start = Dimens.pageHorizontal,
-                        end = Dimens.pageHorizontal,
-                        bottom = TabBarInset,
-                    ),
+                    contentPadding =
+                        PaddingValues(
+                            start = Dimens.pageHorizontal,
+                            end = Dimens.pageHorizontal,
+                            bottom = TabBarInset,
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(items, key = { "${it.mediaType}:${it.id}" }) { item ->
                         CaptionedPoster(
                             url = TmdbImages.poster(item.posterPath),
-                            fallbackUrls = listOfNotNull(
-                                TmdbImages.media(item.posterPath),
-                                TmdbImages.poster(item.posterPath, "original"),
-                                TmdbImages.media(item.posterPath, "original"),
-                                TmdbImages.backdrop(item.backdropPath, "w780"),
-                                TmdbImages.media(item.backdropPath, "w780"),
-                            ),
+                            fallbackUrls =
+                                listOfNotNull(
+                                    TmdbImages.media(item.posterPath),
+                                    TmdbImages.poster(item.posterPath, "original"),
+                                    TmdbImages.media(item.posterPath, "original"),
+                                    TmdbImages.backdrop(item.backdropPath, "w780"),
+                                    TmdbImages.media(item.backdropPath, "w780"),
+                                ),
                             title = item.title,
-                            year = "TMDB · " + if (showReleaseDate) {
-                                item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
-                            } else {
-                                item.year ?: "年份未知"
-                            },
+                            year =
+                                "TMDB · " +
+                                    if (showReleaseDate) {
+                                        item.releaseDate?.let { "上映 $it" } ?: "上映日期待定"
+                                    } else {
+                                        item.year ?: "年份未知"
+                                    },
                             // The same title can sit in two shelves at once, and this page is
                             // opened from one of them; a shared element would compete with the
                             // shelf poster still mounted underneath.

@@ -2,35 +2,39 @@ package com.yfuse.core.logging
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DiagnosticLogBoundaryTest {
     @Test
     fun prepared_payload_is_redacted_bounded_immutable_and_detached() {
-        val rawAttributes = linkedMapOf(
-            "token" to "attribute-secret",
-            "large" to "a".repeat(DiagnosticMaxAttributeChars + 100),
-            "thread" to "spoofed-thread",
-        ).apply {
-            repeat(DiagnosticMaxAttributes + 10) { index ->
-                put("attribute-$index", "value-$index")
+        val rawAttributes =
+            linkedMapOf(
+                "token" to "attribute-secret",
+                "large" to "a".repeat(DiagnosticMaxAttributeChars + 100),
+                "thread" to "spoofed-thread",
+            ).apply {
+                repeat(DiagnosticMaxAttributes + 10) { index ->
+                    put("attribute-$index", "value-$index")
+                }
             }
-        }
-        val prepared = prepareDiagnosticLog(
-            level = DiagnosticLevel.Warning,
-            category = "Playback Controls",
-            event = "Request Failed",
-            message = "Authorization: message-secret\n" +
-                "m".repeat(DiagnosticMaxMessageChars + 100),
-            throwable = IllegalStateException(
-                "token=throwable-secret " +
-                    "t".repeat(DiagnosticMaxStackTraceChars + 100),
-            ),
-            attributes = rawAttributes,
-            threadName = "producer-" + "z".repeat(DiagnosticMaxThreadNameChars + 100),
-        )
+        val prepared =
+            prepareDiagnosticLog(
+                level = DiagnosticLevel.Warning,
+                category = "Playback Controls",
+                event = "Request Failed",
+                message =
+                    "Authorization: message-secret\n" +
+                        "m".repeat(DiagnosticMaxMessageChars + 100),
+                throwable =
+                    IllegalStateException(
+                        "token=throwable-secret " +
+                            "t".repeat(DiagnosticMaxStackTraceChars + 100),
+                    ),
+                attributes = rawAttributes,
+                threadName = "producer-" + "z".repeat(DiagnosticMaxThreadNameChars + 100),
+            )
 
         rawAttributes["added-later"] = "must-not-appear"
         rawAttributes["large"] = "changed"

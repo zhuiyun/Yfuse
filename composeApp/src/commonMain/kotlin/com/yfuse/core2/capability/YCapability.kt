@@ -113,8 +113,7 @@ data class YDeviceCapabilities(
     fun supportsAudio(requirement: YAudioRequirement?): Boolean =
         requirement == null || requirement.codec in audioDecoders
 
-    fun supportsDisplayHdr(type: YHdrType): Boolean =
-        type == YHdrType.Sdr || type in displayHdrTypes
+    fun supportsDisplayHdr(type: YHdrType): Boolean = type == YHdrType.Sdr || type in displayHdrTypes
 
     companion object {
         fun conservative(): YDeviceCapabilities =

@@ -8,13 +8,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DetailPlaybackSelectionTest {
-
-    private val selection = PlaybackSelectionState(
-        serverId = "remote",
-        itemId = "episode-3",
-        seriesId = "series",
-        versionId = "4k",
-    )
+    private val selection =
+        PlaybackSelectionState(
+            serverId = "remote",
+            itemId = "episode-3",
+            seriesId = "series",
+            versionId = "4k",
+        )
 
     @Test
     fun cross_server_selection_stays_pending_until_sources_arrive() {
@@ -117,12 +117,13 @@ class DetailPlaybackSelectionTest {
         )
     }
 
-    private fun remoteSource() = ServerSource(
-        serverId = "remote",
-        serverName = "远端",
-        isCurrent = false,
-        source = SourceInfo("4K", null, null),
-        reachable = true,
-        itemId = "series",
-    )
+    private fun remoteSource() =
+        ServerSource(
+            serverId = "remote",
+            serverName = "远端",
+            isCurrent = false,
+            source = SourceInfo("4K", null, null),
+            reachable = true,
+            itemId = "series",
+        )
 }

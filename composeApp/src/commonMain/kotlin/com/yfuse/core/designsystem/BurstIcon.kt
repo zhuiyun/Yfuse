@@ -75,10 +75,11 @@ fun BurstIcon(
             pop.snapTo(0.6f)
             pop.animateTo(
                 targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = 0.38f,
-                    stiffness = Spring.StiffnessMediumLow,
-                ),
+                animationSpec =
+                    spring(
+                        dampingRatio = 0.38f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
             )
         } else {
             pop.snapTo(1.16f)
@@ -104,12 +105,13 @@ fun BurstIcon(
             icon,
             contentDescription = contentDescription,
             tint = tint,
-            modifier = Modifier
-                .size(iconSize)
-                .graphicsLayer {
-                    scaleX = pop.value
-                    scaleY = pop.value
-                },
+            modifier =
+                Modifier
+                    .size(iconSize)
+                    .graphicsLayer {
+                        scaleX = pop.value
+                        scaleY = pop.value
+                    },
         )
     }
 }

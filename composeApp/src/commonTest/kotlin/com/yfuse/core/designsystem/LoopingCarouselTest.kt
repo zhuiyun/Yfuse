@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class LoopingCarouselTest {
-
     @Test
     fun start_page_is_aligned_and_has_room_in_both_directions() {
         val page = loopingCarouselStartPage(itemCount = 5)

@@ -28,11 +28,12 @@ internal fun safeLogcat(
     // enables live output in diagnostics; the persisted export log remains available either way.
     if (!SafeLogcatOutputGate.isEnabled()) return
     val safeTag = redactDiagnosticText(tag).take(23).ifBlank { "Yfuse" }
-    val safePayload = formatSafeLogcatMessage(
-        event = event,
-        message = message,
-        attributes = attributes,
-        throwableText = throwable?.let(Log::getStackTraceString),
-    )
+    val safePayload =
+        formatSafeLogcatMessage(
+            event = event,
+            message = message,
+            attributes = attributes,
+            throwableText = throwable?.let(Log::getStackTraceString),
+        )
     Log.println(priority, safeTag, safePayload)
 }

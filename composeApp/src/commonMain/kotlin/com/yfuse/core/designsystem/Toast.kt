@@ -50,13 +50,15 @@ fun BoxScope.ActionToast(
 ) {
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current
-    val toastAccent = remember(accent, palette.isDark, themeAccent) {
-        accent?.let { resolveAccentColors(it, palette.isDark) } ?: themeAccent
-    }
+    val toastAccent =
+        remember(accent, palette.isDark, themeAccent) {
+            accent?.let { resolveAccentColors(it, palette.isDark) } ?: themeAccent
+        }
     val accessibilityManager = LocalAccessibilityManager.current
     // The exit animation outlives the state that caused it, so the last text is kept to
     // draw during the fade — otherwise the toast blanks a frame before it leaves.
     var lastMessage by remember { mutableStateOf(message.orEmpty()) }
+
     /**
      * Bumped every time a message is posted, and part of the timer's key.
      *
@@ -72,11 +74,12 @@ fun BoxScope.ActionToast(
     LaunchedEffect(posting, accessibilityManager) {
         val current = message ?: return@LaunchedEffect
         lastMessage = current
-        val recommendedTimeout = accessibilityManager?.calculateRecommendedTimeoutMillis(
-            originalTimeoutMillis = TOAST_MS,
-            containsText = true,
-            containsControls = true,
-        ) ?: TOAST_MS
+        val recommendedTimeout =
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = TOAST_MS,
+                containsText = true,
+                containsControls = true,
+            ) ?: TOAST_MS
         delay(maxOf(TOAST_MS, recommendedTimeout))
         onDismiss()
     }
@@ -84,10 +87,12 @@ fun BoxScope.ActionToast(
     val duration = if (LocalAccessibilityOptions.current.reduceMotion) 0 else Motion.TAB
     AnimatedVisibility(
         visible = message != null,
-        enter = fadeIn(tween(duration, easing = Motion.Curve)) +
-            slideInVertically(tween(duration, easing = Motion.Curve)) { it / 2 },
-        exit = fadeOut(tween(duration, easing = Motion.Curve)) +
-            slideOutVertically(tween(duration, easing = Motion.Curve)) { it / 2 },
+        enter =
+            fadeIn(tween(duration, easing = Motion.Curve)) +
+                slideInVertically(tween(duration, easing = Motion.Curve)) { it / 2 },
+        exit =
+            fadeOut(tween(duration, easing = Motion.Curve)) +
+                slideOutVertically(tween(duration, easing = Motion.Curve)) { it / 2 },
         modifier = modifier.align(Alignment.BottomCenter),
     ) {
         Text(
@@ -95,24 +100,24 @@ fun BoxScope.ActionToast(
             style = AppTypography.body.strong,
             color = toastAccent.accent,
             textAlign = TextAlign.Center,
-            modifier = Modifier
-                .padding(horizontal = Dimens.pageHorizontal)
-                // Polite live-region announcements do not interrupt the action that caused
-                // the confirmation, while still making transient feedback discoverable.
-                .semantics { liveRegion = LiveRegionMode.Polite }
-                // A notice the user has already read should go when they say so, not when
-                // its timer says so. It sits over the bottom of the page — the busiest part
-                // of the screen — so waiting out the full 2.6s to reach what is underneath
-                // was the one thing it could get wrong.
-                .pressable(onClickLabel = "关闭提示", onClick = onDismiss)
-                .touchTarget()
-                .shadow(Shadows.tabBar, GlassShapes.chip)
-                .solidGlass(
-                    shape = GlassShapes.chip,
-                    fill = toastAccent.container,
-                    border = toastAccent.border,
-                )
-                .padding(horizontal = 16.dp, vertical = 11.dp),
+            modifier =
+                Modifier
+                    .padding(horizontal = Dimens.pageHorizontal)
+                    // Polite live-region announcements do not interrupt the action that caused
+                    // the confirmation, while still making transient feedback discoverable.
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+                    // A notice the user has already read should go when they say so, not when
+                    // its timer says so. It sits over the bottom of the page — the busiest part
+                    // of the screen — so waiting out the full 2.6s to reach what is underneath
+                    // was the one thing it could get wrong.
+                    .pressable(onClickLabel = "关闭提示", onClick = onDismiss)
+                    .touchTarget()
+                    .shadow(Shadows.tabBar, GlassShapes.chip)
+                    .solidGlass(
+                        shape = GlassShapes.chip,
+                        fill = toastAccent.container,
+                        border = toastAccent.border,
+                    ).padding(horizontal = 16.dp, vertical = 11.dp),
         )
     }
 }

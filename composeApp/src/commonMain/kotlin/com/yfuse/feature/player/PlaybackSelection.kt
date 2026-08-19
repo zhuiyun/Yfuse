@@ -22,11 +22,12 @@ object PlaybackSelection {
 
     fun update(item: PlayerMediaItem?) {
         if (item == null) return
-        _state.value = PlaybackSelectionState(
-            serverId = item.serverId,
-            itemId = item.id,
-            seriesId = item.seriesId,
-            versionId = item.versionId,
-        )
+        _state.value =
+            PlaybackSelectionState(
+                serverId = item.serverId,
+                itemId = item.id,
+                seriesId = item.seriesId,
+                versionId = item.versionId,
+            )
     }
 }

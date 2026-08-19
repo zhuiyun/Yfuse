@@ -11,14 +11,15 @@ import kotlin.test.assertIs
 class LibraryContainerRouteTest {
     @Test
     fun container_route_survives_library_navigation_config_serialization() {
-        val route = LibraryContainerRoute.from(
-            MediaContainer(
-                id = "playlist|with punctuation",
-                title = "周末片单",
-                kind = MediaContainerKind.Playlist,
-                serverId = "https://emby.example/emby#user-1",
-            ),
-        )
+        val route =
+            LibraryContainerRoute.from(
+                MediaContainer(
+                    id = "playlist|with punctuation",
+                    title = "周末片单",
+                    kind = MediaContainerKind.Playlist,
+                    serverId = "https://emby.example/emby#user-1",
+                ),
+            )
         val original = LibraryComponent.Config.Grid(route.encode(), "周末片单")
 
         val encodedConfig = Json.encodeToString(LibraryComponent.Config.serializer(), original)
@@ -32,10 +33,11 @@ class LibraryContainerRouteTest {
 
     @Test
     fun directory_route_round_trips_its_server_and_kind() {
-        val route = LibraryContainerDirectoryRoute(
-            serverId = "server-two",
-            kind = MediaContainerKind.BoxSet,
-        )
+        val route =
+            LibraryContainerDirectoryRoute(
+                serverId = "server-two",
+                kind = MediaContainerKind.BoxSet,
+            )
 
         assertEquals(route, LibraryContainerDirectoryRoute.decode(route.encode()))
     }

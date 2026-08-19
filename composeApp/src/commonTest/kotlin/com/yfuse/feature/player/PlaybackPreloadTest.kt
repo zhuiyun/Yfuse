@@ -11,15 +11,15 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class PlaybackPreloadTest {
-
     @Test
     fun prepared_queue_can_be_claimed_by_only_one_player_launch() {
-        val key = PlaybackPreloadKey(
-            serverId = "server",
-            itemId = "episode",
-            startPositionTicks = 42L,
-            mediaSourceId = "source",
-        )
+        val key =
+            PlaybackPreloadKey(
+                serverId = "server",
+                itemId = "episode",
+                startPositionTicks = 42L,
+                mediaSourceId = "source",
+            )
         val prepared = FakePreparedStore()
         PreparedPlaybackRegistry.register(key, prepared)
 
@@ -32,78 +32,83 @@ class PlaybackPreloadTest {
     }
 
     @Test
-    fun next_episode_is_preloaded_only_inside_the_final_90_seconds() = runTest {
-        val preloader = RecordingPreloader()
-        val reporter = PlaybackProgressReporter(
-            items = listOf(
-                PlayerMediaItem("e1", "direct-1", "hls-1", "第一集"),
-                PlayerMediaItem("e2", "direct-2", "hls-2", "第二集"),
-            ),
-            sink = NoopSink,
-            // The reporter owns a long-lived command actor. Run it as background work so
-            // runTest cancels the actor after the synchronous preload assertions complete.
-            scope = backgroundScope,
-            sourcePreloader = preloader,
-        )
+    fun next_episode_is_preloaded_only_inside_the_final_90_seconds() =
+        runTest {
+            val preloader = RecordingPreloader()
+            val reporter =
+                PlaybackProgressReporter(
+                    items =
+                        listOf(
+                            PlayerMediaItem("e1", "direct-1", "hls-1", "第一集"),
+                            PlayerMediaItem("e2", "direct-2", "hls-2", "第二集"),
+                        ),
+                    sink = NoopSink,
+                    // The reporter owns a long-lived command actor. Run it as background work so
+                    // runTest cancels the actor after the synchronous preload assertions complete.
+                    scope = backgroundScope,
+                    sourcePreloader = preloader,
+                )
 
-        reporter.update(
-            PlaybackState(
-                playing = true,
-                currentIndex = 0,
-                itemCount = 2,
-                positionMs = 480_000L,
-                durationMs = 600_000L,
-            ),
-        )
-        assertTrue(preloader.urls.isEmpty())
+            reporter.update(
+                PlaybackState(
+                    playing = true,
+                    currentIndex = 0,
+                    itemCount = 2,
+                    positionMs = 480_000L,
+                    durationMs = 600_000L,
+                ),
+            )
+            assertTrue(preloader.urls.isEmpty())
 
-        reporter.update(
-            PlaybackState(
-                playing = true,
-                currentIndex = 0,
-                itemCount = 2,
-                positionMs = 511_000L,
-                durationMs = 600_000L,
-            ),
-        )
-        assertEquals(listOf("direct-2"), preloader.urls)
+            reporter.update(
+                PlaybackState(
+                    playing = true,
+                    currentIndex = 0,
+                    itemCount = 2,
+                    positionMs = 511_000L,
+                    durationMs = 600_000L,
+                ),
+            )
+            assertEquals(listOf("direct-2"), preloader.urls)
 
-        // The 500 ms player ticker may call update many times in the window. One source should
-        // still be warmed only once.
-        reporter.update(
-            PlaybackState(
-                playing = true,
-                currentIndex = 0,
-                itemCount = 2,
-                positionMs = 540_000L,
-                durationMs = 600_000L,
-            ),
-        )
-        assertEquals(listOf("direct-2"), preloader.urls)
-    }
+            // The 500 ms player ticker may call update many times in the window. One source should
+            // still be warmed only once.
+            reporter.update(
+                PlaybackState(
+                    playing = true,
+                    currentIndex = 0,
+                    itemCount = 2,
+                    positionMs = 540_000L,
+                    durationMs = 600_000L,
+                ),
+            )
+            assertEquals(listOf("direct-2"), preloader.urls)
+        }
 
     @Test
-    fun final_queue_item_has_nothing_to_preload() = runTest {
-        val preloader = RecordingPreloader()
-        val reporter = PlaybackProgressReporter(
-            items = listOf(PlayerMediaItem("e1", "direct-1", "hls-1", "第一集")),
-            sink = NoopSink,
-            scope = backgroundScope,
-            sourcePreloader = preloader,
-        )
+    fun final_queue_item_has_nothing_to_preload() =
+        runTest {
+            val preloader = RecordingPreloader()
+            val reporter =
+                PlaybackProgressReporter(
+                    items = listOf(PlayerMediaItem("e1", "direct-1", "hls-1", "第一集")),
+                    sink = NoopSink,
+                    scope = backgroundScope,
+                    sourcePreloader = preloader,
+                )
 
-        reporter.update(
-            PlaybackState(
-                playing = true,
-                currentIndex = 0,
-                itemCount = 1,
-                positionMs = 550_000L,
-                durationMs = 600_000L,
-            ),
-        )
+            reporter.update(
+                PlaybackState(
+                    playing = true,
+                    currentIndex = 0,
+                    itemCount = 1,
+                    positionMs = 550_000L,
+                    durationMs = 600_000L,
+                ),
+            )
 
-        assertTrue(preloader.urls.isEmpty())
-    }
+            assertTrue(preloader.urls.isEmpty())
+        }
 
     @Test
     fun a_transcoded_disc_is_never_preloaded() =

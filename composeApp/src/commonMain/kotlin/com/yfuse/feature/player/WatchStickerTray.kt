@@ -36,8 +36,8 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
-import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
@@ -77,37 +77,41 @@ fun WatchStickerGlyph(
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val motion = if (animated && !reduceMotion) sticker.motion else WatchStickerMotion.Still
     val sharedClock = LocalStickerClock.current
-    val phase = when {
-        motion == WatchStickerMotion.Still -> null
-        sharedClock == null -> rememberMotionPhase(motion)
-        else -> remember(motion, sharedClock) {
-            derivedStateOf {
-                ((sharedClock.value * SHARED_CLOCK_MS) % motion.periodMs) / motion.periodMs
-            }
+    val phase =
+        when {
+            motion == WatchStickerMotion.Still -> null
+            sharedClock == null -> rememberMotionPhase(motion)
+            else ->
+                remember(motion, sharedClock) {
+                    derivedStateOf {
+                        ((sharedClock.value * SHARED_CLOCK_MS) % motion.periodMs) / motion.periodMs
+                    }
+                }
         }
-    }
 
     Text(
         sticker.glyph,
         style = sc(sizeSp, 400),
         color = Color.White,
-        modifier = modifier
-            .semantics { contentDescription = sticker.label }
-            .then(
-                if (phase == null) {
-                    Modifier
-                } else {
-                    Modifier.graphicsLayer {
-                        // Pivot at the top for anything that hangs, centre for everything else.
-                        transformOrigin = if (motion == WatchStickerMotion.Swing) {
-                            TransformOrigin(0.5f, 0f)
-                        } else {
-                            TransformOrigin.Center
+        modifier =
+            modifier
+                .semantics { contentDescription = sticker.label }
+                .then(
+                    if (phase == null) {
+                        Modifier
+                    } else {
+                        Modifier.graphicsLayer {
+                            // Pivot at the top for anything that hangs, centre for everything else.
+                            transformOrigin =
+                                if (motion == WatchStickerMotion.Swing) {
+                                    TransformOrigin(0.5f, 0f)
+                                } else {
+                                    TransformOrigin.Center
+                                }
+                            applyStickerMotion(motion, phase.value, size.height)
                         }
-                        applyStickerMotion(motion, phase.value, size.height)
-                    }
-                },
-            ),
+                    },
+                ),
     )
 }
 
@@ -117,11 +121,12 @@ private fun rememberMotionPhase(motion: WatchStickerMotion): State<Float> =
     rememberInfiniteTransition(label = "sticker-motion").animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            // Linear, and the shaping happens in the maths below. An eased phase would ease
-            // the *cycle* rather than the movement, which reads as a stutter at the seam.
-            animation = tween(motion.periodMs, easing = LinearEasing),
-        ),
+        animationSpec =
+            infiniteRepeatable(
+                // Linear, and the shaping happens in the maths below. An eased phase would ease
+                // the *cycle* rather than the movement, which reads as a stutter at the seam.
+                animation = tween(motion.periodMs, easing = LinearEasing),
+            ),
         label = motion.name,
     )
 
@@ -220,18 +225,20 @@ internal fun WatchStickerTray(
     val selectedCategory = remember { mutableStateOf(WatchStickerCategory.Reaction) }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val accent = LocalAccentColors.current
-    val sharedClock = if (reduceMotion) {
-        null
-    } else {
-        rememberInfiniteTransition(label = "sticker-tray-clock").animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(SHARED_CLOCK_MS, easing = LinearEasing),
-            ),
-            label = "sticker-tray-phase",
-        )
-    }
+    val sharedClock =
+        if (reduceMotion) {
+            null
+        } else {
+            rememberInfiniteTransition(label = "sticker-tray-clock").animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(SHARED_CLOCK_MS, easing = LinearEasing),
+                    ),
+                label = "sticker-tray-phase",
+            )
+        }
     CompositionLocalProvider(LocalStickerClock provides sharedClock) {
         Column(
             modifier = modifier,
@@ -257,33 +264,35 @@ internal fun WatchStickerTray(
                                 role = Role.Tab,
                                 onClickLabel = category.label,
                                 onClick = { selectedCategory.value = category },
-                            )
-                            .semantics(mergeDescendants = true) { selected = isSelected },
+                            ).semantics(mergeDescendants = true) { selected = isSelected },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = category.label,
-                            style = if (isSelected) {
-                                AppTypography.caption.strong
-                            } else {
-                                AppTypography.caption.medium
-                            },
+                            style =
+                                if (isSelected) {
+                                    AppTypography.caption.strong
+                                } else {
+                                    AppTypography.caption.medium
+                                },
                             color = Color.White.copy(alpha = if (isSelected) 1f else 0.66f),
-                            modifier = Modifier
-                                .glass(
-                                    shape = GlassShapes.chip,
-                                    fill = if (isSelected) {
-                                        accent.accent.copy(alpha = 0.58f)
-                                    } else {
-                                        PlayerTokens.chipFill
-                                    },
-                                    border = if (isSelected) {
-                                        Color.White.copy(alpha = 0.32f)
-                                    } else {
-                                        PlayerTokens.chipBorder
-                                    },
-                                )
-                                .padding(horizontal = 11.dp, vertical = 6.dp),
+                            modifier =
+                                Modifier
+                                    .glass(
+                                        shape = GlassShapes.chip,
+                                        fill =
+                                            if (isSelected) {
+                                                accent.accent.copy(alpha = 0.58f)
+                                            } else {
+                                                PlayerTokens.chipFill
+                                            },
+                                        border =
+                                            if (isSelected) {
+                                                Color.White.copy(alpha = 0.32f)
+                                            } else {
+                                                PlayerTokens.chipBorder
+                                            },
+                                    ).padding(horizontal = 11.dp, vertical = 6.dp),
                         )
                     }
                 }

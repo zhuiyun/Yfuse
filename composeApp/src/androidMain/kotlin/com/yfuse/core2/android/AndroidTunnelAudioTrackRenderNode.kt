@@ -44,18 +44,21 @@ internal class AndroidTunnelAudioTrackRenderNode(
         bytesPerFrame = channelCount * bytesPerSample(encoding)
         val channelMask = channelMask(channelCount)
         val audioFormat =
-            AudioFormat.Builder()
+            AudioFormat
+                .Builder()
                 .setSampleRate(sampleRate)
                 .setEncoding(encoding)
                 .setChannelMask(channelMask)
                 .build()
         val minBuffer =
-            AudioTrack.getMinBufferSize(sampleRate, channelMask, encoding)
+            AudioTrack
+                .getMinBufferSize(sampleRate, channelMask, encoding)
                 .takeIf { it > 0 }
                 ?: fallbackBufferBytes(sampleRate, channelCount, encoding)
         val bufferSize = max(minBuffer, fallbackBufferBytes(sampleRate, channelCount, encoding))
         val created =
-            AudioTrack.Builder()
+            AudioTrack
+                .Builder()
                 .setAudioAttributes(tunnel.audioAttributes())
                 .setAudioFormat(audioFormat)
                 .setTransferMode(AudioTrack.MODE_STREAM)

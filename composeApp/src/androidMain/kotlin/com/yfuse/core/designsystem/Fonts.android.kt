@@ -24,12 +24,13 @@ import com.yfuse.R
  */
 private val NumericWeights = listOf(400, 450, 500, 600, 650, 700, 800)
 
-actual val NumericFontFamily: FontFamily = FontFamily(
-    NumericWeights.map { weight ->
-        Font(
-            R.font.manrope_variable,
-            weight = FontWeight(weight),
-            variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
-        )
-    },
-)
+actual val NumericFontFamily: FontFamily =
+    FontFamily(
+        NumericWeights.map { weight ->
+            Font(
+                R.font.manrope_variable,
+                weight = FontWeight(weight),
+                variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
+            )
+        },
+    )

@@ -538,7 +538,9 @@ private class RecordingAccountSecureStore : SecureStore {
 
 private class FastAccountCryptoPrimitives : CryptoPrimitives {
     override fun sha256(value: ByteArray): ByteArray =
-        java.security.MessageDigest.getInstance("SHA-256").digest(value)
+        java.security.MessageDigest
+            .getInstance("SHA-256")
+            .digest(value)
 
     private var nextRandomByte = 1
 

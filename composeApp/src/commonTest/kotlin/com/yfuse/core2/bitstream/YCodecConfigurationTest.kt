@@ -37,11 +37,12 @@ class YCodecConfigurationTest {
         val vps = byteArrayOf(0x40, 0x01, 0x11)
         val sps = byteArrayOf(0x42, 0x01, 0x22)
         val pps = byteArrayOf(0x44, 0x01, 0x33)
-        val header = ByteArray(23).apply {
-            this[0] = 1
-            this[21] = 0xff.toByte()
-            this[22] = 3
-        }
+        val header =
+            ByteArray(23).apply {
+                this[0] = 1
+                this[21] = 0xff.toByte()
+                this[22] = 3
+            }
         val record =
             header +
                 hevcArray(32, vps) +
@@ -68,7 +69,12 @@ class YCodecConfigurationTest {
             YCodecConfiguration.parseAvcC(byteArrayOf(1, 100, 0, 31, 0xff.toByte(), 0xe1.toByte(), 0, 5, 0x67))
         }
         assertFailsWith<IllegalArgumentException> {
-            YCodecConfiguration.parseHvcC(ByteArray(23).apply { this[0] = 1; this[22] = 1 })
+            YCodecConfiguration.parseHvcC(
+                ByteArray(23).apply {
+                    this[0] = 1
+                    this[22] = 1
+                },
+            )
         }
     }
 

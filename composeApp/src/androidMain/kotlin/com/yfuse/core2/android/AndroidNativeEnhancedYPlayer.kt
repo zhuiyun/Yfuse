@@ -1,7 +1,6 @@
 package com.yfuse.core2.android
 
 import android.content.Context
-import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
@@ -321,8 +320,12 @@ internal class AndroidNativeEnhancedYPlayer(
                                 surfaceOutput = command.output
                                 val next = command.output?.surface?.takeIf { it.isValid }
                                 if (next == null) {
-                                    val position = if (prepared) session.snapshot().positionUs else
-                                        mutableState.value.positionMs * MICROS_PER_MILLISECOND
+                                    val position =
+                                        if (prepared) {
+                                            session.snapshot().positionUs
+                                        } else {
+                                            mutableState.value.positionMs * MICROS_PER_MILLISECOND
+                                        }
                                     session.close()
                                     prepared = false
                                     mutableState.updateState {
@@ -389,13 +392,26 @@ internal class AndroidNativeEnhancedYPlayer(
 
     private sealed interface Command {
         data object Prepare : Command
+
         data object Play : Command
+
         data object Pause : Command
 
-        data class Seek(val positionUs: Long) : Command
-        data class SetSpeed(val speed: Float) : Command
-        data class SetVideoOutput(val output: AndroidSurfaceVideoOutput?) : Command
-        data class SelectItem(val index: Int) : Command
+        data class Seek(
+            val positionUs: Long,
+        ) : Command
+
+        data class SetSpeed(
+            val speed: Float,
+        ) : Command
+
+        data class SetVideoOutput(
+            val output: AndroidSurfaceVideoOutput?,
+        ) : Command
+
+        data class SelectItem(
+            val index: Int,
+        ) : Command
     }
 }
 
@@ -414,9 +430,7 @@ private fun YDemuxOpenResult.toAudioTracks(): List<YTrack> {
     }
 }
 
-private inline fun MutableStateFlow<YPlayerState>.updateState(
-    transform: (YPlayerState) -> YPlayerState,
-) {
+private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     value = transform(value)
 }
 

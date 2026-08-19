@@ -68,10 +68,10 @@ import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.playback.resolvePlaybackOptimization
 import com.yfuse.core.sync.WatchTogetherClient
-import com.yfuse.core2.api.YPlayer
-import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.android.canUseCore2Trial
 import com.yfuse.core2.android.toCore2MediaItems
+import com.yfuse.core2.api.YPlayer
+import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.core2.legacy.asPlaybackStateFlow
 import com.yfuse.core2.legacy.asYPlayer
@@ -267,6 +267,7 @@ internal fun PlayerRoot(
                 }
             versionedItems.map { it.withPlaybackQuality(selectedQuality) }
         }
+
     fun preflightItem(item: PlayerMediaItem): PlayerMediaItem {
         val probe = item.playbackMediaProbe()
         val videoSupport =

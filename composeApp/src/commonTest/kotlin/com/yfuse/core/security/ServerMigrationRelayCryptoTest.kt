@@ -47,11 +47,19 @@ private class RelayTestCryptoPrimitives : CryptoPrimitives {
 
     override fun sha256(value: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(value)
 
-    override fun aesGcmEncrypt(key: ByteArray, nonce: ByteArray, plaintext: ByteArray, aad: ByteArray): ByteArray =
-        platformTestCipher(javax.crypto.Cipher.ENCRYPT_MODE, key, nonce, aad).doFinal(plaintext)
+    override fun aesGcmEncrypt(
+        key: ByteArray,
+        nonce: ByteArray,
+        plaintext: ByteArray,
+        aad: ByteArray,
+    ): ByteArray = platformTestCipher(javax.crypto.Cipher.ENCRYPT_MODE, key, nonce, aad).doFinal(plaintext)
 
-    override fun aesGcmDecrypt(key: ByteArray, nonce: ByteArray, ciphertext: ByteArray, aad: ByteArray): ByteArray =
-        platformTestCipher(javax.crypto.Cipher.DECRYPT_MODE, key, nonce, aad).doFinal(ciphertext)
+    override fun aesGcmDecrypt(
+        key: ByteArray,
+        nonce: ByteArray,
+        ciphertext: ByteArray,
+        aad: ByteArray,
+    ): ByteArray = platformTestCipher(javax.crypto.Cipher.DECRYPT_MODE, key, nonce, aad).doFinal(ciphertext)
 
     override fun pbkdf2HmacSha256(
         passphrase: CharArray,
@@ -61,15 +69,22 @@ private class RelayTestCryptoPrimitives : CryptoPrimitives {
     ): ByteArray {
         val spec = javax.crypto.spec.PBEKeySpec(passphrase, salt, iterations, outputSizeBytes * 8)
         return try {
-            javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+            javax.crypto.SecretKeyFactory
+                .getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec)
+                .encoded
         } finally {
             spec.clearPassword()
         }
     }
 
-    private fun platformTestCipher(mode: Int, key: ByteArray, nonce: ByteArray, aad: ByteArray) =
-        javax.crypto.Cipher.getInstance("AES/GCM/NoPadding").apply {
-            init(mode, javax.crypto.spec.SecretKeySpec(key, "AES"), javax.crypto.spec.GCMParameterSpec(128, nonce))
-            updateAAD(aad)
-        }
+    private fun platformTestCipher(
+        mode: Int,
+        key: ByteArray,
+        nonce: ByteArray,
+        aad: ByteArray,
+    ) = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding").apply {
+        init(mode, javax.crypto.spec.SecretKeySpec(key, "AES"), javax.crypto.spec.GCMParameterSpec(128, nonce))
+        updateAAD(aad)
+    }
 }

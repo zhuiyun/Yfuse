@@ -94,113 +94,115 @@ fun WatchInviteSheet(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
             )
-        } else when (resolution) {
-            InviteResolution.Resolving ->
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 18.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CircularProgressIndicator(
-                        Modifier.size(18.dp),
-                        color = accent.accent,
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text("正在你的服务器上查找…", style = AppTypography.body.medium, color = palette.sub)
-                }
-
-            is InviteResolution.Found -> {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .solidGlass(
-                            shape = GlassShapes.chip,
-                            fill = accent.container,
-                            border = accent.border,
-                        ).padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Poster(
-                        url = resolution.posterUrl,
-                        modifier = Modifier.width(56.dp).height(82.dp),
-                    )
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            resolution.title,
-                            style = AppTypography.body.strong,
-                            color = palette.text,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
+        } else {
+            when (resolution) {
+                InviteResolution.Resolving ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            Modifier.size(18.dp),
+                            color = accent.accent,
+                            strokeWidth = 2.dp,
                         )
-                        resolution.subtitle?.let {
-                            Spacer(Modifier.height(3.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("正在你的服务器上查找…", style = AppTypography.body.medium, color = palette.sub)
+                    }
+
+                is InviteResolution.Found -> {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .solidGlass(
+                                shape = GlassShapes.chip,
+                                fill = accent.container,
+                                border = accent.border,
+                            ).padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Poster(
+                            url = resolution.posterUrl,
+                            modifier = Modifier.width(56.dp).height(82.dp),
+                        )
+                        Column(Modifier.weight(1f)) {
                             Text(
-                                it,
-                                style = AppTypography.caption.regular,
-                                color = palette.sub2,
-                                maxLines = 1,
+                                resolution.title,
+                                style = AppTypography.body.strong,
+                                color = palette.text,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
-                                Modifier.size(6.dp).clip(CircleShape).background(Brand.Online),
-                            )
-                            Text(
-                                "在「${resolution.serverName}」找到",
-                                style = AppTypography.caption.medium,
-                                color = palette.sub,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            resolution.subtitle?.let {
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    it,
+                                    style = AppTypography.caption.regular,
+                                    color = palette.sub2,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier.size(6.dp).clip(CircleShape).background(Brand.Online),
+                                )
+                                Text(
+                                    "在「${resolution.serverName}」找到",
+                                    style = AppTypography.caption.medium,
+                                    color = palette.sub,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
+
+                    OverlayButton(
+                        label = "加入并开始播放",
+                        onClick = onJoin,
+                        modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                        tone = OverlayButtonTone.Primary,
+                    )
                 }
 
-                OverlayButton(
-                    label = "加入并开始播放",
-                    onClick = onJoin,
-                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                    tone = OverlayButtonTone.Primary,
-                )
-            }
+                is InviteResolution.Missing -> {
+                    Text(
+                        buildString {
+                            append("你的服务器上没有找到")
+                            resolution.title?.let { append("《$it》") }
+                            append("。一起看要求各自播放自己的文件，所以需要先在你的媒体库里有这部片。")
+                        },
+                        style = AppTypography.body.regular.copy(lineHeight = 20.6.sp),
+                        color = palette.body,
+                    )
+                    OverlayButton(
+                        label = "按名字搜索",
+                        onClick = onSearchByName,
+                        modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                        tone = OverlayButtonTone.Primary,
+                        enabled = resolution.title != null,
+                    )
+                }
 
-            is InviteResolution.Missing -> {
-                Text(
-                    buildString {
-                        append("你的服务器上没有找到")
-                        resolution.title?.let { append("《$it》") }
-                        append("。一起看要求各自播放自己的文件，所以需要先在你的媒体库里有这部片。")
-                    },
-                    style = AppTypography.body.regular.copy(lineHeight = 20.6.sp),
-                    color = palette.body,
-                )
-                OverlayButton(
-                    label = "按名字搜索",
-                    onClick = onSearchByName,
-                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                    tone = OverlayButtonTone.Primary,
-                    enabled = resolution.title != null,
-                )
-            }
-
-            is InviteResolution.Failed -> {
-                Text(
-                    resolution.message,
-                    style = AppTypography.body.regular.copy(lineHeight = 20.6.sp),
-                    color = palette.error,
-                )
-                OverlayButton(
-                    label = "关闭",
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                )
+                is InviteResolution.Failed -> {
+                    Text(
+                        resolution.message,
+                        style = AppTypography.body.regular.copy(lineHeight = 20.6.sp),
+                        color = palette.error,
+                    )
+                    OverlayButton(
+                        label = "关闭",
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                    )
+                }
             }
         }
     }

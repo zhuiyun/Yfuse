@@ -41,33 +41,60 @@ internal object FfmpegNativeBridge {
 
     fun durationUs(handle: Long): Long? = nativeDurationUs(handle).timestampOrNull()
 
-    fun trackType(handle: Long, index: Int): Int = nativeTrackType(handle, index)
+    fun trackType(
+        handle: Long,
+        index: Int,
+    ): Int = nativeTrackType(handle, index)
 
-    fun trackCodecName(handle: Long, index: Int): String? = nativeTrackCodecName(handle, index)
+    fun trackCodecName(
+        handle: Long,
+        index: Int,
+    ): String? = nativeTrackCodecName(handle, index)
 
-    fun trackVideoInfo(handle: Long, index: Int): LongArray =
-        checkNotNull(nativeTrackVideoInfo(handle, index)) { "FFmpeg video metadata is unavailable" }
+    fun trackVideoInfo(
+        handle: Long,
+        index: Int,
+    ): LongArray = checkNotNull(nativeTrackVideoInfo(handle, index)) { "FFmpeg video metadata is unavailable" }
 
-    fun trackAudioInfo(handle: Long, index: Int): LongArray =
-        checkNotNull(nativeTrackAudioInfo(handle, index)) { "FFmpeg audio metadata is unavailable" }
+    fun trackAudioInfo(
+        handle: Long,
+        index: Int,
+    ): LongArray = checkNotNull(nativeTrackAudioInfo(handle, index)) { "FFmpeg audio metadata is unavailable" }
 
-    fun trackLanguage(handle: Long, index: Int): String? = nativeTrackLanguage(handle, index)
+    fun trackLanguage(
+        handle: Long,
+        index: Int,
+    ): String? = nativeTrackLanguage(handle, index)
 
-    fun trackTitle(handle: Long, index: Int): String? = nativeTrackTitle(handle, index)
+    fun trackTitle(
+        handle: Long,
+        index: Int,
+    ): String? = nativeTrackTitle(handle, index)
 
-    fun trackExtradata(handle: Long, index: Int): ByteArray? = nativeTrackExtradata(handle, index)
+    fun trackExtradata(
+        handle: Long,
+        index: Int,
+    ): ByteArray? = nativeTrackExtradata(handle, index)
 
-    fun trackDolbyConfig(handle: Long, index: Int): IntArray? = nativeTrackDolbyConfig(handle, index)
+    fun trackDolbyConfig(
+        handle: Long,
+        index: Int,
+    ): IntArray? = nativeTrackDolbyConfig(handle, index)
 
-    fun selectTracks(handle: Long, indexes: IntArray) = nativeSelectTracks(handle, indexes)
+    fun selectTracks(
+        handle: Long,
+        indexes: IntArray,
+    ) = nativeSelectTracks(handle, indexes)
 
     fun readPacket(
         handle: Long,
         target: ByteBuffer,
-    ): LongArray =
-        checkNotNull(nativeReadPacket(handle, target)) { "FFmpeg packet result is unavailable" }
+    ): LongArray = checkNotNull(nativeReadPacket(handle, target)) { "FFmpeg packet result is unavailable" }
 
-    fun seek(handle: Long, positionUs: Long) = nativeSeek(handle, positionUs.coerceAtLeast(0L))
+    fun seek(
+        handle: Long,
+        positionUs: Long,
+    ) = nativeSeek(handle, positionUs.coerceAtLeast(0L))
 
     private external fun nativeOpen(
         uri: String,
@@ -83,31 +110,63 @@ internal object FfmpegNativeBridge {
 
     private external fun nativeDurationUs(handle: Long): Long
 
-    private external fun nativeTrackType(handle: Long, index: Int): Int
+    private external fun nativeTrackType(
+        handle: Long,
+        index: Int,
+    ): Int
 
-    private external fun nativeTrackCodecName(handle: Long, index: Int): String?
+    private external fun nativeTrackCodecName(
+        handle: Long,
+        index: Int,
+    ): String?
 
-    private external fun nativeTrackVideoInfo(handle: Long, index: Int): LongArray?
+    private external fun nativeTrackVideoInfo(
+        handle: Long,
+        index: Int,
+    ): LongArray?
 
-    private external fun nativeTrackAudioInfo(handle: Long, index: Int): LongArray?
+    private external fun nativeTrackAudioInfo(
+        handle: Long,
+        index: Int,
+    ): LongArray?
 
-    private external fun nativeTrackLanguage(handle: Long, index: Int): String?
+    private external fun nativeTrackLanguage(
+        handle: Long,
+        index: Int,
+    ): String?
 
-    private external fun nativeTrackTitle(handle: Long, index: Int): String?
+    private external fun nativeTrackTitle(
+        handle: Long,
+        index: Int,
+    ): String?
 
-    private external fun nativeTrackExtradata(handle: Long, index: Int): ByteArray?
+    private external fun nativeTrackExtradata(
+        handle: Long,
+        index: Int,
+    ): ByteArray?
 
-    private external fun nativeTrackDolbyConfig(handle: Long, index: Int): IntArray?
+    private external fun nativeTrackDolbyConfig(
+        handle: Long,
+        index: Int,
+    ): IntArray?
 
-    private external fun nativeSelectTracks(handle: Long, indexes: IntArray)
+    private external fun nativeSelectTracks(
+        handle: Long,
+        indexes: IntArray,
+    )
 
-    private external fun nativeReadPacket(handle: Long, target: ByteBuffer): LongArray?
+    private external fun nativeReadPacket(
+        handle: Long,
+        target: ByteBuffer,
+    ): LongArray?
 
-    private external fun nativeSeek(handle: Long, positionUs: Long)
+    private external fun nativeSeek(
+        handle: Long,
+        positionUs: Long,
+    )
 }
 
-internal fun Long.timestampOrNull(): Long? =
-    takeUnless { it == Long.MIN_VALUE }
+internal fun Long.timestampOrNull(): Long? = takeUnless { it == Long.MIN_VALUE }
 
 internal const val FFMPEG_PACKET_EOF = 0L
 internal const val FFMPEG_PACKET_DATA = 1L

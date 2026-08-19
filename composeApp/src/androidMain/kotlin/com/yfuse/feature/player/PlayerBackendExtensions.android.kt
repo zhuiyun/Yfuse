@@ -21,15 +21,13 @@ internal class PlayerBackendExtensions(
 
     fun setAudioDelayMs(delayMs: Long): Boolean = engine.setAudioDelayMs(delayMs)
 
-    fun selectSecondarySubtitleTrack(id: String): Boolean =
-        engine.selectSecondarySubtitleTrack(id)
+    fun selectSecondarySubtitleTrack(id: String): Boolean = engine.selectSecondarySubtitleTrack(id)
 
     fun setSubtitleOffsetMs(offsetMs: Long): Boolean = engine.setSubtitleOffsetMs(offsetMs)
 
     fun setSubtitleScale(scale: Float): Boolean = engine.setSubtitleScale(scale)
 
-    fun setSubtitleBrightness(brightness: Float): Boolean =
-        engine.setSubtitleBrightness(brightness)
+    fun setSubtitleBrightness(brightness: Float): Boolean = engine.setSubtitleBrightness(brightness)
 
     fun setSubtitlePosition(position: Float): Boolean = engine.setSubtitlePosition(position)
 
@@ -56,8 +54,7 @@ internal class PlayerBackendExtensions(
             else -> mode == VideoScaleMode.Fit
         }
 
-    fun selectDiscTitle(index: Int): Boolean =
-        ActiveDiscNavigation.selectTitle(index) || engine.selectDiscTitle(index)
+    fun selectDiscTitle(index: Int): Boolean = ActiveDiscNavigation.selectTitle(index) || engine.selectDiscTitle(index)
 
     fun selectDiscChapter(index: Int): Boolean =
         ActiveDiscNavigation.selectChapter(index) || engine.selectDiscChapter(index)

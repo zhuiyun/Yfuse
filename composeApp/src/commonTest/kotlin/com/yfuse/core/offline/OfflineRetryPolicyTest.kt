@@ -6,12 +6,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class OfflineRetryPolicyTest {
-
     @Test
     fun legacyItemsDecodeWithSafeRetryDefaults() {
-        val item = Json.decodeFromString<OfflineMedia>(
-            """{"id":"server#item","serverId":"server","itemId":"item","title":"片名"}""",
-        )
+        val item =
+            Json.decodeFromString<OfflineMedia>(
+                """{"id":"server#item","serverId":"server","itemId":"item","title":"片名"}""",
+            )
 
         assertEquals(0, item.retryCount)
         assertEquals(0L, item.nextRetryAt)
@@ -24,11 +24,12 @@ class OfflineRetryPolicyTest {
         val expectedDelays = listOf(30_000L, 60_000L, 120_000L, 240_000L, 480_000L)
 
         expectedDelays.forEachIndexed { previousRetryCount, expectedDelay ->
-            val plan = planOfflineRetry(
-                failureKind = DownloadFailureKind.Network,
-                currentRetryCount = previousRetryCount,
-                nowMs = nowMs,
-            )
+            val plan =
+                planOfflineRetry(
+                    failureKind = DownloadFailureKind.Network,
+                    currentRetryCount = previousRetryCount,
+                    nowMs = nowMs,
+                )
 
             assertEquals(previousRetryCount + 1, plan?.retryCount)
             assertEquals(nowMs + expectedDelay, plan?.nextRetryAt)
@@ -44,10 +45,12 @@ class OfflineRetryPolicyTest {
 
     @Test
     fun terminalFailuresNeverScheduleAutomaticRetry() {
-        val terminalKinds = DownloadFailureKind.entries - setOf(
-            DownloadFailureKind.Network,
-            DownloadFailureKind.Server,
-        )
+        val terminalKinds =
+            DownloadFailureKind.entries -
+                setOf(
+                    DownloadFailureKind.Network,
+                    DownloadFailureKind.Server,
+                )
 
         terminalKinds.forEach { kind ->
             assertNull(planOfflineRetry(kind, currentRetryCount = 0, nowMs = 1_000L))
@@ -56,24 +59,26 @@ class OfflineRetryPolicyTest {
 
     @Test
     fun retryTimestampSaturatesInsteadOfOverflowing() {
-        val plan = planOfflineRetry(
-            failureKind = DownloadFailureKind.Network,
-            currentRetryCount = 0,
-            nowMs = Long.MAX_VALUE - 10L,
-        )
+        val plan =
+            planOfflineRetry(
+                failureKind = DownloadFailureKind.Network,
+                currentRetryCount = 0,
+                nowMs = Long.MAX_VALUE - 10L,
+            )
 
         assertEquals(Long.MAX_VALUE, plan?.nextRetryAt)
     }
 
     @Test
     fun queueSummarySeparatesRunningPausedFailedAndDelayedWork() {
-        val items = listOf(
-            item("downloading", DownloadStatus.Downloading, downloadedBytes = 20L),
-            item("retry", DownloadStatus.Queued, nextRetryAt = 20_000L),
-            item("paused", DownloadStatus.Paused),
-            item("completed", DownloadStatus.Completed, downloadedBytes = 1_024L),
-            item("failed", DownloadStatus.Failed),
-        )
+        val items =
+            listOf(
+                item("downloading", DownloadStatus.Downloading, downloadedBytes = 20L),
+                item("retry", DownloadStatus.Queued, nextRetryAt = 20_000L),
+                item("paused", DownloadStatus.Paused),
+                item("completed", DownloadStatus.Completed, downloadedBytes = 1_024L),
+                item("failed", DownloadStatus.Failed),
+            )
 
         assertEquals(
             OfflineQueueSummary(

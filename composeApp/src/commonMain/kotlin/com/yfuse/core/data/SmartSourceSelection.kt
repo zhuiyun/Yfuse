@@ -98,11 +98,11 @@ fun recommendedServerSource(
     sources: List<ServerSource>,
     health: Map<String, ServerHealth> = emptyMap(),
     network: PlaybackNetworkClass = PlaybackNetworkClass.Unknown,
-): ServerSource? = rankServerSources(sources, health, network)
-    .firstOrNull { ranked ->
-        ranked.source.reachable && ranked.source.source != null && ranked.source.itemId != null
-    }
-    ?.source
+): ServerSource? =
+    rankServerSources(sources, health, network)
+        .firstOrNull { ranked ->
+            ranked.source.reachable && ranked.source.source != null && ranked.source.itemId != null
+        }?.source
 
 /**
  * Recommends across availability, health, latency, picture/version facts and current network.

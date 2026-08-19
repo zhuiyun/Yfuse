@@ -3,8 +3,8 @@ package com.yfuse.core2.legacy
 import android.content.Context
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
-import com.yfuse.core2.android.AndroidCore2FallbackRouteFactory
 import com.yfuse.core2.android.AndroidCore2DiscRouteFactory
+import com.yfuse.core2.android.AndroidCore2FallbackRouteFactory
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackRoute
@@ -13,10 +13,10 @@ import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
-import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
+import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
 import com.yfuse.feature.player.MpvVideoEngine
 import com.yfuse.feature.player.PlayerMediaItem
@@ -176,9 +176,8 @@ private class AndroidMpvCore2FallbackPlayer(
 
     override fun selectDiscChapter(index: Int): Boolean = delegate.selectDiscChapter(index)
 
-    override fun sendDiscMenuCommand(
-        command: com.yfuse.core.playback.PlaybackDiscMenuCommand,
-    ): Boolean = delegate.sendDiscMenuCommand(command)
+    override fun sendDiscMenuCommand(command: com.yfuse.core.playback.PlaybackDiscMenuCommand): Boolean =
+        delegate.sendDiscMenuCommand(command)
 
     override fun currentPositionMs(): Long = delegate.currentPositionMs()
 

@@ -20,7 +20,6 @@ package com.yfuse.core.data
  * per frame — the overlay is already doing lane allocation sixty times a second.
  */
 object DanmakuFilter {
-
     /**
      * How far apart two identical lines can be and still be the same moment.
      *
@@ -35,14 +34,15 @@ object DanmakuFilter {
         blockedWords: List<String>,
     ): List<DanmakuComment> {
         val blocked = blockedWords.mapNotNull { it.trim().lowercase().takeIf(String::isNotEmpty) }
-        val kept = if (blocked.isEmpty()) {
-            comments
-        } else {
-            comments.filterNot { comment ->
-                val text = comment.text.lowercase()
-                blocked.any { it in text }
+        val kept =
+            if (blocked.isEmpty()) {
+                comments
+            } else {
+                comments.filterNot { comment ->
+                    val text = comment.text.lowercase()
+                    blocked.any { it in text }
+                }
             }
-        }
         return if (merge) merge(kept) else kept
     }
 

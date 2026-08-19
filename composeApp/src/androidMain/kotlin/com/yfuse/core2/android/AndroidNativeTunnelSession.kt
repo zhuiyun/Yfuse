@@ -269,10 +269,11 @@ internal class AndroidNativeTunnelSession(
     private fun feedInput(): Boolean {
         if (inputEnded) return queueEndOfStream()
         if (lastQueuedUs - currentPositionUs() > MAX_INPUT_AHEAD_US) return false
-        val sample = demuxer.peekSample() ?: run {
-            inputEnded = true
-            return true
-        }
+        val sample =
+            demuxer.peekSample() ?: run {
+                inputEnded = true
+                return true
+            }
         if (sample.extractorFlags and EXTRACTOR_SAMPLE_ENCRYPTED != 0) {
             throw YPlaybackException(
                 category = YPlaybackFailureCategory.Drm,

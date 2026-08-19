@@ -6,7 +6,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MpvEndFileTrackerTest {
-
     @Test
     fun active_file_replacement_consumes_one_end_before_a_real_failure() {
         val tracker = MpvEndFileTracker()

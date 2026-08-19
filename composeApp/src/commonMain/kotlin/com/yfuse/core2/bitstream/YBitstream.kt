@@ -280,8 +280,7 @@ private fun List<YNalUnitSpan>.toLengthPrefixed(
     return output
 }
 
-private fun ByteArray.copyOfSpan(span: YNalUnitSpan): ByteArray =
-    copyOfRange(span.offset, span.offset + span.length)
+private fun ByteArray.copyOfSpan(span: YNalUnitSpan): ByteArray = copyOfRange(span.offset, span.offset + span.length)
 
 private val ANNEX_B_PREFIX = byteArrayOf(0, 0, 0, 1)
 private const val H264_SPS = 7

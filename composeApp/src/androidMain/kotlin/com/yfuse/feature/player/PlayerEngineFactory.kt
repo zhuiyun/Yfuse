@@ -45,8 +45,7 @@ internal fun createVideoEngine(
                 autoNext = autoNext,
                 quality = quality,
                 customUserAgent = customUserAgent,
-            )
-            ?.let { return it }
+            )?.let { return it }
     }
 
     return when (kind) {

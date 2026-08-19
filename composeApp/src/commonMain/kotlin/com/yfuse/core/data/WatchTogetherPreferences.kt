@@ -31,8 +31,7 @@ class WatchTogetherPreferences(
         const val MAX_NICKNAME_BYTES = 128
 
         /** Exact base-address check; paths, alternate schemes, and same-origin aliases are rejected. */
-        fun isOfficialEndpoint(value: String): Boolean =
-            value.trim().trimEnd('/') == DEFAULT_ENDPOINT
+        fun isOfficialEndpoint(value: String): Boolean = value.trim().trimEnd('/') == DEFAULT_ENDPOINT
     }
 
     private val _endpoint = MutableStateFlow(loadEndpoint())
@@ -105,6 +104,5 @@ class WatchTogetherPreferences(
             .takeGraphemesWithinUtf8Bytes(MAX_NICKNAME_BYTES)
             .ifBlank { DEFAULT_NICKNAME }
 
-    private fun defaultAvatarId(clientId: String): Int =
-        (clientId.hashCode() and Int.MAX_VALUE) % AVATAR_COUNT
+    private fun defaultAvatarId(clientId: String): Int = (clientId.hashCode() and Int.MAX_VALUE) % AVATAR_COUNT
 }

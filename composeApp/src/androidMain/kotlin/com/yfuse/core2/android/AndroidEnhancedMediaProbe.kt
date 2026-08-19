@@ -2,7 +2,6 @@ package com.yfuse.core2.android
 
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.capability.YAudioRequirement
-import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
@@ -28,8 +27,9 @@ internal class AndroidEnhancedMediaProbe(
                         headers = item.headers,
                     ),
                 )
-            val videoTrack = result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
-                ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.NoVideoTrack)
+            val videoTrack =
+                result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
+                    ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.NoVideoTrack)
             val video = requireNotNull(videoTrack.video)
             val audioTrack = result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio && it.audio != null }
             val audio = audioTrack?.audio
@@ -76,15 +76,17 @@ internal class AndroidEnhancedMediaProbe(
 internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
     val video = playbackRequest.video
     return playbackRequest.container.requiresEnhancedTruthProbe() &&
-        video.codec in setOf(
+        video.codec in
+        setOf(
             com.yfuse.core2.capability.YVideoCodec.H265,
             com.yfuse.core2.capability.YVideoCodec.Av1,
         )
 }
 
 private fun com.yfuse.core2.capability.YContainer.requiresEnhancedTruthProbe(): Boolean =
-    this in setOf(
-        com.yfuse.core2.capability.YContainer.Matroska,
-        com.yfuse.core2.capability.YContainer.MpegTs,
-        com.yfuse.core2.capability.YContainer.M2ts,
-    )
+    this in
+        setOf(
+            com.yfuse.core2.capability.YContainer.Matroska,
+            com.yfuse.core2.capability.YContainer.MpegTs,
+            com.yfuse.core2.capability.YContainer.M2ts,
+        )

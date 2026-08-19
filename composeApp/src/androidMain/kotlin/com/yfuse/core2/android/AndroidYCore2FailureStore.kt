@@ -40,7 +40,9 @@ internal class AndroidYCore2FailureStore(
             record.key.container.name,
             record.key.videoCodec.name,
             record.key.hdrType.name,
-            record.key.dolbyVisionProfile?.toString().orEmpty(),
+            record.key.dolbyVisionProfile
+                ?.toString()
+                .orEmpty(),
             record.key.decoderName.encodeOpaque(),
             record.category.name,
             record.firstSeenEpochMs.toString(),
@@ -90,7 +92,8 @@ private fun String?.encodeOpaque(): String =
 
 private fun String.decodeOpaque(): String? {
     if (isEmpty()) return null
-    return Base64.decode(this, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    return Base64
+        .decode(this, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         .toString(Charsets.UTF_8)
         .takeIf(String::isNotEmpty)
 }

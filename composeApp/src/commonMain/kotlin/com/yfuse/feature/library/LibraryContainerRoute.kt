@@ -24,11 +24,12 @@ internal data class LibraryContainerRoute(
     fun encode(): String = CONTAINER_ROUTE_PREFIX + routeJson.encodeToString(this)
 
     companion object {
-        fun from(container: MediaContainer): LibraryContainerRoute = LibraryContainerRoute(
-            serverId = container.serverId,
-            containerId = container.id,
-            kind = container.kind,
-        )
+        fun from(container: MediaContainer): LibraryContainerRoute =
+            LibraryContainerRoute(
+                serverId = container.serverId,
+                containerId = container.id,
+                kind = container.kind,
+            )
 
         fun decode(value: String): LibraryContainerRoute? {
             if (!value.startsWith(CONTAINER_ROUTE_PREFIX)) return null

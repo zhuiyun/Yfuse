@@ -9,7 +9,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SkipSegmentPreferencesTest {
-
     private val fortyFiveMinutes = 45 * 60 * 1000L
 
     private fun credits(segments: List<PlaybackSegment>) =
@@ -82,7 +81,8 @@ class SkipSegmentPreferencesTest {
         val serverCredits = PlaybackSegment(PlaybackSegmentType.Credits, 1_000L, null)
         assertEquals(
             listOf(serverCredits),
-            prefs.applyTo("series", listOf(serverCredits), durationMs = fortyFiveMinutes)
+            prefs
+                .applyTo("series", listOf(serverCredits), durationMs = fortyFiveMinutes)
                 .filter { it.type == PlaybackSegmentType.Credits },
         )
     }
@@ -95,11 +95,12 @@ class SkipSegmentPreferencesTest {
         val serverIntro = PlaybackSegment(PlaybackSegmentType.Intro, 0L, 30_000L)
         val serverCredits = PlaybackSegment(PlaybackSegmentType.Credits, 1_000L, null)
 
-        val applied = prefs.applyTo(
-            "series",
-            listOf(serverIntro, serverCredits),
-            durationMs = fortyFiveMinutes,
-        )
+        val applied =
+            prefs.applyTo(
+                "series",
+                listOf(serverIntro, serverCredits),
+                durationMs = fortyFiveMinutes,
+            )
 
         assertEquals(90_000L, applied.first { it.type == PlaybackSegmentType.Intro }.endMs)
         assertTrue(serverCredits in applied)

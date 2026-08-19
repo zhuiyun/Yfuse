@@ -1,16 +1,17 @@
 package com.yfuse.feature.player
 
-import com.yfuse.core.sync.WatchChatMessage
 import com.yfuse.core.sync.ChatDeliveryState
+import com.yfuse.core.sync.WatchChatMessage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class WatchChatDanmakuOverlayTest {
     @Test
     fun only_messages_after_the_seen_id_are_animated() {
-        val messages = (1L..4L).map { id ->
-            WatchChatMessage(id, "c$id", "用户$id", 0, "消息$id", id, false)
-        }
+        val messages =
+            (1L..4L).map { id ->
+                WatchChatMessage(id, "c$id", "用户$id", 0, "消息$id", id, false)
+            }
         val seen = messages.take(2).mapTo(linkedSetOf()) { it.animationKey() }
 
         assertEquals(listOf(3L, 4L), watchChatMessagesNotSeen(messages, seen).map { it.id })
@@ -22,9 +23,10 @@ class WatchChatDanmakuOverlayTest {
 
     @Test
     fun out_of_order_arrivals_are_sorted_before_animation() {
-        val messages = listOf(5L, 3L, 4L).map { id ->
-            WatchChatMessage(id, "c$id", "用户$id", 0, "消息$id", id, false)
-        }
+        val messages =
+            listOf(5L, 3L, 4L).map { id ->
+                WatchChatMessage(id, "c$id", "用户$id", 0, "消息$id", id, false)
+            }
 
         assertEquals(
             listOf(3L, 4L, 5L),
@@ -34,17 +36,18 @@ class WatchChatDanmakuOverlayTest {
 
     @Test
     fun local_pending_message_is_animated_but_its_server_echo_is_not_replayed() {
-        val pending = WatchChatMessage(
-            id = -1L,
-            clientId = "mine",
-            name = "我",
-            avatarId = 1,
-            text = "一起看",
-            sentAtMs = 100L,
-            isMine = true,
-            clientMessageId = "local-1",
-            deliveryState = ChatDeliveryState.Pending,
-        )
+        val pending =
+            WatchChatMessage(
+                id = -1L,
+                clientId = "mine",
+                name = "我",
+                avatarId = 1,
+                text = "一起看",
+                sentAtMs = 100L,
+                isMine = true,
+                clientMessageId = "local-1",
+                deliveryState = ChatDeliveryState.Pending,
+            )
         assertEquals(listOf(pending), watchChatMessagesNotSeen(listOf(pending), emptySet()))
 
         val seen = setOf(pending.animationKey())
@@ -70,9 +73,10 @@ class WatchChatDanmakuOverlayTest {
 
     @Test
     fun a_burst_is_capped_to_one_message_per_lane() {
-        val messages = (1L..10L).map { id ->
-            WatchChatMessage(id, "them", "对方", 0, "消息$id", id, false)
-        }
+        val messages =
+            (1L..10L).map { id ->
+                WatchChatMessage(id, "them", "对方", 0, "消息$id", id, false)
+            }
         // The newest, not the oldest: a burst that overflows the lanes should show what was
         // said last rather than what has already scrolled out of the panel.
         assertEquals(
@@ -83,16 +87,17 @@ class WatchChatDanmakuOverlayTest {
 
     @Test
     fun identical_client_message_ids_from_different_senders_remain_distinct() {
-        val first = WatchChatMessage(
-            1L,
-            "sender-a",
-            "甲",
-            0,
-            "消息",
-            1L,
-            false,
-            clientMessageId = "same-id",
-        )
+        val first =
+            WatchChatMessage(
+                1L,
+                "sender-a",
+                "甲",
+                0,
+                "消息",
+                1L,
+                false,
+                clientMessageId = "same-id",
+            )
         val second = first.copy(id = 2L, clientId = "sender-b", name = "乙", sentAtMs = 2L)
 
         assertEquals(

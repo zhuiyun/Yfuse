@@ -10,7 +10,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class DesignSystemContractTest {
-
     @Test
     fun width_tiers_change_at_the_shared_breakpoints() {
         assertEquals(WindowWidthTier.Compact, windowWidthTier(0.dp))

@@ -70,7 +70,10 @@ internal object AndroidMediaFormatFactory {
         format: MediaFormat,
         track: YVideoTrackFormat,
     ) {
-        val extra = track.codecPrivateData.entries.firstOrNull()?.takeIf(ByteArray::isNotEmpty) ?: return
+        val extra =
+            track.codecPrivateData.entries
+                .firstOrNull()
+                ?.takeIf(ByteArray::isNotEmpty) ?: return
         when (track.codec) {
             YVideoCodec.H264 -> applyAvcPrivate(format, extra, track.samplePacking)
             YVideoCodec.H265 -> applyHevcPrivate(format, extra, track.samplePacking)
@@ -132,11 +135,17 @@ internal fun normalizeVideoSampleForMediaCodec(
     val packing = track.samplePacking ?: return data
     return when (track.codec) {
         YVideoCodec.H264 ->
-            if (packing == YSamplePacking.AnnexB) data else
+            if (packing == YSamplePacking.AnnexB) {
+                data
+            } else {
                 YBitstream.normalize(data, YNalCodec.H264, packing, YSamplePacking.AnnexB)
+            }
         YVideoCodec.H265 ->
-            if (packing == YSamplePacking.AnnexB) data else
+            if (packing == YSamplePacking.AnnexB) {
+                data
+            } else {
                 YBitstream.normalize(data, YNalCodec.H265, packing, YSamplePacking.AnnexB)
+            }
         else -> data
     }
 }
@@ -152,8 +161,7 @@ internal fun Int.toAndroidDolbyVisionProfile(): Int? =
         else -> null
     }
 
-private fun looksLikeConfigurationRecord(data: ByteArray): Boolean =
-    data.isNotEmpty() && data[0].toInt() and 0xff == 1
+private fun looksLikeConfigurationRecord(data: ByteArray): Boolean = data.isNotEmpty() && data[0].toInt() and 0xff == 1
 
 private fun looksLikeAnnexB(data: ByteArray): Boolean =
     data.size >= 3 &&

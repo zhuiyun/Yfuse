@@ -7,10 +7,11 @@ import kotlin.test.assertNull
 class AudioTrackMatchingTest {
     @Test
     fun chineseDisplayLanguageMatchesEngineIsoCode() {
-        val tracks = listOf(
-            EngineTrack(id = "1", label = "English AC-3", language = "eng", selected = false),
-            EngineTrack(id = "2", label = "中文 AAC", language = "zho", selected = true),
-        )
+        val tracks =
+            listOf(
+                EngineTrack(id = "1", label = "English AC-3", language = "eng", selected = false),
+                EngineTrack(id = "2", label = "中文 AAC", language = "zho", selected = true),
+            )
 
         assertEquals("1", tracks.matchingLanguage("英语"))
         assertEquals("2", tracks.matchingLanguage("中文"))
@@ -18,9 +19,10 @@ class AudioTrackMatchingTest {
 
     @Test
     fun trackTitleRemainsTheFallbackWhenLanguageIsMissing() {
-        val tracks = listOf(
-            EngineTrack(id = "3", label = "国语 Dolby TrueHD", language = null, selected = true),
-        )
+        val tracks =
+            listOf(
+                EngineTrack(id = "3", label = "国语 Dolby TrueHD", language = null, selected = true),
+            )
 
         assertEquals("3", tracks.matchingLanguage("国语"))
         assertNull(tracks.matchingLanguage("日语"))

@@ -111,7 +111,10 @@ internal class AndroidAdaptiveCore2YPlayer(
         commands.trySend(Command.SetSpeed(speed))
     }
 
-    override fun selectTrack(type: YTrackType, id: String) = send(Command.SelectTrack(type, id))
+    override fun selectTrack(
+        type: YTrackType,
+        id: String,
+    ) = send(Command.SelectTrack(type, id))
 
     override fun selectItem(index: Int) {
         if (released || index !in queueItems.indices) return
@@ -129,15 +132,12 @@ internal class AndroidAdaptiveCore2YPlayer(
         commands.trySend(Command.SelectItem(index))
     }
 
-    override fun selectDiscTitle(index: Int): Boolean =
-        !released && activeChild?.selectDiscTitle(index) == true
+    override fun selectDiscTitle(index: Int): Boolean = !released && activeChild?.selectDiscTitle(index) == true
 
-    override fun selectDiscChapter(index: Int): Boolean =
-        !released && activeChild?.selectDiscChapter(index) == true
+    override fun selectDiscChapter(index: Int): Boolean = !released && activeChild?.selectDiscChapter(index) == true
 
-    override fun sendDiscMenuCommand(
-        command: com.yfuse.core.playback.PlaybackDiscMenuCommand,
-    ): Boolean = !released && activeChild?.sendDiscMenuCommand(command) == true
+    override fun sendDiscMenuCommand(command: com.yfuse.core.playback.PlaybackDiscMenuCommand): Boolean =
+        !released && activeChild?.sendDiscMenuCommand(command) == true
 
     override fun appendItems(items: List<YMediaItem>): Boolean =
         synchronized(queueLock) {
@@ -353,7 +353,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                             speed = command.speed
                             val active = child
                             if (
-                                active?.state?.value?.diagnostics?.route == YPlaybackRoute.NativeTunnel &&
+                                active
+                                    ?.state
+                                    ?.value
+                                    ?.diagnostics
+                                    ?.route == YPlaybackRoute.NativeTunnel &&
                                 kotlin.math.abs(speed - 1f) > TUNNEL_SPEED_EPSILON
                             ) {
                                 allowTunnel = false
@@ -365,7 +369,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                         is Command.SelectTrack -> {
                             val active = child
-                            if (active?.state?.value?.diagnostics?.route == YPlaybackRoute.NativeTunnel) {
+                            if (active
+                                    ?.state
+                                    ?.value
+                                    ?.diagnostics
+                                    ?.route == YPlaybackRoute.NativeTunnel
+                            ) {
                                 allowTunnel = false
                                 pendingPositionMs = active.currentPositionMs()
                                 rebuild(pendingPositionMs)
@@ -394,7 +403,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                         is Command.FallbackFromTunnel -> {
                             if (
                                 command.index == currentIndex &&
-                                child?.state?.value?.diagnostics?.route == YPlaybackRoute.NativeTunnel
+                                child
+                                    ?.state
+                                    ?.value
+                                    ?.diagnostics
+                                    ?.route == YPlaybackRoute.NativeTunnel
                             ) {
                                 allowTunnel = false
                                 pendingPositionMs = command.positionMs
@@ -404,7 +417,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                         is Command.FallbackToSoftware -> {
                             if (
                                 command.index == currentIndex &&
-                                child?.state?.value?.diagnostics?.route !=
+                                child
+                                    ?.state
+                                    ?.value
+                                    ?.diagnostics
+                                    ?.route !=
                                 YPlaybackRoute.SoftwareFallback
                             ) {
                                 allowTunnel = false
@@ -426,18 +443,45 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     private sealed interface Command {
         data object Prepare : Command
+
         data object Play : Command
+
         data object Pause : Command
+
         data object Retry : Command
+
         data object QueueExtended : Command
 
-        data class Seek(val positionMs: Long) : Command
-        data class SetSpeed(val speed: Float) : Command
-        data class SelectTrack(val type: YTrackType, val id: String) : Command
-        data class SetVideoOutput(val output: YVideoOutput?) : Command
-        data class SelectItem(val index: Int) : Command
-        data class FallbackFromTunnel(val index: Int, val positionMs: Long) : Command
-        data class FallbackToSoftware(val index: Int, val positionMs: Long) : Command
+        data class Seek(
+            val positionMs: Long,
+        ) : Command
+
+        data class SetSpeed(
+            val speed: Float,
+        ) : Command
+
+        data class SelectTrack(
+            val type: YTrackType,
+            val id: String,
+        ) : Command
+
+        data class SetVideoOutput(
+            val output: YVideoOutput?,
+        ) : Command
+
+        data class SelectItem(
+            val index: Int,
+        ) : Command
+
+        data class FallbackFromTunnel(
+            val index: Int,
+            val positionMs: Long,
+        ) : Command
+
+        data class FallbackToSoftware(
+            val index: Int,
+            val positionMs: Long,
+        ) : Command
     }
 }
 
@@ -455,9 +499,7 @@ internal class AndroidCore2PlayerFactory(
     }
 }
 
-private inline fun MutableStateFlow<YPlayerState>.updateState(
-    transform: (YPlayerState) -> YPlayerState,
-) {
+private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     value = transform(value)
 }
 

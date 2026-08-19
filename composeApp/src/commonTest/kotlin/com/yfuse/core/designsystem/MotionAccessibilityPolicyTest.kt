@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class MotionAccessibilityPolicyTest {
-
     @Test
     fun overlays_leave_faster_and_reduce_motion_is_instant() {
         assertEquals(Motion.MODAL, overlayDurationMillis(leaving = false, reduceMotion = false))

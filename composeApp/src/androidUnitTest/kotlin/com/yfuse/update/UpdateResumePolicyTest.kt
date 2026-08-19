@@ -11,7 +11,6 @@ import kotlin.test.assertTrue
 
 /** 断点续传: what may be appended to a partial file, and what has to start over. */
 class UpdateResumePolicyTest {
-
     @Test
     fun only_the_exact_remaining_window_continues_a_partial_file() {
         assertTrue(updateContentRangeContinues("bytes 400-999/1000", 400L, 1000L))
@@ -103,13 +102,14 @@ class UpdateResumePolicyTest {
 
         try {
             var paused = false
-            val copied = appendUpdatePackage(
-                input = ByteArrayInputStream(body),
-                partialFile = partial,
-                startBytes = 0L,
-                expectedBytes = body.size.toLong(),
-                shouldContinue = { !paused },
-            ) { paused = true }
+            val copied =
+                appendUpdatePackage(
+                    input = ByteArrayInputStream(body),
+                    partialFile = partial,
+                    startBytes = 0L,
+                    expectedBytes = body.size.toLong(),
+                    shouldContinue = { !paused },
+                ) { paused = true }
 
             assertEquals(64L * 1024L, copied)
             assertEquals(copied, partial.length())

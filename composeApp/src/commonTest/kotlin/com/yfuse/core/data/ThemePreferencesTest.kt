@@ -13,7 +13,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ThemePreferencesTest {
-
     @Test
     fun original_quality_survives_recreation() {
         val settings = MapSettings()

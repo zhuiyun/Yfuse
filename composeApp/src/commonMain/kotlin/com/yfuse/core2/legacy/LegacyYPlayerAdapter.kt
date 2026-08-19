@@ -1,7 +1,7 @@
 package com.yfuse.core2.legacy
 
-import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
+import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
@@ -14,9 +14,9 @@ import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.PlaybackOutputReadiness
 import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.VideoEngine
+import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 
 /**
  * Compatibility bridge that keeps the current Exo/mpv/MDK stack alive while the App moves to
@@ -64,8 +64,7 @@ internal class LegacyYPlayerAdapter(
 
     override fun selectDiscChapter(index: Int): Boolean = engine.selectDiscChapter(index)
 
-    override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
-        engine.sendDiscMenuCommand(command)
+    override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = engine.sendDiscMenuCommand(command)
 
     override fun currentPositionMs(): Long = engine.currentPositionMs()
 

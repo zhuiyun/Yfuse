@@ -5,7 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TopLevelBackStackTest {
-
     @Test
     fun home_is_the_only_system_exit_root() {
         assertEquals(listOf(Tab.Home), topLevelBackStack(Tab.Home))

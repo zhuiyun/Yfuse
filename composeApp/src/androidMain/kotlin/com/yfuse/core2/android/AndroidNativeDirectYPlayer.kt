@@ -14,7 +14,6 @@ import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.sync.YMediaClock
-import java.nio.ByteBuffer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.nio.ByteBuffer
 
 /**
  * First runnable Core2 player: MediaExtractor → MediaCodec → Surface plus MediaCodec → AudioTrack.
@@ -137,9 +137,10 @@ internal class AndroidNativeDirectYPlayer(
     ) {
         if (released) return
         when (type) {
-            YTrackType.Audio -> id.removePrefix(AUDIO_TRACK_PREFIX).toIntOrNull()?.let {
-                commands.trySend(Command.SelectAudioTrack(it))
-            }
+            YTrackType.Audio ->
+                id.removePrefix(AUDIO_TRACK_PREFIX).toIntOrNull()?.let {
+                    commands.trySend(Command.SelectAudioTrack(it))
+                }
             YTrackType.Subtitle -> Unit // Phase 6/7 renderer; Legacy remains the fallback today.
         }
     }
@@ -617,20 +618,21 @@ internal class AndroidNativeDirectYPlayer(
 
         private fun drainVideo(): Boolean {
             if (!videoConfigured || videoOutputEnded) return false
-            val output = pendingVideoOutput ?: when (val dequeued = videoDecoder.dequeueOutput()) {
-                YCodecOutputResult.TryAgain -> return false
-                is YCodecOutputResult.FormatChanged -> {
-                    mutableState.value =
-                        mutableState.value.copy(
-                            diagnostics =
-                                mutableState.value.diagnostics.copy(
-                                    videoOutput = "硬解已配置 · 等待首帧",
-                                ),
-                        )
-                    return true
+            val output =
+                pendingVideoOutput ?: when (val dequeued = videoDecoder.dequeueOutput()) {
+                    YCodecOutputResult.TryAgain -> return false
+                    is YCodecOutputResult.FormatChanged -> {
+                        mutableState.value =
+                            mutableState.value.copy(
+                                diagnostics =
+                                    mutableState.value.diagnostics.copy(
+                                        videoOutput = "硬解已配置 · 等待首帧",
+                                    ),
+                            )
+                        return true
+                    }
+                    is YCodecOutputResult.Buffer -> dequeued
                 }
-                is YCodecOutputResult.Buffer -> dequeued
-            }
 
             val configBuffer = output.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
             val renderable = !configBuffer && output.size > 0 && output.presentationTimeUs >= seekTargetVideoUs
@@ -716,8 +718,7 @@ internal class AndroidNativeDirectYPlayer(
                 )
         }
 
-        private fun isEnded(): Boolean =
-            videoOutputEnded && (audioInputFormat == null || audioOutputEnded)
+        private fun isEnded(): Boolean = videoOutputEnded && (audioInputFormat == null || audioOutputEnded)
 
         private fun resetEndState() {
             inputEnded = false
@@ -771,7 +772,9 @@ internal class AndroidNativeDirectYPlayer(
 
     private sealed interface Command {
         data object Prepare : Command
+
         data object Play : Command
+
         data object Pause : Command
 
         data class Seek(
@@ -822,9 +825,7 @@ private fun MediaFormat?.dynamicRangeLabel(): String {
     }
 }
 
-private inline fun MutableStateFlow<YPlayerState>.updateState(
-    transform: (YPlayerState) -> YPlayerState,
-) {
+private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     value = transform(value)
 }
 

@@ -29,9 +29,10 @@ class VaultCryptoTest {
     fun aes256GcmRejectsTamperingAndWrongAad() {
         val key = crypto.generateVaultKey()
         val payload = crypto.encrypt(key, "secret".encodeToByteArray(), "correct".encodeToByteArray())
-        val tamperedBytes = payload.ciphertext.apply {
-            this[lastIndex] = (this[lastIndex].toInt() xor 1).toByte()
-        }
+        val tamperedBytes =
+            payload.ciphertext.apply {
+                this[lastIndex] = (this[lastIndex].toInt() xor 1).toByte()
+            }
 
         assertFailsWith<VaultAuthenticationException> {
             crypto.decrypt(
@@ -50,18 +51,20 @@ class VaultCryptoTest {
     fun recoveryEnvelopeRoundTripsVaultKey() {
         val vaultKey = crypto.generateVaultKey()
         val passphrase = "correct horse battery staple".toCharArray()
-        val envelope = crypto.wrapVaultKey(
-            vaultKey = vaultKey,
-            passphrase = passphrase,
-            aad = "account-7".encodeToByteArray(),
-            iterations = VaultCrypto.MIN_PBKDF2_ITERATIONS,
-        )
+        val envelope =
+            crypto.wrapVaultKey(
+                vaultKey = vaultKey,
+                passphrase = passphrase,
+                aad = "account-7".encodeToByteArray(),
+                iterations = VaultCrypto.MIN_PBKDF2_ITERATIONS,
+            )
 
-        val recovered = crypto.unwrapVaultKey(
-            envelope = envelope,
-            passphrase = passphrase,
-            aad = "account-7".encodeToByteArray(),
-        )
+        val recovered =
+            crypto.unwrapVaultKey(
+                envelope = envelope,
+                passphrase = passphrase,
+                aad = "account-7".encodeToByteArray(),
+            )
 
         assertTrue(vaultKey.contentEquals(recovered))
         assertEquals(VaultCrypto.RECOVERY_SALT_SIZE_BYTES, envelope.salt.size)
@@ -75,12 +78,13 @@ class VaultCryptoTest {
     fun recoveryEnvelopeBindsPassphraseAadSaltAndIterations() {
         val vaultKey = crypto.generateVaultKey()
         val passphrase = "correct horse battery staple".toCharArray()
-        val envelope = crypto.wrapVaultKey(
-            vaultKey = vaultKey,
-            passphrase = passphrase,
-            aad = "account-7".encodeToByteArray(),
-            iterations = VaultCrypto.MIN_PBKDF2_ITERATIONS,
-        )
+        val envelope =
+            crypto.wrapVaultKey(
+                vaultKey = vaultKey,
+                passphrase = passphrase,
+                aad = "account-7".encodeToByteArray(),
+                iterations = VaultCrypto.MIN_PBKDF2_ITERATIONS,
+            )
 
         assertFailsWith<VaultAuthenticationException> {
             crypto.unwrapVaultKey(envelope, "wrong passphrase".toCharArray(), "account-7".encodeToByteArray())

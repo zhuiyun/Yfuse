@@ -9,4 +9,3 @@ data class TrickplayInfo(
     val intervalMs: Long,
     val thumbnailCount: Int,
 )
-

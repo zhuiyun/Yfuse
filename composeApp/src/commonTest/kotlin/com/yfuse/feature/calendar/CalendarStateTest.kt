@@ -11,7 +11,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CalendarStateTest {
-
     private fun entry(
         title: String,
         date: String,
@@ -19,40 +18,43 @@ class CalendarStateTest {
         seriesItemId: String? = null,
         status: LibraryStatus = LibraryStatus.Missing,
     ) = CalendarEntry(
-        episode = AiringEpisode(
-            showTmdbId = title.hashCode(),
-            showTitle = title,
-            posterPath = null,
-            seasonNumber = 1,
-            episodeNumber = 1,
-            episodeTitle = null,
-            airDate = date,
-            origin = origin,
-        ),
+        episode =
+            AiringEpisode(
+                showTmdbId = title.hashCode(),
+                showTitle = title,
+                posterPath = null,
+                seasonNumber = 1,
+                episodeNumber = 1,
+                episodeTitle = null,
+                airDate = date,
+                origin = origin,
+            ),
         status = status,
         seriesItemId = seriesItemId,
     )
 
-    private fun state(vararg days: CalendarDay) = CalendarState(
-        loading = false,
-        days = days.toList(),
-        // Indexing tests exercise the complete oldest-first window. Production defaults to
-        // Today, which intentionally collapses that window to one visible day.
-        filter = CalendarFilter.All,
-        today = "2026-08-01",
-    )
+    private fun state(vararg days: CalendarDay) =
+        CalendarState(
+            loading = false,
+            days = days.toList(),
+            // Indexing tests exercise the complete oldest-first window. Production defaults to
+            // Today, which intentionally collapses that window to one visible day.
+            filter = CalendarFilter.All,
+            today = "2026-08-01",
+        )
 
     @Test
     fun mine_keeps_only_shows_the_library_holds() {
-        val subject = state(
-            CalendarDay(
-                "2026-08-01",
-                listOf(
-                    entry("跟的剧", "2026-08-01", seriesItemId = "series-1"),
-                    entry("没跟的剧", "2026-08-01"),
+        val subject =
+            state(
+                CalendarDay(
+                    "2026-08-01",
+                    listOf(
+                        entry("跟的剧", "2026-08-01", seriesItemId = "series-1"),
+                        entry("没跟的剧", "2026-08-01"),
+                    ),
                 ),
-            ),
-        ).copy(filter = CalendarFilter.Mine)
+            ).copy(filter = CalendarFilter.Mine)
 
         val titles = subject.visibleDays.flatMap { it.entries }.map { it.episode.showTitle }
 
@@ -61,19 +63,21 @@ class CalendarStateTest {
 
     @Test
     fun a_filter_that_empties_a_day_drops_the_day() {
-        val subject = state(
-            CalendarDay("2026-07-31", listOf(entry("没跟的剧", "2026-07-31"))),
-            CalendarDay("2026-08-01", listOf(entry("跟的剧", "2026-08-01", seriesItemId = "s"))),
-        ).copy(filter = CalendarFilter.Mine)
+        val subject =
+            state(
+                CalendarDay("2026-07-31", listOf(entry("没跟的剧", "2026-07-31"))),
+                CalendarDay("2026-08-01", listOf(entry("跟的剧", "2026-08-01", seriesItemId = "s"))),
+            ).copy(filter = CalendarFilter.Mine)
 
         assertEquals(listOf("2026-08-01"), subject.visibleDays.map { it.date })
     }
 
     @Test
     fun filtering_everything_away_is_told_apart_from_having_no_schedule() {
-        val nothingFollowed = state(
-            CalendarDay("2026-08-01", listOf(entry("没跟的剧", "2026-08-01"))),
-        ).copy(filter = CalendarFilter.Mine)
+        val nothingFollowed =
+            state(
+                CalendarDay("2026-08-01", listOf(entry("没跟的剧", "2026-08-01"))),
+            ).copy(filter = CalendarFilter.Mine)
 
         assertTrue(nothingFollowed.filteredToNothing)
         // An empty schedule is a different message: nothing is airing, not nothing matched.
@@ -82,32 +86,35 @@ class CalendarStateTest {
 
     @Test
     fun the_list_opens_on_today_rather_than_a_week_ago() {
-        val subject = state(
-            CalendarDay("2026-07-30", listOf(entry("a", "2026-07-30"))),
-            CalendarDay("2026-07-31", listOf(entry("b", "2026-07-31"))),
-            CalendarDay("2026-08-01", listOf(entry("c", "2026-08-01"))),
-            CalendarDay("2026-08-02", listOf(entry("d", "2026-08-02"))),
-        )
+        val subject =
+            state(
+                CalendarDay("2026-07-30", listOf(entry("a", "2026-07-30"))),
+                CalendarDay("2026-07-31", listOf(entry("b", "2026-07-31"))),
+                CalendarDay("2026-08-01", listOf(entry("c", "2026-08-01"))),
+                CalendarDay("2026-08-02", listOf(entry("d", "2026-08-02"))),
+            )
 
         assertEquals(2, subject.todayIndex)
     }
 
     @Test
     fun a_today_with_no_broadcasts_lands_on_the_next_day_that_has_one() {
-        val subject = state(
-            CalendarDay("2026-07-30", listOf(entry("a", "2026-07-30"))),
-            CalendarDay("2026-08-03", listOf(entry("b", "2026-08-03"))),
-        )
+        val subject =
+            state(
+                CalendarDay("2026-07-30", listOf(entry("a", "2026-07-30"))),
+                CalendarDay("2026-08-03", listOf(entry("b", "2026-08-03"))),
+            )
 
         assertEquals(1, subject.todayIndex)
     }
 
     @Test
     fun a_window_entirely_in_the_past_lands_on_its_last_day() {
-        val subject = state(
-            CalendarDay("2026-07-20", listOf(entry("a", "2026-07-20"))),
-            CalendarDay("2026-07-21", listOf(entry("b", "2026-07-21"))),
-        )
+        val subject =
+            state(
+                CalendarDay("2026-07-20", listOf(entry("a", "2026-07-20"))),
+                CalendarDay("2026-07-21", listOf(entry("b", "2026-07-21"))),
+            )
 
         assertEquals(1, subject.todayIndex)
         // And an empty calendar must not index into nothing.

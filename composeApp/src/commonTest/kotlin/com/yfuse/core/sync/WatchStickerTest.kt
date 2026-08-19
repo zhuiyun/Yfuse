@@ -6,15 +6,16 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WatchStickerTest {
-    private fun message(text: String) = WatchChatMessage(
-        id = 1L,
-        clientId = "c1",
-        name = "用户",
-        avatarId = 0,
-        text = text,
-        sentAtMs = 1L,
-        isMine = false,
-    )
+    private fun message(text: String) =
+        WatchChatMessage(
+            id = 1L,
+            clientId = "c1",
+            name = "用户",
+            avatarId = 0,
+            text = text,
+            sentAtMs = 1L,
+            isMine = false,
+        )
 
     @Test
     fun expanded_catalogue_keeps_64_presets_across_every_category_and_motion_variety() {
@@ -71,10 +72,38 @@ class WatchStickerTest {
     @Test
     fun legacy_ids_keep_resolving_after_catalogue_expansion() {
         listOf(
-            "laugh", "wow", "love", "cry", "clap", "fire", "think", "dead",
-            "heart", "rofl", "cool", "shock", "sleep", "sweat", "angry", "blush",
-            "thumb", "pray", "wave", "muscle", "eyes", "party", "star", "sparkle",
-            "popcorn", "cheers", "rocket", "spin", "bomb", "snow", "cat", "ghost",
+            "laugh",
+            "wow",
+            "love",
+            "cry",
+            "clap",
+            "fire",
+            "think",
+            "dead",
+            "heart",
+            "rofl",
+            "cool",
+            "shock",
+            "sleep",
+            "sweat",
+            "angry",
+            "blush",
+            "thumb",
+            "pray",
+            "wave",
+            "muscle",
+            "eyes",
+            "party",
+            "star",
+            "sparkle",
+            "popcorn",
+            "cheers",
+            "rocket",
+            "spin",
+            "bomb",
+            "snow",
+            "cat",
+            "ghost",
         ).forEach { id ->
             assertEquals(id, WatchStickers.byId(id)?.id)
         }

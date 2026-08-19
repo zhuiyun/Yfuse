@@ -131,8 +131,7 @@ internal class AndroidTunnelPlatformDemuxer(
         return DEFAULT_SAMPLE_BUFFER_BYTES
     }
 
-    private fun requireExtractor(): MediaExtractor =
-        checkNotNull(extractor) { "Tunnel MediaExtractor is not opened" }
+    private fun requireExtractor(): MediaExtractor = checkNotNull(extractor) { "Tunnel MediaExtractor is not opened" }
 }
 
 private const val EXTRACTOR_SAMPLE_SYNC = 1

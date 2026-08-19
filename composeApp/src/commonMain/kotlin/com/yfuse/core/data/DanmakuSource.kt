@@ -1,7 +1,7 @@
 package com.yfuse.core.data
 
-import kotlin.random.Random
 import kotlinx.serialization.Serializable
+import kotlin.random.Random
 
 /**
  * One place 弹幕 can come from, kept by name because there is usually more than one.
@@ -62,11 +62,12 @@ data class DanmakuSearchResult(
 ) {
     /** `电影 · 1 集 · 2021` — the line under the title. */
     val subtitle: String
-        get() = listOfNotNull(
-            typeLabel,
-            episodeCount?.takeIf { it > 0 }?.let { "$it 集" },
-            year,
-        ).joinToString(" · ")
+        get() =
+            listOfNotNull(
+                typeLabel,
+                episodeCount?.takeIf { it > 0 }?.let { "$it 集" },
+                year,
+            ).joinToString(" · ")
 }
 
 /** One 集 under a [DanmakuSearchResult], and the thing comments are actually fetched for. */
@@ -78,9 +79,10 @@ data class DanmakuEpisode(
     val number: String? = null,
 ) {
     val label: String
-        get() = listOfNotNull(animeTitle?.takeIf { it.isNotBlank() }, title.takeIf { it.isNotBlank() })
-            .joinToString("- ")
-            .ifBlank { title }
+        get() =
+            listOfNotNull(animeTitle?.takeIf { it.isNotBlank() }, title.takeIf { it.isNotBlank() })
+                .joinToString("- ")
+                .ifBlank { title }
 }
 
 /**
@@ -119,9 +121,10 @@ fun danmakuBindingKey(
  * Case, spacing and punctuation are where the same title differs between two libraries;
  * everything that survives all three is what the two copies genuinely share.
  */
-private fun String.normalizedForMatching(): String? = lowercase()
-    .filter { it.isLetterOrDigit() }
-    .takeIf { it.isNotEmpty() }
+private fun String.normalizedForMatching(): String? =
+    lowercase()
+        .filter { it.isLetterOrDigit() }
+        .takeIf { it.isNotEmpty() }
 
 /**
  * The source a chip row would show as selected.
@@ -129,5 +132,4 @@ private fun String.normalizedForMatching(): String? = lowercase()
  * Falls back to the first entry rather than to nothing: a stored id can name a source that
  * has since been deleted, and having one link configured should never read as having none.
  */
-fun List<DanmakuSource>.activeOr(id: String?): DanmakuSource? =
-    firstOrNull { it.id == id } ?: firstOrNull()
+fun List<DanmakuSource>.activeOr(id: String?): DanmakuSource? = firstOrNull { it.id == id } ?: firstOrNull()

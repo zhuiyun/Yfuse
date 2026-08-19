@@ -1,8 +1,8 @@
 package com.yfuse.feature.player
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,9 +28,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
-import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.touchTarget
 
 @Composable
@@ -39,24 +39,27 @@ fun PlayerScreen(component: PlayerComponent) {
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when {
-            state.loading -> CircularProgressIndicator(
-                Modifier.align(Alignment.Center),
-                color = Color.White,
-            )
+            state.loading ->
+                CircularProgressIndicator(
+                    Modifier.align(Alignment.Center),
+                    color = Color.White,
+                )
 
-            state.error != null -> PlayerLoadError(
-                message = state.error!!,
-                onRetry = { component.store.accept(PlayerIntent.Retry) },
-                onBack = component.onBack,
-                modifier = Modifier.align(Alignment.Center),
-            )
+            state.error != null ->
+                PlayerLoadError(
+                    message = state.error!!,
+                    onRetry = { component.store.accept(PlayerIntent.Retry) },
+                    onBack = component.onBack,
+                    modifier = Modifier.align(Alignment.Center),
+                )
 
-            state.items.isNotEmpty() -> PlayerLauncher(
-                items = state.items,
-                startIndex = state.startIndex,
-                startPositionMs = state.startPositionMs,
-                onLaunched = component.onBack,
-            )
+            state.items.isNotEmpty() ->
+                PlayerLauncher(
+                    items = state.items,
+                    startIndex = state.startIndex,
+                    startPositionMs = state.startPositionMs,
+                    onLaunched = component.onBack,
+                )
         }
 
         Box(
@@ -129,8 +132,7 @@ private fun PlayerLoadErrorAction(
                 shape = CircleShape,
                 fill = if (primary) accent.accent else Color.Black.copy(alpha = 0.28f),
                 border = if (primary) accent.border else Color.White.copy(alpha = 0.32f),
-            )
-            .padding(horizontal = 20.dp),
+            ).padding(horizontal = 20.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(label, color = if (primary) accent.onAccent else Color.White)

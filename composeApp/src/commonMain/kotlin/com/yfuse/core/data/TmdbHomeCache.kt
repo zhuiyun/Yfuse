@@ -34,7 +34,11 @@ class TmdbHomeCache(
         val content: TmdbHome,
     )
 
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = false
+        }
 
     fun read(): TmdbHome? {
         val raw = settings.getStringOrNull(KEY) ?: return null
@@ -62,25 +66,29 @@ class TmdbHomeCache(
                 message = "Cached home recommendations were discarded",
                 throwable = it,
             )
-        }.getOrNull()?.takeIf { !it.isEmpty }
+        }.getOrNull()
+            ?.takeIf { !it.isEmpty }
     }
 
     fun write(content: TmdbHome) {
         if (content.isEmpty) return
-        val trimmed = content.copy(
-            featured = content.featured.take(MAX_FEATURED).map { it.trimForCache() },
-            rows = content.rows.take(MAX_ROWS).map { row ->
-                row.copy(
-                    title = row.title.take(MAX_ROW_TITLE_CHARS),
-                    items = row.items.take(MAX_ITEMS_PER_ROW).map { it.trimForCache() },
-                )
-            },
-        )
-        runCatching {
-            val encoded = json.encodeToString(
-                Entry.serializer(),
-                Entry(savedOn = today(), content = trimmed),
+        val trimmed =
+            content.copy(
+                featured = content.featured.take(MAX_FEATURED).map { it.trimForCache() },
+                rows =
+                    content.rows.take(MAX_ROWS).map { row ->
+                        row.copy(
+                            title = row.title.take(MAX_ROW_TITLE_CHARS),
+                            items = row.items.take(MAX_ITEMS_PER_ROW).map { it.trimForCache() },
+                        )
+                    },
             )
+        runCatching {
+            val encoded =
+                json.encodeToString(
+                    Entry.serializer(),
+                    Entry(savedOn = today(), content = trimmed),
+                )
             check(encoded.length <= MAX_SERIALIZED_CHARS) {
                 "Home recommendations cache exceeds its size limit"
             }
@@ -95,15 +103,16 @@ class TmdbHomeCache(
         }
     }
 
-    private fun TmdbItem.trimForCache(): TmdbItem = copy(
-        title = title.take(MAX_TITLE_CHARS),
-        overview = overview?.take(MAX_OVERVIEW_CHARS),
-        posterPath = posterPath?.take(MAX_PATH_CHARS),
-        backdropPath = backdropPath?.take(MAX_PATH_CHARS),
-        year = year?.take(MAX_SHORT_FIELD_CHARS),
-        mediaType = mediaType.take(MAX_SHORT_FIELD_CHARS),
-        releaseDate = releaseDate?.take(MAX_SHORT_FIELD_CHARS),
-        genreIds = genreIds.take(MAX_SHORT_FIELD_CHARS),
-        originalLanguage = originalLanguage?.take(MAX_SHORT_FIELD_CHARS),
-    )
+    private fun TmdbItem.trimForCache(): TmdbItem =
+        copy(
+            title = title.take(MAX_TITLE_CHARS),
+            overview = overview?.take(MAX_OVERVIEW_CHARS),
+            posterPath = posterPath?.take(MAX_PATH_CHARS),
+            backdropPath = backdropPath?.take(MAX_PATH_CHARS),
+            year = year?.take(MAX_SHORT_FIELD_CHARS),
+            mediaType = mediaType.take(MAX_SHORT_FIELD_CHARS),
+            releaseDate = releaseDate?.take(MAX_SHORT_FIELD_CHARS),
+            genreIds = genreIds.take(MAX_SHORT_FIELD_CHARS),
+            originalLanguage = originalLanguage?.take(MAX_SHORT_FIELD_CHARS),
+        )
 }

@@ -15,9 +15,9 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.http.Url
 import io.ktor.http.URLProtocol
+import io.ktor.http.Url
+import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
@@ -43,19 +43,21 @@ class MigrationRelayApi(
     private val client: HttpClient = createMigrationRelayClient(),
     baseUrl: String = ACCOUNT_BASE_URL,
 ) {
-    private val origin = baseUrl.trimEnd('/').also {
-        require(it.startsWith("https://")) { "迁移服务必须使用 HTTPS" }
-    }
+    private val origin =
+        baseUrl.trimEnd('/').also {
+            require(it.startsWith("https://")) { "迁移服务必须使用 HTTPS" }
+        }
 
     suspend fun create(
         relayId: String,
         transferSecret: String,
         payloadSha256: String,
     ): MigrationRelayTicket =
-        client.post("$origin/api/v1/migration-relays") {
-            contentType(ContentType.Application.Json)
-            setBody(CreateRelayRequest(relayId, transferSecret, payloadSha256))
-        }.decoded()
+        client
+            .post("$origin/api/v1/migration-relays") {
+                contentType(ContentType.Application.Json)
+                setBody(CreateRelayRequest(relayId, transferSecret, payloadSha256))
+            }.decoded()
 
     /** A successful redemption consumes the key even if later local decryption fails. */
     suspend fun redeem(
@@ -65,10 +67,11 @@ class MigrationRelayApi(
     ): ByteArray {
         require(code.length == 6 && code.all { it in '0'..'9' }) { "请输入 6 位数字迁移码" }
         val response: RedeemRelayResponse =
-            client.post("$origin/api/v1/migration-relays/redeem") {
-                contentType(ContentType.Application.Json)
-                setBody(RedeemRelayRequest(relayId, code, payloadSha256))
-            }.decoded()
+            client
+                .post("$origin/api/v1/migration-relays/redeem") {
+                    contentType(ContentType.Application.Json)
+                    setBody(RedeemRelayRequest(relayId, code, payloadSha256))
+                }.decoded()
         return response.transferSecret.decodeTransferSecret()
     }
 }
@@ -85,7 +88,12 @@ fun createMigrationRelayClient(
             socketTimeoutMillis = 15_000
         }
         install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true; encodeDefaults = true })
+            json(
+                Json {
+                    ignoreUnknownKeys = true
+                    encodeDefaults = true
+                },
+            )
         }
     }.also { client ->
         val trusted = Url(trustedOrigin)
@@ -100,8 +108,7 @@ fun createMigrationRelayClient(
         }
     }
 
-private fun Url.specifiedPortOrDefault(): Int =
-    if (specifiedPort == 0) protocol.defaultPort else specifiedPort
+private fun Url.specifiedPortOrDefault(): Int = if (specifiedPort == 0) protocol.defaultPort else specifiedPort
 
 @Serializable
 private data class CreateRelayRequest(
@@ -118,10 +125,15 @@ private data class RedeemRelayRequest(
 )
 
 @Serializable
-private data class RedeemRelayResponse(val transferSecret: String)
+private data class RedeemRelayResponse(
+    val transferSecret: String,
+)
 
 @Serializable
-private data class RelayError(val code: String = "invalid_request", val message: String = "迁移请求失败")
+private data class RelayError(
+    val code: String = "invalid_request",
+    val message: String = "迁移请求失败",
+)
 
 private suspend inline fun <reified T> HttpResponse.decoded(): T {
     if (status.isSuccess()) return body()
@@ -134,8 +146,9 @@ private suspend inline fun <reified T> HttpResponse.decoded(): T {
 }
 
 private fun String.decodeTransferSecret(): ByteArray {
-    val decoded = runCatching { base64UrlToBytes() }
-        .getOrElse { throw IllegalArgumentException("服务返回了无效的迁移密钥", it) }
+    val decoded =
+        runCatching { base64UrlToBytes() }
+            .getOrElse { throw IllegalArgumentException("服务返回了无效的迁移密钥", it) }
     require(decoded.size == 32) { "服务返回了无效的迁移密钥" }
     return decoded
 }

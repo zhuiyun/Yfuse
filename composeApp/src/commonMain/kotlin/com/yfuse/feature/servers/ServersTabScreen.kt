@@ -58,9 +58,9 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.LatencySeverity
 import com.yfuse.core.data.RouteHealth
+import com.yfuse.core.data.SERVER_ICON_EMOJI_MAX_CHARS
 import com.yfuse.core.data.ServerHealth
 import com.yfuse.core.data.ServerHealthStatus
-import com.yfuse.core.data.ServerIconEmojiMaxChars
 import com.yfuse.core.data.ServerStats
 import com.yfuse.core.data.formatServerCount
 import com.yfuse.core.data.formatWatchedAgo
@@ -1869,7 +1869,7 @@ private fun ServerIconDialog(
             onValueChange = { value ->
                 // One glyph: the badge is 30dp on the card and a pasted sentence would
                 // reflow the header row it sits in.
-                emoji = value.trim().takeWhile { !it.isWhitespace() }.take(ServerIconEmojiMaxChars)
+                emoji = value.trim().takeWhile { !it.isWhitespace() }.take(SERVER_ICON_EMOJI_MAX_CHARS)
             },
             label = "图标，粘贴一个表情",
         )

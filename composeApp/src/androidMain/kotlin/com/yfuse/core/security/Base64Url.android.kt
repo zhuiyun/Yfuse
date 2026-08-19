@@ -2,8 +2,7 @@ package com.yfuse.core.security
 
 import java.util.Base64
 
-actual fun ByteArray.toBase64Url(): String =
-    Base64.getUrlEncoder().withoutPadding().encodeToString(this)
+actual fun ByteArray.toBase64Url(): String = Base64.getUrlEncoder().withoutPadding().encodeToString(this)
 
 actual fun String.base64UrlToBytes(): ByteArray {
     require(length <= MAX_BASE64URL_INPUT_CHARS) {
@@ -13,11 +12,12 @@ actual fun String.base64UrlToBytes(): ByteArray {
     require(all(::isBase64UrlCharacter)) {
         "Base64URL must use the URL-safe alphabet without padding"
     }
-    val decoded = try {
-        Base64.getUrlDecoder().decode(this)
-    } catch (error: IllegalArgumentException) {
-        throw IllegalArgumentException("Invalid Base64URL input", error)
-    }
+    val decoded =
+        try {
+            Base64.getUrlDecoder().decode(this)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalArgumentException("Invalid Base64URL input", error)
+        }
     require(decoded.toBase64Url() == this) { "Base64URL input is not canonical" }
     return decoded
 }

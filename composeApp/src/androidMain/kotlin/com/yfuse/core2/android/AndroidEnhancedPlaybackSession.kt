@@ -4,7 +4,6 @@ import android.media.MediaCodec
 import android.view.Surface
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.bitstream.YSamplePacking
-import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.demux.YCompressedSample
 import com.yfuse.core2.demux.YDemuxOpenResult
@@ -289,18 +288,20 @@ internal class AndroidEnhancedPlaybackSession(
         val sourceTrack = requireNotNull(sourceVideoTrack?.video)
         val currentPlan = requireNotNull(plan)
         if (currentPlan.usesHdrFallback) {
-            val config = requireNotNull(sourceTrack.dolbyVisionConfig) {
-                "HDR fallback requires explicit Dolby Vision configuration"
-            }
+            val config =
+                requireNotNull(sourceTrack.dolbyVisionConfig) {
+                    "HDR fallback requires explicit Dolby Vision configuration"
+                }
             require(config.profile == 8 && config.codecFamily == com.yfuse.core2.dolby.YDolbyVisionCodecFamily.Hevc) {
                 "Only HEVC Dolby Vision Profile 8 compatible-base fallback is executable"
             }
             require(config.compatibleBaseHdr == currentPlan.outputHdrType) {
                 "Dolby compatible base does not match the selected output HDR route"
             }
-            val packing = requireNotNull(sourceTrack.samplePacking) {
-                "Dolby HEVC fallback requires known NAL packing"
-            }
+            val packing =
+                requireNotNull(sourceTrack.samplePacking) {
+                    "Dolby HEVC fallback requires known NAL packing"
+                }
             return dolbyVisionHevcBaseLayerSample(data, packing)
         }
         return normalizeVideoSampleForMediaCodec(data, sourceTrack)
@@ -336,11 +337,12 @@ internal class AndroidEnhancedPlaybackSession(
 
     private fun drainVideo(): Boolean {
         if (videoOutputEnded) return false
-        val output = pendingVideoOutput ?: when (val dequeued = videoDecoder.dequeueOutput()) {
-            YCodecOutputResult.TryAgain -> return false
-            is YCodecOutputResult.FormatChanged -> return true
-            is YCodecOutputResult.Buffer -> dequeued
-        }
+        val output =
+            pendingVideoOutput ?: when (val dequeued = videoDecoder.dequeueOutput()) {
+                YCodecOutputResult.TryAgain -> return false
+                is YCodecOutputResult.FormatChanged -> return true
+                is YCodecOutputResult.Buffer -> dequeued
+            }
 
         val config = output.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
         val renderable = !config && output.size > 0 && output.presentationTimeUs >= seekVideoTargetUs
@@ -394,8 +396,7 @@ internal class AndroidEnhancedPlaybackSession(
         wallClock.pause(endUs, System.nanoTime())
     }
 
-    private fun ended(): Boolean =
-        videoOutputEnded && (audioTrack == null || audioOutputEnded)
+    private fun ended(): Boolean = videoOutputEnded && (audioTrack == null || audioOutputEnded)
 
     private fun resetEndState() {
         inputEnded = false
@@ -411,9 +412,10 @@ internal class AndroidEnhancedPlaybackSession(
         plan: YPlaybackPlan,
     ): YVideoTrackFormat {
         if (!plan.usesHdrFallback) return source
-        val config = requireNotNull(source.dolbyVisionConfig) {
-            "HDR fallback route requires Dolby Vision configuration"
-        }
+        val config =
+            requireNotNull(source.dolbyVisionConfig) {
+                "HDR fallback route requires Dolby Vision configuration"
+            }
         require(config.profile == 8 && config.compatibleBaseHdr == plan.outputHdrType) {
             "Only explicit Profile 8 compatible-base fallback is supported"
         }

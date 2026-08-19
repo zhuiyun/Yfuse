@@ -9,37 +9,38 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EmbyImagesTest {
+    private val item =
+        MediaItem(
+            id = "ep1",
+            title = "第 5 集",
+            subtitle = null,
+            type = "Episode",
+            posterItemId = "series1",
+            posterTag = "ptag",
+            backdropItemId = "series1",
+            backdropTag = "btag",
+            playedPercentage = null,
+        )
 
-    private val item = MediaItem(
-        id = "ep1",
-        title = "第 5 集",
-        subtitle = null,
-        type = "Episode",
-        posterItemId = "series1",
-        posterTag = "ptag",
-        backdropItemId = "series1",
-        backdropTag = "btag",
-        playedPercentage = null,
-    )
-
-    private val detail = MediaDetail(
-        id = "series1",
-        title = "剧",
-        type = "Series",
-        seriesId = null,
-        overview = null,
-        year = null,
-        genres = emptyList(),
-        runtimeMinutes = null,
-        officialRating = null,
-        communityRating = null,
-        posterItemId = "series1",
-        posterTag = "ptag",
-        backdropItemId = "series1",
-        backdropTag = "btag",
-        resumePositionTicks = null,
-        people = emptyList(),
-    )
+    private val detail =
+        MediaDetail(
+            id = "series1",
+            title = "剧",
+            type = "Series",
+            seriesId = null,
+            overview = null,
+            year = null,
+            genres = emptyList(),
+            runtimeMinutes = null,
+            officialRating = null,
+            communityRating = null,
+            posterItemId = "series1",
+            posterTag = "ptag",
+            backdropItemId = "series1",
+            backdropTag = "btag",
+            resumePositionTicks = null,
+            people = emptyList(),
+        )
 
     /**
      * The blank-artwork bug this pins: a server that requires authentication answers 401
@@ -48,16 +49,17 @@ class EmbyImagesTest {
      */
     @Test
     fun every_builder_carries_the_session_token() {
-        val urls = listOfNotNull(
-            EmbyImages.primary("http://emby", "item1", "tag", accessToken = "t"),
-            EmbyImages.backdropOf("http://emby", "item1", "tag", accessToken = "t"),
-            EmbyImages.backdropAt("http://emby", "item1", 2, "tag", accessToken = "t"),
-            EmbyImages.poster("http://emby", item, accessToken = "t"),
-            EmbyImages.backdrop("http://emby", item, accessToken = "t"),
-            EmbyImages.poster("http://emby", detail, accessToken = "t"),
-            EmbyImages.backdrop("http://emby", detail, accessToken = "t"),
-            EmbyImages.avatar("http://emby", Person("p1", "名字", null, "tag"), accessToken = "t"),
-        )
+        val urls =
+            listOfNotNull(
+                EmbyImages.primary("http://emby", "item1", "tag", accessToken = "t"),
+                EmbyImages.backdropOf("http://emby", "item1", "tag", accessToken = "t"),
+                EmbyImages.backdropAt("http://emby", "item1", 2, "tag", accessToken = "t"),
+                EmbyImages.poster("http://emby", item, accessToken = "t"),
+                EmbyImages.backdrop("http://emby", item, accessToken = "t"),
+                EmbyImages.poster("http://emby", detail, accessToken = "t"),
+                EmbyImages.backdrop("http://emby", detail, accessToken = "t"),
+                EmbyImages.avatar("http://emby", Person("p1", "名字", null, "tag"), accessToken = "t"),
+            )
 
         assertEquals(8, urls.size)
         urls.forEach { assertTrue("api_key=t" in it, it) }

@@ -8,7 +8,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class UpdateCheckPolicyTest {
-
     @Test
     fun automatic_check_attempt_is_persisted_across_manager_recreation_for_one_day() {
         val settings = MapSettings()

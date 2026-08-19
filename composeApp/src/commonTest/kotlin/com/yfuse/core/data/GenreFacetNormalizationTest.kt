@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class GenreFacetNormalizationTest {
-
     @Test
     fun bilingual_genres_prefer_real_chinese_server_entry() {
         assertEquals(

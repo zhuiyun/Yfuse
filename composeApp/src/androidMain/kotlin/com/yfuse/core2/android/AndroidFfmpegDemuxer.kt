@@ -98,10 +98,11 @@ internal class AndroidFfmpegDemuxer : YDemuxer {
                     val size = result[PACKET_SIZE_INDEX].toInt()
                     require(size in 0..packetBuffer.capacity()) { "Invalid FFmpeg packet size" }
                     val data = ByteArray(size)
-                    val source = packetBuffer.duplicate().apply {
-                        position(0)
-                        limit(size)
-                    }
+                    val source =
+                        packetBuffer.duplicate().apply {
+                            position(0)
+                            limit(size)
+                        }
                     source.get(data)
                     val packetFlags = result[PACKET_FLAGS_INDEX]
                     return YCompressedSample(
@@ -144,7 +145,8 @@ internal class AndroidFfmpegDemuxer : YDemuxer {
         val language = FfmpegNativeBridge.trackLanguage(handle, index)?.takeIf(String::isNotBlank)
         val label = FfmpegNativeBridge.trackTitle(handle, index)?.takeIf(String::isNotBlank)
         val extradata =
-            FfmpegNativeBridge.trackExtradata(handle, index)
+            FfmpegNativeBridge
+                .trackExtradata(handle, index)
                 ?.takeIf(ByteArray::isNotEmpty)
                 ?.let(::listOf)
                 .orEmpty()
@@ -237,8 +239,7 @@ internal class AndroidFfmpegDemuxer : YDemuxer {
         }
     }
 
-    private fun requireHandle(): Long =
-        handle.takeIf { it != 0L } ?: error("FFmpeg demux session has not been opened")
+    private fun requireHandle(): Long = handle.takeIf { it != 0L } ?: error("FFmpeg demux session has not been opened")
 
     private fun requireOpenResult(): YDemuxOpenResult =
         checkNotNull(openResult) { "FFmpeg demux session has not been opened" }

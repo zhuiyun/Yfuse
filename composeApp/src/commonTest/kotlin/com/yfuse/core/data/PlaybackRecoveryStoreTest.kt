@@ -4,20 +4,21 @@ import com.russhwolf.settings.MapSettings
 import com.yfuse.core.model.SavedServer
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlaybackRecoveryStoreTest {
     private val now = 2_000_000_000_000L
-    private val server = SavedServer(
-        id = "server-a",
-        baseUrl = "https://emby.example",
-        serverName = "家庭服务器",
-        userId = "user",
-        userName = "User",
-        accessToken = "secret",
-    )
+    private val server =
+        SavedServer(
+            id = "server-a",
+            baseUrl = "https://emby.example",
+            serverName = "家庭服务器",
+            userId = "user",
+            userName = "User",
+            accessToken = "secret",
+        )
 
     @Test
     fun checkpoint_survives_recreation_without_media_url() {
@@ -52,11 +53,12 @@ class PlaybackRecoveryStoreTest {
 
     @Test
     fun eligible_checkpoint_requires_real_progress_age_and_its_original_server() {
-        val evaluation = evaluatePlaybackRecovery(
-            snapshot = snapshot(positionMs = 120_000L, durationMs = 3_600_000L),
-            servers = listOf(server),
-            nowEpochMs = now,
-        )
+        val evaluation =
+            evaluatePlaybackRecovery(
+                snapshot = snapshot(positionMs = 120_000L, durationMs = 3_600_000L),
+                servers = listOf(server),
+                nowEpochMs = now,
+            )
 
         assertEquals(PlaybackRecoveryEligibility.Eligible, evaluation.eligibility)
         assertEquals("server-a", evaluation.server?.id)
@@ -65,25 +67,28 @@ class PlaybackRecoveryStoreTest {
 
     @Test
     fun near_end_old_and_removed_server_checkpoints_are_not_offered() {
-        val nearEnd = evaluatePlaybackRecovery(
-            snapshot(positionMs = 590_000L, durationMs = 600_000L),
-            listOf(server),
-            now,
-        )
-        val tooOld = evaluatePlaybackRecovery(
-            snapshot(
-                positionMs = 120_000L,
-                durationMs = 600_000L,
-                updatedAtEpochMs = now - 8L * 24L * 60L * 60L * 1_000L,
-            ),
-            listOf(server),
-            now,
-        )
-        val missing = evaluatePlaybackRecovery(
-            snapshot(positionMs = 120_000L, durationMs = 600_000L),
-            emptyList(),
-            now,
-        )
+        val nearEnd =
+            evaluatePlaybackRecovery(
+                snapshot(positionMs = 590_000L, durationMs = 600_000L),
+                listOf(server),
+                now,
+            )
+        val tooOld =
+            evaluatePlaybackRecovery(
+                snapshot(
+                    positionMs = 120_000L,
+                    durationMs = 600_000L,
+                    updatedAtEpochMs = now - 8L * 24L * 60L * 60L * 1_000L,
+                ),
+                listOf(server),
+                now,
+            )
+        val missing =
+            evaluatePlaybackRecovery(
+                snapshot(positionMs = 120_000L, durationMs = 600_000L),
+                emptyList(),
+                now,
+            )
 
         assertEquals(PlaybackRecoveryEligibility.NearEnd, nearEnd.eligibility)
         assertEquals(PlaybackRecoveryEligibility.TooOld, tooOld.eligibility)
@@ -95,11 +100,12 @@ class PlaybackRecoveryStoreTest {
 
     @Test
     fun missing_token_is_offered_only_as_a_reauthentication_prompt() {
-        val evaluation = evaluatePlaybackRecovery(
-            snapshot(positionMs = 120_000L, durationMs = 600_000L),
-            listOf(server.copy(accessToken = "")),
-            now,
-        )
+        val evaluation =
+            evaluatePlaybackRecovery(
+                snapshot(positionMs = 120_000L, durationMs = 600_000L),
+                listOf(server.copy(accessToken = "")),
+                now,
+            )
 
         assertEquals(PlaybackRecoveryEligibility.AuthenticationRequired, evaluation.eligibility)
         assertTrue(evaluation.shouldPrompt)
@@ -107,24 +113,26 @@ class PlaybackRecoveryStoreTest {
 
     @Test
     fun checkpoint_with_a_corrupt_future_timestamp_is_invalid() {
-        val toleratedClockSkew = evaluatePlaybackRecovery(
-            snapshot(
-                positionMs = 120_000L,
-                durationMs = 600_000L,
-                updatedAtEpochMs = now + 5L * 60L * 1_000L,
-            ),
-            listOf(server),
-            now,
-        )
-        val corruptFuture = evaluatePlaybackRecovery(
-            snapshot(
-                positionMs = 120_000L,
-                durationMs = 600_000L,
-                updatedAtEpochMs = now + 5L * 60L * 1_000L + 1L,
-            ),
-            listOf(server),
-            now,
-        )
+        val toleratedClockSkew =
+            evaluatePlaybackRecovery(
+                snapshot(
+                    positionMs = 120_000L,
+                    durationMs = 600_000L,
+                    updatedAtEpochMs = now + 5L * 60L * 1_000L,
+                ),
+                listOf(server),
+                now,
+            )
+        val corruptFuture =
+            evaluatePlaybackRecovery(
+                snapshot(
+                    positionMs = 120_000L,
+                    durationMs = 600_000L,
+                    updatedAtEpochMs = now + 5L * 60L * 1_000L + 1L,
+                ),
+                listOf(server),
+                now,
+            )
 
         assertEquals(PlaybackRecoveryEligibility.Eligible, toleratedClockSkew.eligibility)
         assertEquals(PlaybackRecoveryEligibility.Invalid, corruptFuture.eligibility)

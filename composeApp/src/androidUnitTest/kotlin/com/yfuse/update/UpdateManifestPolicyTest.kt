@@ -8,7 +8,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AutomaticUpdateCheckGateTest {
-
     @Test
     fun a_successful_check_holds_the_gate_for_a_day() {
         val settings = MapSettings()
@@ -43,7 +42,6 @@ class AutomaticUpdateCheckGateTest {
 }
 
 class UpdateManifestPolicyTest {
-
     @Test
     fun same_origin_production_https_download_is_accepted() {
         val manifest = manifest("https://47.112.219.60/yfuse/Yfuse-latest.apk")

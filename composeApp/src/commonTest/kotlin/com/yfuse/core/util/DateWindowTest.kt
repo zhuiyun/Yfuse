@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class DateWindowTest {
-
     @Test
     fun shifts_within_a_month() {
         assertEquals("2026-07-31", shiftIsoDate("2026-07-24", 7))

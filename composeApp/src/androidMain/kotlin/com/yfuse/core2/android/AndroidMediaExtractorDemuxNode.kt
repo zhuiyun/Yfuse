@@ -50,8 +50,7 @@ internal class AndroidMediaExtractorDemuxNode(
 
     val trackCount: Int get() = extractor?.trackCount ?: 0
 
-    fun trackFormat(index: Int): MediaFormat =
-        requireExtractor().getTrackFormat(index)
+    fun trackFormat(index: Int): MediaFormat = requireExtractor().getTrackFormat(index)
 
     fun findFirstTrack(mimePrefix: String): Int? =
         (0 until trackCount).firstOrNull { index ->

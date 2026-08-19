@@ -50,23 +50,25 @@ data class AiringEpisode(
      * episode across two people's servers. A film has no coordinate beyond its own id.
      */
     val mediaKey: String
-        get() = if (isMovie) {
-            "tmdb-movie:$showTmdbId"
-        } else {
-            "tmdb:$showTmdbId/s${seasonNumber}e$episodeNumber"
-        }
+        get() =
+            if (isMovie) {
+                "tmdb-movie:$showTmdbId"
+            } else {
+                "tmdb:$showTmdbId/s${seasonNumber}e$episodeNumber"
+            }
 
     /** `第 3 集` — TMDB episode titles are often absent or a bare "第 3 集" repeat. */
     val episodeLabel: String
-        get() = if (isMovie) {
-            "电影上映"
-        } else {
-            listOfNotNull(
-                "第 $episodeNumber 集".takeIf { seasonNumber <= 1 }
-                    ?: "S$seasonNumber E$episodeNumber",
-                episodeTitle?.takeIf { it.isNotBlank() && it != "第 $episodeNumber 集" },
-            ).joinToString(" · ")
-        }
+        get() =
+            if (isMovie) {
+                "电影上映"
+            } else {
+                listOfNotNull(
+                    "第 $episodeNumber 集".takeIf { seasonNumber <= 1 }
+                        ?: "S$seasonNumber E$episodeNumber",
+                    episodeTitle?.takeIf { it.isNotBlank() && it != "第 $episodeNumber 集" },
+                ).joinToString(" · ")
+            }
 }
 
 /**

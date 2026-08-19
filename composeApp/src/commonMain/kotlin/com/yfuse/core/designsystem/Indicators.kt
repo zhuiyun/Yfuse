@@ -51,11 +51,12 @@ fun HeroPageIndicator(
         repeat(pageCount.coerceAtLeast(0)) { index ->
             val active = index == selectedPage
             val width by animateDpAsState(
-                targetValue = if (active) {
-                    HeroPageIndicatorDefaults.activeWidth
-                } else {
-                    HeroPageIndicatorDefaults.inactiveWidth
-                },
+                targetValue =
+                    if (active) {
+                        HeroPageIndicatorDefaults.activeWidth
+                    } else {
+                        HeroPageIndicatorDefaults.inactiveWidth
+                    },
                 animationSpec = Motion.settle(reduceMotion),
                 label = "hero-page-indicator",
             )
@@ -65,12 +66,10 @@ fun HeroPageIndicator(
                         role = Role.Tab,
                         onClickLabel = "显示第 ${index + 1} 张",
                         onClick = { onPageSelected(index) },
-                    )
-                    .semantics {
+                    ).semantics {
                         selected = active
                         contentDescription = "第 ${index + 1} 张，共 $pageCount 张"
-                    }
-                    .touchTarget()
+                    }.touchTarget()
                     .width(width)
                     .height(HeroPageIndicatorDefaults.dotHeight)
                     .clip(AppShapes.track)

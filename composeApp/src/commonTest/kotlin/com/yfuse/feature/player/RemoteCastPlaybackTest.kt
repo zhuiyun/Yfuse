@@ -10,27 +10,28 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RemoteCastPlaybackTest {
-
     private val receiver = CastDevice("chromecast:lounge", "客厅电视")
 
     @Test
     fun confirmed_receiver_truth_replaces_local_transport_truth() {
-        val local = PlaybackState(
-            playing = false,
-            buffering = false,
-            positionMs = 2_000L,
-            durationMs = 100_000L,
-            bufferedPositionMs = 3_000L,
-        )
-        val cast = CastState(
-            status = CastPlaybackStatus.Playing,
-            activeDevice = receiver,
-            sessionConfirmed = true,
-            positionMs = 50_000L,
-            positionConfirmed = true,
-            durationMs = 120_000L,
-            lastRemoteWasPlaying = true,
-        )
+        val local =
+            PlaybackState(
+                playing = false,
+                buffering = false,
+                positionMs = 2_000L,
+                durationMs = 100_000L,
+                bufferedPositionMs = 3_000L,
+            )
+        val cast =
+            CastState(
+                status = CastPlaybackStatus.Playing,
+                activeDevice = receiver,
+                sessionConfirmed = true,
+                positionMs = 50_000L,
+                positionConfirmed = true,
+                durationMs = 120_000L,
+                lastRemoteWasPlaying = true,
+            )
 
         val remote = local.withRemoteCast(cast, playMethod = "服务器转码")
 
@@ -46,15 +47,16 @@ class RemoteCastPlaybackTest {
     @Test
     fun non_fatal_cast_command_error_never_becomes_player_fatal_error() {
         val local = PlaybackState(error = "旧的本地解码错误")
-        val cast = CastState(
-            status = CastPlaybackStatus.Error,
-            activeDevice = receiver,
-            sessionConfirmed = true,
-            positionMs = 8_000L,
-            positionConfirmed = true,
-            lastRemoteWasPlaying = true,
-            error = "接收端拒绝调节音量",
-        )
+        val cast =
+            CastState(
+                status = CastPlaybackStatus.Error,
+                activeDevice = receiver,
+                sessionConfirmed = true,
+                positionMs = 8_000L,
+                positionConfirmed = true,
+                lastRemoteWasPlaying = true,
+                error = "接收端拒绝调节音量",
+            )
 
         val remote = local.withRemoteCast(cast, playMethod = "直播放")
 
@@ -66,12 +68,13 @@ class RemoteCastPlaybackTest {
     @Test
     fun unconfirmed_receiver_position_does_not_replace_local_position() {
         val local = PlaybackState(positionMs = 12_000L, bufferedPositionMs = 13_000L)
-        val cast = CastState(
-            status = CastPlaybackStatus.Connecting,
-            activeDevice = receiver,
-            positionMs = 50_000L,
-            positionConfirmed = false,
-        )
+        val cast =
+            CastState(
+                status = CastPlaybackStatus.Connecting,
+                activeDevice = receiver,
+                positionMs = 50_000L,
+                positionConfirmed = false,
+            )
 
         val projected = local.withRemoteCast(cast, playMethod = "直播放")
 

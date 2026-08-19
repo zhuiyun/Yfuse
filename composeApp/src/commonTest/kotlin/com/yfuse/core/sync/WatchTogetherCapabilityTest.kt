@@ -5,7 +5,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WatchTogetherCapabilityTest {
-
     @Test
     fun legacy_welcome_without_capabilities_disables_reaction_sends() {
         assertFalse(supportsWatchReactions(null))

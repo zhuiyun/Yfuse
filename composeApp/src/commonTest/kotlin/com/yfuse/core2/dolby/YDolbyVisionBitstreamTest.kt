@@ -34,6 +34,5 @@ class YDolbyVisionBitstreamTest {
     private fun hevcNal(
         type: Int,
         vararg payload: Int,
-    ): ByteArray =
-        byteArrayOf((type shl 1).toByte(), 0x01) + ByteArray(payload.size) { payload[it].toByte() }
+    ): ByteArray = byteArrayOf((type shl 1).toByte(), 0x01) + ByteArray(payload.size) { payload[it].toByte() }
 }

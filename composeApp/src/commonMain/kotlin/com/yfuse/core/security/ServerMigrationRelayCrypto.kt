@@ -25,7 +25,11 @@ class ServerMigrationRelayCrypto(
     private val crypto: VaultCrypto = VaultCrypto(),
 ) {
     private val legacyCrypto = ServerMigrationCrypto(crypto)
-    private val json = Json { ignoreUnknownKeys = false; explicitNulls = false }
+    private val json =
+        Json {
+            ignoreUnknownKeys = false
+            explicitNulls = false
+        }
 
     fun protect(
         plaintext: ByteArray,
@@ -36,24 +40,26 @@ class ServerMigrationRelayCrypto(
         val transferSecret = crypto.generateVaultKey()
         val passphrase = transferSecret.toBase64Url().toCharArray()
         return try {
-            val protectedV2 = legacyCrypto.protect(
-                plaintext = plaintext,
-                passphrase = passphrase,
-                createdAtEpochSeconds = createdAtEpochSeconds,
-                expiresAtEpochSeconds = expiresAtEpochSeconds,
-            )
+            val protectedV2 =
+                legacyCrypto.protect(
+                    plaintext = plaintext,
+                    passphrase = passphrase,
+                    createdAtEpochSeconds = createdAtEpochSeconds,
+                    expiresAtEpochSeconds = expiresAtEpochSeconds,
+                )
             val payloadHash = crypto.sha256(protectedV2.encodeToByteArray())
             try {
                 RelayMigrationPackage(
-                    envelope = json.encodeToString(
-                        RelayEnvelope.serializer(),
-                        RelayEnvelope(
-                            relayId = relayId.toBase64Url(),
-                            expiresAtEpochSeconds = expiresAtEpochSeconds,
-                            payloadSha256 = payloadHash.toBase64Url(),
-                            protectedV2 = protectedV2,
+                    envelope =
+                        json.encodeToString(
+                            RelayEnvelope.serializer(),
+                            RelayEnvelope(
+                                relayId = relayId.toBase64Url(),
+                                expiresAtEpochSeconds = expiresAtEpochSeconds,
+                                payloadSha256 = payloadHash.toBase64Url(),
+                                protectedV2 = protectedV2,
+                            ),
                         ),
-                    ),
                     relayId = relayId.toBase64Url(),
                     transferSecret = transferSecret,
                     payloadSha256 = payloadHash.toBase64Url(),
@@ -120,8 +126,9 @@ class ServerMigrationRelayCrypto(
     private fun decode(encoded: String): RelayEnvelope {
         val trimmed = encoded.trim()
         require(trimmed.length in 1..MAX_ENCODED_CHARS) { "迁移包大小无效" }
-        val envelope = runCatching { json.decodeFromString(RelayEnvelope.serializer(), trimmed) }
-            .getOrElse { throw IllegalArgumentException("不是有效的六位码迁移包", it) }
+        val envelope =
+            runCatching { json.decodeFromString(RelayEnvelope.serializer(), trimmed) }
+                .getOrElse { throw IllegalArgumentException("不是有效的六位码迁移包", it) }
         require(envelope.type == PACKAGE_TYPE && envelope.version == CURRENT_VERSION) {
             "不支持的迁移包版本"
         }
@@ -130,10 +137,14 @@ class ServerMigrationRelayCrypto(
         return envelope
     }
 
-    private fun String.decodeFixed(size: Int, label: String): ByteArray {
-        val value = runCatching { base64UrlToBytes() }.getOrElse {
-            throw IllegalArgumentException("$label 编码无效", it)
-        }
+    private fun String.decodeFixed(
+        size: Int,
+        label: String,
+    ): ByteArray {
+        val value =
+            runCatching { base64UrlToBytes() }.getOrElse {
+                throw IllegalArgumentException("$label 编码无效", it)
+            }
         require(value.size == size) { "$label 长度无效" }
         return value
     }

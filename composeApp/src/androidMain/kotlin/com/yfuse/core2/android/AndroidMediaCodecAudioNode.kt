@@ -119,10 +119,12 @@ internal class AndroidMediaCodecAudioNode(
         require(output.offset >= 0 && end <= source.capacity()) {
             "Invalid audio codec output range ${output.offset}..$end for capacity ${source.capacity()}"
         }
-        return source.duplicate().apply {
-            position(output.offset)
-            limit(end)
-        }.slice()
+        return source
+            .duplicate()
+            .apply {
+                position(output.offset)
+                limit(end)
+            }.slice()
     }
 
     fun releaseOutput(output: YAudioCodecOutputResult.Buffer) {

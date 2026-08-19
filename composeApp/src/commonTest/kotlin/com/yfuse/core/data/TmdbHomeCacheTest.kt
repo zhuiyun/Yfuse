@@ -16,9 +16,10 @@ class TmdbHomeCacheTest {
         cache.write(
             TmdbHome(
                 featured = List(30) { item(it) },
-                rows = List(6) { row ->
-                    TmdbRow("row-$row", List(30) { item(row * 100 + it) })
-                },
+                rows =
+                    List(6) { row ->
+                        TmdbRow("row-$row", List(30) { item(row * 100 + it) })
+                    },
             ),
         )
 
@@ -31,9 +32,10 @@ class TmdbHomeCacheTest {
 
     @Test
     fun unreadable_recommendation_cache_is_removed() {
-        val settings = MapSettings().apply {
-            putString("tmdb.home.cache.v1", "not-json")
-        }
+        val settings =
+            MapSettings().apply {
+                putString("tmdb.home.cache.v1", "not-json")
+            }
         val cache = TmdbHomeCache(settings)
 
         assertNull(cache.read())
@@ -59,12 +61,13 @@ class TmdbHomeCacheTest {
         val cache = TmdbHomeCache(settings, today = { "2026-08-07" })
         cache.write(
             TmdbHome(
-                featured = listOf(
-                    item(1).copy(
-                        title = "t".repeat(2_000),
-                        overview = "o".repeat(20_000),
+                featured =
+                    listOf(
+                        item(1).copy(
+                            title = "t".repeat(2_000),
+                            overview = "o".repeat(20_000),
+                        ),
                     ),
-                ),
             ),
         )
 
@@ -74,14 +77,15 @@ class TmdbHomeCacheTest {
         assertTrue(settings.getString("tmdb.home.cache.v1", "").length <= 512_000)
     }
 
-    private fun item(id: Int) = TmdbItem(
-        id = id,
-        title = "item-$id",
-        overview = "overview-$id",
-        posterPath = "/$id.jpg",
-        backdropPath = "/$id-backdrop.jpg",
-        year = "2026",
-        mediaType = "movie",
-        rating = 8.0,
-    )
+    private fun item(id: Int) =
+        TmdbItem(
+            id = id,
+            title = "item-$id",
+            overview = "overview-$id",
+            posterPath = "/$id.jpg",
+            backdropPath = "/$id-backdrop.jpg",
+            year = "2026",
+            mediaType = "movie",
+            rating = 8.0,
+        )
 }

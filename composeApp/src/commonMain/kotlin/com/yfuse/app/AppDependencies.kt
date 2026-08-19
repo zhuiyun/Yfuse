@@ -4,8 +4,8 @@ import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.LibraryCache
-import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackFailoverRequest
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.ServerActivityStore
@@ -20,8 +20,8 @@ import com.yfuse.core.network.LanDiscovery
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
-import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.player.PlaybackReportingCoordinator
+import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.watch.WatchInviteResolver
 
 /** Process-scoped services resolved once at the Android composition root. */

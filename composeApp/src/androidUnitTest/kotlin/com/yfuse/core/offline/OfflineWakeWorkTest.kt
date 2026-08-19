@@ -8,7 +8,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class OfflineWakeWorkTest {
-
     @Test
     fun wifiOnlyRequestRequiresUnmeteredNetwork() {
         val request = offlineWakeRequest(wifiOnly = true, initialDelayMs = 42_000L)

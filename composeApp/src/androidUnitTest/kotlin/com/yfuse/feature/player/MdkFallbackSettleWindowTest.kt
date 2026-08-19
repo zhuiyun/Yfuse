@@ -5,7 +5,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MdkFallbackSettleWindowTest {
-
     @Test
     fun progressive_load_gets_a_fresh_window_after_slow_encoder_cleanup() {
         val window = FallbackSettleWindow(requiredPolls = 3)

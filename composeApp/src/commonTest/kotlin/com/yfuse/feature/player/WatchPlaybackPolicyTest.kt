@@ -7,7 +7,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WatchPlaybackPolicyTest {
-
     @Test
     fun initial_autoplay_buffering_is_not_published_as_a_room_pause() {
         assertFalse(watchTimelinePaused(playbackRequested = true, ended = false))
@@ -26,9 +25,10 @@ class WatchPlaybackPolicyTest {
     fun unmatched_media_warns_only_after_the_grace_ticks_and_clears_on_match() {
         var warning: String? = null
         val matcher = WatchMediaMatcher { warning = it }
-        val items = listOf(
-            PlayerMediaItem("episode", "direct", "transcode", "第一集", watchKey = "tmdb:1"),
-        )
+        val items =
+            listOf(
+                PlayerMediaItem("episode", "direct", "transcode", "第一集", watchKey = "tmdb:1"),
+            )
 
         repeat(2) {
             assertNull(matcher.resolve(items, "tmdb:missing"))
@@ -51,20 +51,27 @@ class WatchPlaybackPolicyTest {
     fun an_episode_matches_when_the_libraries_name_the_show_differently() {
         var warning: String? = null
         val matcher = WatchMediaMatcher { warning = it }
-        val items = listOf(
-            PlayerMediaItem(
-                "e4", "direct", "transcode", "第 4 集",
-                seasonNumber = 2,
-                episodeNumber = 4,
-                watchKey = "tvdb:121361/s2e4",
-            ),
-            PlayerMediaItem(
-                "e5", "direct", "transcode", "第 5 集",
-                seasonNumber = 2,
-                episodeNumber = 5,
-                watchKey = "tvdb:121361/s2e5",
-            ),
-        )
+        val items =
+            listOf(
+                PlayerMediaItem(
+                    "e4",
+                    "direct",
+                    "transcode",
+                    "第 4 集",
+                    seasonNumber = 2,
+                    episodeNumber = 4,
+                    watchKey = "tvdb:121361/s2e4",
+                ),
+                PlayerMediaItem(
+                    "e5",
+                    "direct",
+                    "transcode",
+                    "第 5 集",
+                    seasonNumber = 2,
+                    episodeNumber = 5,
+                    watchKey = "tvdb:121361/s2e5",
+                ),
+            )
 
         assertEquals(1, matcher.resolve(items, "tmdb:1399/s2e5"))
         assertNull(warning)
@@ -79,13 +86,17 @@ class WatchPlaybackPolicyTest {
     fun a_film_matches_on_any_provider_id_the_two_libraries_share() {
         var warning: String? = null
         val matcher = WatchMediaMatcher { warning = it }
-        val items = listOf(
-            PlayerMediaItem(
-                "film", "direct", "transcode", "黑客帝国",
-                watchKey = "tmdb:603",
-                matchKeys = listOf("tmdb:603", "imdb:tt0133093", "emby:local"),
-            ),
-        )
+        val items =
+            listOf(
+                PlayerMediaItem(
+                    "film",
+                    "direct",
+                    "transcode",
+                    "黑客帝国",
+                    watchKey = "tmdb:603",
+                    matchKeys = listOf("tmdb:603", "imdb:tt0133093", "emby:local"),
+                ),
+            )
 
         assertEquals(0, matcher.resolve(items, "imdb:tt0133093"))
         assertNull(warning)
@@ -100,15 +111,19 @@ class WatchPlaybackPolicyTest {
     fun an_episode_matches_when_neither_library_can_name_the_show() {
         var warning: String? = null
         val matcher = WatchMediaMatcher { warning = it }
-        val items = listOf(
-            PlayerMediaItem(
-                "guest-e5", "direct", "transcode", "第 5 集",
-                seasonNumber = 2,
-                episodeNumber = 5,
-                watchKey = "emby:guest-e5/s2e5",
-                matchKeys = listOf("emby:guest-e5/s2e5", "emby:guest-e5"),
-            ),
-        )
+        val items =
+            listOf(
+                PlayerMediaItem(
+                    "guest-e5",
+                    "direct",
+                    "transcode",
+                    "第 5 集",
+                    seasonNumber = 2,
+                    episodeNumber = 5,
+                    watchKey = "emby:guest-e5/s2e5",
+                    matchKeys = listOf("emby:guest-e5/s2e5", "emby:guest-e5"),
+                ),
+            )
 
         assertEquals(0, matcher.resolve(items, "emby:host-e5/s2e5"))
         assertNull(warning)
@@ -123,15 +138,19 @@ class WatchPlaybackPolicyTest {
     fun a_coordinate_from_a_different_show_is_refused() {
         var warning: String? = null
         val matcher = WatchMediaMatcher { warning = it }
-        val items = listOf(
-            PlayerMediaItem(
-                "other-e5", "direct", "transcode", "别的剧 第 5 集",
-                seasonNumber = 2,
-                episodeNumber = 5,
-                watchKey = "tmdb:456/s2e5",
-                matchKeys = listOf("tmdb:456/s2e5", "emby:other-e5"),
-            ),
-        )
+        val items =
+            listOf(
+                PlayerMediaItem(
+                    "other-e5",
+                    "direct",
+                    "transcode",
+                    "别的剧 第 5 集",
+                    seasonNumber = 2,
+                    episodeNumber = 5,
+                    watchKey = "tmdb:456/s2e5",
+                    matchKeys = listOf("tmdb:456/s2e5", "emby:other-e5"),
+                ),
+            )
 
         repeat(3) { assertNull(matcher.resolve(items, "tmdb:1399/s2e5")) }
 
@@ -143,14 +162,18 @@ class WatchPlaybackPolicyTest {
     fun a_coordinate_the_queue_does_not_hold_still_warns() {
         var warning: String? = null
         val matcher = WatchMediaMatcher { warning = it }
-        val items = listOf(
-            PlayerMediaItem(
-                "e5", "direct", "transcode", "第 5 集",
-                seasonNumber = 2,
-                episodeNumber = 5,
-                watchKey = "tmdb:1399/s2e5",
-            ),
-        )
+        val items =
+            listOf(
+                PlayerMediaItem(
+                    "e5",
+                    "direct",
+                    "transcode",
+                    "第 5 集",
+                    seasonNumber = 2,
+                    episodeNumber = 5,
+                    watchKey = "tmdb:1399/s2e5",
+                ),
+            )
 
         repeat(3) { assertNull(matcher.resolve(items, "tmdb:1399/s3e1")) }
 

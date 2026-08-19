@@ -13,7 +13,6 @@ class CalendarComponent(
     /** Opens an episode the library already has. Absent for everything else. */
     val onOpenItem: (serverId: String?, itemId: String) -> Unit,
 ) : ComponentContext by componentContext {
-
     val store = CalendarStoreFactory(storeFactory, repository).create()
 
     init {

@@ -6,7 +6,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NavigationRailPolicyTest {
-
     @Test
     fun a_tablet_held_upright_keeps_its_bottom_bar() {
         assertFalse(useNavigationRail(width = 840.dp, height = 1280.dp))

@@ -45,7 +45,12 @@ class LegacyYPlayerAdapterTest {
         assertTrue(player.state.value.playing)
         assertEquals(12_345L, player.state.value.positionMs)
         assertEquals(YPlaybackRoute.Legacy, player.state.value.diagnostics.route)
-        assertEquals("audio-1", player.state.value.audioTracks.single().id)
+        assertEquals(
+            "audio-1",
+            player.state.value.audioTracks
+                .single()
+                .id,
+        )
         assertEquals(PlaybackDiscKind.BluRay, player.state.value.discNavigation.kind)
         assertSame(engine.mutableState, player.asPlaybackStateFlow())
     }

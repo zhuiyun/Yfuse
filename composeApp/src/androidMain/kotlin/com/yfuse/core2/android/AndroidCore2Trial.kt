@@ -62,7 +62,7 @@ internal object AndroidCore2TrialFactory {
 internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     if (isEmpty() || startIndex !in indices) return false
     return all { item ->
-            item.drmConfiguration == null &&
+        item.drmConfiguration == null &&
             item.activeVersion?.drmConfiguration == null &&
             item.externalSubtitleUri.isNullOrBlank() &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
