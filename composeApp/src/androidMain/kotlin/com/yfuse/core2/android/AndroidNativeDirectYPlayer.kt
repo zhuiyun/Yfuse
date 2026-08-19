@@ -243,6 +243,8 @@ internal class AndroidNativeDirectYPlayer(
                     mutableState.value.diagnostics.copy(
                         videoOutput = "停止",
                         audioOutput = "停止",
+                        videoOutputVerified = false,
+                        audioOutputVerified = false,
                         // Never copy Throwable.message: media/framework exceptions can contain a URL.
                         reason = "NativeDirect failed before route fallback",
                     ),
@@ -383,6 +385,8 @@ internal class AndroidNativeDirectYPlayer(
                             dynamicRange = videoFormat.dynamicRangeLabel(),
                             videoOutput = if (videoConfigured) "等待首帧" else "等待 Surface",
                             audioOutput = if (audioInputFormat != null) "等待 PCM 输出" else "无音频轨",
+                            videoOutputVerified = false,
+                            audioOutputVerified = false,
                             reason = "Platform demux + hardware decode + direct Surface",
                         ),
                 )
@@ -406,10 +410,26 @@ internal class AndroidNativeDirectYPlayer(
                     mutableState.value.copy(
                         playing = false,
                         buffering = requestedPlay,
-                        diagnostics = mutableState.value.diagnostics.copy(videoOutput = "等待 Surface"),
+                        diagnostics =
+                            mutableState.value.diagnostics.copy(
+                                videoOutput = "等待 Surface",
+                                videoOutputVerified = false,
+                            ),
                     )
                 return
             }
+            if (previous?.surface === newSurface && videoConfigured) return
+            firstVideoFrameRendered = false
+            mutableState.value =
+                mutableState.value.copy(
+                    playing = false,
+                    buffering = requestedPlay,
+                    diagnostics =
+                        mutableState.value.diagnostics.copy(
+                            videoOutput = "硬解已配置 · 等待首帧",
+                            videoOutputVerified = false,
+                        ),
+                )
             if (videoConfigured && previous?.surface?.isValid == true) {
                 runCatching { videoDecoder.setOutputSurface(newSurface) }
                     .onSuccess {
@@ -496,6 +516,13 @@ internal class AndroidNativeDirectYPlayer(
                     buffering = requestedPlay,
                     positionMs = targetUs / MICROS_PER_MILLISECOND,
                     error = null,
+                    diagnostics =
+                        mutableState.value.diagnostics.copy(
+                            videoOutput = if (videoConfigured) "硬解已配置 · 等待首帧" else "等待 Surface",
+                            audioOutput = if (audioInputFormat != null) "等待 PCM 输出" else "无音频轨",
+                            videoOutputVerified = false,
+                            audioOutputVerified = false,
+                        ),
                 )
             if (requestedPlay) startPlayback()
         }
@@ -522,7 +549,15 @@ internal class AndroidNativeDirectYPlayer(
             audioRenderer.release()
             audioRendererConfigured = false
             seekTo(positionUs)
-            mutableState.value = mutableState.value.copy(audioTracks = audioTracks())
+            mutableState.value =
+                mutableState.value.copy(
+                    audioTracks = audioTracks(),
+                    diagnostics =
+                        mutableState.value.diagnostics.copy(
+                            audioOutput = "等待 PCM 输出",
+                            audioOutputVerified = false,
+                        ),
+                )
         }
 
         private fun feedInput(): Boolean {
@@ -588,7 +623,11 @@ internal class AndroidNativeDirectYPlayer(
                     if (requestedPlay) audioRenderer.play()
                     mutableState.value =
                         mutableState.value.copy(
-                            diagnostics = mutableState.value.diagnostics.copy(audioOutput = "PCM · AudioTrack"),
+                            diagnostics =
+                                mutableState.value.diagnostics.copy(
+                                    audioOutput = "等待 PCM 输出",
+                                    audioOutputVerified = false,
+                                ),
                         )
                     true
                 }
@@ -601,10 +640,21 @@ internal class AndroidNativeDirectYPlayer(
                                 // failure explicit rather than silently dropping audio if an OEM does not.
                                 error("Audio output arrived before PCM format")
                             }
-                            audioRenderer.write(
-                                audioDecoder.outputData(output),
-                                output.presentationTimeUs,
-                            )
+                            val writtenBytes =
+                                audioRenderer.write(
+                                    audioDecoder.outputData(output),
+                                    output.presentationTimeUs,
+                                )
+                            if (writtenBytes > 0 && !mutableState.value.diagnostics.audioOutputVerified) {
+                                mutableState.value =
+                                    mutableState.value.copy(
+                                        diagnostics =
+                                            mutableState.value.diagnostics.copy(
+                                                audioOutput = "PCM · AudioTrack",
+                                                audioOutputVerified = true,
+                                            ),
+                                    )
+                            }
                             seekTargetAudioUs = 0L
                         }
                         if (output.endOfStream) audioOutputEnded = true
@@ -663,6 +713,7 @@ internal class AndroidNativeDirectYPlayer(
                             diagnostics =
                                 mutableState.value.diagnostics.copy(
                                     videoOutput = "Surface 直出",
+                                    videoOutputVerified = true,
                                 ),
                         )
                 }
@@ -761,7 +812,16 @@ internal class AndroidNativeDirectYPlayer(
             audioTrackIndex = null
             videoFormat = null
             audioInputFormat = null
+            firstVideoFrameRendered = false
             resetEndState()
+            mutableState.value =
+                mutableState.value.copy(
+                    diagnostics =
+                        mutableState.value.diagnostics.copy(
+                            videoOutputVerified = false,
+                            audioOutputVerified = false,
+                        ),
+                )
         }
 
         fun releaseAll() {

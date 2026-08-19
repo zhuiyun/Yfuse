@@ -1510,9 +1510,39 @@ internal fun PlayerRoot(
         }
     }
 
-    LaunchedEffect(runtimeAssessment.runtimeFault, kind, sessionEngineSelection) {
+    LaunchedEffect(
+        runtimeAssessment.runtimeFault,
+        kind,
+        sessionEngineSelection,
+        engine,
+        core2DisabledForSession,
+    ) {
         val fault = runtimeAssessment.runtimeFault ?: return@LaunchedEffect
         if (sessionEngineSelection != PlaybackEngineSelection.Auto || castAuthoritative) {
+            return@LaunchedEffect
+        }
+        if (engine is YPlayerVideoEngineAdapter && !core2DisabledForSession) {
+            resume =
+                playbackHandoverSnapshot(
+                    state = state,
+                    currentPositionMs = player.currentPositionMs(),
+                    playbackRequested = player.playbackRequested,
+                    requestedSpeed = requestedPlaybackSpeed,
+                )
+            core2DisabledForSession = true
+            engineGeneration++
+            AppLog.warning(
+                category = "player.core2",
+                event = "trial_runtime_fault_fallback",
+                message = "YCore 2.0 trial had a silent output fault; rebuilt the selected Legacy engine",
+                attributes =
+                    mapOf(
+                        "engine" to kind.name,
+                        "itemIndex" to state.currentIndex.toString(),
+                        "fault" to fault.kind.name,
+                    ),
+            )
+            Toast.makeText(context, "试用内核输出异常，已切回兼容内核", Toast.LENGTH_SHORT).show()
             return@LaunchedEffect
         }
         val tried = enginesTried + kind
@@ -1891,7 +1921,20 @@ internal fun PlayerRoot(
             },
     ) {
         when (engine) {
-            is YPlayerVideoEngineAdapter -> Core2Surface(engine, Modifier.fillMaxSize())
+            is YPlayerVideoEngineAdapter ->
+                Core2Surface(
+                    engine = engine,
+                    scaleMode = scaleMode,
+                    videoWidth =
+                        state.diagnostics.videoWidth.takeIf { it > 0 }
+                            ?: currentItem?.activeVersion?.sourceWidth
+                            ?: 0,
+                    videoHeight =
+                        state.videoHeight.takeIf { it > 0 }
+                            ?: currentItem?.activeVersion?.sourceHeight
+                            ?: 0,
+                    modifier = Modifier.fillMaxSize(),
+                )
             is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize())
             is MpvVideoEngine -> MpvSurface(engine, Modifier.fillMaxSize())
             is ExoVideoEngine ->
