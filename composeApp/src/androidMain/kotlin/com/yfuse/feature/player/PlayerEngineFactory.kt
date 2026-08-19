@@ -10,6 +10,7 @@ import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
+import com.yfuse.core2.android.AndroidCore2TrialFactory
 import kotlinx.coroutines.CoroutineScope
 
 /** Android engine construction boundary; callers depend only on [VideoEngine]. */
@@ -30,8 +31,24 @@ internal fun createVideoEngine(
     videoCacheBytes: Long,
     scope: CoroutineScope,
     stopEncoding: suspend (String) -> Boolean,
-): VideoEngine =
-    when (kind) {
+    core2TrialEnabled: Boolean = false,
+): VideoEngine {
+    if (core2TrialEnabled) {
+        AndroidCore2TrialFactory
+            .create(
+                context = context,
+                items = items,
+                startIndex = startIndex,
+                startPositionMs = startPositionMs,
+                startPlaybackRequested = startPlaybackRequested,
+                startSpeed = startSpeed,
+                autoNext = autoNext,
+                customUserAgent = customUserAgent,
+            )
+            ?.let { return it }
+    }
+
+    return when (kind) {
         PlayerEngine.Mdk ->
             MdkVideoEngine(
                 items = items,
@@ -92,6 +109,7 @@ internal fun createVideoEngine(
                 stopEncoding = stopEncoding,
             )
     }
+}
 
 /**
  * Fails fast only when the selected source provably needs a feature the installed native AAR lacks.

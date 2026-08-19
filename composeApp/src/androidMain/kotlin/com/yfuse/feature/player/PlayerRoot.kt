@@ -69,6 +69,7 @@ import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.playback.resolvePlaybackOptimization
 import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -132,6 +133,8 @@ internal fun PlayerRoot(
         playbackNetworkFlow.collectAsState(initial = currentPlaybackNetworkClass())
     val optimizationMode by playbackPreferences.optimizationMode.collectAsState()
     val configuredEngineSelection by playbackPreferences.engineSelection.collectAsState()
+    val core2TrialEnabled by playbackPreferences.core2TrialEnabled.collectAsState()
+    var core2DisabledForSession by remember { mutableStateOf(false) }
     var sessionEngineSelection by remember {
         mutableStateOf(configuredEngineSelection)
     }
@@ -316,7 +319,13 @@ internal fun PlayerRoot(
             }?.let(::cachedPlaybackSink)
 
     val engine: VideoEngine =
-        remember(kind, engineGeneration, effectiveDecoderMode) {
+        remember(
+            kind,
+            engineGeneration,
+            effectiveDecoderMode,
+            core2TrialEnabled,
+            core2DisabledForSession,
+        ) {
             createVideoEngine(
                 kind = kind,
                 context = context,
@@ -335,6 +344,7 @@ internal fun PlayerRoot(
                 stopEncoding = { sessionId ->
                     playbackSinkForSession(sessionId)?.stopEncoding(sessionId) ?: true
                 },
+                core2TrialEnabled = core2TrialEnabled && !core2DisabledForSession,
             )
         }
 
@@ -367,6 +377,36 @@ internal fun PlayerRoot(
     }
 
     val localState by engine.state.collectAsState()
+    LaunchedEffect(engine, localState.error, localState.fallbacksExhausted) {
+        if (
+            engine !is YPlayerVideoEngineAdapter ||
+            localState.error == null ||
+            !localState.fallbacksExhausted
+        ) {
+            return@LaunchedEffect
+        }
+        resume =
+            playbackHandoverSnapshot(
+                state = localState,
+                currentPositionMs = engine.currentPositionMs(),
+                playbackRequested = engine.playbackRequested,
+                requestedSpeed = requestedPlaybackSpeed,
+            )
+        core2DisabledForSession = true
+        engineGeneration++
+        AppLog.warning(
+            category = "player.core2",
+            event = "trial_fallback_to_legacy",
+            message = "YCore 2.0 trial failed; rebuilt the selected Legacy engine",
+            attributes =
+                mapOf(
+                    "engine" to kind.name,
+                    "itemIndex" to localState.currentIndex.toString(),
+                    "failureKind" to (localState.errorKind?.name ?: "Unknown"),
+                ),
+        )
+        Toast.makeText(context, "YCore 2.0 试用失败，已切回兼容内核", Toast.LENGTH_SHORT).show()
+    }
     var appliedCapabilityRevision by remember { mutableLongStateOf(capabilityRevision) }
     var appliedOptimizationMode by remember { mutableStateOf(effectiveOptimizationMode) }
     LaunchedEffect(capabilityRevision, effectiveOptimizationMode) {
@@ -1618,6 +1658,7 @@ internal fun PlayerRoot(
     )
 
     LaunchedEffect(
+        engine,
         state.fallbacksExhausted,
         state.automaticFallbackBlocked,
         state.currentIndex,
@@ -1626,7 +1667,11 @@ internal fun PlayerRoot(
         currentItem?.versionId,
         state.error,
     ) {
-        if (!state.fallbacksExhausted || state.automaticFallbackBlocked) {
+        if (
+            engine is YPlayerVideoEngineAdapter ||
+            !state.fallbacksExhausted ||
+            state.automaticFallbackBlocked
+        ) {
             return@LaunchedEffect
         }
         // The backend's own classification wins. Reading it back out of the message only ever
@@ -1814,6 +1859,7 @@ internal fun PlayerRoot(
             },
     ) {
         when (engine) {
+            is YPlayerVideoEngineAdapter -> Core2Surface(engine, Modifier.fillMaxSize())
             is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize())
             is MpvVideoEngine -> MpvSurface(engine, Modifier.fillMaxSize())
             is ExoVideoEngine ->

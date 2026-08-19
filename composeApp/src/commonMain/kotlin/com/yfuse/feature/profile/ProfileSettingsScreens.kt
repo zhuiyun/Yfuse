@@ -272,6 +272,7 @@ internal fun AdvancedPlaybackSettingsScreen(
     val outputPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
     val frameRateMatch by outputPreferences.frameRateMatch.collectAsState()
     val audioPassthrough by outputPreferences.audioPassthrough.collectAsState()
+    val core2TrialEnabled by outputPreferences.core2TrialEnabled.collectAsState()
 
     SettingsPage(
         title = "高级播放设置",
@@ -293,6 +294,13 @@ internal fun AdvancedPlaybackSettingsScreen(
                         "${engineSelection.playbackOptionCopy().label} ›",
                         true,
                         onEngine,
+                    )
+                    SettingsDivider()
+                    SwitchRow(
+                        "YCore 2.0 试用",
+                        core2TrialEnabled,
+                        true,
+                        onChange = outputPreferences::setCore2TrialEnabled,
                     )
                     SettingsDivider()
                     SettingRow(

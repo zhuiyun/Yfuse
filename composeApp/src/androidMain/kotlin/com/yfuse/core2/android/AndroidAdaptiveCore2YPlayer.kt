@@ -25,7 +25,8 @@ import kotlinx.coroutines.launch
 /**
  * Per-item Core2 router. It never assumes one queue shares one codec/HDR/audio route.
  *
- * Each selected item is probed independently and receives either NativeDirect or NativeEnhanced.
+ * Each selected item is probed independently and receives NativeTunnel, NativeDirect, or
+ * NativeEnhanced.
  * If Core2 cannot prove an executable route, state becomes Failed/Unknown so the product-level
  * Legacy fallback can take over without poisoning any decoder-specific failure memory.
  */
@@ -141,6 +142,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         var requestedPlay = request.autoPlay
         var speed = 1f
         var pendingPositionMs = request.startPositionMs
+        var allowTunnel = true
 
         fun stopChild() {
             childCollector?.cancel()
@@ -151,12 +153,11 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         fun publishUnavailable(reason: String) {
             stopChild()
-            requestedPlay = false
             mutableState.updateState {
                 it.copy(
                     phase = YPlaybackPhase.Failed,
                     playing = false,
-                    playbackRequested = false,
+                    playbackRequested = requestedPlay,
                     buffering = false,
                     error = "YCore 2.0 当前没有可证明安全的原生路径，交回 Legacy",
                     errorCategory = YPlaybackFailureCategory.Unknown,
@@ -175,15 +176,19 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         fun createChild(positionMs: Long): YPlayer? {
             val item = request.items[currentIndex]
-            val decision = routeEvaluator.evaluate(item) ?: return null
+            val tunnelAllowed = allowTunnel && kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
+            val decision = routeEvaluator.evaluate(item, preferTunnel = tunnelAllowed) ?: return null
             val singleRequest =
                 YPlayerOpenRequest(
                     items = listOf(item),
                     startIndex = 0,
                     startPositionMs = positionMs.coerceAtLeast(0L),
                     autoPlay = requestedPlay,
+                    autoNext = false,
                 )
             return when {
+                tunnelAllowed && decision.nativeTunnelExecutable ->
+                    AndroidNativeTunnelYPlayer(context, singleRequest, routeEvaluator)
                 decision.nativeDirectExecutable && !decision.plan.usesHdrFallback ->
                     AndroidNativeDirectYPlayer(context, singleRequest)
                 decision.nativeEnhancedExecutable ->
@@ -195,17 +200,32 @@ internal class AndroidAdaptiveCore2YPlayer(
         fun attachChild(next: YPlayer) {
             stopChild()
             child = next
+            val childIndex = currentIndex
             next.setSpeed(speed)
             next.setVideoOutput(output)
             childCollector =
                 scope.launch {
                     next.state.collect { childState ->
+                        if (
+                            childState.phase == YPlaybackPhase.Failed &&
+                            childState.diagnostics.route == YPlaybackRoute.NativeTunnel
+                        ) {
+                            commands.trySend(Command.FallbackFromTunnel(childIndex, childState.positionMs))
+                            return@collect
+                        }
                         mutableState.value =
                             childState.copy(
-                                currentIndex = currentIndex,
+                                currentIndex = childIndex,
                                 itemCount = request.items.size,
                                 playbackRequested = requestedPlay && childState.phase != YPlaybackPhase.Ended,
                             )
+                        if (
+                            childState.phase == YPlaybackPhase.Ended &&
+                            request.autoNext &&
+                            childIndex + 1 < request.items.size
+                        ) {
+                            commands.trySend(Command.SelectItem(childIndex + 1))
+                        }
                     }
                 }
             next.prepare()
@@ -230,7 +250,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
             val next = createChild(positionMs)
             if (next == null) {
-                publishUnavailable("No executable NativeDirect/NativeEnhanced route for item $currentIndex")
+                publishUnavailable("No executable NativeTunnel/NativeDirect/NativeEnhanced route for item $currentIndex")
             } else {
                 attachChild(next)
             }
@@ -256,9 +276,27 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                         is Command.SetSpeed -> {
                             speed = command.speed
-                            child?.setSpeed(speed)
+                            val active = child
+                            if (
+                                active?.state?.value?.diagnostics?.route == YPlaybackRoute.NativeTunnel &&
+                                kotlin.math.abs(speed - 1f) > TUNNEL_SPEED_EPSILON
+                            ) {
+                                allowTunnel = false
+                                pendingPositionMs = active.currentPositionMs()
+                                rebuild(pendingPositionMs)
+                            } else {
+                                active?.setSpeed(speed)
+                            }
                         }
-                        is Command.SelectTrack -> child?.selectTrack(command.type, command.id)
+                        is Command.SelectTrack -> {
+                            val active = child
+                            if (active?.state?.value?.diagnostics?.route == YPlaybackRoute.NativeTunnel) {
+                                allowTunnel = false
+                                pendingPositionMs = active.currentPositionMs()
+                                rebuild(pendingPositionMs)
+                            }
+                            child?.selectTrack(command.type, command.id)
+                        }
                         is Command.SetVideoOutput -> {
                             output = command.output
                             val active = child
@@ -271,7 +309,18 @@ internal class AndroidAdaptiveCore2YPlayer(
                         is Command.SelectItem -> {
                             pendingPositionMs = 0L
                             currentIndex = command.index
+                            allowTunnel = true
                             rebuild(0L)
+                        }
+                        is Command.FallbackFromTunnel -> {
+                            if (
+                                command.index == currentIndex &&
+                                child?.state?.value?.diagnostics?.route == YPlaybackRoute.NativeTunnel
+                            ) {
+                                allowTunnel = false
+                                pendingPositionMs = command.positionMs
+                                rebuild(pendingPositionMs)
+                            }
                         }
                         Command.Retry -> rebuild(mutableState.value.positionMs)
                     }
@@ -295,6 +344,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         data class SelectTrack(val type: YTrackType, val id: String) : Command
         data class SetVideoOutput(val output: YVideoOutput?) : Command
         data class SelectItem(val index: Int) : Command
+        data class FallbackFromTunnel(val index: Int, val positionMs: Long) : Command
     }
 }
 
@@ -310,3 +360,5 @@ private inline fun MutableStateFlow<YPlayerState>.updateState(
 ) {
     value = transform(value)
 }
+
+private const val TUNNEL_SPEED_EPSILON = 0.001f

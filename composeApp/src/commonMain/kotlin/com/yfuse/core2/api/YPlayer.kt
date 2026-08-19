@@ -56,6 +56,7 @@ data class YPlayerOpenRequest(
     val startIndex: Int = 0,
     val startPositionMs: Long = 0L,
     val autoPlay: Boolean = true,
+    val autoNext: Boolean = true,
 ) {
     init {
         require(items.isNotEmpty()) { "YPlayer requires at least one media item" }

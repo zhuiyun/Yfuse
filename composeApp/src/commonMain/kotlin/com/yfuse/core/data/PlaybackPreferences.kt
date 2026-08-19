@@ -172,6 +172,15 @@ class PlaybackPreferences(
         settings.putString(KEY_ENGINE_SELECTION, selection.name)
     }
 
+    private val _core2TrialEnabled =
+        MutableStateFlow(settings.getBoolean(KEY_CORE2_TRIAL_ENABLED, false))
+    val core2TrialEnabled: StateFlow<Boolean> = _core2TrialEnabled.asStateFlow()
+
+    fun setCore2TrialEnabled(enabled: Boolean) {
+        _core2TrialEnabled.value = enabled
+        settings.putBoolean(KEY_CORE2_TRIAL_ENABLED, enabled)
+    }
+
     internal fun playbackFailureRecords(): List<PlaybackFailureRecord> =
         settings
             .getStringOrNull(KEY_PLAYBACK_FAILURES)
@@ -535,6 +544,7 @@ class PlaybackPreferences(
         const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
         const val KEY_OPTIMIZATION_MODE = "player.optimizationMode"
         const val KEY_ENGINE_SELECTION = "player.ycore.engineSelection"
+        const val KEY_CORE2_TRIAL_ENABLED = "player.ycore2.trialEnabled"
         const val KEY_PLAYBACK_FAILURES = "player.ycore.failures.v1"
         const val KEY_PLAYBACK_PERFORMANCE = "player.ycore.performance.v1"
         const val KEY_SMART_CROSS_SERVER_SOURCE = "player.smartCrossServerSource"

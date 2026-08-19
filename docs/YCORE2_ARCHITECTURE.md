@@ -204,7 +204,27 @@ A Core2 change may merge only when:
 
 ## Current production switch
 
-**Core2 is not the default engine in the foundation branch.** Legacy remains authoritative while the
-new API and graph mature. The next integration step is to adapt `PlayerRoot`, MediaSession,
-notification/PiP and watch-together control surfaces to `YPlayer`; only after that boundary is stable
-will individual formats be moved to Core2.
+**Core2 is not the default engine.** Legacy remains authoritative, while users can explicitly enable
+`YCore 2.0 试用` in advanced playback settings. The switch is persisted separately from the selected
+Legacy engine so disabling or failing the trial never changes the user's Exo/mpv/MDK preference.
+
+As of 2026-08-19, the opt-in path has these production boundaries:
+
+- `PlayerRoot` can construct Core2 through the temporary `YPlayerVideoEngineAdapter` and renders its
+  direct Android `Surface` through `Core2Surface`;
+- each queue item is probed independently and may select `NativeTunnel`, `NativeDirect`, or
+  `NativeEnhanced`;
+- changing speed or tracks exits `NativeTunnel` at the current position, while a Tunnel runtime
+  failure retries the same item on a non-Tunnel Core2 route;
+- an exhausted Core2 failure rebuilds the user's selected Legacy engine with the current queue item,
+  position, playback intent, and requested speed;
+- DRM, external subtitle, disc-media, unsupported-scheme, and otherwise ineligible queues bypass the
+  trial and continue directly on Legacy;
+- queue auto-next is owned by the adaptive Core2 layer, with every new item receiving a fresh route
+  evaluation.
+
+The remaining migration boundary is still material: MediaSession, notification/PiP,
+watch-together, and most product controls continue to speak `VideoEngine` through the adapter.
+Core2 also does not yet claim the disc, GPU-enhanced, or software-fallback tiers. Physical-device
+startup, seek, surface recreation, HDR, audio-route, and background/foreground regression gates must
+pass before any eligible cohort can default to Core2.

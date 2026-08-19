@@ -96,6 +96,17 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun ycore2_trial_defaults_off_and_persists_opt_in() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertFalse(first.core2TrialEnabled.value)
+        first.setCore2TrialEnabled(true)
+
+        assertTrue(PlaybackPreferences(settings).core2TrialEnabled.value)
+    }
+
+    @Test
     fun ycore_device_quirks_are_bounded_and_persist_without_media_identity() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)
