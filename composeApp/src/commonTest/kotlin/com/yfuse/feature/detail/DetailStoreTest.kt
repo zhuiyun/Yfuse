@@ -13,6 +13,7 @@ import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.CompletableDeferred
@@ -766,6 +767,54 @@ class DetailStoreTest {
             }
         }
 
+    @Test
+    fun watchLaterMembershipRestoresAndCanBeRemoved() =
+        runTest {
+            var deletedEntryIds: String? = null
+            val store =
+                movieStore(
+                    watchLaterEntryIds = listOf("entry-1", "entry-2"),
+                    onWatchLaterDelete = { deletedEntryIds = it },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.playTarget?.id == "m1" && !it.watchLaterBusy }
+                assertTrue(store.state.watchLater)
+
+                store.accept(DetailIntent.ToggleWatchLater)
+                store.states.first { !it.watchLaterBusy && it.actionMessage != null }
+
+                assertTrue(!store.state.watchLater)
+                assertEquals("entry-1,entry-2", deletedEntryIds)
+                assertEquals("已从稍后观看移除", store.state.actionMessage)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun failedWatchLaterRemovalRollsBackMembership() =
+        runTest {
+            val store =
+                movieStore(
+                    watchLaterEntryIds = listOf("entry-1"),
+                    watchLaterDeleteFailure = { IOException("offline") },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.playTarget?.id == "m1" && !it.watchLaterBusy }
+                assertTrue(store.state.watchLater)
+
+                store.accept(DetailIntent.ToggleWatchLater)
+                store.states.first { !it.watchLaterBusy && it.actionMessage != null }
+
+                assertTrue(store.state.watchLater)
+                assertTrue(store.state.actionMessage?.isNotBlank() == true)
+            } finally {
+                store.dispose()
+            }
+        }
+
     private fun movieStore(
         m2DetailFailure: (() -> Throwable?)? = null,
         m2CloudflareBlocked: Boolean = false,
@@ -774,6 +823,9 @@ class DetailStoreTest {
         m3DetailFailure: (() -> Throwable?)? = null,
         sourceSelectionTimeoutMs: Long = 45_000L,
         movieOneBody: String = MOVIE_ONE,
+        watchLaterEntryIds: List<String> = emptyList(),
+        watchLaterDeleteFailure: (() -> Throwable?)? = null,
+        onWatchLaterDelete: (String?) -> Unit = {},
         mainContext: CoroutineDispatcher = Dispatchers.Unconfined,
     ): com.arkivanov.mvikotlin.core.store.Store<
         DetailIntent,
@@ -795,6 +847,28 @@ class DetailStoreTest {
                 val host = request.url.host
                 val path = request.url.encodedPath
                 when {
+                    path.endsWith("/Playlists/yfuse-watch-later/Items") -> {
+                        if (request.method == HttpMethod.Delete) {
+                            watchLaterDeleteFailure?.invoke()?.let { throw it }
+                            onWatchLaterDelete(request.url.parameters["EntryIds"])
+                            json("{}")
+                        } else {
+                            val items =
+                                watchLaterEntryIds.joinToString(",") { entryId ->
+                                    """{"Id":"m1","Name":"电影一","Type":"Movie","PlaylistItemId":"$entryId"}"""
+                                }
+                            json("""{"Items":[$items],"TotalRecordCount":${watchLaterEntryIds.size}}""")
+                        }
+                    }
+                    request.url.parameters["IncludeItemTypes"] == "Playlist" &&
+                        request.url.parameters["SearchTerm"] == "稍后观看" ->
+                        json(
+                            if (watchLaterEntryIds.isEmpty()) {
+                                """{"Items":[]}"""
+                            } else {
+                                """{"Items":[{"Id":"yfuse-watch-later","Name":"稍后观看","Type":"Playlist"}]}"""
+                            },
+                        )
                     path.endsWith("/Items/m1") -> json(movieOneBody)
                     path.endsWith("/Items/m2") -> {
                         beforeM2Detail()

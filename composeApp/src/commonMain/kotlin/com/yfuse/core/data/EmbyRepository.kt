@@ -278,6 +278,16 @@ class EmbyRepository(
         itemId: String,
     ): Result<Unit> = browseService.addToWatchLater(server, itemId)
 
+    suspend fun isInWatchLater(
+        server: SavedServer,
+        itemId: String,
+    ): Result<Boolean> = browseService.isInWatchLater(server, itemId)
+
+    suspend fun removeFromWatchLater(
+        server: SavedServer,
+        itemId: String,
+    ): Result<Unit> = browseService.removeFromWatchLater(server, itemId)
+
     suspend fun reportPlaybackStarted(
         server: SavedServer,
         itemId: String,

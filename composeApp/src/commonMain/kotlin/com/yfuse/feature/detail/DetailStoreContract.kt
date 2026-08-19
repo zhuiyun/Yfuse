@@ -59,6 +59,8 @@ data class DetailState(
     val actionMessage: String? = null,
     /** Current route's optimistic/server-confirmed membership in Yfuse's 稍后观看 playlist. */
     val watchLater: Boolean = false,
+    /** Membership is loading or a playlist mutation is still in flight. */
+    val watchLaterBusy: Boolean = false,
     val sourceFailure: SourceSelectionFailure? = null,
     val organizationContainers: List<MediaContainer> = emptyList(),
     val organizationLoading: Boolean = false,
@@ -79,7 +81,7 @@ sealed interface DetailIntent {
 
     data object TogglePlayed : DetailIntent
 
-    data object AddToWatchLater : DetailIntent
+    data object ToggleWatchLater : DetailIntent
 
     data object LoadOrganizationContainers : DetailIntent
 

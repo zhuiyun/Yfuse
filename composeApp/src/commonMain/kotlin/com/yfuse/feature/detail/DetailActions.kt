@@ -50,6 +50,7 @@ internal fun DetailActionDock(
     resolving: Boolean,
     favorite: Boolean,
     watchLater: Boolean,
+    watchLaterBusy: Boolean,
     /** Shown only when there is progress to discard. */
     canPlayFromStart: Boolean,
     onPlay: () -> Unit,
@@ -187,12 +188,17 @@ internal fun DetailActionDock(
             )
             GlassActionButton(
                 icon = if (watchLater) AppIcons.Check else AppIcons.Bookmark,
-                label = if (watchLater) "已加入" else "稍后观看",
+                label =
+                    when {
+                        watchLaterBusy -> "同步中"
+                        watchLater -> "已加入"
+                        else -> "稍后观看"
+                    },
                 active = watchLater,
                 accent = accent,
-                onClick = {
-                    if (!watchLater) onWatchLater()
-                },
+                enabled = !watchLaterBusy,
+                loading = watchLaterBusy,
+                onClick = onWatchLater,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -208,6 +214,8 @@ private fun GlassActionButton(
     accent: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
 ) {
     val palette = LocalPalette.current
     val fill =
@@ -227,7 +235,7 @@ private fun GlassActionButton(
             .height(46.dp)
             // 收藏 / 稍后观看 change state in place and navigate nowhere, so the tap needs
             // to be felt as well as seen.
-            .pressable(haptic = HapticSignal.Confirm, onClick = onClick)
+            .pressable(enabled = enabled, haptic = HapticSignal.Confirm, onClick = onClick)
             .shadow(GlassLift.control, GlassShapes.card)
             .liquidGlass(
                 shape = GlassShapes.card,
@@ -255,14 +263,22 @@ private fun GlassActionButton(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            BurstIcon(
-                icon = icon,
-                active = active,
-                contentDescription = label,
-                tint = if (active) accent else palette.body,
-                burstColor = accent,
-                iconSize = 16.dp,
-            )
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(15.dp),
+                    color = if (active) accent else palette.body,
+                    strokeWidth = 1.8.dp,
+                )
+            } else {
+                BurstIcon(
+                    icon = icon,
+                    active = active,
+                    contentDescription = label,
+                    tint = if (active) accent else palette.body,
+                    burstColor = accent,
+                    iconSize = 16.dp,
+                )
+            }
         }
         Text(
             label,

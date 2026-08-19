@@ -53,6 +53,7 @@ internal class DetailExecutor(
     private var playFromStartWhenSelectionReady = false
     private var sourceLoadGeneration = 0L
     private var relatedLoadGeneration = 0L
+    private var watchLaterLoadGeneration = 0L
     private var organizationLoadGeneration = 0L
     private val sourceCoordinator = SourceSelectionCoordinator(repo)
     private val seriesCatalogLoader = SeriesCatalogLoader(repo)
@@ -67,7 +68,7 @@ internal class DetailExecutor(
             DetailIntent.PlayFromStart -> play(fromStart = true)
             DetailIntent.ToggleFavorite -> toggleFavorite()
             DetailIntent.TogglePlayed -> togglePlayed()
-            DetailIntent.AddToWatchLater -> addToWatchLater()
+            DetailIntent.ToggleWatchLater -> toggleWatchLater()
             DetailIntent.LoadOrganizationContainers -> loadOrganizationContainers()
             is DetailIntent.AddToOrganizationContainer ->
                 addToOrganizationContainer(intent.containerId)
@@ -213,6 +214,7 @@ internal class DetailExecutor(
                 .itemDetail(server, itemId)
                 .onSuccess { detail ->
                     dispatch(DetailMsg.Loaded(detail, server))
+                    loadWatchLater(server, detail.id)
                     loadPlaybackSelection(server, detail)
                     loadRelated(server, detail)
                 }.onFailure {
@@ -462,6 +464,10 @@ internal class DetailExecutor(
         selection: ResolvedPlaybackSelection,
         preferredVersionId: String? = null,
     ) {
+        val visible = state()
+        val sourceChanged =
+            visible.server?.id != selection.server.id ||
+                visible.detail?.id != selection.sourceDetail.id
         dispatch(
             DetailMsg.PlaybackSelectionLoaded(
                 server = selection.server,
@@ -480,6 +486,9 @@ internal class DetailExecutor(
             seasonNumber = selection.target.seasonNumber,
             episodeNumber = selection.target.episodeNumber,
         )
+        if (sourceChanged) {
+            loadWatchLater(selection.server, selection.sourceDetail.id)
+        }
         playQueuedSelectionIfReady()
     }
 
@@ -986,33 +995,78 @@ internal class DetailExecutor(
         itemId: String,
     ): Boolean = state().server?.id == serverId && state().detail?.id == itemId
 
-    private fun addToWatchLater() {
-        val current = state()
-        val detail = current.detail ?: return
-        val server = current.server ?: return
-        if (current.watchLater) return
-
-        // Immediate visual confirmation, but owned by the Store so a failed server request can
-        // roll it back instead of leaving a local composable in a false selected state.
-        dispatch(DetailMsg.WatchLaterChanged(server.id, detail.id, true))
+    private fun loadWatchLater(
+        server: SavedServer,
+        itemId: String,
+    ) {
+        val generation = ++watchLaterLoadGeneration
+        dispatch(DetailMsg.WatchLaterBusy(server.id, itemId, true))
         scope.launch {
             repo
-                .addToWatchLater(server, detail.id)
-                .onSuccess {
-                    if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(DetailMsg.ActionMessage("已加入稍后观看"))
+                .isInWatchLater(server, itemId)
+                .onSuccess { value ->
+                    if (generation == watchLaterLoadGeneration && isVisibleSource(server.id, itemId)) {
+                        dispatch(DetailMsg.WatchLaterChanged(server.id, itemId, value))
+                        dispatch(DetailMsg.WatchLaterBusy(server.id, itemId, false))
                     }
                 }.onFailure {
-                    if (!isVisibleSource(server.id, detail.id)) return@onFailure
-                    dispatch(DetailMsg.WatchLaterChanged(server.id, detail.id, false))
+                    if (generation != watchLaterLoadGeneration || !isVisibleSource(server.id, itemId)) {
+                        return@onFailure
+                    }
+                    dispatch(DetailMsg.WatchLaterBusy(server.id, itemId, false))
                     AppLog.warning(
                         category = "feature.detail",
-                        event = "watch_later_failed",
-                        message = "Failed to add media to watch-later list",
+                        event = "watch_later_status_failed",
+                        message = "Failed to load watch-later membership",
                         throwable = it,
                         attributes = mapOf("serverId" to server.id),
                     )
-                    dispatch(DetailMsg.ActionMessage(it.toUserMessage("加入稍后观看失败")))
+                }
+        }
+    }
+
+    private fun toggleWatchLater() {
+        val current = state()
+        val detail = current.detail ?: return
+        val server = current.server ?: return
+        if (current.watchLaterBusy) return
+        val target = !current.watchLater
+
+        dispatch(DetailMsg.WatchLaterChanged(server.id, detail.id, target))
+        dispatch(DetailMsg.WatchLaterBusy(server.id, detail.id, true))
+        scope.launch {
+            val result =
+                if (target) {
+                    repo.addToWatchLater(server, detail.id)
+                } else {
+                    repo.removeFromWatchLater(server, detail.id)
+                }
+            result
+                .onSuccess {
+                    if (isVisibleSource(server.id, detail.id)) {
+                        dispatch(DetailMsg.WatchLaterBusy(server.id, detail.id, false))
+                        dispatch(
+                            DetailMsg.ActionMessage(
+                                if (target) "已加入稍后观看" else "已从稍后观看移除",
+                            ),
+                        )
+                    }
+                }.onFailure {
+                    if (!isVisibleSource(server.id, detail.id)) return@onFailure
+                    dispatch(DetailMsg.WatchLaterChanged(server.id, detail.id, !target))
+                    dispatch(DetailMsg.WatchLaterBusy(server.id, detail.id, false))
+                    AppLog.warning(
+                        category = "feature.detail",
+                        event = "watch_later_failed",
+                        message = "Failed to update watch-later membership",
+                        throwable = it,
+                        attributes = mapOf("serverId" to server.id),
+                    )
+                    dispatch(
+                        DetailMsg.ActionMessage(
+                            it.toUserMessage(if (target) "加入稍后观看失败" else "移出稍后观看失败"),
+                        ),
+                    )
                 }
         }
     }

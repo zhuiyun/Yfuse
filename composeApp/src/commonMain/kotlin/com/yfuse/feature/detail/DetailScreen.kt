@@ -440,6 +440,7 @@ fun DetailScreen(component: DetailComponent) {
                                     resolving = state.resolvingPlay || state.selectionLoading,
                                     favorite = detail.isFavorite,
                                     watchLater = state.watchLater,
+                                    watchLaterBusy = state.watchLaterBusy,
                                     canPlayFromStart = state.playPositionTicks > 0L,
                                     onPlay = { component.store.accept(DetailIntent.Play) },
                                     onPlayFromStart = {
@@ -449,7 +450,7 @@ fun DetailScreen(component: DetailComponent) {
                                         component.store.accept(DetailIntent.ToggleFavorite)
                                     },
                                     onWatchLater = {
-                                        component.store.accept(DetailIntent.AddToWatchLater)
+                                        component.store.accept(DetailIntent.ToggleWatchLater)
                                     },
                                 )
                             }

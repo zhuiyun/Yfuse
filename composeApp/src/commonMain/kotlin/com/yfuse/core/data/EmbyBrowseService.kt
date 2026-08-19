@@ -126,6 +126,32 @@ internal class EmbyBrowseService(
             }
         }
 
+    suspend fun isInWatchLater(
+        server: SavedServer,
+        itemId: String,
+    ): Result<Boolean> =
+        embyApiCall("watch_later_membership") {
+            findWatchLaterMembership(server, itemId)?.matched == true
+        }
+
+    suspend fun removeFromWatchLater(
+        server: SavedServer,
+        itemId: String,
+    ): Result<Unit> =
+        embyApiCall("remove_from_watch_later") {
+            val membership = findWatchLaterMembership(server, itemId) ?: return@embyApiCall
+            if (!membership.matched) return@embyApiCall
+            require(membership.entryIds.isNotEmpty()) {
+                "PlaylistItemId is required to remove a watch-later entry"
+            }
+            client.delete(
+                "${server.baseUrl}/Playlists/${membership.playlistId.encodeURLPathPart()}/Items",
+            ) {
+                header("X-Emby-Token", server.accessToken)
+                parameter("EntryIds", membership.entryIds.joinToString(","))
+            }
+        }
+
     /**
      * One page inside a real BoxSet or Playlist.
      *
@@ -328,6 +354,46 @@ internal class EmbyBrowseService(
             ?.Id
     }
 
+    private suspend fun findWatchLaterMembership(
+        server: SavedServer,
+        itemId: String,
+    ): WatchLaterMembership? {
+        val playlistId = findWatchLaterPlaylistId(server) ?: return null
+        val entryIds = mutableListOf<String>()
+        var matched = false
+        var startIndex = 0
+        repeat(MAX_WATCH_LATER_MEMBERSHIP_PAGES) {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Playlists/${playlistId.encodeURLPathPart()}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("UserId", server.userId)
+                        parameter("Fields", "PlaylistItemId")
+                        if (startIndex > 0) parameter("StartIndex", startIndex)
+                        parameter("Limit", WATCH_LATER_MEMBERSHIP_PAGE_SIZE)
+                    }.body()
+            dto.Items
+                .filter { it.Id == itemId }
+                .forEach { item ->
+                    matched = true
+                    item.PlaylistItemId
+                        ?.takeIf(String::isNotBlank)
+                        ?.let(entryIds::add)
+                }
+            val pageSize = dto.Items.size
+            val total = dto.TotalRecordCount
+            if (
+                pageSize == 0 ||
+                pageSize < WATCH_LATER_MEMBERSHIP_PAGE_SIZE ||
+                (total != null && startIndex + pageSize >= total)
+            ) {
+                return WatchLaterMembership(playlistId, matched, entryIds.distinct())
+            }
+            startIndex += pageSize
+        }
+        return WatchLaterMembership(playlistId, matched, entryIds.distinct())
+    }
+
     internal suspend fun fetchMediaContainers(
         server: SavedServer,
         kind: MediaContainerKind?,
@@ -481,3 +547,12 @@ internal class EmbyBrowseService(
             startIndex = startIndex,
         )
 }
+
+private data class WatchLaterMembership(
+    val playlistId: String,
+    val matched: Boolean,
+    val entryIds: List<String>,
+)
+
+private const val WATCH_LATER_MEMBERSHIP_PAGE_SIZE = 200
+private const val MAX_WATCH_LATER_MEMBERSHIP_PAGES = 50

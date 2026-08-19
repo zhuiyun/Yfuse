@@ -16,6 +16,7 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     playSourceDetail = msg.detail,
                     selectionLoading = true,
                     watchLater = false,
+                    watchLaterBusy = true,
                     selectedVersionId =
                         msg.detail.versions
                             .firstOrNull()
@@ -91,6 +92,14 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                         watchLater = msg.value,
                         actionMessage = null,
                     )
+                } else {
+                    this
+                }
+            is DetailMsg.WatchLaterBusy ->
+                if (
+                    server?.id == msg.serverId && detail?.id == msg.itemId
+                ) {
+                    copy(watchLaterBusy = msg.value)
                 } else {
                     this
                 }
@@ -183,6 +192,7 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                     addingContainerIds = if (organizationSourceChanged) emptySet() else addingContainerIds,
                     addedContainerIds = if (organizationSourceChanged) emptySet() else addedContainerIds,
                     watchLater = if (organizationSourceChanged) false else watchLater,
+                    watchLaterBusy = if (organizationSourceChanged) true else watchLaterBusy,
                     episodes = msg.episodes ?: episodes,
                     episodesLoading = false,
                     selectionLoading = false,

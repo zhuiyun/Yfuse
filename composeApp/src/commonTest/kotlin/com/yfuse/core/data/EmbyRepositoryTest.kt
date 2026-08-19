@@ -482,6 +482,42 @@ class EmbyRepositoryTest {
         }
 
     @Test
+    fun watchLaterMembershipAndRemovalUsePlaylistEntryIds() =
+        runTest {
+            var deletedEntryIds: String? = null
+            var membershipReads = 0
+            val repo =
+                testRepo { request ->
+                    when {
+                        request.method == HttpMethod.Delete -> {
+                            assertTrue(request.url.encodedPath.endsWith("/Playlists/p1/Items"))
+                            deletedEntryIds = request.url.parameters["EntryIds"]
+                            json("{}")
+                        }
+                        request.url.encodedPath.endsWith("/Playlists/p1/Items") -> {
+                            membershipReads++
+                            assertEquals("u1", request.url.parameters["UserId"])
+                            assertEquals("PlaylistItemId", request.url.parameters["Fields"])
+                            json(
+                                """{"Items":[{"Id":"m1","Name":"电影","Type":"Movie","PlaylistItemId":"entry-1"},{"Id":"m1","Name":"电影（重复）","Type":"Movie","PlaylistItemId":"entry-2"}],"TotalRecordCount":2}""",
+                            )
+                        }
+                        else -> {
+                            assertEquals("Playlist", request.url.parameters["IncludeItemTypes"])
+                            assertEquals("稍后观看", request.url.parameters["SearchTerm"])
+                            json("""{"Items":[{"Id":"p1","Name":"稍后观看","Type":"Playlist"}]}""")
+                        }
+                    }
+                }
+
+            assertTrue(repo.isInWatchLater(server, "m1").getOrThrow())
+            repo.removeFromWatchLater(server, "m1").getOrThrow()
+
+            assertEquals(2, membershipReads)
+            assertEquals("entry-1,entry-2", deletedEntryIds)
+        }
+
+    @Test
     fun mediaContainers_queries_real_boxsets_and_playlists() =
         runTest {
             val repo =
