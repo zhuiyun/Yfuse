@@ -131,7 +131,13 @@ class LibraryComponent(
                             navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it))
                         },
                         onPlayItem = {
-                            navigation.pushToFront(Config.Detail(registry.defaultServer?.id, it, autoPlay = true))
+                            navigation.pushToFront(
+                                Config.Detail(
+                                    serverId = registry.defaultServer?.id,
+                                    itemId = it,
+                                    autoPlay = true,
+                                ),
+                            )
                         },
                     ),
                 )

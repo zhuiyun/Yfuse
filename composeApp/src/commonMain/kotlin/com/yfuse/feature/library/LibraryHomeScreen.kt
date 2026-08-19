@@ -768,9 +768,9 @@ private fun HeroCarousel(
                 )
             }
             Spacer(Modifier.height(14.dp))
-            // `rgba(255,255,255,.92)`, `radius:18px`, `padding:8px 18px`, `700 12px`.
+            // 主播放操作复用全局液态玻璃控件，收藏和详情保持轻量圆形玻璃按钮。
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 HeroPlayButton(
@@ -778,15 +778,15 @@ private fun HeroCarousel(
                     onClick = onPlay,
                 )
                 HeroCircleAction(
-                    icon = AppIcons.Info,
-                    description = libraryHeroPresentation.detailActionLabel,
-                    onClick = openDetail,
-                )
-                HeroCircleAction(
                     active = item.isFavorite,
                     icon = if (item.isFavorite) AppIcons.HeartFilled else AppIcons.Heart,
                     description = if (item.isFavorite) "取消收藏" else "加入收藏",
                     onClick = onToggleFavorite,
+                )
+                HeroCircleAction(
+                    icon = AppIcons.Info,
+                    description = libraryHeroPresentation.detailActionLabel,
+                    onClick = openDetail,
                 )
             }
         }

@@ -439,6 +439,7 @@ fun DetailScreen(component: DetailComponent) {
                                     detailLine = playDetailLine,
                                     resolving = state.resolvingPlay || state.selectionLoading,
                                     favorite = detail.isFavorite,
+                                    watchLater = state.watchLater,
                                     canPlayFromStart = state.playPositionTicks > 0L,
                                     onPlay = { component.store.accept(DetailIntent.Play) },
                                     onPlayFromStart = {

@@ -2,6 +2,7 @@ package com.yfuse.feature.detail
 
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
+import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
@@ -13,7 +14,9 @@ import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.OfflineDownloadSelection
 import com.yfuse.core.offline.buildOfflineDownloadRequests
+import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.watchKey
+import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.player.PlaybackPreloadKey
 import com.yfuse.feature.player.PlayerStoreFactory
@@ -22,6 +25,7 @@ import com.yfuse.feature.player.PreparedPlayerStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import org.koin.core.context.GlobalContext
 
 class DetailComponent(
     componentContext: ComponentContext,
@@ -48,7 +52,11 @@ class DetailComponent(
         mediaSourceId: String?,
     ) -> Unit,
 ) : ComponentContext by componentContext {
-    val store =
+    private val playbackSync =
+        runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
+    private var explicitFromStartPending = false
+
+    private val delegateStore =
         DetailStoreFactory(
             storeFactory,
             repo,
@@ -62,6 +70,23 @@ class DetailComponent(
             healthMonitor = dependencies.serverHealthMonitor,
             networkClass = ::currentPlaybackNetworkClass,
         ).create()
+
+    /**
+     * Intercepts only user intents that need account-level playback semantics, then delegates the
+     * actual detail mutation to the existing Store. This keeps the large executor untouched.
+     */
+    val store: Store<DetailIntent, DetailState, DetailLabel> =
+        object : Store<DetailIntent, DetailState, DetailLabel> by delegateStore {
+            override fun accept(intent: DetailIntent) {
+                when (intent) {
+                    DetailIntent.Play -> explicitFromStartPending = false
+                    DetailIntent.PlayFromStart -> explicitFromStartPending = true
+                    DetailIntent.TogglePlayed -> mirrorManualPlayed(delegateStore.state)
+                    else -> Unit
+                }
+                delegateStore.accept(intent)
+            }
+        }
 
     fun download(selection: OfflineDownloadSelection) {
         val state = store.state
@@ -106,7 +131,20 @@ class DetailComponent(
         store.labels
             .onEach {
                 if (it is DetailLabel.Play) {
-                    onPlay(it.serverId, it.itemId, it.startPositionTicks, it.mediaSourceId)
+                    val fromStart = explicitFromStartPending
+                    if (fromStart) {
+                        mirrorRestarted(store.state)
+                    } else {
+                        playbackSync?.refreshForPlayback()
+                    }
+                    val launchTicks =
+                        if (fromStart) {
+                            it.startPositionTicks
+                        } else {
+                            syncedStartPositionTicks(store.state, it.startPositionTicks)
+                        }
+                    explicitFromStartPending = false
+                    onPlay(it.serverId, it.itemId, launchTicks, it.mediaSourceId)
                 }
             }.launchIn(scope)
 
@@ -118,12 +156,13 @@ class DetailComponent(
                 val target = state.playTarget ?: return@detailState
                 val server = state.playServer ?: return@detailState
                 if (state.selectionLoading) return@detailState
+                val startTicks = syncedStartPositionTicks(state, state.playPositionTicks)
 
                 val key =
                     PlaybackPreloadKey(
                         serverId = server.id,
                         itemId = target.id,
-                        startPositionTicks = state.playPositionTicks,
+                        startPositionTicks = startTicks,
                         mediaSourceId = state.selectedVersionId,
                     )
                 val currentPrepared = preloadStore
@@ -159,7 +198,7 @@ class DetailComponent(
                         repo = repo,
                         registry = registry,
                         itemId = target.id,
-                        startPositionTicks = state.playPositionTicks,
+                        startPositionTicks = startTicks,
                         serverId = server.id,
                         mediaSourceId = state.selectedVersionId,
                         failoverRequest = dependencies.playbackFailoverRequest,
@@ -210,5 +249,85 @@ class DetailComponent(
             releaseOwnedPreload()
             store.dispose()
         }
+    }
+
+    /**
+     * Yfuse cloud state is the convergence authority for an ordinary resume. A deliberate
+     * PlayFromStart creates a new playback generation and never calls this for its launch.
+     */
+    private fun syncedStartPositionTicks(
+        state: DetailState,
+        fallbackTicks: Long,
+    ): Long {
+        val identity = playbackIdentity(state) ?: return fallbackTicks
+        val syncedMs =
+            playbackSync?.startPositionMs(
+                mediaKey = identity.mediaKey,
+                aliases = identity.aliases,
+            ) ?: return fallbackTicks
+        return syncedMs.coerceAtMost(Long.MAX_VALUE / TICKS_PER_MILLISECOND) * TICKS_PER_MILLISECOND
+    }
+
+    private fun playbackIdentity(state: DetailState): PlaybackIdentity? {
+        val target = state.playTarget ?: return null
+        val seriesProviderIds =
+            state.playSourceDetail
+                ?.takeIf { source -> source.type == "Series" && target.type == "Episode" }
+                ?.providerIds
+                .orEmpty()
+        return PlaybackIdentity(
+            mediaKey = target.providerIds.watchKey(target.id),
+            aliases =
+                watchMatchKeys(
+                    ownProviderIds = target.providerIds,
+                    seriesProviderIds = seriesProviderIds,
+                    seasonNumber = target.seasonNumber,
+                    episodeNumber = target.episodeNumber,
+                    fallbackId = target.id,
+                ),
+            serverId = state.playServer?.id,
+            itemId = target.id,
+        )
+    }
+
+    /** A from-start action starts a new generation so older larger progress cannot revive. */
+    private fun mirrorRestarted(state: DetailState) {
+        val identity = playbackIdentity(state) ?: return
+        playbackSync?.markRestarted(
+            mediaKey = identity.mediaKey,
+            aliases = identity.aliases,
+            serverId = identity.serverId,
+            serverItemId = identity.itemId,
+        )
+    }
+
+    /** Manual watched/unwatched is an explicit user decision and must outrank auto progress. */
+    private fun mirrorManualPlayed(state: DetailState) {
+        val detail = state.detail ?: return
+        val server = state.server ?: return
+        playbackSync?.markWatched(
+            mediaKey = detail.providerIds.watchKey(detail.id),
+            aliases =
+                watchMatchKeys(
+                    ownProviderIds = detail.providerIds,
+                    seasonNumber = detail.seasonNumber,
+                    episodeNumber = detail.episodeNumber,
+                    fallbackId = detail.id,
+                ),
+            watched = !detail.played,
+            serverId = server.id,
+            serverItemId = detail.id,
+        )
+    }
+
+    private data class PlaybackIdentity(
+        val mediaKey: String,
+        val aliases: List<String>,
+        val serverId: String?,
+        val itemId: String,
+    )
+
+    private companion object {
+        const val TICKS_PER_MILLISECOND = 10_000L
     }
 }
