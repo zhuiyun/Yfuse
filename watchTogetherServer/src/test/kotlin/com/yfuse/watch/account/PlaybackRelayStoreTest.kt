@@ -85,6 +85,43 @@ class PlaybackRelayStoreTest {
     }
 
     @Test
+    fun pushHighWaterMarkCannotReplaceTheClientsPullCheckpoint() {
+        PlaybackRelayStore.inMemoryForTests().use { store ->
+            val initial =
+                store.push(
+                    userId = "user-a",
+                    request = PlaybackPushRequest(listOf(PlaybackPutItem(0L, entity('A', "mutation-a", 1)))),
+                    nowEpochMs = 1_000L,
+                )
+            val pullCheckpoint = store.pull("user-a", afterCursor = 0L, limit = 10).cursor
+            assertEquals(initial.cursor, pullCheckpoint)
+
+            store.push(
+                userId = "user-a",
+                request = PlaybackPushRequest(listOf(PlaybackPutItem(0L, entity('B', "mutation-b", 2)))),
+                nowEpochMs = 2_000L,
+            )
+            val ownPush =
+                store.push(
+                    userId = "user-a",
+                    request = PlaybackPushRequest(listOf(PlaybackPutItem(0L, entity('C', "mutation-c", 3)))),
+                    nowEpochMs = 3_000L,
+                )
+
+            assertEquals(3L, ownPush.cursor)
+            assertTrue(store.pull("user-a", afterCursor = ownPush.cursor, limit = 10).changes.isEmpty())
+            assertEquals(
+                setOf("B", "C"),
+                store
+                    .pull("user-a", afterCursor = pullCheckpoint, limit = 10)
+                    .changes
+                    .map { it.entityKey.first().toString() }
+                    .toSet(),
+            )
+        }
+    }
+
+    @Test
     fun userNamespacesAreIndependent() {
         PlaybackRelayStore.inMemoryForTests().use { store ->
             val sameOpaqueKey = entity('A', "mutation-a", 1)

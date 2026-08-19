@@ -299,7 +299,6 @@ class PlaybackSyncManager(
                     scope.launch { serverApplier.apply(applied.document) }
                 }
             }
-            store.updateCursor(response.cursor)
         }
     }
 

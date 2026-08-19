@@ -126,6 +126,7 @@ data class PlaybackAcceptedEntity(
 
 @Serializable
 data class PlaybackPushResponse(
+    /** Server high-water mark for diagnostics; only a pull response may advance the pull cursor. */
     val cursor: Long,
     val accepted: List<PlaybackAcceptedEntity> = emptyList(),
     val conflicts: List<EncryptedPlaybackEntity> = emptyList(),

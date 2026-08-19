@@ -117,6 +117,37 @@ class PlaybackSyncStoreTest {
     }
 
     @Test
+    fun uploadAcknowledgementDoesNotAdvancePullCheckpoint() {
+        val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+        store.updateCursor(7L)
+        val pending =
+            store.updatePlayback(
+                mediaKey = "tmdb:1",
+                aliases = emptyList(),
+                positionMs = 20_000L,
+                durationMs = 100_000L,
+                played = false,
+                sessionId = "phone",
+                serverId = "server-a",
+                serverItemId = "item-a",
+                mutationKind = PlaybackMutationKind.AutoProgress,
+                trigger = PlaybackSyncTrigger.Periodic,
+            )
+
+        store.markUploaded(
+            mediaKey = "tmdb:1",
+            aliases = emptyList(),
+            entityKey = "local-entity",
+            mutationId = pending.mutationId,
+            cursor = 9L,
+        )
+
+        assertEquals(7L, store.cursor())
+        assertEquals(9L, store.find("tmdb:1")?.remoteCursors?.get("local-entity"))
+        assertTrue(store.pending().isEmpty())
+    }
+
+    @Test
     fun manualUnwatchedThenStartedCreatesFreshGeneration() {
         val settings = MapSettings()
         var now = 10_000L
