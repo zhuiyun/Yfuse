@@ -70,6 +70,7 @@ import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.playback.resolvePlaybackOptimization
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core2.api.YPlayer
+import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.core2.legacy.asYPlayer
 import kotlinx.coroutines.CancellationException
@@ -85,9 +86,9 @@ import kotlin.math.roundToInt
 private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 
 /**
- * Owns the live engine and the shared control layer. Switching engines reads
- * the outgoing engine's position first, so the replacement picks up where it
- * left off instead of restarting the entry.
+ * Owns the live player, its temporary presentation engine, and the shared control layer. Switching
+ * implementations reads the outgoing player's position first, so the replacement picks up where
+ * it left off instead of restarting the entry.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -391,8 +392,8 @@ internal fun PlayerRoot(
         resume =
             playbackHandoverSnapshot(
                 state = localState,
-                currentPositionMs = engine.currentPositionMs(),
-                playbackRequested = engine.playbackRequested,
+                currentPositionMs = player.currentPositionMs(),
+                playbackRequested = player.playbackRequested,
                 requestedSpeed = requestedPlaybackSpeed,
             )
         core2DisabledForSession = true
@@ -460,8 +461,8 @@ internal fun PlayerRoot(
         resume =
             playbackHandoverSnapshot(
                 state = localState.copy(currentIndex = index),
-                currentPositionMs = engine.currentPositionMs(),
-                playbackRequested = engine.playbackRequested,
+                currentPositionMs = player.currentPositionMs(),
+                playbackRequested = player.playbackRequested,
                 requestedSpeed = requestedPlaybackSpeed,
             )
         kind = targetEngine
@@ -530,7 +531,7 @@ internal fun PlayerRoot(
         networkRecoveryController,
         playbackNetworkClass,
         engine,
-        engine.playbackRequested,
+        player.playbackRequested,
         localState.positionMs,
         localState.error,
         localState.ended,
@@ -540,8 +541,8 @@ internal fun PlayerRoot(
         val decision =
             networkRecoveryController.observe(
                 networkClass = playbackNetworkClass,
-                playbackRequested = engine.playbackRequested,
-                positionMs = engine.currentPositionMs(),
+                playbackRequested = player.playbackRequested,
+                positionMs = player.currentPositionMs(),
                 ended = localState.ended,
             )
         if (!decision.retry) return@LaunchedEffect
@@ -559,7 +560,8 @@ internal fun PlayerRoot(
         networkRecoveryAttempts++
         networkRecoveryPending = true
         networkRecoveryResumePositionMs = decision.resumePositionMs
-        engine.retryFrom(decision.resumePositionMs)
+        player.seekTo(decision.resumePositionMs)
+        player.retry()
     }
     LaunchedEffect(
         networkRecoveryPending,
@@ -668,8 +670,8 @@ internal fun PlayerRoot(
             resume =
                 playbackHandoverSnapshot(
                     state = localState,
-                    currentPositionMs = engine.currentPositionMs(),
-                    playbackRequested = engine.playbackRequested,
+                    currentPositionMs = player.currentPositionMs(),
+                    playbackRequested = player.playbackRequested,
                     requestedSpeed = requestedPlaybackSpeed,
                 )
             kind = activePlan.primaryEngine
@@ -698,11 +700,11 @@ internal fun PlayerRoot(
                 ),
         )
 
-    val latestEngineForSleep by rememberUpdatedState(engine)
+    val latestPlayerForSleep by rememberUpdatedState(player)
     val latestCastStateForSleep by rememberUpdatedState(castState)
 
     fun pauseForSleepTimer(message: String) {
-        latestEngineForSleep.pause()
+        latestPlayerForSleep.pause()
         val pauseCast = latestCastStateForSleep.hasActiveSession
         sleepTimerOption = SleepTimerOption.Off
         sleepTimerEndIndex = null
@@ -767,8 +769,8 @@ internal fun PlayerRoot(
                 fallbackPositionMs = localState.positionMs,
             ) ?: return@LaunchedEffect
         if (completedCastHandoffRevision == castState.sessionRevision) return@LaunchedEffect
-        engine.seekTo(decision.positionMs)
-        if (decision.resumePlayback) engine.play() else engine.pause()
+        player.seekTo(decision.positionMs)
+        if (decision.resumePlayback) player.play() else player.pause()
         completedCastHandoffRevision = castState.sessionRevision
         Toast
             .makeText(
@@ -986,7 +988,7 @@ internal fun PlayerRoot(
                                         downloadingId = null,
                                         message = "字幕已下载，正在刷新播放轨道",
                                     )
-                                engine.retry()
+                                player.retry()
                             }.onFailure { error ->
                                 remoteSubtitles =
                                     remoteSubtitles.copy(
@@ -1050,7 +1052,7 @@ internal fun PlayerRoot(
                     handoverItemId = currentItem?.id
                     audioRestore = track.toRestorePreference()
                 }
-                engine.selectAudioTrack(trackId)
+                player.selectTrack(YTrackType.Audio, trackId)
             }
         }
         when (val subtitle = requested.subtitleLanguage) {
@@ -1059,7 +1061,7 @@ internal fun PlayerRoot(
                 handoverItemId = currentItem?.id
                 subtitleRestore = null
                 restoreSubtitlesOff = true
-                engine.selectSubtitleTrack(EngineTrack.OFF)
+                player.selectTrack(YTrackType.Subtitle, EngineTrack.OFF)
             }
             else ->
                 state.subtitleTracks
@@ -1070,7 +1072,7 @@ internal fun PlayerRoot(
                             subtitleRestore = track.toRestorePreference()
                             restoreSubtitlesOff = false
                         }
-                        engine.selectSubtitleTrack(trackId)
+                        player.selectTrack(YTrackType.Subtitle, trackId)
                     }
         }
     }
@@ -1093,8 +1095,8 @@ internal fun PlayerRoot(
         resume =
             playbackHandoverSnapshot(
                 state = snapshot,
-                currentPositionMs = engine.currentPositionMs(),
-                playbackRequested = engine.playbackRequested,
+                currentPositionMs = player.currentPositionMs(),
+                playbackRequested = player.playbackRequested,
                 requestedSpeed = requestedPlaybackSpeed,
             )
         val itemId = latestActiveItems.getOrNull(snapshot.currentIndex)?.id ?: return
@@ -1314,11 +1316,11 @@ internal fun PlayerRoot(
                     // Read the position only after cleanup succeeds. Until this point the old
                     // engine remains attached, so a rejected/timeout cleanup is non-destructive.
                     capturePlaybackHandover()
-                    engine.pause()
+                    player.pause()
                     resume =
                         resume.copy(
                             itemIndex = itemIndex,
-                            positionMs = engine.currentPositionMs(),
+                            positionMs = player.currentPositionMs(),
                         )
                     versionsTried =
                         updatedVersionAttempts(
@@ -1398,11 +1400,11 @@ internal fun PlayerRoot(
                     }
 
                     capturePlaybackHandover()
-                    engine.pause()
+                    player.pause()
                     resume =
                         resume.copy(
                             itemIndex = itemIndex,
-                            positionMs = engine.currentPositionMs(),
+                            positionMs = player.currentPositionMs(),
                         )
                     versionChoices = versionChoices - item.id - freshCandidate.id
                     serverChoices = serverChoices + (itemIndex to freshCandidate)
@@ -1429,8 +1431,8 @@ internal fun PlayerRoot(
         if (target == kind) return
         // Read the position before the old engine is torn down.
         capturePlaybackHandover()
-        engine.pause()
-        val positionMs = engine.currentPositionMs()
+        player.pause()
+        val positionMs = player.currentPositionMs()
         AppLog.info(
             category = "player",
             event = "engine_switch_requested",
@@ -1476,7 +1478,7 @@ internal fun PlayerRoot(
             resume =
                 resume.copy(
                     itemIndex = state.currentIndex,
-                    positionMs = engine.currentPositionMs(),
+                    positionMs = player.currentPositionMs(),
                 )
             engineGeneration++
         }
@@ -1534,11 +1536,11 @@ internal fun PlayerRoot(
             return
         }
         capturePlaybackHandover()
-        engine.pause()
+        player.pause()
         resume =
             resume.copy(
                 itemIndex = state.currentIndex,
-                positionMs = engine.currentPositionMs(),
+                positionMs = player.currentPositionMs(),
             )
         selectedQuality = target
         engineGeneration++
@@ -1640,6 +1642,7 @@ internal fun PlayerRoot(
     }
 
     PlayerTrackEffects(
+        player = player,
         engine = engine,
         engineKind = kind,
         state = state,
@@ -1755,8 +1758,8 @@ internal fun PlayerRoot(
         val failedServerId = currentItem?.serverId
         val targetServerId = nextServer.serverId ?: return@LaunchedEffect
         capturePlaybackHandover()
-        engine.pause()
-        val positionMs = engine.currentPositionMs()
+        player.pause()
+        val positionMs = player.currentPositionMs()
         serversTried = serversTried + targetServerId
         versionChoices = versionChoices - (currentItem?.id ?: "")
         serverChoices = serverChoices + (state.currentIndex to nextServer)
@@ -1797,8 +1800,8 @@ internal fun PlayerRoot(
                 positionMs = positionMs,
             )
         if (!loaded) return false
-        if (localState.currentIndex != index) engine.selectItem(index)
-        engine.pause()
+        if (localState.currentIndex != index) player.selectItem(index)
+        player.pause()
         if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
             sleepTimerEndIndex = index
             sleepTimerEndSessionRevision = castManager.state.value.sessionRevision
@@ -1986,7 +1989,7 @@ internal fun PlayerRoot(
                             remembered.copy(audio = track.toRememberedPlaybackTrack())
                         }
                     }
-                    engine.selectAudioTrack(id)
+                    player.selectTrack(YTrackType.Audio, id)
                 },
                 audioControls =
                     audioControls.copy(
@@ -2016,7 +2019,7 @@ internal fun PlayerRoot(
                         handoverItemId = currentItem?.id
                         subtitleRestore = null
                         restoreSubtitlesOff = true
-                        engine.selectSubtitleTrack(id)
+                        player.selectTrack(YTrackType.Subtitle, id)
                         rememberSeriesPlayback { remembered ->
                             remembered.copy(
                                 primarySubtitlesOff = true,
@@ -2068,7 +2071,7 @@ internal fun PlayerRoot(
                                 )
                             }
                         }
-                        engine.selectSubtitleTrack(id)
+                        player.selectTrack(YTrackType.Subtitle, id)
                     }
                 },
                 subtitleControls =
@@ -2317,8 +2320,8 @@ internal fun PlayerRoot(
                             }
                         val resumeLocally = castState.lastRemoteWasPlaying
                         if (castManager.stop()) {
-                            engine.seekTo(handoffPosition)
-                            if (resumeLocally) engine.play() else engine.pause()
+                            player.seekTo(handoffPosition)
+                            if (resumeLocally) player.play() else player.pause()
                         }
                     }
                 },

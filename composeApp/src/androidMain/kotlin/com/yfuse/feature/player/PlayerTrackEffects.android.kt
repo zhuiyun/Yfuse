@@ -3,10 +3,13 @@ package com.yfuse.feature.player
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core2.api.YPlayer
+import com.yfuse.core2.api.YTrackType
 
 /** Applies track restoration and per-engine A/V tuning for the current playback session. */
 @Composable
 internal fun PlayerTrackEffects(
+    player: YPlayer,
     engine: VideoEngine,
     engineKind: PlayerEngine,
     state: PlaybackState,
@@ -26,16 +29,16 @@ internal fun PlayerTrackEffects(
     onPendingSubtitleLanguageApplied: () -> Unit,
     onRequestMpv: () -> Unit,
 ) {
-    LaunchedEffect(engine, requestedSpeed) {
-        if (state.speed != requestedSpeed) engine.setSpeed(requestedSpeed)
+    LaunchedEffect(player, requestedSpeed) {
+        if (state.speed != requestedSpeed) player.setSpeed(requestedSpeed)
     }
-    LaunchedEffect(engine, currentItemId, state.audioTracks, audioRestore) {
+    LaunchedEffect(player, currentItemId, state.audioTracks, audioRestore) {
         if (currentItemId != handoverItemId) return@LaunchedEffect
         val target = audioRestore?.let(state.audioTracks::bestRestoreMatch) ?: return@LaunchedEffect
-        if (!target.selected) engine.selectAudioTrack(target.id)
+        if (!target.selected) player.selectTrack(YTrackType.Audio, target.id)
     }
     LaunchedEffect(
-        engine,
+        player,
         currentItemId,
         state.subtitleTracks,
         subtitleRestore,
@@ -45,13 +48,15 @@ internal fun PlayerTrackEffects(
             return@LaunchedEffect
         }
         if (restoreSubtitlesOff) {
-            if (state.subtitleTracks.any { it.selected }) engine.selectSubtitleTrack(EngineTrack.OFF)
+            if (state.subtitleTracks.any { it.selected }) {
+                player.selectTrack(YTrackType.Subtitle, EngineTrack.OFF)
+            }
             return@LaunchedEffect
         }
         val target =
             subtitleRestore?.let(state.subtitleTracks::bestRestoreMatch)
                 ?: return@LaunchedEffect
-        if (!target.selected) engine.selectSubtitleTrack(target.id)
+        if (!target.selected) player.selectTrack(YTrackType.Subtitle, target.id)
     }
     LaunchedEffect(
         engine,
@@ -116,10 +121,10 @@ internal fun PlayerTrackEffects(
         (engine as? MpvVideoEngine)?.setScaleMode(scaleMode)
         (engine as? MdkVideoEngine)?.setFill(scaleMode != VideoScaleMode.Fit)
     }
-    LaunchedEffect(engine, state.subtitleTracks, pendingSubtitleLanguage) {
+    LaunchedEffect(player, state.subtitleTracks, pendingSubtitleLanguage) {
         val language = pendingSubtitleLanguage ?: return@LaunchedEffect
         state.subtitleTracks.matchingLanguage(language)?.let { trackId ->
-            engine.selectSubtitleTrack(trackId)
+            player.selectTrack(YTrackType.Subtitle, trackId)
             onPendingSubtitleLanguageApplied()
         }
     }
