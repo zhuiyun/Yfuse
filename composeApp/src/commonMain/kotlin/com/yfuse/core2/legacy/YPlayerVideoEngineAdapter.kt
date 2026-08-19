@@ -16,12 +16,12 @@ import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Temporary reverse bridge used while PlayerRoot/MediaSession still speak [VideoEngine].
+ * Temporary reverse bridge used while PlayerRoot presentation still speaks [VideoEngine].
  *
  * New Core2 players can be inserted behind today's UI without pretending to be Exo/mpv/MDK. The
  * adapter owns no playback policy and no renderer; it only translates the stable product contract
- * into the legacy presentation contract. Remove it after the last UI/system surface consumes
- * [YPlayer] directly.
+ * into the legacy presentation contract. Remove it after the remaining UI and backend-specific
+ * queue surfaces consume [YPlayer] directly.
  */
 internal class YPlayerVideoEngineAdapter(
     val player: YPlayer,
@@ -51,6 +51,10 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun release() = player.release()
 }
+
+/** Returns the product player without wrapping a Core2 player back through the Legacy contract. */
+internal fun VideoEngine.asYPlayer(): YPlayer =
+    if (this is YPlayerVideoEngineAdapter) player else LegacyYPlayerAdapter(this)
 
 private class ReverseMappedStateFlow<Source, Target>(
     private val source: StateFlow<Source>,

@@ -4,7 +4,6 @@ import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.parseEpisodeWatchKey
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayer
-import com.yfuse.core2.legacy.LegacyYPlayerAdapter
 import kotlin.math.abs
 
 /** How often a guest re-checks its drift against the room's timeline. */
@@ -32,11 +31,9 @@ private const val MISMATCH_GRACE_TICKS = 3
 /**
  * The single gate every play/pause/seek/episode change passes through before playback.
  *
- * The external constructor still accepts the Legacy [VideoEngine] supplier during the parallel
- * migration, but every control operation inside this class now targets the product-level [YPlayer]
- * contract. That makes watch-together one of the first system surfaces already independent from
- * ExoPlayer/mpv/MDK and lets Core2 replace the underlying player later without rewriting room
- * ownership or timeline rules.
+ * Every control operation targets the product-level [YPlayer] contract. PlayerRoot binds either a
+ * Legacy adapter or the native Core2 player, so room ownership and timeline rules never depend on
+ * ExoPlayer/mpv/MDK identities.
  *
  * Reaching playback directly breaks watch-together in two directions at once. A guest's input
  * lands, then gets silently undone by the reconcile loop a second later. A host's input lands but
@@ -46,31 +43,11 @@ private const val MISMATCH_GRACE_TICKS = 3
 class WatchGatedPlayback(
     private val watchTogether: WatchTogetherClient,
     private val items: () -> List<PlayerMediaItem>,
-    private val engine: () -> VideoEngine?,
+    private val player: () -> YPlayer?,
     private val onLocked: () -> Unit = {},
 ) {
     private var observedIndex: Int? = null
     private val playlistMatcher = WatchMediaMatcher(onWarning = {})
-    private var adaptedEngine: VideoEngine? = null
-    private var adaptedPlayer: YPlayer? = null
-
-    /**
-     * Migration bridge only. The adapter is stable for the lifetime of one Legacy engine binding
-     * and is replaced atomically when PlayerRoot hands playback to another backend.
-     */
-    private fun player(): YPlayer? {
-        val currentEngine = engine()
-        if (currentEngine == null) {
-            adaptedEngine = null
-            adaptedPlayer = null
-            return null
-        }
-        if (adaptedEngine !== currentEngine || adaptedPlayer == null) {
-            adaptedEngine = currentEngine
-            adaptedPlayer = LegacyYPlayerAdapter(currentEngine)
-        }
-        return adaptedPlayer
-    }
 
     /** Read from YPlayer directly so gating never depends on a separately mirrored UI state. */
     private val state get() = player()?.state?.value

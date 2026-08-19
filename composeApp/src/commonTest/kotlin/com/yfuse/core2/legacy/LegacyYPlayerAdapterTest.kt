@@ -42,7 +42,7 @@ class LegacyYPlayerAdapterTest {
     @Test
     fun `unified controls forward to the legacy engine`() {
         val engine = FakeVideoEngine()
-        val player = LegacyYPlayerAdapter(engine)
+        val player = engine.asYPlayer()
 
         player.play()
         player.seekTo(42_000L)

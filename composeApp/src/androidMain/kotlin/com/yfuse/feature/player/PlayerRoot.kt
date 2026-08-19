@@ -69,7 +69,9 @@ import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.playback.resolvePlaybackOptimization
 import com.yfuse.core.sync.WatchTogetherClient
+import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
+import com.yfuse.core2.legacy.asYPlayer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -117,8 +119,8 @@ internal fun PlayerRoot(
     accountTokens: AccountAccessTokenSource,
     watchTogetherPreferences: WatchTogetherPreferences,
     playbackGate: WatchGatedPlayback,
-    onEngineAttached: (VideoEngine) -> Unit,
-    onEngineDetached: (VideoEngine) -> Unit,
+    onPlayerAttached: (YPlayer, VideoEngine) -> Unit,
+    onPlayerDetached: (YPlayer, VideoEngine) -> Unit,
     onPlaybackState: (PlaybackState, PlayerMediaItem?) -> Unit,
     onVideoBounds: (Rect) -> Unit,
     onBack: () -> Unit,
@@ -347,8 +349,9 @@ internal fun PlayerRoot(
                 core2TrialEnabled = core2TrialEnabled && !core2DisabledForSession,
             )
         }
+    val player = remember(engine) { engine.asYPlayer() }
 
-    DisposableEffect(engine, kind) {
+    DisposableEffect(engine, player, kind) {
         AppLog.info(
             category = "player",
             event = "engine_attached",
@@ -359,9 +362,9 @@ internal fun PlayerRoot(
                     "implementation" to engine::class.java.name,
                 ),
         )
-        onEngineAttached(engine)
+        onPlayerAttached(player, engine)
         onDispose {
-            onEngineDetached(engine)
+            onPlayerDetached(player, engine)
             engine.release()
             AppLog.info(
                 category = "player",
@@ -612,7 +615,7 @@ internal fun PlayerRoot(
         )
     val runtimeAssessment =
         rememberYCoreRuntimeAssessment(
-            engine = engine,
+            player = player,
             engineKind = kind,
             probe = activeProbe,
             plan = activePlan,
@@ -1074,7 +1077,7 @@ internal fun PlayerRoot(
 
     PlayerWatchSyncEffects(
         items = items,
-        engine = engine,
+        player = player,
         playbackState = state,
         watchState = watchState,
         castAuthoritative = castAuthoritative,

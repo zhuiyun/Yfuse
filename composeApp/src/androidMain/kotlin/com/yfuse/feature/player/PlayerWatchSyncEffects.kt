@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.WatchTogetherState
+import com.yfuse.core2.api.YPlayer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
@@ -26,13 +27,13 @@ private const val POST_BUFFER_SEEK_THRESHOLD_MS = 300L
  * Keeps a watch-together member aligned with the room and reports its local readiness.
  *
  * This is deliberately an effect-only composable: room protocol state and high-frequency
- * engine state no longer add more state branches to the already large player root.
+ * player state no longer adds more state branches to the already large player root.
  */
 @SuppressLint("RememberReturnType")
 @Composable
 internal fun PlayerWatchSyncEffects(
     items: List<PlayerMediaItem>,
-    engine: VideoEngine,
+    player: YPlayer,
     playbackState: PlaybackState,
     watchState: WatchTogetherState,
     castAuthoritative: Boolean,
@@ -40,7 +41,7 @@ internal fun PlayerWatchSyncEffects(
     playbackGate: WatchGatedPlayback,
     onRemotePlayRequested: () -> Boolean,
 ) {
-    val latestEngine by rememberUpdatedState(engine)
+    val latestPlayer by rememberUpdatedState(player)
     val latestPlaybackState by rememberUpdatedState(playbackState)
     val latestRemotePlayRequested by rememberUpdatedState(onRemotePlayRequested)
     val mediaMatcher =
@@ -92,7 +93,7 @@ internal fun PlayerWatchSyncEffects(
                     lastNominalRate = timeline.rate
                     val targetIndex = mediaMatcher.resolve(items, timeline.mediaKey)
                     if (targetIndex != null) {
-                        val position = latestEngine.currentPositionMs()
+                        val position = latestPlayer.currentPositionMs()
                         val landed =
                             awaitedIndex.let {
                                 it == null || it == latestPlaybackState.currentIndex
@@ -106,7 +107,7 @@ internal fun PlayerWatchSyncEffects(
                                 CORRECTION_SETTLE_TIMEOUT_MS
                         if (landed) awaitCorrection(null, null)
                         if (settling) {
-                            if (timeline.paused && latestPlaybackState.playing) latestEngine.pause()
+                            if (timeline.paused && latestPlaybackState.playing) latestPlayer.pause()
                             delay(GUEST_RECONCILE_TICK_MS)
                             continue
                         }
@@ -117,10 +118,10 @@ internal fun PlayerWatchSyncEffects(
                                 bufferingSince.elapsedNow().inWholeMilliseconds >=
                                 GUEST_BUFFER_RECOVERY_MS
                             ) {
-                                latestEngine.retry()
+                                latestPlayer.retry()
                                 bufferingSince = TimeSource.Monotonic.markNow()
                             }
-                            if (timeline.paused && latestPlaybackState.playing) latestEngine.pause()
+                            if (timeline.paused && latestPlaybackState.playing) latestPlayer.pause()
                             delay(GUEST_RECONCILE_TICK_MS)
                             continue
                         }
@@ -128,7 +129,7 @@ internal fun PlayerWatchSyncEffects(
                         wasBuffering = false
 
                         if (targetIndex != latestPlaybackState.currentIndex) {
-                            latestEngine.selectItem(targetIndex)
+                            latestPlayer.selectItem(targetIndex)
                             awaitCorrection(positionMs = null, index = targetIndex)
                             delay(GUEST_RECONCILE_TICK_MS)
                             continue
@@ -143,7 +144,7 @@ internal fun PlayerWatchSyncEffects(
                                         recoveredFromBuffer &&
                                             abs(diff) >= POST_BUFFER_SEEK_THRESHOLD_MS
                                     ) -> {
-                                    latestEngine.seekTo(expected)
+                                    latestPlayer.seekTo(expected)
                                     awaitCorrection(positionMs = expected, index = null)
                                     timeline.rate
                                 }
@@ -156,12 +157,12 @@ internal fun PlayerWatchSyncEffects(
                             lastAppliedRate == null ||
                             abs(desiredRate - lastAppliedRate) > RATE_EPSILON
                         ) {
-                            latestEngine.setSpeed(desiredRate)
+                            latestPlayer.setSpeed(desiredRate)
                             lastAppliedRate = desiredRate
                         }
-                        if (timeline.paused && latestPlaybackState.playing) latestEngine.pause()
+                        if (timeline.paused && latestPlaybackState.playing) latestPlayer.pause()
                         if (!timeline.paused && !latestPlaybackState.playing) {
-                            if (latestRemotePlayRequested()) latestEngine.play()
+                            if (latestRemotePlayRequested()) latestPlayer.play()
                         }
                     }
                 }
@@ -169,7 +170,7 @@ internal fun PlayerWatchSyncEffects(
             }
         } finally {
             mediaMatcher.reset()
-            lastNominalRate?.let(latestEngine::setSpeed)
+            lastNominalRate?.let(latestPlayer::setSpeed)
         }
     }
 

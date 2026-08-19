@@ -58,6 +58,7 @@ import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.lockOrientationOnCompactScreens
+import com.yfuse.core2.api.YPlayer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -135,6 +136,7 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    private var activePlayer: YPlayer? = null
     private var activeEngine: VideoEngine? = null
     private var playbackGate: WatchGatedPlayback? = null
     private var activeState = PlaybackState()
@@ -280,8 +282,8 @@ class PlayerActivity : ComponentActivity() {
             PlayerAudioFocusController(
                 audioManager = audioManager,
                 isPlaying = { activeState.playing },
-                onPause = { activeEngine?.pause() },
-                onResume = { activeEngine?.play() },
+                onPause = { activePlayer?.pause() },
+                onResume = { activePlayer?.play() },
             )
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -365,7 +367,7 @@ class PlayerActivity : ComponentActivity() {
             WatchGatedPlayback(
                 watchTogether = watchTogether,
                 items = { playbackItems.value },
-                engine = { activeEngine },
+                player = { activePlayer },
                 onLocked = {
                     runOnUiThread {
                         Toast.makeText(this, "当前由房主控制播放", Toast.LENGTH_SHORT).show()
@@ -457,8 +459,12 @@ class PlayerActivity : ComponentActivity() {
                     accountTokens = accountTokens,
                     watchTogetherPreferences = watchTogetherPreferences,
                     playbackGate = playbackController,
-                    onEngineAttached = { engine -> activeEngine = engine },
-                    onEngineDetached = { engine ->
+                    onPlayerAttached = { player, engine ->
+                        activePlayer = player
+                        activeEngine = engine
+                    },
+                    onPlayerDetached = { player, engine ->
+                        if (activePlayer === player) activePlayer = null
                         if (activeEngine === engine) activeEngine = null
                     },
                     onPlaybackState = { state, item ->
@@ -654,7 +660,8 @@ class PlayerActivity : ComponentActivity() {
         // race this path and turn a deliberate close into PiP. MainActivity stays directly
         // underneath this activity in the same task, so finish() restores it without a relaunch.
         stopRequested = true
-        activeEngine?.release()
+        activePlayer?.release()
+        activePlayer = null
         activeEngine = null
         abandonAudioFocus()
         ActivePlayback.clear()
@@ -676,7 +683,8 @@ class PlayerActivity : ComponentActivity() {
     private fun stopPlaybackAndFinish() {
         if (stopRequested) return
         stopRequested = true
-        activeEngine?.release()
+        activePlayer?.release()
+        activePlayer = null
         activeEngine = null
         abandonAudioFocus()
         ActivePlayback.clear()
@@ -692,7 +700,7 @@ class PlayerActivity : ComponentActivity() {
         val item = snapshot.getOrNull(index) ?: return
         val server = item.serverId?.let(serverRegistry::serverById) ?: return
         val sourceId = item.activeVersion?.id ?: item.versionId
-        val positionMs = (activeEngine?.currentPositionMs() ?: activeState.positionMs).coerceAtLeast(0L)
+        val positionMs = (activePlayer?.currentPositionMs() ?: activeState.positionMs).coerceAtLeast(0L)
         val requestedSessionId = EmbyStream.newPlaySessionId()
 
         embyRepository
@@ -923,7 +931,7 @@ class PlayerActivity : ComponentActivity() {
                             .takeIf { it >= 0 }
                             ?: activeState.currentIndex.coerceIn(0, refreshed.lastIndex)
                     queueResume.value = refreshedIndex to
-                        (activeEngine?.currentPositionMs() ?: activeState.positionMs)
+                        (activePlayer?.currentPositionMs() ?: activeState.positionMs)
                 }
                 playbackItems.value = refreshed
                 sessionTitles = refreshed.map { it.title }
@@ -1038,7 +1046,7 @@ class PlayerActivity : ComponentActivity() {
         if (remoteActive) {
             abandonAudioFocus()
         } else if (state.playing && !ensureAudioFocus()) {
-            activeEngine?.pause()
+            activePlayer?.pause()
         } else if (state.ended || state.error != null) {
             abandonAudioFocus()
         }
@@ -1107,8 +1115,8 @@ class PlayerActivity : ComponentActivity() {
         val mediaUrl = item.transcodeUrl.ifBlank { item.url }
         lifecycleScope.launch {
             if (castManager.play(deviceId, mediaUrl, item.title, 0L)) {
-                activeEngine?.selectItem(targetIndex)
-                activeEngine?.pause()
+                activePlayer?.selectItem(targetIndex)
+                activePlayer?.pause()
             }
         }
     }

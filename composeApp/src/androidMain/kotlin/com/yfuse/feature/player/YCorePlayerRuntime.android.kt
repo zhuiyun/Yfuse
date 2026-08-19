@@ -26,6 +26,7 @@ import com.yfuse.core.playback.PlaybackRuntimeEnvironmentProvider
 import com.yfuse.core.playback.YCorePlaybackSession
 import com.yfuse.core.playback.YCoreRuntimeAssessment
 import com.yfuse.core.playback.YCoreRuntimeObservation
+import com.yfuse.core2.api.YPlayer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
@@ -98,7 +99,7 @@ internal fun rememberDeepPlaybackProbe(
 
 @Composable
 internal fun rememberYCoreRuntimeAssessment(
-    engine: VideoEngine,
+    player: YPlayer,
     engineKind: PlayerEngine,
     probe: PlaybackMediaProbe,
     plan: PlaybackPlan,
@@ -115,7 +116,7 @@ internal fun rememberYCoreRuntimeAssessment(
             runCatching { GlobalContext.get().get<PlaybackQoeReporter>() }.getOrNull()
         }
     val session =
-        remember(engine, probe.capabilitySignature) {
+        remember(player, probe.capabilitySignature) {
             createYCorePlaybackSession(
                 engine = engineKind,
                 probe = probe,
@@ -136,7 +137,7 @@ internal fun rememberYCoreRuntimeAssessment(
     val latestNetworkRecoverySuccesses by rememberUpdatedState(networkRecoverySuccesses)
     LaunchedEffect(
         session,
-        engine,
+        player,
         engineKind,
         castAuthoritative,
         state.playing,
@@ -150,7 +151,7 @@ internal fun rememberYCoreRuntimeAssessment(
             val observed =
                 session.observe(
                     current.runtimeObservation(
-                        playbackRequested = engine.playbackRequested,
+                        playbackRequested = player.playbackRequested,
                         probe = latestProbe,
                         runtimeEnvironment = latestRuntimeEnvironment,
                     ),
@@ -183,7 +184,7 @@ internal fun rememberYCoreRuntimeAssessment(
                 }
             }
             if (
-                !engine.playbackRequested ||
+                !player.playbackRequested ||
                 current.buffering ||
                 current.ended ||
                 current.error != null

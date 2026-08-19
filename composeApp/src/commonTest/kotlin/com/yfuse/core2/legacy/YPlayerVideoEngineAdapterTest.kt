@@ -13,9 +13,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class YPlayerVideoEngineAdapterTest {
+    @Test
+    fun `product player binding unwraps the native Core2 player`() {
+        val player = FakeYPlayer()
+
+        assertSame(player, YPlayerVideoEngineAdapter(player).asYPlayer())
+    }
+
     @Test
     fun `Core2 state keeps machine failure and verified output evidence in Legacy UI`() {
         val player = FakeYPlayer()
