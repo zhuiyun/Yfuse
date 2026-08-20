@@ -13,6 +13,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
+import com.yfuse.core2.render.YFrameRateSwitchMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,6 +38,8 @@ internal class AndroidNativeTunnelYPlayer(
     context: Context,
     private val request: YPlayerOpenRequest,
     private val routeEvaluator: AndroidCore2RouteEvaluator = AndroidCore2RouteEvaluator(context),
+    private val allowAudioPassthrough: Boolean = true,
+    private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) : YPlayer {
     private val mutableState =
         MutableStateFlow(
@@ -183,7 +186,7 @@ internal class AndroidNativeTunnelYPlayer(
     }
 
     private suspend fun runLoop() {
-        val session = AndroidNativeTunnelSession(appContext)
+        val session = AndroidNativeTunnelSession(appContext, frameRateSwitchMode = frameRateSwitchMode)
         var surfaceOutput: AndroidSurfaceVideoOutput? = null
         var currentIndex = request.startIndex
         var requestedPlay = request.autoPlay
@@ -232,7 +235,12 @@ internal class AndroidNativeTunnelYPlayer(
                 return
             }
             val item = request.items[currentIndex]
-            val decision = routeEvaluator.evaluate(item, preferTunnel = true)
+            val decision =
+                routeEvaluator.evaluate(
+                    item,
+                    preferTunnel = true,
+                    allowAudioPassthrough = allowAudioPassthrough,
+                )
             check(decision?.nativeTunnelExecutable == true) {
                 "Media item is not eligible for YCore NativeTunnel"
             }
@@ -240,6 +248,8 @@ internal class AndroidNativeTunnelYPlayer(
                 source = item.toAndroidTunnelSource(),
                 surface = surface,
                 startPositionUs = positionUs.coerceAtLeast(0L),
+                decoderName = decision.plan.decoderName,
+                runtimeCapabilityKey = decision.runtimeCapabilityKey(),
             )
             prepared = true
             val snapshot = session.snapshot()
@@ -266,10 +276,16 @@ internal class AndroidNativeTunnelYPlayer(
                     diagnostics =
                         it.diagnostics.copy(
                             route = YPlaybackRoute.NativeTunnel,
+                            container = decision.probe.playbackRequest.container.name,
                             decoder =
                                 listOfNotNull(snapshot.videoDecoderName, snapshot.audioDecoderName)
                                     .joinToString(" + "),
                             renderer = "Tunnel sideband + HW_AV_SYNC AudioTrack",
+                            videoCodec = decision.probe.videoMime,
+                            videoWidth = decision.probe.playbackRequest.video.width,
+                            videoHeight = decision.probe.playbackRequest.video.height,
+                            frameRate = decision.probe.playbackRequest.video.frameRate,
+                            audioCodec = decision.probe.audioMime.orEmpty(),
                             dynamicRange = decision.plan.outputHdrType.name,
                             videoOutput = "等待 Tunnel 首帧",
                             audioOutput = "等待 HW_AV_SYNC 时钟",

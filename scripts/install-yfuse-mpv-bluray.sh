@@ -11,7 +11,7 @@ LIBS="$ROOT/composeApp/libs"
 DEST="$LIBS/libmpv-release.aar"
 DEST_SHA="$LIBS/libmpv-release.aar.sha256"
 DEST_SOURCES="$LIBS/libmpv-release.sources.txt"
-VERIFIER="$ROOT/scripts/verify-yfuse-mpv-bluray-aar.sh"
+VERIFIER="$ROOT/scripts/verify-ycore-native.sh"
 
 [[ -x "$VERIFIER" ]] || chmod +x "$VERIFIER"
 "$VERIFIER" "$AAR" "$SHA_FILE" "$SOURCES"
@@ -44,4 +44,4 @@ trap - EXIT
 
 printf 'installed: %s\n' "$DEST"
 printf 'sha256:   %s\n' "$actual_sha"
-printf 'capability: native Blu-ray ISO + BDMV VFS + HDMV menu; BD-J disabled\n'
+printf 'capability: native Blu-ray ISO + BDMV VFS + HDMV menu + YCore demux; BD-J disabled\n'

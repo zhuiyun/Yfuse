@@ -135,6 +135,7 @@ fun planPlayback(
     capabilities: PlaybackDeviceCapabilities,
     preferredEngine: PlayerEngine,
     preferredDecoderMode: DecoderMode,
+    allowAudioPassthrough: Boolean = true,
     optimizationMode: PlaybackOptimizationMode = PlaybackOptimizationMode.Balanced,
     engineSelection: PlaybackEngineSelection = PlaybackEngineSelection.Auto,
     excludedEngines: Set<PlayerEngine> = emptySet(),
@@ -143,8 +144,14 @@ fun planPlayback(
 ): PlaybackPlan {
     val lockedEngine = engineSelection.lockedEngine
     val discDecision = planDiscPlayback(probe)
+    val directlyPlayableAudio =
+        if (allowAudioPassthrough) {
+            capabilities.directPlayableAudio
+        } else {
+            capabilities.audioDecoders
+        }
     val audioNeedsNative =
-        probe.audioCodec != null && probe.audioCodec !in capabilities.directPlayableAudio
+        probe.audioCodec != null && probe.audioCodec !in directlyPlayableAudio
     val hdrRoute =
         playbackHdrRoute(
             source = probe.source,

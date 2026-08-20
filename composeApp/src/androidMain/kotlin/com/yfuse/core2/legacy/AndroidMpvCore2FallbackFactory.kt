@@ -5,7 +5,9 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core2.android.AndroidCore2DiscRouteFactory
 import com.yfuse.core2.android.AndroidCore2FallbackRouteFactory
+import com.yfuse.core2.android.AndroidExternalSubtitleLoader
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
+import com.yfuse.core2.android.EXTERNAL_SUBTITLE_TRACK_ID
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.YPlayer
@@ -18,6 +20,7 @@ import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
+import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.MpvVideoEngine
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
@@ -93,6 +96,14 @@ private class AndroidMpvCore2FallbackPlayer(
     startSpeed: Float,
 ) : YPlayer {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val externalSubtitle =
+        item.externalSubtitle?.let { source ->
+            runCatching { AndroidExternalSubtitleLoader(context).load(source, item.headers) }.getOrNull()
+        }
+
+    @Volatile
+    private var externalSubtitleSelected = externalSubtitle != null
+
     private val engine =
         MpvVideoEngine(
             context = context,
@@ -128,6 +139,16 @@ private class AndroidMpvCore2FallbackPlayer(
     override val state: StateFlow<YPlayerState> =
         MappedFallbackStateFlow(delegate.state) { state ->
             state.copy(
+                subtitleTracks =
+                    state.subtitleTracks.map { track ->
+                        track.copy(selected = !externalSubtitleSelected && track.selected)
+                    } + listOfNotNull(externalSubtitle?.track?.copy(selected = externalSubtitleSelected)),
+                subtitleCues =
+                    if (externalSubtitleSelected) {
+                        externalSubtitle?.cues.orEmpty()
+                    } else {
+                        state.subtitleCues
+                    },
                 diagnostics =
                     state.diagnostics.copy(
                         route = resolvedMpvFallbackRoute(plan.route, state.diagnostics.decoder),
@@ -168,7 +189,22 @@ private class AndroidMpvCore2FallbackPlayer(
     override fun selectTrack(
         type: YTrackType,
         id: String,
-    ) = delegate.selectTrack(type, id)
+    ) {
+        if (type != YTrackType.Subtitle || externalSubtitle == null) {
+            delegate.selectTrack(type, id)
+            return
+        }
+        when (id) {
+            EXTERNAL_SUBTITLE_TRACK_ID -> {
+                externalSubtitleSelected = true
+                delegate.selectTrack(type, EngineTrack.OFF)
+            }
+            else -> {
+                externalSubtitleSelected = false
+                delegate.selectTrack(type, id)
+            }
+        }
+    }
 
     override fun selectItem(index: Int) = delegate.selectItem(index)
 

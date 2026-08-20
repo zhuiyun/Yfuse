@@ -14,10 +14,17 @@ import com.yfuse.core2.demux.YDemuxTrack
 import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.demux.YDemuxer
 import com.yfuse.core2.demux.YSampleFlag
+import com.yfuse.core2.demux.YSubtitlePacketDecoder
+import com.yfuse.core2.demux.YSubtitleTrackFormat
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.demux.YVideoTrackFormat
 import com.yfuse.core2.dolby.YDolbyVisionConfig
+import com.yfuse.core2.hdr.YHdrStaticMetadata
+import com.yfuse.core2.subtitle.YSubtitleCue
+import com.yfuse.core2.subtitle.YSubtitleFormat
+import com.yfuse.core2.subtitle.YSubtitlePayload
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * Enhanced-demux implementation backed by the pinned FFmpeg 8.1 libraries in the custom native AAR.
@@ -26,7 +33,9 @@ import java.nio.ByteBuffer
  * copied once from a reusable native DirectByteBuffer into the immutable common demux contract,
  * then Core2 Bitstream/MediaCodec own the rest of the playback path.
  */
-internal class AndroidFfmpegDemuxer : YDemuxer {
+internal class AndroidFfmpegDemuxer :
+    YDemuxer,
+    YSubtitlePacketDecoder {
     override val name: String = "FFmpeg 8.1 / libavformat"
 
     private var handle = 0L
@@ -48,6 +57,7 @@ internal class AndroidFfmpegDemuxer : YDemuxer {
             YDemuxOpenResult(
                 container = ffmpegContainer(FfmpegNativeBridge.containerName(handle)),
                 durationUs = FfmpegNativeBridge.durationUs(handle),
+                bitRateBitsPerSecond = FfmpegNativeBridge.bitRateBitsPerSecond(handle),
                 tracks = tracks,
             ).also { result ->
                 openResult = result
@@ -130,6 +140,24 @@ internal class AndroidFfmpegDemuxer : YDemuxer {
         FfmpegNativeBridge.seek(requireHandle(), positionUs.coerceAtLeast(0L))
     }
 
+    override fun decodeSubtitle(sample: YCompressedSample): List<YSubtitleCue> {
+        val track =
+            requireOpenResult().tracks.firstOrNull { it.id == sample.trackId }
+                ?: error("Subtitle sample does not belong to this demux session")
+        require(track.subtitle?.format in BITMAP_SUBTITLE_FORMATS) {
+            "Only FFmpeg bitmap subtitle tracks use the native subtitle decoder"
+        }
+        val decoded =
+            FfmpegNativeBridge.decodeSubtitle(
+                handle = requireHandle(),
+                trackIndex = sample.trackId.value,
+                data = sample.data,
+                presentationTimeUs = sample.presentationTimeUs,
+                durationUs = sample.durationUs,
+            ) ?: return emptyList()
+        return decoded.toBitmapSubtitleCues(sample)
+    }
+
     override fun close() {
         val previous = handle
         handle = 0L
@@ -170,6 +198,7 @@ internal class AndroidFfmpegDemuxer : YDemuxer {
                     when (info[VIDEO_HDR_INDEX]) {
                         FFMPEG_HDR_PQ -> YHdrType.Hdr10
                         FFMPEG_HDR_HLG -> YHdrType.Hlg
+                        FFMPEG_HDR10_PLUS -> YHdrType.Hdr10Plus
                         else -> YHdrType.Sdr
                     }
                 val bitDepth =
@@ -198,6 +227,10 @@ internal class AndroidFfmpegDemuxer : YDemuxer {
                             samplePacking = packing,
                             codecPrivateData = YCodecPrivateData(extradata),
                             dolbyVisionConfig = dolby,
+                            hdrStaticMetadata =
+                                FfmpegNativeBridge
+                                    .trackHdrStaticInfo(handle, index)
+                                    ?.toHdrStaticMetadata(),
                         ),
                 )
             }
@@ -227,6 +260,12 @@ internal class AndroidFfmpegDemuxer : YDemuxer {
                     type = YDemuxTrackType.Subtitle,
                     language = language,
                     label = label,
+                    subtitle =
+                        YSubtitleTrackFormat(
+                            format = ffmpegSubtitleFormat(codecName),
+                            mimeType = ffmpegSubtitleMime(codecName),
+                            codecPrivateData = YCodecPrivateData(extradata),
+                        ),
                 )
             FFMPEG_TRACK_DATA ->
                 YDemuxTrack(
@@ -244,6 +283,70 @@ internal class AndroidFfmpegDemuxer : YDemuxer {
     private fun requireOpenResult(): YDemuxOpenResult =
         checkNotNull(openResult) { "FFmpeg demux session has not been opened" }
 }
+
+internal fun ByteArray.toBitmapSubtitleCues(sample: YCompressedSample): List<YSubtitleCue> {
+    val input = ByteBuffer.wrap(this).order(ByteOrder.LITTLE_ENDIAN)
+    require(input.remaining() >= SUBTITLE_PAYLOAD_HEADER_BYTES) { "FFmpeg subtitle payload is truncated" }
+    require(input.int == SUBTITLE_PAYLOAD_MAGIC) { "FFmpeg subtitle payload has an invalid signature" }
+    require(input.int == SUBTITLE_PAYLOAD_VERSION) { "FFmpeg subtitle payload version is unsupported" }
+    val canvasWidth = input.positiveSubtitleDimension()
+    val canvasHeight = input.positiveSubtitleDimension()
+    val startOffsetUs = input.unsignedIntToLong() * MICROS_PER_MILLISECOND
+    val endOffsetUs = input.unsignedIntToLong() * MICROS_PER_MILLISECOND
+    val rectCount = input.int
+    require(rectCount in 1..MAX_SUBTITLE_RECTS) { "FFmpeg subtitle rectangle count is invalid" }
+    val startUs = sample.presentationTimeUs.coerceAtLeast(0L) + startOffsetUs
+    val fallbackDurationUs = sample.durationUs?.takeIf { it > 0L } ?: DEFAULT_BITMAP_SUBTITLE_DURATION_US
+    val endUs =
+        if (endOffsetUs > startOffsetUs) {
+            sample.presentationTimeUs.coerceAtLeast(0L) + endOffsetUs
+        } else {
+            startUs + fallbackDurationUs
+        }
+    return List(rectCount) { rectIndex ->
+        require(input.remaining() >= SUBTITLE_RECT_HEADER_BYTES) { "FFmpeg subtitle rectangle is truncated" }
+        val x = input.nonNegativeSubtitleCoordinate()
+        val y = input.nonNegativeSubtitleCoordinate()
+        val width = input.positiveSubtitleDimension()
+        val height = input.positiveSubtitleDimension()
+        input.int // authored flags are retained in native diagnostics, not presentation policy
+        val pixelCount = input.int
+        input.int // reserved
+        require(pixelCount == width * height && pixelCount <= MAX_SUBTITLE_PIXELS) {
+            "FFmpeg subtitle rectangle pixel count is invalid"
+        }
+        require(input.remaining() >= pixelCount * Int.SIZE_BYTES) { "FFmpeg subtitle pixels are truncated" }
+        require(x + width <= canvasWidth && y + height <= canvasHeight) {
+            "FFmpeg subtitle rectangle exceeds its authored canvas"
+        }
+        val pixels = IntArray(pixelCount) { input.int }
+        YSubtitleCue(
+            id = "${sample.trackId.value}:${sample.presentationTimeUs}:$rectIndex",
+            startUs = startUs,
+            endUs = endUs.coerceAtLeast(startUs + 1L),
+            payload =
+                YSubtitlePayload.BitmapArgb(
+                    width = width,
+                    height = height,
+                    x = x,
+                    y = y,
+                    canvasWidth = canvasWidth,
+                    canvasHeight = canvasHeight,
+                    pixels = pixels,
+                ),
+        )
+    }.also {
+        require(!input.hasRemaining()) { "FFmpeg subtitle payload has trailing data" }
+    }
+}
+
+private fun ByteBuffer.positiveSubtitleDimension(): Int =
+    int.also { require(it in 1..MAX_SUBTITLE_DIMENSION) { "FFmpeg subtitle dimension is invalid" } }
+
+private fun ByteBuffer.nonNegativeSubtitleCoordinate(): Int =
+    int.also { require(it in 0..MAX_SUBTITLE_DIMENSION) { "FFmpeg subtitle coordinate is invalid" } }
+
+private fun ByteBuffer.unsignedIntToLong(): Long = int.toLong() and 0xffff_ffffL
 
 internal fun ffmpegContainer(name: String?): YContainer {
     val normalized = name?.lowercase().orEmpty()
@@ -274,16 +377,45 @@ internal fun ffmpegAudioCodec(
 ): YAudioCodec =
     when (name.lowercase()) {
         "aac" -> YAudioCodec.Aac
+        "alac" -> YAudioCodec.Alac
+        "mp3", "mp2" -> YAudioCodec.Mp3
         "ac3" -> YAudioCodec.Ac3
-        "eac3" -> YAudioCodec.Eac3
+        "eac3" -> if (profile == ATMOS_PROFILE) YAudioCodec.Eac3Joc else YAudioCodec.Eac3
         "flac" -> YAudioCodec.Flac
         "opus" -> YAudioCodec.Opus
-        "truehd" -> YAudioCodec.TrueHd
+        "truehd" -> if (profile == ATMOS_PROFILE) YAudioCodec.TrueHdAtmos else YAudioCodec.TrueHd
         "dca", "dts" ->
-            if (profile in DTS_HD_PROFILES) YAudioCodec.DtsHd else YAudioCodec.Dts
+            when (profile) {
+                in DTS_X_PROFILES -> YAudioCodec.DtsX
+                in DTS_HD_PROFILES -> YAudioCodec.DtsHd
+                else -> YAudioCodec.Dts
+            }
         "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_s32le", "pcm_s32be", "pcm_f32le" ->
             YAudioCodec.Pcm
         else -> YAudioCodec.Unknown
+    }
+
+internal fun ffmpegSubtitleFormat(name: String): YSubtitleFormat =
+    when (name.lowercase()) {
+        "subrip", "srt" -> YSubtitleFormat.Srt
+        "webvtt" -> YSubtitleFormat.WebVtt
+        "ass" -> YSubtitleFormat.Ass
+        "ssa" -> YSubtitleFormat.Ssa
+        "hdmv_pgs_subtitle", "pgssub" -> YSubtitleFormat.Pgs
+        "dvd_subtitle", "dvdsub" -> YSubtitleFormat.VobSub
+        "mov_text", "tx3g" -> YSubtitleFormat.Tx3g
+        else -> YSubtitleFormat.Unknown
+    }
+
+private fun ffmpegSubtitleMime(name: String): String =
+    when (ffmpegSubtitleFormat(name)) {
+        YSubtitleFormat.Srt -> "application/x-subrip"
+        YSubtitleFormat.WebVtt -> "text/vtt"
+        YSubtitleFormat.Ass, YSubtitleFormat.Ssa -> "text/x-ssa"
+        YSubtitleFormat.Pgs -> "application/pgs"
+        YSubtitleFormat.VobSub -> "application/vobsub"
+        YSubtitleFormat.Tx3g -> "application/x-quicktime-tx3g"
+        YSubtitleFormat.Unknown -> "application/x-ffmpeg-subtitle"
     }
 
 internal fun ffmpegPacking(
@@ -318,13 +450,18 @@ private fun ffmpegVideoMime(
 private fun ffmpegAudioMime(codec: YAudioCodec): String =
     when (codec) {
         YAudioCodec.Aac -> "audio/mp4a-latm"
+        YAudioCodec.Alac -> "audio/alac"
+        YAudioCodec.Mp3 -> "audio/mpeg"
         YAudioCodec.Ac3 -> "audio/ac3"
         YAudioCodec.Eac3 -> "audio/eac3"
+        YAudioCodec.Eac3Joc -> "audio/eac3-joc"
         YAudioCodec.Flac -> "audio/flac"
         YAudioCodec.Opus -> "audio/opus"
         YAudioCodec.TrueHd -> "audio/true-hd"
+        YAudioCodec.TrueHdAtmos -> "audio/true-hd"
         YAudioCodec.Dts -> "audio/vnd.dts"
         YAudioCodec.DtsHd -> "audio/vnd.dts.hd"
+        YAudioCodec.DtsX -> "audio/vnd.dts.hd"
         YAudioCodec.Pcm -> "audio/raw"
         YAudioCodec.Unknown -> "audio/x-ffmpeg-unknown"
     }
@@ -344,6 +481,24 @@ private fun IntArray.toDolbyVisionConfig(): YDolbyVisionConfig? {
     )
 }
 
+private fun IntArray.toHdrStaticMetadata(): YHdrStaticMetadata? {
+    if (size < HDR_STATIC_INFO_FIELDS) return null
+    return YHdrStaticMetadata(
+        redX = this[0],
+        redY = this[1],
+        greenX = this[2],
+        greenY = this[3],
+        blueX = this[4],
+        blueY = this[5],
+        whiteX = this[6],
+        whiteY = this[7],
+        maxDisplayLuminance = this[8],
+        minDisplayLuminance = this[9],
+        maxContentLightLevel = this[10],
+        maxFrameAverageLightLevel = this[11],
+    )
+}
+
 private fun rationalToFloat(
     numerator: Long,
     denominator: Long,
@@ -354,7 +509,10 @@ private fun rationalToFloat(
         0f
     }
 
-private val DTS_HD_PROFILES = setOf(50, 60, 61, 62)
+private val DTS_HD_PROFILES = setOf(50, 60)
+private val DTS_X_PROFILES = setOf(61, 62)
+private val BITMAP_SUBTITLE_FORMATS = setOf(YSubtitleFormat.Pgs, YSubtitleFormat.VobSub)
+private const val ATMOS_PROFILE = 30
 private const val INITIAL_PACKET_BUFFER_BYTES = 2 * 1024 * 1024
 private const val MAX_PACKET_BUFFER_BYTES = 64 * 1024 * 1024
 private const val PACKET_RESULT_FIELDS = 7
@@ -379,3 +537,13 @@ private const val AUDIO_CHANNELS_INDEX = 0
 private const val AUDIO_SAMPLE_RATE_INDEX = 1
 private const val AUDIO_PROFILE_INDEX = 2
 private const val DOLBY_CONFIG_FIELDS = 9
+private const val HDR_STATIC_INFO_FIELDS = 12
+private const val SUBTITLE_PAYLOAD_MAGIC = 0x42555359
+private const val SUBTITLE_PAYLOAD_VERSION = 1
+private const val SUBTITLE_PAYLOAD_HEADER_BYTES = 7 * Int.SIZE_BYTES
+private const val SUBTITLE_RECT_HEADER_BYTES = 7 * Int.SIZE_BYTES
+private const val MAX_SUBTITLE_RECTS = 64
+private const val MAX_SUBTITLE_DIMENSION = 16_384
+private const val MAX_SUBTITLE_PIXELS = 8 * 1024 * 1024
+private const val MICROS_PER_MILLISECOND = 1_000L
+private const val DEFAULT_BITMAP_SUBTITLE_DURATION_US = 5_000_000L

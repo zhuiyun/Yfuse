@@ -65,7 +65,7 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
         return nativePtr == 0 ? STATUS_INVALID : nativeMediaStatus(nativePtr);
     }
 
-    /** Most recent native media error, cleared whenever a new URL is loaded. */
+    /** Consumes the most recent native media error. A new URL also clears pending errors. */
     public synchronized String lastError() {
         return nativePtr == 0 ? "" : nativeLastError(nativePtr);
     }
@@ -102,7 +102,8 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
 
     /**
      * Track rows are encoded as `ordinal`, `language`, `title`, `selected`, separated by U+001F.
-     * Track ordinals are the values accepted by setActiveTrack().
+     * Selected reflects a track explicitly submitted through setActiveTrack(s); MDK exposes no
+     * getter for renderer acknowledgement. Track ordinals are accepted by setActiveTrack().
      */
     public synchronized String[] tracks(int mediaType) {
         return nativePtr == 0 ? new String[0] : nativeTracks(nativePtr, mediaType);

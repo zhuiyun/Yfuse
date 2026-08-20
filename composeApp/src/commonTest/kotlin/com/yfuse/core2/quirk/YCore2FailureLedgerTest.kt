@@ -22,10 +22,14 @@ class YCore2FailureLedgerTest {
         )
 
     @Test
-    fun `decoder failure blocks only the exact Core2 route`() {
+    fun `three decoder failures block only the exact Core2 route`() {
         val p8 = key(profile = 8)
         val p7 = key(profile = 7)
 
+        ledger.recordFailure(p8, YPlaybackFailureCategory.Decoder)
+        assertFalse(ledger.isBlocked(p8))
+        ledger.recordFailure(p8, YPlaybackFailureCategory.Decoder)
+        assertFalse(ledger.isBlocked(p8))
         ledger.recordFailure(p8, YPlaybackFailureCategory.Decoder)
 
         assertTrue(ledger.isBlocked(p8))
@@ -52,6 +56,20 @@ class YCore2FailureLedgerTest {
         assertEquals(1, first.failureCount)
         assertEquals(2, second.failureCount)
         assertTrue(second.blockedUntilEpochMs > first.blockedUntilEpochMs)
+        assertFalse(ledger.isBlocked(key))
+    }
+
+    @Test
+    fun `deterministic categories contribute to one exact route threshold`() {
+        val key = key(profile = 8)
+
+        ledger.recordFailure(key, YPlaybackFailureCategory.Container)
+        ledger.recordFailure(key, YPlaybackFailureCategory.Decoder)
+        assertTrue(ledger.activeFailures(key).isEmpty())
+        ledger.recordFailure(key, YPlaybackFailureCategory.AudioSink)
+
+        assertTrue(ledger.isBlocked(key))
+        assertEquals(3, ledger.activeFailures(key).sumOf { it.failureCount })
     }
 
     @Test
@@ -62,6 +80,32 @@ class YCore2FailureLedgerTest {
 
         assertFalse(ledger.isBlocked(key))
         assertTrue(store.load().isEmpty())
+    }
+
+    @Test
+    fun `failure after observation window starts a new count without requiring a read`() {
+        val key = key(profile = 8)
+        ledger.recordFailure(key, YPlaybackFailureCategory.Decoder)
+        now += 10_001L
+
+        val restarted = requireNotNull(ledger.recordFailure(key, YPlaybackFailureCategory.Decoder))
+
+        assertEquals(1, restarted.failureCount)
+        assertFalse(ledger.isBlocked(key))
+    }
+
+    @Test
+    fun `verified success clears stale failures for the exact route`() {
+        val successful = key(profile = 8)
+        val unrelated = key(profile = 7)
+        ledger.recordFailure(successful, YPlaybackFailureCategory.Decoder)
+        ledger.recordFailure(successful, YPlaybackFailureCategory.Decoder)
+        ledger.recordFailure(unrelated, YPlaybackFailureCategory.Decoder)
+
+        ledger.recordSuccess(successful)
+
+        assertTrue(ledger.activeFailures(successful).isEmpty())
+        assertEquals(1, store.load().single { it.key == unrelated }.failureCount)
     }
 
     private fun key(profile: Int): YCore2FailureKey =

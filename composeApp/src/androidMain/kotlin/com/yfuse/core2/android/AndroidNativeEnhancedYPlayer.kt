@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
@@ -14,6 +15,8 @@ import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
+import com.yfuse.core2.demux.YTrackId
+import com.yfuse.core2.render.YFrameRateSwitchMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,7 +40,12 @@ internal class AndroidNativeEnhancedYPlayer(
     context: Context,
     private val request: YPlayerOpenRequest,
     private val routeEvaluator: AndroidCore2RouteEvaluator = AndroidCore2RouteEvaluator(context),
+    private val allowAudioPassthrough: Boolean = true,
+    private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) : YPlayer {
+    private val appContext = context.applicationContext
+    private val capabilityProvider = AndroidYCapabilityProvider(context)
+    private val externalSubtitleLoader = AndroidExternalSubtitleLoader(context)
     private val mutableState =
         MutableStateFlow(
             YPlayerState(
@@ -130,14 +138,26 @@ internal class AndroidNativeEnhancedYPlayer(
         id: String,
     ) {
         if (released) return
-        // Audio-track hot switching is intentionally held until the selected track is part of the
-        // session-open contract. Subtitle rendering belongs to the dedicated subtitle phase.
-        if (type == YTrackType.Audio && mutableState.value.audioTracks.none { it.id == id && it.selected }) {
-            mutableState.updateState {
-                it.copy(
-                    error = "YCore 2.0 增强路径暂未启用热切音轨，已保留 Legacy 回退边界",
-                    errorCategory = YPlaybackFailureCategory.Unknown,
-                )
+        when (type) {
+            YTrackType.Audio -> {
+                val trackId = id.removePrefix(AUDIO_TRACK_PREFIX).toIntOrNull() ?: return
+                if (mutableState.value.audioTracks.any { it.id == id && !it.selected }) {
+                    commands.trySend(Command.SelectAudioTrack(trackId))
+                }
+            }
+            YTrackType.Subtitle -> {
+                val command =
+                    when (id) {
+                        SUBTITLE_OFF -> Command.SelectSubtitleTrack(null, external = false)
+                        EXTERNAL_SUBTITLE_TRACK_ID -> Command.SelectSubtitleTrack(null, external = true)
+                        else -> {
+                            val trackId = id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull() ?: return
+                            Command.SelectSubtitleTrack(trackId, external = false)
+                        }
+                    }
+                if (id == SUBTITLE_OFF || mutableState.value.subtitleTracks.any { it.id == id && !it.selected }) {
+                    commands.trySend(command)
+                }
             }
         }
     }
@@ -189,13 +209,19 @@ internal class AndroidNativeEnhancedYPlayer(
     }
 
     private suspend fun runLoop() {
-        val session = AndroidEnhancedPlaybackSession()
+        val session =
+            AndroidEnhancedPlaybackSession(
+                runtimeCapabilities = AndroidRuntimeCapabilityRegistry(appContext),
+                frameRateSwitchMode = frameRateSwitchMode,
+            )
         var surfaceOutput: AndroidSurfaceVideoOutput? = null
         var currentIndex = request.startIndex
         var requestedPlay = request.autoPlay
         var speed = 1f
         var prepared = false
         var lastPublishNs = 0L
+        var externalSubtitle: AndroidLoadedExternalSubtitle? = null
+        var externalSubtitleSelected = false
 
         suspend fun prepareCurrent(positionUs: Long) {
             val output = surfaceOutput?.surface?.takeIf { it.isValid }
@@ -212,7 +238,11 @@ internal class AndroidNativeEnhancedYPlayer(
                 return
             }
             val item = request.items[currentIndex]
-            val decision = routeEvaluator.evaluate(item)
+            val decision =
+                routeEvaluator.evaluate(
+                    item,
+                    allowAudioPassthrough = allowAudioPassthrough,
+                )
             check(decision?.nativeEnhancedExecutable == true) {
                 "Media item is not eligible for YCore NativeEnhanced"
             }
@@ -222,11 +252,20 @@ internal class AndroidNativeEnhancedYPlayer(
                     plan = decision.plan,
                     surface = output,
                     startPositionUs = positionUs.coerceAtLeast(0L),
+                    runtimeCapabilityKey = decision.runtimeCapabilityKey(),
                 )
             prepared = true
             speed = mutableState.value.speed
             session.setSpeed(speed)
             val tracks = result.toAudioTracks()
+            externalSubtitle =
+                item.externalSubtitle?.let { source ->
+                    runCatching { externalSubtitleLoader.load(source, item.headers) }.getOrNull()
+                }
+            externalSubtitleSelected = externalSubtitle != null
+            val subtitleTracks =
+                result.toSubtitleTracks() +
+                    listOfNotNull(externalSubtitle?.track?.copy(selected = externalSubtitleSelected))
             val video = result.tracks.firstOrNull { it.type == YDemuxTrackType.Video }?.video
             mutableState.updateState {
                 it.copy(
@@ -237,12 +276,25 @@ internal class AndroidNativeEnhancedYPlayer(
                     currentIndex = currentIndex,
                     itemCount = request.items.size,
                     audioTracks = tracks,
+                    subtitleTracks = subtitleTracks,
+                    subtitleCues = externalSubtitle?.cues.orEmpty(),
                     error = null,
                     errorCategory = null,
                     diagnostics =
                         it.diagnostics.copy(
                             route = YPlaybackRoute.NativeEnhanced,
+                            container = result.container.name,
                             demuxer = "FFmpeg 8.1 / libavformat",
+                            videoCodec = video?.mimeType.orEmpty(),
+                            videoWidth = video?.width ?: 0,
+                            videoHeight = video?.height ?: 0,
+                            frameRate = video?.frameRate ?: 0f,
+                            audioCodec =
+                                result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio }
+                                    ?.audio
+                                    ?.mimeType
+                                    .orEmpty(),
+                            bitrateBitsPerSecond = result.bitRateBitsPerSecond ?: 0L,
                             dynamicRange = video?.hdrType?.name.orEmpty(),
                             videoOutput = "等待首帧",
                             audioOutput = if (tracks.isEmpty()) "无音频轨" else "等待 PCM 输出",
@@ -266,6 +318,12 @@ internal class AndroidNativeEnhancedYPlayer(
                     buffering = snapshot.buffering,
                     playbackRequested = requestedPlay && !snapshot.ended,
                     positionMs = snapshot.positionUs / MICROS_PER_MILLISECOND,
+                    subtitleCues =
+                        if (externalSubtitleSelected) {
+                            externalSubtitle?.cues.orEmpty()
+                        } else {
+                            snapshot.subtitleCues
+                        },
                     diagnostics =
                         it.diagnostics.copy(
                             decoder =
@@ -274,13 +332,30 @@ internal class AndroidNativeEnhancedYPlayer(
                             videoOutput =
                                 if (snapshot.firstVideoFrameRendered) "Surface 直出" else "等待首帧",
                             audioOutput =
-                                if (snapshot.audioRendering) "PCM · AudioTrack" else it.diagnostics.audioOutput,
+                                if (snapshot.audioRendering) {
+                                    when {
+                                        snapshot.dolbyAtmosOutput -> "Dolby Atmos 原码 · AudioTrack"
+                                        snapshot.audioPassthrough -> "原码直通 · AudioTrack"
+                                        else -> "PCM · AudioTrack"
+                                    }
+                                } else {
+                                    it.diagnostics.audioOutput
+                                },
                             videoOutputVerified = snapshot.firstVideoFrameRendered,
                             audioOutputVerified = snapshot.audioRendering,
                             // Native DV output claim requires a verified video frame AND a DV source
                             // route. P7 FEL composition remains a separate evidence gate.
                             dolbyVisionOutput =
                                 snapshot.firstVideoFrameRendered && it.diagnostics.dynamicRange == "DolbyVision",
+                            dolbyAtmosOutput = snapshot.dolbyAtmosOutput,
+                            droppedFrames = snapshot.droppedFrames,
+                            avSyncOffsetMs = snapshot.avSyncOffsetUs?.div(MICROS_PER_MILLISECOND),
+                            avSyncMeasurement =
+                                if (snapshot.avSyncOffsetUs != null) {
+                                    "MediaCodec 帧渲染 / AudioTrack 时钟"
+                                } else {
+                                    "等待音视频时钟样本"
+                                },
                         ),
                 )
             }
@@ -348,6 +423,55 @@ internal class AndroidNativeEnhancedYPlayer(
                                     prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
                                 }
                             }
+                            is Command.SelectAudioTrack -> {
+                                if (prepared) {
+                                    session.selectAudioTrack(
+                                        YTrackId(command.trackId),
+                                        capabilityProvider.current(),
+                                    )
+                                    val selectedTrackId = "$AUDIO_TRACK_PREFIX${command.trackId}"
+                                    mutableState.updateState { state ->
+                                        state.copy(
+                                            audioTracks =
+                                                state.audioTracks.map { track ->
+                                                    track.copy(selected = track.id == selectedTrackId)
+                                                },
+                                            error = null,
+                                            errorCategory = null,
+                                        )
+                                    }
+                                }
+                            }
+                            is Command.SelectSubtitleTrack -> {
+                                if (prepared) {
+                                    if (!command.external || externalSubtitle != null) {
+                                        session.selectSubtitleTrack(command.trackId?.let(::YTrackId))
+                                        externalSubtitleSelected = command.external
+                                    }
+                                    val selectedTrackId =
+                                        when {
+                                            externalSubtitleSelected -> EXTERNAL_SUBTITLE_TRACK_ID
+                                            command.trackId != null -> "$SUBTITLE_TRACK_PREFIX${command.trackId}"
+                                            else -> null
+                                        }
+                                    mutableState.updateState { state ->
+                                        state.copy(
+                                            subtitleTracks =
+                                                state.subtitleTracks.map { track ->
+                                                    track.copy(selected = track.id == selectedTrackId)
+                                                },
+                                            subtitleCues =
+                                                if (externalSubtitleSelected) {
+                                                    externalSubtitle?.cues.orEmpty()
+                                                } else {
+                                                    emptyList()
+                                                },
+                                            error = null,
+                                            errorCategory = null,
+                                        )
+                                    }
+                                }
+                            }
                             is Command.SelectItem -> {
                                 currentIndex = command.index
                                 session.close()
@@ -356,7 +480,8 @@ internal class AndroidNativeEnhancedYPlayer(
                             }
                         }
                         publishSnapshot(force = true)
-                    } catch (_: Throwable) {
+                    } catch (failure: Throwable) {
+                        val typed = failure as? YPlaybackException
                         session.close()
                         prepared = false
                         requestedPlay = false
@@ -369,12 +494,14 @@ internal class AndroidNativeEnhancedYPlayer(
                                 error = "YCore 2.0 增强播放路径失败，允许回退 Legacy",
                                 // Unknown is deliberately non-penalizing until each native stage has
                                 // a typed failure domain. Never infer decoder failure from text.
-                                errorCategory = YPlaybackFailureCategory.Unknown,
+                                errorCategory = typed?.category ?: YPlaybackFailureCategory.Unknown,
                                 diagnostics =
                                     it.diagnostics.copy(
                                         videoOutput = "停止",
                                         audioOutput = "停止",
-                                        reason = "NativeEnhanced failed before typed-stage classification",
+                                        reason =
+                                            typed?.stage?.let { stage -> "NativeEnhanced failed at ${stage.name}" }
+                                                ?: "NativeEnhanced failed before typed-stage classification",
                                     ),
                             )
                         }
@@ -409,6 +536,15 @@ internal class AndroidNativeEnhancedYPlayer(
             val output: AndroidSurfaceVideoOutput?,
         ) : Command
 
+        data class SelectAudioTrack(
+            val trackId: Int,
+        ) : Command
+
+        data class SelectSubtitleTrack(
+            val trackId: Int?,
+            val external: Boolean,
+        ) : Command
+
         data class SelectItem(
             val index: Int,
         ) : Command
@@ -430,10 +566,31 @@ private fun YDemuxOpenResult.toAudioTracks(): List<YTrack> {
     }
 }
 
+private fun YDemuxOpenResult.toSubtitleTracks(): List<YTrack> =
+    tracks.mapNotNull { track ->
+        val subtitle =
+            track.subtitle?.takeIf {
+                it.format.textOverlaySupported ||
+                    it.format == com.yfuse.core2.subtitle.YSubtitleFormat.Pgs ||
+                    it.format == com.yfuse.core2.subtitle.YSubtitleFormat.VobSub
+            } ?: return@mapNotNull null
+        YTrack(
+            id = "$SUBTITLE_TRACK_PREFIX${track.id.value}",
+            type = YTrackType.Subtitle,
+            label = track.label ?: track.language ?: "Subtitle ${track.id.value + 1}",
+            language = track.language,
+            codec = subtitle.mimeType,
+            selected = false,
+        )
+    }
+
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     value = transform(value)
 }
 
 private const val MICROS_PER_MILLISECOND = 1_000L
+private const val AUDIO_TRACK_PREFIX = "audio:"
+private const val SUBTITLE_TRACK_PREFIX = "subtitle:"
+private const val SUBTITLE_OFF = "off"
 private const val STATE_PUBLISH_INTERVAL_NS = 200_000_000L
 private const val PUMP_IDLE_DELAY_MS = 2L

@@ -31,6 +31,51 @@ internal sealed interface YCodecOutputResult {
     ) : YCodecOutputResult
 }
 
+internal sealed interface YVideoFrameReleaseDecision {
+    data object Hold : YVideoFrameReleaseDecision
+
+    data object Drop : YVideoFrameReleaseDecision
+
+    data class Render(
+        val releaseTimeNs: Long,
+    ) : YVideoFrameReleaseDecision
+}
+
+/** Shared direct-Surface pacing policy. It drops only frames that can no longer meet the master clock. */
+internal fun videoFrameReleaseDecision(
+    presentationTimeUs: Long,
+    masterPositionUs: Long,
+    desiredReleaseTimeNs: Long,
+    nowNs: Long,
+    maximumScheduleAheadUs: Long,
+    lateDropThresholdNs: Long,
+    lateImmediateAllowanceNs: Long,
+): YVideoFrameReleaseDecision {
+    require(maximumScheduleAheadUs >= 0L)
+    require(lateDropThresholdNs >= 0L)
+    require(lateImmediateAllowanceNs >= 0L)
+    if (presentationTimeUs - masterPositionUs > maximumScheduleAheadUs) {
+        return YVideoFrameReleaseDecision.Hold
+    }
+    if (desiredReleaseTimeNs < nowNs - lateDropThresholdNs) {
+        return YVideoFrameReleaseDecision.Drop
+    }
+    return YVideoFrameReleaseDecision.Render(
+        releaseTimeNs = desiredReleaseTimeNs.coerceAtLeast(nowNs - lateImmediateAllowanceNs),
+    )
+}
+
+internal fun preserveFirstVideoFrame(
+    decision: YVideoFrameReleaseDecision,
+    firstFrameRendered: Boolean,
+    nowNs: Long,
+): YVideoFrameReleaseDecision =
+    if (!firstFrameRendered && decision == YVideoFrameReleaseDecision.Drop) {
+        YVideoFrameReleaseDecision.Render(nowNs)
+    } else {
+        decision
+    }
+
 /**
  * Core2's native video primitive: compressed access units enter MediaCodec and decoded output goes
  * straight to a Surface. No decoded YUV frame is copied back through the CPU or Compose.
@@ -41,6 +86,7 @@ internal sealed interface YCodecOutputResult {
  */
 internal class AndroidMediaCodecVideoNode(
     private val createDecoder: (String) -> MediaCodec = MediaCodec::createDecoderByType,
+    private val createDecoderByName: (String) -> MediaCodec = MediaCodec::createByCodecName,
 ) : YVideoDecodeNode {
     override val name: String = "MediaCodec"
 
@@ -52,12 +98,19 @@ internal class AndroidMediaCodecVideoNode(
     fun configure(
         format: MediaFormat,
         surface: Surface,
+        decoderName: String? = null,
     ) {
         release()
         val mime =
             format.getString(MediaFormat.KEY_MIME)
                 ?: error("Video MediaFormat is missing ${MediaFormat.KEY_MIME}")
-        val decoder = createDecoder(mime)
+        val decoder =
+            createPlannedVideoDecoder(
+                mime = mime,
+                decoderName = decoderName,
+                createByType = createDecoder,
+                createByName = createDecoderByName,
+            )
         try {
             decoder.configure(format, surface, null, 0)
             decoder.start()
@@ -214,6 +267,31 @@ internal class AndroidMediaCodecVideoNode(
         }
 }
 
+internal fun <T> createPlannedVideoDecoder(
+    mime: String,
+    decoderName: String?,
+    createByType: (String) -> T,
+    createByName: (String) -> T,
+): T =
+    decoderName
+        ?.takeIf(String::isNotBlank)
+        ?.let(createByName)
+        ?: createByType(mime)
+
+internal fun emptyTailSeekRetryTarget(
+    currentTargetUs: Long,
+    retryCount: Int,
+    maxRetries: Int = DEFAULT_EMPTY_TAIL_SEEK_RETRIES,
+    retryStepUs: Long = DEFAULT_EMPTY_TAIL_SEEK_RETRY_STEP_US,
+): Long? {
+    require(currentTargetUs >= 0L)
+    require(retryCount >= 0)
+    require(maxRetries >= 0)
+    require(retryStepUs > 0L)
+    if (currentTargetUs == 0L || retryCount >= maxRetries) return null
+    return (currentTargetUs - retryStepUs).coerceAtLeast(0L)
+}
+
 /** MediaExtractor's SYNC bit matches MediaCodec's key-frame bit; encrypted samples are not queued here. */
 private fun Int.toCodecInputFlags(): Int =
     if (this and MediaExtractorFlags.ENCRYPTED != 0) {
@@ -227,3 +305,6 @@ private object MediaExtractorFlags {
     const val SYNC = 1
     const val ENCRYPTED = 2
 }
+
+private const val DEFAULT_EMPTY_TAIL_SEEK_RETRY_STEP_US = 1_000_000L
+private const val DEFAULT_EMPTY_TAIL_SEEK_RETRIES = 3

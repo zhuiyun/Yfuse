@@ -236,8 +236,9 @@ As of 2026-08-19, the opt-in path has these production boundaries:
   failure retries the same item on a non-Tunnel Core2 route;
 - an exhausted Core2 failure rebuilds the user's selected Legacy engine with the current queue item,
   position, playback intent, and requested speed;
-- DRM, external subtitle, unsupported-scheme, and otherwise ineligible queues bypass the trial and
-  continue directly on Legacy; direct ISO/BDMV items may enter the capability-gated compatibility
+- DRM, unsupported external-subtitle formats/schemes, unsupported media schemes, and otherwise
+  ineligible queues bypass the trial and continue directly on Legacy; supported SRT, WebVTT,
+  ASS/SSA sidecars stay in Core2; direct ISO/BDMV items may enter the capability-gated compatibility
   executor, while server-resolved disc streams stay on the ordinary media route;
 - queue auto-next is owned by the adaptive Core2 layer, with every new item receiving a fresh route
   evaluation;
@@ -260,7 +261,31 @@ through the verified libmpv/libbluray compatibility layer; this is not a claim t
 graph nodes or physical-disc release validation are complete. `GpuEnhanced` and `SoftwareFallback`
 are likewise executable through the verified libmpv compatibility executor, including
 native-route-to-software runtime fallback for container/decoder/renderer/audio-sink failures.
-Network, authorization and DRM failures skip that retry. Native Vulkan and standalone avcodec nodes
-remain Phase 7 replacement work, rather than being misrepresented as already implemented.
+Network, authorization and DRM failures skip that retry. The native routes render embedded text,
+PGS and VobSub plus bounded UTF-8/UTF-16 SRT, WebVTT and ASS/SSA sidecars on an independent overlay;
+subtitle selection and delay do not feed decoded video through Compose. HTTP(S) NativeDirect input
+uses validated byte ranges and a bounded LRU block cache, while enhanced FFmpeg input applies bounded
+reconnects and exposes authorization/network/container failures without persisting URLs or headers.
+Deterministic local failures are stored as device-local capability facts and skip only the exact
+route after three observations within the seven-day window. Native Vulkan and standalone avcodec
+nodes remain Phase 7 replacement work, rather than being misrepresented as already implemented.
 Physical-device startup, seek, surface recreation, HDR, audio-route, and background/foreground
 regression gates must pass before any eligible cohort can default to Core2.
+
+### Native Direct device evidence (2026-08-20)
+
+The release-signed debug lane passed on a Samsung SM-N960U using the native H.264
+`MediaExtractor -> OMX.qcom.video.decoder.avc -> Surface` route:
+
+- 100 deterministic seek/flush/new-frame cycles, split into ten restart-safe segments;
+- ten next/previous queue round trips;
+- eight pause/detach/recreate/reattach cycles alternating landscape and portrait Surface sizes;
+- no player failure, MediaCodec exception, or missing first-frame verification in the completed
+  runs.
+
+This run exposed and fixed two lifecycle defects: a late post-seek first frame could be dropped all
+the way to EOS, and asynchronously persisted runtime-render evidence could race the next process.
+First-frame recovery now renders immediately before normal drop policy resumes, an empty seek can
+perform a bounded full decoder reset, and runtime evidence is committed before process handover.
+The baseline asset has no audio, so this evidence does not cover A/V drift, passthrough, Dolby
+Vision, lock-screen/PiP Activity transitions, or the private licensed media matrix.

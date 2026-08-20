@@ -38,7 +38,50 @@ data class YHevcConfiguration(
     fun csd0AnnexB(): ByteArray = (vps + sps + pps).joinAnnexB()
 }
 
+/** Parsed AV1CodecConfigurationRecord (`av1C`). */
+data class YAv1Configuration(
+    val sequenceProfile: Int,
+    val sequenceLevelIndex: Int,
+    val sequenceTier: Int,
+    val highBitDepth: Boolean,
+    val twelveBit: Boolean,
+    val monochrome: Boolean,
+    val chromaSubsamplingX: Boolean,
+    val chromaSubsamplingY: Boolean,
+    val chromaSamplePosition: Int,
+    val initialPresentationDelayMinusOne: Int?,
+    val configObus: ByteArray,
+)
+
 object YCodecConfiguration {
+    fun parseAv1C(data: ByteArray): YAv1Configuration {
+        require(data.size >= AV1_MIN_BYTES) { "Invalid av1C configuration" }
+        val markerAndVersion = data[0].u8()
+        require(markerAndVersion and 0x80 != 0 && markerAndVersion and 0x7f == 1) {
+            "Unsupported av1C marker/version"
+        }
+        val profileAndLevel = data[1].u8()
+        val flags = data[2].u8()
+        val delay = data[3].u8()
+        require(delay and 0xe0 == 0) { "av1C reserved bits are set" }
+        val delayPresent = delay and 0x10 != 0
+        val configObus = data.copyOfRange(AV1_MIN_BYTES, data.size)
+        if (configObus.isNotEmpty()) YBitstream.scanAv1(configObus)
+        return YAv1Configuration(
+            sequenceProfile = (profileAndLevel ushr 5) and 0x07,
+            sequenceLevelIndex = profileAndLevel and 0x1f,
+            sequenceTier = (flags ushr 7) and 0x01,
+            highBitDepth = flags and 0x40 != 0,
+            twelveBit = flags and 0x20 != 0,
+            monochrome = flags and 0x10 != 0,
+            chromaSubsamplingX = flags and 0x08 != 0,
+            chromaSubsamplingY = flags and 0x04 != 0,
+            chromaSamplePosition = flags and 0x03,
+            initialPresentationDelayMinusOne = if (delayPresent) delay and 0x0f else null,
+            configObus = configObus,
+        )
+    }
+
     fun parseAvcC(data: ByteArray): YAvcConfiguration {
         require(data.size >= AVC_MIN_BYTES && data[0].u8() == 1) { "Invalid avcC configuration" }
         val lengthBytes = (data[4].u8() and 0x03) + 1
@@ -132,6 +175,7 @@ private fun List<ByteArray>.joinAnnexB(): ByteArray {
 
 private val ANNEX_B_START = byteArrayOf(0, 0, 0, 1)
 private const val AVC_MIN_BYTES = 7
+private const val AV1_MIN_BYTES = 4
 private const val HEVC_ARRAYS_OFFSET = 23
 private const val HEVC_VPS = 32
 private const val HEVC_SPS = 33

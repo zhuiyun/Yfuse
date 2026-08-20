@@ -35,6 +35,8 @@ import com.yfuse.core.cast.formatDlnaTime
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.PlaybackAudioPassthrough
+import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
@@ -137,6 +139,9 @@ internal fun PlayerRoot(
     val playbackNetworkClass by
         playbackNetworkFlow.collectAsState(initial = currentPlaybackNetworkClass())
     val optimizationMode by playbackPreferences.optimizationMode.collectAsState()
+    val audioPassthrough by playbackPreferences.audioPassthrough.collectAsState()
+    val allowAudioPassthrough = audioPassthrough == PlaybackAudioPassthrough.Compatible
+    val frameRateMatch by playbackPreferences.frameRateMatch.collectAsState()
     val configuredEngineSelection by playbackPreferences.engineSelection.collectAsState()
     val core2TrialEnabled by playbackPreferences.core2TrialEnabled.collectAsState()
     var core2DisabledForSession by remember { mutableStateOf(false) }
@@ -193,6 +198,7 @@ internal fun PlayerRoot(
                 capabilities = deviceCapabilities,
                 preferredEngine = initialEngine,
                 preferredDecoderMode = decoderMode,
+                allowAudioPassthrough = allowAudioPassthrough,
                 optimizationMode = effectiveOptimizationMode,
                 engineSelection = sessionEngineSelection,
                 engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
@@ -279,6 +285,7 @@ internal fun PlayerRoot(
                 capabilities = deviceCapabilities,
                 preferredEngine = kind,
                 preferredDecoderMode = effectiveDecoderMode,
+                allowAudioPassthrough = allowAudioPassthrough,
                 optimizationMode = effectiveOptimizationMode,
                 engineSelection = sessionEngineSelection,
                 engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
@@ -333,6 +340,8 @@ internal fun PlayerRoot(
             effectiveDecoderMode,
             core2TrialEnabled,
             core2DisabledForSession,
+            allowAudioPassthrough,
+            frameRateMatch,
         ) {
             createVideoEngine(
                 kind = kind,
@@ -353,6 +362,8 @@ internal fun PlayerRoot(
                     playbackSinkForSession(sessionId)?.stopEncoding(sessionId) ?: true
                 },
                 core2TrialEnabled = core2TrialEnabled && !core2DisabledForSession,
+                allowAudioPassthrough = allowAudioPassthrough,
+                frameRateMatch = frameRateMatch,
             )
         }
     val player = remember(engine) { engine.asYPlayer() }
@@ -455,6 +466,7 @@ internal fun PlayerRoot(
                     capabilities = deviceCapabilities,
                     preferredEngine = kind,
                     preferredDecoderMode = effectiveDecoderMode,
+                    allowAudioPassthrough = allowAudioPassthrough,
                     optimizationMode = effectiveOptimizationMode,
                     engineSelection = sessionEngineSelection,
                     engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
@@ -631,6 +643,7 @@ internal fun PlayerRoot(
             capabilities = deviceCapabilities,
             preferredEngine = kind,
             preferredDecoderMode = effectiveDecoderMode,
+            allowAudioPassthrough = allowAudioPassthrough,
             optimizationMode = effectiveOptimizationMode,
             engineSelection = sessionEngineSelection,
             excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
@@ -1484,6 +1497,7 @@ internal fun PlayerRoot(
                 capabilities = deviceCapabilities,
                 preferredEngine = kind,
                 preferredDecoderMode = effectiveDecoderMode,
+                allowAudioPassthrough = allowAudioPassthrough,
                 optimizationMode = effectiveOptimizationMode,
                 engineSelection = selection,
                 excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
@@ -1755,6 +1769,7 @@ internal fun PlayerRoot(
                 capabilities = deviceCapabilities,
                 preferredEngine = kind,
                 preferredDecoderMode = effectiveDecoderMode,
+                allowAudioPassthrough = allowAudioPassthrough,
                 optimizationMode = effectiveOptimizationMode,
                 engineSelection = sessionEngineSelection,
                 excludedEngines = failureMemory.excludedEngines(activeProbe.capabilitySignature),
@@ -1933,6 +1948,10 @@ internal fun PlayerRoot(
                         state.videoHeight.takeIf { it > 0 }
                             ?: currentItem?.activeVersion?.sourceHeight
                             ?: 0,
+                    subtitleOffsetMs = subtitleControls.offsetMs,
+                    subtitleScale = subtitleControls.scale,
+                    subtitleBrightness = subtitleControls.brightness,
+                    subtitlePosition = subtitleControls.position,
                     modifier = Modifier.fillMaxSize(),
                 )
             is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize())

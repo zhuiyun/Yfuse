@@ -64,7 +64,7 @@ class YDolbyVisionRouterTest {
     }
 
     @Test
-    fun `P7 never invents a compatible-base route`() {
+    fun `P7 falls back only to its HDR10 base layer without claiming Dolby composition`() {
         val decision =
             YDolbyVisionRouter.decide(
                 video = video(YVideoCodec.H265, profile = 7),
@@ -82,7 +82,9 @@ class YDolbyVisionRouterTest {
                     ),
             )
 
-        assertIs<YDolbyVisionRouteDecision.Unsupported>(decision)
+        val fallback = assertIs<YDolbyVisionRouteDecision.CompatibleBase>(decision)
+        assertEquals(YHdrType.Hdr10, fallback.hdrType)
+        assertEquals(YVideoCodec.H265, fallback.codec)
     }
 
     @Test

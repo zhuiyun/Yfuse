@@ -50,9 +50,9 @@ class AudioTrackMatchingTest {
     }
 
     @Test
-    fun unsupportedAudioPrefersNativeEngineInsteadOfServerTranscode() {
+    fun unsupportedDirectAudioUsesServerTranscodeBeforeAnotherEngine() {
         assertEquals(
-            UnsupportedTrackRecovery.SwitchEngine,
+            UnsupportedTrackRecovery.ServerTranscode,
             unsupportedTrackRecovery(
                 track = UnsupportedMediaTrack.Audio,
                 alreadyTranscoding = false,

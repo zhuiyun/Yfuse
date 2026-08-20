@@ -19,7 +19,7 @@ on:
       release_tag:
         description: New native dependency tag (must not already exist)
         required: true
-        default: native-mpv-fcf6745-yfuse1-arm64
+        default: native-mpv-fcf6745-yfuse2-arm64
         type: string
   push:
     branches:

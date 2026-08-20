@@ -3,6 +3,7 @@ package com.yfuse.core2.android
 import android.os.Build
 import android.view.Surface
 import com.yfuse.core2.render.YFrameRateHint
+import com.yfuse.core2.render.YFrameRateSwitchMode
 
 /**
  * Thin platform bridge for authored video cadence.
@@ -11,7 +12,9 @@ import com.yfuse.core2.render.YFrameRateHint
  * Android/OEM display policy select the best supported refresh rate. Clearing the hint on teardown
  * prevents a movie cadence from leaking into the next UI/video surface lifecycle.
  */
-internal class AndroidFrameRateManager {
+internal class AndroidFrameRateManager(
+    private val mode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+) {
     private var surface: Surface? = null
     private var hint: YFrameRateHint? = null
 
@@ -47,6 +50,10 @@ internal class AndroidFrameRateManager {
         hint: YFrameRateHint?,
     ) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || !surface.isValid) return
+        if (mode == YFrameRateSwitchMode.Disabled) {
+            clearSurface(surface)
+            return
+        }
         val fps = hint?.framesPerSecond ?: 0f
         val compatibility =
             if (hint?.fixedSource == true) {
@@ -59,7 +66,11 @@ internal class AndroidFrameRateManager {
                 surface.setFrameRate(
                     fps,
                     compatibility,
-                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS,
+                    if (mode == YFrameRateSwitchMode.Always) {
+                        Surface.CHANGE_FRAME_RATE_ALWAYS
+                    } else {
+                        Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
+                    },
                 )
             } else {
                 surface.setFrameRate(fps, compatibility)

@@ -8,6 +8,7 @@ import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.yPlaybackStage
 import com.yfuse.core2.render.videoFrameRateHint
+import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.sync.YMediaClock
 import java.nio.ByteBuffer
 
@@ -36,9 +37,11 @@ internal class AndroidNativeTunnelSession(
     private val demuxer: AndroidTunnelPlatformDemuxer = AndroidTunnelPlatformDemuxer(context),
     private val videoDecoder: AndroidMediaCodecVideoNode = AndroidMediaCodecVideoNode(),
     private val audioDecoder: AndroidMediaCodecAudioNode = AndroidMediaCodecAudioNode(),
+    frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) {
     private val fallbackClock = YMediaClock()
-    private val frameRateManager = AndroidFrameRateManager()
+    private val frameRateManager = AndroidFrameRateManager(frameRateSwitchMode)
+    private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
 
     private var tunnel: AndroidTunnelConfiguration? = null
     private var audioRenderer: AndroidTunnelAudioTrackRenderNode? = null
@@ -60,6 +63,8 @@ internal class AndroidNativeTunnelSession(
 
     @Volatile
     private var firstVideoFrameRendered = false
+    private var runtimeRenderRecorded = false
+    private var runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null
 
     @Volatile
     private var lastRenderedVideoUs = 0L
@@ -71,8 +76,11 @@ internal class AndroidNativeTunnelSession(
         source: YAndroidMediaSource,
         surface: Surface,
         startPositionUs: Long = 0L,
+        decoderName: String? = null,
+        runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null,
     ) {
         close()
+        this.runtimeCapabilityKey = runtimeCapabilityKey
         require(surface.isValid) { "Tunnel session requires a valid Surface" }
         val tunnelConfig =
             yPlaybackStage(
@@ -107,13 +115,16 @@ internal class AndroidNativeTunnelSession(
         val videoFormat = tunnelConfig.configureVideoFormat(originalVideoFormat)
         val audioFormat = demuxer.trackFormat(audioIndex)
 
+        var videoConfiguredForProbe = false
         try {
             yPlaybackStage(
                 category = YPlaybackFailureCategory.Decoder,
                 stage = YPlaybackFailureStage.VideoDecoderConfigure,
             ) {
-                videoDecoder.configure(videoFormat, surface)
+                videoDecoder.configure(videoFormat, surface, decoderName)
             }
+            videoConfiguredForProbe = true
+            runtimeCapabilityKey?.let(runtimeCapabilities::recordConfigured)
             val generation = ++callbackGeneration
             videoDecoder.setOnFrameRenderedListener { presentationTimeUs, _ ->
                 if (
@@ -122,6 +133,10 @@ internal class AndroidNativeTunnelSession(
                 ) {
                     lastRenderedVideoUs = maxOf(lastRenderedVideoUs, presentationTimeUs)
                     firstVideoFrameRendered = true
+                    if (!runtimeRenderRecorded) {
+                        runtimeRenderRecorded = true
+                        runtimeCapabilityKey?.let(runtimeCapabilities::recordRendered)
+                    }
                 }
             }
             yPlaybackStage(
@@ -132,6 +147,9 @@ internal class AndroidNativeTunnelSession(
             }
             demuxer.selectTracks(setOf(videoIndex, audioIndex))
         } catch (failure: Throwable) {
+            if (!videoConfiguredForProbe) {
+                runtimeCapabilityKey?.let(runtimeCapabilities::recordRejected)
+            }
             callbackGeneration++
             frameRateManager.clear()
             runCatching(videoDecoder::release)
@@ -257,6 +275,8 @@ internal class AndroidNativeTunnelSession(
         runCatching(videoDecoder::release)
         runCatching(demuxer::release)
         tunnel = null
+        runtimeCapabilityKey = null
+        runtimeRenderRecorded = false
         surface = null
         videoTrackIndex = null
         audioTrackIndex = null
@@ -423,6 +443,7 @@ internal class AndroidNativeTunnelSession(
         audioInputEnded = false
         audioOutputEnded = false
         firstVideoFrameRendered = false
+        runtimeRenderRecorded = false
         lastRenderedVideoUs = positionUs
         renderEvidenceFloorUs = positionUs
         lastAudioEndUs = positionUs

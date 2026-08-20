@@ -2,14 +2,17 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core2.api.YDiscKind
 import com.yfuse.core2.api.YDiscMedia
+import com.yfuse.core2.api.YExternalSubtitleSource
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
+import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
 import com.yfuse.feature.player.startsWithServerTranscode
@@ -31,6 +34,8 @@ internal object AndroidCore2TrialFactory {
         autoNext: Boolean,
         quality: PlaybackQuality,
         customUserAgent: String,
+        allowAudioPassthrough: Boolean,
+        frameRateMatch: PlaybackFrameRateMatch,
     ): VideoEngine? {
         if (!items.canUseCore2Trial(startIndex)) return null
         val request =
@@ -52,6 +57,8 @@ internal object AndroidCore2TrialFactory {
                 request = request,
                 fallbackRouteFactory = compatibilityFactory,
                 discRouteFactory = compatibilityFactory,
+                allowAudioPassthrough = allowAudioPassthrough,
+                frameRateSwitchMode = frameRateMatch.toCore2Mode(),
             )
         player.setSpeed(startSpeed)
         player.prepare()
@@ -59,12 +66,19 @@ internal object AndroidCore2TrialFactory {
     }
 }
 
+private fun PlaybackFrameRateMatch.toCore2Mode(): YFrameRateSwitchMode =
+    when (this) {
+        PlaybackFrameRateMatch.Disabled -> YFrameRateSwitchMode.Disabled
+        PlaybackFrameRateMatch.SeamlessOnly -> YFrameRateSwitchMode.SeamlessOnly
+        PlaybackFrameRateMatch.Always -> YFrameRateSwitchMode.Always
+    }
+
 internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     if (isEmpty() || startIndex !in indices) return false
     return all { item ->
         item.drmConfiguration == null &&
             item.activeVersion?.drmConfiguration == null &&
-            item.externalSubtitleUri.isNullOrBlank() &&
+            item.externalSubtitleUri.isCore2SubtitleSourceSupported() &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
     }
 }
@@ -99,6 +113,15 @@ private fun PlayerMediaItem.toCore2MediaItem(
         title = title,
         headers = headers,
         providerKey = serverId,
+        externalSubtitle =
+            externalSubtitleUri
+                ?.takeIf(String::isNotBlank)
+                ?.let { uri ->
+                    YExternalSubtitleSource(
+                        uri = uri,
+                        language = externalSubtitleLanguage,
+                    )
+                },
         disc =
             if (!usingServerTranscode && version?.discSource == true) {
                 YDiscMedia(
@@ -116,6 +139,9 @@ private fun PlayerMediaItem.toCore2MediaItem(
             },
     )
 }
+
+private fun String?.isCore2SubtitleSourceSupported(): Boolean =
+    isNullOrBlank() || substringBefore(':').lowercase() in CORE2_SUBTITLE_SOURCE_SCHEMES
 
 private fun PlaybackDiscKind.toCore2DiscKind(): YDiscKind =
     when (this) {
@@ -137,5 +163,13 @@ private val CORE2_SOURCE_SCHEMES =
         "android.resource",
         "yfusebd",
         "yfusebdmv",
+    )
+private val CORE2_SUBTITLE_SOURCE_SCHEMES =
+    setOf(
+        "http",
+        "https",
+        "file",
+        "content",
+        "android.resource",
     )
 private const val USER_AGENT_HEADER = "User-Agent"

@@ -58,17 +58,21 @@ class InMemoryYCore2FailureStore : YCore2FailureStore {
  *
  * This does not share the Legacy `PlayerEngine` persistence schema. A failed Core2 experiment can
  * therefore cool down only that precise Core2 route without blacklisting Exo/mpv/MDK. Transient
- * auth/network/DRM failures and unclassified failures are never learned as hardware quirks.
+ * auth/network/DRM failures and unclassified failures are never learned as hardware quirks. A
+ * route is skipped only after repeated deterministic failures inside the cooldown window, so one
+ * isolated codec or renderer failure cannot become a long-lived device quirk.
  */
 class YCore2FailureLedger(
     private val store: YCore2FailureStore,
     private val nowEpochMs: () -> Long,
     private val cooldownMs: Long = DEFAULT_COOLDOWN_MS,
     private val maxRecords: Int = DEFAULT_MAX_RECORDS,
+    private val minimumFailuresToBlock: Int = DEFAULT_MINIMUM_FAILURES_TO_BLOCK,
 ) {
     init {
         require(cooldownMs > 0L)
         require(maxRecords > 0)
+        require(minimumFailuresToBlock > 0)
     }
 
     @Synchronized
@@ -78,7 +82,14 @@ class YCore2FailureLedger(
     ): YCore2FailureRecord? {
         if (!category.penalizesCore2Route()) return null
         val now = nowEpochMs().coerceAtLeast(0L)
-        val existing = store.load().firstOrNull { it.key == key && it.category == category }
+        val existing =
+            store
+                .load()
+                .firstOrNull {
+                    it.key == key &&
+                        it.category == category &&
+                        it.blockedUntilEpochMs > now
+                }
         val updated =
             if (existing == null) {
                 YCore2FailureRecord(
@@ -112,18 +123,25 @@ class YCore2FailureLedger(
     fun isBlocked(key: YCore2FailureKey): Boolean {
         val now = nowEpochMs().coerceAtLeast(0L)
         val records = prune(now)
-        return records.any { it.key == key && it.blockedUntilEpochMs > now }
+        return records.failureCountFor(key) >= minimumFailuresToBlock
     }
 
     @Synchronized
     fun activeFailures(key: YCore2FailureKey): List<YCore2FailureRecord> {
         val now = nowEpochMs().coerceAtLeast(0L)
-        return prune(now).filter { it.key == key && it.blockedUntilEpochMs > now }
+        val matching = prune(now).filter { it.key == key }
+        return matching.takeIf { it.failureCountFor(key) >= minimumFailuresToBlock }.orEmpty()
     }
 
     @Synchronized
     fun clear(key: YCore2FailureKey) {
         store.replace(store.load().filterNot { it.key == key })
+    }
+
+    /** Verified frame/sample output is stronger evidence than an old deterministic startup failure. */
+    @Synchronized
+    fun recordSuccess(key: YCore2FailureKey) {
+        clear(key)
     }
 
     @Synchronized
@@ -142,6 +160,13 @@ class YCore2FailureLedger(
         return active
     }
 }
+
+private fun List<YCore2FailureRecord>.failureCountFor(key: YCore2FailureKey): Int =
+    asSequence()
+        .filter { it.key == key }
+        .sumOf { it.failureCount.toLong() }
+        .coerceAtMost(Int.MAX_VALUE.toLong())
+        .toInt()
 
 fun YPlaybackFailureCategory.penalizesCore2Route(): Boolean =
     when (this) {
@@ -164,3 +189,4 @@ private fun saturatingAdd(
 
 private const val DEFAULT_COOLDOWN_MS = 7L * 24L * 60L * 60L * 1_000L
 private const val DEFAULT_MAX_RECORDS = 128
+private const val DEFAULT_MINIMUM_FAILURES_TO_BLOCK = 3

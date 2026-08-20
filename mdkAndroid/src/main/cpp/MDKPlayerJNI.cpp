@@ -25,7 +25,7 @@ struct ErrorState {
 struct PlayerRef {
     std::unique_ptr<Player> player = std::make_unique<Player>();
     jobject surface = nullptr;
-    int selectedAudio = 0;
+    int selectedAudio = -1;
     int selectedSubtitle = 0;
     std::shared_ptr<ErrorState> errors = std::make_shared<ErrorState>();
 };
@@ -150,7 +150,7 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeSetMedia(
     if (value == nullptr) {
         return;
     }
-    value->selectedAudio = 0;
+    value->selectedAudio = -1;
     value->selectedSubtitle = 0;
     {
         std::lock_guard<std::mutex> lock(value->errors->eventMutex);
@@ -242,6 +242,9 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeLastError(JNIEnv* env, jclass, jlong pt
     }
     const auto details = std::to_string(value->errors->lastError) + " " +
                          value->errors->lastErrorCategory + " " + value->errors->lastErrorDetail;
+    value->errors->lastError = 0;
+    value->errors->lastErrorCategory.clear();
+    value->errors->lastErrorDetail.clear();
     return env->NewStringUTF(details.c_str());
 }
 

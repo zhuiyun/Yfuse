@@ -1,5 +1,11 @@
 package com.yfuse.core2.render
 
+enum class YFrameRateSwitchMode {
+    Disabled,
+    SeamlessOnly,
+    Always,
+}
+
 /** Platform-neutral frame-rate hint validated before it reaches Surface/display APIs. */
 data class YFrameRateHint(
     val framesPerSecond: Float,

@@ -95,6 +95,7 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
         durationMs = durationMs,
         bufferedPositionMs = bufferedPositionMs,
         speed = speed,
+        videoHeight = diagnostics.videoHeight,
         currentIndex = currentIndex,
         itemCount = itemCount,
         audioTracks = audioTracks.map(YTrack::toEngineTrack),
@@ -111,8 +112,11 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
             PlaybackDiagnostics(
                 engine = "YCore 2.0",
                 decoder = diagnostics.decoder.ifBlank { "等待解码器" },
+                videoCodec = diagnostics.videoCodec.ifBlank { "未知" },
                 playMethod = diagnostics.route.name,
+                videoWidth = diagnostics.videoWidth,
                 dynamicRange = diagnostics.dynamicRange,
+                audioFormat = diagnostics.audioCodec,
                 videoOutput = diagnostics.videoOutput.ifBlank { "等待首帧" },
                 audioOutput = diagnostics.audioOutput.ifBlank { "等待音频输出" },
                 videoReadiness =
@@ -129,9 +133,14 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
                     },
                 dolbyVisionOutput = diagnostics.dolbyVisionOutput,
                 dolbyAtmosOutput = diagnostics.dolbyAtmosOutput,
+                avSyncOffsetMs = diagnostics.avSyncOffsetMs,
+                avSyncMeasurement = diagnostics.avSyncMeasurement,
                 plannedRenderPath = diagnostics.renderer,
                 planningReason = diagnostics.reason,
                 mediaProbe = diagnostics.demuxer,
+                bitrateBitsPerSecond = diagnostics.bitrateBitsPerSecond,
+                frameRate = diagnostics.frameRate,
+                droppedFrames = diagnostics.droppedFrames,
             ),
     )
 

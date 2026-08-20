@@ -2,6 +2,9 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import android.hardware.display.DisplayManager
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.os.Build
@@ -29,9 +32,11 @@ internal class AndroidYCapabilityProvider(
         return YDeviceCapabilities(
             videoDecoders = videoDecoders,
             audioDecoders = queryAudioDecoders(codecInfos),
+            audioPassthrough = queryAudioPassthrough(),
             displayHdrTypes = queryDisplayHdrTypes(),
-            supportsSurfaceDirect = true,
+            supportsSurfaceDirect = videoDecoders.any { it.surfaceOutput },
             supportsTunnel = videoDecoders.any { it.tunneledPlayback },
+            supportsFrameRateSwitching = queryFrameRateSwitching(),
         )
     }
 
@@ -53,6 +58,30 @@ internal class AndroidYCapabilityProvider(
             .flatMap { info -> info.supportedTypes.asSequence() }
             .mapNotNull { type -> type.lowercase().toYAudioCodec() }
             .toSet()
+            .expandImmersiveDecoderFamilies()
+
+    private fun queryAudioPassthrough(): Set<YAudioCodec> {
+        val manager = appContext.getSystemService(AudioManager::class.java) ?: return emptySet()
+        val encodings =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val attributes =
+                    AudioAttributes
+                        .Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                        .build()
+                runCatching {
+                    manager.getDirectProfilesForAttributes(attributes).mapTo(mutableSetOf()) { it.format }
+                }.getOrDefault(emptySet())
+            } else {
+                runCatching {
+                    manager
+                        .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                        .flatMapTo(mutableSetOf()) { it.encodings.asIterable() }
+                }.getOrDefault(emptySet())
+            }
+        return encodings.flatMapTo(mutableSetOf(), ::audioCodecsForEncoding)
+    }
 
     private fun MediaCodecInfo.toYDecoders(type: String): List<YVideoDecoderCapability> {
         val normalizedType = type.lowercase()
@@ -64,6 +93,21 @@ internal class AndroidYCapabilityProvider(
             capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback)
         val adaptive =
             capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback)
+        val secure =
+            capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback)
+        val lowLatency =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)
+        val surfaceOutput =
+            supportsSurfaceOutput(
+                colorFormats = capabilities.colorFormats,
+                adaptivePlayback = adaptive,
+                tunneledPlayback = tunneled,
+            )
+        val profileLevelMap =
+            profileLevels
+                .groupBy { it.profile }
+                .mapValues { (_, values) -> values.maxOf { it.level } }
 
         fun capability(
             codec: YVideoCodec,
@@ -75,6 +119,7 @@ internal class AndroidYCapabilityProvider(
                 codec = codec,
                 hdrTypes = decoderHdrTypes(normalizedType, profiles),
                 rawProfiles = rawProfileSet,
+                rawProfileLevels = profileLevelMap.filterKeys(rawProfileSet::contains),
                 dolbyVisionProfiles = dolbyProfiles,
                 maxWidth = videoCapabilities?.supportedWidths?.upper ?: 0,
                 maxHeight = videoCapabilities?.supportedHeights?.upper ?: 0,
@@ -82,6 +127,9 @@ internal class AndroidYCapabilityProvider(
                 maxBitDepth = decoderMaxBitDepth(normalizedType, profiles),
                 tunneledPlayback = tunneled,
                 adaptivePlayback = adaptive,
+                securePlayback = secure,
+                lowLatencyPlayback = lowLatency,
+                surfaceOutput = surfaceOutput,
             )
 
         if (normalizedType != MIME_DOLBY_VISION) {
@@ -126,7 +174,26 @@ internal class AndroidYCapabilityProvider(
             }
         }
     }
+
+    private fun queryFrameRateSwitching(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        val display =
+            appContext
+                .getSystemService(DisplayManager::class.java)
+                ?.getDisplay(Display.DEFAULT_DISPLAY)
+                ?: return false
+        return display.supportedModes.map { it.refreshRate }.distinct().size > 1
+    }
 }
+
+internal fun supportsSurfaceOutput(
+    colorFormats: IntArray,
+    adaptivePlayback: Boolean,
+    tunneledPlayback: Boolean,
+): Boolean =
+    MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface in colorFormats ||
+        adaptivePlayback ||
+        tunneledPlayback
 
 private fun MediaCodecInfo.isHardwareDecoderCompat(): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return isHardwareAccelerated
@@ -302,14 +369,36 @@ private fun String.toYVideoCodec(): YVideoCodec? =
 internal fun String.toYAudioCodec(): YAudioCodec? =
     when (lowercase()) {
         "audio/mp4a-latm", "audio/aac", "audio/aac-adts" -> YAudioCodec.Aac
+        "audio/alac", "audio/x-alac" -> YAudioCodec.Alac
+        "audio/mpeg" -> YAudioCodec.Mp3
         "audio/ac3" -> YAudioCodec.Ac3
-        "audio/eac3", "audio/eac3-joc" -> YAudioCodec.Eac3
+        "audio/eac3" -> YAudioCodec.Eac3
+        "audio/eac3-joc" -> YAudioCodec.Eac3Joc
         "audio/flac" -> YAudioCodec.Flac
         "audio/opus" -> YAudioCodec.Opus
-        "audio/true-hd" -> YAudioCodec.TrueHd
+        "audio/true-hd", "audio/vnd.dolby.mlp" -> YAudioCodec.TrueHd
         "audio/vnd.dts" -> YAudioCodec.Dts
         "audio/vnd.dts.hd" -> YAudioCodec.DtsHd
         else -> null
     }
 
 private const val MIME_DOLBY_VISION = "video/dolby-vision"
+
+private fun Set<YAudioCodec>.expandImmersiveDecoderFamilies(): Set<YAudioCodec> =
+    buildSet {
+        addAll(this@expandImmersiveDecoderFamilies)
+        if (YAudioCodec.Eac3 in this@expandImmersiveDecoderFamilies) add(YAudioCodec.Eac3Joc)
+        if (YAudioCodec.TrueHd in this@expandImmersiveDecoderFamilies) add(YAudioCodec.TrueHdAtmos)
+    }
+
+private fun audioCodecsForEncoding(encoding: Int): Set<YAudioCodec> =
+    when (encoding) {
+        AudioFormat.ENCODING_AC3 -> setOf(YAudioCodec.Ac3)
+        AudioFormat.ENCODING_E_AC3 -> setOf(YAudioCodec.Eac3, YAudioCodec.Eac3Joc)
+        AudioFormat.ENCODING_E_AC3_JOC -> setOf(YAudioCodec.Eac3, YAudioCodec.Eac3Joc)
+        AudioFormat.ENCODING_DOLBY_TRUEHD -> setOf(YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos)
+        AudioFormat.ENCODING_DTS -> setOf(YAudioCodec.Dts)
+        AudioFormat.ENCODING_DTS_HD -> setOf(YAudioCodec.DtsHd)
+        AudioFormat.ENCODING_DTS_HD_MA -> setOf(YAudioCodec.DtsHd, YAudioCodec.DtsX)
+        else -> emptySet()
+    }

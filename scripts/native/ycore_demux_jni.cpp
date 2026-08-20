@@ -1,6 +1,9 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <cerrno>
+#include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -9,6 +12,7 @@
 #include <vector>
 
 extern "C" {
+#include <libavcodec/avcodec.h>
 #include <libavcodec/codec_par.h>
 #include <libavcodec/packet.h>
 #include <libavformat/avformat.h>
@@ -16,6 +20,7 @@ extern "C" {
 #include <libavutil/dict.h>
 #include <libavutil/dovi_meta.h>
 #include <libavutil/error.h>
+#include <libavutil/mastering_display_metadata.h>
 }
 
 namespace {
@@ -29,6 +34,7 @@ constexpr int kTrackData = 4;
 constexpr int kHdrSdr = 0;
 constexpr int kHdrPq = 1;
 constexpr int kHdrHlg = 2;
+constexpr int kHdr10Plus = 3;
 
 constexpr int kPackingUnknown = 0;
 constexpr int kPackingAnnexB = 1;
@@ -37,19 +43,30 @@ constexpr int kPackingLengthPrefixed = 2;
 constexpr int kPacketStatusEof = 0;
 constexpr int kPacketStatusData = 1;
 constexpr int kPacketStatusGrowBuffer = -1;
+constexpr int kFailureAuthorization = -2;
+constexpr int kFailureNetwork = -3;
+constexpr int kFailureContainer = -4;
 
 constexpr int kSampleFlagSync = 1 << 0;
 constexpr int kSampleFlagEncrypted = 1 << 1;
 
 constexpr jlong kNoTimestamp = std::numeric_limits<jlong>::min();
+constexpr uint32_t kSubtitlePayloadMagic = 0x42555359;
+constexpr uint32_t kSubtitlePayloadVersion = 1;
+constexpr size_t kMaxSubtitlePayloadBytes = 32U * 1024U * 1024U;
 
 struct DemuxSession {
     AVFormatContext* format = nullptr;
     AVPacket* packet = nullptr;
     bool packet_pending = false;
+    bool remote_source = false;
     std::vector<uint8_t> selected;
+    std::vector<AVCodecContext*> subtitle_decoders;
 
     ~DemuxSession() {
+        for (AVCodecContext*& decoder : subtitle_decoders) {
+            avcodec_free_context(&decoder);
+        }
         if (packet) {
             av_packet_free(&packet);
         }
@@ -87,6 +104,45 @@ std::string ffmpeg_error(int error) {
     char buffer[AV_ERROR_MAX_STRING_SIZE] = {};
     av_strerror(error, buffer, sizeof(buffer));
     return std::string(buffer);
+}
+
+bool is_remote_source(const std::string& source) {
+    const size_t separator = source.find(':');
+    if (separator == std::string::npos) return false;
+    std::string scheme = source.substr(0, separator);
+    std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char value) {
+        return static_cast<char>(std::tolower(value));
+    });
+    return scheme == "http" || scheme == "https" || scheme == "smb" || scheme == "webdav";
+}
+
+int failure_status(int error, bool remote_source) {
+    if (error == AVERROR_HTTP_UNAUTHORIZED || error == AVERROR_HTTP_FORBIDDEN) {
+        return kFailureAuthorization;
+    }
+    if (error == AVERROR_INVALIDDATA || error == AVERROR_DEMUXER_NOT_FOUND) {
+        return kFailureContainer;
+    }
+    if (!remote_source) return kFailureContainer;
+    switch (error) {
+        case AVERROR_HTTP_BAD_REQUEST:
+        case AVERROR_HTTP_NOT_FOUND:
+        case AVERROR_HTTP_TOO_MANY_REQUESTS:
+        case AVERROR_HTTP_OTHER_4XX:
+        case AVERROR_HTTP_SERVER_ERROR:
+        case AVERROR(EAGAIN):
+        case AVERROR(ETIMEDOUT):
+        case AVERROR(ECONNRESET):
+        case AVERROR(ECONNREFUSED):
+        case AVERROR(EHOSTUNREACH):
+        case AVERROR(ENETDOWN):
+        case AVERROR(ENETUNREACH):
+        case AVERROR(EPIPE):
+        case AVERROR(EIO):
+            return kFailureNetwork;
+        default:
+            return kFailureNetwork;
+    }
 }
 
 std::string to_utf8(JNIEnv* env, jstring value) {
@@ -175,7 +231,12 @@ int hdr_type(const AVCodecParameters* parameters) {
     if (!parameters) return kHdrSdr;
     switch (parameters->color_trc) {
         case AVCOL_TRC_SMPTE2084:
-            return kHdrPq;
+            return av_packet_side_data_get(
+                       parameters->coded_side_data,
+                       parameters->nb_coded_side_data,
+                       AV_PKT_DATA_DYNAMIC_HDR10_PLUS)
+                ? kHdr10Plus
+                : kHdrPq;
         case AVCOL_TRC_ARIB_STD_B67:
             return kHdrHlg;
         default:
@@ -183,14 +244,21 @@ int hdr_type(const AVCodecParameters* parameters) {
     }
 }
 
+int rational_to_u16(AVRational value, double scale) {
+    if (value.den <= 0 || value.num < 0) return 0;
+    const double scaled = av_q2d(value) * scale;
+    if (!std::isfinite(scaled) || scaled <= 0.0) return 0;
+    return static_cast<int>(std::clamp(std::llround(scaled), 0LL, 65535LL));
+}
+
 int bit_depth(const AVCodecParameters* parameters) {
     if (!parameters) return 0;
     if (parameters->bits_per_raw_sample > 0) return parameters->bits_per_raw_sample;
     switch (parameters->codec_id) {
         case AV_CODEC_ID_HEVC:
-            return parameters->profile == FF_PROFILE_HEVC_MAIN_10 ? 10 : 8;
+            return parameters->profile == AV_PROFILE_HEVC_MAIN_10 ? 10 : 8;
         case AV_CODEC_ID_H264:
-            return parameters->profile == FF_PROFILE_H264_HIGH_10 ? 10 : 8;
+            return parameters->profile == AV_PROFILE_H264_HIGH_10 ? 10 : 8;
         default:
             return 0;
     }
@@ -242,6 +310,89 @@ jbyteArray copy_bytes(JNIEnv* env, const uint8_t* data, int size) {
     return result;
 }
 
+void append_u32(std::vector<uint8_t>* output, uint32_t value) {
+    output->push_back(static_cast<uint8_t>(value));
+    output->push_back(static_cast<uint8_t>(value >> 8));
+    output->push_back(static_cast<uint8_t>(value >> 16));
+    output->push_back(static_cast<uint8_t>(value >> 24));
+}
+
+void write_u32(std::vector<uint8_t>* output, size_t offset, uint32_t value) {
+    (*output)[offset] = static_cast<uint8_t>(value);
+    (*output)[offset + 1] = static_cast<uint8_t>(value >> 8);
+    (*output)[offset + 2] = static_cast<uint8_t>(value >> 16);
+    (*output)[offset + 3] = static_cast<uint8_t>(value >> 24);
+}
+
+AVCodecContext* subtitle_decoder(JNIEnv* env, DemuxSession* session, jint index) {
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return nullptr;
+    if (stream->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE) {
+        throw_illegal_argument(env, "Requested track is not subtitle");
+        return nullptr;
+    }
+    AVCodecContext*& existing = session->subtitle_decoders[index];
+    if (existing) return existing;
+
+    const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
+    if (!codec) {
+        throw_illegal_state(env, "FFmpeg subtitle decoder is unavailable");
+        return nullptr;
+    }
+    AVCodecContext* context = avcodec_alloc_context3(codec);
+    if (!context) {
+        throw_illegal_state(env, "Unable to allocate FFmpeg subtitle decoder");
+        return nullptr;
+    }
+    int error = avcodec_parameters_to_context(context, stream->codecpar);
+    if (error >= 0) {
+        context->pkt_timebase = stream->time_base;
+        error = avcodec_open2(context, codec, nullptr);
+    }
+    if (error < 0) {
+        avcodec_free_context(&context);
+        throw_illegal_state(env, "FFmpeg subtitle decoder open failed: " + ffmpeg_error(error));
+        return nullptr;
+    }
+    existing = context;
+    return existing;
+}
+
+bool append_bitmap_rect(std::vector<uint8_t>* output, const AVSubtitleRect* rect) {
+    if (!rect || rect->type != SUBTITLE_BITMAP || rect->w <= 0 || rect->h <= 0 ||
+        rect->nb_colors <= 0 || rect->nb_colors > 256 || !rect->data[0] || !rect->data[1] ||
+        rect->linesize[0] < rect->w) {
+        return false;
+    }
+    const size_t pixel_count = static_cast<size_t>(rect->w) * static_cast<size_t>(rect->h);
+    const size_t required = 7U * sizeof(uint32_t) + pixel_count * sizeof(uint32_t);
+    if (pixel_count > kMaxSubtitlePayloadBytes / sizeof(uint32_t) ||
+        required > kMaxSubtitlePayloadBytes ||
+        output->size() > kMaxSubtitlePayloadBytes - required) {
+        return false;
+    }
+
+    append_u32(output, static_cast<uint32_t>(rect->x));
+    append_u32(output, static_cast<uint32_t>(rect->y));
+    append_u32(output, static_cast<uint32_t>(rect->w));
+    append_u32(output, static_cast<uint32_t>(rect->h));
+    append_u32(output, static_cast<uint32_t>(rect->flags));
+    append_u32(output, static_cast<uint32_t>(pixel_count));
+    append_u32(output, 0);
+    for (int y = 0; y < rect->h; ++y) {
+        const uint8_t* indexes = rect->data[0] + static_cast<size_t>(y) * rect->linesize[0];
+        for (int x = 0; x < rect->w; ++x) {
+            const uint8_t palette_index = indexes[x];
+            uint32_t color = 0;
+            if (palette_index < rect->nb_colors) {
+                std::memcpy(&color, rect->data[1] + palette_index * sizeof(color), sizeof(color));
+            }
+            append_u32(output, color);
+        }
+    }
+    return true;
+}
+
 jlongArray make_packet_result(
     JNIEnv* env,
     jlong status,
@@ -288,6 +439,7 @@ jlong native_open(
     if (!headers_valid || env->ExceptionCheck()) return 0;
 
     auto session = std::make_unique<DemuxSession>();
+    session->remote_source = is_remote_source(source);
     session->packet = av_packet_alloc();
     if (!session->packet) {
         throw_illegal_state(env, "Unable to allocate FFmpeg packet");
@@ -298,23 +450,30 @@ jlong native_open(
     if (!headers.empty()) {
         av_dict_set(&options, "headers", headers.c_str(), 0);
     }
-    av_dict_set(&options, "reconnect", "1", 0);
-    av_dict_set(&options, "reconnect_streamed", "1", 0);
-    av_dict_set(&options, "reconnect_delay_max", "5", 0);
+    if (session->remote_source) {
+        av_dict_set(&options, "multiple_requests", "1", 0);
+        av_dict_set(&options, "reconnect", "1", 0);
+        av_dict_set(&options, "reconnect_on_network_error", "1", 0);
+        av_dict_set(&options, "reconnect_on_http_error", "408,429,5xx", 0);
+        av_dict_set(&options, "reconnect_streamed", "1", 0);
+        av_dict_set(&options, "reconnect_delay_max", "5", 0);
+        av_dict_set(&options, "reconnect_max_retries", "5", 0);
+        av_dict_set(&options, "respect_retry_after", "1", 0);
+        av_dict_set(&options, "rw_timeout", "15000000", 0);
+    }
 
     int error = avformat_open_input(&session->format, source.c_str(), nullptr, &options);
     av_dict_free(&options);
     if (error < 0) {
-        throw_illegal_state(env, "FFmpeg open failed: " + ffmpeg_error(error));
-        return 0;
+        return failure_status(error, session->remote_source);
     }
     error = avformat_find_stream_info(session->format, nullptr);
     if (error < 0) {
-        throw_illegal_state(env, "FFmpeg stream probe failed: " + ffmpeg_error(error));
-        return 0;
+        return failure_status(error, session->remote_source);
     }
 
     session->selected.assign(session->format->nb_streams, 0);
+    session->subtitle_decoders.assign(session->format->nb_streams, nullptr);
     return to_handle(session.release());
 }
 
@@ -349,6 +508,15 @@ jlong native_duration_us(JNIEnv* env, jclass, jlong handle) {
     return session->format->duration == AV_NOPTS_VALUE
         ? kNoTimestamp
         : static_cast<jlong>(session->format->duration);
+}
+
+jlong native_bit_rate_bits_per_second(JNIEnv* env, jclass, jlong handle) {
+    DemuxSession* session = from_handle(handle);
+    if (!session || !session->format) {
+        throw_illegal_state(env, "FFmpeg demux session is closed");
+        return 0;
+    }
+    return static_cast<jlong>(std::max<int64_t>(0, session->format->bit_rate));
 }
 
 jint native_track_type(JNIEnv* env, jclass, jlong handle, jint index) {
@@ -458,6 +626,58 @@ jintArray native_track_dolby_config(JNIEnv* env, jclass, jlong handle, jint inde
     return result;
 }
 
+jintArray native_track_hdr_static_info(JNIEnv* env, jclass, jlong handle, jint index) {
+    AVStream* stream = checked_stream(env, from_handle(handle), index);
+    if (!stream) return nullptr;
+    const AVCodecParameters* parameters = stream->codecpar;
+    if (parameters->codec_type != AVMEDIA_TYPE_VIDEO) {
+        throw_illegal_argument(env, "Requested track is not video");
+        return nullptr;
+    }
+
+    const AVPacketSideData* mastering_side = av_packet_side_data_get(
+        parameters->coded_side_data,
+        parameters->nb_coded_side_data,
+        AV_PKT_DATA_MASTERING_DISPLAY_METADATA);
+    const AVPacketSideData* light_side = av_packet_side_data_get(
+        parameters->coded_side_data,
+        parameters->nb_coded_side_data,
+        AV_PKT_DATA_CONTENT_LIGHT_LEVEL);
+    if (!mastering_side && !light_side) return nullptr;
+
+    const AVMasteringDisplayMetadata* mastering =
+        mastering_side && mastering_side->size >= sizeof(AVMasteringDisplayMetadata)
+        ? reinterpret_cast<const AVMasteringDisplayMetadata*>(mastering_side->data)
+        : nullptr;
+    const AVContentLightMetadata* light =
+        light_side && light_side->size >= sizeof(AVContentLightMetadata)
+        ? reinterpret_cast<const AVContentLightMetadata*>(light_side->data)
+        : nullptr;
+
+    jint values[12] = {};
+    if (mastering && mastering->has_primaries) {
+        for (int primary = 0; primary < 3; ++primary) {
+            values[primary * 2] = rational_to_u16(mastering->display_primaries[primary][0], 50000.0);
+            values[primary * 2 + 1] = rational_to_u16(mastering->display_primaries[primary][1], 50000.0);
+        }
+        values[6] = rational_to_u16(mastering->white_point[0], 50000.0);
+        values[7] = rational_to_u16(mastering->white_point[1], 50000.0);
+    }
+    if (mastering && mastering->has_luminance) {
+        values[8] = rational_to_u16(mastering->max_luminance, 1.0);
+        values[9] = rational_to_u16(mastering->min_luminance, 10000.0);
+    }
+    if (light) {
+        values[10] = static_cast<jint>(std::min(light->MaxCLL, 65535U));
+        values[11] = static_cast<jint>(std::min(light->MaxFALL, 65535U));
+    }
+    jintArray result = env->NewIntArray(sizeof(values) / sizeof(values[0]));
+    if (result) {
+        env->SetIntArrayRegion(result, 0, sizeof(values) / sizeof(values[0]), values);
+    }
+    return result;
+}
+
 void native_select_tracks(JNIEnv* env, jclass, jlong handle, jintArray indexes) {
     DemuxSession* session = from_handle(handle);
     if (!session || !session->format) {
@@ -512,8 +732,15 @@ jlongArray native_read_packet(JNIEnv* env, jclass, jlong handle, jobject target)
                 0);
         }
         if (error < 0) {
-            throw_illegal_state(env, "FFmpeg packet read failed: " + ffmpeg_error(error));
-            return nullptr;
+            return make_packet_result(
+                env,
+                failure_status(error, session->remote_source),
+                -1,
+                0,
+                kNoTimestamp,
+                kNoTimestamp,
+                kNoTimestamp,
+                0);
         }
         const int stream_index = session->packet->stream_index;
         if (stream_index < 0 ||
@@ -562,11 +789,110 @@ jlongArray native_read_packet(JNIEnv* env, jclass, jlong handle, jobject target)
     return result;
 }
 
-void native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
+jbyteArray native_decode_subtitle(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index,
+    jbyteArray encoded,
+    jlong presentation_time_us,
+    jlong duration_us) {
+    DemuxSession* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream || !encoded) return nullptr;
+    AVCodecContext* decoder = subtitle_decoder(env, session, index);
+    if (!decoder || env->ExceptionCheck()) return nullptr;
+
+    const jsize encoded_size = env->GetArrayLength(encoded);
+    if (encoded_size <= 0 || static_cast<size_t>(encoded_size) > kMaxSubtitlePayloadBytes) {
+        return nullptr;
+    }
+    AVPacket* packet = av_packet_alloc();
+    if (!packet || av_new_packet(packet, encoded_size) < 0) {
+        av_packet_free(&packet);
+        throw_illegal_state(env, "Unable to allocate FFmpeg subtitle packet");
+        return nullptr;
+    }
+    env->GetByteArrayRegion(encoded, 0, encoded_size, reinterpret_cast<jbyte*>(packet->data));
+    if (env->ExceptionCheck()) {
+        av_packet_free(&packet);
+        return nullptr;
+    }
+    packet->stream_index = index;
+    packet->pts = presentation_time_us == kNoTimestamp
+        ? AV_NOPTS_VALUE
+        : av_rescale_q(presentation_time_us, AV_TIME_BASE_Q, stream->time_base);
+    packet->dts = packet->pts;
+    packet->duration = duration_us > 0
+        ? av_rescale_q(duration_us, AV_TIME_BASE_Q, stream->time_base)
+        : 0;
+
+    AVSubtitle subtitle = {};
+    int got_subtitle = 0;
+    const int error = avcodec_decode_subtitle2(decoder, &subtitle, &got_subtitle, packet);
+    av_packet_free(&packet);
+    if (error < 0) {
+        avsubtitle_free(&subtitle);
+        throw_illegal_state(env, "FFmpeg subtitle decode failed: " + ffmpeg_error(error));
+        return nullptr;
+    }
+    if (!got_subtitle || subtitle.num_rects == 0) {
+        avsubtitle_free(&subtitle);
+        return nullptr;
+    }
+
+    int canvas_width = std::max(0, decoder->width);
+    int canvas_height = std::max(0, decoder->height);
+    for (unsigned int i = 0; i < subtitle.num_rects; ++i) {
+        const AVSubtitleRect* rect = subtitle.rects[i];
+        if (rect && rect->type == SUBTITLE_BITMAP && rect->x >= 0 && rect->y >= 0) {
+            canvas_width = std::max(canvas_width, rect->x + rect->w);
+            canvas_height = std::max(canvas_height, rect->y + rect->h);
+        }
+    }
+    if (canvas_width <= 0 || canvas_height <= 0) {
+        avsubtitle_free(&subtitle);
+        return nullptr;
+    }
+
+    std::vector<uint8_t> output;
+    output.reserve(256);
+    append_u32(&output, kSubtitlePayloadMagic);
+    append_u32(&output, kSubtitlePayloadVersion);
+    append_u32(&output, static_cast<uint32_t>(canvas_width));
+    append_u32(&output, static_cast<uint32_t>(canvas_height));
+    append_u32(&output, subtitle.start_display_time);
+    append_u32(&output, subtitle.end_display_time);
+    const size_t rect_count_offset = output.size();
+    append_u32(&output, 0);
+    uint32_t rect_count = 0;
+    for (unsigned int i = 0; i < subtitle.num_rects; ++i) {
+        const AVSubtitleRect* rect = subtitle.rects[i];
+        if (rect && rect->x >= 0 && rect->y >= 0 && append_bitmap_rect(&output, rect)) {
+            ++rect_count;
+        }
+    }
+    avsubtitle_free(&subtitle);
+    if (rect_count == 0 || output.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+        return nullptr;
+    }
+    write_u32(&output, rect_count_offset, rect_count);
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(output.size()));
+    if (result) {
+        env->SetByteArrayRegion(
+            result,
+            0,
+            static_cast<jsize>(output.size()),
+            reinterpret_cast<const jbyte*>(output.data()));
+    }
+    return result;
+}
+
+jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
     DemuxSession* session = from_handle(handle);
     if (!session || !session->format) {
         throw_illegal_state(env, "FFmpeg demux session is closed");
-        return;
+        return kFailureContainer;
     }
     const int64_t target = std::max<int64_t>(0, position_us);
     const int error = avformat_seek_file(
@@ -577,14 +903,17 @@ void native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
         std::numeric_limits<int64_t>::max(),
         AVSEEK_FLAG_BACKWARD);
     if (error < 0) {
-        throw_illegal_state(env, "FFmpeg seek failed: " + ffmpeg_error(error));
-        return;
+        return failure_status(error, session->remote_source);
     }
     avformat_flush(session->format);
+    for (AVCodecContext* decoder : session->subtitle_decoders) {
+        if (decoder) avcodec_flush_buffers(decoder);
+    }
     if (session->packet_pending) {
         av_packet_unref(session->packet);
         session->packet_pending = false;
     }
+    return 0;
 }
 
 static const JNINativeMethod kMethods[] = {
@@ -593,6 +922,7 @@ static const JNINativeMethod kMethods[] = {
     {"nativeTrackCount", "(J)I", reinterpret_cast<void*>(native_track_count)},
     {"nativeContainerName", "(J)Ljava/lang/String;", reinterpret_cast<void*>(native_container_name)},
     {"nativeDurationUs", "(J)J", reinterpret_cast<void*>(native_duration_us)},
+    {"nativeBitRateBitsPerSecond", "(J)J", reinterpret_cast<void*>(native_bit_rate_bits_per_second)},
     {"nativeTrackType", "(JI)I", reinterpret_cast<void*>(native_track_type)},
     {"nativeTrackCodecName", "(JI)Ljava/lang/String;", reinterpret_cast<void*>(native_track_codec_name)},
     {"nativeTrackVideoInfo", "(JI)[J", reinterpret_cast<void*>(native_track_video_info)},
@@ -601,9 +931,11 @@ static const JNINativeMethod kMethods[] = {
     {"nativeTrackTitle", "(JI)Ljava/lang/String;", reinterpret_cast<void*>(native_track_title)},
     {"nativeTrackExtradata", "(JI)[B", reinterpret_cast<void*>(native_track_extradata)},
     {"nativeTrackDolbyConfig", "(JI)[I", reinterpret_cast<void*>(native_track_dolby_config)},
+    {"nativeTrackHdrStaticInfo", "(JI)[I", reinterpret_cast<void*>(native_track_hdr_static_info)},
     {"nativeSelectTracks", "(J[I)V", reinterpret_cast<void*>(native_select_tracks)},
     {"nativeReadPacket", "(JLjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_read_packet)},
-    {"nativeSeek", "(JJ)V", reinterpret_cast<void*>(native_seek)},
+    {"nativeDecodeSubtitle", "(JI[BJJ)[B", reinterpret_cast<void*>(native_decode_subtitle)},
+    {"nativeSeek", "(JJ)I", reinterpret_cast<void*>(native_seek)},
 };
 
 }  // namespace

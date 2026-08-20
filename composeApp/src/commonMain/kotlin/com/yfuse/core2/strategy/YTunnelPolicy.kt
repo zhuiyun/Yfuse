@@ -1,5 +1,6 @@
 package com.yfuse.core2.strategy
 
+import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YDeviceCapabilities
 import com.yfuse.core2.capability.YVideoDecoderCapability
 
@@ -19,6 +20,6 @@ fun canUseNativeTunnel(
         request.audio != null &&
         capabilities.supportsTunnel &&
         capabilities.supportsSurfaceDirect &&
-        capabilities.supportsAudio(request.audio) &&
+        capabilities.audioOutputPath(request.audio) == YAudioOutputPath.DecodePcm &&
         decoder.tunneledPlayback &&
         request.platformDemuxSupported

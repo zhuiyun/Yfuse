@@ -1,5 +1,8 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YPlaybackException
+import com.yfuse.core2.api.YPlaybackFailureCategory
+import com.yfuse.core2.api.YPlaybackFailureStage
 import java.nio.ByteBuffer
 
 /**
@@ -27,6 +30,7 @@ internal object FfmpegNativeBridge {
             entries.map { it.key }.toTypedArray(),
             entries.map { it.value }.toTypedArray(),
         ).also { handle ->
+            if (handle < 0L) throwFfmpegFailure(handle, YPlaybackFailureStage.SourceOpen)
             check(handle != 0L) { "YCore FFmpeg demux session was not created" }
         }
     }
@@ -40,6 +44,8 @@ internal object FfmpegNativeBridge {
     fun containerName(handle: Long): String? = nativeContainerName(handle)
 
     fun durationUs(handle: Long): Long? = nativeDurationUs(handle).timestampOrNull()
+
+    fun bitRateBitsPerSecond(handle: Long): Long = nativeBitRateBitsPerSecond(handle).coerceAtLeast(0L)
 
     fun trackType(
         handle: Long,
@@ -81,6 +87,11 @@ internal object FfmpegNativeBridge {
         index: Int,
     ): IntArray? = nativeTrackDolbyConfig(handle, index)
 
+    fun trackHdrStaticInfo(
+        handle: Long,
+        index: Int,
+    ): IntArray? = nativeTrackHdrStaticInfo(handle, index)
+
     fun selectTracks(
         handle: Long,
         indexes: IntArray,
@@ -89,12 +100,36 @@ internal object FfmpegNativeBridge {
     fun readPacket(
         handle: Long,
         target: ByteBuffer,
-    ): LongArray = checkNotNull(nativeReadPacket(handle, target)) { "FFmpeg packet result is unavailable" }
+    ): LongArray =
+        checkNotNull(nativeReadPacket(handle, target)) { "FFmpeg packet result is unavailable" }
+            .also { result ->
+                result.firstOrNull()?.takeIf { it <= FFMPEG_FAILURE_AUTHORIZATION }?.let { status ->
+                    throwFfmpegFailure(status, YPlaybackFailureStage.Demux)
+                }
+            }
+
+    fun decodeSubtitle(
+        handle: Long,
+        trackIndex: Int,
+        data: ByteArray,
+        presentationTimeUs: Long,
+        durationUs: Long?,
+    ): ByteArray? =
+        nativeDecodeSubtitle(
+            handle,
+            trackIndex,
+            data,
+            presentationTimeUs,
+            durationUs ?: Long.MIN_VALUE,
+        )
 
     fun seek(
         handle: Long,
         positionUs: Long,
-    ) = nativeSeek(handle, positionUs.coerceAtLeast(0L))
+    ) {
+        val status = nativeSeek(handle, positionUs.coerceAtLeast(0L))
+        if (status < 0) throwFfmpegFailure(status.toLong(), YPlaybackFailureStage.Seek)
+    }
 
     private external fun nativeOpen(
         uri: String,
@@ -109,6 +144,8 @@ internal object FfmpegNativeBridge {
     private external fun nativeContainerName(handle: Long): String?
 
     private external fun nativeDurationUs(handle: Long): Long
+
+    private external fun nativeBitRateBitsPerSecond(handle: Long): Long
 
     private external fun nativeTrackType(
         handle: Long,
@@ -150,6 +187,11 @@ internal object FfmpegNativeBridge {
         index: Int,
     ): IntArray?
 
+    private external fun nativeTrackHdrStaticInfo(
+        handle: Long,
+        index: Int,
+    ): IntArray?
+
     private external fun nativeSelectTracks(
         handle: Long,
         indexes: IntArray,
@@ -160,17 +202,45 @@ internal object FfmpegNativeBridge {
         target: ByteBuffer,
     ): LongArray?
 
+    private external fun nativeDecodeSubtitle(
+        handle: Long,
+        trackIndex: Int,
+        data: ByteArray,
+        presentationTimeUs: Long,
+        durationUs: Long,
+    ): ByteArray?
+
     private external fun nativeSeek(
         handle: Long,
         positionUs: Long,
-    )
+    ): Int
 }
+
+private fun throwFfmpegFailure(
+    status: Long,
+    stage: YPlaybackFailureStage,
+): Nothing =
+    throw YPlaybackException(
+        category = ffmpegFailureCategory(status),
+        stage = stage,
+        safeDetail = "FFmpeg ${stage.name} returned a classified failure",
+    )
+
+internal fun ffmpegFailureCategory(status: Long): YPlaybackFailureCategory =
+    when (status) {
+        FFMPEG_FAILURE_AUTHORIZATION -> YPlaybackFailureCategory.Authorization
+        FFMPEG_FAILURE_NETWORK -> YPlaybackFailureCategory.Network
+        else -> YPlaybackFailureCategory.Container
+    }
 
 internal fun Long.timestampOrNull(): Long? = takeUnless { it == Long.MIN_VALUE }
 
 internal const val FFMPEG_PACKET_EOF = 0L
 internal const val FFMPEG_PACKET_DATA = 1L
 internal const val FFMPEG_PACKET_GROW_BUFFER = -1L
+internal const val FFMPEG_FAILURE_AUTHORIZATION = -2L
+internal const val FFMPEG_FAILURE_NETWORK = -3L
+internal const val FFMPEG_FAILURE_CONTAINER = -4L
 internal const val FFMPEG_SAMPLE_SYNC = 1L shl 0
 internal const val FFMPEG_SAMPLE_ENCRYPTED = 1L shl 1
 internal const val FFMPEG_TRACK_VIDEO = 1
@@ -179,6 +249,7 @@ internal const val FFMPEG_TRACK_SUBTITLE = 3
 internal const val FFMPEG_TRACK_DATA = 4
 internal const val FFMPEG_HDR_PQ = 1L
 internal const val FFMPEG_HDR_HLG = 2L
+internal const val FFMPEG_HDR10_PLUS = 3L
 internal const val FFMPEG_PACKING_ANNEX_B = 1L
 internal const val FFMPEG_PACKING_LENGTH_PREFIXED = 2L
 private const val LIBRARY_NAME = "ycore_demux"

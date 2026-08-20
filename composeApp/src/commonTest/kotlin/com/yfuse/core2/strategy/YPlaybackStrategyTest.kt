@@ -2,6 +2,7 @@ package com.yfuse.core2.strategy
 
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.capability.YAudioCodec
+import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YDeviceCapabilities
@@ -179,6 +180,53 @@ class YPlaybackStrategyTest {
         assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
         assertFalse(plan.nativeAudio)
         assertTrue("audio" in plan.reason.lowercase())
+    }
+
+    @Test
+    fun `TrueHD Atmos uses encoded passthrough when the active output proves support`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Matroska,
+                        video = YVideoRequirement(codec = YVideoCodec.H265),
+                        audio = YAudioRequirement(codec = YAudioCodec.TrueHdAtmos, channelCount = 8),
+                        platformDemuxSupported = false,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders = listOf(decoder(hdr = setOf(YHdrType.Sdr))),
+                        audioPassthrough = setOf(YAudioCodec.TrueHdAtmos),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.NativeEnhanced, plan.route)
+        assertEquals(YAudioOutputPath.Passthrough, plan.audioPath)
+        assertTrue(plan.nativeAudio)
+    }
+
+    @Test
+    fun `disabled passthrough cannot make a route depend on the encoded output`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Matroska,
+                        video = YVideoRequirement(codec = YVideoCodec.H265),
+                        audio = YAudioRequirement(codec = YAudioCodec.TrueHdAtmos, channelCount = 8),
+                        platformDemuxSupported = false,
+                        allowAudioPassthrough = false,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders = listOf(decoder(hdr = setOf(YHdrType.Sdr))),
+                        audioPassthrough = setOf(YAudioCodec.TrueHdAtmos),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
+        assertEquals(YAudioOutputPath.None, plan.audioPath)
+        assertFalse(plan.nativeAudio)
     }
 
     @Test

@@ -367,6 +367,9 @@ class MdkVideoEngine(
         val item = items.getOrNull(index) ?: return
         runCatching {
             instance.setMedia(playbackUrl(item, index))
+            // MDK otherwise selects its first audio track implicitly while our facade has no
+            // active-track getter. Submit the choice explicitly so UI state is never a guess.
+            instance.setActiveTrack(MDKPlayer.MEDIA_TYPE_AUDIO, 0)
             instance.setState(
                 if (playRequested) MDKPlayer.STATE_PLAYING else MDKPlayer.STATE_PAUSED,
             )
@@ -394,11 +397,9 @@ class MdkVideoEngine(
                 status and (MDKPlayer.STATUS_LOADED or MDKPlayer.STATUS_PREPARED) != 0
             val ended = status and MDKPlayer.STATUS_END != 0
             val invalid = status and MDKPlayer.STATUS_INVALID != 0
-            if (!loaded || invalid) {
-                nativePlaybackLogFailure(instance.lastError())?.let { failure ->
-                    markTerminalFailure(failure)
-                    return
-                }
+            nativePlaybackLogFailure(instance.lastError())?.let { failure ->
+                markTerminalFailure(failure)
+                return
             }
             val bufferingFlags =
                 MDKPlayer.STATUS_LOADING or

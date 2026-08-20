@@ -36,12 +36,14 @@ data class YDolbyVisionConfig(
     /**
      * Cross-compatible base-layer family that can be used only when the base layer is actually
      * present. Profile 8/10 subprofiles use the BL compatibility id as the suffix (8.1/8.4,
-     * 10.1/10.4). P7 fallback is intentionally not inferred here; disc routing validates it from
-     * the actual base stream and output evidence.
+     * 10.1/10.4). Profile 7 has an HDR10 base layer by definition; stripping EL/RPU is therefore a
+     * safe HDR10 fallback, but never proof that MEL/FEL composition occurred.
      */
     val compatibleBaseHdr: YHdrType?
         get() {
-            if (!baseLayerPresent || profile !in setOf(8, 10)) return null
+            if (!baseLayerPresent) return null
+            if (profile == 7) return YHdrType.Hdr10
+            if (profile !in setOf(8, 10)) return null
             return when (baseLayerCompatibilityId) {
                 1 -> YHdrType.Hdr10
                 2 -> YHdrType.Sdr

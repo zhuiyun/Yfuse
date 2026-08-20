@@ -78,6 +78,22 @@ class YCodecConfigurationTest {
         }
     }
 
+    @Test
+    fun `av1C exposes profile level bit depth and config OBUs`() {
+        val configObus = byteArrayOf(0x0a, 0x02, 0x11, 0x22)
+        val config =
+            YCodecConfiguration.parseAv1C(
+                byteArrayOf(0x81.toByte(), 0x4d, 0xcc.toByte(), 0x15) + configObus,
+            )
+
+        assertEquals(2, config.sequenceProfile)
+        assertEquals(13, config.sequenceLevelIndex)
+        assertEquals(1, config.sequenceTier)
+        assertEquals(true, config.highBitDepth)
+        assertEquals(5, config.initialPresentationDelayMinusOne)
+        assertContentEquals(configObus, config.configObus)
+    }
+
     private fun hevcArray(
         type: Int,
         nal: ByteArray,

@@ -2,6 +2,8 @@ package com.yfuse.core2.api
 
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
+import com.yfuse.core2.subtitle.YSubtitleCue
+import com.yfuse.core2.subtitle.YSubtitleFormat
 import kotlinx.coroutines.flow.StateFlow
 
 /** Public product-level playback API shared by Legacy and YCore 2.0 implementations. */
@@ -91,7 +93,22 @@ data class YMediaItem(
     val providerKey: String? = null,
     /** Optional backend-neutral optical-disc descriptor for libbluray/libdvdnav routing. */
     val disc: YDiscMedia? = null,
+    /** Optional sidecar subtitle rendered independently above the direct video Surface. */
+    val externalSubtitle: YExternalSubtitleSource? = null,
 )
+
+data class YExternalSubtitleSource(
+    val uri: String,
+    val language: String? = null,
+    val format: YSubtitleFormat? = null,
+) {
+    init {
+        require(uri.isNotBlank()) { "External subtitle URI must not be blank" }
+        require(format?.standaloneTextSupported != false) {
+            "External bitmap or packet subtitles require a dedicated sidecar decoder"
+        }
+    }
+}
 
 data class YDiscMedia(
     val kind: YDiscKind,
@@ -174,9 +191,17 @@ enum class YPlaybackRoute {
 
 data class YPlayerDiagnostics(
     val route: YPlaybackRoute = YPlaybackRoute.Legacy,
+    val container: String = "",
     val demuxer: String = "",
     val decoder: String = "",
     val renderer: String = "",
+    val videoCodec: String = "",
+    val videoWidth: Int = 0,
+    val videoHeight: Int = 0,
+    val frameRate: Float = 0f,
+    val audioCodec: String = "",
+    val bitrateBitsPerSecond: Long = 0L,
+    val droppedFrames: Int = 0,
     /** Source/track metadata. Never use this field alone as proof of active HDR/DV output. */
     val dynamicRange: String = "",
     val videoOutput: String = "",
@@ -187,6 +212,9 @@ data class YPlayerDiagnostics(
     /** Verified active output claims; source metadata must not set these booleans. */
     val dolbyVisionOutput: Boolean = false,
     val dolbyAtmosOutput: Boolean = false,
+    /** Video presentation timestamp minus the active audio/master clock. */
+    val avSyncOffsetMs: Long? = null,
+    val avSyncMeasurement: String = "当前内核不可测",
     val reason: String? = null,
 )
 
@@ -203,6 +231,8 @@ data class YPlayerState(
     val itemCount: Int = 1,
     val audioTracks: List<YTrack> = emptyList(),
     val subtitleTracks: List<YTrack> = emptyList(),
+    /** Buffered Core2 cues; presentation applies the user subtitle delay against [positionMs]. */
+    val subtitleCues: List<YSubtitleCue> = emptyList(),
     val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
     val error: String? = null,
     val errorCategory: YPlaybackFailureCategory? = null,

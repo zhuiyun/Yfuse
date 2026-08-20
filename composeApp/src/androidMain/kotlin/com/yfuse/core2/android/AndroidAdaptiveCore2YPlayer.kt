@@ -1,6 +1,11 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
@@ -13,7 +18,11 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.appendingDistinct
+import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
+import com.yfuse.core2.quirk.YCore2FailureKey
+import com.yfuse.core2.quirk.YCore2FailureLedger
+import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
@@ -28,6 +37,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Per-item Core2 router. It never assumes one queue shares one codec/HDR/audio route.
@@ -44,6 +54,13 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val routeEvaluator: AndroidCore2RouteEvaluator = AndroidCore2RouteEvaluator(context),
     private val fallbackRouteFactory: AndroidCore2FallbackRouteFactory? = null,
     private val discRouteFactory: AndroidCore2DiscRouteFactory? = null,
+    private val allowAudioPassthrough: Boolean = true,
+    private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+    private val failureLedger: YCore2FailureLedger =
+        YCore2FailureLedger(
+            store = AndroidYCore2FailureStore(context),
+            nowEpochMs = System::currentTimeMillis,
+        ),
 ) : YPlayer {
     private val queueLock = Any()
 
@@ -71,12 +88,25 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val commands = Channel<Command>(Channel.UNLIMITED)
     private val worker = scope.launch { runLoop() }
+    private val audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
+    private val audioCallbackHandler = Handler(Looper.getMainLooper())
+    private val audioRouteChangeQueued = AtomicBoolean(false)
+    private val audioDeviceCallback =
+        object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = queueAudioRouteChange()
+
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) = queueAudioRouteChange()
+        }
 
     @Volatile
     private var released = false
 
     @Volatile
     private var activeChild: YPlayer? = null
+
+    init {
+        audioManager?.registerAudioDeviceCallback(audioDeviceCallback, audioCallbackHandler)
+    }
 
     override fun prepare() = send(Command.Prepare)
 
@@ -161,6 +191,7 @@ internal class AndroidAdaptiveCore2YPlayer(
     override fun release() {
         if (released) return
         released = true
+        audioManager?.unregisterAudioDeviceCallback(audioDeviceCallback)
         commands.close()
         worker.cancel()
         scope.cancel()
@@ -177,6 +208,14 @@ internal class AndroidAdaptiveCore2YPlayer(
         if (!released) commands.trySend(command)
     }
 
+    private fun queueAudioRouteChange() {
+        if (!released && audioRouteChangeQueued.compareAndSet(false, true)) {
+            if (commands.trySend(Command.AudioRouteChanged).isFailure) {
+                audioRouteChangeQueued.set(false)
+            }
+        }
+    }
+
     private suspend fun runLoop() {
         var currentIndex = request.startIndex
         var child: YPlayer? = null
@@ -187,6 +226,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         var pendingPositionMs = request.startPositionMs
         var allowTunnel = true
         var forceSoftwareFallback = false
+        var pendingFailureKey: YCore2FailureKey? = null
 
         fun stopChild() {
             childCollector?.cancel()
@@ -220,8 +260,12 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
 
         fun createChild(positionMs: Long): YPlayer? {
+            pendingFailureKey = null
             val item = queueItems[currentIndex]
-            val tunnelAllowed = allowTunnel && kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
+            val tunnelAllowed =
+                allowTunnel &&
+                    item.externalSubtitle == null &&
+                    kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
             val singleRequest =
                 YPlayerOpenRequest(
                     items = listOf(item),
@@ -238,22 +282,68 @@ internal class AndroidAdaptiveCore2YPlayer(
                     forceSoftwareDecode = forceSoftwareFallback,
                 )
             }
-            val decision = routeEvaluator.evaluate(item, preferTunnel = tunnelAllowed) ?: return null
-            val plan =
-                if (forceSoftwareFallback) {
-                    decision.plan.toSoftwareFallbackPlan("A previous local route failed at runtime")
-                } else {
-                    decision.plan
-                }
+            var decision =
+                routeEvaluator.evaluate(
+                    item,
+                    preferTunnel = tunnelAllowed,
+                    allowAudioPassthrough = allowAudioPassthrough,
+                ) ?: return null
+            if (
+                !forceSoftwareFallback &&
+                decision.plan.route == YPlaybackRoute.NativeTunnel &&
+                failureLedger.isBlocked(decision.toFailureKey())
+            ) {
+                decision =
+                    routeEvaluator.evaluate(
+                        item,
+                        preferTunnel = false,
+                        allowAudioPassthrough = allowAudioPassthrough,
+                    ) ?: return null
+            }
+            if (forceSoftwareFallback || failureLedger.isBlocked(decision.toFailureKey())) {
+                decision =
+                    decision.copy(
+                        plan =
+                            decision.plan.toSoftwareFallbackPlan(
+                                if (forceSoftwareFallback) {
+                                    "A previous local route failed at runtime"
+                                } else {
+                                    "Device failure memory skipped the planned local route"
+                                },
+                            ),
+                    )
+            }
+            if (failureLedger.isBlocked(decision.toFailureKey())) return null
+            val plan = decision.plan
+            pendingFailureKey = decision.toFailureKey()
             return when {
                 !forceSoftwareFallback && tunnelAllowed && decision.nativeTunnelExecutable ->
-                    AndroidNativeTunnelYPlayer(context, singleRequest, routeEvaluator)
+                    AndroidNativeTunnelYPlayer(
+                        context,
+                        singleRequest,
+                        routeEvaluator,
+                        allowAudioPassthrough,
+                        frameRateSwitchMode,
+                    )
                 !forceSoftwareFallback &&
                     decision.nativeDirectExecutable &&
                     !decision.plan.usesHdrFallback ->
-                    AndroidNativeDirectYPlayer(context, singleRequest)
+                    AndroidNativeDirectYPlayer(
+                        context,
+                        singleRequest,
+                        decision.plan.decoderName,
+                        decision.runtimeCapabilityKey(),
+                        decision.plan.audioPath,
+                        frameRateSwitchMode,
+                    )
                 !forceSoftwareFallback && decision.nativeEnhancedExecutable ->
-                    AndroidNativeEnhancedYPlayer(context, singleRequest, routeEvaluator)
+                    AndroidNativeEnhancedYPlayer(
+                        context,
+                        singleRequest,
+                        routeEvaluator,
+                        allowAudioPassthrough,
+                        frameRateSwitchMode,
+                    )
                 plan.route == YPlaybackRoute.GpuEnhanced ||
                     plan.route == YPlaybackRoute.SoftwareFallback ->
                     fallbackRouteFactory?.create(item, singleRequest, plan, speed)
@@ -266,11 +356,30 @@ internal class AndroidAdaptiveCore2YPlayer(
             child = next
             activeChild = next
             val childIndex = currentIndex
+            val childFailureKey = pendingFailureKey
+            var failureRecorded = false
+            var successRecorded = false
             next.setSpeed(speed)
             next.setVideoOutput(output)
             childCollector =
                 scope.launch {
                     next.state.collect { childState ->
+                        if (childState.phase == YPlaybackPhase.Failed && !failureRecorded) {
+                            failureRecorded = true
+                            val category = childState.errorCategory
+                            if (childFailureKey != null && category != null) {
+                                failureLedger.recordFailure(childFailureKey, category)
+                            }
+                        }
+                        if (
+                            !successRecorded &&
+                            childFailureKey != null &&
+                            childState.diagnostics.videoOutputVerified &&
+                            (childState.audioTracks.isEmpty() || childState.diagnostics.audioOutputVerified)
+                        ) {
+                            successRecorded = true
+                            failureLedger.recordSuccess(childFailureKey)
+                        }
                         if (
                             childState.phase == YPlaybackPhase.Failed &&
                             childState.diagnostics.route == YPlaybackRoute.NativeTunnel
@@ -400,6 +509,14 @@ internal class AndroidAdaptiveCore2YPlayer(
                         Command.QueueExtended -> {
                             mutableState.updateState { it.copy(itemCount = queueItems.size) }
                         }
+                        Command.AudioRouteChanged -> {
+                            audioRouteChangeQueued.set(false)
+                            if (child != null || mutableState.value.phase != YPlaybackPhase.Idle) {
+                                pendingPositionMs = child?.currentPositionMs() ?: mutableState.value.positionMs
+                                forceSoftwareFallback = false
+                                rebuild(pendingPositionMs)
+                            }
+                        }
                         is Command.FallbackFromTunnel -> {
                             if (
                                 command.index == currentIndex &&
@@ -451,6 +568,8 @@ internal class AndroidAdaptiveCore2YPlayer(
         data object Retry : Command
 
         data object QueueExtended : Command
+
+        data object AudioRouteChanged : Command
 
         data class Seek(
             val positionMs: Long,
@@ -521,6 +640,7 @@ internal fun YPlaybackPlan.toSoftwareFallbackPlan(reason: String): YPlaybackPlan
         renderPath = YRenderPath.Gpu,
         decoderName = null,
         nativeAudio = false,
+        audioPath = YAudioOutputPath.None,
         usesHdrFallback = false,
         reason = reason,
     )

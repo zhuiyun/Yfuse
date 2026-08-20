@@ -876,21 +876,40 @@ class ExoVideoEngine(
 
         if (type == C.TRACK_TYPE_AUDIO && !group.isTrackSupported(trackIndex)) {
             val format = group.getTrackFormat(trackIndex)
+            val index = player.currentMediaItemIndex
+            val alreadyTranscoding = index in transcodedIndices
+            val recovery = unsupportedTrackRecovery(UnsupportedMediaTrack.Audio, alreadyTranscoding)
             AppLog.warning(
                 category = "player.exo",
                 event = "unsupported_audio_track_selected",
-                message = "Selected audio track is unsupported; trying another playback engine",
+                message =
+                    when (recovery) {
+                        UnsupportedTrackRecovery.ServerTranscode ->
+                            "Selected audio track is unsupported; attempting server transcode"
+                        UnsupportedTrackRecovery.SwitchEngine ->
+                            "Selected transcoded audio track is unsupported; trying another playback engine"
+                    },
                 attributes =
                     mapOf(
-                        "itemIndex" to player.currentMediaItemIndex.toString(),
+                        "itemIndex" to index.toString(),
                         "trackId" to id,
                         "sampleMimeType" to format.sampleMimeType.orEmpty(),
                         "codecs" to format.codecs.orEmpty(),
+                        "alreadyTranscoding" to alreadyTranscoding.toString(),
                     ),
             )
+            if (recovery == UnsupportedTrackRecovery.ServerTranscode &&
+                switchToTranscode("所选音轨不受 ExoPlayer 支持")
+            ) {
+                return
+            }
             player.pause()
             failPlayback(
-                "当前音轨不受 ExoPlayer 支持，正在尝试其他播放器",
+                if (alreadyTranscoding) {
+                    "服务器转码音轨仍不受支持，正在尝试其他播放器"
+                } else {
+                    "当前音轨不受 ExoPlayer 支持，正在尝试其他播放器"
+                },
                 kind = PlaybackFailureKind.AudioSink,
             )
             return
@@ -996,8 +1015,17 @@ class ExoVideoEngine(
             UnsupportedTrackRecovery.ServerTranscode ->
                 if (!switchToTranscode()) {
                     failPlayback(
-                        "当前视频无法解码，正在尝试其他播放器",
-                        kind = PlaybackFailureKind.Decoder,
+                        if (unsupported == UnsupportedMediaTrack.Audio) {
+                            "当前音轨不受 ExoPlayer 支持，正在尝试其他播放器"
+                        } else {
+                            "当前视频无法解码，正在尝试其他播放器"
+                        },
+                        kind =
+                            if (unsupported == UnsupportedMediaTrack.Audio) {
+                                PlaybackFailureKind.AudioSink
+                            } else {
+                                PlaybackFailureKind.Decoder
+                            },
                     )
                 }
         }

@@ -119,6 +119,27 @@ class YBitstreamTest {
         assertTrue(parameterSets.vps.isEmpty())
     }
 
+    @Test
+    fun `AV1 low-overhead normalization adds a bounded OBU size field`() {
+        val source = byteArrayOf(0x08, 0x11, 0x22, 0x33)
+
+        val normalized = YBitstream.normalizeAv1LowOverhead(source)
+        val units = YBitstream.scanAv1(normalized)
+
+        assertContentEquals(byteArrayOf(0x0a, 0x03, 0x11, 0x22, 0x33), normalized)
+        assertEquals(1, units.size)
+        assertEquals(1, units.single().type)
+        assertEquals(3, units.single().payloadLength)
+        assertTrue(units.single().hasSizeField)
+    }
+
+    @Test
+    fun `AV1 OBU parser rejects a payload beyond the access unit`() {
+        assertFailsWith<IllegalArgumentException> {
+            YBitstream.scanAv1(byteArrayOf(0x0a, 0x05, 0x11))
+        }
+    }
+
     private fun annexB(vararg units: ByteArray): ByteArray =
         units.fold(ByteArray(0)) { output, unit ->
             output + byteArrayOf(0, 0, 0, 1) + unit

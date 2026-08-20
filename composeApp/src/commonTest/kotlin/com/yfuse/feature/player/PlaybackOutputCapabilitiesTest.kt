@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.PlaybackAudioCodec
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -88,11 +89,18 @@ class PlaybackOutputCapabilitiesTest {
     }
 
     @Test
-    fun mpv_spdif_is_configured_only_for_compatible_mode() {
-        assertNull(mpvAudioSpdifOption(AudioPassthroughMode.Disabled))
+    fun mpv_spdif_is_limited_to_formats_supported_by_the_active_route() {
+        val routeFormats =
+            setOf(
+                PlaybackAudioCodec.Ac3,
+                PlaybackAudioCodec.Eac3Joc,
+                PlaybackAudioCodec.TrueHd,
+            )
+        assertNull(mpvAudioSpdifOption(AudioPassthroughMode.Disabled, routeFormats))
+        assertNull(mpvAudioSpdifOption(AudioPassthroughMode.Compatible, emptySet()))
         assertEquals(
-            "ac3,eac3,dts,dts-hd,truehd",
-            mpvAudioSpdifOption(AudioPassthroughMode.Compatible),
+            "ac3,eac3,truehd",
+            mpvAudioSpdifOption(AudioPassthroughMode.Compatible, routeFormats),
         )
     }
 

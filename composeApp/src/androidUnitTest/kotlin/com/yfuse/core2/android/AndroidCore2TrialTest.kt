@@ -34,7 +34,7 @@ class AndroidCore2TrialTest {
     }
 
     @Test
-    fun drm_and_external_subtitle_queues_stay_on_legacy_while_disc_is_eligible() {
+    fun drm_and_unsupported_subtitle_sources_stay_on_legacy() {
         val drmItem =
             mediaItem("https://media.example.test/secure.mpd").copy(
                 drmConfiguration =
@@ -47,6 +47,8 @@ class AndroidCore2TrialTest {
             mediaItem("file:///offline/movie.mkv").copy(
                 externalSubtitleUri = "file:///offline/movie.srt",
             )
+        val unsupportedSubtitleItem =
+            subtitleItem.copy(externalSubtitleUri = "ftp://media.example.test/movie.srt")
         val discVersion =
             PlayerMediaVersion(
                 id = "disc",
@@ -64,9 +66,10 @@ class AndroidCore2TrialTest {
             )
 
         assertFalse(listOf(drmItem).canUseCore2Trial(startIndex = 0))
-        assertFalse(listOf(subtitleItem).canUseCore2Trial(startIndex = 0))
+        assertTrue(listOf(subtitleItem).canUseCore2Trial(startIndex = 0))
+        assertFalse(listOf(unsupportedSubtitleItem).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(discItem).canUseCore2Trial(startIndex = 0))
-        assertFalse(
+        assertTrue(
             listOf(mediaItem("https://media/movie"), subtitleItem)
                 .canUseCore2Trial(startIndex = 0),
         )
@@ -79,6 +82,8 @@ class AndroidCore2TrialTest {
                 id = "episode-2",
                 title = "Episode 2",
                 serverId = "server-a",
+                externalSubtitleUri = "content://offline/subtitle/2",
+                externalSubtitleLanguage = "zh-CN",
             )
 
         val mapped =
@@ -91,6 +96,8 @@ class AndroidCore2TrialTest {
         assertEquals(item.title, mapped.title)
         assertEquals(item.serverId, mapped.providerKey)
         assertEquals("Yfuse-Test/2.0", mapped.headers["User-Agent"])
+        assertEquals(item.externalSubtitleUri, mapped.externalSubtitle?.uri)
+        assertEquals(item.externalSubtitleLanguage, mapped.externalSubtitle?.language)
     }
 
     @Test

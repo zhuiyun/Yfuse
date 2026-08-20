@@ -17,7 +17,7 @@ internal data class NativePlaybackFailure(
 )
 
 /**
- * Turns native-library text into the two failures that must be acted on immediately.
+ * Turns native-library text into terminal failures that must be acted on immediately.
  *
  * Decoder/demuxer errors deliberately return null: those still benefit from the normal
  * direct -> transcode -> progressive chain. Authentication applies to every URL and engine,
@@ -38,6 +38,12 @@ internal fun nativePlaybackLogFailure(details: String?): NativePlaybackFailure? 
                 message = "当前账号没有播放权限，或服务器入口拒绝了访问（403）",
                 blocksAutomaticFallback = true,
                 kind = PlaybackFailureKind.Authorization,
+            )
+        TERMINAL_AUDIO_FAILURES.any(normalized::contains) ->
+            NativePlaybackFailure(
+                message = "播放器音频输出初始化失败，正在尝试其他播放器",
+                blocksAutomaticFallback = false,
+                kind = PlaybackFailureKind.AudioSink,
             )
         TERMINAL_RENDER_FAILURES.any(normalized::contains) ->
             NativePlaybackFailure(
@@ -88,6 +94,26 @@ private fun String.containsHttpStatus(status: Int): Boolean {
 }
 
 private const val HTTP_STATUS_CONTEXT = 48
+
+private val TERMINAL_AUDIO_FAILURES =
+    listOf(
+        "failed to initialize audio output",
+        "failed initializing audio output",
+        "audio output initialization failed",
+        "could not open/initialize audio device",
+        "failed to create audiotrack",
+        "could not create audiotrack",
+        "error creating audiotrack",
+        "audiotrack creation failed",
+        "audiotrack init failed",
+        "audio sink initialization failed",
+        "audio backend initialization failed",
+        "failed to initialize audio driver",
+        "ao init failed",
+        "audio.render",
+        "audio.output",
+        "audio.backend",
+    )
 
 private val TERMINAL_RENDER_FAILURES =
     listOf(

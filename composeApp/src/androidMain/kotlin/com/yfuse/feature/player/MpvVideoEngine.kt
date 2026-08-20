@@ -13,6 +13,7 @@ import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
+import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.bluRayDiscRoot
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
@@ -23,6 +24,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -109,6 +112,8 @@ class MpvVideoEngine(
             .get<PlaybackPreferences>()
             .audioPassthrough.value
             .toPlayerMode()
+    private val capabilityProvider =
+        runCatching { GlobalContext.get().get<PlaybackDeviceCapabilitiesProvider>() }.getOrNull()
 
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
@@ -120,6 +125,7 @@ class MpvVideoEngine(
     private val progressiveIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private var fallbackJob: Job? = null
+    private var audioRouteJob: Job? = null
     private var fileLoadWatchdogJob: Job? = null
     private val fileLoadAttempt = AtomicLong(0L)
     private val fileLoadStartedAtMs = AtomicLong(-1L)
@@ -575,10 +581,9 @@ class MpvVideoEngine(
             instance.requireOption("idle", "yes")
             instance.requireOption("keep-open", "always")
             instance.requireOption("cache", "yes")
-            // Use Android's media stream deterministically. This keeps native
-            // playback on the same STREAM_MUSIC volume path as ExoPlayer/MDK.
-            instance.requireOption("ao", "audiotrack")
-            mpvAudioSpdifOption(audioPassthroughMode)?.let { codecs ->
+            // Let mpv select the available Android AO. The actual driver is verified through
+            // current-ao, and a failed driver can now fall through mpv's own output selection.
+            mpvAudioSpdifOption(audioPassthroughMode, currentDirectAudioFormats())?.let { codecs ->
                 instance.optionalOption("audio-spdif", codecs)
             }
             customUserAgent.trim().takeIf { it.isNotEmpty() }?.let { value ->
@@ -635,6 +640,7 @@ class MpvVideoEngine(
             instance.observeProperty("aid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("secondary-sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            startAudioRouteMonitoring()
 
             instance.attachSurface(surface)
             instance.setPropertyString("force-window", "yes")
@@ -652,6 +658,8 @@ class MpvVideoEngine(
                     ),
             )
         }.onFailure {
+            audioRouteJob?.cancel()
+            audioRouteJob = null
             mpv = null
             created?.let { failed ->
                 runCatching {
@@ -872,6 +880,8 @@ class MpvVideoEngine(
         released = true
         fallbackJob?.cancel()
         fallbackJob = null
+        audioRouteJob?.cancel()
+        audioRouteJob = null
         cancelFileLoadWatchdog()
         val instance = mpv ?: return
         mpv = null
@@ -1229,6 +1239,37 @@ class MpvVideoEngine(
                 throwable = it,
             )
         }
+    }
+
+    private fun currentDirectAudioFormats() =
+        runCatching { capabilityProvider?.current()?.directAudioFormats }
+            .getOrNull()
+            .orEmpty()
+
+    /** Reconfigure encoded output when HDMI/USB/Bluetooth routing changes during playback. */
+    private fun startAudioRouteMonitoring() {
+        val provider = capabilityProvider ?: return
+        audioRouteJob?.cancel()
+        audioRouteJob =
+            scope.launch {
+                provider.revisions().drop(1).collect {
+                    val codecs = mpvAudioSpdifOption(audioPassthroughMode, currentDirectAudioFormats())
+                    val applied =
+                        withMpvResult { instance ->
+                            instance.setPropertyString("audio-spdif", codecs.orEmpty())
+                        }
+                    AppLog.info(
+                        category = "player.mpv",
+                        event = "audio_route_reconfigured",
+                        message = "mpv encoded-audio policy followed the active Android route",
+                        attributes =
+                            mapOf(
+                                "codecs" to (codecs ?: "pcm"),
+                                "applied" to applied.toString(),
+                            ),
+                    )
+                }
+            }
     }
 
     private fun MPVLib.requireOption(

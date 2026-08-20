@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.playback.PlaybackFailureKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -34,8 +35,20 @@ class NativePlaybackFailureTest {
     }
 
     @Test
+    fun fatal_audio_output_failure_changes_engine_as_an_audio_sink_failure() {
+        val failure = nativePlaybackLogFailure("[ao/audiotrack] AudioTrack creation failed")
+        val mdkFailure = nativePlaybackLogFailure("-5 audio.render failed to start backend")
+
+        assertEquals(PlaybackFailureKind.AudioSink, failure?.kind)
+        assertEquals(PlaybackFailureKind.AudioSink, mdkFailure?.kind)
+        assertFalse(failure?.blocksAutomaticFallback ?: true)
+        assertTrue(failure?.message.orEmpty().contains("音频输出"))
+    }
+
+    @Test
     fun decoder_and_demuxer_errors_stay_on_the_stream_fallback_ladder() {
         assertNull(nativePlaybackLogFailure("hevc decoder rejected profile 8"))
+        assertNull(nativePlaybackLogFailure("truehd audio decoder rejected profile"))
         assertNull(nativePlaybackLogFailure("demuxer could not read packet"))
     }
 

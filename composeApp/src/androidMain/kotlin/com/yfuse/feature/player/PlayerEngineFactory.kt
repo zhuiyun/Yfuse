@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackDiscKind
@@ -32,6 +33,8 @@ internal fun createVideoEngine(
     scope: CoroutineScope,
     stopEncoding: suspend (String) -> Boolean,
     core2TrialEnabled: Boolean = false,
+    allowAudioPassthrough: Boolean = false,
+    frameRateMatch: PlaybackFrameRateMatch = PlaybackFrameRateMatch.Disabled,
 ): VideoEngine {
     if (core2TrialEnabled) {
         AndroidCore2TrialFactory
@@ -45,6 +48,8 @@ internal fun createVideoEngine(
                 autoNext = autoNext,
                 quality = quality,
                 customUserAgent = customUserAgent,
+                allowAudioPassthrough = allowAudioPassthrough,
+                frameRateMatch = frameRateMatch,
             )?.let { return it }
     }
 

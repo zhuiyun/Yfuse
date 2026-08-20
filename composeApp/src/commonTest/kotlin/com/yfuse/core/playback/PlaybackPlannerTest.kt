@@ -290,6 +290,35 @@ class PlaybackPlannerTest {
     }
 
     @Test
+    fun passthrough_only_audio_is_not_directly_playable_when_passthrough_is_disabled() {
+        val trueHdRoute =
+            capabilities().copy(
+                directAudioFormats = setOf(PlaybackAudioCodec.TrueHd),
+            )
+        val source = probe(container = "mkv").copy(audioCodec = PlaybackAudioCodec.TrueHd)
+
+        val pcmPlan =
+            planPlayback(
+                probe = source,
+                capabilities = trueHdRoute,
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Auto,
+                allowAudioPassthrough = false,
+            )
+        val passthroughPlan =
+            planPlayback(
+                probe = source,
+                capabilities = trueHdRoute,
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Auto,
+                allowAudioPassthrough = true,
+            )
+
+        assertEquals(PlayerEngine.Mpv, pcmPlan.primaryEngine)
+        assertEquals(PlayerEngine.Exo, passthroughPlan.primaryEngine)
+    }
+
+    @Test
     fun dolby_only_source_never_routes_original_frames_through_a_native_engine() {
         val dolbySource =
             PlaybackSourceRequirements(

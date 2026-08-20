@@ -33,6 +33,7 @@ internal class AndroidMediaExtractorDemuxNode(
 
     private val appContext = context.applicationContext
     private var extractor: MediaExtractor? = null
+    private var mediaDataSource: AndroidHttpRangeMediaDataSource? = null
     private var selectedTracks = emptySet<Int>()
 
     fun open(source: YAndroidMediaSource) {
@@ -44,6 +45,8 @@ internal class AndroidMediaExtractorDemuxNode(
             selectedTracks = emptySet()
         } catch (throwable: Throwable) {
             runCatching { opened.release() }
+            runCatching { mediaDataSource?.close() }
+            mediaDataSource = null
             throw throwable
         }
     }
@@ -107,7 +110,9 @@ internal class AndroidMediaExtractorDemuxNode(
 
     override fun release() {
         extractor?.let { runCatching { it.release() } }
+        mediaDataSource?.let { runCatching { it.close() } }
         extractor = null
+        mediaDataSource = null
         selectedTracks = emptySet()
     }
 
@@ -118,6 +123,11 @@ internal class AndroidMediaExtractorDemuxNode(
         val parsed = Uri.parse(source.uri)
         when (parsed.scheme?.lowercase()) {
             "content", "android.resource", "file" -> setDataSource(appContext, parsed, source.headers)
+            "http", "https" -> {
+                val rangeSource = AndroidHttpRangeMediaDataSource(source.uri, source.headers)
+                mediaDataSource = rangeSource
+                setDataSource(rangeSource)
+            }
             else -> setDataSource(source.uri, source.headers)
         }
     }
@@ -129,3 +139,7 @@ internal fun MediaFormat.maxInputSizeOr(defaultBytes: Int): Int =
     } else {
         defaultBytes.coerceAtLeast(1)
     }
+
+internal fun String.isCore2RemoteMediaUri(): Boolean =
+    substringBefore(':', missingDelimiterValue = "").lowercase() in
+        setOf("http", "https", "smb", "webdav")

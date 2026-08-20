@@ -11,10 +11,9 @@ internal enum class UnsupportedMediaTrack { Audio, Video }
 /**
  * Chooses the next recovery step without letting ExoPlayer continue with a silent track.
  *
- * Native engines can decode substantially more audio formats than the platform MediaCodec
- * stack, so an unsupported direct-play audio track should move to another engine before asking
- * the server to transcode. A transcoded stream that still has no playable audio is already the
- * end of ExoPlayer's stream ladder and must also move on instead of playing video silently.
+ * Unsupported direct-play tracks first stay on Media3's working network path and ask the server
+ * for a compatible stream. A transcoded stream that is still unsupported is already the end of
+ * ExoPlayer's stream ladder and must move to another engine instead of playing silently.
  */
 internal enum class UnsupportedTrackRecovery { SwitchEngine, ServerTranscode }
 
@@ -22,10 +21,15 @@ internal fun unsupportedTrackRecovery(
     track: UnsupportedMediaTrack,
     alreadyTranscoding: Boolean,
 ): UnsupportedTrackRecovery =
-    when {
-        track == UnsupportedMediaTrack.Audio -> UnsupportedTrackRecovery.SwitchEngine
-        alreadyTranscoding -> UnsupportedTrackRecovery.SwitchEngine
-        else -> UnsupportedTrackRecovery.ServerTranscode
+    when (track) {
+        UnsupportedMediaTrack.Audio,
+        UnsupportedMediaTrack.Video,
+        ->
+            if (alreadyTranscoding) {
+                UnsupportedTrackRecovery.SwitchEngine
+            } else {
+                UnsupportedTrackRecovery.ServerTranscode
+            }
     }
 
 internal fun unsupportedMediaTrack(

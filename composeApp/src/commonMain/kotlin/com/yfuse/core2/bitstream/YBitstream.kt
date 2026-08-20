@@ -29,6 +29,21 @@ data class YNalUnitSpan(
     }
 }
 
+data class YAv1ObuSpan(
+    val offset: Int,
+    val length: Int,
+    val type: Int,
+    val payloadOffset: Int,
+    val payloadLength: Int,
+    val hasSizeField: Boolean,
+) {
+    init {
+        require(offset >= 0 && length > 0)
+        require(payloadOffset >= offset && payloadLength >= 0)
+        require(payloadOffset + payloadLength <= offset + length)
+    }
+}
+
 data class YParameterSets(
     val vps: List<ByteArray> = emptyList(),
     val sps: List<ByteArray> = emptyList(),
@@ -52,6 +67,72 @@ data class YDolbyVisionNalEvidence(
  * from the source container.
  */
 object YBitstream {
+    /** Parses one AV1 low-overhead access unit without treating OBUs as H26x NAL units. */
+    fun scanAv1(data: ByteArray): List<YAv1ObuSpan> {
+        val result = mutableListOf<YAv1ObuSpan>()
+        var cursor = 0
+        while (cursor < data.size) {
+            val start = cursor
+            val header = data[cursor++].toInt() and 0xff
+            require(header and AV1_FORBIDDEN_BIT == 0) { "AV1 OBU forbidden bit is set" }
+            require(header and AV1_RESERVED_BIT == 0) { "AV1 OBU reserved bit is set" }
+            val type = (header ushr AV1_TYPE_SHIFT) and AV1_TYPE_MASK
+            val extension = header and AV1_EXTENSION_FLAG != 0
+            val hasSize = header and AV1_HAS_SIZE_FIELD != 0
+            if (extension) {
+                require(cursor < data.size) { "AV1 OBU extension header is truncated" }
+                val extensionHeader = data[cursor++].toInt() and 0xff
+                require(extensionHeader and AV1_EXTENSION_RESERVED_MASK == 0) {
+                    "AV1 OBU extension reserved bits are set"
+                }
+            }
+            val payloadLength =
+                if (hasSize) {
+                    val decoded = data.readLeb128(cursor)
+                    cursor = decoded.nextOffset
+                    decoded.value
+                } else {
+                    data.size - cursor
+                }
+            require(payloadLength >= 0 && payloadLength <= data.size - cursor) {
+                "AV1 OBU payload exceeds access-unit boundary"
+            }
+            val payloadOffset = cursor
+            cursor += payloadLength
+            result +=
+                YAv1ObuSpan(
+                    offset = start,
+                    length = cursor - start,
+                    type = type,
+                    payloadOffset = payloadOffset,
+                    payloadLength = payloadLength,
+                    hasSizeField = hasSize,
+                )
+            if (!hasSize) break
+        }
+        return result
+    }
+
+    /** Ensures every AV1 OBU carries an explicit LEB128 payload size for MediaCodec input. */
+    fun normalizeAv1LowOverhead(data: ByteArray): ByteArray {
+        val units = scanAv1(data)
+        require(units.isNotEmpty()) { "AV1 access unit contains no OBUs" }
+        if (units.all(YAv1ObuSpan::hasSizeField)) return data
+        val output = ArrayList<Byte>(data.size + units.size * 2)
+        units.forEach { unit ->
+            val originalHeader = data[unit.offset].toInt() and 0xff
+            output += (originalHeader or AV1_HAS_SIZE_FIELD).toByte()
+            if (originalHeader and AV1_EXTENSION_FLAG != 0) {
+                output += data[unit.offset + 1]
+            }
+            unit.payloadLength.toLeb128().forEach { output.add(it) }
+            for (index in unit.payloadOffset until unit.payloadOffset + unit.payloadLength) {
+                output += data[index]
+            }
+        }
+        return output.toByteArray()
+    }
+
     fun scan(
         data: ByteArray,
         codec: YNalCodec,
@@ -291,3 +372,44 @@ private const val H265_PPS = 34
 private const val H265_DOLBY_VISION_RPU = 62
 private const val H265_DOLBY_VISION_EL = 63
 private const val UINT32_SIZE = 1L shl 32
+private const val AV1_FORBIDDEN_BIT = 0x80
+private const val AV1_TYPE_SHIFT = 3
+private const val AV1_TYPE_MASK = 0x0f
+private const val AV1_EXTENSION_FLAG = 0x04
+private const val AV1_HAS_SIZE_FIELD = 0x02
+private const val AV1_RESERVED_BIT = 0x01
+private const val AV1_EXTENSION_RESERVED_MASK = 0x07
+private const val AV1_MAX_LEB128_BYTES = 8
+
+private data class Leb128Value(
+    val value: Int,
+    val nextOffset: Int,
+)
+
+private fun ByteArray.readLeb128(offset: Int): Leb128Value {
+    var cursor = offset
+    var value = 0L
+    var shift = 0
+    repeat(AV1_MAX_LEB128_BYTES) {
+        require(cursor < size) { "AV1 OBU size field is truncated" }
+        val byte = this[cursor++].toInt() and 0xff
+        value = value or ((byte and 0x7f).toLong() shl shift)
+        require(value <= Int.MAX_VALUE) { "AV1 OBU size exceeds the supported access-unit limit" }
+        if (byte and 0x80 == 0) return Leb128Value(value.toInt(), cursor)
+        shift += 7
+    }
+    error("AV1 OBU size field exceeds $AV1_MAX_LEB128_BYTES bytes")
+}
+
+private fun Int.toLeb128(): List<Byte> {
+    require(this >= 0)
+    var remaining = this
+    val output = mutableListOf<Byte>()
+    do {
+        var byte = remaining and 0x7f
+        remaining = remaining ushr 7
+        if (remaining != 0) byte = byte or 0x80
+        output += byte.toByte()
+    } while (remaining != 0)
+    return output
+}

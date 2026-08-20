@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import android.annotation.SuppressLint
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import com.yfuse.core2.bitstream.YBitstream
@@ -24,6 +25,12 @@ internal object AndroidMediaFormatFactory {
         val format = MediaFormat.createVideoFormat(mime, track.width.coerceAtLeast(0), track.height.coerceAtLeast(0))
         if (track.frameRate > 0f) format.setFloat(MediaFormat.KEY_FRAME_RATE, track.frameRate)
         applyHdr(format, track.hdrType)
+        track.hdrStaticMetadata?.let { metadata ->
+            format.setByteBuffer(
+                MediaFormat.KEY_HDR_STATIC_INFO,
+                ByteBuffer.wrap(metadata.toCta8613Bytes()),
+            )
+        }
         applyVideoCodecPrivate(format, track)
         track.dolbyVisionConfig?.let { config ->
             config.profile.toAndroidDolbyVisionProfile()?.let { profile ->
@@ -77,7 +84,23 @@ internal object AndroidMediaFormatFactory {
         when (track.codec) {
             YVideoCodec.H264 -> applyAvcPrivate(format, extra, track.samplePacking)
             YVideoCodec.H265 -> applyHevcPrivate(format, extra, track.samplePacking)
+            YVideoCodec.Av1 -> applyAv1Private(format, extra)
             else -> format.setByteBuffer(CSD_0, ByteBuffer.wrap(extra))
+        }
+    }
+
+    private fun applyAv1Private(
+        format: MediaFormat,
+        extra: ByteArray,
+    ) {
+        if (extra.size >= 4 && extra[0].toInt() and 0x80 != 0) {
+            val config = YCodecConfiguration.parseAv1C(extra)
+            if (config.configObus.isNotEmpty()) {
+                format.setByteBuffer(CSD_0, ByteBuffer.wrap(config.configObus))
+            }
+        } else {
+            YBitstream.scanAv1(extra)
+            format.setByteBuffer(CSD_0, ByteBuffer.wrap(extra))
         }
     }
 
@@ -132,6 +155,7 @@ internal fun normalizeVideoSampleForMediaCodec(
     data: ByteArray,
     track: YVideoTrackFormat,
 ): ByteArray {
+    if (track.codec == YVideoCodec.Av1) return YBitstream.normalizeAv1LowOverhead(data)
     val packing = track.samplePacking ?: return data
     return when (track.codec) {
         YVideoCodec.H264 ->
@@ -146,10 +170,12 @@ internal fun normalizeVideoSampleForMediaCodec(
             } else {
                 YBitstream.normalize(data, YNalCodec.H265, packing, YSamplePacking.AnnexB)
             }
+        YVideoCodec.Av1 -> error("AV1 normalization is handled before NAL packing")
         else -> data
     }
 }
 
+@SuppressLint("InlinedApi")
 internal fun Int.toAndroidDolbyVisionProfile(): Int? =
     when (this) {
         4 -> MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtr

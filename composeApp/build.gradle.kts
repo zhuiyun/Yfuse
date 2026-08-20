@@ -6,6 +6,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.Properties
+import java.util.zip.ZipFile
 
 plugins {
     alias(libs.plugins.multiplatform)
@@ -143,7 +144,15 @@ val verifyCustomMpvArtifact by tasks.registering {
             "hdmv-menu=true",
             "multi-angle=true",
             "capability-class=dev/yfuse/mpv/YfuseMpvCapabilities.class",
+            "ycore-demux=true",
+            "ycore-demux-ffmpeg=n8.1",
+            "ycore-demux-source=scripts/native/ycore_demux_jni.cpp",
         ).forEach { marker -> require(marker in provenance) { "libmpv provenance is missing $marker" } }
+        ZipFile(aarFile).use { archive ->
+            require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
+                "libmpv AAR is missing arm64-v8a/libycore_demux.so; build and install the YCore native artifact"
+            }
+        }
     }
 }
 

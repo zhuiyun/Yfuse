@@ -122,6 +122,8 @@ private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerSta
                 audioOutputVerified = diagnostics.audioReadiness == PlaybackOutputReadiness.Rendering,
                 dolbyVisionOutput = diagnostics.dolbyVisionOutput,
                 dolbyAtmosOutput = diagnostics.dolbyAtmosOutput,
+                avSyncOffsetMs = diagnostics.avSyncOffsetMs,
+                avSyncMeasurement = diagnostics.avSyncMeasurement,
                 reason = diagnostics.planningReason ?: diagnostics.fallbackReason,
             ),
     )

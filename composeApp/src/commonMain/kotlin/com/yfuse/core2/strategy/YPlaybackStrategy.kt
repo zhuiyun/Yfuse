@@ -1,6 +1,7 @@
 package com.yfuse.core2.strategy
 
 import com.yfuse.core2.api.YPlaybackRoute
+import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YDeviceCapabilities
@@ -33,6 +34,7 @@ data class YPlaybackRequest(
     /** HDR-compatible base layer, e.g. HDR10 for Dolby Vision Profile 8.1. */
     val fallbackHdrType: YHdrType? = null,
     val preferTunnel: Boolean = true,
+    val allowAudioPassthrough: Boolean = true,
 )
 
 data class YPlaybackPlan(
@@ -43,6 +45,7 @@ data class YPlaybackPlan(
     val outputHdrType: YHdrType,
     val decoderName: String? = null,
     val nativeAudio: Boolean = true,
+    val audioPath: YAudioOutputPath = YAudioOutputPath.DecodePcm,
     /** True when the original HDR representation cannot be used and a compatible base is selected. */
     val usesHdrFallback: Boolean = false,
     val reason: String,
@@ -94,7 +97,14 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             }
         val selectedDecoder = originalDecoder ?: fallbackDecoder
         val usesHdrFallback = originalDecoder == null && fallbackDecoder != null
-        val nativeAudio = capabilities.supportsAudio(request.audio)
+        val audioCapabilities =
+            if (request.allowAudioPassthrough) {
+                capabilities
+            } else {
+                capabilities.copy(audioPassthrough = emptySet())
+            }
+        val audioPath = audioCapabilities.audioOutputPath(request.audio)
+        val nativeAudio = request.audio == null || audioPath != YAudioOutputPath.None
 
         if (
             demuxPath != null &&
@@ -127,6 +137,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                 outputHdrType = outputHdr,
                 decoderName = selectedDecoder.name,
                 nativeAudio = true,
+                audioPath = audioPath,
                 usesHdrFallback = usesHdrFallback,
                 reason =
                     when {
@@ -156,6 +167,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                     YHdrType.Sdr
                 },
             nativeAudio = nativeAudio,
+            audioPath = audioPath,
             reason =
                 if (!nativeAudio) {
                     "Native video route exists but the selected audio codec has no safe platform decode path"

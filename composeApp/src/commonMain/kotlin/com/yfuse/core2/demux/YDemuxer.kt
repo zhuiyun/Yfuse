@@ -6,6 +6,9 @@ import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.dolby.YDolbyVisionConfig
+import com.yfuse.core2.hdr.YHdrStaticMetadata
+import com.yfuse.core2.subtitle.YSubtitleCue
+import com.yfuse.core2.subtitle.YSubtitleFormat
 
 /** Stable track id owned by one demux session. */
 @JvmInline
@@ -50,6 +53,7 @@ data class YVideoTrackFormat(
     val samplePacking: YSamplePacking? = null,
     val codecPrivateData: YCodecPrivateData = YCodecPrivateData(),
     val dolbyVisionConfig: YDolbyVisionConfig? = null,
+    val hdrStaticMetadata: YHdrStaticMetadata? = null,
 )
 
 data class YAudioTrackFormat(
@@ -60,6 +64,12 @@ data class YAudioTrackFormat(
     val codecPrivateData: YCodecPrivateData = YCodecPrivateData(),
 )
 
+data class YSubtitleTrackFormat(
+    val format: YSubtitleFormat,
+    val mimeType: String,
+    val codecPrivateData: YCodecPrivateData = YCodecPrivateData(),
+)
+
 data class YDemuxTrack(
     val id: YTrackId,
     val type: YDemuxTrackType,
@@ -67,12 +77,14 @@ data class YDemuxTrack(
     val label: String? = null,
     val video: YVideoTrackFormat? = null,
     val audio: YAudioTrackFormat? = null,
+    val subtitle: YSubtitleTrackFormat? = null,
 ) {
     init {
         when (type) {
-            YDemuxTrackType.Video -> require(video != null && audio == null)
-            YDemuxTrackType.Audio -> require(audio != null && video == null)
-            YDemuxTrackType.Subtitle, YDemuxTrackType.Data -> require(video == null && audio == null)
+            YDemuxTrackType.Video -> require(video != null && audio == null && subtitle == null)
+            YDemuxTrackType.Audio -> require(audio != null && video == null && subtitle == null)
+            YDemuxTrackType.Subtitle -> require(subtitle != null && video == null && audio == null)
+            YDemuxTrackType.Data -> require(video == null && audio == null && subtitle == null)
         }
     }
 }
@@ -96,6 +108,7 @@ data class YCompressedSample(
 data class YDemuxOpenResult(
     val container: YContainer,
     val durationUs: Long? = null,
+    val bitRateBitsPerSecond: Long = 0L,
     val tracks: List<YDemuxTrack>,
 ) {
     init {
@@ -130,4 +143,9 @@ interface YDemuxer {
     fun seekTo(positionUs: Long)
 
     fun close()
+}
+
+/** Optional side node for image subtitles; normal video/audio demux remains compressed-only. */
+interface YSubtitlePacketDecoder {
+    fun decodeSubtitle(sample: YCompressedSample): List<YSubtitleCue>
 }

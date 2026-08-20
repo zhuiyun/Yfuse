@@ -154,10 +154,12 @@ internal class AndroidCore2RouteEvaluator(
     private val enhancedProbe: AndroidEnhancedMediaProbe = AndroidEnhancedMediaProbe(),
 ) {
     private val platformProbe = AndroidCore2MediaProbe(context)
+    private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
 
     fun evaluate(
         item: YMediaItem,
         preferTunnel: Boolean = true,
+        allowAudioPassthrough: Boolean = true,
     ): YCore2RouteDecision? {
         val platform = platformProbe.probe(item) as? YCore2ProbeResult.Success
         val resolved =
@@ -169,12 +171,28 @@ internal class AndroidCore2RouteEvaluator(
                 }
                 else -> platform
             } ?: return null
-        val request = resolved.playbackRequest.copy(preferTunnel = preferTunnel)
+        val request =
+            resolved.playbackRequest.copy(
+                preferTunnel = preferTunnel,
+                allowAudioPassthrough = allowAudioPassthrough,
+            )
         val normalizedProbe = resolved.copy(playbackRequest = request)
-        val plan = strategy.plan(request, capabilityProvider.current())
+        var capabilities = capabilityProvider.current()
+        var plan = strategy.plan(request, capabilities)
+        while (true) {
+            val runtimeKey = runtimeVideoCapabilityKey(request, plan) ?: break
+            if (!runtimeCapabilities.isRejected(runtimeKey)) break
+            val remaining = capabilities.videoDecoders.filterNot { it.name == runtimeKey.decoderName }
+            if (remaining.size == capabilities.videoDecoders.size) break
+            capabilities = capabilities.copy(videoDecoders = remaining)
+            plan = strategy.plan(request, capabilities)
+        }
         return YCore2RouteDecision(normalizedProbe, plan)
     }
 }
+
+internal fun YCore2RouteDecision.runtimeCapabilityKey(): YRuntimeVideoCapabilityKey? =
+    runtimeVideoCapabilityKey(probe.playbackRequest, plan)
 
 private fun YCore2ProbeResult.Success.materiallyOverrides(platform: YCore2ProbeResult.Success): Boolean =
     dolbyVisionConfig != null &&
@@ -291,7 +309,7 @@ private fun MediaFormat.bitDepth(mime: String): Int {
     }
 }
 
-private fun YMediaItem.containerHint(): YContainer {
+internal fun YMediaItem.containerHint(): YContainer {
     val mime = mimeType?.lowercase().orEmpty()
     if ("matroska" in mime) return YContainer.Matroska
     if ("webm" in mime) return YContainer.WebM
