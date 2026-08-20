@@ -247,9 +247,12 @@ object EmbyStream {
     }
 
     /**
-     * Server-side transcode to H.264/AAC over HLS. Needed for sources the
-     * device cannot decode or render — notably Dolby Vision Profile 5, which
-     * has no HDR10 fallback layer and plays with sound but no picture.
+     * Server-side compatibility transcode to H.264/AAC over HLS.
+     *
+     * This path is entered only after the original stream proved unusable. It must therefore never
+     * allow Emby/Jellyfin's automatic stream-copy optimization to preserve the very codec/profile
+     * that forced the fallback. In particular, copying Dolby Vision Profile 5 into TS or progressive
+     * MP4 simply moves the same green/magenta failure to another URL while claiming it was transcoded.
      */
     fun transcode(
         baseUrl: String,
@@ -264,13 +267,20 @@ object EmbyStream {
             "?api_key=${token.queryValue()}" +
             "&MediaSourceId=${(mediaSourceId ?: itemId).queryValue()}" +
             "&Context=Streaming" +
-            // Emby's HLS endpoint documents Container as required. SegmentContainer alone
-            // works on newer servers but older builds answer with an HTML/JSON error body;
-            // ExoPlayer then reports that body as a malformed m3u8.
+            // Keep both names for Emby/Jellyfin generations that key off different fields.
             "&Container=ts" +
+            "&TranscodingContainer=ts" +
+            "&SegmentContainer=ts" +
             "&TranscodingProtocol=hls" +
             "&VideoCodec=h264" +
             "&AudioCodec=aac" +
+            // A fallback is a compatibility encode, not another opportunity to stream-copy the
+            // source. These flags are deliberately explicit because P5 can otherwise survive the
+            // request untouched even when VideoCodec=h264 was supplied.
+            "&EnableAutoStreamCopy=false" +
+            "&AllowVideoStreamCopy=false" +
+            "&AllowAudioStreamCopy=false" +
+            "&RequireAvc=true" +
             "&MaxWidth=$maxWidth" +
             "&VideoBitrate=$videoBitrate" +
             "&AudioBitrate=192000" +
@@ -278,12 +288,11 @@ object EmbyStream {
             // Older Emby/Jellyfin derivatives generated this legacy name themselves.
             // Supplying both is harmless on current servers and keeps those proxies working.
             "&TranscodingMaxAudioChannels=2" +
-            "&SegmentContainer=ts" +
             "&MinSegments=2" +
             "&BreakOnNonKeyFrames=true" +
             sessionParams(playSessionId)
 
-    /** Progressive H.264/AAC fallback when a server cannot produce a valid HLS manifest. */
+    /** Progressive H.264/AAC compatibility fallback when a server cannot produce valid HLS. */
     fun progressiveTranscode(
         baseUrl: String,
         itemId: String,
@@ -299,8 +308,13 @@ object EmbyStream {
             "&MediaSourceId=${(mediaSourceId ?: itemId).queryValue()}" +
             "&Context=Streaming" +
             "&Container=mp4" +
+            "&TranscodingContainer=mp4" +
             "&VideoCodec=h264" +
             "&AudioCodec=aac" +
+            "&EnableAutoStreamCopy=false" +
+            "&AllowVideoStreamCopy=false" +
+            "&AllowAudioStreamCopy=false" +
+            "&RequireAvc=true" +
             "&MaxWidth=$maxWidth" +
             "&VideoBitrate=$videoBitrate" +
             "&AudioBitrate=192000" +
