@@ -5,6 +5,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 import android.os.Build
+import com.yfuse.core2.sync.YMediaTimestampTimeline
 import java.nio.ByteBuffer
 
 internal data class AndroidTunnelEncodedSample(
@@ -20,11 +21,16 @@ internal data class AndroidTunnelEncodedSample(
  *
  * The current compressed access unit is cached until MediaCodec accepts it, so codec backpressure
  * never advances the extractor early. No decoded frame or PCM data passes through this class.
+ *
+ * MediaExtractor timestamps are rebased to the first selected sample so Tunnel exposes the same
+ * zero-based product timeline as Exo/mpv/MDK and Core2 NativeDirect. Seek targets are translated
+ * back into the source timestamp domain before they reach MediaExtractor.
  */
 internal class AndroidTunnelPlatformDemuxer(
     context: Context,
 ) {
     private val appContext = context.applicationContext
+    private val timeline = YMediaTimestampTimeline()
     private var extractor: MediaExtractor? = null
     private var cachedSample: AndroidTunnelEncodedSample? = null
     private var selectedTracks: Set<Int> = emptySet()
@@ -61,6 +67,7 @@ internal class AndroidTunnelPlatformDemuxer(
         }
         selectedTracks = indices.toSet()
         cachedSample = null
+        establishTimelineOrigin()
     }
 
     /** Returns the current compressed sample without advancing the extractor. */
@@ -91,7 +98,7 @@ internal class AndroidTunnelPlatformDemuxer(
             return AndroidTunnelEncodedSample(
                 trackIndex = trackIndex,
                 data = buffer,
-                presentationTimeUs = active.sampleTime.coerceAtLeast(0L),
+                presentationTimeUs = timeline.presentationTimeUs(active.sampleTime),
                 extractorFlags = extractorFlags,
             ).also { cachedSample = it }
         }
@@ -105,8 +112,9 @@ internal class AndroidTunnelPlatformDemuxer(
 
     fun seekTo(positionUs: Long) {
         cachedSample = null
+        establishTimelineOrigin()
         requireExtractor().seekTo(
-            positionUs.coerceAtLeast(0L),
+            timeline.sourceTimeUs(positionUs),
             MediaExtractor.SEEK_TO_PREVIOUS_SYNC,
         )
     }
@@ -116,6 +124,15 @@ internal class AndroidTunnelPlatformDemuxer(
         selectedTracks = emptySet()
         extractor?.release()
         extractor = null
+        timeline.reset()
+    }
+
+    private fun establishTimelineOrigin() {
+        if (timeline.established) return
+        val firstSelectedSampleUs = requireExtractor().sampleTime
+        timeline.establish(
+            firstSelectedSampleUs.takeUnless { it == MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE } ?: 0L,
+        )
     }
 
     private fun sampleSize(extractor: MediaExtractor): Int {
@@ -139,3 +156,4 @@ private const val EXTRACTOR_SAMPLE_ENCRYPTED = 2
 private const val MIN_SAMPLE_BUFFER_BYTES = 64 * 1024
 private const val DEFAULT_SAMPLE_BUFFER_BYTES = 8 * 1024 * 1024
 private const val MAX_SAMPLE_BUFFER_BYTES = 64 * 1024 * 1024
+private const val MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE = -1L
