@@ -86,11 +86,12 @@ internal class AndroidFfmpegDemuxer :
         val result = requireOpenResult()
         val known = result.tracks.mapTo(mutableSetOf()) { it.id }
         require(trackIds.all { it in known }) { "Selected track does not belong to this demux session" }
-        prefetchedSample = null
+        val retainedPrefetched = prefetchedSample?.takeIf { it.trackId in trackIds }
         FfmpegNativeBridge.selectTracks(
             requireHandle(),
             trackIds.map(YTrackId::value).sorted().toIntArray(),
         )
+        prefetchedSample = retainedPrefetched
         // The first packet is retained rather than consumed. At an ordinary 0 ms start it becomes
         // the first packet returned to the decoder; for a resume seek it only supplies the source
         // timestamp origin before the seek invalidates it.
