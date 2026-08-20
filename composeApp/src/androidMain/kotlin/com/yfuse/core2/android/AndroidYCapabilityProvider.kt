@@ -182,7 +182,10 @@ internal class AndroidYCapabilityProvider(
                 .getSystemService(DisplayManager::class.java)
                 ?.getDisplay(Display.DEFAULT_DISPLAY)
                 ?: return false
-        return display.supportedModes.map { it.refreshRate }.distinct().size > 1
+        return display.supportedModes
+            .map { it.refreshRate }
+            .distinct()
+            .size > 1
     }
 }
 

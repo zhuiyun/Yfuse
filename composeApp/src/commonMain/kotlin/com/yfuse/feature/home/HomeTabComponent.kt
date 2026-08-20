@@ -14,17 +14,23 @@ import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.TgtoMediaItem
+import com.yfuse.core.data.TgtoMediaPreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.CalendarComponent
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
-/**
- * 首页 tab: TMDB recommendations. A pick opens the library item when the
- * server has it, otherwise its TMDB info page.
- */
+/** 首页 tab: 原 Yfuse 首页，以及配置后可切换的影视发现。 */
 @OptIn(DelicateDecomposeApi::class)
 class HomeTabComponent(
     componentContext: ComponentContext,
@@ -74,12 +80,16 @@ class HomeTabComponent(
             val embyItemId: String?,
         ) : Config
 
+        @Serializable data class MediaDetail(
+            val item: TgtoMediaItem,
+        ) : Config
+
         @Serializable data object Calendar : Config
     }
 
     sealed interface Child {
         class Home(
-            val component: HomeComponent,
+            val component: HomeRootComponent,
         ) : Child
 
         class Detail(
@@ -92,6 +102,10 @@ class HomeTabComponent(
 
         class Info(
             val component: TmdbInfoComponent,
+        ) : Child
+
+        class MediaDetail(
+            val component: MediaItemDetailComponent,
         ) : Child
 
         class Calendar(
@@ -120,26 +134,42 @@ class HomeTabComponent(
         when (config) {
             Config.Home ->
                 Child.Home(
-                    HomeComponent(
+                    HomeRootComponent(
                         componentContext = context,
-                        storeFactory = storeFactory,
-                        tmdb = tmdb,
-                        emby = repo,
-                        registry = registry,
-                        cache = dependencies.tmdbHomeCache,
-                        onOpenEmbyItem = { serverId, itemId ->
-                            navigation.push(Config.Detail(serverId, itemId))
-                        },
-                        onPlayEmbyItem = { serverId, itemId ->
-                            navigation.push(Config.Player(serverId, itemId, 0L))
-                        },
-                        onOpenTmdbItem = { item, embyItemId ->
-                            navigation.push(Config.Info(item, embyItemId))
-                        },
-                        onOpenSearch = onOpenSearch,
-                        onOpenLibrary = onOpenLibrary,
-                        onOpenProfile = onOpenProfile,
-                        onOpenCalendar = { navigation.push(Config.Calendar) },
+                        preferences = dependencies.tgtoMediaPreferences,
+                        classic =
+                            HomeComponent(
+                                componentContext = context,
+                                storeFactory = storeFactory,
+                                tmdb = tmdb,
+                                emby = repo,
+                                registry = registry,
+                                cache = dependencies.tmdbHomeCache,
+                                onOpenEmbyItem = { serverId, itemId ->
+                                    navigation.push(Config.Detail(serverId, itemId))
+                                },
+                                onPlayEmbyItem = { serverId, itemId ->
+                                    navigation.push(Config.Player(serverId, itemId, 0L))
+                                },
+                                onOpenTmdbItem = { item, embyItemId ->
+                                    navigation.push(Config.Info(item, embyItemId))
+                                },
+                                onOpenSearch = onOpenSearch,
+                                onOpenLibrary = onOpenLibrary,
+                                onOpenProfile = onOpenProfile,
+                                onOpenCalendar = { navigation.push(Config.Calendar) },
+                            ),
+                        discovery =
+                            MediaHubComponent(
+                                componentContext = context,
+                                media = dependencies.tgtoMedia,
+                                preferences = dependencies.tgtoMediaPreferences,
+                                onOpenItem = { item -> navigation.push(Config.MediaDetail(item)) },
+                                onOpenSettings = {
+                                    dependencies.tgtoMediaPreferences.requestOpenSettings()
+                                    onOpenProfile()
+                                },
+                            ),
                     ),
                 )
             is Config.Detail ->
@@ -205,5 +235,73 @@ class HomeTabComponent(
                         },
                     ),
                 )
+            is Config.MediaDetail ->
+                Child.MediaDetail(
+                    MediaItemDetailComponent(
+                        componentContext = context,
+                        item = config.item,
+                        media = dependencies.tgtoMedia,
+                        emby = repo,
+                        registry = registry,
+                        onBack = { navigation.pop() },
+                        onOpenEmbyItem = { serverId, itemId ->
+                            navigation.push(Config.Detail(serverId, itemId))
+                        },
+                        onPlayEmbyItem = { serverId, itemId ->
+                            navigation.push(Config.Player(serverId, itemId, 0L))
+                        },
+                        onOpenTmdbItem = { item, embyItemId ->
+                            navigation.push(Config.Info(item, embyItemId))
+                        },
+                    ),
+                )
         }
+}
+
+enum class HomeRootMode {
+    Classic,
+    Discovery,
+}
+
+data class HomeRootState(
+    val configured: Boolean,
+    val mode: HomeRootMode,
+)
+
+class HomeRootComponent(
+    componentContext: ComponentContext,
+    val classic: HomeComponent,
+    val discovery: MediaHubComponent,
+    preferences: TgtoMediaPreferences,
+) : ComponentContext by componentContext {
+    private val scope = componentScope(lifecycle)
+    private val _state =
+        MutableStateFlow(
+            HomeRootState(
+                configured = preferences.connection.value.hasPassword,
+                mode = if (preferences.connection.value.hasPassword) HomeRootMode.Discovery else HomeRootMode.Classic,
+            ),
+        )
+    val state: StateFlow<HomeRootState> = _state.asStateFlow()
+
+    init {
+        scope.launch {
+            preferences.connection.collectLatest { connection ->
+                _state.update { current ->
+                    current.copy(
+                        configured = connection.hasPassword,
+                        mode = if (connection.hasPassword) current.mode else HomeRootMode.Classic,
+                    )
+                }
+            }
+        }
+    }
+
+    fun showClassic() {
+        _state.update { it.copy(mode = HomeRootMode.Classic) }
+    }
+
+    fun showDiscovery() {
+        if (_state.value.configured) _state.update { it.copy(mode = HomeRootMode.Discovery) }
+    }
 }

@@ -290,7 +290,8 @@ internal class AndroidNativeEnhancedYPlayer(
                             videoHeight = video?.height ?: 0,
                             frameRate = video?.frameRate ?: 0f,
                             audioCodec =
-                                result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio }
+                                result.tracks
+                                    .firstOrNull { it.type == YDemuxTrackType.Audio }
                                     ?.audio
                                     ?.mimeType
                                     .orEmpty(),

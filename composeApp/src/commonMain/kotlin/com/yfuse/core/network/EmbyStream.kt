@@ -309,6 +309,33 @@ object EmbyStream {
             sessionParams(playSessionId)
 
     /**
+     * Makes a same-server PlaybackInfo HLS URL honor Yfuse's compatibility contract.
+     *
+     * Some Emby derivatives return a transcode URL that still copies TrueHD/EAC3/DTS or omits
+     * the segment container. Cross-origin CDN URLs are left byte-for-byte intact because they may
+     * be signed; same-origin URLs are ordinary Emby endpoints and can safely receive these hints.
+     */
+    fun compatibleHlsTranscodeUrl(
+        baseUrl: String,
+        url: String,
+    ): String {
+        if (url.isBlank()) return url
+        val serverOrigin = normalizeBaseUrl(baseUrl).negotiatedStreamOrigin()
+        val targetOrigin = url.negotiatedStreamOrigin()
+        if (serverOrigin == null || targetOrigin == null || serverOrigin != targetOrigin) return url
+        return url
+            .withOrReplaceQueryParameter("Context", "Streaming")
+            .withOrReplaceQueryParameter("Container", "ts")
+            .withOrReplaceQueryParameter("TranscodingProtocol", "hls")
+            .withOrReplaceQueryParameter("SegmentContainer", "ts")
+            .withOrReplaceQueryParameter("VideoCodec", "h264")
+            .withOrReplaceQueryParameter("AudioCodec", "aac")
+            .withOrReplaceQueryParameter("AudioBitrate", "192000")
+            .withOrReplaceQueryParameter("MaxAudioChannels", "2")
+            .withOrReplaceQueryParameter("TranscodingMaxAudioChannels", "2")
+    }
+
+    /**
      * Identifies who is asking and which playback this is.
      *
      * `DeviceId` was the literal string `yfuse` for every install of the app, so a server

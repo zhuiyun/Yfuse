@@ -1,6 +1,7 @@
 package com.yfuse.core.data
 
 import com.yfuse.core.data.dto.PlaybackInfoRequestDto
+import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaDetail
@@ -344,6 +345,29 @@ class EmbyRepositoryTest {
             assertTrue(res.isSuccess, res.toString())
             assertEquals(300, res.getOrThrow().totalCount)
             assertEquals(60, res.getOrThrow().startIndex)
+        }
+
+    @Test
+    fun libraryItems_pushes_4k_dolby_vision_and_bluray_filters_to_the_server() =
+        runTest {
+            val requests = mutableListOf<Map<String, String>>()
+            val repo =
+                testRepo { request ->
+                    requests +=
+                        request.url.parameters
+                            .entries()
+                            .associate { it.key to it.value.single() }
+                    json("""{"Items":[],"TotalRecordCount":0}""")
+                }
+
+            repo.libraryItems(server, "lib1", resolution = LibraryResolution.FourK).getOrThrow()
+            repo.libraryItems(server, "lib1", resolution = LibraryResolution.DolbyVision).getOrThrow()
+            repo.libraryItems(server, "lib1", resolution = LibraryResolution.BluRay).getOrThrow()
+
+            assertEquals("2560", requests[0]["MinWidth"])
+            assertEquals("true", requests[0]["IsHD"])
+            assertEquals("DolbyVision", requests[1]["ExtendedVideoTypes"])
+            assertEquals("Bluray", requests[2]["VideoTypes"])
         }
 
     @Test

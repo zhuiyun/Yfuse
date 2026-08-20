@@ -1,5 +1,6 @@
 package com.yfuse.core.account
 
+import com.yfuse.core.sync.playback.playbackCloudEndpointUnavailable
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -30,4 +31,23 @@ class PlaybackCloudApiTest {
                 client.close()
             }
         }
+
+    @Test
+    fun missing_playback_endpoint_disables_cloud_retries_without_masking_other_failures() {
+        val missing =
+            AccountApiException(
+                code = "http_404",
+                message = "not found",
+                status = HttpStatusCode.NotFound,
+            )
+        val unavailable =
+            AccountApiException(
+                code = "http_503",
+                message = "unavailable",
+                status = HttpStatusCode.ServiceUnavailable,
+            )
+
+        assertTrue(playbackCloudEndpointUnavailable(missing))
+        assertTrue(!playbackCloudEndpointUnavailable(unavailable))
+    }
 }

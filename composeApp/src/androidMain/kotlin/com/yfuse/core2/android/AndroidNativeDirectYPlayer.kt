@@ -22,8 +22,8 @@ import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.demux.YAudioTrackFormat
-import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.subtitle.YEmbeddedSubtitleDecoder
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
@@ -1336,9 +1336,7 @@ internal fun coalesceNativeDirectCommands(
         result
     }
 
-private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(
-    next: AndroidNativeDirectYPlayer.Command,
-): Boolean =
+private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNativeDirectYPlayer.Command): Boolean =
     when (this) {
         is AndroidNativeDirectYPlayer.Command.Seek -> next is AndroidNativeDirectYPlayer.Command.Seek
         is AndroidNativeDirectYPlayer.Command.SetSpeed -> next is AndroidNativeDirectYPlayer.Command.SetSpeed

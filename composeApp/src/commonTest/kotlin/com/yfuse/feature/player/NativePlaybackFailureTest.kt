@@ -29,8 +29,20 @@ class NativePlaybackFailureTest {
     @Test
     fun fatal_render_failure_changes_engine_but_does_not_block_it() {
         val failure = nativePlaybackLogFailure("Failed initializing any suitable GPU context!")
+        val missingSurface =
+            nativePlaybackLogFailure("hevc_mediacodec: Both surface and native_window are NULL")
 
         assertEquals("播放器渲染器初始化失败，正在尝试其他播放器", failure?.message)
+        assertEquals(PlaybackFailureKind.Renderer, missingSurface?.kind)
+        assertTrue(isNativeSurfaceLossFailure("Both surface and native_window are NULL"))
+        assertFalse(failure?.blocksAutomaticFallback ?: true)
+    }
+
+    @Test
+    fun nativeTlsFailuresAreTransportFailuresInsteadOfUnknownEngineFailures() {
+        val failure = nativePlaybackLogFailure("tls: mbedtls_ssl_handshake returned -0x6600")
+
+        assertEquals(PlaybackFailureKind.Network, failure?.kind)
         assertFalse(failure?.blocksAutomaticFallback ?: true)
     }
 

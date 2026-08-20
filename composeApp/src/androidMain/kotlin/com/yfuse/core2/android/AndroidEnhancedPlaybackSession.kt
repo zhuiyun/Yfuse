@@ -24,8 +24,8 @@ import com.yfuse.core2.demux.YVideoTrackFormat
 import com.yfuse.core2.dolby.dolbyVisionHevcBaseLayerSample
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
-import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
@@ -568,7 +568,10 @@ internal class AndroidEnhancedPlaybackSession(
                 requireNotNull(sourceTrack.dolbyVisionConfig) {
                     "HDR fallback requires explicit Dolby Vision configuration"
                 }
-            require(config.profile in setOf(7, 8) && config.codecFamily == com.yfuse.core2.dolby.YDolbyVisionCodecFamily.Hevc) {
+            require(
+                config.profile in setOf(7, 8) &&
+                    config.codecFamily == com.yfuse.core2.dolby.YDolbyVisionCodecFamily.Hevc,
+            ) {
                 "Only HEVC Dolby Vision Profile 7/8 compatible-base fallback is executable"
             }
             require(config.compatibleBaseHdr == currentPlan.outputHdrType) {

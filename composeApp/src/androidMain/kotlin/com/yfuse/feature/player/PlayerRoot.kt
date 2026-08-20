@@ -36,7 +36,6 @@ import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackAudioPassthrough
-import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
@@ -652,6 +651,50 @@ internal fun PlayerRoot(
                 capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
                     ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
         )
+    LaunchedEffect(
+        localCastItem?.id,
+        localCastItem?.versionId,
+        localState.currentIndex,
+        localState.transcoding,
+        activeProbe.capabilitySignature,
+        activePlan,
+        kind,
+        effectiveDecoderMode,
+    ) {
+        if (castAuthoritative) return@LaunchedEffect
+        val version = localCastItem?.activeVersion
+        AppLog.info(
+            category = "player.media",
+            event = "source_route_diagnostics",
+            message = "YCore recorded the source and selected playback route",
+            attributes =
+                mapOf(
+                    "itemIndex" to localState.currentIndex.toString(),
+                    "container" to (version?.container ?: activeProbe.normalizedContainer),
+                    "videoCodec" to
+                        (
+                            version?.sourceVideoCodec ?: activeProbe.source.videoRequirements.codec
+                                ?.name
+                                .orEmpty()
+                        ),
+                    "dynamicRange" to (
+                        version?.sourceDynamicRange ?: activeProbe.source.hdrFormat
+                            ?.name
+                            .orEmpty()
+                    ),
+                    "dolbyVision" to (version?.dolbyVision == true).toString(),
+                    "dolbyProfile" to (version?.dolbyProfile?.toString() ?: "unknown"),
+                    "needsDolbyDecoder" to (version?.needsDolbyDecoder == true).toString(),
+                    "audioCodec" to (activeProbe.audioCodec?.name ?: "unknown"),
+                    "audioTracks" to (version?.audioTrackCount ?: 0).toString(),
+                    "engine" to kind.name,
+                    "decoderMode" to effectiveDecoderMode.name,
+                    "renderPath" to activePlan.renderPath.name,
+                    "serverTranscode" to localState.transcoding.toString(),
+                    "audioPassthrough" to allowAudioPassthrough.toString(),
+                ),
+        )
+    }
     val runtimeAssessment =
         rememberYCoreRuntimeAssessment(
             player = player,

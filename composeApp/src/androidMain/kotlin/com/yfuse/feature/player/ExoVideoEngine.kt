@@ -60,7 +60,6 @@ private val exoRuntimeCadence =
         idleIntervalMs = 2_000L,
     )
 private const val TRANSIENT_RETRY_LIMIT = 2
-private const val MANIFEST_RETRY_LIMIT = 1
 
 /**
  * ExoPlayer behind the engine-agnostic [VideoEngine] contract.
@@ -259,7 +258,15 @@ class ExoVideoEngine(
     private fun updateVideoOutput() {
         val format = currentVideoFormat
         if (format == null) return
-        val range = format.dynamicRangeLabel().ifBlank { "未知动态范围" }
+        val sourceDolbyProfile =
+            items.getOrNull(player.currentMediaItemIndex)?.activeVersion?.dolbyProfile
+        val detectedRange = format.dynamicRangeLabel().ifBlank { "未知动态范围" }
+        val range =
+            if (detectedRange.contains("Dolby Vision", ignoreCase = true) && sourceDolbyProfile != null) {
+                "Dolby Vision Profile $sourceDolbyProfile"
+            } else {
+                detectedRange
+            }
         val capabilities =
             runCatching { capabilityProvider?.current() }
                 .getOrNull()
@@ -326,6 +333,22 @@ class ExoVideoEngine(
                 decoderReuseEvaluation: DecoderReuseEvaluation?,
             ) {
                 currentVideoFormat = format
+                val source = items.getOrNull(player.currentMediaItemIndex)?.activeVersion
+                AppLog.info(
+                    category = "player.exo",
+                    event = "video_format_selected",
+                    message = "ExoPlayer selected a video input format",
+                    attributes =
+                        mapOf(
+                            "mime" to format.sampleMimeType.orEmpty(),
+                            "codecString" to format.codecs.orEmpty(),
+                            "decoder" to currentVideoDecoder.ifBlank { "pending" },
+                            "width" to format.width.toString(),
+                            "height" to format.height.toString(),
+                            "colorTransfer" to (format.colorInfo?.colorTransfer?.toString() ?: "unknown"),
+                            "dolbyProfile" to (source?.dolbyProfile?.toString() ?: "unknown"),
+                        ),
+                )
                 _state.update {
                     it.copy(
                         diagnostics =
@@ -365,6 +388,19 @@ class ExoVideoEngine(
                 format: Format,
                 decoderReuseEvaluation: DecoderReuseEvaluation?,
             ) {
+                val source = items.getOrNull(player.currentMediaItemIndex)?.activeVersion
+                AppLog.info(
+                    category = "player.exo",
+                    event = "audio_format_selected",
+                    message = "ExoPlayer selected an audio input format",
+                    attributes =
+                        mapOf(
+                            "mime" to format.sampleMimeType.orEmpty(),
+                            "codecString" to format.codecs.orEmpty(),
+                            "channels" to format.channelCount.toString(),
+                            "sourceAtmos" to (source?.dolbyAtmos == true).toString(),
+                        ),
+                )
                 _state.update {
                     it.copy(
                         diagnostics =
@@ -591,10 +627,9 @@ class ExoVideoEngine(
                 )
                 when (error.errorCode) {
                     PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ->
-                        if (
-                            !scheduleRetry(index, MANIFEST_RETRY_LIMIT, "malformed_manifest") &&
-                            !switchToProgressiveTranscode()
-                        ) {
+                        // A malformed manifest is deterministic. Retrying the same bytes only
+                        // duplicates the failure and delays the progressive fallback.
+                        if (!switchToProgressiveTranscode()) {
                             failPlayback("服务器返回了无效的转码清单", kind = PlaybackFailureKind.Container)
                         }
 

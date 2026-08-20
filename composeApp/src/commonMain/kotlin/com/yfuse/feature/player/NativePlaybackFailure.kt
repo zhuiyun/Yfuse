@@ -45,6 +45,12 @@ internal fun nativePlaybackLogFailure(details: String?): NativePlaybackFailure? 
                 blocksAutomaticFallback = false,
                 kind = PlaybackFailureKind.AudioSink,
             )
+        TERMINAL_NETWORK_FAILURES.any(normalized::contains) || HTTP_SERVER_FAILURE.containsMatchIn(normalized) ->
+            NativePlaybackFailure(
+                message = "播放器无法读取媒体流，请检查服务器网络或尝试其他线路",
+                blocksAutomaticFallback = false,
+                kind = PlaybackFailureKind.Network,
+            )
         TERMINAL_RENDER_FAILURES.any(normalized::contains) ->
             NativePlaybackFailure(
                 message = "播放器渲染器初始化失败，正在尝试其他播放器",
@@ -126,4 +132,32 @@ private val TERMINAL_RENDER_FAILURES =
         "failed to attach surface",
         "failed to create android surface",
         "surface is invalid",
+        "both surface and native_window are null",
     )
+
+internal fun isNativeSurfaceLossFailure(details: String?): Boolean {
+    val normalized = details?.trim()?.lowercase().orEmpty()
+    return TERMINAL_SURFACE_LOSS_FAILURES.any(normalized::contains)
+}
+
+private val TERMINAL_SURFACE_LOSS_FAILURES =
+    listOf(
+        "both surface and native_window are null",
+        "failed to attach surface",
+        "failed to create android surface",
+        "surface is invalid",
+    )
+
+private val TERMINAL_NETWORK_FAILURES =
+    listOf(
+        "mbedtls_ssl_handshake",
+        "tls handshake failed",
+        "ssl handshake failed",
+        "network is unreachable",
+        "connection refused",
+        "connection timed out",
+        "failed to open http://",
+        "failed to open https://",
+    )
+
+private val HTTP_SERVER_FAILURE = Regex("(?:http(?: error| status)?|server response status:)\\s*5\\d\\d")

@@ -132,13 +132,21 @@ private val HomeHeroContentBottom = HeroCaptionClearance
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(component: HomeComponent) {
+fun HomeScreen(
+    component: HomeComponent,
+    onOpenDiscovery: (() -> Unit)? = null,
+) {
     // The carousel owns which slide is settled, so it reports the colour up rather than the
     // page trying to work it out from an index it does not hold. Hoisted above the content
     // so 跟随封面 can hand it to every control on the page — see [ArtworkAccent].
     var heroAccent by remember { mutableStateOf<Color?>(null) }
     ArtworkAccent(heroAccent) {
-        HomeContent(component = component, heroAccent = heroAccent, onHeroAccent = { heroAccent = it })
+        HomeContent(
+            component = component,
+            heroAccent = heroAccent,
+            onHeroAccent = { heroAccent = it },
+            onOpenDiscovery = onOpenDiscovery,
+        )
     }
 }
 
@@ -148,6 +156,7 @@ private fun HomeContent(
     component: HomeComponent,
     heroAccent: Color?,
     onHeroAccent: (Color) -> Unit,
+    onOpenDiscovery: (() -> Unit)?,
 ) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
@@ -203,6 +212,7 @@ private fun HomeContent(
                         visible = heroVisible,
                         onOpenProfile = component.onOpenProfile,
                         onOpenCalendar = component.onOpenCalendar,
+                        onOpenDiscovery = onOpenDiscovery,
                         onPlay = { component.store.accept(HomeIntent.Play(it)) },
                         onDetails = { component.store.accept(HomeIntent.Open(it)) },
                         onFavorite = { component.store.accept(HomeIntent.Favorite(it)) },
@@ -342,6 +352,7 @@ private fun HomeHeroCarousel(
     visible: Boolean,
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
+    onOpenDiscovery: (() -> Unit)?,
     onPlay: (TmdbItem) -> Unit,
     onDetails: (TmdbItem) -> Unit,
     onFavorite: (TmdbItem) -> Unit,
@@ -417,6 +428,7 @@ private fun HomeHeroCarousel(
             userName = userName,
             onOpenProfile = onOpenProfile,
             onOpenCalendar = onOpenCalendar,
+            onOpenDiscovery = onOpenDiscovery,
             modifier = Modifier.align(Alignment.TopStart),
         )
 
@@ -540,6 +552,7 @@ private fun HeroHeader(
     userName: String?,
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
+    onOpenDiscovery: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -591,6 +604,32 @@ private fun HeroHeader(
                     tint = Color.White,
                     modifier = Modifier.size(17.dp),
                 )
+            }
+        }
+        onOpenDiscovery?.let { openDiscovery ->
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .pressable(onClickLabel = "切换到影视发现", onClick = openDiscovery),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .glass(
+                            shape = CircleShape,
+                            fill = Color.White.copy(alpha = 0.14f),
+                            border = Color.White.copy(alpha = 0.34f),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        AppIcons.Search,
+                        "切换到影视发现",
+                        tint = Color.White,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
             }
         }
         Box(

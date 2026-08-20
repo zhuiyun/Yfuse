@@ -55,6 +55,7 @@ class PlaybackSyncManager(
     private var lastCloudAttemptAtEpochMs = Long.MIN_VALUE
     private var cloudFailureStreak = 0
     private var retryNotBeforeEpochMs = Long.MIN_VALUE
+    private var cloudPlaybackEndpointUnavailable = false
     private val _state =
         MutableStateFlow(
             PlaybackCloudSyncState(
@@ -191,6 +192,7 @@ class PlaybackSyncManager(
 
     suspend fun syncNow() {
         syncMutex.withLock {
+            if (cloudPlaybackEndpointUnavailable) return
             val userId = cipher.currentUserId() ?: return
             if (store.bindAccount(userId)) updatePendingState()
             val accessToken = accessTokens.validAccessTokenFor(cloud.origin) ?: return
@@ -227,11 +229,11 @@ class PlaybackSyncManager(
                                         lastSyncedAtEpochMs = nowEpochMs(),
                                         error = null,
                                     )
-                            }.onFailure(::recordFailure)
+                            }.onFailure(::handleCloudFailure)
                         return
                     }
                 }
-                recordFailure(error)
+                handleCloudFailure(error)
             } catch (error: Throwable) {
                 recordFailure(error)
             }
@@ -309,6 +311,7 @@ class PlaybackSyncManager(
     }
 
     private fun scheduleCloudSync(immediate: Boolean) {
+        if (cloudPlaybackEndpointUnavailable) return
         if (!accessTokens.sessionAvailable.value) return
         if (immediate) {
             debounceJob?.cancel()
@@ -343,6 +346,40 @@ class PlaybackSyncManager(
             _state.value.copy(
                 pendingCount = store.pending(128).size,
                 cursor = store.cursor(),
+            )
+    }
+
+    private fun handleCloudFailure(error: Throwable) {
+        if (playbackCloudEndpointUnavailable(error)) {
+            markCloudPlaybackEndpointUnavailable(error as AccountApiException)
+        } else {
+            recordFailure(error)
+        }
+    }
+
+    private fun markCloudPlaybackEndpointUnavailable(error: AccountApiException) {
+        if (cloudPlaybackEndpointUnavailable) return
+        cloudPlaybackEndpointUnavailable = true
+        cloudFailureStreak = 0
+        retryNotBeforeEpochMs = Long.MAX_VALUE
+        val pendingCount = store.pending(128).size
+        AppLog.warning(
+            category = "playback.sync",
+            event = "cloud_endpoint_unavailable",
+            message = "Cloud playback synchronization is not enabled; local records remain queued",
+            attributes =
+                mapOf(
+                    "status" to error.status.value.toString(),
+                    "code" to error.code.take(64),
+                    "pendingCount" to pendingCount.toString(),
+                ),
+        )
+        _state.value =
+            _state.value.copy(
+                syncing = false,
+                pendingCount = pendingCount,
+                cursor = store.cursor(),
+                error = "云端播放记录同步尚未启用，本地记录已保留",
             )
     }
 
@@ -399,6 +436,9 @@ internal fun playbackCloudRetryBackoffMs(failureStreak: Int): Long {
     val exponent = (failureStreak - 1).coerceIn(0, 5)
     return (30_000L * (1L shl exponent)).coerceAtMost(15 * 60_000L)
 }
+
+internal fun playbackCloudEndpointUnavailable(error: Throwable): Boolean =
+    error is AccountApiException && error.status == HttpStatusCode.NotFound
 
 private val PlaybackSyncTrigger.isImmediateCloudTrigger: Boolean
     get() =

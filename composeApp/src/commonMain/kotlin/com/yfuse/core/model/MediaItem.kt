@@ -36,8 +36,8 @@ data class MediaItem(
     /**
      * Membership id returned by `/Playlists/{id}/Items`.
      *
-     * Emby removes a playlist row by this id rather than by the media [id]. Keeping it on
-     * the row also lets two intentional occurrences of the same title remain distinct.
+     * Emby removes a playlist row by this id rather than by the media [id]. The UI still
+     * de-duplicates repeated memberships by [id], while retaining this value for removal.
      */
     val playlistItemId: String? = null,
 )
@@ -93,6 +93,22 @@ enum class LibrarySort(
      */
     Year(sortBy = "ProductionYear,PremiereDate", descending = true),
     Rating(sortBy = "CommunityRating", descending = true),
+}
+
+/** Resolution and source-format facets supported by Emby's item query. */
+enum class LibraryResolution(
+    val label: String,
+    val isHd: Boolean?,
+    val minWidth: Int? = null,
+    val videoType: String? = null,
+    val extendedVideoType: String? = null,
+) {
+    All(label = "全部", isHd = null),
+    FourK(label = "4K", isHd = true, minWidth = 2_560),
+    DolbyVision(label = "杜比视界", isHd = true, extendedVideoType = "DolbyVision"),
+    BluRay(label = "蓝光", isHd = true, videoType = "Bluray"),
+    Hd(label = "高清", isHd = true),
+    Sd(label = "标清", isHd = false),
 }
 
 /** One page of a library listing, plus the size of the whole matching set. */

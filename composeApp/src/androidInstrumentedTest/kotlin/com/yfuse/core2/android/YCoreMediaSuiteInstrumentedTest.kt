@@ -17,12 +17,12 @@ import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.test.YMediaTestCase
 import com.yfuse.core2.test.YMediaTestSuite
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertFalse
@@ -351,8 +351,7 @@ class YCoreMediaSuiteInstrumentedTest {
     }
 }
 
-private fun File.isInside(root: File): Boolean =
-    path == root.path || path.startsWith(root.path + File.separator)
+private fun File.isInside(root: File): Boolean = path == root.path || path.startsWith(root.path + File.separator)
 
 private const val MANIFEST_ARGUMENT = "ycoreMediaManifest"
 private const val SMOKE_MEDIA_ARGUMENT = "ycoreSmokeMedia"

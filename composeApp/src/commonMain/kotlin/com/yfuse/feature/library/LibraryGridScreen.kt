@@ -60,6 +60,7 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.network.EmbyImages
@@ -220,6 +221,13 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                 )
             }
 
+            if (state.resolutionFilterable) {
+                ResolutionFilterRow(
+                    selected = state.resolution,
+                    onSelect = { component.store.accept(GridIntent.SetResolution(it)) },
+                )
+            }
+
             Box(Modifier.fillMaxSize()) {
                 when {
                     state.loading && state.loadedCount == 0 ->
@@ -235,8 +243,10 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                     state.loadedCount == 0 ->
                         EmptyGridHint(
                             title = component.title,
-                            filtered = state.genre != null,
-                            onClearGenre = { component.store.accept(GridIntent.SetGenre(null)) },
+                            filtered =
+                                state.genre != null ||
+                                    state.resolution != LibraryResolution.All,
+                            onClearFilters = { component.store.accept(GridIntent.ClearFilters) },
                             onBack = component.onBack,
                             modifier = Modifier.align(Alignment.Center),
                         )
@@ -277,7 +287,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                     )
                                 }
                             } else {
-                                items(state.items, key = { it.playlistItemId ?: it.id }) { item ->
+                                items(state.items, key = { it.id }) { item ->
                                     Box(
                                         // Appended pages fade in where they land rather than
                                         // appearing mid-scroll, and a sort change cross-dissolves
@@ -310,7 +320,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                                         onClick = {
                                                             component.store.accept(
                                                                 GridIntent.RequestRemove(
-                                                                    item.playlistItemId ?: item.id,
+                                                                    item.id,
                                                                 ),
                                                             )
                                                         },
@@ -481,6 +491,36 @@ private fun GenreFilterRow(
     }
 }
 
+/** Emby-backed media specification filters: resolution, Dolby Vision, and Blu-ray. */
+@Composable
+private fun ResolutionFilterRow(
+    selected: LibraryResolution,
+    onSelect: (LibraryResolution) -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        item(key = "resolution-label") {
+            Text(
+                text = "规格",
+                style = AppTypography.caption.strong,
+                color = LocalPalette.current.sub2,
+            )
+        }
+        items(LibraryResolution.entries, key = { it.name }) { resolution ->
+            GenreChip(
+                label = resolution.label,
+                selected = selected == resolution,
+                modifier = motionAwareItem(),
+                onClick = { onSelect(resolution) },
+            )
+        }
+    }
+}
+
 @Composable
 private fun GenreChip(
     label: String,
@@ -578,7 +618,7 @@ private fun GridFooter(
 private fun EmptyGridHint(
     title: String,
     filtered: Boolean,
-    onClearGenre: () -> Unit,
+    onClearFilters: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -587,7 +627,7 @@ private fun EmptyGridHint(
             "这个分类下没有内容",
             modifier = modifier,
             actionLabel = "查看全部",
-            onAction = onClearGenre,
+            onAction = onClearFilters,
         )
         return
     }

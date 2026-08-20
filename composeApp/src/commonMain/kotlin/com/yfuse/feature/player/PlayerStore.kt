@@ -166,7 +166,8 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                 version.directStreamUrl.isLinearMediaStreamUrl()
         val hlsTranscode =
             when {
-                negotiatedTranscode != null -> negotiatedTranscode
+                negotiatedTranscode != null ->
+                    EmbyStream.compatibleHlsTranscodeUrl(baseUrl, negotiatedTranscode)
                 // A raw disc URL cannot be consumed by any Android backend. Even servers
                 // that omit/deny the capability flag get one best-effort main-title request.
                 requiresDiscStream -> generated.transcode.withPlaySessionId(sessionId)

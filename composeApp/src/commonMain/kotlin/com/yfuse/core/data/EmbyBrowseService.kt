@@ -5,6 +5,7 @@ import com.yfuse.core.data.dto.PlaylistCreatedDto
 import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.LibraryPage
+import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
@@ -167,6 +168,7 @@ internal class EmbyBrowseService(
         genre: String? = null,
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
+        resolution: LibraryResolution = LibraryResolution.All,
     ): Result<LibraryPage> =
         embyApiCall("media_container_items") {
             val dto: ItemsResponseDto =
@@ -180,6 +182,7 @@ internal class EmbyBrowseService(
                                 parameter("SortBy", sort.sortBy)
                                 parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
                                 if (!genre.isNullOrBlank()) parameter("Genres", genre)
+                                applyResolutionFilter(resolution)
                                 containerItemParameters(startIndex, limit, includePlaylistItemId = false)
                             }.body()
 
@@ -254,11 +257,12 @@ internal class EmbyBrowseService(
         genre: String? = null,
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
+        resolution: LibraryResolution = LibraryResolution.All,
     ): Result<LibraryPage> =
         embyApiCall("library_items") {
             when (libraryId) {
                 FAVORITES_COLLECTION_ID ->
-                    return@embyApiCall fetchFavorites(server, limit, startIndex, sort)
+                    return@embyApiCall fetchFavorites(server, limit, startIndex, sort, resolution)
                         .toLibraryPage(startIndex)
                 // The playlist's own order is the one the user arranged, so 稍后观看 ignores
                 // [sort] rather than overriding that with a column of its own choosing.
@@ -276,6 +280,7 @@ internal class EmbyBrowseService(
                         parameter("SortBy", sort.sortBy)
                         parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
                         if (!genre.isNullOrBlank()) parameter("Genres", genre)
+                        applyResolutionFilter(resolution)
                         parameter(
                             "Fields",
                             "ProductionYear,BackdropImageTags,ParentBackdropItemId," +
@@ -472,11 +477,19 @@ internal class EmbyBrowseService(
         parameter("Limit", limit)
     }
 
+    private fun io.ktor.client.request.HttpRequestBuilder.applyResolutionFilter(resolution: LibraryResolution) {
+        resolution.isHd?.let { parameter("IsHD", it) }
+        resolution.minWidth?.let { parameter("MinWidth", it) }
+        resolution.videoType?.let { parameter("VideoTypes", it) }
+        resolution.extendedVideoType?.let { parameter("ExtendedVideoTypes", it) }
+    }
+
     internal suspend fun fetchFavorites(
         server: SavedServer,
         limit: Int,
         startIndex: Int = 0,
         sort: LibrarySort = LibrarySort.RecentlyAdded,
+        resolution: LibraryResolution = LibraryResolution.All,
     ): PersonalCollection {
         val dto: ItemsResponseDto =
             client
@@ -487,6 +500,7 @@ internal class EmbyBrowseService(
                     parameter("IncludeItemTypes", "Movie,Series")
                     parameter("SortBy", sort.sortBy)
                     parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
+                    applyResolutionFilter(resolution)
                     personalCollectionParameters(limit, startIndex)
                 }.body()
         return dto.toPersonalCollection(startIndex, limit)

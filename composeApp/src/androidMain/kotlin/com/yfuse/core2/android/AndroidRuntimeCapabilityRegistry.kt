@@ -77,14 +77,11 @@ internal class AndroidRuntimeCapabilityRegistry(
             record.consecutiveFailures >= FAILURES_TO_REJECT
     }
 
-    fun recordConfigured(key: YRuntimeVideoCapabilityKey) =
-        record(key, YRuntimeCapabilityEvidence.Configured)
+    fun recordConfigured(key: YRuntimeVideoCapabilityKey) = record(key, YRuntimeCapabilityEvidence.Configured)
 
-    fun recordRendered(key: YRuntimeVideoCapabilityKey) =
-        record(key, YRuntimeCapabilityEvidence.Rendered)
+    fun recordRendered(key: YRuntimeVideoCapabilityKey) = record(key, YRuntimeCapabilityEvidence.Rendered)
 
-    fun recordRejected(key: YRuntimeVideoCapabilityKey) =
-        record(key, YRuntimeCapabilityEvidence.Rejected)
+    fun recordRejected(key: YRuntimeVideoCapabilityKey) = record(key, YRuntimeCapabilityEvidence.Rejected)
 
     @Synchronized
     private fun record(
@@ -136,7 +133,9 @@ internal class AndroidRuntimeCapabilityRegistry(
             record.key.height,
             record.key.bitDepth,
             record.key.hdrType.name,
-            record.key.dolbyVisionProfile?.toString().orEmpty(),
+            record.key.dolbyVisionProfile
+                ?.toString()
+                .orEmpty(),
             record.key.tunneled,
             record.evidence.name,
             record.consecutiveFailures,
@@ -190,7 +189,8 @@ private fun String.encodeOpaque(): String =
     )
 
 private fun String.decodeOpaque(): String =
-    Base64.decode(this, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    Base64
+        .decode(this, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         .toString(Charsets.UTF_8)
 
 private const val PREFERENCES_NAME = "yfuse_ycore2_runtime_capabilities"

@@ -29,7 +29,12 @@ data class YMediaTestSuite(
         buildList {
             if (version != CURRENT_VERSION) add("manifest version must be $CURRENT_VERSION")
             if (cases.isEmpty()) add("media test suite contains no cases")
-            val duplicateIds = cases.groupingBy { it.id }.eachCount().filterValues { it > 1 }.keys
+            val duplicateIds =
+                cases
+                    .groupingBy { it.id }
+                    .eachCount()
+                    .filterValues { it > 1 }
+                    .keys
             if (duplicateIds.isNotEmpty()) add("duplicate case ids: ${duplicateIds.sorted().joinToString()}")
             cases.forEach { case ->
                 if (case.id.isBlank()) add("case id must not be blank")
@@ -46,7 +51,13 @@ data class YMediaTestSuite(
             addMissing("container", REQUIRED_CONTAINERS - cases.valuesOf(YMediaTestCase::container))
             addMissing("audio", REQUIRED_AUDIO - cases.valuesOf(YMediaTestCase::audioCodec))
             addMissing("subtitle", REQUIRED_SUBTITLES - cases.mapNotNull(YMediaTestCase::subtitle).normalized())
-            val missingFps = REQUIRED_FRAME_RATES.filterNot { required -> cases.any { abs(it.frameRate - required) < FPS_EPSILON } }
+            val missingFps =
+                REQUIRED_FRAME_RATES.filterNot { required ->
+                    cases.any {
+                        abs(it.frameRate - required) <
+                            FPS_EPSILON
+                    }
+                }
             if (missingFps.isNotEmpty()) add("missing FPS: ${missingFps.joinToString()}")
             if (cases.none { it.height <= 720 }) add("missing resolution: 720p")
             if (cases.none { it.height >= 4320 }) add("missing resolution: 8K")

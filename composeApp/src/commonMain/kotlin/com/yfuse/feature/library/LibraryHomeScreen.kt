@@ -462,34 +462,19 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         SkeletonRow()
                                     }
 
-                                    if (state.content.rows.isNotEmpty()) {
+                                    if (
+                                        state.content.rows.isNotEmpty() ||
+                                        state.currentServer != null
+                                    ) {
                                         CategoryCards(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
                                             rows = state.content.rows,
+                                            playlists = state.content.playlists,
                                             onOpen = {
                                                 component.onSeeAll(it.libraryId, it.title)
                                             },
-                                        )
-                                    }
-
-                                    // 合集 is deliberately not a shelf here. The collections a server
-                                    // holds are still loaded and still reachable — 详情页 → 加入合集或
-                                    // 播放列表 works on them, and the directory route below opens one
-                                    // by id — they just no longer take a row of the library root.
-                                    if (state.content.playlists.isNotEmpty()) {
-                                        MediaContainerSection(
-                                            title = "播放列表",
-                                            baseUrl = baseUrl,
-                                            accessToken = accessToken,
-                                            containers = state.content.playlists,
-                                            onOpen = { container ->
-                                                component.onSeeAll(
-                                                    LibraryContainerRoute.from(container).encode(),
-                                                    container.title,
-                                                )
-                                            },
-                                            onSeeAll = {
+                                            onOpenPlaylists = {
                                                 state.currentServer?.id?.let { serverId ->
                                                     component.onSeeAll(
                                                         LibraryContainerDirectoryRoute(
@@ -513,7 +498,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                         )
                                     }
 
-                                    state.content.rows.filter { it.items.isNotEmpty() }.forEach { row ->
+                                    state.content.rows.libraryShelfRows().forEach { row ->
                                         CategorySection(
                                             baseUrl = baseUrl,
                                             accessToken = accessToken,
@@ -935,14 +920,15 @@ private fun CategoryCards(
     baseUrl: String,
     accessToken: String,
     rows: List<HomeRow>,
+    playlists: List<MediaContainer>,
     onOpen: (HomeRow) -> Unit,
+    onOpenPlaylists: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     LazyRow(
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        items(rows, key = { it.libraryId }) { row ->
+        items(rows.distinctBy { it.libraryId }, key = { it.libraryId }) { row ->
             val cover = row.items.firstOrNull()
             val personalIcon =
                 when (row.libraryId) {
@@ -955,63 +941,112 @@ private fun CategoryCards(
                     EmbyImages.backdrop(baseUrl, it, maxWidth = 480, accessToken = accessToken)
                         ?: EmbyImages.poster(baseUrl, it, accessToken = accessToken)
                 }
-            Box(
-                Modifier
-                    .width(148.dp)
-                    .height(88.dp)
-                    .pressable { onOpen(row) }
-                    .clip(GlassShapes.poster)
-                    .background(
-                        if (coverUrl == null && personalIcon != null) {
-                            Color(0xFF4C5F83)
-                        } else {
-                            palette.card2
-                        },
-                    ),
-            ) {
-                if (coverUrl != null) {
-                    FallbackImage(
-                        urls = listOf(coverUrl),
-                        contentDescription = row.title,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else if (personalIcon != null) {
-                    Icon(
-                        imageVector = personalIcon,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.48f),
-                        modifier = Modifier.align(Alignment.Center).size(27.dp),
-                    )
-                }
-                Box(
-                    Modifier.fillMaxSize().background(
-                        scrim(
-                            0f to Color.Black.copy(alpha = 0.35f),
-                            0.6f to Color.Transparent,
-                        ),
-                    ),
-                )
-                Text(
-                    row.title,
-                    style = AppTypography.body.strong,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 12.dp, bottom = 10.dp, end = 12.dp),
-                )
-                Text(
-                    "${row.totalCount}部",
-                    style = AppTypography.caption.strong,
-                    color = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.align(Alignment.TopEnd).padding(end = 12.dp, top = 10.dp),
-                )
-            }
+            LibraryCategoryCard(
+                title = row.title,
+                countLabel = "${row.totalCount}部",
+                coverUrl = coverUrl,
+                fallbackIcon = personalIcon,
+                onClick = { onOpen(row) },
+            )
+        }
+
+        item(key = "library-playlists") {
+            val playlist = playlists.distinctBy { it.id }.firstOrNull()
+            LibraryCategoryCard(
+                title = "播放列表",
+                countLabel = null,
+                coverUrl =
+                    playlist?.let {
+                        EmbyImages.primary(
+                            baseUrl = baseUrl,
+                            itemId = it.id,
+                            tag = it.posterTag,
+                            maxHeight = 360,
+                            accessToken = accessToken,
+                        )
+                    },
+                fallbackIcon = AppIcons.TabLibrary,
+                onClick = onOpenPlaylists,
+            )
         }
     }
 }
+
+@Composable
+private fun LibraryCategoryCard(
+    title: String,
+    countLabel: String?,
+    coverUrl: String?,
+    fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector?,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Box(
+        Modifier
+            .width(148.dp)
+            .height(88.dp)
+            .pressable(onClick = onClick)
+            .clip(GlassShapes.poster)
+            .background(
+                if (coverUrl == null && fallbackIcon != null) {
+                    Color(0xFF4C5F83)
+                } else {
+                    palette.card2
+                },
+            ),
+    ) {
+        if (coverUrl != null) {
+            FallbackImage(
+                urls = listOf(coverUrl),
+                contentDescription = title,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (fallbackIcon != null) {
+            Icon(
+                imageVector = fallbackIcon,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.48f),
+                modifier = Modifier.align(Alignment.Center).size(27.dp),
+            )
+        }
+        Box(
+            Modifier.fillMaxSize().background(
+                scrim(
+                    0f to Color.Black.copy(alpha = 0.35f),
+                    0.6f to Color.Transparent,
+                ),
+            ),
+        )
+        Text(
+            title,
+            style = AppTypography.body.strong,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 12.dp, bottom = 10.dp, end = 12.dp),
+        )
+        if (countLabel != null) {
+            Text(
+                countLabel,
+                style = AppTypography.caption.strong,
+                color = Color.White.copy(alpha = 0.85f),
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = 12.dp, top = 10.dp),
+            )
+        }
+    }
+}
+
+/** Personal shortcuts and playlists live in the category rail, not in repeated shelves. */
+internal fun List<HomeRow>.libraryShelfRows(): List<HomeRow> =
+    asSequence()
+        .filter { it.libraryId != FAVORITES_COLLECTION_ID }
+        .filter { it.libraryId != WATCH_LATER_COLLECTION_ID }
+        .filter { it.items.isNotEmpty() }
+        .distinctBy { it.libraryId }
+        .toList()
 
 /**
  * 播放记录 replaces the former category shortcut rail. The 190×114 landscape
@@ -1173,43 +1208,6 @@ private fun CategorySection(
                     // it by dropping the key entirely (see HomeScreen's shelves).
                     onClick = { onItemClick(item) },
                     sharedTransitionKey = MediaSharedElementKey(serverId, item.id),
-                    modifier = Modifier.width(PosterWidth),
-                )
-            }
-        }
-    }
-}
-
-/** Real Emby organization containers; empty sections are omitted by the caller. */
-@Composable
-private fun MediaContainerSection(
-    title: String,
-    baseUrl: String,
-    accessToken: String,
-    containers: List<MediaContainer>,
-    onOpen: (MediaContainer) -> Unit,
-    onSeeAll: () -> Unit,
-) {
-    Column {
-        SectionHeader(title, onSeeAll = onSeeAll)
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(containers, key = { "${it.kind}-${it.serverId}-${it.id}" }) { container ->
-                CaptionedPoster(
-                    url =
-                        EmbyImages.primary(
-                            baseUrl = baseUrl,
-                            itemId = container.id,
-                            tag = container.posterTag,
-                            maxHeight = 450,
-                            accessToken = accessToken,
-                        ),
-                    title = container.title,
-                    year = container.itemCount?.let { "$it 项" },
-                    progress = null,
-                    onClick = { onOpen(container) },
                     modifier = Modifier.width(PosterWidth),
                 )
             }

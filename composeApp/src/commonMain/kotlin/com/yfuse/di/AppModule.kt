@@ -30,6 +30,8 @@ import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.SkipSegmentPreferences
+import com.yfuse.core.data.TgtoMediaPreferences
+import com.yfuse.core.data.TgtoMediaRepository
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
@@ -114,6 +116,14 @@ fun appModule(
     single { PlaybackTrackRequest() }
     single { LibraryCache(get()) }
     single { TmdbHomeCache(get()) }
+    single {
+        val persistedSettings = get<Settings>()
+        TgtoMediaPreferences(
+            settings = persistedSettings,
+            secureStore = createSecureStore(persistedSettings, namespace = "tgto.media"),
+        )
+    }
+    single { TgtoMediaRepository(get()) }
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }
     single<CastManager> { createCastManager() }

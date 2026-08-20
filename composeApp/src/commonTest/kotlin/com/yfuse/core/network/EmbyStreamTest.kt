@@ -7,6 +7,34 @@ import kotlin.test.assertTrue
 
 class EmbyStreamTest {
     @Test
+    fun sameOriginNegotiatedHlsIsForcedToH264AacCompatibility() {
+        val compatible =
+            EmbyStream.compatibleHlsTranscodeUrl(
+                baseUrl = "https://emby.example/base",
+                url =
+                    "https://emby.example/Videos/movie/master.m3u8" +
+                        "?AudioCodec=eac3&Container=fmp4&MaxAudioChannels=8",
+            )
+
+        assertTrue("AudioCodec=aac" in compatible, compatible)
+        assertTrue("VideoCodec=h264" in compatible, compatible)
+        assertTrue("Container=ts" in compatible, compatible)
+        assertTrue("SegmentContainer=ts" in compatible, compatible)
+        assertTrue("MaxAudioChannels=2" in compatible, compatible)
+        assertTrue("TranscodingMaxAudioChannels=2" in compatible, compatible)
+    }
+
+    @Test
+    fun signedCrossOriginTranscodeUrlIsNotModified() {
+        val signed = "https://cdn.example/master.m3u8?signature=a%2Bb&AudioCodec=eac3"
+
+        assertEquals(
+            signed,
+            EmbyStream.compatibleHlsTranscodeUrl("https://emby.example", signed),
+        )
+    }
+
+    @Test
     fun negotiatedPublicHttpCdnUrlIsUsableWithoutLeakingServerCredentials() {
         val raw = "http://media.example/video?signature=abc%2B123"
         val negotiated =

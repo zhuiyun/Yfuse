@@ -11,6 +11,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.LibraryPage
+import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
@@ -44,6 +45,9 @@ data class GridState(
     val genreLoadError: String? = null,
     /** The selected genre, or null for 全部. */
     val genre: String? = null,
+    val resolution: LibraryResolution = LibraryResolution.All,
+    /** Hand-ordered playlist endpoints do not support Emby's IsHD filter. */
+    val resolutionFilterable: Boolean = true,
     /** 稍后观看 keeps the order the user arranged, so it offers no sort. */
     val sortable: Boolean = true,
     /** Non-null only when this grid is inside a real BoxSet or Playlist. */
@@ -81,6 +85,12 @@ sealed interface GridIntent {
     data class SetGenre(
         val genre: String?,
     ) : GridIntent
+
+    data class SetResolution(
+        val resolution: LibraryResolution,
+    ) : GridIntent
+
+    data object ClearFilters : GridIntent
 
     data class RequestRemove(
         val rowId: String,
@@ -144,6 +154,12 @@ private sealed interface GridMsg {
         val value: String?,
     ) : GridMsg
 
+    data class Resolution(
+        val value: LibraryResolution,
+    ) : GridMsg
+
+    data object FiltersCleared : GridMsg
+
     data class RemovalRequested(
         val item: MediaItem,
     ) : GridMsg
@@ -191,6 +207,10 @@ class LibraryGridStoreFactory(
                             directoryKind == null,
                     containerKind = containerKind,
                     directoryKind = directoryKind,
+                    resolutionFilterable =
+                        directoryKind == null &&
+                            containerKind != MediaContainerKind.Playlist &&
+                            libraryId != WATCH_LATER_COLLECTION_ID,
                 ),
             bootstrapper =
                 coroutineBootstrapper<GridAction>(mainContext) {
@@ -239,6 +259,17 @@ class LibraryGridStoreFactory(
                     if (containerKind == MediaContainerKind.Playlist) return
                     if (intent.genre == state().genre) return
                     dispatch(GridMsg.Genre(intent.genre))
+                    loadFirstPage()
+                }
+                is GridIntent.SetResolution -> {
+                    if (!state().resolutionFilterable) return
+                    if (intent.resolution == state().resolution) return
+                    dispatch(GridMsg.Resolution(intent.resolution))
+                    loadFirstPage()
+                }
+                GridIntent.ClearFilters -> {
+                    if (state().genre == null && state().resolution == LibraryResolution.All) return
+                    dispatch(GridMsg.FiltersCleared)
                     loadFirstPage()
                 }
                 is GridIntent.RequestRemove -> requestRemove(intent.rowId)
@@ -401,6 +432,7 @@ class LibraryGridStoreFactory(
                                 genre = genre,
                                 startIndex = 0,
                                 limit = LIBRARY_PAGE_SIZE,
+                                resolution = state().resolution,
                             )
                         } ?: repo.libraryItems(
                             server = server,
@@ -409,6 +441,7 @@ class LibraryGridStoreFactory(
                             genre = genre,
                             startIndex = 0,
                             limit = LIBRARY_PAGE_SIZE,
+                            resolution = state().resolution,
                         )
                     request
                         .onSuccess {
@@ -465,6 +498,7 @@ class LibraryGridStoreFactory(
                                 genre = state.genre,
                                 startIndex = startIndex,
                                 limit = LIBRARY_PAGE_SIZE,
+                                resolution = state.resolution,
                             )
                         } ?: repo.libraryItems(
                             server = server,
@@ -473,6 +507,7 @@ class LibraryGridStoreFactory(
                             genre = state.genre,
                             startIndex = startIndex,
                             limit = LIBRARY_PAGE_SIZE,
+                            resolution = state.resolution,
                         )
                     request
                         .onSuccess {
@@ -510,7 +545,18 @@ class LibraryGridStoreFactory(
                             msg.page.items
                                 .distinctBy { it.containerRowId }
                                 .filterNot { it.containerRowId in locallyRemovedRowIds },
-                        totalCount = (msg.page.totalCount - locallyRemovedRowIds.size).coerceAtLeast(0),
+                        totalCount =
+                            deduplicatedTotalCount(
+                                uniqueCount =
+                                    msg.page.items
+                                        .distinctBy { it.containerRowId }
+                                        .count { it.containerRowId !in locallyRemovedRowIds },
+                                rawNextStartIndex = msg.page.startIndex + msg.page.items.size,
+                                reportedTotal =
+                                    (msg.page.totalCount - locallyRemovedRowIds.size)
+                                        .coerceAtLeast(0),
+                                pageEmpty = msg.page.items.isEmpty(),
+                            ),
                         nextStartIndex = msg.page.startIndex + msg.page.items.size,
                         error = null,
                         retainingPreviousCriteria = false,
@@ -521,7 +567,16 @@ class LibraryGridStoreFactory(
                         loadingMore = false,
                         items = emptyList(),
                         containers = msg.page.containers.distinctBy { it.containerRowId },
-                        totalCount = msg.page.totalCount,
+                        totalCount =
+                            deduplicatedTotalCount(
+                                uniqueCount =
+                                    msg.page.containers
+                                        .distinctBy { it.containerRowId }
+                                        .size,
+                                rawNextStartIndex = msg.page.startIndex + msg.page.containers.size,
+                                reportedTotal = msg.page.totalCount,
+                                pageEmpty = msg.page.containers.isEmpty(),
+                            ),
                         nextStartIndex = msg.page.startIndex + msg.page.containers.size,
                         error = null,
                         retainingPreviousCriteria = false,
@@ -547,12 +602,14 @@ class LibraryGridStoreFactory(
                         // An empty page is authoritative even if a broken server reports a larger
                         // total; pin the boundary so another end-of-list signal cannot loop.
                         totalCount =
-                            if (msg.page.items.isEmpty()) {
-                                maxOf(appended.size, nextStartIndex)
-                            } else {
-                                (msg.page.totalCount - locallyRemovedRowIds.size)
-                                    .coerceAtLeast(appended.size)
-                            },
+                            deduplicatedTotalCount(
+                                uniqueCount = appended.size,
+                                rawNextStartIndex = nextStartIndex,
+                                reportedTotal =
+                                    (msg.page.totalCount - locallyRemovedRowIds.size)
+                                        .coerceAtLeast(0),
+                                pageEmpty = msg.page.items.isEmpty(),
+                            ),
                         nextStartIndex = nextStartIndex,
                     )
                 }
@@ -565,11 +622,12 @@ class LibraryGridStoreFactory(
                         loadingMore = false,
                         containers = appended,
                         totalCount =
-                            if (msg.page.containers.isEmpty()) {
-                                maxOf(appended.size, nextStartIndex)
-                            } else {
-                                msg.page.totalCount.coerceAtLeast(appended.size)
-                            },
+                            deduplicatedTotalCount(
+                                uniqueCount = appended.size,
+                                rawNextStartIndex = nextStartIndex,
+                                reportedTotal = msg.page.totalCount,
+                                pageEmpty = msg.page.containers.isEmpty(),
+                            ),
                         nextStartIndex = nextStartIndex,
                     )
                 }
@@ -611,6 +669,21 @@ class LibraryGridStoreFactory(
                 is GridMsg.Genre ->
                     copy(
                         genre = msg.value,
+                        error = null,
+                        loadMoreError = null,
+                        retainingPreviousCriteria = true,
+                    )
+                is GridMsg.Resolution ->
+                    copy(
+                        resolution = msg.value,
+                        error = null,
+                        loadMoreError = null,
+                        retainingPreviousCriteria = true,
+                    )
+                GridMsg.FiltersCleared ->
+                    copy(
+                        genre = null,
+                        resolution = LibraryResolution.All,
                         error = null,
                         loadMoreError = null,
                         retainingPreviousCriteria = true,
@@ -663,9 +736,21 @@ class LibraryGridStoreFactory(
     }
 }
 
-/** Playlist membership ids preserve intentional repeated titles while de-duping page overlap. */
-private val MediaItem.containerRowId: String get() = playlistItemId ?: id
+/** Category grids show each actual media item once, even if a playlist has duplicate memberships. */
+private val MediaItem.containerRowId: String get() = id
 private val MediaContainer.containerRowId: String get() = "$serverId-${kind.name}-$id"
+
+private fun deduplicatedTotalCount(
+    uniqueCount: Int,
+    rawNextStartIndex: Int,
+    reportedTotal: Int,
+    pageEmpty: Boolean,
+): Int =
+    if (pageEmpty || rawNextStartIndex >= reportedTotal) {
+        uniqueCount
+    } else {
+        reportedTotal.coerceAtLeast(uniqueCount)
+    }
 
 private fun Throwable.toContainerMutationMessage(fallback: String): String {
     val denied = (this as? EmbyErrorException)?.error as? EmbyError.AccessDenied

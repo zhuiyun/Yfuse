@@ -2,6 +2,9 @@ package com.yfuse.feature.library
 
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
+import com.yfuse.core.data.FAVORITES_COLLECTION_ID
+import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
+import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.SavedServer
@@ -321,6 +324,45 @@ class LibraryGridStoreTest {
         }
 
     @Test
+    fun media_spec_filter_reloads_with_server_side_4k_parameters() =
+        runTest {
+            val requests = mutableListOf<Pair<String?, String?>>()
+            val repo =
+                testRepo { request ->
+                    if (request.url.encodedPath.endsWith("/Genres")) {
+                        json("""{"Items":[]}""")
+                    } else {
+                        requests +=
+                            (
+                                request.url.parameters["IsHD"] to
+                                    request.url.parameters["MinWidth"]
+                            )
+                        json(page(from = 0, count = 1, total = 1))
+                    }
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    "lib1",
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            store.states.first { !it.loading && it.items.isNotEmpty() }
+
+            store.accept(GridIntent.SetResolution(LibraryResolution.FourK))
+
+            val filtered =
+                store.states.first {
+                    !it.loading && it.resolution == LibraryResolution.FourK
+                }
+            assertEquals(LibraryResolution.FourK, filtered.resolution)
+            assertEquals(listOf(null to null, "true" to "2560"), requests)
+            store.dispose()
+            runCurrent()
+        }
+
+    @Test
     fun retry_recovers_genres_after_the_initial_facet_request_fails() =
         runTest {
             var genreAttempts = 0
@@ -409,7 +451,7 @@ class LibraryGridStoreTest {
         }
 
     @Test
-    fun playlist_grid_keeps_entry_order_and_ignores_sort_intents() =
+    fun playlist_grid_keeps_first_entry_order_deduplicates_media_and_ignores_sort_intents() =
         runTest {
             val sortParameters = mutableListOf<String?>()
             val repo =
@@ -431,13 +473,68 @@ class LibraryGridStoreTest {
                 ).create()
 
             val loaded = store.states.first { !it.loading && it.items.isNotEmpty() }
-            assertEquals(listOf("e2", "e1"), loaded.items.map { it.playlistItemId })
+            assertEquals(listOf("e2"), loaded.items.map { it.playlistItemId })
+            assertEquals(1, loaded.totalCount)
             assertFalse(loaded.sortable)
 
             store.accept(GridIntent.SetSort(LibrarySort.Name))
 
             assertEquals(LibrarySort.RecentlyAdded, store.state.sort)
             assertEquals(listOf<String?>(null), sortParameters)
+            store.dispose()
+            runCurrent()
+        }
+
+    @Test
+    fun favorites_grid_deduplicates_repeated_media_ids() =
+        runTest {
+            val repo =
+                testRepo {
+                    json(
+                        """{"Items":[{"Id":"m1","Name":"第一部","Type":"Movie"},{"Id":"m1","Name":"第一部（重复）","Type":"Movie"}],"TotalRecordCount":2}""",
+                    )
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    FAVORITES_COLLECTION_ID,
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+
+            val loaded = store.states.first { !it.loading && it.items.isNotEmpty() }
+            assertEquals(listOf("m1"), loaded.items.map { it.id })
+            assertEquals(1, loaded.totalCount)
+            store.dispose()
+            runCurrent()
+        }
+
+    @Test
+    fun watch_later_grid_deduplicates_repeated_media_ids() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    if (request.url.encodedPath.endsWith("/Playlists/p1/Items")) {
+                        json(
+                            """{"Items":[{"Id":"m1","Name":"第一部","Type":"Movie"},{"Id":"m1","Name":"第一部（重复）","Type":"Movie"}],"TotalRecordCount":2}""",
+                        )
+                    } else {
+                        json("""{"Items":[{"Id":"p1","Name":"稍后观看","Type":"Playlist"}]}""")
+                    }
+                }
+            val store =
+                LibraryGridStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry(),
+                    WATCH_LATER_COLLECTION_ID,
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+
+            val loaded = store.states.first { !it.loading && it.items.isNotEmpty() }
+            assertEquals(listOf("m1"), loaded.items.map { it.id })
+            assertEquals(1, loaded.totalCount)
             store.dispose()
             runCurrent()
         }
@@ -471,7 +568,7 @@ class LibraryGridStoreTest {
             advanceUntilIdle()
             assertEquals(2, store.state.items.size)
 
-            store.accept(GridIntent.RequestRemove("e1"))
+            store.accept(GridIntent.RequestRemove("m1"))
             assertEquals("e1", store.state.pendingRemoval?.playlistItemId)
             store.accept(GridIntent.ConfirmRemove)
 
@@ -511,7 +608,7 @@ class LibraryGridStoreTest {
             advanceUntilIdle()
             assertEquals(2, store.state.items.size)
 
-            store.accept(GridIntent.RequestRemove("e1"))
+            store.accept(GridIntent.RequestRemove("m1"))
             store.accept(GridIntent.ConfirmRemove)
 
             // MockEngine and the Store share this scheduler, so the failed request and rollback

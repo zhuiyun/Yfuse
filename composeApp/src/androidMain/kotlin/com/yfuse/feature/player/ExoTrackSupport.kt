@@ -11,9 +11,9 @@ internal enum class UnsupportedMediaTrack { Audio, Video }
 /**
  * Chooses the next recovery step without letting ExoPlayer continue with a silent track.
  *
- * Unsupported direct-play tracks first stay on Media3's working network path and ask the server
- * for a compatible stream. A transcoded stream that is still unsupported is already the end of
- * ExoPlayer's stream ladder and must move to another engine instead of playing silently.
+ * Unsupported video first stays on Media3's working network path and asks the server for a
+ * compatible stream. Unsupported audio moves to the already bundled FFmpeg engine so EAC3,
+ * TrueHD and DTS can be decoded locally without duplicating FFmpeg in the APK.
  */
 internal enum class UnsupportedTrackRecovery { SwitchEngine, ServerTranscode }
 
@@ -22,9 +22,11 @@ internal fun unsupportedTrackRecovery(
     alreadyTranscoding: Boolean,
 ): UnsupportedTrackRecovery =
     when (track) {
-        UnsupportedMediaTrack.Audio,
-        UnsupportedMediaTrack.Video,
-        ->
+        // MPV already bundles FFmpeg audio decoders. Moving unsupported Dolby/DTS audio there
+        // preserves the original video and avoids waking a server transcode that may copy the
+        // same incompatible audio track. No second FFmpeg payload is needed in the APK.
+        UnsupportedMediaTrack.Audio -> UnsupportedTrackRecovery.SwitchEngine
+        UnsupportedMediaTrack.Video ->
             if (alreadyTranscoding) {
                 UnsupportedTrackRecovery.SwitchEngine
             } else {

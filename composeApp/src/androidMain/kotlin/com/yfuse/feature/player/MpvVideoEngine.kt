@@ -10,10 +10,10 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
-import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.bluRayDiscRoot
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "YfusePlayer"
@@ -131,6 +132,19 @@ class MpvVideoEngine(
     private val fileLoadStartedAtMs = AtomicLong(-1L)
     private val fileLoadLastProgressMs = AtomicLong(-1L)
     private val endFileTracker = MpvEndFileTracker()
+    private val networkProxy =
+        runCatching { AndroidPlaybackHttpProxy(customUserAgent) }
+            .onFailure { error ->
+                AppLog.warning(
+                    category = "player.mpv.network",
+                    event = "platform_proxy_unavailable",
+                    message = "Could not start the Android platform transport bridge",
+                    throwable = error,
+                )
+            }.getOrNull()
+    private val surfaceGeneration = AtomicLong(0L)
+    private val surfaceRecoveryAttempts = AtomicLong(0L)
+    private val surfaceRecoveryInProgress = AtomicBoolean(false)
 
     @Volatile
     private var pauseAtEndOfCurrentItem = false
@@ -194,6 +208,7 @@ class MpvVideoEngine(
                 if (level > MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN) return
                 val details = text.trim().take(600)
                 if (details.isEmpty()) return
+                if (isNativeSurfaceLossFailure(details) && recoverVideoSurface(details)) return
                 nativePlaybackLogFailure(details)?.let(::markTerminalFailure)
                 val attributes =
                     mapOf(
@@ -402,6 +417,21 @@ class MpvVideoEngine(
                             autoNext && _state.value.hasNext -> playNextIfAny()
                             else -> _state.update { it.copy(playing = false, buffering = false, ended = true) }
                         }
+                    "vo-configured" ->
+                        if (value) {
+                            readVideoOutput()
+                        } else {
+                            _state.update {
+                                it.copy(
+                                    diagnostics =
+                                        it.diagnostics.copy(
+                                            videoOutput = "等待 mpv 视频输出",
+                                            videoReadiness = PlaybackOutputReadiness.Waiting,
+                                            dolbyVisionOutput = false,
+                                        ),
+                                )
+                            }
+                        }
                 }
             }
 
@@ -448,6 +478,7 @@ class MpvVideoEngine(
             override fun event(eventId: Int) {
                 when (eventId) {
                     MPVLib.MpvEvent.MPV_EVENT_START_FILE -> {
+                        surfaceRecoveryAttempts.set(0L)
                         markFileLoadProgress()
                         _state.update {
                             it.copy(
@@ -487,6 +518,13 @@ class MpvVideoEngine(
                         readVideoSize()
                         readVideoOutput()
                         logAudioOutput()
+                        val source = items.getOrNull(_state.value.currentIndex)?.activeVersion
+                        val detectedVideoCodec =
+                            runCatching { mpv?.getPropertyString("video-codec") }.getOrNull()
+                        val detectedDecoder =
+                            runCatching { mpv?.getPropertyString("hwdec-current") }.getOrNull()
+                        val detectedDynamicRange =
+                            runCatching { mpv?.getPropertyString("video-params/gamma") }.getOrNull()
                         AppLog.info(
                             category = "player.mpv",
                             event = "file_loaded",
@@ -495,6 +533,15 @@ class MpvVideoEngine(
                                 mapOf(
                                     "itemIndex" to _state.value.currentIndex.toString(),
                                     "resumePositionMs" to seekMs.coerceAtLeast(0L).toString(),
+                                    "videoCodec" to (detectedVideoCodec ?: source?.sourceVideoCodec.orEmpty()),
+                                    "decoder" to (detectedDecoder ?: "software"),
+                                    "dynamicRange" to (detectedDynamicRange ?: source?.sourceDynamicRange.orEmpty()),
+                                    "dolbyProfile" to (source?.dolbyProfile?.toString() ?: "unknown"),
+                                    "sourceAtmos" to (source?.dolbyAtmos == true).toString(),
+                                    "surfaceGeneration" to surfaceGeneration.get().toString(),
+                                    "surfaceValid" to (attachedSurface?.isValid == true).toString(),
+                                    "platformProxy" to
+                                        (networkProxy != null && shouldProxyMpvNetworkUrl(currentUrl())).toString(),
                                 ),
                         )
                     }
@@ -529,6 +576,17 @@ class MpvVideoEngine(
     fun attach(surface: Surface) {
         if (released) return
         attachedSurface = surface
+        val generation = surfaceGeneration.incrementAndGet()
+        AppLog.info(
+            category = "player.mpv",
+            event = "surface_attached",
+            message = "mpv received an Android video surface",
+            attributes =
+                mapOf(
+                    "generation" to generation.toString(),
+                    "valid" to surface.isValid.toString(),
+                ),
+        )
         mpv?.let { existing ->
             runCatching {
                 existing.attachSurface(surface)
@@ -581,6 +639,9 @@ class MpvVideoEngine(
             instance.requireOption("idle", "yes")
             instance.requireOption("keep-open", "always")
             instance.requireOption("cache", "yes")
+            // Every source is already a resolved media URL. Running ytdl after an upstream error
+            // only adds misleading failures and delays the real fallback path.
+            instance.optionalOption("ytdl", "no")
             // Let mpv select the available Android AO. The actual driver is verified through
             // current-ao, and a failed driver can now fall through mpv's own output selection.
             mpvAudioSpdifOption(audioPassthroughMode, currentDirectAudioFormats())?.let { codecs ->
@@ -619,6 +680,7 @@ class MpvVideoEngine(
             instance.observeProperty("pause", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             instance.observeProperty("paused-for-cache", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             instance.observeProperty("eof-reached", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
+            instance.observeProperty("vo-configured", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
             instance.observeProperty("track-list/count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("editions", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("current-edition", MPVLib.MpvFormat.MPV_FORMAT_INT64)
@@ -692,6 +754,16 @@ class MpvVideoEngine(
             it.detachSurface()
         }
         attachedSurface = null
+        _state.update {
+            it.copy(
+                diagnostics =
+                    it.diagnostics.copy(
+                        videoOutput = "视频 Surface 已释放",
+                        videoReadiness = PlaybackOutputReadiness.Released,
+                        dolbyVisionOutput = false,
+                    ),
+            )
+        }
     }
 
     /** Keep mpv's Android render target in sync with SurfaceView size changes. */
@@ -883,6 +955,7 @@ class MpvVideoEngine(
         audioRouteJob?.cancel()
         audioRouteJob = null
         cancelFileLoadWatchdog()
+        networkProxy?.close()
         val instance = mpv ?: return
         mpv = null
         runCatching {
@@ -1133,6 +1206,20 @@ class MpvVideoEngine(
     private fun readVideoOutput() {
         val instance = mpv ?: return
         runCatching {
+            val outputConfigured = instance.getPropertyBoolean("vo-configured") == true
+            if (!outputConfigured) {
+                _state.update { state ->
+                    state.copy(
+                        diagnostics =
+                            state.diagnostics.copy(
+                                videoOutput = "等待 mpv 视频输出",
+                                videoReadiness = PlaybackOutputReadiness.Waiting,
+                                dolbyVisionOutput = false,
+                            ),
+                    )
+                }
+                return@runCatching
+            }
             val input =
                 instance
                     .getPropertyString("video-params/gamma")
@@ -1307,7 +1394,19 @@ class MpvVideoEngine(
         val replacing = endFileTracker.beforeLoad()
         val loaded =
             withMpvResult { instance ->
-                instance.command(arrayOf("loadfile", instance.prepareDiscUrl(url)))
+                val preparedUrl = instance.prepareDiscUrl(url)
+                val transportUrl = networkProxy?.localUrl(preparedUrl) ?: preparedUrl
+                instance.command(arrayOf("loadfile", transportUrl))
+                AppLog.info(
+                    category = "player.mpv.network",
+                    event = "transport_selected",
+                    message = "mpv media transport was selected",
+                    attributes =
+                        mapOf(
+                            "platformProxy" to (transportUrl != preparedUrl).toString(),
+                            "scheme" to preparedUrl.substringBefore(':', "unknown").lowercase(),
+                        ),
+                )
             }
         if (!loaded) {
             endFileTracker.rollbackLoad(replacing)
@@ -1316,6 +1415,58 @@ class MpvVideoEngine(
             armFileLoadWatchdog(policy)
         }
         return loaded
+    }
+
+    /** Rebind once in place before a native-window failure is allowed to rotate the engine. */
+    private fun recoverVideoSurface(details: String): Boolean {
+        if (released) return true
+        if (surfaceRecoveryInProgress.get()) return true
+        val surface = attachedSurface
+        if (surface == null || !surface.isValid) {
+            // SurfaceDestroyed and engine switches legitimately tear the window down. A later
+            // SurfaceCreated callback will attach the replacement; do not blacklist mpv here.
+            return true
+        }
+        val attempt = surfaceRecoveryAttempts.incrementAndGet()
+        if (attempt > MAX_MPV_SURFACE_RECOVERY_ATTEMPTS) return false
+        if (!surfaceRecoveryInProgress.compareAndSet(false, true)) return true
+        val recovered =
+            try {
+                withMpvResult { instance ->
+                    instance.setPropertyString("vo", "null")
+                    instance.detachSurface()
+                    instance.attachSurface(surface)
+                    instance.setPropertyString("force-window", "yes")
+                    instance.setPropertyString("vo", "gpu")
+                    instance.command(arrayOf("video-reload"))
+                }
+            } finally {
+                surfaceRecoveryInProgress.set(false)
+            }
+        _state.update {
+            it.copy(
+                buffering = true,
+                diagnostics =
+                    it.diagnostics.copy(
+                        videoOutput = "正在恢复 mpv 视频输出",
+                        videoReadiness = PlaybackOutputReadiness.Waiting,
+                        dolbyVisionOutput = false,
+                    ),
+            )
+        }
+        AppLog.warning(
+            category = "player.mpv",
+            event = "surface_recovery",
+            message = "mpv recovered from a missing native window",
+            attributes =
+                mapOf(
+                    "attempt" to attempt.toString(),
+                    "generation" to surfaceGeneration.get().toString(),
+                    "reloaded" to recovered.toString(),
+                    "nativeSignal" to details.take(120),
+                ),
+        )
+        return recovered
     }
 
     private fun MPVLib.prepareDiscUrl(url: String): String {
@@ -1485,6 +1636,7 @@ class MpvVideoEngine(
 }
 
 private const val MAX_MPV_REPORTED_AV_SYNC_OFFSET_MS = 5_000L
+private const val MAX_MPV_SURFACE_RECOVERY_ATTEMPTS = 2L
 
 private fun PlayerMediaItem?.initialDiscNavigation(transcoding: Boolean): PlaybackDiscNavigationState {
     if (this == null || transcoding) return PlaybackDiscNavigationState()

@@ -7,6 +7,7 @@ import com.yfuse.core.model.Episode
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.LibraryCounts
 import com.yfuse.core.model.LibraryPage
+import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
@@ -383,8 +384,9 @@ class EmbyRepository(
         genre: String? = null,
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
+        resolution: LibraryResolution = LibraryResolution.All,
     ): Result<LibraryPage> =
-        browseService.mediaContainerItems(server, containerId, kind, sort, genre, startIndex, limit)
+        browseService.mediaContainerItems(server, containerId, kind, sort, genre, startIndex, limit, resolution)
 
     suspend fun mediaContainerGenres(
         server: SavedServer,
@@ -399,7 +401,8 @@ class EmbyRepository(
         genre: String? = null,
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
-    ): Result<LibraryPage> = browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit)
+        resolution: LibraryResolution = LibraryResolution.All,
+    ): Result<LibraryPage> = browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
 
     suspend fun libraryGenres(
         server: SavedServer,

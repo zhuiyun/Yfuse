@@ -45,6 +45,8 @@ class ProfileComponent(
     val watchTogether: WatchTogetherClient = dependencies.watchTogether
     val account: AccountRepository = dependencies.account
     val serverHealthMonitor = dependencies.serverHealthMonitor
+    val tgtoMedia = dependencies.tgtoMedia
+    val tgtoMediaPreferences = dependencies.tgtoMediaPreferences
 
     /** Clear the shared image cache; offline video files and library metadata are untouched. */
     suspend fun onClearCache() = clearImageCache()

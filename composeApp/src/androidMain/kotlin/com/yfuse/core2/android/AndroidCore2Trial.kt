@@ -1,8 +1,8 @@
 package com.yfuse.core2.android
 
 import android.content.Context
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.data.PlaybackFrameRateMatch
+import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core2.api.YDiscKind

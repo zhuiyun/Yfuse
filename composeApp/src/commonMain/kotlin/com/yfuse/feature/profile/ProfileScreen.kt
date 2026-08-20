@@ -147,6 +147,7 @@ private enum class ProfilePage {
     Danmaku,
     WatchTogether,
     Appearance,
+    MediaDiscovery,
     DataAndDiagnostics,
     Downloads,
     Recovery,
@@ -197,6 +198,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val recoverySnapshot by component.playbackRecovery.snapshot.collectAsState()
     val syncState by component.syncManager.state.collectAsState()
     val accountState by component.account.state.collectAsState()
+    val discoverySettingsRequest by component.tgtoMediaPreferences.openSettingsRequest.collectAsState()
     val watchAvailable = accountState.canUseWatchTogether()
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
@@ -227,6 +229,13 @@ fun ProfileScreen(component: ProfileComponent) {
         if (!watchAvailable) {
             if (sheet == Sheet.WatchTogether || sheet == Sheet.WatchProfile) sheet = null
             if (pageStack.lastOrNull() == ProfilePage.WatchTogether.name) closePage()
+        }
+    }
+
+    LaunchedEffect(discoverySettingsRequest) {
+        if (discoverySettingsRequest > 0L) {
+            if (pageStack.lastOrNull() != ProfilePage.MediaDiscovery.name) openPage(ProfilePage.MediaDiscovery)
+            component.tgtoMediaPreferences.consumeOpenSettingsRequest()
         }
     }
 
@@ -355,6 +364,13 @@ fun ProfileScreen(component: ProfileComponent) {
                         onReduceTransparency = prefs::setReduceTransparency,
                         onLargeText = prefs::setLargeText,
                         onReduceMotion = prefs::setReduceMotion,
+                    )
+
+                ProfilePage.MediaDiscovery ->
+                    MediaDiscoverySettingsScreen(
+                        repository = component.tgtoMedia,
+                        preferences = component.tgtoMediaPreferences,
+                        onBack = ::closePage,
                     )
 
                 ProfilePage.DataAndDiagnostics ->
@@ -490,6 +506,15 @@ fun ProfileScreen(component: ProfileComponent) {
                                         onClick = { openPage(ProfilePage.Playback) },
                                         icon = AppIcons.Play,
                                         iconTint = SettingTint.playback,
+                                    )
+                                    SettingsDivider()
+                                    SettingRow(
+                                        "影视发现",
+                                        "榜单 · 追剧日历 · 123 转存 ›",
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.MediaDiscovery) },
+                                        icon = AppIcons.Cloud,
+                                        iconTint = SettingTint.sync,
                                     )
                                     SettingsDivider()
                                     SettingRow(

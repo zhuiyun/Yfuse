@@ -3,8 +3,11 @@ package com.yfuse.feature.library
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.data.FAVORITES_COLLECTION_ID
 import com.yfuse.core.data.LibraryCache
+import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.model.HomeContent
+import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.LibraryCounts
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
@@ -73,6 +76,20 @@ class LibraryStoreTest {
             assertTrue(s.content.isEmpty)
             store.dispose()
         }
+
+    @Test
+    fun personal_categories_are_not_repeated_as_library_shelves() {
+        val item = content("m1", movieCount = 1).featured.single()
+        val shelves =
+            listOf(
+                HomeRow(FAVORITES_COLLECTION_ID, "我的收藏", listOf(item)),
+                HomeRow(WATCH_LATER_COLLECTION_ID, "稍后观看", listOf(item)),
+                HomeRow("movies", "电影", listOf(item)),
+                HomeRow("movies", "电影（重复）", listOf(item)),
+            ).libraryShelfRows()
+
+        assertEquals(listOf("movies"), shelves.map { it.libraryId })
+    }
 
     @Test
     fun stale_server_response_cannot_replace_the_new_server_home() =
