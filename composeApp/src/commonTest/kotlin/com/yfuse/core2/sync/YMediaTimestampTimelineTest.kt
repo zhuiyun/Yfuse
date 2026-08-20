@@ -37,6 +37,16 @@ class YMediaTimestampTimelineTest {
     }
 
     @Test
+    fun negative_source_origin_is_preserved_by_the_inverse_mapping() {
+        val timeline = YMediaTimestampTimeline()
+        timeline.establish(-500_000L)
+
+        assertEquals(0L, timeline.presentationTimeUs(-500_000L))
+        assertEquals(500_000L, timeline.presentationTimeUs(0L))
+        assertEquals(-500_000L, timeline.sourceTimeUs(0L))
+    }
+
+    @Test
     fun reset_starts_a_new_media_timeline() {
         val timeline = YMediaTimestampTimeline()
         timeline.presentationTimeUs(1_800_000L)
