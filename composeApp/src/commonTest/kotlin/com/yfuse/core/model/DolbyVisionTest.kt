@@ -63,6 +63,33 @@ class DolbyVisionTest {
     }
 
     @Test
+    fun unknown_dolby_profile_fails_safe_until_a_compatible_base_layer_is_proven() {
+        // Some servers say only "Dolby Vision" and expose no DvProfile/tag at all. Treating that as
+        // ordinary HEVC can silently send Profile 5 through a non-Dolby decoder and produce green/
+        // magenta output, so unknown is Dolby-only by default.
+        assertTrue(version(videoRange = "Dolby Vision").needsDolbyCapableDecoder)
+        assertTrue(
+            version(
+                videoRange = "Dolby Vision",
+                baseLayerPresent = true,
+            ).needsDolbyCapableDecoder,
+        )
+
+        // The only safe opt-out is positive server evidence for a compatible BL.
+        assertFalse(version(videoRange = "Dolby Vision", baseLayer = 1).needsDolbyCapableDecoder)
+        assertFalse(version(videoRange = "Dolby Vision", baseLayer = 2).needsDolbyCapableDecoder)
+        assertFalse(version(videoRange = "Dolby Vision", baseLayer = 4).needsDolbyCapableDecoder)
+    }
+
+    @Test
+    fun all_dolby_codec_tag_families_are_recognised_as_dolby() {
+        assertTrue(version(codec = "dvhe.05.08").isDolbyVision)
+        assertTrue(version(codec = "dvh1.08.09").isDolbyVision)
+        assertTrue(version(codec = "dvav.09.01").isDolbyVision)
+        assertTrue(version(codec = "dva1.09.01").isDolbyVision)
+    }
+
+    @Test
     fun a_server_declaring_no_compatible_base_layer_is_believed() {
         val subject = version(videoRange = "DOVI", dolbyProfile = 7, baseLayer = 0)
 
