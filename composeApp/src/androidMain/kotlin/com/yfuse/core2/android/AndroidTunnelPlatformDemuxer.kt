@@ -98,7 +98,7 @@ internal class AndroidTunnelPlatformDemuxer(
             return AndroidTunnelEncodedSample(
                 trackIndex = trackIndex,
                 data = buffer,
-                presentationTimeUs = timeline.presentationTimeUs(active.sampleTime),
+                presentationTimeUs = timeline.presentationTimeUs(active.validSampleTimeUs()),
                 extractorFlags = extractorFlags,
             ).also { cachedSample = it }
         }
@@ -114,7 +114,7 @@ internal class AndroidTunnelPlatformDemuxer(
         cachedSample = null
         establishTimelineOrigin()
         requireExtractor().seekTo(
-            timeline.sourceTimeUs(positionUs),
+            timeline.sourceTimeUs(positionUs).coerceAtLeast(0L),
             MediaExtractor.SEEK_TO_PREVIOUS_SYNC,
         )
     }
@@ -129,11 +129,11 @@ internal class AndroidTunnelPlatformDemuxer(
 
     private fun establishTimelineOrigin() {
         if (timeline.established) return
-        val firstSelectedSampleUs = requireExtractor().sampleTime
-        timeline.establish(
-            firstSelectedSampleUs.takeUnless { it == MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE } ?: 0L,
-        )
+        timeline.establish(requireExtractor().validSampleTimeUs())
     }
+
+    private fun MediaExtractor.validSampleTimeUs(): Long =
+        sampleTime.takeUnless { it == MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE } ?: 0L
 
     private fun sampleSize(extractor: MediaExtractor): Int {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
