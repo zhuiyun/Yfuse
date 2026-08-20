@@ -730,6 +730,7 @@ internal fun PlayerControls(
                     onSeek(it)
                 },
                 onScrub = { interactions++ },
+                trickplay = trickplay,
                 progressMarkers = playbackProgressMarkers(skip, state.durationMs),
                 hasEpisodes = state.itemCount > 1,
                 onOpenEpisodes = {
