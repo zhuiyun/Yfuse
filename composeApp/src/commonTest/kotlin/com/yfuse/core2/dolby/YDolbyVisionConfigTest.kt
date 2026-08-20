@@ -110,9 +110,18 @@ class YDolbyVisionConfigTest {
                 enhancementLayerComposed = false,
             ).canClaimFELComposition,
         )
-        assertTrue(
+        assertFalse(
             YDolbyVisionOutputEvidence(
                 stream = stream,
+                enhancementLayerComposed = true,
+            ).canClaimFELComposition,
+        )
+        assertEquals(YDolbyVisionEnhancementLayerKind.Unknown, stream.enhancementLayerKind)
+
+        val fel = stream.copy(parsedEnhancementLayerKind = YDolbyVisionEnhancementLayerKind.Fel)
+        assertTrue(
+            YDolbyVisionOutputEvidence(
+                stream = fel,
                 enhancementLayerComposed = true,
             ).canClaimFELComposition,
         )

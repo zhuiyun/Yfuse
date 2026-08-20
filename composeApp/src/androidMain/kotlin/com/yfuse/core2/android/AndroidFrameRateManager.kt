@@ -1,9 +1,14 @@
 package com.yfuse.core2.android
 
+import android.content.Context
+import android.hardware.display.DisplayManager
 import android.os.Build
+import android.view.Display
 import android.view.Surface
+import com.yfuse.core2.render.YDisplayRefreshTarget
 import com.yfuse.core2.render.YFrameRateHint
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.render.selectDisplayRefreshTarget
 
 /**
  * Thin platform bridge for authored video cadence.
@@ -13,10 +18,18 @@ import com.yfuse.core2.render.YFrameRateSwitchMode
  * prevents a movie cadence from leaking into the next UI/video surface lifecycle.
  */
 internal class AndroidFrameRateManager(
+    context: Context,
     private val mode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) {
+    private val display =
+        context.applicationContext
+            .getSystemService(DisplayManager::class.java)
+            ?.getDisplay(Display.DEFAULT_DISPLAY)
     private var surface: Surface? = null
     private var hint: YFrameRateHint? = null
+
+    var selectedTarget: YDisplayRefreshTarget? = null
+        private set
 
     fun attach(
         surface: Surface,
@@ -43,6 +56,7 @@ internal class AndroidFrameRateManager(
         clearSurface(surface)
         surface = null
         hint = null
+        selectedTarget = null
     }
 
     private fun apply(
@@ -55,6 +69,12 @@ internal class AndroidFrameRateManager(
             return
         }
         val fps = hint?.framesPerSecond ?: 0f
+        selectedTarget =
+            selectDisplayRefreshTarget(
+                hint = hint,
+                supportedRefreshRates = display?.supportedModes.orEmpty().map { it.refreshRate },
+                currentRefreshRate = display?.refreshRate,
+            )
         val compatibility =
             if (hint?.fixedSource == true) {
                 Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE

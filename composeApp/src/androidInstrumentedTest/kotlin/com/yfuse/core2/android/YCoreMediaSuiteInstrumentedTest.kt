@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
-import android.graphics.SurfaceTexture
+import android.graphics.ImageFormat
+import android.media.ImageReader
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
@@ -8,7 +9,6 @@ import android.os.Bundle
 import android.os.Debug
 import android.os.PowerManager
 import android.os.SystemClock
-import android.view.Surface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yfuse.core2.api.YMediaItem
@@ -381,17 +381,11 @@ class YCoreMediaSuiteInstrumentedTest {
         width: Int = 1_920,
         height: Int = 1_080,
     ) : AutoCloseable {
-        private val texture = SurfaceTexture(0)
-        private val surface = Surface(texture)
-        val output = AndroidSurfaceVideoOutput(surface)
-
-        init {
-            texture.setDefaultBufferSize(width, height)
-        }
+        private val imageReader = ImageReader.newInstance(width, height, ImageFormat.PRIVATE, 2)
+        val output = AndroidSurfaceVideoOutput(imageReader.surface)
 
         override fun close() {
-            surface.release()
-            texture.release()
+            imageReader.close()
         }
     }
 

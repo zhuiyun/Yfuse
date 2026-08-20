@@ -243,6 +243,9 @@ kotlin {
         androidMain.dependencies {
             implementation(project(":mdkAndroid"))
             implementation(libs.ktor.okhttp)
+            implementation(libs.okhttp)
+            implementation(libs.jcifs.ng)
+            implementation(libs.play.services.cronet)
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.camera.core)
             implementation(libs.androidx.camera.camera2)

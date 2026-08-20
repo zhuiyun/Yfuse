@@ -51,7 +51,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Each selected item is probed independently and receives NativeTunnel, NativeDirect,
  * NativeEnhanced, GpuEnhanced, or SoftwareFallback. GPU/software tiers use an injected
- * compatibility executor until their native graph nodes are ready. If no executable route can be
+ * verified compatibility executor. If no executable route can be
  * proven, state becomes Failed/Unknown so the product-level Legacy fallback can take over without
  * poisoning any decoder-specific failure memory.
  */
@@ -569,7 +569,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                             val active = child
                             if (active != null) {
                                 active.setVideoOutput(output)
-                            } else if (output != null && mutableState.value.phase != YPlaybackPhase.Failed) {
+                            } else if (
+                                output != null &&
+                                mutableState.value.phase != YPlaybackPhase.Idle &&
+                                mutableState.value.phase != YPlaybackPhase.Failed
+                            ) {
                                 rebuild(pendingPositionMs)
                             }
                         }

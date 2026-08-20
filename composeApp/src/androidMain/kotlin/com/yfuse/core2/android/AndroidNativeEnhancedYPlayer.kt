@@ -211,6 +211,7 @@ internal class AndroidNativeEnhancedYPlayer(
     private suspend fun runLoop() {
         val session =
             AndroidEnhancedPlaybackSession(
+                context = appContext,
                 runtimeCapabilities = AndroidRuntimeCapabilityRegistry(appContext),
                 frameRateSwitchMode = frameRateSwitchMode,
             )

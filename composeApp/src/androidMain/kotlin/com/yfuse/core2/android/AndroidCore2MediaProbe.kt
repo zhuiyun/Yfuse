@@ -15,6 +15,9 @@ import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.dolby.YDolbyVisionCodecFamily
 import com.yfuse.core2.dolby.YDolbyVisionConfig
+import com.yfuse.core2.dolby.YDolbyVisionRouteDecision
+import com.yfuse.core2.dolby.YDolbyVisionRouter
+import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
 import com.yfuse.core2.quirk.YDeviceIdentity
 import com.yfuse.core2.quirk.YDeviceQuirkAction
 import com.yfuse.core2.quirk.YDeviceQuirkDatabase
@@ -160,6 +163,7 @@ internal class AndroidCore2RouteEvaluator(
     private val enhancedProbe: AndroidEnhancedMediaProbe = AndroidEnhancedMediaProbe(),
     private val quirkDatabase: YDeviceQuirkDatabase = androidCore2QuirkDatabase(),
     private val deviceIdentity: YDeviceIdentity = androidDeviceIdentity(),
+    private val codecConfigurationProbe: AndroidCodecConfigurationProbe = AndroidCodecConfigurationProbe(),
 ) {
     private val platformProbe = AndroidCore2MediaProbe(context)
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
@@ -188,7 +192,44 @@ internal class AndroidCore2RouteEvaluator(
         val request = adjustment.request
         val normalizedProbe = resolved.copy(playbackRequest = request)
         var capabilities = adjustment.capabilities
+        val dolbyDecision =
+            resolved.dolbyVisionConfig?.let { config ->
+                YDolbyVisionRouter.decide(
+                    video = request.video,
+                    evidence = YDolbyVisionStreamEvidence(config),
+                    capabilities = capabilities,
+                )
+            }
         var plan = strategy.plan(request, capabilities)
+        val unseenRuntimeKey = runtimeVideoCapabilityKey(request, plan)
+        if (
+            unseenRuntimeKey != null &&
+            plan.renderPath != YRenderPath.Tunnel &&
+            runtimeCapabilities.evidence(unseenRuntimeKey) == null
+        ) {
+            val probeResult =
+                codecConfigurationProbe.probe(
+                    decoderName = unseenRuntimeKey.decoderName,
+                    mimeType = normalizedProbe.activeProbeMime(plan),
+                    requirement = request.video,
+                )
+            when (probeResult) {
+                YCodecConfigurationProbeResult.Configured ->
+                    runtimeCapabilities.recordConfigured(unseenRuntimeKey)
+                YCodecConfigurationProbeResult.Rejected -> {
+                    runtimeCapabilities.recordRejected(unseenRuntimeKey)
+                    capabilities =
+                        capabilities.copy(
+                            videoDecoders =
+                                capabilities.videoDecoders.filterNot {
+                                    it.name == unseenRuntimeKey.decoderName
+                                },
+                        )
+                    plan = strategy.plan(request, capabilities)
+                }
+                YCodecConfigurationProbeResult.Inconclusive -> Unit
+            }
+        }
         while (true) {
             val runtimeKey = runtimeVideoCapabilityKey(request, plan) ?: break
             if (!runtimeCapabilities.isRejected(runtimeKey)) break
@@ -205,9 +246,38 @@ internal class AndroidCore2RouteEvaluator(
                             adjustment.matchedRuleIds.sorted().joinToString(","),
                 )
         }
+        if (dolbyDecision != null) {
+            plan =
+                plan.copy(
+                    reason = "${plan.reason}; ${dolbyDecision.diagnosticLabel()}",
+                )
+        }
         return YCore2RouteDecision(normalizedProbe, plan)
     }
 }
+
+private fun YCore2ProbeResult.Success.activeProbeMime(plan: YPlaybackPlan): String =
+    if (plan.outputHdrType == YHdrType.DolbyVision) {
+        videoMime
+    } else {
+        when (playbackRequest.video.codec) {
+            YVideoCodec.H264 -> "video/avc"
+            YVideoCodec.H265 -> "video/hevc"
+            YVideoCodec.Av1 -> "video/av01"
+            YVideoCodec.Vp9 -> "video/x-vnd.on2.vp9"
+            YVideoCodec.Mpeg2 -> "video/mpeg2"
+            YVideoCodec.ProRes -> "video/prores"
+            YVideoCodec.Unknown -> videoMime
+        }
+    }
+
+private fun YDolbyVisionRouteDecision.diagnosticLabel(): String =
+    when (this) {
+        is YDolbyVisionRouteDecision.Native ->
+            "DV P$profile native, enhancement=$enhancementLayerKind, FEL-claim=$canClaimFelComposition"
+        is YDolbyVisionRouteDecision.CompatibleBase -> "DV compatible-base=$hdrType"
+        is YDolbyVisionRouteDecision.Unsupported -> "DV unsupported=$reason"
+    }
 
 private fun androidDeviceIdentity(): YDeviceIdentity =
     YDeviceIdentity(

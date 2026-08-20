@@ -300,7 +300,7 @@ internal class AndroidNativeDirectYPlayer(
         private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
         private val externalSubtitleLoader = AndroidExternalSubtitleLoader(context)
         private val wallClock = YMediaClock(positionUs = request.startPositionMs * MICROS_PER_MILLISECOND)
-        private val frameRateManager = AndroidFrameRateManager(frameRateSwitchMode)
+        private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
 
         private var currentIndex = request.startIndex
         private var sourceRemote = false

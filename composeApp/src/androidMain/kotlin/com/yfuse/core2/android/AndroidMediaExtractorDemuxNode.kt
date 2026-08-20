@@ -1,10 +1,12 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import android.media.MediaDataSource
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 import com.yfuse.core2.graph.YDemuxNode
+import com.yfuse.core2.network.YSourceProtocol
 import java.nio.ByteBuffer
 
 internal data class YAndroidMediaSource(
@@ -33,7 +35,7 @@ internal class AndroidMediaExtractorDemuxNode(
 
     private val appContext = context.applicationContext
     private var extractor: MediaExtractor? = null
-    private var mediaDataSource: AndroidHttpRangeMediaDataSource? = null
+    private var mediaDataSource: MediaDataSource? = null
     private var selectedTracks = emptySet<Int>()
 
     fun open(source: YAndroidMediaSource) {
@@ -128,6 +130,34 @@ internal class AndroidMediaExtractorDemuxNode(
                 mediaDataSource = rangeSource
                 setDataSource(rangeSource)
             }
+            "webdav", "webdavs" -> {
+                val tls = parsed.scheme.equals("webdavs", ignoreCase = true)
+                val normalizedUri =
+                    source.uri.replaceFirst(
+                        Regex("(?i)^webdavs?://"),
+                        if (tls) "https://" else "http://",
+                    )
+                val rangeSource =
+                    AndroidTransportMediaDataSource(
+                        uri = normalizedUri,
+                        protocol = if (tls) YSourceProtocol.WebDavTls else YSourceProtocol.WebDav,
+                        headers = source.headers,
+                        createTransport = ::AndroidHttpMediaTransport,
+                    )
+                mediaDataSource = rangeSource
+                setDataSource(rangeSource)
+            }
+            "smb" -> {
+                val rangeSource =
+                    AndroidTransportMediaDataSource(
+                        uri = source.uri,
+                        protocol = YSourceProtocol.Smb,
+                        headers = source.headers,
+                        createTransport = ::AndroidSmbMediaTransport,
+                    )
+                mediaDataSource = rangeSource
+                setDataSource(rangeSource)
+            }
             else -> setDataSource(source.uri, source.headers)
         }
     }
@@ -142,4 +172,4 @@ internal fun MediaFormat.maxInputSizeOr(defaultBytes: Int): Int =
 
 internal fun String.isCore2RemoteMediaUri(): Boolean =
     substringBefore(':', missingDelimiterValue = "").lowercase() in
-        setOf("http", "https", "smb", "webdav")
+        setOf("http", "https", "smb", "webdav", "webdavs")

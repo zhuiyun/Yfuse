@@ -1,0 +1,70 @@
+package com.yfuse.core2.android
+
+import com.yfuse.core2.network.YByteRange
+import com.yfuse.core2.network.YMediaTransportRequest
+import com.yfuse.core2.network.YSourceProtocol
+import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+
+class AndroidHttpMediaTransportTest {
+    @Test
+    fun `opens strict byte range and reads response incrementally`() =
+        runTest {
+            val server = MockWebServer()
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 4-7/10")
+                    .setBody("4567"),
+            )
+            server.start()
+            try {
+                val transport = AndroidHttpMediaTransport(OkHttpClient())
+                val response =
+                    transport.open(
+                        YMediaTransportRequest(
+                            uri = server.url("media").toString(),
+                            protocol = YSourceProtocol.Http,
+                            range = YByteRange(4, 7),
+                        ),
+                    )
+                val output = ByteArray(4)
+                assertEquals(4, transport.read(output, 0, output.size))
+                assertContentEquals("4567".encodeToByteArray(), output)
+                assertEquals(206, response.statusCode)
+                assertEquals(YByteRange(4, 7), response.acceptedRange)
+                assertEquals("bytes=4-7", server.takeRequest().getHeader("Range"))
+                transport.close()
+            } finally {
+                server.shutdown()
+            }
+        }
+
+    @Test
+    fun `WebDAV uses the same range safe transport without following redirects`() =
+        runTest {
+            val server = MockWebServer()
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "https://elsewhere.invalid"))
+            server.start()
+            try {
+                val transport = AndroidHttpMediaTransport(OkHttpClient.Builder().followRedirects(false).build())
+                val response =
+                    transport.open(
+                        YMediaTransportRequest(
+                            uri = server.url("dav/movie.mkv").toString(),
+                            protocol = YSourceProtocol.WebDav,
+                        ),
+                    )
+                assertEquals(302, response.statusCode)
+                assertEquals(1, server.requestCount)
+                transport.close()
+            } finally {
+                server.shutdown()
+            }
+        }
+}

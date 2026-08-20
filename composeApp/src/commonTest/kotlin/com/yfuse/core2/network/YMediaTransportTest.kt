@@ -23,6 +23,21 @@ class YMediaTransportTest {
     }
 
     @Test
+    fun `SMB diagnostics redact URI user info and credential objects`() {
+        val credentials = YTransportCredentials.UsernamePassword("alice", "top-secret", "MEDIA")
+        val request =
+            YMediaTransportRequest(
+                uri = "smb://alice:top-secret@nas.local/Movies/video.mkv?token=secret",
+                protocol = YSourceProtocol.Smb,
+                credentials = credentials,
+            )
+
+        assertEquals("Smb smb://nas.local/Movies/video.mkv", request.diagnosticSummary())
+        assertFalse("top-secret" in request.toString())
+        assertFalse("alice" in credentials.toString())
+    }
+
+    @Test
     fun `cache identity never depends on signed source URI`() {
         assertEquals("account-a\titem-42\tv3", YCacheIdentity("account-a", "item-42", "v3").key())
     }

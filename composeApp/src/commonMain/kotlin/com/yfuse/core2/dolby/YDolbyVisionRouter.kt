@@ -19,6 +19,7 @@ sealed interface YDolbyVisionRouteDecision {
         val decoderName: String,
         val profile: Int,
         val codec: YVideoCodec,
+        val enhancementLayerKind: YDolbyVisionEnhancementLayerKind,
         /** True only when an independent output trace proved Profile-7 EL composition. */
         val canClaimFelComposition: Boolean,
     ) : YDolbyVisionRouteDecision
@@ -67,6 +68,7 @@ object YDolbyVisionRouter {
                 decoderName = exactDecoder.name,
                 profile = config.profile,
                 codec = codec,
+                enhancementLayerKind = evidence.enhancementLayerKind,
                 canClaimFelComposition =
                     config.profile == 7 &&
                         outputEvidence?.canClaimFELComposition == true,

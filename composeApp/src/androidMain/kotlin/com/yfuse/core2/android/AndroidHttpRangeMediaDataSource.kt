@@ -111,7 +111,8 @@ internal class AndroidHttpRangeMediaDataSource(
     ): ByteArray {
         val connection = openConnection(uri)
         return try {
-            connection.instanceFollowRedirects = true
+            // Never forward provider authorization headers to a redirect target.
+            connection.instanceFollowRedirects = false
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
             headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
@@ -144,6 +145,11 @@ internal class AndroidHttpRangeMediaDataSource(
                         ?.let { knownSize = it }
                     byteArrayOf()
                 }
+                in 300..399 ->
+                    throw classifiedHttpFailure(
+                        YPlaybackFailureCategory.Network,
+                        "HTTP range redirect requires provider re-resolution",
+                    )
                 else -> throw classifiedHttpFailure(
                     YPlaybackFailureCategory.Network,
                     "HTTP range request failed ($status)",

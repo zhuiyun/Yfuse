@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import android.annotation.TargetApi
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.os.Build
@@ -153,12 +154,7 @@ internal class AndroidMediaCodecVideoNode(
     ): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
         val decoder = requireStartedCodec()
-        decoder.setOnFirstTunnelFrameReadyListener(
-            handler,
-            listener?.let { callback ->
-                MediaCodec.OnFirstTunnelFrameReadyListener { callback() }
-            },
-        )
+        Api31TunnelFrameReadyListener.set(decoder, handler, listener)
         return true
     }
 
@@ -265,6 +261,23 @@ internal class AndroidMediaCodecVideoNode(
         checkNotNull(codec).also {
             check(started) { "MediaCodec video node has not been configured" }
         }
+}
+
+/** Keeps API 31-only verifier types out of [AndroidMediaCodecVideoNode] on Android 10 and older. */
+@TargetApi(Build.VERSION_CODES.S)
+private object Api31TunnelFrameReadyListener {
+    fun set(
+        codec: MediaCodec,
+        handler: Handler?,
+        listener: (() -> Unit)?,
+    ) {
+        codec.setOnFirstTunnelFrameReadyListener(
+            handler,
+            listener?.let { callback ->
+                MediaCodec.OnFirstTunnelFrameReadyListener { callback() }
+            },
+        )
+    }
 }
 
 internal fun <T> createPlannedVideoDecoder(

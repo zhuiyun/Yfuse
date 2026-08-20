@@ -41,19 +41,48 @@ class YTextSubtitleParserTest {
     }
 
     @Test
-    fun `parses ASS dialogue and strips override tags for plain overlay`() {
+    fun `parses ASS dialogue text and rendering overrides`() {
         val timeline =
             YTextSubtitleParser.parse(
                 """
                 [Events]
                 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-                Dialogue: 0,0:00:02.00,0:00:04.50,Default,,0,0,0,,{\b1}Hello\Nworld
+                Dialogue: 0,0:00:02.00,0:00:04.50,Default,,0,0,0,,{\b1\i1\u1\fs36\an8\c&H112233&}Hello\Nworld
                 """.trimIndent(),
                 YSubtitleFormat.Ass,
             )
 
         val payload = timeline.cues.single().payload as YSubtitlePayload.Text
         assertEquals("Hello\nworld", payload.plainText)
+        assertEquals(true, payload.style.bold)
+        assertEquals(true, payload.style.italic)
+        assertEquals(true, payload.style.underline)
+        assertEquals(36f, payload.style.fontSizePoints)
+        assertEquals(8, payload.style.alignment)
+        assertEquals(0xff332211.toInt(), payload.style.primaryColorArgb)
+    }
+
+    @Test
+    fun `inherits ASS named style before applying inline overrides`() {
+        val timeline =
+            YTextSubtitleParser.parse(
+                """
+                [V4+ Styles]
+                Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+                Style: Sign,Arial,42,&H00FF8000,&H0,&H0,&H0,-1,0,0,0,100,100,0,0,1,3,1,7,10,10,10,1
+                [Events]
+                Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+                Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,{\i1}Styled
+                """.trimIndent(),
+                YSubtitleFormat.Ass,
+            )
+
+        val style = (timeline.cues.single().payload as YSubtitlePayload.Text).style
+        assertEquals(true, style.bold)
+        assertEquals(true, style.italic)
+        assertEquals(42f, style.fontSizePoints)
+        assertEquals(7, style.alignment)
+        assertEquals(3f, style.outline)
     }
 
     @Test
@@ -85,6 +114,7 @@ class YTextSubtitleParserTest {
         assertEquals(2_000_000L, cue.startUs)
         assertEquals(3_500_000L, cue.endUs)
         assertEquals("Hello, world\nnext", (cue.payload as YSubtitlePayload.Text).plainText)
+        assertEquals(true, cue.payload.style.italic)
     }
 
     @Test

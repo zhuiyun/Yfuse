@@ -40,7 +40,7 @@ internal class AndroidNativeTunnelSession(
     frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) {
     private val fallbackClock = YMediaClock()
-    private val frameRateManager = AndroidFrameRateManager(frameRateSwitchMode)
+    private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
 
     private var tunnel: AndroidTunnelConfiguration? = null

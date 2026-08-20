@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import android.content.Context
 import android.media.MediaCodec
 import android.view.Surface
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -62,6 +63,7 @@ internal data class YEnhancedPlaybackSnapshot(
  * serially from one playback worker.
  */
 internal class AndroidEnhancedPlaybackSession(
+    context: Context,
     private val demuxer: YDemuxer = AndroidFfmpegDemuxer(),
     private val videoDecoder: AndroidMediaCodecVideoNode = AndroidMediaCodecVideoNode(),
     private val audioDecoder: AndroidMediaCodecAudioNode = AndroidMediaCodecAudioNode(),
@@ -71,7 +73,7 @@ internal class AndroidEnhancedPlaybackSession(
     frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) {
     private val wallClock = YMediaClock()
-    private val frameRateManager = AndroidFrameRateManager(frameRateSwitchMode)
+    private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
 
     private var plan: YPlaybackPlan? = null
     private var sourceRemote = false

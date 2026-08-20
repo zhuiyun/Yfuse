@@ -327,8 +327,9 @@ class LibraryGridStoreTest {
     fun media_spec_filter_reloads_with_server_side_4k_parameters() =
         runTest {
             val requests = mutableListOf<Pair<String?, String?>>()
+            val dispatcher = StandardTestDispatcher(testScheduler)
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher = dispatcher) { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
                     } else {
@@ -346,20 +347,21 @@ class LibraryGridStoreTest {
                     repo,
                     registry(),
                     "lib1",
-                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                    mainContext = dispatcher,
                 ).create()
-            store.states.first { !it.loading && it.items.isNotEmpty() }
+            advanceUntilIdle()
+            assertFalse(store.state.loading)
+            assertTrue(store.state.items.isNotEmpty())
 
             store.accept(GridIntent.SetResolution(LibraryResolution.FourK))
 
-            val filtered =
-                store.states.first {
-                    !it.loading && it.resolution == LibraryResolution.FourK
-                }
+            advanceUntilIdle()
+            val filtered = store.state
+            assertFalse(filtered.loading)
             assertEquals(LibraryResolution.FourK, filtered.resolution)
             assertEquals(listOf(null to null, "true" to "2560"), requests)
             store.dispose()
-            runCurrent()
+            advanceUntilIdle()
         }
 
     @Test

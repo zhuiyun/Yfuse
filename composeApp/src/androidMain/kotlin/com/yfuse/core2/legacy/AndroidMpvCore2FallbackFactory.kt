@@ -33,9 +33,10 @@ import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Executes the two unfinished Core2 fallback tiers through the bundled, verified libmpv runtime.
- * This is deliberately in `core2.legacy`: strategy and graph packages remain backend-independent,
- * while users get a real FFmpeg/GPU path before native Vulkan and avcodec nodes replace it.
+ * Executes Core2's production compatibility tiers through the bundled, verified libmpv runtime.
+ * This is deliberately in `core2.legacy`: strategy and graph packages remain backend-independent.
+ * The renderer is libplacebo GPU with explicit tone mapping/scaling/deband/dither policy; it is
+ * reported as mpv GPU and is never mislabeled as the optional native Vulkan/AHardwareBuffer path.
  */
 internal class AndroidMpvCore2FallbackFactory(
     context: Context,
@@ -153,7 +154,7 @@ private class AndroidMpvCore2FallbackPlayer(
                     state.diagnostics.copy(
                         route = resolvedMpvFallbackRoute(plan.route, state.diagnostics.decoder),
                         demuxer = "libavformat compatibility executor",
-                        renderer = "libmpv GPU",
+                        renderer = "libmpv/libplacebo GPU",
                         reason = "${plan.reason}; compatibility executor active",
                     ),
             )

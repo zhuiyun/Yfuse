@@ -19,9 +19,30 @@ enum class YSubtitleFormat {
 }
 
 sealed interface YSubtitlePayload {
+    data class TextStyle(
+        val bold: Boolean = false,
+        val italic: Boolean = false,
+        val underline: Boolean = false,
+        /** Packed ARGB; null keeps the user-selected subtitle colour. */
+        val primaryColorArgb: Int? = null,
+        val fontSizePoints: Float? = null,
+        /** ASS numpad alignment (1..9). */
+        val alignment: Int = 2,
+        val outline: Float? = null,
+        val shadow: Float? = null,
+    ) {
+        init {
+            require(alignment in 1..9)
+            require(fontSizePoints == null || fontSizePoints.isFinite() && fontSizePoints > 0f)
+            require(outline == null || outline.isFinite() && outline >= 0f)
+            require(shadow == null || shadow.isFinite() && shadow >= 0f)
+        }
+    }
+
     data class Text(
         val plainText: String,
         val sourceMarkup: String = plainText,
+        val style: TextStyle = TextStyle(),
     ) : YSubtitlePayload
 
     /** Encoded bitmap/text packet owned by a platform decoder, not by the video renderer. */
@@ -94,7 +115,17 @@ object YEmbeddedSubtitleDecoder {
             id = id,
             startUs = safeStartUs,
             endUs = safeStartUs + safeDurationUs,
-            payload = YSubtitlePayload.Text(plainText = plainText, sourceMarkup = markup),
+            payload =
+                YSubtitlePayload.Text(
+                    plainText = plainText,
+                    sourceMarkup = markup,
+                    style =
+                        if (format == YSubtitleFormat.Ass || format == YSubtitleFormat.Ssa) {
+                            assTextStyle(markup)
+                        } else {
+                            YSubtitlePayload.TextStyle()
+                        },
+                ),
         )
     }
 }
@@ -202,6 +233,66 @@ private fun String.assDialogueText(): String {
     val payload = removePrefix("Dialogue:").trimStart()
     val fields = payload.split(',', limit = ASS_PACKET_FIELD_COUNT)
     return fields.lastOrNull().orEmpty()
+}
+
+/** Parses whole-cue ASS overrides without moving video frames through a GPU composition path. */
+fun assTextStyle(
+    markup: String,
+    inherited: YSubtitlePayload.TextStyle = YSubtitlePayload.TextStyle(),
+): YSubtitlePayload.TextStyle {
+    val commands = ASS_OVERRIDE.findAll(markup).joinToString("\\") { it.value.trim('{', '}') }
+
+    fun flag(name: String): Boolean? =
+        Regex("(?:^|\\\\)$name(-?\\d+)", RegexOption.IGNORE_CASE)
+            .findAll(commands)
+            .lastOrNull()
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+            ?.let { it != 0 }
+
+    fun number(name: String): Float? =
+        Regex("(?:^|\\\\)$name([0-9]+(?:\\.[0-9]+)?)", RegexOption.IGNORE_CASE)
+            .findAll(commands)
+            .lastOrNull()
+            ?.groupValues
+            ?.get(1)
+            ?.toFloatOrNull()
+    val alignment =
+        Regex("(?:^|\\\\)an([1-9])", RegexOption.IGNORE_CASE)
+            .findAll(commands)
+            .lastOrNull()
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+            ?: inherited.alignment
+    val color =
+        Regex("(?:^|\\\\)(?:1?c)&H([0-9A-F]{6,8})&?", RegexOption.IGNORE_CASE)
+            .findAll(commands)
+            .lastOrNull()
+            ?.groupValues
+            ?.get(1)
+            ?.assColorArgb()
+    return YSubtitlePayload.TextStyle(
+        bold = flag("b") ?: inherited.bold,
+        italic = flag("i") ?: inherited.italic,
+        underline = flag("u") ?: inherited.underline,
+        primaryColorArgb = color ?: inherited.primaryColorArgb,
+        fontSizePoints = number("fs") ?: inherited.fontSizePoints,
+        alignment = alignment,
+        outline = number("bord") ?: inherited.outline,
+        shadow = number("shad") ?: inherited.shadow,
+    )
+}
+
+internal fun String.assColorArgb(): Int? {
+    val raw = toLongOrNull(16) ?: return null
+    val red = (raw and 0xff).toInt()
+    val green = ((raw ushr 8) and 0xff).toInt()
+    val blue = ((raw ushr 16) and 0xff).toInt()
+    val assAlpha = if (length >= 8) ((raw ushr 24) and 0xff).toInt() else 0
+    val alpha = 0xff - assAlpha
+    return (alpha shl 24) or (red shl 16) or (green shl 8) or blue
 }
 
 private fun String.decodeBasicEntities(): String =

@@ -59,16 +59,33 @@ private fun parseWebVtt(text: String): List<YSubtitleCue> {
 
 private fun parseAss(text: String): List<YSubtitleCue> {
     val lines = normalizedLines(text)
-    var inEvents = false
+    var section = ""
     var fields = DEFAULT_ASS_FIELDS
+    var styleFields = DEFAULT_ASS_STYLE_FIELDS
+    val styles = mutableMapOf<String, YSubtitlePayload.TextStyle>()
     val cues = mutableListOf<YSubtitleCue>()
     lines.forEach { rawLine ->
         val line = rawLine.trim()
         if (line.startsWith("[")) {
-            inEvents = line.equals("[Events]", ignoreCase = true)
+            section = line.lowercase()
             return@forEach
         }
-        if (!inEvents) return@forEach
+        if (section == "[v4+ styles]" || section == "[v4 styles]") {
+            if (line.startsWith("Format:", ignoreCase = true)) {
+                styleFields = line.substringAfter(':').split(',').map { it.trim().lowercase() }
+            } else if (line.startsWith("Style:", ignoreCase = true)) {
+                val values = line.substringAfter(':').split(',', limit = styleFields.size)
+                val name =
+                    values
+                        .valueFor(styleFields, "name")
+                        ?.trim()
+                        ?.lowercase()
+                        .orEmpty()
+                if (name.isNotEmpty()) styles[name] = values.toAssStyle(styleFields)
+            }
+            return@forEach
+        }
+        if (section != "[events]") return@forEach
         if (line.startsWith("Format:", ignoreCase = true)) {
             fields = line.substringAfter(':').split(',').map { it.trim().lowercase() }
             return@forEach
@@ -86,15 +103,43 @@ private fun parseAss(text: String): List<YSubtitleCue> {
                 .replace("\\N", "\n")
                 .replace("\\n", "\n")
         if (markup.isBlank()) return@forEach
+        val baseStyle =
+            values
+                .valueFor(fields, "style")
+                ?.trim()
+                ?.lowercase()
+                ?.let(styles::get)
+                ?: YSubtitlePayload.TextStyle()
         cues +=
             YSubtitleCue(
                 id = "ass-${cues.size}",
                 startUs = start,
                 endUs = end,
-                payload = YSubtitlePayload.Text(markup.stripAssOverrides(), markup),
+                payload =
+                    YSubtitlePayload.Text(
+                        plainText = markup.stripAssOverrides(),
+                        sourceMarkup = markup,
+                        style = assTextStyle(markup, baseStyle),
+                    ),
             )
     }
     return cues
+}
+
+private fun List<String>.toAssStyle(fields: List<String>): YSubtitlePayload.TextStyle {
+    fun value(name: String): String? = valueFor(fields, name)?.trim()
+
+    fun enabled(name: String): Boolean = value(name)?.toIntOrNull()?.let { it != 0 } ?: false
+    return YSubtitlePayload.TextStyle(
+        bold = enabled("bold"),
+        italic = enabled("italic"),
+        underline = enabled("underline"),
+        primaryColorArgb = value("primarycolour")?.removePrefix("&H")?.removeSuffix("&")?.assColorArgb(),
+        fontSizePoints = value("fontsize")?.toFloatOrNull()?.takeIf { it > 0f },
+        alignment = value("alignment")?.toIntOrNull()?.takeIf { it in 1..9 } ?: 2,
+        outline = value("outline")?.toFloatOrNull()?.takeIf { it >= 0f },
+        shadow = value("shadow")?.toFloatOrNull()?.takeIf { it >= 0f },
+    )
 }
 
 private fun parseTimingLine(
@@ -165,6 +210,32 @@ private val SIMPLE_TAG = Regex("</?[A-Za-z][^>]*>")
 private val ASS_OVERRIDE = Regex("\\{[^}]*}")
 private val DEFAULT_ASS_FIELDS =
     listOf("layer", "start", "end", "style", "name", "marginl", "marginr", "marginv", "effect", "text")
+private val DEFAULT_ASS_STYLE_FIELDS =
+    listOf(
+        "name",
+        "fontname",
+        "fontsize",
+        "primarycolour",
+        "secondarycolour",
+        "outlinecolour",
+        "backcolour",
+        "bold",
+        "italic",
+        "underline",
+        "strikeout",
+        "scalex",
+        "scaley",
+        "spacing",
+        "angle",
+        "borderstyle",
+        "outline",
+        "shadow",
+        "alignment",
+        "marginl",
+        "marginr",
+        "marginv",
+        "encoding",
+    )
 private const val SRT_TIMING_SEPARATOR = "-->"
 private const val WEBVTT_TIMING_SEPARATOR = "-->"
 private const val MICROS_PER_SECOND = 1_000_000L

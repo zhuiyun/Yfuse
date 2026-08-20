@@ -10,6 +10,14 @@ enum class YDolbyVisionCodecFamily {
     Unknown,
 }
 
+/** Source classification; Unknown is intentionally different from FEL. */
+enum class YDolbyVisionEnhancementLayerKind {
+    None,
+    Mel,
+    Fel,
+    Unknown,
+}
+
 data class YDolbyVisionConfig(
     val versionMajor: Int,
     val versionMinor: Int,
@@ -108,11 +116,25 @@ data class YDolbyVisionConfig(
 data class YDolbyVisionStreamEvidence(
     val config: YDolbyVisionConfig,
     val observedNals: YDolbyVisionNalEvidence = YDolbyVisionNalEvidence(0, 0),
+    /** Trusted parser/container evidence. EL-present flags alone must leave this null/Unknown. */
+    val parsedEnhancementLayerKind: YDolbyVisionEnhancementLayerKind? = null,
 ) {
     val rpuPresent: Boolean get() = config.rpuPresent || observedNals.rpuPresent
     val enhancementLayerPresent: Boolean
         get() = config.enhancementLayerPresent || observedNals.enhancementLayerPresent
     val baseLayerPresent: Boolean get() = config.baseLayerPresent
+
+    val enhancementLayerKind: YDolbyVisionEnhancementLayerKind
+        get() =
+            when {
+                !enhancementLayerPresent -> YDolbyVisionEnhancementLayerKind.None
+                config.profile != 7 -> YDolbyVisionEnhancementLayerKind.Unknown
+                parsedEnhancementLayerKind == YDolbyVisionEnhancementLayerKind.Mel ->
+                    YDolbyVisionEnhancementLayerKind.Mel
+                parsedEnhancementLayerKind == YDolbyVisionEnhancementLayerKind.Fel ->
+                    YDolbyVisionEnhancementLayerKind.Fel
+                else -> YDolbyVisionEnhancementLayerKind.Unknown
+            }
 
     /** Source evidence alone can never prove that a platform decoder composed a Profile-7 FEL. */
     val canClaimFELComposition: Boolean get() = false
@@ -126,7 +148,7 @@ data class YDolbyVisionOutputEvidence(
     val canClaimFELComposition: Boolean
         get() =
             stream.config.profile == 7 &&
-                stream.enhancementLayerPresent &&
+                stream.enhancementLayerKind == YDolbyVisionEnhancementLayerKind.Fel &&
                 enhancementLayerComposed == true
 }
 

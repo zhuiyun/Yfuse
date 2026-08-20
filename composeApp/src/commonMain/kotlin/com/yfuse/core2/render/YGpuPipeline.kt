@@ -22,12 +22,29 @@ enum class YScalingFilter {
 
 data class YGpuCapabilities(
     val backends: Set<YGpuBackend>,
+    /** Set only when the shipped native executor imports and presents AHardwareBuffer frames. */
+    val nativeVulkanExecutorVerified: Boolean = false,
     val toneMappers: Set<YToneMapper> = emptySet(),
     val scalingFilters: Set<YScalingFilter> = setOf(YScalingFilter.Bilinear),
     val supportsHdrInput: Boolean = false,
     val supportsHdrOutput: Boolean = false,
     val supportsTenBitOutput: Boolean = false,
 )
+
+data class YGpuExecutionEvidence(
+    val backend: YGpuBackend,
+    val hardwareBufferImported: Boolean,
+    val framePresented: Boolean,
+    val toneMappingApplied: Boolean,
+    val outputMeasured: Boolean,
+) {
+    val canClaimNativeVulkan: Boolean
+        get() =
+            backend == YGpuBackend.Vulkan &&
+                hardwareBufferImported &&
+                framePresented &&
+                outputMeasured
+}
 
 data class YGpuRenderRequest(
     val sourceHdrType: YHdrType,
@@ -79,7 +96,8 @@ object YGpuPipelinePlanner {
 
         val backend =
             when {
-                YGpuBackend.Vulkan in capabilities.backends -> YGpuBackend.Vulkan
+                YGpuBackend.Vulkan in capabilities.backends && capabilities.nativeVulkanExecutorVerified ->
+                    YGpuBackend.Vulkan
                 YGpuBackend.MpvGpu in capabilities.backends -> YGpuBackend.MpvGpu
                 else -> return null
             }

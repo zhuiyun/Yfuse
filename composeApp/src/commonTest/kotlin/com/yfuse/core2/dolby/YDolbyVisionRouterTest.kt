@@ -89,7 +89,7 @@ class YDolbyVisionRouterTest {
 
     @Test
     fun `P7 native playback still cannot claim FEL without independent output evidence`() {
-        val stream = evidence(profile = 7, el = true)
+        val stream = evidence(profile = 7, el = true, layerKind = YDolbyVisionEnhancementLayerKind.Fel)
         val caps =
             capabilities(
                 decoders =
@@ -179,6 +179,7 @@ class YDolbyVisionRouterTest {
         profile: Int,
         compatibilityId: Int = 0,
         el: Boolean = false,
+        layerKind: YDolbyVisionEnhancementLayerKind? = null,
     ): YDolbyVisionStreamEvidence =
         YDolbyVisionStreamEvidence(
             config =
@@ -198,6 +199,7 @@ class YDolbyVisionRouterTest {
                     rpuCount = 1,
                     enhancementLayerCount = if (el) 1 else 0,
                 ),
+            parsedEnhancementLayerKind = layerKind,
         )
 
     private fun capabilities(

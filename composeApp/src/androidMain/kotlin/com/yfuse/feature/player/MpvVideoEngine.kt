@@ -666,6 +666,13 @@ class MpvVideoEngine(
             instance.optionalOption("target-colorspace-hint", "yes")
             instance.optionalOption("tone-mapping", "bt.2390")
             instance.optionalOption("hdr-compute-peak", "yes")
+            // The compatibility GPU tier is a real libplacebo renderer, not a label-only route.
+            // Keep these optional because the exact mpv/libplacebo option surface is artifact-bound.
+            instance.optionalOption("scale", "ewa_lanczossharp")
+            instance.optionalOption("cscale", "ewa_lanczossharp")
+            instance.optionalOption("deband", "yes")
+            instance.optionalOption("dither-depth", "auto")
+            instance.optionalOption("gamut-mapping-mode", "perceptual")
             instance.init()
 
             instance.setPropertyDouble("speed", startSpeed.toDouble())

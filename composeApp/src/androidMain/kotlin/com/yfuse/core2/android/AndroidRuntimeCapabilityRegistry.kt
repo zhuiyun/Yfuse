@@ -77,6 +77,10 @@ internal class AndroidRuntimeCapabilityRegistry(
             record.consecutiveFailures >= FAILURES_TO_REJECT
     }
 
+    @Synchronized
+    fun evidence(key: YRuntimeVideoCapabilityKey): YRuntimeCapabilityEvidence? =
+        activeRecords().firstOrNull { it.key == key }?.evidence
+
     fun recordConfigured(key: YRuntimeVideoCapabilityKey) = record(key, YRuntimeCapabilityEvidence.Configured)
 
     fun recordRendered(key: YRuntimeVideoCapabilityKey) = record(key, YRuntimeCapabilityEvidence.Rendered)

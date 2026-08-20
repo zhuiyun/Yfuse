@@ -33,6 +33,7 @@ data class YMediaTransportRequest(
     val protocol: YSourceProtocol,
     val range: YByteRange? = null,
     val headers: Map<String, String> = emptyMap(),
+    val credentials: YTransportCredentials? = null,
 ) {
     init {
         require(uri.isNotBlank())
@@ -43,7 +44,7 @@ data class YMediaTransportRequest(
         buildString {
             append(protocol)
             append(' ')
-            append(uri.substringBefore('?').substringBefore('#'))
+            append(uri.redactedTransportUri())
             range?.let {
                 append(" bytes=")
                 append(it.startInclusive)
@@ -51,7 +52,29 @@ data class YMediaTransportRequest(
                 it.endInclusive?.let(::append)
             }
         }
+
+    override fun toString(): String = "YMediaTransportRequest(${diagnosticSummary()})"
 }
+
+sealed interface YTransportCredentials {
+    /** Kept out of diagnostics/toString; providers may still avoid storing it after open. */
+    class UsernamePassword(
+        val username: String,
+        val password: String,
+        val domain: String = "",
+    ) : YTransportCredentials {
+        init {
+            require(username.isNotBlank())
+        }
+
+        override fun toString(): String = "UsernamePassword([redacted])"
+    }
+}
+
+private fun String.redactedTransportUri(): String =
+    substringBefore('?')
+        .substringBefore('#')
+        .replace(Regex("(?i)([a-z][a-z0-9+.-]*://)[^/@]+@"), "$1")
 
 data class YMediaTransportResponse(
     val statusCode: Int,

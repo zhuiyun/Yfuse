@@ -28,7 +28,10 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -122,8 +125,7 @@ private fun Core2SubtitleOverlay(
                 )
         }
     if (activeCues.isEmpty()) return
-    val activeText =
-        activeCues.mapNotNull { cue -> (cue.payload as? YSubtitlePayload.Text)?.plainText }.joinToString("\n")
+    val activeText = activeCues.mapNotNull { cue -> cue.payload as? YSubtitlePayload.Text }
     val activeBitmaps = activeCues.mapNotNull { cue -> cue.payload as? YSubtitlePayload.BitmapArgb }
 
     BoxWithConstraints(modifier) {
@@ -152,32 +154,75 @@ private fun Core2SubtitleOverlay(
                         ),
             )
         }
-        if (activeText.isNotEmpty()) {
+        activeText.forEach { payload ->
+            val cueStyle = payload.style
+            val authoredColor = cueStyle.primaryColorArgb?.let(::Color) ?: Color.White
+            val textScale = scale.coerceIn(0.6f, 1.8f)
+            val authoredSize = cueStyle.fontSizePoints?.coerceIn(10f, 64f) ?: 22f
+            val alignment = cueStyle.alignment.toComposeAlignment()
             Text(
-                text = activeText,
-                color = Color.White.copy(alpha = brightness.coerceIn(0.35f, 1f)),
-                fontSize = (22f * scale.coerceIn(0.6f, 1.8f)).sp,
-                lineHeight = (27f * scale.coerceIn(0.6f, 1.8f)).sp,
-                textAlign = TextAlign.Center,
+                text = payload.plainText,
+                color =
+                    authoredColor.copy(
+                        alpha = authoredColor.alpha * brightness.coerceIn(0.35f, 1f),
+                    ),
+                fontSize = (authoredSize * textScale).sp,
+                lineHeight = (authoredSize * 1.23f * textScale).sp,
+                textAlign = cueStyle.alignment.toTextAlign(),
+                fontWeight = if (cueStyle.bold) FontWeight.Bold else FontWeight.Normal,
+                fontStyle = if (cueStyle.italic) FontStyle.Italic else FontStyle.Normal,
+                textDecoration = if (cueStyle.underline) TextDecoration.Underline else TextDecoration.None,
                 style =
                     androidx.compose.ui.text.TextStyle(
                         shadow =
                             Shadow(
                                 color = Color.Black,
-                                offset = Offset(0f, 2f),
-                                blurRadius = 5f,
+                                offset = Offset(0f, cueStyle.shadow ?: 2f),
+                                blurRadius = maxOf(2f, (cueStyle.outline ?: 2f) * 2.5f),
                             ),
                     ),
                 modifier =
                     Modifier
-                        .align(Alignment.BottomCenter)
+                        .align(alignment)
                         .fillMaxWidth(0.92f)
                         .padding(horizontal = 12.dp)
-                        .padding(bottom = (maxHeight.value * (1f - position.coerceIn(0.60f, 0.96f))).dp),
+                        .then(
+                            if (cueStyle.alignment <= 3) {
+                                Modifier.padding(
+                                    bottom =
+                                        (maxHeight.value * (1f - position.coerceIn(0.60f, 0.96f))).dp,
+                                )
+                            } else if (cueStyle.alignment >= 7) {
+                                Modifier.padding(top = (maxHeight.value * 0.05f).dp)
+                            } else {
+                                Modifier
+                            },
+                        ),
             )
         }
     }
 }
+
+private fun Int.toComposeAlignment(): Alignment =
+    when (this) {
+        1 -> Alignment.BottomStart
+        2 -> Alignment.BottomCenter
+        3 -> Alignment.BottomEnd
+        4 -> Alignment.CenterStart
+        5 -> Alignment.Center
+        6 -> Alignment.CenterEnd
+        7 -> Alignment.TopStart
+        8 -> Alignment.TopCenter
+        9 -> Alignment.TopEnd
+        else -> Alignment.BottomCenter
+    }
+
+private fun Int.toTextAlign(): TextAlign =
+    when (this) {
+        1, 4, 7 -> TextAlign.Start
+        3, 6, 9 -> TextAlign.End
+        else -> TextAlign.Center
+    }
 
 internal fun core2SurfaceSize(
     container: IntSize,
