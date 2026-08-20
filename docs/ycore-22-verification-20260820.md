@@ -39,8 +39,17 @@ Verified against the 22-stage Android media-platform roadmap on 2026-08-20.
 
 ## Physical-device gate
 
-A Samsung SM-G973U was detected and a baseline media sample was prepared. The installed
-`com.yfuse` uses a different signing certificate from the local Debug APK, so the test target could
-not be replaced without uninstalling the user's existing app and its data. No destructive uninstall
-was performed. The temporary test APK and media sample were removed. The full licensed matrix must
-be run with a matching-signed build and the corpus described by `media-tests/README.md`.
+A release-key-signed Debug build was installed over the existing app on a Samsung SM-G973U without
+uninstalling it or clearing its data. The baseline instrumented lane passed in 98.872 seconds:
+
+- 100/100 seek verification cycles;
+- 8/8 Surface detach/recreate cycles across landscape and portrait sizes;
+- pause/resume and background/foreground detach/reattach;
+- next/previous episode round trip;
+- no timeout and no decoder failure;
+- peak PSS 174,319,616 bytes; battery sample delta +10 permille;
+- 109 frame drops accumulated across the deliberately adversarial 100-seek run.
+
+The temporary instrumentation package and both copied media files were removed after the run. The
+full licensed DV/HDR/audio/container matrix remains reproducible through the corpus described by
+`media-tests/README.md`; licensed samples are intentionally not committed to the repository.
