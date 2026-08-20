@@ -13,6 +13,9 @@ import com.yfuse.core2.api.YTrackType
 import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.PlaybackOutputReadiness
 import com.yfuse.feature.player.PlaybackState
+import com.yfuse.feature.player.PlaybackTimelineAnchor
+import com.yfuse.feature.player.PlaybackTimelineAnchorRegistry
+import com.yfuse.feature.player.PlaybackTimelineNormalizer
 import com.yfuse.feature.player.VideoEngine
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.flow.FlowCollector
@@ -26,15 +29,29 @@ import kotlinx.coroutines.flow.StateFlow
  * The adapter deliberately owns no coroutine scope. Its state is a live mapped view over the
  * engine's StateFlow, so constructing or replacing an adapter cannot leak a collector during an
  * engine handover.
+ *
+ * This is also the Legacy timeline boundary. Exo, mpv and MDK may expose different timestamp
+ * origins for the same media frame; every position that leaves this adapter is normalized to the
+ * product timeline, and every seek entering it is converted back to the backend-local timeline.
  */
 internal class LegacyYPlayerAdapter(
     private val engine: VideoEngine,
 ) : YPlayer {
+    private val timeline =
+        PlaybackTimelineNormalizer(
+            PlaybackTimelineAnchorRegistry.take(engine)
+                ?: PlaybackTimelineAnchor(
+                    itemIndex = engine.state.value.currentIndex,
+                    positionMs = engine.currentPositionMs(),
+                ),
+        )
+
     /** Full product presentation state retained until YPlayerState covers backend extensions. */
-    internal val presentationState: StateFlow<PlaybackState> get() = engine.state
+    internal val presentationState: StateFlow<PlaybackState> =
+        MappedStateFlow(engine.state, timeline::normalize)
 
     override val state: StateFlow<YPlayerState> =
-        MappedStateFlow(engine.state) { state ->
+        MappedStateFlow(presentationState) { state ->
             state.toYPlayerState(engine.playbackRequested)
         }
 
@@ -44,7 +61,14 @@ internal class LegacyYPlayerAdapter(
 
     override fun pause() = engine.pause()
 
-    override fun seekTo(positionMs: Long) = engine.seekTo(positionMs)
+    override fun seekTo(positionMs: Long) {
+        engine.seekTo(
+            timeline.backendPositionForSeek(
+                canonicalPositionMs = positionMs,
+                state = engine.state.value,
+            ),
+        )
+    }
 
     override fun setSpeed(speed: Float) = engine.setSpeed(speed)
 
@@ -58,7 +82,10 @@ internal class LegacyYPlayerAdapter(
         }
     }
 
-    override fun selectItem(index: Int) = engine.selectItem(index)
+    override fun selectItem(index: Int) {
+        timeline.selectItem(index)
+        engine.selectItem(index)
+    }
 
     override fun selectDiscTitle(index: Int): Boolean = engine.selectDiscTitle(index)
 
@@ -66,7 +93,11 @@ internal class LegacyYPlayerAdapter(
 
     override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = engine.sendDiscMenuCommand(command)
 
-    override fun currentPositionMs(): Long = engine.currentPositionMs()
+    override fun currentPositionMs(): Long =
+        timeline.currentPositionMs(
+            rawPositionMs = engine.currentPositionMs(),
+            state = engine.state.value,
+        )
 
     override fun retry() = engine.retry()
 
