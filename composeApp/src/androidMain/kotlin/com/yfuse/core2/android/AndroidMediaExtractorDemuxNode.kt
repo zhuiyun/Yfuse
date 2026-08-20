@@ -97,7 +97,7 @@ internal class AndroidMediaExtractorDemuxNode(
         if (size < 0) return null
         target.position(0)
         target.limit(size)
-        val rawPresentationTimeUs = opened.sampleTime
+        val rawPresentationTimeUs = opened.validSampleTimeUs()
         return YExtractorSample(
             trackIndex = trackIndex,
             data = target.slice(),
@@ -114,7 +114,7 @@ internal class AndroidMediaExtractorDemuxNode(
     ) {
         establishTimelineOrigin()
         requireExtractor().seekTo(
-            timeline.sourceTimeUs(positionUs),
+            timeline.sourceTimeUs(positionUs).coerceAtLeast(0L),
             mode,
         )
     }
@@ -132,11 +132,11 @@ internal class AndroidMediaExtractorDemuxNode(
 
     private fun establishTimelineOrigin() {
         if (timeline.established) return
-        val firstSelectedSampleUs = requireExtractor().sampleTime
-        timeline.establish(
-            firstSelectedSampleUs.takeUnless { it == MediaExtractorSampleTimeUnavailable } ?: 0L,
-        )
+        timeline.establish(requireExtractor().validSampleTimeUs())
     }
+
+    private fun MediaExtractor.validSampleTimeUs(): Long =
+        sampleTime.takeUnless { it == MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE } ?: 0L
 
     private fun requireExtractor(): MediaExtractor =
         checkNotNull(extractor) { "MediaExtractor demux node has not been opened" }
@@ -209,4 +209,4 @@ internal fun String.isCore2RemoteMediaUri(): Boolean =
     substringBefore(':', missingDelimiterValue = "").lowercase() in
         setOf("http", "https", "smb", "webdav", "webdavs")
 
-private const val MediaExtractorSampleTimeUnavailable = -1L
+private const val MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE = -1L
