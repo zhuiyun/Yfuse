@@ -330,8 +330,13 @@ internal class EmbyBrowseService(
                 .coerceAtMost(MAX_RESOLUTION_CANONICAL_ITEMS)
         var rawStartIndex = 0
         var exhausted = false
+        var scannedPages = 0
 
-        repeat(MAX_RESOLUTION_SCAN_PAGES) {
+        while (
+            !exhausted &&
+            canonicalIds.size < targetCount &&
+            scannedPages < MAX_RESOLUTION_SCAN_PAGES
+        ) {
             val dto: ItemsResponseDto =
                 client
                     .get("${server.baseUrl}/Users/${server.userId}/Items") {
@@ -350,6 +355,7 @@ internal class EmbyBrowseService(
                         if (rawStartIndex > 0) parameter("StartIndex", rawStartIndex)
                         parameter("Limit", RESOLUTION_SCAN_PAGE_SIZE)
                     }.body()
+            scannedPages++
 
             dto.Items
                 .asSequence()
@@ -366,7 +372,6 @@ internal class EmbyBrowseService(
                 pageSize == 0 ||
                     pageSize < RESOLUTION_SCAN_PAGE_SIZE ||
                     (reportedTotal != null && rawStartIndex >= reportedTotal)
-            if (exhausted || canonicalIds.size >= targetCount) return@repeat
         }
 
         val pageIds =
