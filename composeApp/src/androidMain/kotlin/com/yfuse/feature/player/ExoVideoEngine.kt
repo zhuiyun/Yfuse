@@ -60,6 +60,7 @@ private val exoRuntimeCadence =
     )
 private const val TRANSIENT_RETRY_LIMIT = 2
 private const val MANIFEST_RETRY_LIMIT = 1
+private const val FAILURE_HISTORY_LIMIT = 4
 
 /**
  * ExoPlayer behind the engine-agnostic [VideoEngine] contract.
@@ -129,6 +130,8 @@ class ExoVideoEngine(
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private val retryCounts = mutableMapOf<String, Int>()
+    /** Compact, credential-free failure trail preserved across replaceMediaItem fallback hops. */
+    private val failureHistory = mutableMapOf<Int, MutableList<String>>()
     private var retryJob: Job? = null
     private var fallbackJob: Job? = null
     private var released = false
@@ -172,16 +175,19 @@ class ExoVideoEngine(
                 ).setMediaCodecSelector(selector)
                     .setEnableDecoderFallback(decoderMode != DecoderMode.Hardware)
 
-            val upstream = DefaultDataSource.Factory(context, httpFactory)
-            val dataSourceFactory =
+            val platformUpstream = DefaultDataSource.Factory(context, httpFactory)
+            val cachedDataSourceFactory =
                 cacheHandle?.let { handle ->
                     CacheDataSource
                         .Factory()
                         .setCache(handle.cache)
                         .setCacheKeyFactory(SecureMediaCacheKeyFactory)
-                        .setUpstreamDataSourceFactory(upstream)
+                        .setUpstreamDataSourceFactory(platformUpstream)
                         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-                } ?: upstream
+                } ?: platformUpstream
+            // Validate the bytes after the optional cache as well as after HTTP. A stale cached HTML
+            // error page must not masquerade as an HLS manifest any more than a fresh one may.
+            val dataSourceFactory = HlsManifestGuardDataSourceFactory(cachedDataSourceFactory)
             val loadControl =
                 playbackBufferProfile(optimizationMode).let { profile ->
                     DefaultLoadControl
@@ -485,9 +491,14 @@ class ExoVideoEngine(
             ) {
                 currentVideoFormat = null
                 renderedFirstFrame = false
+                val previousState = _state.value
                 val index = player.currentMediaItemIndex
                 val item = items.getOrNull(index)
                 val transcoding = index in transcodedIndices
+                val preservedFallbackReason =
+                    previousState.diagnostics.fallbackReason
+                        .takeIf { previousState.currentIndex == index && it.isNotBlank() }
+                        ?: failureHistoryLabel(index)
                 if (
                     !transcoding &&
                     mediaItem
@@ -520,7 +531,7 @@ class ExoVideoEngine(
                                 item = item,
                                 quality = qualityCeiling,
                                 transcoding = transcoding,
-                            ),
+                            ).copy(fallbackReason = preservedFallbackReason),
                     )
                 }
             }
@@ -546,10 +557,16 @@ class ExoVideoEngine(
             override fun onPlayerError(error: PlaybackException) {
                 safeLogcat(Log.ERROR, TAG, "playback failed: ${error.errorCodeName}", error)
                 val index = player.currentMediaItemIndex
+                val causes = generateSequence(error as Throwable) { it.cause }.toList()
                 val httpCause =
-                    generateSequence(error as Throwable) { it.cause }
+                    causes
                         .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
                         .firstOrNull()
+                val invalidHlsCause =
+                    causes
+                        .filterIsInstance<InvalidHlsManifestResponseException>()
+                        .firstOrNull()
+                rememberPlaybackFailure(index, error, httpCause, invalidHlsCause)
                 val failedUrl = httpCause?.dataSpec?.uri?.toString()
                 AppLog.error(
                     category = "player.exo",
@@ -562,11 +579,18 @@ class ExoVideoEngine(
                             put("itemIndex", index.toString())
                             put("transcoding", _state.value.transcoding.toString())
                             put("streamVariant", streamVariantOf(index))
+                            put("failureChain", failureHistoryLabel(index))
                             failedUrl?.let { url ->
                                 put("requestUrl", sanitizePlaybackUrl(url))
                                 playbackQueryParameter(url, "MediaSourceId")?.let {
                                     put("mediaSourceId", it)
                                 }
+                            }
+                            invalidHlsCause?.let { invalid ->
+                                invalid.contentType?.let { put("hlsContentType", it.take(120)) }
+                                invalid.redactedPreview
+                                    .takeIf(String::isNotBlank)
+                                    ?.let { put("hlsBodyPreview", it) }
                             }
                             httpCause?.let {
                                 put("httpStatus", it.responseCode.toString())
@@ -582,6 +606,26 @@ class ExoVideoEngine(
                             }
                         },
                 )
+
+                // An HTTP 200 response that is HTML/JSON instead of #EXTM3U is deterministic. Do
+                // not retry the same body: advance the fallback ladder immediately and retain the
+                // failure chain for diagnostics.
+                if (invalidHlsCause != null) {
+                    val recovered =
+                        if (index in transcodedIndices) {
+                            switchToProgressiveTranscode()
+                        } else {
+                            switchToTranscode()
+                        }
+                    if (!recovered) {
+                        failPlayback(
+                            "服务器没有返回有效的 HLS 清单，且已无可用转码方式",
+                            kind = PlaybackFailureKind.Container,
+                        )
+                    }
+                    return
+                }
+
                 when (error.errorCode) {
                     PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ->
                         if (
@@ -802,6 +846,7 @@ class ExoVideoEngine(
 
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
+        failureHistory.remove(index)
         _state.update {
             it.copy(
                 error = null,
@@ -1003,6 +1048,7 @@ class ExoVideoEngine(
         if (item.transcodeUrl.isEmpty()) return switchToProgressiveTranscode()
         transcodedIndices += index
         val position = player.currentPosition
+        val fallbackReason = failureChainReason(index, reason ?: "直放失败，已切换服务器转码")
         _state.update {
             it.copy(
                 error = null,
@@ -1018,7 +1064,7 @@ class ExoVideoEngine(
                         audioOutput = "等待转码音频输出",
                         videoReadiness = PlaybackOutputReadiness.Waiting,
                         audioReadiness = PlaybackOutputReadiness.Waiting,
-                        fallbackReason = reason ?: "直放失败，已切换服务器转码",
+                        fallbackReason = fallbackReason,
                         bufferedDurationMs = 0L,
                     ),
             )
@@ -1028,7 +1074,11 @@ class ExoVideoEngine(
             category = "player.exo",
             event = "transcode_fallback",
             message = "Switching from direct play to server transcode",
-            attributes = mapOf("itemIndex" to index.toString()),
+            attributes =
+                mapOf(
+                    "itemIndex" to index.toString(),
+                    "failureChain" to failureHistoryLabel(index),
+                ),
         )
         player.replaceMediaItem(index, mediaItem(item, item.transcodeUrl))
         secondarySubtitles.replaceMediaItem(index, player.getMediaItemAt(index))
@@ -1076,6 +1126,7 @@ class ExoVideoEngine(
         transcodedIndices += index
         progressiveTransitionIndices += index
         val position = player.currentPosition
+        val fallbackReason = failureChainReason(index, "HLS 转码不可用，已改用 MP4 转码")
         _state.update {
             it.copy(
                 error = null,
@@ -1091,7 +1142,7 @@ class ExoVideoEngine(
                         audioOutput = "等待转码音频输出",
                         videoReadiness = PlaybackOutputReadiness.Waiting,
                         audioReadiness = PlaybackOutputReadiness.Waiting,
-                        fallbackReason = "HLS 转码不可用，已改用 MP4 转码",
+                        fallbackReason = fallbackReason,
                     ),
             )
         }
@@ -1101,7 +1152,11 @@ class ExoVideoEngine(
             category = "player.exo",
             event = "progressive_transcode_cleanup",
             message = "Stopping the HLS encoder before progressive transcode fallback",
-            attributes = mapOf("itemIndex" to index.toString()),
+            attributes =
+                mapOf(
+                    "itemIndex" to index.toString(),
+                    "failureChain" to failureHistoryLabel(index),
+                ),
         )
         fallbackJob?.cancel()
         fallbackJob =
@@ -1131,7 +1186,11 @@ class ExoVideoEngine(
                     category = "player.exo",
                     event = "progressive_transcode_fallback",
                     message = "Switching from HLS to progressive transcode",
-                    attributes = mapOf("itemIndex" to index.toString()),
+                    attributes =
+                        mapOf(
+                            "itemIndex" to index.toString(),
+                            "failureChain" to failureHistoryLabel(index),
+                        ),
                 )
                 player.replaceMediaItem(index, mediaItem(item, item.fallbackTranscodeUrl))
                 secondarySubtitles.replaceMediaItem(index, player.getMediaItemAt(index))
@@ -1167,6 +1226,7 @@ class ExoVideoEngine(
                     "attempt" to nextAttempt.toString(),
                     "limit" to limit.toString(),
                     "reason" to reason,
+                    "failureChain" to failureHistoryLabel(index),
                 ),
         )
         retryJob =
@@ -1187,6 +1247,40 @@ class ExoVideoEngine(
             index in transcodedIndices -> "hls"
             else -> "direct"
         }
+
+    private fun rememberPlaybackFailure(
+        index: Int,
+        error: PlaybackException,
+        httpCause: HttpDataSource.InvalidResponseCodeException?,
+        invalidHlsCause: InvalidHlsManifestResponseException?,
+    ) {
+        val detail =
+            buildString {
+                append(streamVariantOf(index))
+                append(':')
+                append(error.errorCodeName)
+                httpCause?.let { append(":http").append(it.responseCode) }
+                if (invalidHlsCause != null) append(":invalid_hls_signature")
+            }
+        val history = failureHistory.getOrPut(index) { mutableListOf() }
+        if (history.lastOrNull() != detail) history += detail
+        while (history.size > FAILURE_HISTORY_LIMIT) history.removeAt(0)
+    }
+
+    private fun failureHistoryLabel(index: Int): String =
+        failureHistory[index]
+            .orEmpty()
+            .joinToString(" → ")
+            .take(480)
+
+    private fun failureChainReason(
+        index: Int,
+        action: String,
+    ): String =
+        failureHistoryLabel(index)
+            .takeIf(String::isNotBlank)
+            ?.let { "$it → $action" }
+            ?: action
 
     private fun failPlayback(
         message: String,
