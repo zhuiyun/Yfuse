@@ -9,7 +9,7 @@ package com.yfuse.core2.sync
  *
  * One instance belongs to one demux session and is single-owner with that demuxer.
  */
-class YMediaTimestampTimeline {
+internal class YMediaTimestampTimeline {
     private var sourceOriginUs: Long? = null
 
     val established: Boolean get() = sourceOriginUs != null
@@ -41,8 +41,7 @@ class YMediaTimestampTimeline {
     /** Converts a YPlayer-relative seek target back into the container's timestamp domain. */
     fun sourceTimeUs(relativePositionUs: Long): Long {
         val relative = relativePositionUs.coerceAtLeast(0L)
-        val origin = sourceOriginUs ?: 0L
-        return addSaturated(relative, origin).coerceAtLeast(0L)
+        return addSaturated(relative, sourceOriginUs ?: 0L)
     }
 }
 
