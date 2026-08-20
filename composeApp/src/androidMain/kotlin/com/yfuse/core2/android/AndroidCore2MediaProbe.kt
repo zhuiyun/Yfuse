@@ -3,6 +3,7 @@ package com.yfuse.core2.android
 import android.content.Context
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
+import android.os.Build
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.capability.YAudioCodec
@@ -14,6 +15,11 @@ import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.dolby.YDolbyVisionCodecFamily
 import com.yfuse.core2.dolby.YDolbyVisionConfig
+import com.yfuse.core2.quirk.YDeviceIdentity
+import com.yfuse.core2.quirk.YDeviceQuirkAction
+import com.yfuse.core2.quirk.YDeviceQuirkDatabase
+import com.yfuse.core2.quirk.YDeviceQuirkRule
+import com.yfuse.core2.quirk.YTextMatch
 import com.yfuse.core2.strategy.DefaultYPlaybackStrategy
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
@@ -152,6 +158,8 @@ internal class AndroidCore2RouteEvaluator(
     private val capabilityProvider: YCapabilityProvider = AndroidYCapabilityProvider(context),
     private val strategy: YPlaybackStrategy = DefaultYPlaybackStrategy(),
     private val enhancedProbe: AndroidEnhancedMediaProbe = AndroidEnhancedMediaProbe(),
+    private val quirkDatabase: YDeviceQuirkDatabase = androidCore2QuirkDatabase(),
+    private val deviceIdentity: YDeviceIdentity = androidDeviceIdentity(),
 ) {
     private val platformProbe = AndroidCore2MediaProbe(context)
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
@@ -171,13 +179,15 @@ internal class AndroidCore2RouteEvaluator(
                 }
                 else -> platform
             } ?: return null
-        val request =
+        val requested =
             resolved.playbackRequest.copy(
                 preferTunnel = preferTunnel,
                 allowAudioPassthrough = allowAudioPassthrough,
             )
+        val adjustment = quirkDatabase.adjust(deviceIdentity, requested, capabilityProvider.current())
+        val request = adjustment.request
         val normalizedProbe = resolved.copy(playbackRequest = request)
-        var capabilities = capabilityProvider.current()
+        var capabilities = adjustment.capabilities
         var plan = strategy.plan(request, capabilities)
         while (true) {
             val runtimeKey = runtimeVideoCapabilityKey(request, plan) ?: break
@@ -187,9 +197,43 @@ internal class AndroidCore2RouteEvaluator(
             capabilities = capabilities.copy(videoDecoders = remaining)
             plan = strategy.plan(request, capabilities)
         }
+        if (adjustment.matchedRuleIds.isNotEmpty()) {
+            plan =
+                plan.copy(
+                    reason =
+                        "${plan.reason}; device rules=" +
+                            adjustment.matchedRuleIds.sorted().joinToString(","),
+                )
+        }
         return YCore2RouteDecision(normalizedProbe, plan)
     }
 }
+
+private fun androidDeviceIdentity(): YDeviceIdentity =
+    YDeviceIdentity(
+        manufacturer = Build.MANUFACTURER.orEmpty(),
+        model = Build.MODEL.orEmpty(),
+        soc = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.orEmpty() else Build.HARDWARE.orEmpty(),
+        androidApi = Build.VERSION.SDK_INT,
+    )
+
+/** Conservative built-in rules. Product/device lab results can append versioned rules here. */
+private fun androidCore2QuirkDatabase(): YDeviceQuirkDatabase =
+    YDeviceQuirkDatabase(
+        rules =
+            listOf(
+                YDeviceQuirkRule(
+                    id = "platform-software-c2-no-tunnel-v1",
+                    decoder = YTextMatch.Prefix("c2.android."),
+                    actions = setOf(YDeviceQuirkAction.DisableTunnel),
+                ),
+                YDeviceQuirkRule(
+                    id = "platform-software-omx-no-tunnel-v1",
+                    decoder = YTextMatch.Prefix("OMX.google."),
+                    actions = setOf(YDeviceQuirkAction.DisableTunnel),
+                ),
+            ),
+    )
 
 internal fun YCore2RouteDecision.runtimeCapabilityKey(): YRuntimeVideoCapabilityKey? =
     runtimeVideoCapabilityKey(probe.playbackRequest, plan)

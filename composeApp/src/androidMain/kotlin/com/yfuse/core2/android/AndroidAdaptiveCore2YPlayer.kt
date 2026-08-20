@@ -4,8 +4,11 @@ import android.content.Context
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.os.BatteryManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
@@ -19,6 +22,10 @@ import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.appendingDistinct
 import com.yfuse.core2.capability.YAudioOutputPath
+import com.yfuse.core2.learning.YLearnedRouteAdvice
+import com.yfuse.core2.learning.YPlaybackLearningEngine
+import com.yfuse.core2.learning.YPlaybackLearningKey
+import com.yfuse.core2.learning.YPlaybackObservation
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.quirk.YCore2FailureKey
 import com.yfuse.core2.quirk.YCore2FailureLedger
@@ -61,6 +68,11 @@ internal class AndroidAdaptiveCore2YPlayer(
             store = AndroidYCore2FailureStore(context),
             nowEpochMs = System::currentTimeMillis,
         ),
+    private val learningEngine: YPlaybackLearningEngine =
+        YPlaybackLearningEngine(
+            store = AndroidYPlaybackLearningStore(context),
+            nowEpochMs = System::currentTimeMillis,
+        ),
 ) : YPlayer {
     private val queueLock = Any()
 
@@ -89,6 +101,8 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val commands = Channel<Command>(Channel.UNLIMITED)
     private val worker = scope.launch { runLoop() }
     private val audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
+    private val batteryManager = context.applicationContext.getSystemService(BatteryManager::class.java)
+    private val powerManager = context.applicationContext.getSystemService(PowerManager::class.java)
     private val audioCallbackHandler = Handler(Looper.getMainLooper())
     private val audioRouteChangeQueued = AtomicBoolean(false)
     private val audioDeviceCallback =
@@ -216,6 +230,14 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
     }
 
+    private fun currentBatteryPermille(): Int {
+        val percent = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: return -1
+        return if (percent in 0..100) percent * 10 else -1
+    }
+
+    private fun currentThermalStatus(): Int =
+        if (Build.VERSION.SDK_INT >= 29) powerManager?.currentThermalStatus ?: 0 else 0
+
     private suspend fun runLoop() {
         var currentIndex = request.startIndex
         var child: YPlayer? = null
@@ -291,7 +313,11 @@ internal class AndroidAdaptiveCore2YPlayer(
             if (
                 !forceSoftwareFallback &&
                 decision.plan.route == YPlaybackRoute.NativeTunnel &&
-                failureLedger.isBlocked(decision.toFailureKey())
+                (
+                    failureLedger.isBlocked(decision.toFailureKey()) ||
+                        learningEngine.advice(decision.toFailureKey().toLearningKey()) !=
+                        YLearnedRouteAdvice.Allow
+                )
             ) {
                 decision =
                     routeEvaluator.evaluate(
@@ -300,7 +326,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                         allowAudioPassthrough = allowAudioPassthrough,
                     ) ?: return null
             }
-            if (forceSoftwareFallback || failureLedger.isBlocked(decision.toFailureKey())) {
+            val learnedAdvice = learningEngine.advice(decision.toFailureKey().toLearningKey())
+            if (
+                forceSoftwareFallback ||
+                failureLedger.isBlocked(decision.toFailureKey()) ||
+                learnedAdvice == YLearnedRouteAdvice.Avoid
+            ) {
                 decision =
                     decision.copy(
                         plan =
@@ -308,7 +339,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 if (forceSoftwareFallback) {
                                     "A previous local route failed at runtime"
                                 } else {
-                                    "Device failure memory skipped the planned local route"
+                                    "Device failure and quality memory skipped the planned local route"
                                 },
                             ),
                     )
@@ -359,6 +390,42 @@ internal class AndroidAdaptiveCore2YPlayer(
             val childFailureKey = pendingFailureKey
             var failureRecorded = false
             var successRecorded = false
+            var learningRecorded = false
+            val learningStartPositionMs = next.currentPositionMs()
+            val learningStartBatteryPermille = currentBatteryPermille()
+            val learningStartThermalStatus = currentThermalStatus()
+
+            fun recordLearning(childState: YPlayerState) {
+                val key = childFailureKey?.toLearningKey() ?: return
+                if (learningRecorded) return
+                learningRecorded = true
+                val endBatteryPermille = currentBatteryPermille()
+                learningEngine.record(
+                    key = key,
+                    observation =
+                        YPlaybackObservation(
+                            rendered = childState.diagnostics.videoOutputVerified,
+                            playedDurationMs =
+                                (childState.positionMs - learningStartPositionMs).coerceAtLeast(0L),
+                            droppedFrames = childState.diagnostics.droppedFrames.coerceAtLeast(0),
+                            codecResets =
+                                if (childState.errorCategory == YPlaybackFailureCategory.Decoder) 1 else 0,
+                            audioUnderruns =
+                                if (childState.errorCategory == YPlaybackFailureCategory.AudioSink) 1 else 0,
+                            maximumAbsoluteAvDriftMs =
+                                kotlin.math.abs(childState.diagnostics.avSyncOffsetMs ?: 0L),
+                            maximumThermalStatus =
+                                maxOf(learningStartThermalStatus, currentThermalStatus()),
+                            batteryDeltaPermille =
+                                if (learningStartBatteryPermille >= 0 && endBatteryPermille >= 0) {
+                                    endBatteryPermille - learningStartBatteryPermille
+                                } else {
+                                    0
+                                },
+                        ),
+                )
+            }
+
             next.setSpeed(speed)
             next.setVideoOutput(output)
             childCollector =
@@ -370,6 +437,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             if (childFailureKey != null && category != null) {
                                 failureLedger.recordFailure(childFailureKey, category)
                             }
+                            recordLearning(childState)
                         }
                         if (
                             !successRecorded &&
@@ -403,6 +471,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 itemCount = queueItems.size,
                                 playbackRequested = requestedPlay && childState.phase != YPlaybackPhase.Ended,
                             )
+                        if (
+                            childState.phase == YPlaybackPhase.Ended &&
+                            !learningRecorded
+                        ) {
+                            recordLearning(childState)
+                        }
                         if (
                             childState.phase == YPlaybackPhase.Ended &&
                             request.autoNext &&
@@ -623,6 +697,15 @@ private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlaye
 }
 
 private const val TUNNEL_SPEED_EPSILON = 0.001f
+
+private fun YCore2FailureKey.toLearningKey(): YPlaybackLearningKey =
+    YPlaybackLearningKey(
+        route = route,
+        container = container,
+        videoCodec = videoCodec,
+        hdrType = hdrType,
+        decoderName = decoderName,
+    )
 
 internal fun YPlaybackFailureCategory?.allowsCore2LocalSoftwareFallback(): Boolean =
     this == null ||

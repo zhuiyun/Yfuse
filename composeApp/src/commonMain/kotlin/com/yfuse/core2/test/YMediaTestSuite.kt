@@ -83,6 +83,32 @@ data class YMediaTestSuite(
     }
 }
 
+/** One device-run observation emitted by the instrumented compatibility runner. */
+@Serializable
+data class YMediaTestObservation(
+    val caseId: String,
+    val elapsedMs: Long,
+    val completed: Boolean,
+    val timedOut: Boolean,
+    val failureCategory: String? = null,
+    val droppedFrames: Int = 0,
+    val decoderFailures: Int = 0,
+    val maximumAbsoluteAvDriftMs: Long = 0L,
+    val peakPssBytes: Long = 0L,
+    val maximumThermalStatus: Int = 0,
+    val batteryDeltaPermille: Int = 0,
+) {
+    init {
+        require(caseId.isNotBlank())
+        require(elapsedMs >= 0L)
+        require(droppedFrames >= 0)
+        require(decoderFailures >= 0)
+        require(maximumAbsoluteAvDriftMs >= 0L)
+        require(peakPssBytes >= 0L)
+        require(maximumThermalStatus >= 0)
+    }
+}
+
 private fun String.isSafeRelativeMediaPath(): Boolean {
     val normalized = replace('\\', '/')
     return isNotBlank() &&

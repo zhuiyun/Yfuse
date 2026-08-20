@@ -1,9 +1,32 @@
 package com.yfuse.core2.test
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class YMediaTestSuiteTest {
+    @Test
+    fun `device observation captures required runtime health dimensions`() {
+        val observation =
+            YMediaTestObservation(
+                caseId = "dv-p8-1",
+                elapsedMs = 60_000L,
+                completed = true,
+                timedOut = false,
+                droppedFrames = 2,
+                decoderFailures = 0,
+                maximumAbsoluteAvDriftMs = 3L,
+                peakPssBytes = 128L * 1024L * 1024L,
+                maximumThermalStatus = 2,
+                batteryDeltaPermille = -10,
+            )
+
+        assertTrue(observation.completed)
+        assertEquals(2, observation.droppedFrames)
+        assertEquals(3L, observation.maximumAbsoluteAvDriftMs)
+        assertEquals(2, observation.maximumThermalStatus)
+    }
+
     @Test
     fun `incomplete corpus reports every missing coverage family`() {
         val suite =

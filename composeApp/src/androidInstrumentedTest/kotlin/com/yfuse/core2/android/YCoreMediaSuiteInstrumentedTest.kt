@@ -2,7 +2,12 @@ package com.yfuse.core2.android
 
 import android.graphics.SurfaceTexture
 import android.net.Uri
+import android.os.BatteryManager
+import android.os.Build
 import android.os.Bundle
+import android.os.Debug
+import android.os.PowerManager
+import android.os.SystemClock
 import android.view.Surface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -15,6 +20,7 @@ import com.yfuse.core2.quirk.InMemoryYCore2FailureStore
 import com.yfuse.core2.quirk.YCore2FailureLedger
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.test.YMediaTestCase
+import com.yfuse.core2.test.YMediaTestObservation
 import com.yfuse.core2.test.YMediaTestSuite
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.TimeoutCancellationException
@@ -24,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -156,11 +163,15 @@ class YCoreMediaSuiteInstrumentedTest {
                     ),
             )
         var output = TestSurfaceOutput()
+        val health = DeviceHealthSampler(context, testCase.id)
+        var completed = false
+        var timedOut = false
         try {
             assertTrue(player.setVideoOutput(output.output))
             player.prepare()
             player.play()
             awaitPlayable(player, testCase.id)
+            health.sample(player.state.value)
 
             val state = player.state.value
             repeat(seekIterations) { iteration ->
@@ -169,6 +180,7 @@ class YCoreMediaSuiteInstrumentedTest {
                 awaitFreshVideoOutput(player, "${testCase.id}:seek-${absoluteIteration + 1}") {
                     player.seekTo(seekTarget)
                 }
+                health.sample(player.state.value)
                 if ((iteration + 1) % PROGRESS_INTERVAL == 0 || iteration + 1 == seekIterations) {
                     reportProgress(
                         "${testCase.id}: completed seek ${absoluteIteration + 1} " +
@@ -179,6 +191,7 @@ class YCoreMediaSuiteInstrumentedTest {
             player.pause()
             player.play()
             awaitPlayable(player, "${testCase.id}:seek-resume")
+            health.sample(player.state.value)
 
             state.audioTracks.getOrNull(1)?.let { player.selectTrack(YTrackType.Audio, it.id) }
             state.subtitleTracks.getOrNull(1)?.let { player.selectTrack(YTrackType.Subtitle, it.id) }
@@ -199,8 +212,21 @@ class YCoreMediaSuiteInstrumentedTest {
                     assertTrue(player.setVideoOutput(output.output))
                     player.play()
                 }
+                health.sample(player.state.value)
                 reportProgress("${testCase.id}: completed Surface recreation ${iteration + 1}")
             }
+
+            player.pause()
+            assertTrue(player.setVideoOutput(null))
+            awaitVideoOutputDetached(player, "${testCase.id}:background")
+            health.sample(player.state.value)
+            delay(SURFACE_DETACH_SETTLE_MS)
+            awaitFreshVideoOutput(player, "${testCase.id}:foreground") {
+                assertTrue(player.setVideoOutput(output.output))
+                player.play()
+            }
+            health.sample(player.state.value)
+            reportProgress("${testCase.id}: completed background/foreground cycle")
 
             if (verifyNextEpisode) {
                 awaitFreshVideoOutput(player, "${testCase.id}:next-episode") {
@@ -215,7 +241,19 @@ class YCoreMediaSuiteInstrumentedTest {
                 assertTrue(player.state.value.currentIndex == 0)
                 reportProgress("${testCase.id}: completed next/previous episode round trip")
             }
+            completed = true
+        } catch (failure: Throwable) {
+            timedOut = failure.hasTimeoutCause()
+            throw failure
         } finally {
+            health.sample(player.state.value)
+            reportObservation(
+                health.finish(
+                    state = player.state.value,
+                    completed = completed,
+                    timedOut = timedOut,
+                ),
+            )
             player.release()
             output.close()
         }
@@ -332,6 +370,13 @@ class YCoreMediaSuiteInstrumentedTest {
         )
     }
 
+    private fun reportObservation(observation: YMediaTestObservation) {
+        InstrumentationRegistry.getInstrumentation().sendStatus(
+            RESULT_STATUS_CODE,
+            Bundle().apply { putString(RESULT_BUNDLE_KEY, Json.encodeToString(observation)) },
+        )
+    }
+
     private class TestSurfaceOutput(
         width: Int = 1_920,
         height: Int = 1_080,
@@ -349,6 +394,79 @@ class YCoreMediaSuiteInstrumentedTest {
             texture.release()
         }
     }
+
+    private class DeviceHealthSampler(
+        context: android.content.Context,
+        private val caseId: String,
+    ) {
+        private val startedAtMs = SystemClock.elapsedRealtime()
+        private val batteryManager = context.getSystemService(BatteryManager::class.java)
+        private val powerManager = context.getSystemService(PowerManager::class.java)
+        private val startBatteryPermille = batteryPermille()
+        private var peakPssBytes = 0L
+        private var maximumThermalStatus = 0
+        private var droppedFrames = 0
+        private var maximumAbsoluteAvDriftMs = 0L
+        private var decoderFailureObserved = false
+
+        fun sample(state: com.yfuse.core2.api.YPlayerState) {
+            peakPssBytes = maxOf(peakPssBytes, Debug.getPss().toLong() * 1_024L)
+            maximumThermalStatus = maxOf(maximumThermalStatus, thermalStatus())
+            droppedFrames = maxOf(droppedFrames, state.diagnostics.droppedFrames)
+            maximumAbsoluteAvDriftMs =
+                maxOf(
+                    maximumAbsoluteAvDriftMs,
+                    kotlin.math.abs(state.diagnostics.avSyncOffsetMs ?: 0L),
+                )
+            if (state.errorCategory == com.yfuse.core2.api.YPlaybackFailureCategory.Decoder) {
+                decoderFailureObserved = true
+            }
+        }
+
+        fun finish(
+            state: com.yfuse.core2.api.YPlayerState,
+            completed: Boolean,
+            timedOut: Boolean,
+        ): YMediaTestObservation {
+            val endBattery = batteryPermille()
+            return YMediaTestObservation(
+                caseId = caseId,
+                elapsedMs = (SystemClock.elapsedRealtime() - startedAtMs).coerceAtLeast(0L),
+                completed = completed,
+                timedOut = timedOut,
+                failureCategory = state.errorCategory?.name,
+                droppedFrames = droppedFrames.coerceAtLeast(0),
+                decoderFailures = if (decoderFailureObserved) 1 else 0,
+                maximumAbsoluteAvDriftMs = maximumAbsoluteAvDriftMs,
+                peakPssBytes = peakPssBytes,
+                maximumThermalStatus = maximumThermalStatus,
+                batteryDeltaPermille =
+                    if (startBatteryPermille >= 0 && endBattery >= 0) {
+                        endBattery - startBatteryPermille
+                    } else {
+                        0
+                    },
+            )
+        }
+
+        private fun batteryPermille(): Int {
+            val percent =
+                batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: return -1
+            return if (percent in 0..100) percent * 10 else -1
+        }
+
+        private fun thermalStatus(): Int =
+            if (Build.VERSION.SDK_INT >= 29) powerManager?.currentThermalStatus ?: 0 else 0
+    }
+}
+
+private fun Throwable.hasTimeoutCause(): Boolean {
+    var current: Throwable? = this
+    while (current != null) {
+        if (current is TimeoutCancellationException) return true
+        current = current.cause
+    }
+    return false
 }
 
 private fun File.isInside(root: File): Boolean = path == root.path || path.startsWith(root.path + File.separator)
@@ -372,6 +490,8 @@ private const val SEEK_END_GUARD_MS = 750L
 private const val SEEK_TARGET_STEP_MS = 791L
 private const val PROGRESS_INTERVAL = 5
 private const val PROGRESS_STATUS_CODE = 2
+private const val RESULT_STATUS_CODE = 3
+private const val RESULT_BUNDLE_KEY = "ycoreResult"
 
 private fun Bundle.intArgument(
     key: String,
