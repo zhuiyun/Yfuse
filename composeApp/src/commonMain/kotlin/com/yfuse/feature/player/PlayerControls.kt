@@ -676,30 +676,26 @@ internal fun PlayerControls(
             return@Box
         }
 
-        // 播放器 chrome — the top bar drops from the top edge, the transport row rises from
-        // the bottom, and both crossfade. See [ChromeVisibility].
+        // Top-level actions (投屏/更多) live with the title; media navigation stays below.
         ChromeVisibility(
             visible = visible,
             edge = ChromeEdge.Top,
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            TopBar(
+            RefinedTopBar(
                 title = episodes.getOrNull(state.currentIndex)?.title.orEmpty(),
                 subtitle = state.readoutLine(sourceLabel, containerLabel),
                 filled = filled,
-                hasEpisodes = state.itemCount > 1,
                 dolbyVision = dolbyVision,
                 dolbyAtmos = dolbyAtmos,
                 onBack = onBack,
                 onEnterPictureInPicture = onEnterPictureInPicture,
-                onOpenDrawer = {
-                    onRefreshEpisodes()
-                    openEpisodeDrawer()
-                },
                 onToggleFill = {
                     poke()
                     onToggleFill()
                 },
+                onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
+                onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
                 watchConnected = watch.connected,
                 unreadChat =
                     watch.chatMessages.lastOrNull()?.id?.let { latest ->
@@ -714,7 +710,7 @@ internal fun PlayerControls(
             edge = ChromeEdge.Bottom,
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            BottomBar(
+            RefinedBottomBar(
                 state = state,
                 seekLocked = watchLocked,
                 onPlayPause = {
@@ -729,21 +725,17 @@ internal fun PlayerControls(
                     poke()
                     onNextItem()
                 },
-                skipCountdownLabel =
-                    skip.countdownSeconds?.let {
-                        skipCountdownLabel(skip.segmentLabel, it)
-                    },
-                onCancelAutoSkip = {
-                    poke()
-                    skipActions.onCancelAuto()
-                },
                 onSeek = {
                     poke()
                     onSeek(it)
                 },
                 onScrub = { interactions++ },
-                trickplay = trickplay,
                 progressMarkers = playbackProgressMarkers(skip, state.durationMs),
+                hasEpisodes = state.itemCount > 1,
+                onOpenEpisodes = {
+                    onRefreshEpisodes()
+                    openEpisodeDrawer()
+                },
                 hasMultipleSources = sourceOptions.size > 1,
                 onOpenSources = { openQuickPopup(QuickPopup.Source) },
                 onOpenSubtitles = {
@@ -757,45 +749,46 @@ internal fun PlayerControls(
                 onOpenSkipSettings = { openSettingsPanel(SettingsPanelKind.Skip) },
                 danmakuEnabled = danmaku.enabled,
                 onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
-                onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
-                onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
             )
         }
 
-        // An armed countdown replaces the manual pill rather than sitting beside it — both
-        // would be about the same segment, and the countdown already skips on its own.
-        // While the controls are up it is drawn under the progress bar by [BottomBar]; this
-        // is the same pill for when they aren't.
-        when {
-            skip.countdownSeconds != null && !visible ->
-                SkipPill(
-                    label = skipCountdownLabel(skip.segmentLabel, skip.countdownSeconds),
-                    onClick = {
-                        poke()
-                        skipActions.onCancelAuto()
-                    },
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 22.dp, bottom = 24.dp),
-                )
+        // Auto-skip is a small floating status chip. It is intentionally outside BottomBar's
+        // Column so the progress rail never moves when the countdown appears or disappears.
+        skip.countdownSeconds?.let { seconds ->
+            CompactAutoSkipPill(
+                label = skipCountdownLabel(skip.segmentLabel, seconds),
+                onCancel = {
+                    poke()
+                    skipActions.onCancelAuto()
+                },
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(
+                            end = 22.dp,
+                            bottom = if (visible) 84.dp else 24.dp,
+                        ),
+            )
+        }
 
+        if (
             shouldShowManualSkipPill(
                 segmentLabel = skip.segmentLabel,
                 countdownSeconds = skip.countdownSeconds,
                 controlsVisible = visible,
-            ) ->
-                SkipPill(
-                    label = checkNotNull(skip.segmentLabel),
-                    onClick = {
-                        poke()
-                        skipActions.onSkip()
-                    },
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 22.dp, bottom = if (visible) 92.dp else 24.dp),
-                )
+            )
+        ) {
+            SkipPill(
+                label = checkNotNull(skip.segmentLabel),
+                onClick = {
+                    poke()
+                    skipActions.onSkip()
+                },
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 22.dp, bottom = 92.dp),
+            )
         }
 
         // Every playback function popup uses the same bottom-right anchor. Content may be
