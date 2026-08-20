@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -61,7 +62,6 @@ import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.noRippleClickable
 
 /**
  * Player top chrome after the control hierarchy was simplified.
@@ -195,6 +195,7 @@ internal fun RefinedBottomBar(
     onNext: () -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: () -> Unit,
+    trickplay: TrickplayStoryboard?,
     progressMarkers: List<PlaybackProgressMarker>,
     hasEpisodes: Boolean,
     onOpenEpisodes: () -> Unit,
@@ -232,29 +233,57 @@ internal fun RefinedBottomBar(
             ).padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
     ) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            RefinedTimeText(shownPosition)
-            StandardSeekBar(
-                fraction = fraction,
-                bufferedFraction = bufferedFraction,
-                positionMs = shownPosition,
-                durationMs = state.durationMs,
-                progressMarkers = progressMarkers,
-                enabled = !seekLocked && state.durationMs > 0L,
-                onScrubTo = {
-                    scrubbed = it
-                    onScrub()
-                },
-                onCommit = {
-                    onSeek(scrubPositionMs(it, state.durationMs))
-                    scrubbed = null
-                },
-                onCancel = { scrubbed = null },
-                modifier = Modifier.weight(1f),
-            )
-            RefinedTimeText(state.durationMs)
+            Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
+                RefinedTimeText(shownPosition)
+            }
+            Column(Modifier.weight(1f)) {
+                if (scrubbed != null && trickplay != null) {
+                    val previewHeight =
+                        (
+                            RefinedTrickplayPreviewWidth.value * trickplay.height /
+                                trickplay.width.coerceAtLeast(1)
+                        ).dp + 30.dp
+                    BoxWithConstraints(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(previewHeight + 8.dp),
+                    ) {
+                        val availableWidth = (maxWidth - RefinedTrickplayPreviewWidth).coerceAtLeast(0.dp)
+                        val previewX =
+                            (maxWidth * fraction - RefinedTrickplayPreviewWidth / 2f)
+                                .coerceIn(0.dp, availableWidth)
+                        TrickplayPreview(
+                            storyboard = trickplay,
+                            positionMs = shownPosition,
+                            modifier = Modifier.offset(x = previewX),
+                        )
+                    }
+                }
+                StandardSeekBar(
+                    fraction = fraction,
+                    bufferedFraction = bufferedFraction,
+                    positionMs = shownPosition,
+                    durationMs = state.durationMs,
+                    progressMarkers = progressMarkers,
+                    enabled = !seekLocked && state.durationMs > 0L,
+                    onScrubTo = {
+                        scrubbed = it
+                        onScrub()
+                    },
+                    onCommit = {
+                        onSeek(scrubPositionMs(it, state.durationMs))
+                        scrubbed = null
+                    },
+                    onCancel = { scrubbed = null },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
+                RefinedTimeText(state.durationMs)
+            }
         }
 
         Spacer(Modifier.height(4.dp))
@@ -584,4 +613,5 @@ private fun StandardSeekBar(
     }
 }
 
+private val RefinedTrickplayPreviewWidth = 160.dp
 private const val REFINED_SEEK_STEP_MS = 10_000L
