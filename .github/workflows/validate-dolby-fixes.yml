@@ -1,0 +1,121 @@
+name: Validate Dolby playback fixes
+
+on:
+  push:
+    branches:
+      - feature/fix-uhd-dolby-playback
+    paths:
+      - .github/workflows/validate-dolby-fixes.yml
+      - composeApp/**
+      - watchTogetherProtocol/**
+      - watchTogetherServer/**
+      - gradle/**
+      - gradlew
+      - settings.gradle.kts
+      - build.gradle.kts
+      - scripts/fetch-engines.sh
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: validate-dolby-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Install Android toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-36" "ndk;29.0.14206865" "cmake;3.22.1"
+      - name: Download player engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+          test -f composeApp/libs/libmpv-release.aar
+          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+      - name: Compile, test, lint and R8
+        id: verify
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          ./gradlew \
+            :composeApp:compileDebugKotlinAndroid \
+            :composeApp:testDebugUnitTest \
+            :watchTogetherProtocol:jvmTest \
+            :watchTogetherServer:test \
+            :composeApp:verifyDesignSystemUsage \
+            :composeApp:lintDebug \
+            :composeApp:assembleRelease \
+            -PallowDebugSigning=true --no-daemon > /tmp/dolby-validation.log 2>&1
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [[ $code -eq 0 ]]; then
+            echo "description=compile tests lint and R8 passed" >> "$GITHUB_OUTPUT"
+          else
+            line="$(grep -E '(^e: |^error: |FAILURE:|Execution failed for task|Compilation error)' /tmp/dolby-validation.log | tail -n 1 | tr '\n\r' '  ' | cut -c1-115)"
+            [[ -n "$line" ]] || line="Gradle validation failed; inspect Actions log"
+            line="${line//'%'/'%25'}"
+            line="${line//$'\n'/'%0A'}"
+            line="${line//$'\r'/'%0D'}"
+            echo "description=$line" >> "$GITHUB_OUTPUT"
+          fi
+          tail -n 160 /tmp/dolby-validation.log
+          exit 0
+      - name: Publish validation status
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESULT_CODE: ${{ steps.verify.outputs.code }}
+          RESULT_DESCRIPTION: ${{ steps.verify.outputs.description }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          state = "success" if os.environ.get("RESULT_CODE") == "0" else "failure"
+          description = (os.environ.get("RESULT_DESCRIPTION") or "validation did not complete")[:140]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          run = os.environ["GITHUB_RUN_ID"]
+          payload = json.dumps({
+              "state": state,
+              "context": "yfuse/dolby-validation",
+              "description": description,
+              "target_url": f"https://github.com/{repo}/actions/runs/{run}",
+          }).encode()
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/statuses/{sha}",
+              data=payload,
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+          )
+          urllib.request.urlopen(request, timeout=30).read()
+          PY
+      - name: Fail job after publishing status
+        if: steps.verify.outputs.code != '0'
+        run: exit 1
