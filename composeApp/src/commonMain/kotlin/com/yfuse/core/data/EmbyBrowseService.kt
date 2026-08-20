@@ -1,5 +1,6 @@
 package com.yfuse.core.data
 
+import com.yfuse.core.data.dto.BaseItemDto
 import com.yfuse.core.data.dto.ItemsResponseDto
 import com.yfuse.core.data.dto.PlaylistCreatedDto
 import com.yfuse.core.data.dto.toMediaItem
@@ -182,7 +183,7 @@ internal class EmbyBrowseService(
                                 parameter("SortBy", sort.sortBy)
                                 parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
                                 if (!genre.isNullOrBlank()) parameter("Genres", genre)
-                                applyResolutionFilter(resolution)
+                                applyServerResolutionFilter(resolution)
                                 containerItemParameters(startIndex, limit, includePlaylistItemId = false)
                             }.body()
 
@@ -245,10 +246,10 @@ internal class EmbyBrowseService(
     /**
      * One page of a library, for the "see all" grid.
      *
-     * Ordering, genre filtering and paging all run on the server. The previous version
-     * asked for a fixed first 120 rows ordered by name and reordered them on the device,
-     * so anything past those 120 had no route into the app at all, and 「最近添加」 was
-     * really "the first 120 titles alphabetically, left in that order".
+     * The normal route pages Movie/Series directly. A resolution filter cannot do that: Series is
+     * a folder-like item and does not own the episode video stream, so applying IsHD/VideoTypes to
+     * Series filters the show out before Yfuse ever sees it. Filtered pages therefore scan the real
+     * playable Movie/Episode rows and collapse Episode -> Series before cards are fetched.
      */
     suspend fun libraryItems(
         server: SavedServer,
@@ -270,6 +271,17 @@ internal class EmbyBrowseService(
                     return@embyApiCall fetchWatchLater(server, limit, startIndex)
                         .toLibraryPage(startIndex)
             }
+            if (resolution != LibraryResolution.All) {
+                return@embyApiCall fetchResolutionFilteredLibraryPage(
+                    server = server,
+                    libraryId = libraryId,
+                    sort = sort,
+                    genre = genre,
+                    startIndex = startIndex,
+                    limit = limit,
+                    resolution = resolution,
+                )
+            }
             val dto: ItemsResponseDto =
                 client
                     .get("${server.baseUrl}/Users/${server.userId}/Items") {
@@ -280,16 +292,7 @@ internal class EmbyBrowseService(
                         parameter("SortBy", sort.sortBy)
                         parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
                         if (!genre.isNullOrBlank()) parameter("Genres", genre)
-                        applyResolutionFilter(resolution)
-                        parameter(
-                            "Fields",
-                            "ProductionYear,BackdropImageTags,ParentBackdropItemId," +
-                                "ParentBackdropImageTags,SeriesPrimaryImageTag",
-                        )
-                        parameter("EnableImageTypes", "Primary,Backdrop")
-                        parameter("ImageTypeLimit", 2)
-                        parameter("StartIndex", startIndex)
-                        parameter("Limit", limit)
+                        libraryCardParameters(startIndex, limit)
                     }.body()
             LibraryPage(
                 items = dto.Items.map { it.toMediaItem() },
@@ -303,6 +306,111 @@ internal class EmbyBrowseService(
                 startIndex = startIndex,
             )
         }
+
+    /**
+     * Filters the actual playable stream rows, then maps every matching episode back to its Series.
+     * This keeps the category page a Movie/Series grid instead of turning one show into hundreds of
+     * episode cards. 4K is verified from MediaSources because Emby's Items endpoint has no MinWidth
+     * filter; sending MinWidth was the reason that option could return an empty page on compatible
+     * servers that simply ignore or reject the undocumented parameter.
+     */
+    private suspend fun fetchResolutionFilteredLibraryPage(
+        server: SavedServer,
+        libraryId: String,
+        sort: LibrarySort,
+        genre: String?,
+        startIndex: Int,
+        limit: Int,
+        resolution: LibraryResolution,
+    ): LibraryPage {
+        val canonicalIds = mutableListOf<String>()
+        val seenIds = mutableSetOf<String>()
+        val targetCount =
+            (startIndex.coerceAtLeast(0) + limit.coerceAtLeast(1) + 1)
+                .coerceAtMost(MAX_RESOLUTION_CANONICAL_ITEMS)
+        var rawStartIndex = 0
+        var exhausted = false
+
+        repeat(MAX_RESOLUTION_SCAN_PAGES) {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("ParentId", libraryId)
+                        parameter("Recursive", true)
+                        parameter("IncludeItemTypes", "Movie,Episode")
+                        parameter("SortBy", sort.sortBy)
+                        parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
+                        if (!genre.isNullOrBlank()) parameter("Genres", genre)
+                        applyServerResolutionFilter(resolution)
+                        parameter(
+                            "Fields",
+                            "ProductionYear,SeriesId,MediaSources,ProviderIds,SeriesPrimaryImageTag",
+                        )
+                        if (rawStartIndex > 0) parameter("StartIndex", rawStartIndex)
+                        parameter("Limit", RESOLUTION_SCAN_PAGE_SIZE)
+                    }.body()
+
+            dto.Items
+                .asSequence()
+                .filter { item -> resolution != LibraryResolution.FourK || item.isFourKPlayable() }
+                .mapNotNull(BaseItemDto::canonicalLibraryCardId)
+                .forEach { id ->
+                    if (seenIds.add(id)) canonicalIds += id
+                }
+
+            val pageSize = dto.Items.size
+            rawStartIndex += pageSize
+            val reportedTotal = dto.TotalRecordCount
+            exhausted =
+                pageSize == 0 ||
+                    pageSize < RESOLUTION_SCAN_PAGE_SIZE ||
+                    (reportedTotal != null && rawStartIndex >= reportedTotal)
+            if (exhausted || canonicalIds.size >= targetCount) return@repeat
+        }
+
+        val pageIds =
+            canonicalIds
+                .drop(startIndex.coerceAtLeast(0))
+                .take(limit.coerceAtLeast(0))
+        if (pageIds.isEmpty()) {
+            return LibraryPage(
+                items = emptyList(),
+                totalCount = if (exhausted) canonicalIds.size else canonicalIds.size + 1,
+                startIndex = startIndex,
+            )
+        }
+
+        val cards: ItemsResponseDto =
+            client
+                .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Ids", pageIds.joinToString(","))
+                    parameter("IncludeItemTypes", "Movie,Series")
+                    parameter(
+                        "Fields",
+                        "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+                            "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+                    )
+                    parameter("EnableImageTypes", "Primary,Backdrop")
+                    parameter("EnableUserData", true)
+                    parameter("ImageTypeLimit", 2)
+                    parameter("Limit", pageIds.size)
+                }.body()
+        val cardsById = cards.Items.associateBy(BaseItemDto::Id)
+        val items = pageIds.mapNotNull(cardsById::get).map { it.toMediaItem() }
+        val totalCount =
+            if (exhausted) {
+                canonicalIds.size
+            } else {
+                maxOf(canonicalIds.size, startIndex + items.size + 1)
+            }
+        return LibraryPage(
+            items = items,
+            totalCount = totalCount,
+            startIndex = startIndex,
+        )
+    }
 
     /**
      * The genres present in one library, for the grid's filter row.
@@ -477,11 +585,40 @@ internal class EmbyBrowseService(
         parameter("Limit", limit)
     }
 
-    private fun io.ktor.client.request.HttpRequestBuilder.applyResolutionFilter(resolution: LibraryResolution) {
-        resolution.isHd?.let { parameter("IsHD", it) }
-        resolution.minWidth?.let { parameter("MinWidth", it) }
-        resolution.videoType?.let { parameter("VideoTypes", it) }
-        resolution.extendedVideoType?.let { parameter("ExtendedVideoTypes", it) }
+    private fun io.ktor.client.request.HttpRequestBuilder.libraryCardParameters(
+        startIndex: Int,
+        limit: Int,
+    ) {
+        parameter(
+            "Fields",
+            "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+                "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+        )
+        parameter("EnableImageTypes", "Primary,Backdrop")
+        parameter("EnableUserData", true)
+        parameter("ImageTypeLimit", 2)
+        if (startIndex > 0) parameter("StartIndex", startIndex)
+        parameter("Limit", limit)
+    }
+
+    private fun io.ktor.client.request.HttpRequestBuilder.applyServerResolutionFilter(
+        resolution: LibraryResolution,
+    ) {
+        when (resolution) {
+            LibraryResolution.All -> Unit
+            LibraryResolution.FourK,
+            LibraryResolution.Hd,
+            -> parameter("IsHD", true)
+            LibraryResolution.Sd -> parameter("IsHD", false)
+            LibraryResolution.DolbyVision -> {
+                parameter("IsHD", true)
+                parameter("ExtendedVideoTypes", "DolbyVision")
+            }
+            LibraryResolution.BluRay -> {
+                parameter("IsHD", true)
+                parameter("VideoTypes", "Bluray")
+            }
+        }
     }
 
     internal suspend fun fetchFavorites(
@@ -500,7 +637,7 @@ internal class EmbyBrowseService(
                     parameter("IncludeItemTypes", "Movie,Series")
                     parameter("SortBy", sort.sortBy)
                     parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
-                    applyResolutionFilter(resolution)
+                    applyServerResolutionFilter(resolution)
                     personalCollectionParameters(limit, startIndex)
                 }.body()
         return dto.toPersonalCollection(startIndex, limit)
@@ -562,11 +699,35 @@ internal class EmbyBrowseService(
         )
 }
 
+private fun BaseItemDto.canonicalLibraryCardId(): String? =
+    when {
+        Type.equals("Movie", ignoreCase = true) -> Id
+        Type.equals("Episode", ignoreCase = true) -> SeriesId?.takeIf(String::isNotBlank)
+        else -> null
+    }
+
+private fun BaseItemDto.isFourKPlayable(): Boolean =
+    MediaSources
+        .orEmpty()
+        .asSequence()
+        .flatMap { it.MediaStreams.orEmpty().asSequence() }
+        .filter { it.Type.equals("Video", ignoreCase = true) }
+        .any { stream ->
+            val width = stream.Width ?: 0
+            val height = stream.Height ?: 0
+            val longEdge = maxOf(width, height)
+            val shortEdge = minOf(width, height)
+            longEdge >= 3_000 || shortEdge >= 1_600
+        }
+
 private data class WatchLaterMembership(
     val playlistId: String,
     val matched: Boolean,
     val entryIds: List<String>,
 )
 
+private const val RESOLUTION_SCAN_PAGE_SIZE = 200
+private const val MAX_RESOLUTION_SCAN_PAGES = 50
+private const val MAX_RESOLUTION_CANONICAL_ITEMS = 5_000
 private const val WATCH_LATER_MEMBERSHIP_PAGE_SIZE = 200
 private const val MAX_WATCH_LATER_MEMBERSHIP_PAGES = 50
