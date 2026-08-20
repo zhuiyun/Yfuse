@@ -119,8 +119,14 @@ private class HlsManifestGuardDataSource(
     }
 }
 
-internal fun Uri.isHlsManifestUri(): Boolean =
-    lastPathSegment?.substringBefore('?')?.endsWith(".m3u8", ignoreCase = true) == true
+internal fun Uri.isHlsManifestUri(): Boolean = toString().isHlsManifestUrl()
+
+/** Pure helper so local unit tests do not depend on Android's framework Uri implementation. */
+internal fun String.isHlsManifestUrl(): Boolean =
+    substringBefore('#')
+        .substringBefore('?')
+        .substringAfterLast('/')
+        .endsWith(".m3u8", ignoreCase = true)
 
 internal fun ByteArray.hasHlsManifestSignature(): Boolean {
     if (isEmpty()) return false
