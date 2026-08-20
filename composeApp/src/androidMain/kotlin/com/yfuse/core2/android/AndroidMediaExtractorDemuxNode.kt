@@ -7,6 +7,7 @@ import android.media.MediaFormat
 import android.net.Uri
 import com.yfuse.core2.graph.YDemuxNode
 import com.yfuse.core2.network.YSourceProtocol
+import com.yfuse.core2.sync.YMediaTimestampTimeline
 import java.nio.ByteBuffer
 
 internal data class YAndroidMediaSource(
@@ -26,6 +27,10 @@ internal data class YExtractorSample(
  *
  * This class only separates compressed samples from their container. It never decodes video and it
  * never logs the source URI or headers, because both may contain Emby/Jellyfin credentials.
+ *
+ * MediaExtractor exposes container PTS values. Core2 rebases the first selected sample to 0 so its
+ * public position/seek contract matches Exo, mpv and MDK instead of leaking a file-specific start
+ * timestamp into YMediaClock.
  */
 internal class AndroidMediaExtractorDemuxNode(
     context: Context,
@@ -34,6 +39,7 @@ internal class AndroidMediaExtractorDemuxNode(
     override val name: String = "MediaExtractor"
 
     private val appContext = context.applicationContext
+    private val timeline = YMediaTimestampTimeline()
     private var extractor: MediaExtractor? = null
     private var mediaDataSource: MediaDataSource? = null
     private var selectedTracks = emptySet<Int>()
@@ -91,10 +97,11 @@ internal class AndroidMediaExtractorDemuxNode(
         if (size < 0) return null
         target.position(0)
         target.limit(size)
+        val rawPresentationTimeUs = opened.sampleTime
         return YExtractorSample(
             trackIndex = trackIndex,
             data = target.slice(),
-            presentationTimeUs = opened.sampleTime,
+            presentationTimeUs = timeline.presentationTimeUs(rawPresentationTimeUs),
             flags = opened.sampleFlags,
         )
     }
@@ -105,7 +112,11 @@ internal class AndroidMediaExtractorDemuxNode(
         positionUs: Long,
         mode: Int = MediaExtractor.SEEK_TO_PREVIOUS_SYNC,
     ) {
-        requireExtractor().seekTo(positionUs.coerceAtLeast(0L), mode)
+        establishTimelineOrigin()
+        requireExtractor().seekTo(
+            timeline.sourceTimeUs(positionUs),
+            mode,
+        )
     }
 
     override fun flush() = Unit
@@ -116,6 +127,15 @@ internal class AndroidMediaExtractorDemuxNode(
         extractor = null
         mediaDataSource = null
         selectedTracks = emptySet()
+        timeline.reset()
+    }
+
+    private fun establishTimelineOrigin() {
+        if (timeline.established) return
+        val firstSelectedSampleUs = requireExtractor().sampleTime
+        timeline.establish(
+            firstSelectedSampleUs.takeUnless { it == MediaExtractorSampleTimeUnavailable } ?: 0L,
+        )
     }
 
     private fun requireExtractor(): MediaExtractor =
@@ -188,3 +208,5 @@ internal fun MediaFormat.maxInputSizeOr(defaultBytes: Int): Int =
 internal fun String.isCore2RemoteMediaUri(): Boolean =
     substringBefore(':', missingDelimiterValue = "").lowercase() in
         setOf("http", "https", "smb", "webdav", "webdavs")
+
+private const val MediaExtractorSampleTimeUnavailable = -1L
