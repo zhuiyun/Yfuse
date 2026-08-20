@@ -53,77 +53,67 @@ internal fun createVideoEngine(
             )?.let { return it }
     }
 
-    val engine =
-        when (kind) {
-            PlayerEngine.Mdk ->
-                MdkVideoEngine(
-                    items = items,
+    return when (kind) {
+        PlayerEngine.Mdk ->
+            MdkVideoEngine(
+                items = items,
+                startIndex = startIndex,
+                startPositionMs = startPositionMs,
+                startPlaybackRequested = startPlaybackRequested,
+                startSpeed = startSpeed,
+                decoderMode = decoderMode,
+                autoNext = autoNext,
+                quality = quality,
+                customUserAgent = customUserAgent,
+                scope = scope,
+                stopEncoding = stopEncoding,
+            )
+
+        PlayerEngine.Mpv -> {
+            val missingDiscCapability = missingNativeBluRayCapability(items, startIndex)
+            if (missingDiscCapability != null) {
+                MissingNativeCapabilityVideoEngine(
+                    message = missingDiscCapability,
                     startIndex = startIndex,
+                    itemCount = items.size,
                     startPositionMs = startPositionMs,
-                    startPlaybackRequested = startPlaybackRequested,
-                    startSpeed = startSpeed,
-                    decoderMode = decoderMode,
-                    autoNext = autoNext,
-                    quality = quality,
-                    customUserAgent = customUserAgent,
-                    scope = scope,
-                    stopEncoding = stopEncoding,
                 )
-
-            PlayerEngine.Mpv -> {
-                val missingDiscCapability = missingNativeBluRayCapability(items, startIndex)
-                if (missingDiscCapability != null) {
-                    MissingNativeCapabilityVideoEngine(
-                        message = missingDiscCapability,
-                        startIndex = startIndex,
-                        itemCount = items.size,
-                        startPositionMs = startPositionMs,
-                    )
-                } else {
-                    MpvVideoEngine(
-                        context = context,
-                        items = items,
-                        startIndex = startIndex,
-                        startPositionMs = startPositionMs,
-                        startPlaybackRequested = startPlaybackRequested,
-                        startSpeed = startSpeed,
-                        decoderMode = decoderMode,
-                        autoNext = autoNext,
-                        quality = quality,
-                        customUserAgent = customUserAgent,
-                        scope = scope,
-                        stopEncoding = stopEncoding,
-                    )
-                }
-            }
-
-            else ->
-                ExoVideoEngine(
+            } else {
+                MpvVideoEngine(
                     context = context,
                     items = items,
                     startIndex = startIndex,
                     startPositionMs = startPositionMs,
                     startPlaybackRequested = startPlaybackRequested,
                     startSpeed = startSpeed,
-                    scope = scope,
                     decoderMode = decoderMode,
-                    optimizationMode = optimizationMode,
                     autoNext = autoNext,
                     quality = quality,
                     customUserAgent = customUserAgent,
-                    videoCacheBytes = videoCacheBytes,
+                    scope = scope,
                     stopEncoding = stopEncoding,
                 )
+            }
         }
 
-    // Legacy engines expose backend-local timestamps. Register the product-level handover point
-    // before LegacyYPlayerAdapter is built so it can calibrate that backend onto one canonical
-    // timeline instead of treating a source PTS offset as playback progress.
-    return PlaybackTimelineAnchorRegistry.register(
-        engine = engine,
-        itemIndex = startIndex,
-        positionMs = startPositionMs,
-    )
+        else ->
+            ExoVideoEngine(
+                context = context,
+                items = items,
+                startIndex = startIndex,
+                startPositionMs = startPositionMs,
+                startPlaybackRequested = startPlaybackRequested,
+                startSpeed = startSpeed,
+                scope = scope,
+                decoderMode = decoderMode,
+                optimizationMode = optimizationMode,
+                autoNext = autoNext,
+                quality = quality,
+                customUserAgent = customUserAgent,
+                videoCacheBytes = videoCacheBytes,
+                stopEncoding = stopEncoding,
+            )
+    }
 }
 
 /**
