@@ -64,9 +64,11 @@ internal class EmbySearchService(
                             parameter("SortBy", it)
                             parameter("SortOrder", if (filter.descending) "Descending" else "Ascending")
                         }
+                        // ResultRow already renders MediaItem.overview. Ask the server for it here
+                        // rather than making every tapped result perform a second detail request.
                         parameter(
                             "Fields",
-                            "ProductionYear,ProviderIds,SeriesPrimaryImageTag,UserData",
+                            "ProductionYear,Overview,ProviderIds,SeriesPrimaryImageTag,UserData",
                         )
                         parameter("EnableImageTypes", "Primary")
                         parameter("ImageTypeLimit", 1)
