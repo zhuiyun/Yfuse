@@ -297,7 +297,7 @@ internal fun AdvancedPlaybackSettingsScreen(
                     )
                     SettingsDivider()
                     SwitchRow(
-                        "YCore 2.0 试用",
+                        "YCore 2.0 播放内核",
                         core2TrialEnabled,
                         true,
                         onChange = outputPreferences::setCore2TrialEnabled,

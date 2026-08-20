@@ -173,7 +173,7 @@ class PlaybackPreferences(
     }
 
     private val _core2TrialEnabled =
-        MutableStateFlow(settings.getBoolean(KEY_CORE2_TRIAL_ENABLED, false))
+        MutableStateFlow(settings.getBoolean(KEY_CORE2_TRIAL_ENABLED, true))
     val core2TrialEnabled: StateFlow<Boolean> = _core2TrialEnabled.asStateFlow()
 
     fun setCore2TrialEnabled(enabled: Boolean) {

@@ -62,11 +62,17 @@ object YHdrRouter {
     fun decide(
         descriptor: YHdrPlaybackDescriptor,
         capabilities: YDeviceCapabilities,
+    ): YHdrRouteDecision = decide(descriptor.type, capabilities)
+
+    /** Runtime routing entry used before optional static/dynamic metadata has been fully decoded. */
+    fun decide(
+        type: YHdrType,
+        capabilities: YDeviceCapabilities,
     ): YHdrRouteDecision =
-        if (capabilities.supportsDisplayHdr(descriptor.type)) {
-            YHdrRouteDecision.Native(descriptor.type)
+        if (capabilities.supportsDisplayHdr(type)) {
+            YHdrRouteDecision.Native(type)
         } else {
-            YHdrRouteDecision.GpuToneMap(descriptor.type)
+            YHdrRouteDecision.GpuToneMap(type)
         }
 }
 

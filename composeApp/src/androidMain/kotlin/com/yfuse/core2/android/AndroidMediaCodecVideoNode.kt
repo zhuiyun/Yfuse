@@ -4,6 +4,7 @@ import android.annotation.TargetApi
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.view.Surface
 import com.yfuse.core2.graph.YVideoDecodeNode
@@ -187,6 +188,17 @@ internal class AndroidMediaCodecVideoNode(
             flags.toCodecInputFlags(),
         )
         return YCodecQueueResult.Queued
+    }
+
+    /** Applies per-access-unit HDR10+ ITU-T T.35 metadata when the platform codec supports it. */
+    fun setHdr10PlusMetadata(payload: ByteArray): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || payload.isEmpty()) return false
+        return runCatching {
+            requireStartedCodec().setParameters(
+                Bundle().apply { putByteArray(MediaCodec.PARAMETER_KEY_HDR10_PLUS_INFO, payload) },
+            )
+            true
+        }.getOrDefault(false)
     }
 
     fun queueEndOfStream(presentationTimeUs: Long): YCodecQueueResult {

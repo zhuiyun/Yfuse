@@ -142,7 +142,7 @@ Planned handling:
 - runtime decode probes for questionable vendor claims;
 - tunneled playback probe;
 - output-route-aware audio capabilities;
-- opt-in Core2 route for known-safe SDR/HDR10 files;
+- default-on Core2 route with an explicit user rollback to the legacy engine;
 - automatic fallback to Legacy on any Core2 startup failure.
 
 ### Phase 3 — Enhanced demux and bitstream layer
@@ -223,7 +223,7 @@ A Core2 change may merge only when:
 ## Current production switch
 
 **Core2 is not the default engine.** Legacy remains authoritative, while users can explicitly enable
-`YCore 2.0 试用` in advanced playback settings. The switch is persisted separately from the selected
+`YCore 2.0 播放内核` in advanced playback settings. The switch is persisted separately from the selected
 Legacy engine so disabling or failing the trial never changes the user's Exo/mpv/MDK preference.
 
 As of 2026-08-19, the opt-in path has these production boundaries:

@@ -41,4 +41,14 @@ class YHdrRouterTest {
             )
         assertEquals(YHdrType.Sdr, route.outputType)
     }
+
+    @Test
+    fun `runtime type route works before optional metadata is decoded`() {
+        val route =
+            assertIs<YHdrRouteDecision.GpuToneMap>(
+                YHdrRouter.decide(YHdrType.Hdr10Plus, YDeviceCapabilities.conservative()),
+            )
+
+        assertEquals(YHdrType.Hdr10Plus, route.sourceType)
+    }
 }

@@ -18,10 +18,10 @@ import com.yfuse.feature.player.VideoEngine
 import com.yfuse.feature.player.startsWithServerTranscode
 
 /**
- * Separate construction boundary for the opt-in Core2 trial.
+ * Separate construction boundary for the production Core2 route with a user-controlled rollback.
  *
- * The switch lives in PlaybackPreferences instead of the legacy PlayerEngine enum, so a failed
- * trial can return to the already-selected Legacy engine without changing the user's preference.
+ * The switch lives in PlaybackPreferences instead of the legacy PlayerEngine enum, so users can
+ * explicitly return to the already-selected Legacy engine without changing its preference.
  */
 internal object AndroidCore2TrialFactory {
     fun create(
@@ -158,6 +158,9 @@ private val CORE2_SOURCE_SCHEMES =
     setOf(
         "http",
         "https",
+        "smb",
+        "webdav",
+        "webdavs",
         "file",
         "content",
         "android.resource",

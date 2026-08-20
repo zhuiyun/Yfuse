@@ -17,6 +17,8 @@ class AndroidCore2TrialTest {
         val items =
             listOf(
                 mediaItem("https://media.example.test/movie.mkv"),
+                mediaItem("smb://nas.example.test/Movies/movie.mkv"),
+                mediaItem("webdavs://dav.example.test/Movies/movie.mkv"),
                 mediaItem("content://media/external/video/1"),
                 mediaItem("yfusebdmv://42"),
             )
@@ -24,6 +26,8 @@ class AndroidCore2TrialTest {
         assertTrue(items.canUseCore2Trial(startIndex = 0))
         assertTrue(items.canUseCore2Trial(startIndex = 1))
         assertTrue(items.canUseCore2Trial(startIndex = 2))
+        assertTrue(items.canUseCore2Trial(startIndex = 3))
+        assertTrue(items.canUseCore2Trial(startIndex = 4))
     }
 
     @Test

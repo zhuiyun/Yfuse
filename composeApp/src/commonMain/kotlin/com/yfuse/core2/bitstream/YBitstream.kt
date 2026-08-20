@@ -204,7 +204,67 @@ object YBitstream {
         data: ByteArray,
         packing: YSamplePacking,
     ): Boolean = dolbyVisionEvidence(data, packing).enhancementLayerPresent
+
+    /** Extracts registered ITU-T T.35 HDR10+ metadata from HEVC prefix/suffix SEI NAL units. */
+    fun hdr10PlusItuT35Payload(
+        data: ByteArray,
+        packing: YSamplePacking,
+    ): ByteArray? =
+        scan(data, YNalCodec.H265, packing)
+            .asSequence()
+            .filter { it.type == H265_PREFIX_SEI || it.type == H265_SUFFIX_SEI }
+            .mapNotNull { span -> data.registeredItuT35Payload(span) }
+            .firstOrNull(::isHdr10PlusPayload)
 }
+
+private fun ByteArray.registeredItuT35Payload(span: YNalUnitSpan): ByteArray? {
+    if (span.length <= H265_NAL_HEADER_BYTES) return null
+    val rbsp =
+        copyOfRange(span.offset + H265_NAL_HEADER_BYTES, span.offset + span.length)
+            .removeEmulationPreventionBytes()
+    var cursor = 0
+    while (cursor < rbsp.size) {
+        var payloadType = 0
+        while (cursor < rbsp.size && rbsp[cursor].toInt() and 0xff == 0xff) {
+            payloadType += 0xff
+            cursor++
+        }
+        if (cursor >= rbsp.size) return null
+        payloadType += rbsp[cursor++].toInt() and 0xff
+        var payloadSize = 0
+        while (cursor < rbsp.size && rbsp[cursor].toInt() and 0xff == 0xff) {
+            payloadSize += 0xff
+            cursor++
+        }
+        if (cursor >= rbsp.size) return null
+        payloadSize += rbsp[cursor++].toInt() and 0xff
+        if (payloadSize < 0 || cursor + payloadSize > rbsp.size) return null
+        if (payloadType == REGISTERED_ITU_T_T35_PAYLOAD_TYPE) {
+            return rbsp.copyOfRange(cursor, cursor + payloadSize)
+        }
+        cursor += payloadSize
+    }
+    return null
+}
+
+private fun ByteArray.removeEmulationPreventionBytes(): ByteArray {
+    val output = ArrayList<Byte>(size)
+    var zeroCount = 0
+    forEach { value ->
+        val unsigned = value.toInt() and 0xff
+        if (zeroCount >= 2 && unsigned == 0x03) {
+            zeroCount = 2
+        } else {
+            output += value
+            zeroCount = if (unsigned == 0) zeroCount + 1 else 0
+        }
+    }
+    return output.toByteArray()
+}
+
+private fun isHdr10PlusPayload(payload: ByteArray): Boolean =
+    payload.size >= HDR10_PLUS_IDENTIFIER.size &&
+        HDR10_PLUS_IDENTIFIER.indices.all { payload[it] == HDR10_PLUS_IDENTIFIER[it] }
 
 private fun scanAnnexB(
     data: ByteArray,
@@ -369,8 +429,13 @@ private const val H264_PPS = 8
 private const val H265_VPS = 32
 private const val H265_SPS = 33
 private const val H265_PPS = 34
+private const val H265_PREFIX_SEI = 39
+private const val H265_SUFFIX_SEI = 40
 private const val H265_DOLBY_VISION_RPU = 62
 private const val H265_DOLBY_VISION_EL = 63
+private const val H265_NAL_HEADER_BYTES = 2
+private const val REGISTERED_ITU_T_T35_PAYLOAD_TYPE = 4
+private val HDR10_PLUS_IDENTIFIER = byteArrayOf(0xb5.toByte(), 0x00, 0x3c, 0x00, 0x01, 0x04)
 private const val UINT32_SIZE = 1L shl 32
 private const val AV1_FORBIDDEN_BIT = 0x80
 private const val AV1_TYPE_SHIFT = 3

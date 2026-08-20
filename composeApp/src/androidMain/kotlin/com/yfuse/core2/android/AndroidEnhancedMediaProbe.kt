@@ -1,10 +1,13 @@
 package com.yfuse.core2.android
 
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.bitstream.YBitstream
+import com.yfuse.core2.bitstream.YDolbyVisionNalEvidence
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
+import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
 import com.yfuse.core2.strategy.YPlaybackRequest
 
 /**
@@ -33,6 +36,27 @@ internal class AndroidEnhancedMediaProbe(
             val video = requireNotNull(videoTrack.video)
             val audioTrack = result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio && it.audio != null }
             val audio = audioTrack?.audio
+            val dolbyEvidence =
+                video.dolbyVisionConfig?.let { config ->
+                    val packing = video.samplePacking
+                    var rpuCount = 0
+                    var enhancementLayerCount = 0
+                    if (packing != null) {
+                        demuxer.selectTracks(setOf(videoTrack.id))
+                        repeat(DOLBY_PROBE_SAMPLE_LIMIT) {
+                            val sample = demuxer.readSample() ?: return@repeat
+                            if (sample.trackId == videoTrack.id) {
+                                val evidence = YBitstream.dolbyVisionEvidence(sample.data, packing)
+                                rpuCount += evidence.rpuCount
+                                enhancementLayerCount += evidence.enhancementLayerCount
+                            }
+                        }
+                    }
+                    YDolbyVisionStreamEvidence(
+                        config = config,
+                        observedNals = YDolbyVisionNalEvidence(rpuCount, enhancementLayerCount),
+                    )
+                }
             YCore2ProbeResult.Success(
                 playbackRequest =
                     YPlaybackRequest(
@@ -64,6 +88,7 @@ internal class AndroidEnhancedMediaProbe(
                 audioMime = audio?.mimeType,
                 durationMs = (result.durationUs ?: 0L).coerceAtLeast(0L) / 1_000L,
                 dolbyVisionConfig = video.dolbyVisionConfig,
+                dolbyVisionStreamEvidence = dolbyEvidence,
             )
         } catch (_: Throwable) {
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
@@ -72,6 +97,8 @@ internal class AndroidEnhancedMediaProbe(
         }
     }
 }
+
+private const val DOLBY_PROBE_SAMPLE_LIMIT = 24
 
 internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
     val video = playbackRequest.video

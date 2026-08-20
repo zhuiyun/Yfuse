@@ -7,6 +7,7 @@ import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.yPlaybackStage
+import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YSamplePacking
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
@@ -505,6 +506,11 @@ internal class AndroidEnhancedPlaybackSession(
         val queued =
             when (sample.trackId) {
                 videoTrack.id -> {
+                    videoTrack.video
+                        ?.takeIf { it.hdrType == com.yfuse.core2.capability.YHdrType.Hdr10Plus }
+                        ?.samplePacking
+                        ?.let { packing -> YBitstream.hdr10PlusItuT35Payload(sample.data, packing) }
+                        ?.let(videoDecoder::setHdr10PlusMetadata)
                     val transformed =
                         yPlaybackStage(
                             category = YPlaybackFailureCategory.Container,

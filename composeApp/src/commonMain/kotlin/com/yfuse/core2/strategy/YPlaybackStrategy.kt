@@ -7,6 +7,8 @@ import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YDeviceCapabilities
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoRequirement
+import com.yfuse.core2.hdr.YHdrRouteDecision
+import com.yfuse.core2.hdr.YHdrRouter
 
 enum class YDemuxPath {
     Platform,
@@ -112,7 +114,8 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             selectedRequirement != null &&
             nativeAudio
         ) {
-            val displayCanPresent = capabilities.supportsDisplayHdr(selectedRequirement.hdrType)
+            val hdrRoute = YHdrRouter.decide(selectedRequirement.hdrType, capabilities)
+            val displayCanPresent = hdrRoute is YHdrRouteDecision.Native
             val renderPath =
                 when {
                     !displayCanPresent -> YRenderPath.Gpu

@@ -43,6 +43,7 @@ internal sealed interface YCore2ProbeResult {
         val audioMime: String?,
         val durationMs: Long,
         val dolbyVisionConfig: YDolbyVisionConfig? = null,
+        val dolbyVisionStreamEvidence: YDolbyVisionStreamEvidence? = null,
     ) : YCore2ProbeResult
 
     data class Failure(
@@ -164,6 +165,7 @@ internal class AndroidCore2RouteEvaluator(
     private val quirkDatabase: YDeviceQuirkDatabase = androidCore2QuirkDatabase(),
     private val deviceIdentity: YDeviceIdentity = androidDeviceIdentity(),
     private val codecConfigurationProbe: AndroidCodecConfigurationProbe = AndroidCodecConfigurationProbe(),
+    private val codecSampleProbe: AndroidCodecSampleProbe = AndroidCodecSampleProbe(context),
 ) {
     private val platformProbe = AndroidCore2MediaProbe(context)
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
@@ -179,7 +181,14 @@ internal class AndroidCore2RouteEvaluator(
                 platform == null -> enhancedProbe.probe(item) as? YCore2ProbeResult.Success
                 platform.requiresEnhancedTruthProbe() -> {
                     val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
-                    if (deep != null && deep.materiallyOverrides(platform)) deep else platform
+                    if (
+                        deep != null &&
+                        (deep.materiallyOverrides(platform) || deep.dolbyVisionStreamEvidence != null)
+                    ) {
+                        deep
+                    } else {
+                        platform
+                    }
                 }
                 else -> platform
             } ?: return null
@@ -196,7 +205,7 @@ internal class AndroidCore2RouteEvaluator(
             resolved.dolbyVisionConfig?.let { config ->
                 YDolbyVisionRouter.decide(
                     video = request.video,
-                    evidence = YDolbyVisionStreamEvidence(config),
+                    evidence = resolved.dolbyVisionStreamEvidence ?: YDolbyVisionStreamEvidence(config),
                     capabilities = capabilities,
                 )
             }
@@ -208,12 +217,18 @@ internal class AndroidCore2RouteEvaluator(
             runtimeCapabilities.evidence(unseenRuntimeKey) == null
         ) {
             val probeResult =
-                codecConfigurationProbe.probe(
-                    decoderName = unseenRuntimeKey.decoderName,
-                    mimeType = normalizedProbe.activeProbeMime(plan),
-                    requirement = request.video,
-                )
+                if (plan.demuxPath == YDemuxPath.Platform) {
+                    codecSampleProbe.probe(item, unseenRuntimeKey.decoderName)
+                } else {
+                    codecConfigurationProbe.probe(
+                        decoderName = unseenRuntimeKey.decoderName,
+                        mimeType = normalizedProbe.activeProbeMime(plan),
+                        requirement = request.video,
+                    )
+                }
             when (probeResult) {
+                YCodecConfigurationProbeResult.Rendered ->
+                    runtimeCapabilities.recordRendered(unseenRuntimeKey)
                 YCodecConfigurationProbeResult.Configured ->
                     runtimeCapabilities.recordConfigured(unseenRuntimeKey)
                 YCodecConfigurationProbeResult.Rejected -> {

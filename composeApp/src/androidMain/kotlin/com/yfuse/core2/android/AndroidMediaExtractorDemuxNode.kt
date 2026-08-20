@@ -126,7 +126,22 @@ internal class AndroidMediaExtractorDemuxNode(
         when (parsed.scheme?.lowercase()) {
             "content", "android.resource", "file" -> setDataSource(appContext, parsed, source.headers)
             "http", "https" -> {
-                val rangeSource = AndroidHttpRangeMediaDataSource(source.uri, source.headers)
+                val rangeSource =
+                    AndroidTransportMediaDataSource(
+                        uri = source.uri,
+                        protocol =
+                            if (parsed.scheme.equals("https", ignoreCase = true)) {
+                                YSourceProtocol.Https
+                            } else {
+                                YSourceProtocol.Http
+                            },
+                        headers = source.headers,
+                        createTransport = {
+                            AndroidAdaptiveHttpMediaTransport(
+                                createCronet = { AndroidCronetMediaTransport(appContext) },
+                            )
+                        },
+                    )
                 mediaDataSource = rangeSource
                 setDataSource(rangeSource)
             }

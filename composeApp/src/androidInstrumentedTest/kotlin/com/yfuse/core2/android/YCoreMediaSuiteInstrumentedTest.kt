@@ -193,8 +193,17 @@ class YCoreMediaSuiteInstrumentedTest {
             awaitPlayable(player, "${testCase.id}:seek-resume")
             health.sample(player.state.value)
 
-            state.audioTracks.getOrNull(1)?.let { player.selectTrack(YTrackType.Audio, it.id) }
-            state.subtitleTracks.getOrNull(1)?.let { player.selectTrack(YTrackType.Subtitle, it.id) }
+            state.audioTracks.getOrNull(1)?.let { track ->
+                player.selectTrack(YTrackType.Audio, track.id)
+                awaitTrackSelected(player, YTrackType.Audio, track.id, "${testCase.id}:audio-switch")
+                awaitPlayable(player, "${testCase.id}:audio-switch-output")
+                reportProgress("${testCase.id}: completed audio track switch")
+            }
+            state.subtitleTracks.getOrNull(1)?.let { track ->
+                player.selectTrack(YTrackType.Subtitle, track.id)
+                awaitTrackSelected(player, YTrackType.Subtitle, track.id, "${testCase.id}:subtitle-switch")
+                reportProgress("${testCase.id}: completed subtitle track switch")
+            }
 
             repeat(surfaceRecreationIterations) { iteration ->
                 player.pause()
@@ -241,6 +250,11 @@ class YCoreMediaSuiteInstrumentedTest {
                 assertTrue(player.state.value.currentIndex == 0)
                 reportProgress("${testCase.id}: completed next/previous episode round trip")
             }
+            val finishFromMs = (player.state.value.durationMs - FINISH_END_GUARD_MS).coerceAtLeast(0L)
+            player.seekTo(finishFromMs)
+            player.play()
+            awaitEnded(player, "${testCase.id}:finish")
+            reportProgress("${testCase.id}: completed natural finish verification")
             completed = true
         } catch (failure: Throwable) {
             timedOut = failure.hasTimeoutCause()
@@ -272,6 +286,41 @@ class YCoreMediaSuiteInstrumentedTest {
                         state.audioTracks.isEmpty() || state.diagnostics.audioOutputVerified
                     if (state.diagnostics.videoOutputVerified && audioOutputReady) return@withTimeout
                     delay(POLL_INTERVAL_MS)
+                }
+            }
+        } catch (failure: TimeoutCancellationException) {
+            throw AssertionError(timeoutMessage(label, player.state.value), failure)
+        }
+    }
+
+    private suspend fun awaitTrackSelected(
+        player: AndroidAdaptiveCore2YPlayer,
+        type: YTrackType,
+        id: String,
+        label: String,
+    ) {
+        try {
+            withTimeout(PLAYBACK_TIMEOUT_MS) {
+                player.state.first { state ->
+                    assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
+                    val tracks = if (type == YTrackType.Audio) state.audioTracks else state.subtitleTracks
+                    tracks.any { it.id == id && it.selected }
+                }
+            }
+        } catch (failure: TimeoutCancellationException) {
+            throw AssertionError(timeoutMessage(label, player.state.value), failure)
+        }
+    }
+
+    private suspend fun awaitEnded(
+        player: AndroidAdaptiveCore2YPlayer,
+        label: String,
+    ) {
+        try {
+            withTimeout(PLAYBACK_TIMEOUT_MS) {
+                player.state.first { state ->
+                    assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
+                    state.phase == YPlaybackPhase.Ended
                 }
             }
         } catch (failure: TimeoutCancellationException) {
@@ -475,8 +524,9 @@ private const val POLL_INTERVAL_MS = 100L
 private const val SURFACE_DETACH_SETTLE_MS = 150L
 private const val BASELINE_SEEK_ITERATIONS = 100
 private const val BASELINE_SURFACE_RECREATIONS = 8
-private const val MATRIX_SEEK_ITERATIONS = 1
+private const val MATRIX_SEEK_ITERATIONS = 10
 private const val MATRIX_SURFACE_RECREATIONS = 1
+private const val FINISH_END_GUARD_MS = 500L
 private const val MIN_STRESS_MEDIA_DURATION_MS = 1_500L
 private const val FALLBACK_DURATION_MS = 6_000L
 private const val MIN_SEEK_TARGET_MS = 250L

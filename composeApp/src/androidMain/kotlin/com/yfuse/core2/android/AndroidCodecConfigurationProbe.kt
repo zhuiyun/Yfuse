@@ -8,6 +8,7 @@ import com.yfuse.core2.capability.YVideoRequirement
 import java.io.IOException
 
 internal enum class YCodecConfigurationProbeResult {
+    Rendered,
     Configured,
     Rejected,
     Inconclusive,

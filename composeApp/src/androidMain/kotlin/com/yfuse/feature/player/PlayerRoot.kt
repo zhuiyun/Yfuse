@@ -443,7 +443,7 @@ internal fun PlayerRoot(
                     "failureKind" to (localState.errorKind?.name ?: "Unknown"),
                 ),
         )
-        Toast.makeText(context, "YCore 2.0 试用失败，已切回兼容内核", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "YCore 2.0 播放失败，已切回兼容内核", Toast.LENGTH_SHORT).show()
     }
     var appliedCapabilityRevision by remember { mutableLongStateOf(capabilityRevision) }
     var appliedOptimizationMode by remember { mutableStateOf(effectiveOptimizationMode) }

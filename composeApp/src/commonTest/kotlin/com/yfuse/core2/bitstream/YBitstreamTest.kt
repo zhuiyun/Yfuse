@@ -140,6 +140,23 @@ class YBitstreamTest {
         }
     }
 
+    @Test
+    fun `HEVC registered SEI exposes HDR10 plus payload`() {
+        val metadata = byteArrayOf(0xb5.toByte(), 0x00, 0x3c, 0x00, 0x01, 0x04, 0x55)
+        val sei =
+            hevcNal(
+                39,
+                0x04,
+                metadata.size,
+                *metadata.map { it.toInt() and 0xff }.toIntArray(),
+                0x80,
+            )
+
+        val extracted = YBitstream.hdr10PlusItuT35Payload(annexB(sei), YSamplePacking.AnnexB)
+
+        assertContentEquals(metadata, extracted)
+    }
+
     private fun annexB(vararg units: ByteArray): ByteArray =
         units.fold(ByteArray(0)) { output, unit ->
             output + byteArrayOf(0, 0, 0, 1) + unit
