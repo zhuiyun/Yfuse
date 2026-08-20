@@ -1,6 +1,5 @@
 package com.yfuse.feature.player
 
-import android.net.Uri
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -20,8 +19,9 @@ class HlsManifestGuardDataSourceTest {
 
     @Test
     fun only_manifest_urls_are_guarded() {
-        assertTrue(Uri.parse("https://example.test/Videos/1/master.m3u8?token=secret").isHlsManifestUri())
-        assertFalse(Uri.parse("https://example.test/Videos/1/stream.mp4").isHlsManifestUri())
-        assertFalse(Uri.parse("https://example.test/segments/00001.ts").isHlsManifestUri())
+        assertTrue("https://example.test/Videos/1/master.m3u8?token=secret".isHlsManifestUrl())
+        assertTrue("https://example.test/Videos/1/MASTER.M3U8#fragment".isHlsManifestUrl())
+        assertFalse("https://example.test/Videos/1/stream.mp4".isHlsManifestUrl())
+        assertFalse("https://example.test/segments/00001.ts".isHlsManifestUrl())
     }
 }
