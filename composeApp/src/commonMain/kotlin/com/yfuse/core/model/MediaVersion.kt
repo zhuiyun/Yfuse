@@ -146,15 +146,20 @@ data class MediaVersion(
     /**
      * True when only a Dolby-capable decoder can render this file correctly.
      *
-     * Profile 5, a stream with no base layer at all, and profile 7 or 8 that the server explicitly
-     * marks as having no compatible base layer cannot be repaired by pretending it is ordinary HEVC.
+     * Profile 5, a stream with no base layer at all, profile 7/8 that the server explicitly marks
+     * as having no compatible base layer, and Dolby streams whose profile/base-layer compatibility
+     * is still unknown must not be treated as ordinary HEVC. Unknown evidence stays on the Dolby
+     * path until a later probe proves a compatible HDR10/SDR/HLG base layer.
      */
     val needsDolbyCapableDecoder: Boolean
         get() {
             if (!isDolbyVision) return false
             if (dolbyProfile == 5) return true
             if (video?.dolbyBaseLayerPresent == false) return true
-            return video?.dolbyBaseLayerCompatibility == 0
+            val baseLayerCompatibility = video?.dolbyBaseLayerCompatibility
+            if (baseLayerCompatibility == 0) return true
+            if (baseLayerCompatibility != null) return false
+            return dolbyProfile == null
         }
 
     /** `SDR` when the server reported no range at all — the chip always says something. */
