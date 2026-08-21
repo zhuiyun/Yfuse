@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE="$ROOT/.native-build"
-UPSTREAM="$WORKSPACE/upstream"
 ARTIFACTS="$WORKSPACE/artifacts"
 AAR="$ARTIFACTS/libmpv-yfuse-bluray.aar"
 SOURCE="$ROOT/scripts/native/ycore_demux_jni.cpp"
@@ -16,9 +15,26 @@ fail() {
   exit 1
 }
 
+# build-ycore-native.sh builds libmpv first via build-yfuse-mpv-bluray.sh. That script keeps its
+# pinned checkout under .native-build/yfuse-mpv/source. Reuse the exact same FFmpeg prefix and NDK
+# tree so the demux bridge is compiled against the libraries that are packaged into the AAR.
+# Keep the legacy .native-build/upstream fallback for older/local workspaces and allow an explicit
+# override for reproducible debugging.
+if [[ -n "${YCORE_UPSTREAM_ROOT:-}" ]]; then
+  UPSTREAM="$YCORE_UPSTREAM_ROOT"
+elif [[ -d "$WORKSPACE/yfuse-mpv/source/buildscripts/prefix" ]]; then
+  UPSTREAM="$WORKSPACE/yfuse-mpv/source"
+elif [[ -d "$WORKSPACE/upstream/buildscripts/prefix" ]]; then
+  UPSTREAM="$WORKSPACE/upstream"
+else
+  fail "missing upstream FFmpeg prefix tree"
+fi
+
 [[ -f "$AAR" ]] || fail "missing native AAR: $AAR"
 [[ -f "$SOURCE" ]] || fail "missing JNI source: $SOURCE"
-[[ -d "$UPSTREAM/buildscripts/prefix" ]] || fail "missing upstream FFmpeg prefix tree"
+[[ -d "$UPSTREAM/buildscripts/prefix" ]] || fail "missing upstream FFmpeg prefix tree: $UPSTREAM/buildscripts/prefix"
+
+echo "[ycore-demux] reusing native workspace: $UPSTREAM"
 
 TOOLCHAIN_ROOT=("$UPSTREAM"/buildscripts/sdk/android-sdk-linux/ndk/"$NDK_VERSION"/toolchains/llvm/prebuilt/*)
 [[ ${#TOOLCHAIN_ROOT[@]} -eq 1 && -d "${TOOLCHAIN_ROOT[0]}" ]] || fail "cannot resolve NDK toolchain"
