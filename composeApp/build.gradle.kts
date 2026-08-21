@@ -350,6 +350,7 @@ val versionProperties =
     }
 val versionCodePattern = Regex("[1-9]\\d*")
 val versionNamePattern = Regex("[0-9]+\\.[0-9]+\\.[0-9]+")
+val applicationIdPattern = Regex("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+")
 val storedVersionCodeRaw =
     versionProperties
         .getProperty("VERSION_CODE")
@@ -386,6 +387,14 @@ val requestedVersionName =
     }
 val buildVersionCode = requestedVersionCode ?: storedVersionCode
 val buildVersionName = requestedVersionName ?: storedVersionName
+val buildApplicationId =
+    providers.gradleProperty("yfuseApplicationId").orNull?.let { rawValue ->
+        val normalized = rawValue.trim()
+        require(normalized.matches(applicationIdPattern)) {
+            "yfuseApplicationId must be a lowercase dotted Android application id; received '$normalized'"
+        }
+        normalized
+    } ?: "com.yfuse"
 
 android {
     namespace = "com.yfuse"
@@ -407,7 +416,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.yfuse"
+        applicationId = buildApplicationId
         minSdk = 26
         targetSdk = 36
         versionCode = buildVersionCode

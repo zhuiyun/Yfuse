@@ -179,6 +179,9 @@ class YCoreMediaSuiteInstrumentedTest {
                 val seekTarget = stressSeekTarget(state.durationMs, absoluteIteration)
                 awaitFreshVideoOutput(player, "${testCase.id}:seek-${absoluteIteration + 1}") {
                     player.seekTo(seekTarget)
+                    // A short sample can naturally reach Ended between stress iterations.
+                    // Seeking clears Ended but intentionally does not imply autoplay.
+                    player.play()
                 }
                 health.sample(player.state.value)
                 if ((iteration + 1) % PROGRESS_INTERVAL == 0 || iteration + 1 == seekIterations) {

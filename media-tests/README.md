@@ -48,3 +48,19 @@ adb shell am instrument -r -w `
 
 The smoke lane does not substitute for the licensed Dolby Vision, lossless/immersive audio,
 subtitle, ISO, high-bitrate, thermal, or power corpus.
+
+## Isolated validation package
+
+If a differently signed `com.yfuse` build is already installed, build the test pair with a
+temporary application id instead of replacing it:
+
+```powershell
+.\gradlew.bat --max-workers=1 :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest `
+  "-PyfuseApplicationId=com.yfuse.validation"
+adb install -r -t .\composeApp\build\outputs\apk\debug\composeApp-debug.apk
+adb install -r -t .\composeApp\build\outputs\apk\androidTest\debug\composeApp-debug-androidTest.apk
+```
+
+Use `com.yfuse.validation` in the device media path and
+`com.yfuse.validation.test/androidx.test.runner.AndroidJUnitRunner` as the instrumentation target.
+The property only affects builds that explicitly supply it; normal builds remain `com.yfuse`.

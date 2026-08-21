@@ -1,6 +1,7 @@
 # YCore 22-stage verification
 
-Verified against the 22-stage Android media-platform roadmap on 2026-08-20.
+Verified against the 22-stage Android media-platform roadmap on 2026-08-20, with a merged-head
+physical-device regression rerun on 2026-08-21.
 
 | # | Stage | Runtime evidence | Behavioral evidence |
 |---:|---|---|---|
@@ -57,6 +58,23 @@ application and its data were not changed. The run also caught and fixed Android
 probe-Surface and duplicate-initialization races before passing. The
 full licensed DV/HDR/audio/container matrix remains reproducible through the corpus described by
 `media-tests/README.md`; licensed samples are intentionally not committed to the repository.
+
+The merged head was independently rerun with an isolated `com.yfuse.validation` package on a
+Samsung SM-N960U (Android 10). A 28.445-second locally recorded H.264 baseline passed in 109.702
+seconds:
+
+- 100/100 deterministic seek/reset/new-frame cycles;
+- 8/8 Surface detach/recreate cycles;
+- background/foreground and next/previous item round trips;
+- natural `Ended` verification;
+- no timeout or decoder failure;
+- peak PSS 173,762,560 bytes and 216 accumulated dropped frames during the adversarial seek run.
+
+This rerun exposed and fixed a short-media race in the test harness: media could naturally reach
+`Ended` between iterations, where `seekTo` correctly does not imply autoplay. Each stress iteration
+now explicitly calls `play` after seeking. The original installed `com.yfuse` package and data were
+not modified. The temporary validation packages and their generated media were removed after the
+successful run.
 
 ## Truth boundary
 
