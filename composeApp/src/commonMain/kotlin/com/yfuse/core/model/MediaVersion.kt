@@ -146,12 +146,11 @@ data class MediaVersion(
     /**
      * True when only a Dolby-capable decoder can be trusted to render this file correctly.
      *
-     * Profile 5, a stream with no base layer at all, and a stream explicitly reporting compatibility
-     * id 0 are unconditionally Dolby-only. The important fail-safe is the final branch: some servers
-     * identify a stream as Dolby Vision but omit both `DvProfile` and the `dvhe.xx` tag. Treating that
-     * unknown profile as ordinary HEVC is how P5 can silently turn into a magenta/green picture. An
-     * unknown profile is therefore Dolby-only unless the server positively proves an HDR10/SDR/HLG
-     * compatible base layer through `DvBlSignalCompatibilityId`.
+     * Profile 5, a stream with no base layer at all, profile 7/8 that the server explicitly marks
+     * as having no compatible base layer, and Dolby streams whose profile/base-layer compatibility
+     * is still unknown must not be treated as ordinary HEVC. Some servers omit both `DvProfile` and
+     * the `dvhe.xx` tag, so unknown evidence stays on the Dolby path until compatibility id 1, 2, or
+     * 4 positively proves an HDR10/SDR/HLG-compatible base layer.
      */
     val needsDolbyCapableDecoder: Boolean
         get() {
