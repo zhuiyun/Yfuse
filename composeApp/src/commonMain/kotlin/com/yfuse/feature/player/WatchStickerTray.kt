@@ -5,38 +5,34 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
-import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
-import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
@@ -51,67 +47,44 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** One clock for every visible preset in the tray; standalone sent stickers may own one. */
-private val LocalStickerClock = compositionLocalOf<State<Float>?> { null }
-private const val SHARED_CLOCK_MS = 60_000
-
 /**
  * One sticker, moving.
  *
- * The motion is driven straight into a [graphicsLayer] block: the phase is read in the draw
- * phase, so an animating sticker costs a layer update per frame and never a recomposition.
- * That matters more here than anywhere else in the app — a transcript can hold a dozen of
- * these at once, over a playing film, inside a list somebody is scrolling.
- *
- * 减弱动态效果 stops the motion outright rather than slowing it. A sticker that has stopped
- * moving is still the sticker that was sent; there is nothing to convey by keeping it going.
+ * Motion writes directly into [GraphicsLayerScope], so the player can keep rendering video
+ * without triggering a Compose recomposition for every animation frame. 减弱动态效果 turns
+ * all presets into still glyphs.
  */
 @Composable
 fun WatchStickerGlyph(
     sticker: WatchSticker,
     sizeSp: Float,
     modifier: Modifier = Modifier,
-    /** Set false where a still glyph is wanted regardless of the preset — a dense list. */
     animated: Boolean = true,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val motion = if (animated && !reduceMotion) sticker.motion else WatchStickerMotion.Still
-    val sharedClock = LocalStickerClock.current
-    val phase =
-        when {
-            motion == WatchStickerMotion.Still -> null
-            sharedClock == null -> rememberMotionPhase(motion)
-            else ->
-                remember(motion, sharedClock) {
-                    derivedStateOf {
-                        ((sharedClock.value * SHARED_CLOCK_MS) % motion.periodMs) / motion.periodMs
-                    }
-                }
-        }
+    val phase = if (motion == WatchStickerMotion.Still) null else rememberMotionPhase(motion)
 
     Text(
         sticker.glyph,
         style = sc(sizeSp, 400),
         color = Color.White,
-        modifier =
-            modifier
-                .semantics { contentDescription = sticker.label }
-                .then(
-                    if (phase == null) {
-                        Modifier
-                    } else {
-                        Modifier.graphicsLayer {
-                            // Pivot at the top for anything that hangs, centre for everything else.
-                            transformOrigin =
-                                if (motion == WatchStickerMotion.Swing) {
-                                    TransformOrigin(0.5f, 0f)
-                                } else {
-                                    TransformOrigin.Center
-                                }
-                            applyStickerMotion(motion, phase.value, size.height)
+        modifier = modifier
+            .semantics { contentDescription = sticker.label }
+            .then(
+                if (phase == null) {
+                    Modifier
+                } else {
+                    Modifier.graphicsLayer {
+                        transformOrigin = if (motion == WatchStickerMotion.Swing) {
+                            TransformOrigin(0.5f, 0f)
+                        } else {
+                            TransformOrigin.Center
                         }
-                    },
-                ),
+                        applyStickerMotion(motion, phase.value, size.height)
+                    }
+                },
+            ),
     )
 }
 
@@ -121,21 +94,13 @@ private fun rememberMotionPhase(motion: WatchStickerMotion): State<Float> =
     rememberInfiniteTransition(label = "sticker-motion").animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec =
-            infiniteRepeatable(
-                // Linear, and the shaping happens in the maths below. An eased phase would ease
-                // the *cycle* rather than the movement, which reads as a stutter at the seam.
-                animation = tween(motion.periodMs, easing = LinearEasing),
-            ),
+        animationSpec = infiniteRepeatable(
+            animation = tween(motion.periodMs, easing = LinearEasing),
+        ),
         label = motion.name,
     )
 
-/**
- * The whole animation vocabulary, in one place, as a function of phase.
- *
- * Amplitudes are relative to the glyph's own height so the same preset reads the same in a
- * 34dp tray key and in a 40sp bubble.
- */
+/** The animation vocabulary in one place, expressed as a cheap graphics-layer transform. */
 private fun GraphicsLayerScope.applyStickerMotion(
     motion: WatchStickerMotion,
     phase: Float,
@@ -145,7 +110,6 @@ private fun GraphicsLayerScope.applyStickerMotion(
     when (motion) {
         WatchStickerMotion.Still -> Unit
 
-        // abs(sin) gives two hops per cycle and a natural hang at the top of each.
         WatchStickerMotion.Bounce -> translationY = -height * 0.22f * abs(sin(turn))
 
         WatchStickerMotion.Shake -> rotationZ = 11f * sin(turn * 2f)
@@ -162,8 +126,6 @@ private fun GraphicsLayerScope.applyStickerMotion(
 
         WatchStickerMotion.Wobble -> {
             rotationZ = 9f * sin(turn)
-            // Squash a quarter-cycle out of phase, so the tilt and the stretch never peak
-            // together — that is the difference between "alive" and "being shaken".
             scaleY = 1f + 0.07f * sin(turn - PI.toFloat() / 2f)
         }
 
@@ -185,7 +147,7 @@ private fun GraphicsLayerScope.applyStickerMotion(
         }
 
         WatchStickerMotion.Pop -> {
-            val pulse = (sin(turn) + 1f) * 0.5f
+            val pulse = ((sin(turn) + 1f) * 0.5f)
             val scale = 0.94f + 0.15f * pulse * pulse
             scaleX = scale
             scaleY = scale
@@ -212,9 +174,9 @@ private fun GraphicsLayerScope.applyStickerMotion(
 }
 
 /**
- * The 64-preset tray, above the transcript. Categories keep the catalogue readable without
- * turning it into one endless rail. Only the selected shelf is composed, while every visible
- * glyph still shares one animation clock.
+ * 64-preset tray. Categories keep the picker readable instead of turning it into a single
+ * endless rail. Only the selected shelf is animated, so the UI previews motion without
+ * running dozens of infinite transitions at once.
  */
 @Composable
 internal fun WatchStickerTray(
@@ -222,120 +184,72 @@ internal fun WatchStickerTray(
     onPick: (WatchSticker) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val selectedCategory = remember { mutableStateOf(WatchStickerCategory.Reaction) }
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val accent = LocalAccentColors.current
-    val sharedClock =
-        if (reduceMotion) {
-            null
-        } else {
-            rememberInfiniteTransition(label = "sticker-tray-clock").animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec =
-                    infiniteRepeatable(
-                        animation = tween(SHARED_CLOCK_MS, easing = LinearEasing),
-                    ),
-                label = "sticker-tray-phase",
-            )
-        }
-    CompositionLocalProvider(LocalStickerClock provides sharedClock) {
-        Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                items(
-                    items = WatchStickerCategory.entries,
-                    key = WatchStickerCategory::name,
-                ) { category ->
-                    val isSelected = category == selectedCategory.value
-                    Box(
-                        Modifier
-                            .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
-                            .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
-                            .pressable(
-                                enabled = enabled,
-                                haptic = HapticSignal.Select,
-                                role = Role.Tab,
-                                onClickLabel = category.label,
-                                onClick = { selectedCategory.value = category },
-                            ).semantics(mergeDescendants = true) { selected = isSelected },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = category.label,
-                            style =
-                                if (isSelected) {
-                                    AppTypography.caption.strong
-                                } else {
-                                    AppTypography.caption.medium
-                                },
-                            color = Color.White.copy(alpha = if (isSelected) 1f else 0.66f),
-                            modifier =
-                                Modifier
-                                    .glass(
-                                        shape = GlassShapes.chip,
-                                        fill =
-                                            if (isSelected) {
-                                                accent.accent.copy(alpha = 0.58f)
-                                            } else {
-                                                PlayerTokens.chipFill
-                                            },
-                                        border =
-                                            if (isSelected) {
-                                                Color.White.copy(alpha = 0.32f)
-                                            } else {
-                                                PlayerTokens.chipBorder
-                                            },
-                                    ).padding(horizontal = 11.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-            }
+    var selectedCategory by remember { mutableStateOf(WatchStickerCategory.Reaction) }
 
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Lazy composition keeps off-screen glyph layers absent; LocalStickerClock
-                // means every visible glyph reads one phase source instead of owning a clock.
-                items(
-                    items = WatchStickers.inCategory(selectedCategory.value),
-                    key = WatchSticker::id,
-                ) { sticker ->
-                    // Keep the visual chip compact, but give it the same 44dp minimum target
-                    // as every other control.
-                    Box(
-                        Modifier
-                            .size(44.dp)
-                            .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
-                            .pressable(
-                                enabled = enabled,
-                                haptic = HapticSignal.Confirm,
-                                onClickLabel = sticker.label,
-                                onClick = { onPick(sticker) },
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(34.dp)
-                                .glass(
-                                    shape = GlassShapes.chip,
-                                    fill = PlayerTokens.chipFill,
-                                    border = PlayerTokens.chipBorder,
-                                ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            WatchStickerGlyph(sticker, sizeSp = 16f)
-                        }
-                    }
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            WatchStickerCategory.entries.forEach { category ->
+                val selected = category == selectedCategory
+                Text(
+                    text = category.label,
+                    style = sc(10.5f, if (selected) 700 else 550),
+                    color = Color.White.copy(alpha = if (selected) 1f else 0.66f),
+                    modifier = Modifier
+                        .pressable(
+                            enabled = enabled,
+                            haptic = HapticSignal.Select,
+                            onClickLabel = category.label,
+                            onClick = { selectedCategory = category },
+                        )
+                        .glass(
+                            shape = GlassShapes.chip,
+                            fill = if (selected) {
+                                Brand.Primary.copy(alpha = 0.58f)
+                            } else {
+                                PlayerTokens.chipFill
+                            },
+                            border = if (selected) {
+                                Color.White.copy(alpha = 0.32f)
+                            } else {
+                                PlayerTokens.chipBorder
+                            },
+                        )
+                        .padding(horizontal = 11.dp, vertical = 6.dp),
+                )
+            }
+        }
+
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            WatchStickers.inCategory(selectedCategory).forEach { sticker ->
+                Box(
+                    Modifier
+                        .size(38.dp)
+                        .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
+                        .pressable(
+                            enabled = enabled,
+                            haptic = HapticSignal.Confirm,
+                            onClickLabel = sticker.label,
+                            onClick = { onPick(sticker) },
+                        )
+                        .glass(
+                            shape = GlassShapes.chip,
+                            fill = PlayerTokens.chipFill,
+                            border = PlayerTokens.chipBorder,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    WatchStickerGlyph(sticker, sizeSp = 17f, animated = true)
                 }
             }
         }
