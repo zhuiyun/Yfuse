@@ -9,17 +9,6 @@ internal fun scrubPositionMs(
     return (fraction.coerceIn(0f, 1f).toDouble() * duration).toLong().coerceIn(0L, duration)
 }
 
-/** Unknown duration is an indeterminate timeline, never a completed one. */
-internal fun playbackProgressFraction(
-    positionMs: Long,
-    durationMs: Long,
-): Float {
-    if (durationMs <= 0L) return 0f
-    return (positionMs.coerceAtLeast(0L).toDouble() / durationMs.toDouble())
-        .coerceIn(0.0, 1.0)
-        .toFloat()
-}
-
 /** "片头结束 · 90 秒" / "片头结束 · 未设置". */
 internal fun skipBoundaryLabel(
     name: String,
