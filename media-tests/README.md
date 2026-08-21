@@ -13,9 +13,13 @@ adb push .\private-ycore-suite\ /sdcard/Android/data/com.yfuse/files/ycore-suite
 ```
 
 The manifest validator rejects missing matrix dimensions, duplicate IDs, unsafe paths, and missing
-lifecycle operations. The device runner fails on missing files, backend failure, first-frame timeout,
-seek/resume failure, Surface recreation failure, or next-item failure. A missing manifest skips the
-licensed-corpus lane rather than reporting a false pass.
+lifecycle operations. Before playback, the device runner probes every non-disc file through the
+bundled FFmpeg demuxer and rejects a manifest label that disagrees with the observed codec, bit
+depth, HDR/Dolby profile, frame rate, container, audio/subtitle tracks, height, or bitrate. ISO/BDMV
+cases carry an explicit disc descriptor and must complete through the real libbluray compatibility
+route; they are not opened as ordinary files. The runner also fails on missing files, backend
+failure, first-frame timeout, seek/resume failure, Surface recreation failure, or next-item failure.
+A missing manifest skips the licensed-corpus lane rather than reporting a false pass.
 
 For a fast baseline check that does not claim matrix coverage, push any ordinary unprotected MP4
 into the app-specific directory and run only the smoke method:

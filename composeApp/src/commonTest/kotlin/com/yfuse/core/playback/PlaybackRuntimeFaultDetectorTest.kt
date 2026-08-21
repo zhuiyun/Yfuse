@@ -139,6 +139,40 @@ class PlaybackRuntimeFaultDetectorTest {
     }
 
     @Test
+    fun continuous_initial_buffering_still_times_out_and_enters_fallback() {
+        val detector = detector()
+
+        assertNull(
+            detector.observe(
+                observation(now = 14_000L, positionMs = 0L, buffering = true),
+            ),
+        )
+        val fault =
+            detector.observe(
+                observation(now = 15_000L, positionMs = 0L, buffering = true),
+            )
+
+        assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, assertNotNull(fault).kind)
+    }
+
+    @Test
+    fun startup_timeout_does_not_require_a_backend_to_identify_the_output_format() {
+        val detector = detector()
+
+        val fault =
+            detector.observe(
+                observation(
+                    now = 15_000L,
+                    positionMs = 0L,
+                    buffering = true,
+                    videoOutputVerifiable = false,
+                ),
+            )
+
+        assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, assertNotNull(fault).kind)
+    }
+
+    @Test
     fun a_paused_or_ended_session_never_reports() {
         val paused = detector()
         val ended = detector()

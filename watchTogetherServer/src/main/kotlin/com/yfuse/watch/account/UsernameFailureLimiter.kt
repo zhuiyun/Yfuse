@@ -34,32 +34,33 @@ class UsernameFailureLimiter(
     private var lastObservedAtEpochMs = Long.MIN_VALUE
 
     /** Reserves a zero-failure entry so concurrent first attempts cannot bypass capacity. */
-    internal fun checkOrReserve(normalizedUsername: String): RateLimitDecision = synchronized(lock) {
-        val now = clock()
-        cleanupIfDue(now)
-        val key = hashIdentity(normalizedUsername)
-        val existing = entries[key]
-        if (existing != null) {
-            if (now < existing.startedAtEpochMs || now >= existing.expiresAtEpochMs) {
-                putEntry(key, FailureEntry(0, now, saturatedAdd(now, policy.windowMs)))
+    internal fun checkOrReserve(normalizedUsername: String): RateLimitDecision =
+        synchronized(lock) {
+            val now = clock()
+            cleanupIfDue(now)
+            val key = hashIdentity(normalizedUsername)
+            val existing = entries[key]
+            if (existing != null) {
+                if (now < existing.startedAtEpochMs || now >= existing.expiresAtEpochMs) {
+                    putEntry(key, FailureEntry(0, now, saturatedAdd(now, policy.windowMs)))
+                    return@synchronized RateLimitDecision.Allowed
+                }
+                if (existing.failures >= policy.maxFailuresPerWindow) {
+                    return@synchronized RateLimitDecision.Limited(
+                        retryAfterSeconds(existing.expiresAtEpochMs, now),
+                    )
+                }
                 return@synchronized RateLimitDecision.Allowed
             }
-            if (existing.failures >= policy.maxFailuresPerWindow) {
-                return@synchronized RateLimitDecision.Limited(
-                    retryAfterSeconds(existing.expiresAtEpochMs, now),
-                )
-            }
-            return@synchronized RateLimitDecision.Allowed
-        }
 
-        if (entries.size >= policy.maxTrackedUsernames) removeExpiredEntries(now)
-        if (entries.size >= policy.maxTrackedUsernames) {
-            val earliestExpiry = earliestLiveExpiry(saturatedAdd(now, policy.windowMs))
-            return@synchronized RateLimitDecision.Limited(retryAfterSeconds(earliestExpiry, now))
+            if (entries.size >= policy.maxTrackedUsernames) removeExpiredEntries(now)
+            if (entries.size >= policy.maxTrackedUsernames) {
+                val earliestExpiry = earliestLiveExpiry(saturatedAdd(now, policy.windowMs))
+                return@synchronized RateLimitDecision.Limited(retryAfterSeconds(earliestExpiry, now))
+            }
+            putEntry(key, FailureEntry(0, now, saturatedAdd(now, policy.windowMs)))
+            RateLimitDecision.Allowed
         }
-        putEntry(key, FailureEntry(0, now, saturatedAdd(now, policy.windowMs)))
-        RateLimitDecision.Allowed
-    }
 
     internal fun recordFailure(normalizedUsername: String) {
         synchronized(lock) {
@@ -118,25 +119,36 @@ class UsernameFailureLimiter(
         }
     }
 
-    private fun putEntry(key: String, entry: FailureEntry) {
+    private fun putEntry(
+        key: String,
+        entry: FailureEntry,
+    ) {
         entries[key] = entry
         expirations.add(ExpiryRecord(key, entry.expiresAtEpochMs))
     }
 
-    private fun hashIdentity(normalizedUsername: String): String = Base64.getUrlEncoder()
-        .withoutPadding()
-        .encodeToString(
-            MessageDigest.getInstance("SHA-256")
-                .digest(normalizedUsername.toByteArray(Charsets.UTF_8)),
-        )
+    private fun hashIdentity(normalizedUsername: String): String =
+        Base64
+            .getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(
+                MessageDigest
+                    .getInstance("SHA-256")
+                    .digest(normalizedUsername.toByteArray(Charsets.UTF_8)),
+            )
 
-    private fun retryAfterSeconds(expiresAtEpochMs: Long, nowEpochMs: Long): Long {
+    private fun retryAfterSeconds(
+        expiresAtEpochMs: Long,
+        nowEpochMs: Long,
+    ): Long {
         val remainingMs = (expiresAtEpochMs - nowEpochMs).coerceAtLeast(1L)
         return ((remainingMs + 999L) / 1_000L).coerceAtLeast(1L)
     }
 
-    private fun saturatedAdd(left: Long, right: Long): Long =
-        if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
+    private fun saturatedAdd(
+        left: Long,
+        right: Long,
+    ): Long = if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
 
     private data class FailureEntry(
         var failures: Int,

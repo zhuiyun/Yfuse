@@ -151,7 +151,7 @@ class EmbyRepositoryTest {
         }
 
     @Test
-    fun playback_info_does_not_claim_route_only_audio_when_passthrough_is_disabled() =
+    fun playback_info_keeps_bundled_truehd_decode_when_passthrough_is_disabled() =
         runTest {
             val discovered =
                 PlaybackDeviceCapabilities.conservative().copy(
@@ -171,7 +171,7 @@ class EmbyRepositoryTest {
                         posted.DeviceProfile.DirectPlayProfiles
                             .single()
                             .AudioCodec
-                    assertFalse("truehd" in audio.split(','))
+                    assertTrue("truehd" in audio.split(','))
                     json("""{"MediaSources":[]}""")
                 }
 
@@ -1409,6 +1409,27 @@ class EmbyRepositoryTest {
             assertEquals(
                 "访问被 Cloudflare 拦截，请更换网络或联系服务器管理员",
                 error.toUserMessage(),
+            )
+        }
+
+    @Test
+    fun explicit_client_block_is_access_denied_not_an_expired_login() =
+        runTest {
+            val repo =
+                testRepo {
+                    respond(
+                        content = """{"code":403,"message":"此客户端已被屏蔽"}""",
+                        status = HttpStatusCode.Forbidden,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+
+            val result = repo.userLibrarySnapshot(server)
+
+            assertTrue(result.isFailure)
+            assertEquals(
+                EmbyError.AccessDenied(provider = null),
+                (result.exceptionOrNull() as EmbyErrorException).error,
             )
         }
 

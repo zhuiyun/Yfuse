@@ -80,6 +80,29 @@ class AndroidCore2TrialTest {
     }
 
     @Test
+    fun unproven_dolby_vision_stream_stays_on_the_display_backed_legacy_pipeline() {
+        val version =
+            PlayerMediaVersion(
+                id = "dolby",
+                label = "Dolby Vision",
+                detail = "HEVC Dolby Vision",
+                url = "https://media.example.test/dolby.mkv",
+                transcodeUrl = "",
+                fallbackTranscodeUrl = "",
+                dolbyVision = true,
+                dolbyProfile = null,
+                needsDolbyDecoder = false,
+            )
+        val item =
+            mediaItem(version.url).copy(
+                versions = listOf(version),
+                versionId = version.id,
+            )
+
+        assertFalse(listOf(item).canUseCore2Trial(startIndex = 0))
+    }
+
+    @Test
     fun core2_queue_mapping_preserves_request_identity_and_user_agent() {
         val item =
             mediaItem("https://media.example.test/episode.mkv").copy(

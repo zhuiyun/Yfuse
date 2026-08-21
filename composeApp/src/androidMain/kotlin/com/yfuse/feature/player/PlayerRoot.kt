@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -290,12 +292,9 @@ internal fun PlayerRoot(
                 engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                 videoSupport = videoSupport,
             )
-        val incompatibleQueuedDolbyEngine =
-            probe.source.needsDolbyDecoder && plan.primaryEngine != kind
-        return if (plan.requiresServerTranscode || incompatibleQueuedDolbyEngine) {
+        return if (plan.requiresServerTranscode) {
             item.withForcedServerTranscode(
-                plan.reason
-                    ?: "队列当前内核无法无损切换 Dolby Vision，已预先选择服务器转码",
+                plan.reason ?: "当前设备无法直接呈现片源，已预先选择服务器转码",
             )
         } else {
             item
@@ -386,14 +385,15 @@ internal fun PlayerRoot(
             }
         }
 
-    DisposableEffect(engine, player, kind) {
+    val attachedKind = kind
+    DisposableEffect(engine, player, attachedKind) {
         AppLog.info(
             category = "player",
             event = "engine_attached",
             message = "Playback engine attached",
             attributes =
                 mapOf(
-                    "engine" to kind.name,
+                    "engine" to attachedKind.name,
                     "implementation" to engine::class.java.name,
                 ),
         )
@@ -407,14 +407,36 @@ internal fun PlayerRoot(
                 message = "Playback engine detached",
                 attributes =
                     mapOf(
-                        "engine" to kind.name,
+                        "engine" to attachedKind.name,
                         "implementation" to engine::class.java.name,
                     ),
             )
         }
     }
 
-    val localState by presentationState.collectAsState()
+    // collectAsState keeps its previous slot value while a new Flow collector starts. During an
+    // engine handover that value can be the old engine's terminal failure, which used to make the
+    // freshly-created Legacy engine immediately enter backend fallback before it loaded anything.
+    // Key the state holder to the actual engine so the new flow's current value is authoritative
+    // from the first composition.
+    val reportedLocalState by key(engine) { presentationState.collectAsState() }
+    var timelineMemory by remember { mutableStateOf(PlaybackTimelineMemory()) }
+    val timelineItem = items.getOrNull(reportedLocalState.currentIndex)
+    val timelineResolution =
+        stabilizePlaybackTimeline(
+            memory = timelineMemory,
+            media =
+                timelineItem?.let { item ->
+                    PlaybackTimelineIdentity(
+                        queueIndex = reportedLocalState.currentIndex,
+                        serverId = item.serverId,
+                        itemId = item.id,
+                    )
+                },
+            reported = reportedLocalState,
+        )
+    val localState = timelineResolution.state
+    SideEffect { timelineMemory = timelineResolution.memory }
     LaunchedEffect(engine, localState.error, localState.fallbacksExhausted) {
         if (
             engine !is YPlayerVideoEngineAdapter ||
@@ -441,6 +463,7 @@ internal fun PlayerRoot(
                     "engine" to kind.name,
                     "itemIndex" to localState.currentIndex.toString(),
                     "failureKind" to (localState.errorKind?.name ?: "Unknown"),
+                    "failure" to localState.error.orEmpty(),
                 ),
         )
         Toast.makeText(context, "YCore 2.0 播放失败，已切回兼容内核", Toast.LENGTH_SHORT).show()
@@ -685,12 +708,22 @@ internal fun PlayerRoot(
                     "dolbyVision" to (version?.dolbyVision == true).toString(),
                     "dolbyProfile" to (version?.dolbyProfile?.toString() ?: "unknown"),
                     "needsDolbyDecoder" to (version?.needsDolbyDecoder == true).toString(),
+                    "dolbyRpuPresent" to (version?.sourceDolbyRpuPresent?.toString() ?: "unknown"),
+                    "dolbyEnhancementLayerPresent" to
+                        (version?.sourceDolbyEnhancementLayerPresent?.toString() ?: "unknown"),
+                    "dolbyBaseLayerPresent" to
+                        (version?.sourceDolbyBaseLayerPresent?.toString() ?: "unknown"),
+                    "dolbyBaseLayerCompatibility" to
+                        (version?.sourceDolbyBaseLayerCompatibility?.toString() ?: "unknown"),
+                    "sourceSizeBytes" to (version?.sourceSizeBytes?.toString() ?: "unknown"),
                     "audioCodec" to (activeProbe.audioCodec?.name ?: "unknown"),
                     "audioTracks" to (version?.audioTrackCount ?: 0).toString(),
                     "engine" to kind.name,
                     "decoderMode" to effectiveDecoderMode.name,
                     "renderPath" to activePlan.renderPath.name,
                     "serverTranscode" to localState.transcoding.toString(),
+                    "clientDolbyRequired" to
+                        (localCastItem?.requiresLocalDolbyPipeline == true).toString(),
                     "audioPassthrough" to allowAudioPassthrough.toString(),
                 ),
         )
@@ -861,55 +894,108 @@ internal fun PlayerRoot(
                 Toast.LENGTH_LONG,
             ).show()
     }
-    // The same guard covers a queue moving into a Dolby-only episode, a manual native-engine
-    // switch, and an Exo launch on hardware that advertised no complete Dolby output pipeline.
-    LaunchedEffect(engine, kind, state.currentIndex, state.transcoding) {
-        if (state.transcoding) return@LaunchedEffect
-        val needsDolby =
-            activeItems
-                .getOrNull(state.currentIndex)
-                ?.activeVersion
-                ?.needsDolbyDecoder == true
-        if (!needsDolby) return@LaunchedEffect
-        val hasUsableDolbyPipeline =
-            kind == PlayerEngine.Exo && deviceCapabilities.supportsDolbyVisionOutput
-        if (hasUsableDolbyPipeline) return@LaunchedEffect
-        // The engine says whether it had anywhere to fall back to. When it did not, the
-        // picture is going to be wrong and the log is the only place that will say why —
-        // so it must not claim a switch that never happened.
-        val reason =
-            if (deviceCapabilities.supportsDolbyVisionOutput) {
-                "当前内核无法正确输出此 Dolby Vision 配置"
-            } else {
-                "当前设备缺少 Dolby Vision 显示或硬件解码能力"
-            }
-        val switched = backendExtensions.switchToTranscode(reason)
-        AppLog.warning(
-            category = "player",
-            event = if (switched) "dolby_requires_transcode" else "dolby_undecodable",
-            message =
-                if (switched) {
-                    "Dolby Vision without a compatible base layer on a non-Dolby engine; " +
-                        "switched to the server transcode"
-                } else {
-                    "Dolby Vision without a compatible base layer and no transcode to fall " +
-                        "back to; the picture will be wrong"
-                },
-            attributes =
-                mapOf(
-                    "engine" to kind.name,
-                    "deviceDolbyPipeline" to
-                        deviceCapabilities.supportsDolbyVisionOutput.toString(),
-                ),
-        )
-    }
-
     val watchState by watchTogether.state.collectAsState()
     val watchAvailable by accountTokens.sessionAvailable.collectAsState()
     val watchEndpoint by watchTogetherPreferences.endpoint.collectAsState()
     val watchChatPreview by watchTogetherPreferences.chatPreviewEnabled.collectAsState()
     val watchChatDanmaku by watchTogetherPreferences.chatDanmakuEnabled.collectAsState()
     val currentItem = activeItems.getOrNull(state.currentIndex)
+    val activeDolbyVersion =
+        currentItem
+            ?.activeVersion
+            ?.takeIf { it.dolbyVision || it.dolbyAtmos }
+    LaunchedEffect(
+        activeDolbyVersion?.id,
+        kind,
+        state.diagnostics.videoReadiness,
+        state.diagnostics.audioReadiness,
+        state.diagnostics.dolbyVisionOutput,
+        state.diagnostics.dolbyAtmosOutput,
+        state.diagnostics.dolbyVisionRpuApplied,
+        state.diagnostics.dolbyVisionEnhancementLayerComposed,
+        state.transcoding,
+        state.error,
+    ) {
+        val version = activeDolbyVersion ?: return@LaunchedEffect
+        val p7 = version.dolbyVisionP7Output(state.diagnostics)
+        val explicitServerTranscode =
+            selectedQuality.requiresServerTranscode ||
+                state.diagnostics.fallbackReason?.startsWith("用户手动") == true
+        val attributes =
+            mapOf(
+                "itemIndex" to state.currentIndex.toString(),
+                "engine" to kind.name,
+                "decoder" to state.diagnostics.decoder,
+                "profile" to (version.dolbyProfile?.toString() ?: "unknown"),
+                "videoReadiness" to state.diagnostics.videoReadiness.name,
+                "audioReadiness" to state.diagnostics.audioReadiness.name,
+                "videoOutput" to state.diagnostics.videoOutput,
+                "audioOutput" to state.diagnostics.audioOutput,
+                "dolbyVisionOutput" to state.diagnostics.dolbyVisionOutput.toString(),
+                "dolbyAtmosBitstreamOutput" to state.diagnostics.dolbyAtmosOutput.toString(),
+                "p7OutputEvidence" to p7.evidence.name,
+                "felClaimAllowed" to p7.canClaimFel.toString(),
+                "serverTranscode" to state.transcoding.toString(),
+                "explicitServerTranscode" to explicitServerTranscode.toString(),
+                "failureKind" to (state.errorKind?.name ?: "none"),
+            )
+        if (state.transcoding && !explicitServerTranscode) {
+            AppLog.error(
+                category = "player.dolby",
+                event = "automatic_server_transcode_violation",
+                message = "Dolby source entered server transcode without an explicit user choice",
+                attributes = attributes,
+            )
+        } else {
+            AppLog.info(
+                category = "player.dolby",
+                event = "output_milestone",
+                message = p7.reason,
+                attributes = attributes,
+            )
+        }
+    }
+    LaunchedEffect(
+        activeDolbyVersion?.id,
+        kind,
+        runtimeAssessment.health.grade,
+        runtimeAssessment.health.evaluationReady,
+        runtimeAssessment.health.droppedFrames / 10,
+        runtimeAssessment.runtimeFault?.kind,
+        runtimeEnvironment.pressure,
+    ) {
+        val version = activeDolbyVersion ?: return@LaunchedEffect
+        if (
+            !runtimeAssessment.health.evaluationReady &&
+            runtimeAssessment.runtimeFault == null &&
+            runtimeEnvironment.pressure.name == "Normal"
+        ) {
+            return@LaunchedEffect
+        }
+        AppLog.info(
+            category = "player.dolby",
+            event = "runtime_health",
+            message = "YCore recorded local Dolby decode health",
+            attributes =
+                mapOf(
+                    "itemIndex" to state.currentIndex.toString(),
+                    "engine" to kind.name,
+                    "profile" to (version.dolbyProfile?.toString() ?: "audio-only"),
+                    "health" to runtimeAssessment.health.grade.name,
+                    "startupTimeMs" to
+                        (runtimeAssessment.health.startupTimeMs?.toString() ?: "pending"),
+                    "observedPlaybackMs" to runtimeAssessment.health.observedPlaybackMs.toString(),
+                    "rebufferEvents" to runtimeAssessment.health.rebufferEvents.toString(),
+                    "droppedFrames" to runtimeAssessment.health.droppedFrames.toString(),
+                    "droppedFramesPerMinute" to
+                        runtimeAssessment.health.droppedFramesPerMinute.toString(),
+                    "resourcePressure" to runtimeEnvironment.pressure.name,
+                    "batteryPowerMilliwatts" to
+                        (runtimeEnvironment.batteryPowerMilliwatts?.toString() ?: "unknown"),
+                    "runtimeFault" to (runtimeAssessment.runtimeFault?.kind?.name ?: "none"),
+                ),
+        )
+    }
     val danmaku =
         rememberPlayerDanmakuController(
             currentItem = currentItem,
@@ -1628,6 +1714,15 @@ internal fun PlayerRoot(
         target: PlaybackQuality,
         persistSelection: Boolean,
     ) {
+        // Adaptive bandwidth recovery must not silently turn a Dolby source into a server encode.
+        // A persisted user selection remains explicit and is intentionally still honored.
+        if (
+            !persistSelection &&
+            target.requiresServerTranscode &&
+            currentItem?.requiresLocalDolbyPipeline == true
+        ) {
+            return
+        }
         if (persistSelection) {
             adaptiveQualityCeiling = target
             onQualityChanged(target, currentItem?.serverId)
@@ -2375,7 +2470,12 @@ internal fun PlayerRoot(
                 // Manual escape hatch when the picture is black but audio plays. Offered on
                 // every engine now — it used to be ExoPlayer-only, which left the native
                 // engines with no way out of a file the device can't decode.
-                transcodeLabel = "转码播放",
+                transcodeLabel =
+                    "转码播放".takeIf {
+                        currentItem?.let { item ->
+                            item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
+                        } == true
+                    },
                 transcodeActive = state.transcoding,
                 onTranscode = {
                     if (!state.transcoding) {

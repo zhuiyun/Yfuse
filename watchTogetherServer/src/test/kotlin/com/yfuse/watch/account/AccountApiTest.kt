@@ -14,6 +14,13 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import java.io.File
 import java.nio.file.Files
 import java.sql.DriverManager
@@ -22,35 +29,29 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
 
 class AccountApiTest {
     @Test
-    fun account_routes_require_https_and_only_trust_a_loopback_proxy() = testApplication {
-        application {
-            watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
-        }
+    fun account_routes_require_https_and_only_trust_a_loopback_proxy() =
+        testApplication {
+            application {
+                watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
+            }
 
-        val insecure = client.post("/api/v1/auth/register") {
-            contentType(ContentType.Application.Json)
-            setBody(REGISTER_BODY)
-        }
-        assertEquals(HttpStatusCode.UpgradeRequired, insecure.status)
-        assertEquals("https_required", insecure.errorCode())
+            val insecure =
+                client.post("/api/v1/auth/register") {
+                    contentType(ContentType.Application.Json)
+                    setBody(REGISTER_BODY)
+                }
+            assertEquals(HttpStatusCode.UpgradeRequired, insecure.status)
+            assertEquals("https_required", insecure.errorCode())
 
-        assertTrue(isSecureAccountTransport("https", "203.0.113.10", null))
-        assertTrue(isSecureAccountTransport("http", "127.0.0.1", "https"))
-        assertFalse(isSecureAccountTransport("http", "203.0.113.10", "https"))
-        assertFalse(isSecureAccountTransport("http", "127.0.0.1", "http, https"))
-    }
+            assertTrue(isSecureAccountTransport("https", "203.0.113.10", null))
+            assertTrue(isSecureAccountTransport("http", "127.0.0.1", "https"))
+            assertFalse(isSecureAccountTransport("http", "203.0.113.10", "https"))
+            assertFalse(isSecureAccountTransport("http", "127.0.0.1", "http, https"))
+        }
 
     @Test
     fun registration_login_and_profile_round_trip_without_storing_plaintext_secrets() {
@@ -65,9 +66,10 @@ class AccountApiTest {
                     )
                 }
 
-                val registered = client.post("/api/v1/auth/register") {
-                    secureJson(REGISTER_BODY)
-                }
+                val registered =
+                    client.post("/api/v1/auth/register") {
+                        secureJson(REGISTER_BODY)
+                    }
                 assertEquals(HttpStatusCode.Created, registered.status)
                 val registrationText = registered.bodyAsText()
                 assertFalse(registrationText.contains(TEST_PASSWORD))
@@ -78,34 +80,39 @@ class AccountApiTest {
                 assertEquals("小鱼", registration.user().string("nickname"))
                 assertEquals(2, registration.user().int("avatarId"))
 
-                val duplicate = client.post("/api/v1/auth/register") {
-                    secureJson(REGISTER_BODY)
-                }
+                val duplicate =
+                    client.post("/api/v1/auth/register") {
+                        secureJson(REGISTER_BODY)
+                    }
                 assertEquals(HttpStatusCode.Conflict, duplicate.status)
                 assertEquals("username_unavailable", duplicate.errorCode())
 
-                val wrongPassword = client.post("/api/v1/auth/login") {
-                    secureJson("""{"username":"alice","password":"WrongPassword-99"}""")
-                }
+                val wrongPassword =
+                    client.post("/api/v1/auth/login") {
+                        secureJson("""{"username":"alice","password":"WrongPassword-99"}""")
+                    }
                 assertEquals(HttpStatusCode.Unauthorized, wrongPassword.status)
                 assertEquals("invalid_credentials", wrongPassword.errorCode())
                 assertFalse(wrongPassword.bodyAsText().contains("Alice"))
 
-                val login = client.post("/api/v1/auth/login") {
-                    secureJson("""{"username":"alice","password":"$TEST_PASSWORD"}""")
-                }
+                val login =
+                    client.post("/api/v1/auth/login") {
+                        secureJson("""{"username":"alice","password":"$TEST_PASSWORD"}""")
+                    }
                 assertEquals(HttpStatusCode.OK, login.status)
 
-                val profile = client.get("/api/v1/account/profile") {
-                    secureBearer(firstAccessToken)
-                }
+                val profile =
+                    client.get("/api/v1/account/profile") {
+                        secureBearer(firstAccessToken)
+                    }
                 assertEquals(HttpStatusCode.OK, profile.status)
                 assertEquals("小鱼", profile.bodyAsText().asObject().string("nickname"))
 
-                val updated = client.put("/api/v1/account/profile") {
-                    secureJson("""{"nickname":"一起看","avatarId":5}""")
-                    bearer(firstAccessToken)
-                }
+                val updated =
+                    client.put("/api/v1/account/profile") {
+                        secureJson("""{"nickname":"一起看","avatarId":5}""")
+                        bearer(firstAccessToken)
+                    }
                 assertEquals(HttpStatusCode.OK, updated.status)
                 assertEquals("一起看", updated.bodyAsText().asObject().string("nickname"))
                 assertEquals(5, updated.bodyAsText().asObject().int("avatarId"))
@@ -113,24 +120,27 @@ class AccountApiTest {
 
             DriverManager.getConnection("jdbc:sqlite:${database.absolutePath}").use { connection ->
                 connection.createStatement().use { statement ->
-                    statement.executeQuery(
-                        "SELECT length(password_salt), length(password_hash) FROM users",
-                    ).use { result ->
-                        assertTrue(result.next())
-                        assertEquals(16, result.getInt(1))
-                        assertEquals(32, result.getInt(2))
-                    }
-                    statement.executeQuery(
-                        "SELECT length(access_token_hash), length(refresh_token_hash) FROM sessions",
-                    ).use { result ->
-                        assertTrue(result.next())
-                        assertEquals(32, result.getInt(1))
-                        assertEquals(32, result.getInt(2))
-                    }
-                    statement.executeQuery("PRAGMA table_info(sessions)").use { result ->
-                        val columns = buildSet {
-                            while (result.next()) add(result.getString("name"))
+                    statement
+                        .executeQuery(
+                            "SELECT length(password_salt), length(password_hash) FROM users",
+                        ).use { result ->
+                            assertTrue(result.next())
+                            assertEquals(16, result.getInt(1))
+                            assertEquals(32, result.getInt(2))
                         }
+                    statement
+                        .executeQuery(
+                            "SELECT length(access_token_hash), length(refresh_token_hash) FROM sessions",
+                        ).use { result ->
+                            assertTrue(result.next())
+                            assertEquals(32, result.getInt(1))
+                            assertEquals(32, result.getInt(2))
+                        }
+                    statement.executeQuery("PRAGMA table_info(sessions)").use { result ->
+                        val columns =
+                            buildSet {
+                                while (result.next()) add(result.getString("name"))
+                            }
                         assertFalse("access_token" in columns)
                         assertFalse("refresh_token" in columns)
                     }
@@ -143,52 +153,56 @@ class AccountApiTest {
     }
 
     @Test
-    fun refresh_rotates_both_tokens_and_logout_revokes_the_session() = testApplication {
-        application {
-            watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
+    fun refresh_rotates_both_tokens_and_logout_revokes_the_session() =
+        testApplication {
+            application {
+                watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
+            }
+
+            val registered = register()
+            val oldAccess = registered.string("accessToken")
+            val oldRefresh = registered.string("refreshToken")
+            val refreshedResponse =
+                client.post("/api/v1/auth/refresh") {
+                    secureJson("""{"refreshToken":"$oldRefresh"}""")
+                }
+            assertEquals(HttpStatusCode.OK, refreshedResponse.status)
+            val refreshed = refreshedResponse.bodyAsText().asObject()
+            val newAccess = refreshed.string("accessToken")
+            val newRefresh = refreshed.string("refreshToken")
+            assertNotEquals(oldAccess, newAccess)
+            assertNotEquals(oldRefresh, newRefresh)
+
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client.get("/api/v1/account/profile") { secureBearer(oldAccess) }.status,
+            )
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client
+                    .post("/api/v1/auth/refresh") {
+                        secureJson("""{"refreshToken":"$oldRefresh"}""")
+                    }.status,
+            )
+            assertEquals(
+                HttpStatusCode.OK,
+                client.get("/api/v1/account/profile") { secureBearer(newAccess) }.status,
+            )
+
+            val logout = client.post("/api/v1/auth/logout") { secureBearer(newAccess) }
+            assertEquals(HttpStatusCode.NoContent, logout.status)
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client.get("/api/v1/account/profile") { secureBearer(newAccess) }.status,
+            )
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client
+                    .post("/api/v1/auth/refresh") {
+                        secureJson("""{"refreshToken":"$newRefresh"}""")
+                    }.status,
+            )
         }
-
-        val registered = register()
-        val oldAccess = registered.string("accessToken")
-        val oldRefresh = registered.string("refreshToken")
-        val refreshedResponse = client.post("/api/v1/auth/refresh") {
-            secureJson("""{"refreshToken":"$oldRefresh"}""")
-        }
-        assertEquals(HttpStatusCode.OK, refreshedResponse.status)
-        val refreshed = refreshedResponse.bodyAsText().asObject()
-        val newAccess = refreshed.string("accessToken")
-        val newRefresh = refreshed.string("refreshToken")
-        assertNotEquals(oldAccess, newAccess)
-        assertNotEquals(oldRefresh, newRefresh)
-
-        assertEquals(
-            HttpStatusCode.Unauthorized,
-            client.get("/api/v1/account/profile") { secureBearer(oldAccess) }.status,
-        )
-        assertEquals(
-            HttpStatusCode.Unauthorized,
-            client.post("/api/v1/auth/refresh") {
-                secureJson("""{"refreshToken":"$oldRefresh"}""")
-            }.status,
-        )
-        assertEquals(
-            HttpStatusCode.OK,
-            client.get("/api/v1/account/profile") { secureBearer(newAccess) }.status,
-        )
-
-        val logout = client.post("/api/v1/auth/logout") { secureBearer(newAccess) }
-        assertEquals(HttpStatusCode.NoContent, logout.status)
-        assertEquals(
-            HttpStatusCode.Unauthorized,
-            client.get("/api/v1/account/profile") { secureBearer(newAccess) }.status,
-        )
-        assertEquals(
-            HttpStatusCode.Unauthorized,
-            client.post("/api/v1/auth/refresh") {
-                secureJson("""{"refreshToken":"$newRefresh"}""")
-            }.status,
-        )
-    }
 
     @Test
     fun expired_access_token_can_only_be_recovered_with_a_live_refresh_token() {
@@ -209,16 +223,18 @@ class AccountApiTest {
                 HttpStatusCode.Unauthorized,
                 client.get("/api/v1/account/profile") { secureBearer(access) }.status,
             )
-            val recovered = client.post("/api/v1/auth/refresh") {
-                secureJson("""{"refreshToken":"$refresh"}""")
-            }
+            val recovered =
+                client.post("/api/v1/auth/refresh") {
+                    secureJson("""{"refreshToken":"$refresh"}""")
+                }
             assertEquals(HttpStatusCode.OK, recovered.status)
             val recoveredAccess = recovered.bodyAsText().asObject().string("accessToken")
             assertEquals(
                 HttpStatusCode.OK,
-                client.get("/api/v1/account/profile") {
-                    secureBearer(recoveredAccess)
-                }.status,
+                client
+                    .get("/api/v1/account/profile") {
+                        secureBearer(recoveredAccess)
+                    }.status,
             )
         }
     }
@@ -243,18 +259,20 @@ class AccountApiTest {
             val wrappedKey = b64(ByteArray(48) { (it + 5).toByte() })
             val wrapSalt = b64(ByteArray(16) { (it + 11).toByte() })
             val wrapNonce = b64(ByteArray(12) { (it + 17).toByte() })
-            val missingFirstWrap = client.put("/api/v1/account/sync") {
-                secureJson(syncBodyWithoutWrap(0, nonce1, ciphertext))
-                bearer(accessToken)
-            }
+            val missingFirstWrap =
+                client.put("/api/v1/account/sync") {
+                    secureJson(syncBodyWithoutWrap(0, nonce1, ciphertext))
+                    bearer(accessToken)
+                }
             assertEquals(HttpStatusCode.BadRequest, missingFirstWrap.status)
             assertEquals("sync_key_wrap_required", missingFirstWrap.errorCode())
 
             val firstBody = syncBody(0, nonce1, ciphertext, wrappedKey, wrapSalt, wrapNonce)
-            val first = client.put("/api/v1/account/sync") {
-                secureJson(firstBody)
-                bearer(accessToken)
-            }
+            val first =
+                client.put("/api/v1/account/sync") {
+                    secureJson(firstBody)
+                    bearer(accessToken)
+                }
             assertEquals(HttpStatusCode.OK, first.status)
             val firstJson = first.bodyAsText().asObject()
             assertEquals(1L, firstJson.long("version"))
@@ -263,25 +281,35 @@ class AccountApiTest {
             val fetched = client.get("/api/v1/account/sync") { secureBearer(accessToken) }
             assertEquals(firstJson["payload"], fetched.bodyAsText().asObject()["payload"])
 
-            val stale = client.put("/api/v1/account/sync") {
-                secureJson(syncBody(0, nonce2, ciphertext, wrappedKey, wrapSalt, wrapNonce))
-                bearer(accessToken)
-            }
+            val stale =
+                client.put("/api/v1/account/sync") {
+                    secureJson(syncBody(0, nonce2, ciphertext, wrappedKey, wrapSalt, wrapNonce))
+                    bearer(accessToken)
+                }
             assertEquals(HttpStatusCode.Conflict, stale.status)
             assertEquals("sync_version_conflict", stale.errorCode())
-            assertEquals(1L, stale.bodyAsText().asObject()["error"]!!.jsonObject.long("currentVersion"))
+            assertEquals(
+                1L,
+                stale
+                    .bodyAsText()
+                    .asObject()["error"]!!
+                    .jsonObject
+                    .long("currentVersion"),
+            )
 
-            val reusedNonce = client.put("/api/v1/account/sync") {
-                secureJson(syncBody(1, nonce1, ciphertext, wrappedKey, wrapSalt, wrapNonce))
-                bearer(accessToken)
-            }
+            val reusedNonce =
+                client.put("/api/v1/account/sync") {
+                    secureJson(syncBody(1, nonce1, ciphertext, wrappedKey, wrapSalt, wrapNonce))
+                    bearer(accessToken)
+                }
             assertEquals(HttpStatusCode.Conflict, reusedNonce.status)
             assertEquals("sync_nonce_reused", reusedNonce.errorCode())
 
-            val second = client.put("/api/v1/account/sync") {
-                secureJson(syncBodyWithoutWrap(1, nonce2, ciphertext))
-                bearer(accessToken)
-            }
+            val second =
+                client.put("/api/v1/account/sync") {
+                    secureJson(syncBodyWithoutWrap(1, nonce2, ciphertext))
+                    bearer(accessToken)
+                }
             assertEquals(HttpStatusCode.OK, second.status)
             val secondJson = second.bodyAsText().asObject()
             assertEquals(2L, secondJson.long("version"))
@@ -290,23 +318,26 @@ class AccountApiTest {
                 secondJson["payload"]!!.jsonObject.string("wrappedVaultKey"),
             )
 
-            val changedKeyWithoutWrap = client.put("/api/v1/account/sync") {
-                secureJson(syncBodyWithoutWrap(2, b64(ByteArray(12) { 3 }), ciphertext, keyVersion = 2))
-                bearer(accessToken)
-            }
+            val changedKeyWithoutWrap =
+                client.put("/api/v1/account/sync") {
+                    secureJson(syncBodyWithoutWrap(2, b64(ByteArray(12) { 3 }), ciphertext, keyVersion = 2))
+                    bearer(accessToken)
+                }
             assertEquals(HttpStatusCode.BadRequest, changedKeyWithoutWrap.status)
             assertEquals("sync_key_wrap_required", changedKeyWithoutWrap.errorCode())
 
-            val malformed = client.put("/api/v1/account/sync") {
-                secureJson(syncBody(2, "not+base64", ciphertext, wrappedKey, wrapSalt, wrapNonce))
-                bearer(accessToken)
-            }
+            val malformed =
+                client.put("/api/v1/account/sync") {
+                    secureJson(syncBody(2, "not+base64", ciphertext, wrappedKey, wrapSalt, wrapNonce))
+                    bearer(accessToken)
+                }
             assertEquals(HttpStatusCode.BadRequest, malformed.status)
             assertEquals("sync_envelope_invalid", malformed.errorCode())
 
-            val deleted = client.delete("/api/v1/account/sync") {
-                secureBearer(accessToken)
-            }
+            val deleted =
+                client.delete("/api/v1/account/sync") {
+                    secureBearer(accessToken)
+                }
             assertEquals(HttpStatusCode.OK, deleted.status)
             assertEquals("no-store", deleted.headers[HttpHeaders.CacheControl])
             val deletedJson = deleted.bodyAsText().asObject()
@@ -319,17 +350,25 @@ class AccountApiTest {
 
             // A write prepared against the payload that was deleted must not recreate
             // version 3 and thereby pass an ABA-style compare-and-swap check.
-            val staleAfterDelete = client.put("/api/v1/account/sync") {
-                secureJson(syncBody(2, nonce1, ciphertext, wrappedKey, wrapSalt, wrapNonce))
-                bearer(accessToken)
-            }
+            val staleAfterDelete =
+                client.put("/api/v1/account/sync") {
+                    secureJson(syncBody(2, nonce1, ciphertext, wrappedKey, wrapSalt, wrapNonce))
+                    bearer(accessToken)
+                }
             assertEquals(HttpStatusCode.Conflict, staleAfterDelete.status)
-            assertEquals(3L, staleAfterDelete.bodyAsText()
-                .asObject()["error"]!!.jsonObject.long("currentVersion"))
+            assertEquals(
+                3L,
+                staleAfterDelete
+                    .bodyAsText()
+                    .asObject()["error"]!!
+                    .jsonObject
+                    .long("currentVersion"),
+            )
 
-            val deletedAgain = client.delete("/api/v1/account/sync") {
-                secureBearer(accessToken)
-            }
+            val deletedAgain =
+                client.delete("/api/v1/account/sync") {
+                    secureBearer(accessToken)
+                }
             assertEquals(HttpStatusCode.OK, deletedAgain.status)
             assertEquals(4L, deletedAgain.bodyAsText().asObject().long("version"))
             assertFalse(deletedAgain.bodyAsText().asObject().containsKey("payload"))
@@ -337,13 +376,13 @@ class AccountApiTest {
                 HttpStatusCode.OK,
                 client.get("/api/v1/account/profile") { secureBearer(accessToken) }.status,
             )
-            val reusedAfterDelete = client.put("/api/v1/account/sync") {
-                secureJson(syncBody(4, nonce1, ciphertext, wrappedKey, wrapSalt, wrapNonce))
-                bearer(accessToken)
-            }
+            val reusedAfterDelete =
+                client.put("/api/v1/account/sync") {
+                    secureJson(syncBody(4, nonce1, ciphertext, wrappedKey, wrapSalt, wrapNonce))
+                    bearer(accessToken)
+                }
             assertEquals(HttpStatusCode.OK, reusedAfterDelete.status)
             assertEquals(5L, reusedAfterDelete.bodyAsText().asObject().long("version"))
-
         }
 
     @Test
@@ -360,14 +399,16 @@ class AccountApiTest {
                 application {
                     watchTogetherModule(accountBackend = AccountBackend.sqliteForTests(database))
                 }
-                val login = client.post("/api/v1/auth/login") {
-                    secureJson("""{"username":"Alice","password":"$TEST_PASSWORD"}""")
-                }
+                val login =
+                    client.post("/api/v1/auth/login") {
+                        secureJson("""{"username":"Alice","password":"$TEST_PASSWORD"}""")
+                    }
                 assertEquals(HttpStatusCode.OK, login.status)
 
-                val oversized = client.post("/api/v1/auth/login") {
-                    secureJson("""{"username":"Alice","password":"${"x".repeat(385 * 1024)}"}""")
-                }
+                val oversized =
+                    client.post("/api/v1/auth/login") {
+                        secureJson("""{"username":"Alice","password":"${"x".repeat(385 * 1024)}"}""")
+                    }
                 assertEquals(HttpStatusCode.PayloadTooLarge, oversized.status)
                 assertTrue(oversized.bodyAsText().toByteArray().size < 1_024)
             }
@@ -394,58 +435,75 @@ class AccountApiTest {
     }
 
     @Test
-    fun registration_accepts_eight_characters_and_rejects_anything_shorter() = testApplication {
-        application {
-            watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
-        }
+    fun registration_accepts_eight_characters_and_rejects_anything_shorter() =
+        testApplication {
+            application {
+                watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
+            }
 
-        val tooShort = client.post("/api/v1/auth/register") {
-            secureJson("""{"username":"Shorty","password":"Abc-123"}""")
-        }
-        assertEquals(HttpStatusCode.BadRequest, tooShort.status)
-        assertEquals("password_invalid", tooShort.errorCode())
+            val tooShort =
+                client.post("/api/v1/auth/register") {
+                    secureJson("""{"username":"Shorty","password":"Abc-123"}""")
+                }
+            assertEquals(HttpStatusCode.BadRequest, tooShort.status)
+            assertEquals("password_invalid", tooShort.errorCode())
 
-        val accepted = client.post("/api/v1/auth/register") {
-            secureJson("""{"username":"Eighter","password":"Abc-1234"}""")
+            val accepted =
+                client.post("/api/v1/auth/register") {
+                    secureJson("""{"username":"Eighter","password":"Abc-1234"}""")
+                }
+            assertEquals(HttpStatusCode.Created, accepted.status)
         }
-        assertEquals(HttpStatusCode.Created, accepted.status)
-    }
 
     @Test
-    fun device_session_export_and_delete_routes_enforce_owner_authentication() = testApplication {
-        application {
-            watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
-        }
+    fun device_session_export_and_delete_routes_enforce_owner_authentication() =
+        testApplication {
+            application {
+                watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
+            }
 
-        val registered = client.post("/api/v1/auth/register") {
-            secureJson(
-                """{"username":"Alice","password":"$TEST_PASSWORD","deviceName":"Phone"}""",
+            val registered =
+                client
+                    .post("/api/v1/auth/register") {
+                        secureJson(
+                            """{"username":"Alice","password":"$TEST_PASSWORD","deviceName":"Phone"}""",
+                        )
+                    }.bodyAsText()
+                    .asObject()
+            val access = registered.string("accessToken")
+
+            val sessions = client.get("/api/v1/account/sessions") { secureBearer(access) }
+            assertEquals(HttpStatusCode.OK, sessions.status)
+            assertEquals(
+                "Phone",
+                sessions
+                    .bodyAsText()
+                    .asObject()
+                    .getValue("sessions")
+                    .toString()
+                    .asObjectArray()
+                    .single()
+                    .string("deviceName"),
             )
-        }.bodyAsText().asObject()
-        val access = registered.string("accessToken")
 
-        val sessions = client.get("/api/v1/account/sessions") { secureBearer(access) }
-        assertEquals(HttpStatusCode.OK, sessions.status)
-        assertEquals("Phone", sessions.bodyAsText().asObject().getValue("sessions")
-            .toString().asObjectArray().single().string("deviceName"))
+            val exported = client.get("/api/v1/account/export") { secureBearer(access) }
+            assertEquals(HttpStatusCode.OK, exported.status)
+            val exportText = exported.bodyAsText()
+            assertFalse(exportText.contains(TEST_PASSWORD))
+            assertFalse(exportText.contains(access))
+            assertTrue(exportText.contains("encryptedSync"))
 
-        val exported = client.get("/api/v1/account/export") { secureBearer(access) }
-        assertEquals(HttpStatusCode.OK, exported.status)
-        val exportText = exported.bodyAsText()
-        assertFalse(exportText.contains(TEST_PASSWORD))
-        assertFalse(exportText.contains(access))
-        assertTrue(exportText.contains("encryptedSync"))
-
-        val deleted = client.delete("/api/v1/account") {
-            secureJson("""{"password":"$TEST_PASSWORD"}""")
-            bearer(access)
+            val deleted =
+                client.delete("/api/v1/account") {
+                    secureJson("""{"password":"$TEST_PASSWORD"}""")
+                    bearer(access)
+                }
+            assertEquals(HttpStatusCode.NoContent, deleted.status)
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client.get("/api/v1/account/profile") { secureBearer(access) }.status,
+            )
         }
-        assertEquals(HttpStatusCode.NoContent, deleted.status)
-        assertEquals(
-            HttpStatusCode.Unauthorized,
-            client.get("/api/v1/account/profile") { secureBearer(access) }.status,
-        )
-    }
 
     private suspend fun io.ktor.server.testing.ApplicationTestBuilder.register(): JsonObject =
         registerResponse().bodyAsText().asObject()
@@ -477,8 +535,7 @@ private fun HttpRequestBuilder.bearer(token: String) {
 
 private fun String.asObject(): JsonObject = Json.parseToJsonElement(this).jsonObject
 
-private fun String.asObjectArray(): List<JsonObject> =
-    Json.parseToJsonElement(this).jsonArray.map { it.jsonObject }
+private fun String.asObjectArray(): List<JsonObject> = Json.parseToJsonElement(this).jsonArray.map { it.jsonObject }
 
 private fun JsonObject.string(name: String): String = getValue(name).jsonPrimitive.content
 
@@ -489,7 +546,11 @@ private fun JsonObject.long(name: String): Long = getValue(name).jsonPrimitive.l
 private fun JsonObject.user(): JsonObject = getValue("user").jsonObject
 
 private suspend fun io.ktor.client.statement.HttpResponse.errorCode(): String =
-    bodyAsText().asObject().getValue("error").jsonObject.string("code")
+    bodyAsText()
+        .asObject()
+        .getValue("error")
+        .jsonObject
+        .string("code")
 
 private fun b64(bytes: ByteArray): String = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 
@@ -503,7 +564,8 @@ private fun syncBody(
     schemaVersion: Int = 1,
     keyVersion: Int = 1,
     wrapIterations: Int = 600_000,
-): String = """
+): String =
+    """
     {
       "baseVersion":$baseVersion,
       "payload":{
@@ -520,7 +582,7 @@ private fun syncBody(
         "wrapNonce":"$wrapNonce"
       }
     }
-""".trimIndent()
+    """.trimIndent()
 
 private fun syncBodyWithoutWrap(
     baseVersion: Long,
@@ -528,7 +590,8 @@ private fun syncBodyWithoutWrap(
     ciphertext: String,
     schemaVersion: Int = 1,
     keyVersion: Int = 1,
-): String = """
+): String =
+    """
     {
       "baseVersion":$baseVersion,
       "payload":{
@@ -539,7 +602,7 @@ private fun syncBodyWithoutWrap(
         "ciphertext":"$ciphertext"
       }
     }
-""".trimIndent()
+    """.trimIndent()
 
 private fun temporaryDatabaseFile(): File {
     val file = Files.createTempFile("yfuse-account-test", ".db").toFile()

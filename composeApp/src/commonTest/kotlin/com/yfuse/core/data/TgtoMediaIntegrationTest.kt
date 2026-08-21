@@ -9,8 +9,13 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -77,7 +82,7 @@ class TgtoMediaIntegrationTest {
     @Test
     fun directoryListingParsesTheDirectSelectorResponse() {
         val listing =
-            Json { ignoreUnknownKeys = true }.decodeFromString<TgtoDirectoryListing>(
+            Json.decodeFromString<TgtoDirectoryListing>(
                 """{"success":true,"count":1,"parent_id":"0","provider":"123","items":[{"id":"75543827","name":"影视库","parent_id":"0","provider":"123"}]}""",
             )
 
@@ -114,6 +119,51 @@ class TgtoMediaIntegrationTest {
         assertTrue(preferences.connection.value.hasPassword)
         assertFalse(settings.keys.contains("password"))
     }
+
+    @Test
+    fun concurrentUnauthorizedResponsesShareOneLogin() =
+        runTest {
+            val preferences = TgtoMediaPreferences(MapSettings(), TestSecureStore())
+            preferences.save("https://tgto.example.test", "viewer", "secret")
+            val initialSettingsRequests = AtomicInteger()
+            val loginRequests = AtomicInteger()
+            val bothInitialRequestsStarted = CompletableDeferred<Unit>()
+            val client =
+                createTgtoMediaClient(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            "/api/login" -> {
+                                loginRequests.incrementAndGet()
+                                jsonResponse("""{"success":true}""")
+                            }
+                            "/api/media/settings" -> {
+                                if (loginRequests.get() == 0) {
+                                    if (initialSettingsRequests.incrementAndGet() == 2) {
+                                        bothInitialRequestsStarted.complete(Unit)
+                                    }
+                                    bothInitialRequestsStarted.await()
+                                    jsonResponse("""{"success":false}""", HttpStatusCode.Unauthorized)
+                                } else {
+                                    jsonResponse("""{"success":true,"data":{"configured":true}}""")
+                                }
+                            }
+                            else -> error("Unexpected request ${request.url}")
+                        }
+                    },
+                )
+            val repository = TgtoMediaRepository(preferences, client)
+
+            val results =
+                coroutineScope {
+                    listOf(
+                        async { repository.settings() },
+                        async { repository.settings() },
+                    ).awaitAll()
+                }
+
+            assertTrue(results.all(Result<TgtoSettings>::isSuccess))
+            assertEquals(1, loginRequests.get())
+        }
 
     @Test
     fun pan123TokenPersistsInTheEncryptedStoreUntilExplicitlyCleared() {
@@ -213,10 +263,12 @@ class TgtoMediaIntegrationTest {
             )
         }
 
-    private fun io.ktor.client.engine.mock.MockRequestHandleScope.jsonResponse(body: String) =
-        respond(
-            content = body,
-            status = HttpStatusCode.OK,
-            headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
-        )
+    private fun io.ktor.client.engine.mock.MockRequestHandleScope.jsonResponse(
+        body: String,
+        status: HttpStatusCode = HttpStatusCode.OK,
+    ) = respond(
+        content = body,
+        status = status,
+        headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+    )
 }

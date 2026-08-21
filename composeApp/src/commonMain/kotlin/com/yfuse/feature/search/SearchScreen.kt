@@ -348,7 +348,9 @@ private fun SearchField(
             .heightIn(min = 50.dp)
             .shadow(Shadows.searchBarFocused, shape)
             .glass(shape, palette.card3, accent.border)
-            .padding(horizontal = 16.dp, vertical = 11.dp),
+            // The conditional clear action already owns a 48dp touch target. Vertical padding
+            // here would add to that real layout height and make the field jump when text appears.
+            .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -1,12 +1,12 @@
 package com.yfuse.core2.android
 
-import android.annotation.TargetApi
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.view.Surface
+import androidx.annotation.RequiresApi
 import com.yfuse.core2.graph.YVideoDecodeNode
 import java.nio.ByteBuffer
 
@@ -276,7 +276,7 @@ internal class AndroidMediaCodecVideoNode(
 }
 
 /** Keeps API 31-only verifier types out of [AndroidMediaCodecVideoNode] on Android 10 and older. */
-@TargetApi(Build.VERSION_CODES.S)
+@RequiresApi(Build.VERSION_CODES.S)
 private object Api31TunnelFrameReadyListener {
     fun set(
         codec: MediaCodec,

@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -19,9 +20,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 object HeroPageIndicatorDefaults {
-    val activeWidth = 16.dp
-    val inactiveWidth = 6.dp
-    val dotHeight = 6.dp
+    val activeWidth = 26.dp
+    val inactiveWidth = 10.dp
+    val dotHeight = 3.dp
 }
 
 /**
@@ -41,6 +42,7 @@ fun HeroPageIndicator(
     selectedPage: Int,
     onPageSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    onArtwork: Boolean = false,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val palette = LocalPalette.current
@@ -73,7 +75,13 @@ fun HeroPageIndicator(
                     .width(width)
                     .height(HeroPageIndicatorDefaults.dotHeight)
                     .clip(AppShapes.track)
-                    .background(palette.text.copy(alpha = if (active) 0.82f else 0.28f)),
+                    .background(
+                        if (onArtwork) {
+                            Color.White.copy(alpha = if (active) 0.94f else 0.34f)
+                        } else {
+                            palette.text.copy(alpha = if (active) 0.82f else 0.28f)
+                        },
+                    ),
             )
         }
     }

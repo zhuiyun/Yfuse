@@ -185,7 +185,6 @@ internal fun rememberYCoreRuntimeAssessment(
             }
             if (
                 !player.playbackRequested ||
-                current.buffering ||
                 current.ended ||
                 current.error != null
             ) {

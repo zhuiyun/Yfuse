@@ -317,7 +317,12 @@ class MpvVideoEngine(
                         }
                     }
 
-                    "duration" -> _state.update { it.copy(durationMs = (value * 1000).toLong()) }
+                    "duration" -> {
+                        val durationMs = (value * 1000).toLong()
+                        if (durationMs > 0L) {
+                            _state.update { it.copy(durationMs = durationMs) }
+                        }
+                    }
                     "speed" -> _state.update { it.copy(speed = value.toFloat()) }
                     "estimated-vf-fps" ->
                         _state.update {
@@ -639,6 +644,23 @@ class MpvVideoEngine(
             instance.requireOption("idle", "yes")
             instance.requireOption("keep-open", "always")
             instance.requireOption("cache", "yes")
+            val hugeRemoteSource =
+                items.any { item ->
+                    val version = item.activeVersion
+                    version != null &&
+                        (version.sourceSizeBytes ?: 0L) >= HUGE_REMOTE_MEDIA_BYTES &&
+                        !item.url.startsWith("file://", ignoreCase = true) &&
+                        !item.url.startsWith("content://", ignoreCase = true)
+                }
+            if (hugeRemoteSource) {
+                // Keep remote remux/BD seeks bounded: enough forward data for high-bitrate peaks,
+                // without retaining hundreds of megabytes after every Range jump.
+                instance.optionalOption("demuxer-max-bytes", "64MiB")
+                instance.optionalOption("demuxer-max-back-bytes", "16MiB")
+                instance.optionalOption("demuxer-readahead-secs", "20")
+                instance.optionalOption("cache-pause-initial", "yes")
+                instance.optionalOption("cache-pause-wait", "1")
+            }
             // Every source is already a resolved media URL. Running ytdl after an upstream error
             // only adds misleading failures and delays the real fallback path.
             instance.optionalOption("ytdl", "no")
@@ -665,14 +687,35 @@ class MpvVideoEngine(
             // reason to lose tone mapping, not a reason to fail to start a film.
             instance.optionalOption("target-colorspace-hint", "yes")
             instance.optionalOption("tone-mapping", "bt.2390")
-            instance.optionalOption("hdr-compute-peak", "yes")
+            val highPressureSoftwareDolby =
+                decoderMode == DecoderMode.Software &&
+                    items.any { item ->
+                        item.activeVersion?.let { version ->
+                            version.dolbyVision &&
+                                ((version.sourceWidth ?: 0) >= 3_000 || (version.sourceHeight ?: 0) >= 1_600)
+                        } == true
+                    }
+            instance.optionalOption("hdr-compute-peak", if (highPressureSoftwareDolby) "no" else "yes")
             // The compatibility GPU tier is a real libplacebo renderer, not a label-only route.
             // Keep these optional because the exact mpv/libplacebo option surface is artifact-bound.
-            instance.optionalOption("scale", "ewa_lanczossharp")
-            instance.optionalOption("cscale", "ewa_lanczossharp")
-            instance.optionalOption("deband", "yes")
+            instance.optionalOption("scale", if (highPressureSoftwareDolby) "bilinear" else "ewa_lanczossharp")
+            instance.optionalOption("cscale", if (highPressureSoftwareDolby) "bilinear" else "ewa_lanczossharp")
+            instance.optionalOption("deband", if (highPressureSoftwareDolby) "no" else "yes")
             instance.optionalOption("dither-depth", "auto")
             instance.optionalOption("gamut-mapping-mode", "perceptual")
+            if (highPressureSoftwareDolby || hugeRemoteSource) {
+                AppLog.info(
+                    category = "player.dolby",
+                    event = "local_resource_guard",
+                    message = "mpv enabled bounded local Dolby resource settings",
+                    attributes =
+                        mapOf(
+                            "softwareDolbyFastGpu" to highPressureSoftwareDolby.toString(),
+                            "hugeRemoteCache" to hugeRemoteSource.toString(),
+                            "decoderMode" to decoderMode.name,
+                        ),
+                )
+            }
             instance.init()
 
             instance.setPropertyDouble("speed", startSpeed.toDouble())
@@ -903,11 +946,12 @@ class MpvVideoEngine(
         val transcoding = index in transcodedIndices
         val nextItem = items.getOrNull(index)
         _state.update {
+            val mediaChanged = it.currentIndex != index
             it.copy(
                 currentIndex = index,
-                positionMs = 0L,
-                durationMs = 0L,
-                bufferedPositionMs = 0L,
+                positionMs = if (mediaChanged) 0L else it.positionMs,
+                durationMs = if (mediaChanged) 0L else it.durationMs,
+                bufferedPositionMs = if (mediaChanged) 0L else it.bufferedPositionMs,
                 videoHeight = nextItem?.sourceVideoHeight(transcoding) ?: 0,
                 buffering = true,
                 ended = false,
@@ -1005,6 +1049,7 @@ class MpvVideoEngine(
     override fun switchToTranscode(reason: String?): Boolean {
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return false
+        if (index !in transcodedIndices && !item.allowsServerTranscodeFallback(reason)) return false
         val next =
             when {
                 index in progressiveIndices -> return false
@@ -1641,6 +1686,8 @@ class MpvVideoEngine(
             )
     }
 }
+
+private const val HUGE_REMOTE_MEDIA_BYTES = 64L * 1024L * 1024L * 1024L
 
 private const val MAX_MPV_REPORTED_AV_SYNC_OFFSET_MS = 5_000L
 private const val MAX_MPV_SURFACE_RECOVERY_ATTEMPTS = 2L

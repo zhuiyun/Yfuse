@@ -421,8 +421,9 @@ class LibraryGridStoreTest {
     @Test
     fun a_failed_page_keeps_what_is_already_loaded() =
         runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher = dispatcher) { request ->
                     val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
                     when {
                         request.url.encodedPath.endsWith("/Genres") -> json("""{"Items":[]}""")
@@ -436,25 +437,21 @@ class LibraryGridStoreTest {
                     repo,
                     registry(),
                     "lib1",
-                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                    mainContext = dispatcher,
                 ).create()
-            store.states.first { !it.loading && it.items.isNotEmpty() }
-
-            // Register before the intent: an unconfined mock failure may complete before accept returns.
-            val failedState =
-                async(start = CoroutineStart.UNDISPATCHED) {
-                    store.states.first { !it.loadingMore && it.loadMoreError != null }
-                }
+            advanceUntilIdle()
+            assertEquals(2, store.state.items.size)
             store.accept(GridIntent.LoadMore)
+            advanceUntilIdle()
 
-            val failed = failedState.await()
+            val failed = store.state
             assertFalse(failed.loadingMore)
             assertTrue(failed.loadMoreError?.isNotBlank() == true)
             assertEquals(2, failed.items.size)
             // The page-level failure must not become the whole screen's error state.
             assertEquals(null, failed.error)
             store.dispose()
-            runCurrent()
+            advanceUntilIdle()
         }
 
     @Test

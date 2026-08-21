@@ -77,6 +77,8 @@ private suspend fun ResponseException.forbiddenError(): EmbyError {
                 "access denied",
                 "request blocked",
                 "security policy",
+                "客户端已被屏蔽",
+                "已被屏蔽",
             ).any(responseText::contains)
 
     return if (accessBlock) {

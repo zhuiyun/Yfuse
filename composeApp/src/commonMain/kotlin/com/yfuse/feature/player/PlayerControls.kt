@@ -662,6 +662,17 @@ internal fun PlayerControls(
         state.error?.let { message ->
             PlaybackErrorOverlay(
                 message = message,
+                details =
+                    listOfNotNull(
+                        state.diagnostics.engine.takeIf(String::isNotBlank),
+                        state.diagnostics.decoder.takeIf(String::isNotBlank),
+                        state.diagnostics.audioOutput.takeIf(String::isNotBlank),
+                    ).joinToString(" · "),
+                manualActionLabel =
+                    "手动服务器转码".takeIf {
+                        transcodeLabel != null && !transcodeActive
+                    },
+                onManualAction = onTranscode,
                 onRetry = onRetry,
                 onBack = onBack,
             )
@@ -731,7 +742,21 @@ internal fun PlayerControls(
                 },
                 onScrub = { interactions++ },
                 trickplay = trickplay,
-                progressMarkers = playbackProgressMarkers(skip, state.durationMs),
+                progressMarkers =
+                    playbackProgressMarkers(
+                        skip = skip,
+                        durationMs = state.durationMs,
+                        chapters = state.discNavigation.chapters,
+                    ),
+                artworkUrl =
+                    episodes
+                        .getOrNull(state.currentIndex)
+                        ?.let { it.stillUrl ?: it.posterUrl },
+                artworkIdentity =
+                    episodes
+                        .getOrNull(state.currentIndex)
+                        ?.watchKey
+                        ?: state.currentIndex,
                 hasEpisodes = state.itemCount > 1,
                 onOpenEpisodes = {
                     onRefreshEpisodes()

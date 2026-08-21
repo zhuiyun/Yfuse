@@ -51,15 +51,32 @@ internal interface AccountStore : AutoCloseable {
         nowEpochMs: Long,
     ): AuthenticatedSession?
 
-    fun revokeSessionByAccessHash(tokenHash: ByteArray, nowEpochMs: Long): Boolean
+    fun revokeSessionByAccessHash(
+        tokenHash: ByteArray,
+        nowEpochMs: Long,
+    ): Boolean
 
-    fun listActiveSessions(userId: String, nowEpochMs: Long): List<StoredSession>
+    fun listActiveSessions(
+        userId: String,
+        nowEpochMs: Long,
+    ): List<StoredSession>
 
-    fun revokeSession(userId: String, sessionId: String, nowEpochMs: Long): Boolean
+    fun revokeSession(
+        userId: String,
+        sessionId: String,
+        nowEpochMs: Long,
+    ): Boolean
 
-    fun revokeOtherSessions(userId: String, currentSessionId: String, nowEpochMs: Long): Int
+    fun revokeOtherSessions(
+        userId: String,
+        currentSessionId: String,
+        nowEpochMs: Long,
+    ): Int
 
-    fun revokeAllSessions(userId: String, nowEpochMs: Long): Int
+    fun revokeAllSessions(
+        userId: String,
+        nowEpochMs: Long,
+    ): Int
 
     fun deleteUser(
         userId: String,
@@ -276,24 +293,26 @@ internal class SqliteAccountStore private constructor(
                 )
             }
             val migrationNowEpochMs = System.currentTimeMillis()
-            connection.prepareStatement(
-                """
-                UPDATE sync_records
-                SET wrap_version = 1,
-                    wrap_kdf = 'PBKDF2-HMAC-SHA256',
-                    wrap_iterations = 600000
-                WHERE wrapped_vault_key IS NOT NULL
-                  AND wrap_salt IS NOT NULL
-                  AND wrap_nonce IS NOT NULL
-                  AND (wrap_version IS NULL OR wrap_kdf IS NULL OR wrap_iterations IS NULL)
-                """.trimIndent(),
-            ).use { it.executeUpdate() }
-            connection.prepareStatement(
-                "UPDATE sync_nonce_history SET recorded_at_ms = ? WHERE recorded_at_ms = 0",
-            ).use { statement ->
-                statement.setLong(1, migrationNowEpochMs)
-                statement.executeUpdate()
-            }
+            connection
+                .prepareStatement(
+                    """
+                    UPDATE sync_records
+                    SET wrap_version = 1,
+                        wrap_kdf = 'PBKDF2-HMAC-SHA256',
+                        wrap_iterations = 600000
+                    WHERE wrapped_vault_key IS NOT NULL
+                      AND wrap_salt IS NOT NULL
+                      AND wrap_nonce IS NOT NULL
+                      AND (wrap_version IS NULL OR wrap_kdf IS NULL OR wrap_iterations IS NULL)
+                    """.trimIndent(),
+                ).use { it.executeUpdate() }
+            connection
+                .prepareStatement(
+                    "UPDATE sync_nonce_history SET recorded_at_ms = ? WHERE recorded_at_ms = 0",
+                ).use { statement ->
+                    statement.setLong(1, migrationNowEpochMs)
+                    statement.executeUpdate()
+                }
             // Existing databases used sync_records.version as the only revision. Seed the
             // separate revision row once so later deletes can retain a tombstone without
             // making the legacy payload columns nullable.
@@ -321,14 +340,15 @@ internal class SqliteAccountStore private constructor(
     override fun registrationAvailability(
         normalizedUsername: String,
         maxUsers: Int,
-    ): RegistrationAvailability = synchronized(lock) {
-        when {
-            userCountLocked() >= maxUsers -> RegistrationAvailability.Closed
-            findUserByNormalizedUsernameLocked(normalizedUsername) != null ->
-                RegistrationAvailability.UsernameUnavailable
-            else -> RegistrationAvailability.Available
+    ): RegistrationAvailability =
+        synchronized(lock) {
+            when {
+                userCountLocked() >= maxUsers -> RegistrationAvailability.Closed
+                findUserByNormalizedUsernameLocked(normalizedUsername) != null ->
+                    RegistrationAvailability.UsernameUnavailable
+                else -> RegistrationAvailability.Available
+            }
         }
-    }
 
     override fun createUserWithSession(
         credentials: StoredCredentials,
@@ -341,29 +361,33 @@ internal class SqliteAccountStore private constructor(
             val user = credentials.user
             transaction {
                 if (invitationDigest != null && invitationKind == InvitationKind.Issued) {
-                    val available = connection.prepareStatement(
-                        """
-                        SELECT 1 FROM account_invites
-                        WHERE invite_hash = ?
-                          AND redeemed_at_ms IS NULL
-                          AND revoked_at_ms IS NULL
-                          AND expires_at_ms > ?
-                        LIMIT 1
-                        """.trimIndent(),
-                    ).use { statement ->
-                        statement.setBytes(1, invitationDigest)
-                        statement.setLong(2, user.createdAtEpochMs)
-                        statement.executeQuery().use(ResultSet::next)
-                    }
+                    val available =
+                        connection
+                            .prepareStatement(
+                                """
+                                SELECT 1 FROM account_invites
+                                WHERE invite_hash = ?
+                                  AND redeemed_at_ms IS NULL
+                                  AND revoked_at_ms IS NULL
+                                  AND expires_at_ms > ?
+                                LIMIT 1
+                                """.trimIndent(),
+                            ).use { statement ->
+                                statement.setBytes(1, invitationDigest)
+                                statement.setLong(2, user.createdAtEpochMs)
+                                statement.executeQuery().use(ResultSet::next)
+                            }
                     if (!available) return@transaction RegistrationWriteResult.InviteUnavailable
                 }
                 if (invitationDigest != null && invitationKind == InvitationKind.Static) {
-                    val alreadyRedeemed = connection.prepareStatement(
-                        "SELECT 1 FROM account_invite_redemptions WHERE invite_hash = ? LIMIT 1",
-                    ).use { statement ->
-                        statement.setBytes(1, invitationDigest)
-                        statement.executeQuery().use(ResultSet::next)
-                    }
+                    val alreadyRedeemed =
+                        connection
+                            .prepareStatement(
+                                "SELECT 1 FROM account_invite_redemptions WHERE invite_hash = ? LIMIT 1",
+                            ).use { statement ->
+                                statement.setBytes(1, invitationDigest)
+                                statement.executeQuery().use(ResultSet::next)
+                            }
                     if (alreadyRedeemed) {
                         return@transaction RegistrationWriteResult.InviteUnavailable
                     }
@@ -375,56 +399,60 @@ internal class SqliteAccountStore private constructor(
                     return@transaction RegistrationWriteResult.UsernameUnavailable
                 }
                 if (invitationDigest != null && invitationKind == InvitationKind.Static) {
-                    connection.prepareStatement(
-                        """
-                        INSERT INTO account_invite_redemptions(
-                            invite_hash, user_id, redeemed_at_ms
-                        ) VALUES (?, ?, ?)
-                        """.trimIndent(),
-                    ).use { statement ->
-                        statement.setBytes(1, invitationDigest)
-                        statement.setString(2, user.id)
-                        statement.setLong(3, user.createdAtEpochMs)
-                        check(statement.executeUpdate() == 1)
-                    }
+                    connection
+                        .prepareStatement(
+                            """
+                            INSERT INTO account_invite_redemptions(
+                                invite_hash, user_id, redeemed_at_ms
+                            ) VALUES (?, ?, ?)
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setBytes(1, invitationDigest)
+                            statement.setString(2, user.id)
+                            statement.setLong(3, user.createdAtEpochMs)
+                            check(statement.executeUpdate() == 1)
+                        }
                 }
-                connection.prepareStatement(
-                    """
-                    INSERT INTO users (
-                        id, username, username_normalized, password_salt, password_hash,
-                        password_iterations, nickname, avatar_id, created_at_ms, updated_at_ms
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setString(1, user.id)
-                    statement.setString(2, user.username)
-                    statement.setString(3, user.normalizedUsername)
-                    statement.setBytes(4, credentials.passwordSalt)
-                    statement.setBytes(5, credentials.passwordHash)
-                    statement.setInt(6, credentials.passwordIterations)
-                    statement.setString(7, user.nickname)
-                    statement.setInt(8, user.avatarId)
-                    statement.setLong(9, user.createdAtEpochMs)
-                    statement.setLong(10, user.updatedAtEpochMs)
-                    statement.executeUpdate()
-                }
-                if (invitationDigest != null && invitationKind == InvitationKind.Issued) {
-                    val consumed = connection.prepareStatement(
+                connection
+                    .prepareStatement(
                         """
-                        UPDATE account_invites
-                        SET redeemed_by_user_id = ?, redeemed_at_ms = ?
-                        WHERE invite_hash = ?
-                          AND redeemed_at_ms IS NULL
-                          AND revoked_at_ms IS NULL
-                          AND expires_at_ms > ?
+                        INSERT INTO users (
+                            id, username, username_normalized, password_salt, password_hash,
+                            password_iterations, nickname, avatar_id, created_at_ms, updated_at_ms
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """.trimIndent(),
                     ).use { statement ->
                         statement.setString(1, user.id)
-                        statement.setLong(2, user.createdAtEpochMs)
-                        statement.setBytes(3, invitationDigest)
-                        statement.setLong(4, user.createdAtEpochMs)
+                        statement.setString(2, user.username)
+                        statement.setString(3, user.normalizedUsername)
+                        statement.setBytes(4, credentials.passwordSalt)
+                        statement.setBytes(5, credentials.passwordHash)
+                        statement.setInt(6, credentials.passwordIterations)
+                        statement.setString(7, user.nickname)
+                        statement.setInt(8, user.avatarId)
+                        statement.setLong(9, user.createdAtEpochMs)
+                        statement.setLong(10, user.updatedAtEpochMs)
                         statement.executeUpdate()
                     }
+                if (invitationDigest != null && invitationKind == InvitationKind.Issued) {
+                    val consumed =
+                        connection
+                            .prepareStatement(
+                                """
+                                UPDATE account_invites
+                                SET redeemed_by_user_id = ?, redeemed_at_ms = ?
+                                WHERE invite_hash = ?
+                                  AND redeemed_at_ms IS NULL
+                                  AND revoked_at_ms IS NULL
+                                  AND expires_at_ms > ?
+                                """.trimIndent(),
+                            ).use { statement ->
+                                statement.setString(1, user.id)
+                                statement.setLong(2, user.createdAtEpochMs)
+                                statement.setBytes(3, invitationDigest)
+                                statement.setLong(4, user.createdAtEpochMs)
+                                statement.executeUpdate()
+                            }
                     check(consumed == 1) { "issued invite changed inside registration transaction" }
                 }
                 insertSessionLocked(session)
@@ -440,59 +468,67 @@ internal class SqliteAccountStore private constructor(
         authenticatedSessionId: String,
         invite: NewIssuedInvite,
         nowEpochMs: Long,
-    ): InviteIssueWriteResult = synchronized(lock) {
-        transaction {
-            val active = connection.prepareStatement(
-                """
-                SELECT 1 FROM sessions
-                WHERE id = ? AND user_id = ? AND revoked_at_ms IS NULL
-                  AND access_expires_at_ms > ?
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, authenticatedSessionId)
-                statement.setString(2, invite.issuerUserId)
-                statement.setLong(3, nowEpochMs)
-                statement.executeQuery().use(ResultSet::next)
+    ): InviteIssueWriteResult =
+        synchronized(lock) {
+            transaction {
+                val active =
+                    connection
+                        .prepareStatement(
+                            """
+                            SELECT 1 FROM sessions
+                            WHERE id = ? AND user_id = ? AND revoked_at_ms IS NULL
+                              AND access_expires_at_ms > ?
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setString(1, authenticatedSessionId)
+                            statement.setString(2, invite.issuerUserId)
+                            statement.setLong(3, nowEpochMs)
+                            statement.executeQuery().use(ResultSet::next)
+                        }
+                if (!active) return@transaction InviteIssueWriteResult.SessionInvalid
+                val permitted =
+                    connection
+                        .prepareStatement(
+                            """
+                            SELECT 1 FROM account_permissions
+                            WHERE user_id = ? AND permission = ?
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setString(1, invite.issuerUserId)
+                            statement.setString(2, INVITE_ISSUE_CAPABILITY)
+                            statement.executeQuery().use(ResultSet::next)
+                        }
+                if (!permitted) return@transaction InviteIssueWriteResult.Forbidden
+                connection
+                    .prepareStatement(
+                        """
+                        INSERT INTO account_invites(
+                            invite_hash, issuer_user_id, created_at_ms, expires_at_ms
+                        ) VALUES (?, ?, ?, ?)
+                        """.trimIndent(),
+                    ).use { statement ->
+                        statement.setBytes(1, invite.digest)
+                        statement.setString(2, invite.issuerUserId)
+                        statement.setLong(3, invite.createdAtEpochMs)
+                        statement.setLong(4, invite.expiresAtEpochMs)
+                        check(statement.executeUpdate() == 1)
+                    }
+                InviteIssueWriteResult.Created
             }
-            if (!active) return@transaction InviteIssueWriteResult.SessionInvalid
-            val permitted = connection.prepareStatement(
-                """
-                SELECT 1 FROM account_permissions
-                WHERE user_id = ? AND permission = ?
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, invite.issuerUserId)
-                statement.setString(2, INVITE_ISSUE_CAPABILITY)
-                statement.executeQuery().use(ResultSet::next)
-            }
-            if (!permitted) return@transaction InviteIssueWriteResult.Forbidden
-            connection.prepareStatement(
-                """
-                INSERT INTO account_invites(
-                    invite_hash, issuer_user_id, created_at_ms, expires_at_ms
-                ) VALUES (?, ?, ?, ?)
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setBytes(1, invite.digest)
-                statement.setString(2, invite.issuerUserId)
-                statement.setLong(3, invite.createdAtEpochMs)
-                statement.setLong(4, invite.expiresAtEpochMs)
-                check(statement.executeUpdate() == 1)
-            }
-            InviteIssueWriteResult.Created
         }
-    }
 
-    override fun permissionsForUser(userId: String): Set<String> = synchronized(lock) {
-        connection.prepareStatement(
-            "SELECT permission FROM account_permissions WHERE user_id = ? ORDER BY permission",
-        ).use { statement ->
-            statement.setString(1, userId)
-            statement.executeQuery().use { result ->
-                buildSet { while (result.next()) add(result.getString("permission")) }
-            }
+    override fun permissionsForUser(userId: String): Set<String> =
+        synchronized(lock) {
+            connection
+                .prepareStatement(
+                    "SELECT permission FROM account_permissions WHERE user_id = ? ORDER BY permission",
+                ).use { statement ->
+                    statement.setString(1, userId)
+                    statement.executeQuery().use { result ->
+                        buildSet { while (result.next()) add(result.getString("permission")) }
+                    }
+                }
         }
-    }
 
     override fun synchronizeInviteIssuerPermissions(
         normalizedUsernames: Set<String>,
@@ -500,26 +536,28 @@ internal class SqliteAccountStore private constructor(
     ) {
         synchronized(lock) {
             transaction {
-                connection.prepareStatement(
-                    "DELETE FROM account_permissions WHERE permission = ? AND managed_by_config = 1",
-                ).use { statement ->
-                    statement.setString(1, INVITE_ISSUE_CAPABILITY)
-                    statement.executeUpdate()
-                }
-                normalizedUsernames.forEach { normalizedUsername ->
-                    connection.prepareStatement(
-                        """
-                        INSERT OR IGNORE INTO account_permissions(
-                            user_id, permission, granted_at_ms, managed_by_config
-                        )
-                        SELECT id, ?, ?, 1 FROM users WHERE username_normalized = ?
-                        """.trimIndent(),
+                connection
+                    .prepareStatement(
+                        "DELETE FROM account_permissions WHERE permission = ? AND managed_by_config = 1",
                     ).use { statement ->
                         statement.setString(1, INVITE_ISSUE_CAPABILITY)
-                        statement.setLong(2, nowEpochMs)
-                        statement.setString(3, normalizedUsername)
                         statement.executeUpdate()
                     }
+                normalizedUsernames.forEach { normalizedUsername ->
+                    connection
+                        .prepareStatement(
+                            """
+                            INSERT OR IGNORE INTO account_permissions(
+                                user_id, permission, granted_at_ms, managed_by_config
+                            )
+                            SELECT id, ?, ?, 1 FROM users WHERE username_normalized = ?
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setString(1, INVITE_ISSUE_CAPABILITY)
+                            statement.setLong(2, nowEpochMs)
+                            statement.setString(3, normalizedUsername)
+                            statement.executeUpdate()
+                        }
                 }
             }
         }
@@ -528,9 +566,10 @@ internal class SqliteAccountStore private constructor(
     override fun findUserByNormalizedUsername(normalizedUsername: String): StoredCredentials? =
         synchronized(lock) { findUserByNormalizedUsernameLocked(normalizedUsername) }
 
-    override fun findCredentialsByUserId(userId: String): StoredCredentials? = synchronized(lock) {
-        findCredentialsByUserIdLocked(userId)
-    }
+    override fun findCredentialsByUserId(userId: String): StoredCredentials? =
+        synchronized(lock) {
+            findCredentialsByUserIdLocked(userId)
+        }
 
     override fun createSession(session: NewSession) {
         synchronized(lock) {
@@ -549,235 +588,282 @@ internal class SqliteAccountStore private constructor(
         tokenHash: ByteArray,
         nowEpochMs: Long,
         touchLastSeen: Boolean,
-    ): AuthenticatedSession? = synchronized(lock) {
-        connection.prepareStatement(
-            """
-            SELECT s.id AS session_id, s.access_expires_at_ms, $USER_COLUMNS
-            FROM sessions s
-            JOIN users u ON u.id = s.user_id
-            WHERE s.access_token_hash = ?
-              AND s.revoked_at_ms IS NULL
-              AND s.access_expires_at_ms > ?
-            LIMIT 1
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setBytes(1, tokenHash)
-            statement.setLong(2, nowEpochMs)
-            statement.executeQuery().use { result ->
-                if (!result.next()) null else AuthenticatedSession(
-                    sessionId = result.getString("session_id"),
-                    user = result.readUser(),
-                    accessExpiresAtEpochMs = result.getLong("access_expires_at_ms"),
-                ).also {
-                    if (touchLastSeen) {
-                        connection.prepareStatement(
-                            "UPDATE sessions SET last_seen_at_ms = ? WHERE id = ?",
-                        ).use { touch ->
-                            touch.setLong(1, nowEpochMs)
-                            touch.setString(2, it.sessionId)
-                            touch.executeUpdate()
+    ): AuthenticatedSession? =
+        synchronized(lock) {
+            connection
+                .prepareStatement(
+                    """
+                    SELECT s.id AS session_id, s.access_expires_at_ms, $USER_COLUMNS
+                    FROM sessions s
+                    JOIN users u ON u.id = s.user_id
+                    WHERE s.access_token_hash = ?
+                      AND s.revoked_at_ms IS NULL
+                      AND s.access_expires_at_ms > ?
+                    LIMIT 1
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setBytes(1, tokenHash)
+                    statement.setLong(2, nowEpochMs)
+                    statement.executeQuery().use { result ->
+                        if (!result.next()) {
+                            null
+                        } else {
+                            AuthenticatedSession(
+                                sessionId = result.getString("session_id"),
+                                user = result.readUser(),
+                                accessExpiresAtEpochMs = result.getLong("access_expires_at_ms"),
+                            ).also {
+                                if (touchLastSeen) {
+                                    connection
+                                        .prepareStatement(
+                                            "UPDATE sessions SET last_seen_at_ms = ? WHERE id = ?",
+                                        ).use { touch ->
+                                            touch.setLong(1, nowEpochMs)
+                                            touch.setString(2, it.sessionId)
+                                            touch.executeUpdate()
+                                        }
+                                }
+                            }
                         }
                     }
                 }
-            }
         }
-    }
 
     override fun rotateSessionByRefreshHash(
         currentRefreshHash: ByteArray,
         replacement: SessionReplacement,
         nowEpochMs: Long,
-    ): AuthenticatedSession? = synchronized(lock) {
-        transaction {
-            val current = connection.prepareStatement(
-                """
-                SELECT s.id AS session_id, s.access_expires_at_ms, $USER_COLUMNS
-                FROM sessions s
-                JOIN users u ON u.id = s.user_id
-                WHERE s.refresh_token_hash = ?
-                  AND s.revoked_at_ms IS NULL
-                  AND s.refresh_expires_at_ms > ?
-                LIMIT 1
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setBytes(1, currentRefreshHash)
-                statement.setLong(2, nowEpochMs)
-                statement.executeQuery().use { result ->
-                    if (!result.next()) null else AuthenticatedSession(
-                        sessionId = result.getString("session_id"),
-                        user = result.readUser(),
-                        accessExpiresAtEpochMs = result.getLong("access_expires_at_ms"),
+    ): AuthenticatedSession? =
+        synchronized(lock) {
+            transaction {
+                val current =
+                    connection
+                        .prepareStatement(
+                            """
+                            SELECT s.id AS session_id, s.access_expires_at_ms, $USER_COLUMNS
+                            FROM sessions s
+                            JOIN users u ON u.id = s.user_id
+                            WHERE s.refresh_token_hash = ?
+                              AND s.revoked_at_ms IS NULL
+                              AND s.refresh_expires_at_ms > ?
+                            LIMIT 1
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setBytes(1, currentRefreshHash)
+                            statement.setLong(2, nowEpochMs)
+                            statement.executeQuery().use { result ->
+                                if (!result.next()) {
+                                    null
+                                } else {
+                                    AuthenticatedSession(
+                                        sessionId = result.getString("session_id"),
+                                        user = result.readUser(),
+                                        accessExpiresAtEpochMs = result.getLong("access_expires_at_ms"),
+                                    )
+                                }
+                            }
+                        } ?: return@transaction null
+
+                val changed =
+                    connection
+                        .prepareStatement(
+                            """
+                            UPDATE sessions
+                            SET id = ?, access_token_hash = ?, refresh_token_hash = ?,
+                                access_expires_at_ms = ?, refresh_expires_at_ms = ?, created_at_ms = ?,
+                                device_name = COALESCE(?, device_name), last_seen_at_ms = ?
+                            WHERE id = ? AND refresh_token_hash = ? AND revoked_at_ms IS NULL
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setString(1, replacement.id)
+                            statement.setBytes(2, replacement.accessTokenHash)
+                            statement.setBytes(3, replacement.refreshTokenHash)
+                            statement.setLong(4, replacement.accessExpiresAtEpochMs)
+                            statement.setLong(5, replacement.refreshExpiresAtEpochMs)
+                            statement.setLong(6, replacement.createdAtEpochMs)
+                            statement.setString(7, replacement.deviceName)
+                            statement.setLong(8, nowEpochMs)
+                            statement.setString(9, current.sessionId)
+                            statement.setBytes(10, currentRefreshHash)
+                            statement.executeUpdate()
+                        }
+                if (changed != 1) {
+                    null
+                } else {
+                    current.copy(
+                        sessionId = replacement.id,
+                        accessExpiresAtEpochMs = replacement.accessExpiresAtEpochMs,
                     )
                 }
-            } ?: return@transaction null
-
-            val changed = connection.prepareStatement(
-                """
-                UPDATE sessions
-                SET id = ?, access_token_hash = ?, refresh_token_hash = ?,
-                    access_expires_at_ms = ?, refresh_expires_at_ms = ?, created_at_ms = ?,
-                    device_name = COALESCE(?, device_name), last_seen_at_ms = ?
-                WHERE id = ? AND refresh_token_hash = ? AND revoked_at_ms IS NULL
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, replacement.id)
-                statement.setBytes(2, replacement.accessTokenHash)
-                statement.setBytes(3, replacement.refreshTokenHash)
-                statement.setLong(4, replacement.accessExpiresAtEpochMs)
-                statement.setLong(5, replacement.refreshExpiresAtEpochMs)
-                statement.setLong(6, replacement.createdAtEpochMs)
-                statement.setString(7, replacement.deviceName)
-                statement.setLong(8, nowEpochMs)
-                statement.setString(9, current.sessionId)
-                statement.setBytes(10, currentRefreshHash)
-                statement.executeUpdate()
-            }
-            if (changed != 1) null else current.copy(
-                sessionId = replacement.id,
-                accessExpiresAtEpochMs = replacement.accessExpiresAtEpochMs,
-            )
-        }
-    }
-
-    override fun revokeSessionByAccessHash(tokenHash: ByteArray, nowEpochMs: Long): Boolean =
-        synchronized(lock) {
-            connection.prepareStatement(
-                """
-                UPDATE sessions
-                SET revoked_at_ms = ?
-                WHERE access_token_hash = ? AND revoked_at_ms IS NULL
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setLong(1, nowEpochMs)
-                statement.setBytes(2, tokenHash)
-                statement.executeUpdate() == 1
             }
         }
 
-    override fun listActiveSessions(userId: String, nowEpochMs: Long): List<StoredSession> =
+    override fun revokeSessionByAccessHash(
+        tokenHash: ByteArray,
+        nowEpochMs: Long,
+    ): Boolean =
         synchronized(lock) {
-            connection.prepareStatement(
-                """
-                SELECT id, device_name, created_at_ms, last_seen_at_ms
-                FROM sessions
-                WHERE user_id = ? AND revoked_at_ms IS NULL AND refresh_expires_at_ms > ?
-                ORDER BY last_seen_at_ms DESC, created_at_ms DESC
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, userId)
-                statement.setLong(2, nowEpochMs)
-                statement.executeQuery().use { result ->
-                    buildList {
-                        while (result.next()) {
-                            add(
-                                StoredSession(
-                                    id = result.getString("id"),
-                                    deviceName = result.getString("device_name"),
-                                    createdAtEpochMs = result.getLong("created_at_ms"),
-                                    lastSeenAtEpochMs = result.getLong("last_seen_at_ms"),
-                                ),
-                            )
+            connection
+                .prepareStatement(
+                    """
+                    UPDATE sessions
+                    SET revoked_at_ms = ?
+                    WHERE access_token_hash = ? AND revoked_at_ms IS NULL
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setLong(1, nowEpochMs)
+                    statement.setBytes(2, tokenHash)
+                    statement.executeUpdate() == 1
+                }
+        }
+
+    override fun listActiveSessions(
+        userId: String,
+        nowEpochMs: Long,
+    ): List<StoredSession> =
+        synchronized(lock) {
+            connection
+                .prepareStatement(
+                    """
+                    SELECT id, device_name, created_at_ms, last_seen_at_ms
+                    FROM sessions
+                    WHERE user_id = ? AND revoked_at_ms IS NULL AND refresh_expires_at_ms > ?
+                    ORDER BY last_seen_at_ms DESC, created_at_ms DESC
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, userId)
+                    statement.setLong(2, nowEpochMs)
+                    statement.executeQuery().use { result ->
+                        buildList {
+                            while (result.next()) {
+                                add(
+                                    StoredSession(
+                                        id = result.getString("id"),
+                                        deviceName = result.getString("device_name"),
+                                        createdAtEpochMs = result.getLong("created_at_ms"),
+                                        lastSeenAtEpochMs = result.getLong("last_seen_at_ms"),
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
-            }
         }
 
-    override fun revokeSession(userId: String, sessionId: String, nowEpochMs: Long): Boolean =
+    override fun revokeSession(
+        userId: String,
+        sessionId: String,
+        nowEpochMs: Long,
+    ): Boolean =
         synchronized(lock) {
-            connection.prepareStatement(
-                """
-                UPDATE sessions SET revoked_at_ms = ?
-                WHERE user_id = ? AND id = ? AND revoked_at_ms IS NULL
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setLong(1, nowEpochMs)
-                statement.setString(2, userId)
-                statement.setString(3, sessionId)
-                statement.executeUpdate() == 1
-            }
+            connection
+                .prepareStatement(
+                    """
+                    UPDATE sessions SET revoked_at_ms = ?
+                    WHERE user_id = ? AND id = ? AND revoked_at_ms IS NULL
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setLong(1, nowEpochMs)
+                    statement.setString(2, userId)
+                    statement.setString(3, sessionId)
+                    statement.executeUpdate() == 1
+                }
         }
 
     override fun revokeOtherSessions(
         userId: String,
         currentSessionId: String,
         nowEpochMs: Long,
-    ): Int = synchronized(lock) {
-        connection.prepareStatement(
-            """
-            UPDATE sessions SET revoked_at_ms = ?
-            WHERE user_id = ? AND id <> ? AND revoked_at_ms IS NULL
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setLong(1, nowEpochMs)
-            statement.setString(2, userId)
-            statement.setString(3, currentSessionId)
-            statement.executeUpdate()
+    ): Int =
+        synchronized(lock) {
+            connection
+                .prepareStatement(
+                    """
+                    UPDATE sessions SET revoked_at_ms = ?
+                    WHERE user_id = ? AND id <> ? AND revoked_at_ms IS NULL
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setLong(1, nowEpochMs)
+                    statement.setString(2, userId)
+                    statement.setString(3, currentSessionId)
+                    statement.executeUpdate()
+                }
         }
-    }
 
-    override fun revokeAllSessions(userId: String, nowEpochMs: Long): Int = synchronized(lock) {
-        connection.prepareStatement(
-            "UPDATE sessions SET revoked_at_ms = ? WHERE user_id = ? AND revoked_at_ms IS NULL",
-        ).use { statement ->
-            statement.setLong(1, nowEpochMs)
-            statement.setString(2, userId)
-            statement.executeUpdate()
+    override fun revokeAllSessions(
+        userId: String,
+        nowEpochMs: Long,
+    ): Int =
+        synchronized(lock) {
+            connection
+                .prepareStatement(
+                    "UPDATE sessions SET revoked_at_ms = ? WHERE user_id = ? AND revoked_at_ms IS NULL",
+                ).use { statement ->
+                    statement.setLong(1, nowEpochMs)
+                    statement.setString(2, userId)
+                    statement.executeUpdate()
+                }
         }
-    }
 
     override fun deleteUser(
         userId: String,
         expectedCurrent: PasswordDigest,
         authenticatedSessionId: String,
         nowEpochMs: Long,
-    ): DeleteAccountWriteResult = synchronized(lock) {
-        transaction {
-            if (!isActiveSessionLocked(authenticatedSessionId, userId, nowEpochMs)) {
-                return@transaction DeleteAccountWriteResult.SessionInvalid
+    ): DeleteAccountWriteResult =
+        synchronized(lock) {
+            transaction {
+                if (!isActiveSessionLocked(authenticatedSessionId, userId, nowEpochMs)) {
+                    return@transaction DeleteAccountWriteResult.SessionInvalid
+                }
+                val current =
+                    findCredentialsByUserIdLocked(userId)
+                        ?: return@transaction DeleteAccountWriteResult.SessionInvalid
+                val credentialsMatch =
+                    try {
+                        current.passwordIterations == expectedCurrent.iterations &&
+                            current.passwordSalt.contentEquals(expectedCurrent.salt) &&
+                            current.passwordHash.contentEquals(expectedCurrent.hash)
+                    } finally {
+                        current.passwordSalt.fill(0)
+                        current.passwordHash.fill(0)
+                    }
+                if (!credentialsMatch) return@transaction DeleteAccountWriteResult.CredentialsChanged
+                connection.prepareStatement("DELETE FROM users WHERE id = ?").use { statement ->
+                    statement.setString(1, userId)
+                    check(statement.executeUpdate() == 1)
+                }
+                DeleteAccountWriteResult.Deleted
             }
-            val current = findCredentialsByUserIdLocked(userId)
-                ?: return@transaction DeleteAccountWriteResult.SessionInvalid
-            val credentialsMatch = try {
-                current.passwordIterations == expectedCurrent.iterations &&
-                    current.passwordSalt.contentEquals(expectedCurrent.salt) &&
-                    current.passwordHash.contentEquals(expectedCurrent.hash)
-            } finally {
-                current.passwordSalt.fill(0)
-                current.passwordHash.fill(0)
-            }
-            if (!credentialsMatch) return@transaction DeleteAccountWriteResult.CredentialsChanged
-            connection.prepareStatement("DELETE FROM users WHERE id = ?").use { statement ->
-                statement.setString(1, userId)
-                check(statement.executeUpdate() == 1)
-            }
-            DeleteAccountWriteResult.Deleted
         }
-    }
 
     override fun updateProfile(
         userId: String,
         nickname: String,
         avatarId: Int,
         updatedAtEpochMs: Long,
-    ): StoredUser? = synchronized(lock) {
-        val changed = connection.prepareStatement(
-            """
-            UPDATE users SET nickname = ?, avatar_id = ?, updated_at_ms = ? WHERE id = ?
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setString(1, nickname)
-            statement.setInt(2, avatarId)
-            statement.setLong(3, updatedAtEpochMs)
-            statement.setString(4, userId)
-            statement.executeUpdate()
+    ): StoredUser? =
+        synchronized(lock) {
+            val changed =
+                connection
+                    .prepareStatement(
+                        """
+                        UPDATE users SET nickname = ?, avatar_id = ?, updated_at_ms = ? WHERE id = ?
+                        """.trimIndent(),
+                    ).use { statement ->
+                        statement.setString(1, nickname)
+                        statement.setInt(2, avatarId)
+                        statement.setLong(3, updatedAtEpochMs)
+                        statement.setString(4, userId)
+                        statement.executeUpdate()
+                    }
+            if (changed != 1) null else findUserByIdLocked(userId)
         }
-        if (changed != 1) null else findUserByIdLocked(userId)
-    }
 
-    override fun getSyncState(userId: String): StoredSyncState = synchronized(lock) {
-        getSyncStateLocked(userId)
-    }
+    override fun getSyncState(userId: String): StoredSyncState =
+        synchronized(lock) {
+            getSyncStateLocked(userId)
+        }
 
     override fun putSyncRecord(
         record: StoredSyncRecord,
@@ -803,18 +889,20 @@ internal class SqliteAccountStore private constructor(
                 check(record.version == baseVersion + 1L)
 
                 cleanupNonceHistoryLocked(record.updatedAtEpochMs)
-                val nonceSeen = connection.prepareStatement(
-                    """
-                    SELECT 1 FROM sync_nonce_history
-                    WHERE user_id = ? AND key_version = ? AND nonce = ?
-                    LIMIT 1
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setString(1, record.userId)
-                    statement.setInt(2, record.keyVersion)
-                    statement.setBytes(3, record.nonce)
-                    statement.executeQuery().use(ResultSet::next)
-                }
+                val nonceSeen =
+                    connection
+                        .prepareStatement(
+                            """
+                            SELECT 1 FROM sync_nonce_history
+                            WHERE user_id = ? AND key_version = ? AND nonce = ?
+                            LIMIT 1
+                            """.trimIndent(),
+                        ).use { statement ->
+                            statement.setString(1, record.userId)
+                            statement.setInt(2, record.keyVersion)
+                            statement.setBytes(3, record.nonce)
+                            statement.executeQuery().use(ResultSet::next)
+                        }
                 if (nonceSeen) return@transaction SyncWriteResult.NonceReused
 
                 if (current.record == null) {
@@ -827,18 +915,19 @@ internal class SqliteAccountStore private constructor(
                     version = record.version,
                     updatedAtEpochMs = record.updatedAtEpochMs,
                 )
-                connection.prepareStatement(
-                    """
-                    INSERT INTO sync_nonce_history(user_id, key_version, nonce, recorded_at_ms)
-                    VALUES (?, ?, ?, ?)
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setString(1, record.userId)
-                    statement.setInt(2, record.keyVersion)
-                    statement.setBytes(3, record.nonce)
-                    statement.setLong(4, record.updatedAtEpochMs)
-                    statement.executeUpdate()
-                }
+                connection
+                    .prepareStatement(
+                        """
+                        INSERT INTO sync_nonce_history(user_id, key_version, nonce, recorded_at_ms)
+                        VALUES (?, ?, ?, ?)
+                        """.trimIndent(),
+                    ).use { statement ->
+                        statement.setString(1, record.userId)
+                        statement.setInt(2, record.keyVersion)
+                        statement.setBytes(3, record.nonce)
+                        statement.setLong(4, record.updatedAtEpochMs)
+                        statement.executeUpdate()
+                    }
                 trimNonceHistoryForUserLocked(record.userId)
                 SyncWriteResult.Saved(record)
             }
@@ -863,18 +952,20 @@ internal class SqliteAccountStore private constructor(
                 val currentVersion = getSyncStateLocked(userId).version
                 check(currentVersion < Long.MAX_VALUE) { "sync revision exhausted" }
                 val tombstoneVersion = currentVersion + 1L
-                connection.prepareStatement(
-                    "DELETE FROM sync_nonce_history WHERE user_id = ?",
-                ).use { statement ->
-                    statement.setString(1, userId)
-                    statement.executeUpdate()
-                }
-                connection.prepareStatement(
-                    "DELETE FROM sync_records WHERE user_id = ?",
-                ).use { statement ->
-                    statement.setString(1, userId)
-                    statement.executeUpdate()
-                }
+                connection
+                    .prepareStatement(
+                        "DELETE FROM sync_nonce_history WHERE user_id = ?",
+                    ).use { statement ->
+                        statement.setString(1, userId)
+                        statement.executeUpdate()
+                    }
+                connection
+                    .prepareStatement(
+                        "DELETE FROM sync_records WHERE user_id = ?",
+                    ).use { statement ->
+                        statement.setString(1, userId)
+                        statement.executeUpdate()
+                    }
                 upsertSyncRevisionLocked(userId, tombstoneVersion, updatedAtEpochMs)
                 SyncDeleteResult.Deleted(
                     StoredSyncState(
@@ -894,79 +985,85 @@ internal class SqliteAccountStore private constructor(
         replacementWrap: StoredKeyWrap,
         replacementSession: NewSession,
         updatedAtEpochMs: Long,
-    ): PasswordChangeWriteResult = synchronized(lock) {
-        require(replacementSession.userId == userId)
-        try {
-            transaction {
-                val currentSync = getSyncStateLocked(userId)
-                if (currentSync.version != expectedSyncVersion) {
-                    return@transaction PasswordChangeWriteResult.VersionConflict(currentSync.version)
-                }
-                if (
-                    currentSync.record != null &&
-                    currentSync.record.keyVersion != replacementWrap.keyVersion
-                ) {
-                    return@transaction PasswordChangeWriteResult.KeyVersionConflict(
-                        currentSync.version,
-                    )
-                }
-                val changed = connection.prepareStatement(
-                    """
-                    UPDATE users
-                    SET password_salt = ?, password_hash = ?, password_iterations = ?,
-                        updated_at_ms = ?
-                    WHERE id = ?
-                      AND password_salt = ?
-                      AND password_hash = ?
-                      AND password_iterations = ?
-                    """.trimIndent(),
-                ).use { statement ->
-                    statement.setBytes(1, replacement.salt)
-                    statement.setBytes(2, replacement.hash)
-                    statement.setInt(3, replacement.iterations)
-                    statement.setLong(4, updatedAtEpochMs)
-                    statement.setString(5, userId)
-                    statement.setBytes(6, expectedCurrent.salt)
-                    statement.setBytes(7, expectedCurrent.hash)
-                    statement.setInt(8, expectedCurrent.iterations)
-                    statement.executeUpdate()
-                }
-                if (changed != 1) return@transaction PasswordChangeWriteResult.CredentialsChanged
-
-                if (currentSync.record != null) {
-                    val wrapperChanged = connection.prepareStatement(
-                        """
-                        UPDATE sync_records
-                        SET wrap_version = ?, wrap_kdf = ?, wrap_iterations = ?,
-                            wrapped_vault_key = ?, wrap_salt = ?, wrap_nonce = ?
-                        WHERE user_id = ? AND version = ?
-                        """.trimIndent(),
-                    ).use { statement ->
-                        statement.setInt(1, replacementWrap.wrapVersion)
-                        statement.setString(2, replacementWrap.wrapKdf)
-                        statement.setInt(3, replacementWrap.wrapIterations)
-                        statement.setBytes(4, replacementWrap.wrappedVaultKey)
-                        statement.setBytes(5, replacementWrap.wrapSalt)
-                        statement.setBytes(6, replacementWrap.wrapNonce)
-                        statement.setString(7, userId)
-                        statement.setLong(8, expectedSyncVersion)
-                        statement.executeUpdate()
+    ): PasswordChangeWriteResult =
+        synchronized(lock) {
+            require(replacementSession.userId == userId)
+            try {
+                transaction {
+                    val currentSync = getSyncStateLocked(userId)
+                    if (currentSync.version != expectedSyncVersion) {
+                        return@transaction PasswordChangeWriteResult.VersionConflict(currentSync.version)
                     }
-                    if (wrapperChanged != 1) throw SyncVersionChangedDuringPasswordUpdate()
+                    if (
+                        currentSync.record != null &&
+                        currentSync.record.keyVersion != replacementWrap.keyVersion
+                    ) {
+                        return@transaction PasswordChangeWriteResult.KeyVersionConflict(
+                            currentSync.version,
+                        )
+                    }
+                    val changed =
+                        connection
+                            .prepareStatement(
+                                """
+                                UPDATE users
+                                SET password_salt = ?, password_hash = ?, password_iterations = ?,
+                                    updated_at_ms = ?
+                                WHERE id = ?
+                                  AND password_salt = ?
+                                  AND password_hash = ?
+                                  AND password_iterations = ?
+                                """.trimIndent(),
+                            ).use { statement ->
+                                statement.setBytes(1, replacement.salt)
+                                statement.setBytes(2, replacement.hash)
+                                statement.setInt(3, replacement.iterations)
+                                statement.setLong(4, updatedAtEpochMs)
+                                statement.setString(5, userId)
+                                statement.setBytes(6, expectedCurrent.salt)
+                                statement.setBytes(7, expectedCurrent.hash)
+                                statement.setInt(8, expectedCurrent.iterations)
+                                statement.executeUpdate()
+                            }
+                    if (changed != 1) return@transaction PasswordChangeWriteResult.CredentialsChanged
+
+                    if (currentSync.record != null) {
+                        val wrapperChanged =
+                            connection
+                                .prepareStatement(
+                                    """
+                                    UPDATE sync_records
+                                    SET wrap_version = ?, wrap_kdf = ?, wrap_iterations = ?,
+                                        wrapped_vault_key = ?, wrap_salt = ?, wrap_nonce = ?
+                                    WHERE user_id = ? AND version = ?
+                                    """.trimIndent(),
+                                ).use { statement ->
+                                    statement.setInt(1, replacementWrap.wrapVersion)
+                                    statement.setString(2, replacementWrap.wrapKdf)
+                                    statement.setInt(3, replacementWrap.wrapIterations)
+                                    statement.setBytes(4, replacementWrap.wrappedVaultKey)
+                                    statement.setBytes(5, replacementWrap.wrapSalt)
+                                    statement.setBytes(6, replacementWrap.wrapNonce)
+                                    statement.setString(7, userId)
+                                    statement.setLong(8, expectedSyncVersion)
+                                    statement.executeUpdate()
+                                }
+                        if (wrapperChanged != 1) throw SyncVersionChangedDuringPasswordUpdate()
+                    }
+                    connection
+                        .prepareStatement(
+                            "DELETE FROM sessions WHERE user_id = ?",
+                        ).use { statement ->
+                            statement.setString(1, userId)
+                            statement.executeUpdate()
+                        }
+                    insertSessionLocked(replacementSession)
+                    PasswordChangeWriteResult.Changed
                 }
-                connection.prepareStatement(
-                    "DELETE FROM sessions WHERE user_id = ?",
-                ).use { statement ->
-                    statement.setString(1, userId)
-                    statement.executeUpdate()
-                }
-                insertSessionLocked(replacementSession)
-                PasswordChangeWriteResult.Changed
+            } catch (_: SyncVersionChangedDuringPasswordUpdate) {
+                PasswordChangeWriteResult.VersionConflict(getSyncStateLocked(userId).version)
             }
-        } catch (_: SyncVersionChangedDuringPasswordUpdate) {
-            PasswordChangeWriteResult.VersionConflict(getSyncStateLocked(userId).version)
         }
-    }
 
     override fun close() {
         synchronized(lock) {
@@ -975,159 +1072,183 @@ internal class SqliteAccountStore private constructor(
     }
 
     private fun findUserByNormalizedUsernameLocked(normalizedUsername: String): StoredCredentials? =
-        connection.prepareStatement(
-            "SELECT $CREDENTIAL_COLUMNS FROM users u WHERE u.username_normalized = ? LIMIT 1",
-        ).use { statement ->
-            statement.setString(1, normalizedUsername)
-            statement.executeQuery().use { result ->
-                if (result.next()) result.readCredentials() else null
+        connection
+            .prepareStatement(
+                "SELECT $CREDENTIAL_COLUMNS FROM users u WHERE u.username_normalized = ? LIMIT 1",
+            ).use { statement ->
+                statement.setString(1, normalizedUsername)
+                statement.executeQuery().use { result ->
+                    if (result.next()) result.readCredentials() else null
+                }
             }
-        }
 
     private fun findCredentialsByUserIdLocked(userId: String): StoredCredentials? =
-        connection.prepareStatement(
-            "SELECT $CREDENTIAL_COLUMNS FROM users u WHERE u.id = ? LIMIT 1",
-        ).use { statement ->
-            statement.setString(1, userId)
-            statement.executeQuery().use { result ->
-                if (result.next()) result.readCredentials() else null
+        connection
+            .prepareStatement(
+                "SELECT $CREDENTIAL_COLUMNS FROM users u WHERE u.id = ? LIMIT 1",
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.executeQuery().use { result ->
+                    if (result.next()) result.readCredentials() else null
+                }
+            }
+
+    private fun userCountLocked(): Int =
+        connection.createStatement().use { statement ->
+            statement.executeQuery("SELECT COUNT(*) FROM users").use { result ->
+                check(result.next())
+                result.getInt(1)
             }
         }
 
-    private fun userCountLocked(): Int = connection.createStatement().use { statement ->
-        statement.executeQuery("SELECT COUNT(*) FROM users").use { result ->
-            check(result.next())
-            result.getInt(1)
-        }
-    }
-
-    private fun findUserByIdLocked(userId: String): StoredUser? = connection.prepareStatement(
-        "SELECT $USER_COLUMNS FROM users u WHERE u.id = ? LIMIT 1",
-    ).use { statement ->
-        statement.setString(1, userId)
-        statement.executeQuery().use { result ->
-            if (result.next()) result.readUser() else null
-        }
-    }
+    private fun findUserByIdLocked(userId: String): StoredUser? =
+        connection
+            .prepareStatement(
+                "SELECT $USER_COLUMNS FROM users u WHERE u.id = ? LIMIT 1",
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.executeQuery().use { result ->
+                    if (result.next()) result.readUser() else null
+                }
+            }
 
     private fun isActiveSessionLocked(
         sessionId: String,
         userId: String,
         nowEpochMs: Long,
-    ): Boolean = connection.prepareStatement(
-        """
-        SELECT 1 FROM sessions
-        WHERE id = ?
-          AND user_id = ?
-          AND revoked_at_ms IS NULL
-          AND access_expires_at_ms > ?
-        LIMIT 1
-        """.trimIndent(),
-    ).use { statement ->
-        statement.setString(1, sessionId)
-        statement.setString(2, userId)
-        statement.setLong(3, nowEpochMs)
-        statement.executeQuery().use(ResultSet::next)
-    }
+    ): Boolean =
+        connection
+            .prepareStatement(
+                """
+                SELECT 1 FROM sessions
+                WHERE id = ?
+                  AND user_id = ?
+                  AND revoked_at_ms IS NULL
+                  AND access_expires_at_ms > ?
+                LIMIT 1
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, sessionId)
+                statement.setString(2, userId)
+                statement.setLong(3, nowEpochMs)
+                statement.executeQuery().use(ResultSet::next)
+            }
 
     private fun insertSessionLocked(session: NewSession) {
-        connection.prepareStatement(
-            """
-            INSERT INTO sessions (
-                id, user_id, access_token_hash, refresh_token_hash,
-                access_expires_at_ms, refresh_expires_at_ms, created_at_ms,
-                device_name, last_seen_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setString(1, session.id)
-            statement.setString(2, session.userId)
-            statement.setBytes(3, session.accessTokenHash)
-            statement.setBytes(4, session.refreshTokenHash)
-            statement.setLong(5, session.accessExpiresAtEpochMs)
-            statement.setLong(6, session.refreshExpiresAtEpochMs)
-            statement.setLong(7, session.createdAtEpochMs)
-            statement.setString(8, session.deviceName)
-            statement.setLong(9, session.createdAtEpochMs)
-            statement.executeUpdate()
-        }
+        connection
+            .prepareStatement(
+                """
+                INSERT INTO sessions (
+                    id, user_id, access_token_hash, refresh_token_hash,
+                    access_expires_at_ms, refresh_expires_at_ms, created_at_ms,
+                    device_name, last_seen_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, session.id)
+                statement.setString(2, session.userId)
+                statement.setBytes(3, session.accessTokenHash)
+                statement.setBytes(4, session.refreshTokenHash)
+                statement.setLong(5, session.accessExpiresAtEpochMs)
+                statement.setLong(6, session.refreshExpiresAtEpochMs)
+                statement.setLong(7, session.createdAtEpochMs)
+                statement.setString(8, session.deviceName)
+                statement.setLong(9, session.createdAtEpochMs)
+                statement.executeUpdate()
+            }
     }
 
     private fun pruneSessionsLocked(nowEpochMs: Long) {
-        connection.prepareStatement(
-            """
-            DELETE FROM sessions
-            WHERE refresh_expires_at_ms <= ?
-               OR (revoked_at_ms IS NOT NULL AND revoked_at_ms <= ?)
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setLong(1, nowEpochMs)
-            statement.setLong(2, nowEpochMs - REVOKED_SESSION_RETENTION_MS)
-            statement.executeUpdate()
-        }
+        connection
+            .prepareStatement(
+                """
+                DELETE FROM sessions
+                WHERE refresh_expires_at_ms <= ?
+                   OR (revoked_at_ms IS NOT NULL AND revoked_at_ms <= ?)
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setLong(1, nowEpochMs)
+                statement.setLong(2, nowEpochMs - REVOKED_SESSION_RETENTION_MS)
+                statement.executeUpdate()
+            }
     }
 
-    private fun trimActiveSessionsForUserLocked(userId: String, nowEpochMs: Long) {
-        connection.prepareStatement(
-            """
-            DELETE FROM sessions
-            WHERE rowid IN (
-                SELECT rowid FROM sessions
-                WHERE user_id = ?
-                  AND revoked_at_ms IS NULL
-                  AND refresh_expires_at_ms > ?
-                ORDER BY created_at_ms DESC, rowid DESC
-                LIMIT -1 OFFSET ?
-            )
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setString(1, userId)
-            statement.setLong(2, nowEpochMs)
-            statement.setInt(3, activeSessionsPerUserLimit)
-            statement.executeUpdate()
-        }
+    private fun trimActiveSessionsForUserLocked(
+        userId: String,
+        nowEpochMs: Long,
+    ) {
+        connection
+            .prepareStatement(
+                """
+                DELETE FROM sessions
+                WHERE rowid IN (
+                    SELECT rowid FROM sessions
+                    WHERE user_id = ?
+                      AND revoked_at_ms IS NULL
+                      AND refresh_expires_at_ms > ?
+                    ORDER BY created_at_ms DESC, rowid DESC
+                    LIMIT -1 OFFSET ?
+                )
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.setLong(2, nowEpochMs)
+                statement.setInt(3, activeSessionsPerUserLimit)
+                statement.executeUpdate()
+            }
     }
 
     private fun getSyncRecordLocked(userId: String): StoredSyncRecord? =
-        connection.prepareStatement(
-            """
-            SELECT user_id, version, schema_version, algorithm, key_version, nonce,
-                   ciphertext, wrap_version, wrap_kdf, wrap_iterations,
-                   wrapped_vault_key, wrap_salt, wrap_nonce, updated_at_ms
-            FROM sync_records WHERE user_id = ? LIMIT 1
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setString(1, userId)
-            statement.executeQuery().use { result ->
-                if (!result.next()) null else StoredSyncRecord(
-                    userId = result.getString("user_id"),
-                    version = result.getLong("version"),
-                    schemaVersion = result.getInt("schema_version"),
-                    algorithm = result.getString("algorithm"),
-                    keyVersion = result.getInt("key_version"),
-                    nonce = result.getBytes("nonce"),
-                    ciphertext = result.getBytes("ciphertext"),
-                    wrapVersion = result.getNullableInt("wrap_version"),
-                    wrapKdf = result.getString("wrap_kdf"),
-                    wrapIterations = result.getNullableInt("wrap_iterations"),
-                    wrappedVaultKey = result.getBytes("wrapped_vault_key"),
-                    wrapSalt = result.getBytes("wrap_salt"),
-                    wrapNonce = result.getBytes("wrap_nonce"),
-                    updatedAtEpochMs = result.getLong("updated_at_ms"),
-                )
+        connection
+            .prepareStatement(
+                """
+                SELECT user_id, version, schema_version, algorithm, key_version, nonce,
+                       ciphertext, wrap_version, wrap_kdf, wrap_iterations,
+                       wrapped_vault_key, wrap_salt, wrap_nonce, updated_at_ms
+                FROM sync_records WHERE user_id = ? LIMIT 1
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.executeQuery().use { result ->
+                    if (!result.next()) {
+                        null
+                    } else {
+                        StoredSyncRecord(
+                            userId = result.getString("user_id"),
+                            version = result.getLong("version"),
+                            schemaVersion = result.getInt("schema_version"),
+                            algorithm = result.getString("algorithm"),
+                            keyVersion = result.getInt("key_version"),
+                            nonce = result.getBytes("nonce"),
+                            ciphertext = result.getBytes("ciphertext"),
+                            wrapVersion = result.getNullableInt("wrap_version"),
+                            wrapKdf = result.getString("wrap_kdf"),
+                            wrapIterations = result.getNullableInt("wrap_iterations"),
+                            wrappedVaultKey = result.getBytes("wrapped_vault_key"),
+                            wrapSalt = result.getBytes("wrap_salt"),
+                            wrapNonce = result.getBytes("wrap_nonce"),
+                            updatedAtEpochMs = result.getLong("updated_at_ms"),
+                        )
+                    }
+                }
             }
-        }
 
     private fun getSyncStateLocked(userId: String): StoredSyncState {
-        val revision = connection.prepareStatement(
-            "SELECT version, updated_at_ms FROM sync_revisions WHERE user_id = ? LIMIT 1",
-        ).use { statement ->
-            statement.setString(1, userId)
-            statement.executeQuery().use { result ->
-                if (!result.next()) null else result.getLong("version") to
-                    result.getLong("updated_at_ms")
-            }
-        }
+        val revision =
+            connection
+                .prepareStatement(
+                    "SELECT version, updated_at_ms FROM sync_revisions WHERE user_id = ? LIMIT 1",
+                ).use { statement ->
+                    statement.setString(1, userId)
+                    statement.executeQuery().use { result ->
+                        if (!result.next()) {
+                            null
+                        } else {
+                            result.getLong("version") to
+                                result.getLong("updated_at_ms")
+                        }
+                    }
+                }
         val record = getSyncRecordLocked(userId)
         if (revision == null) {
             check(record == null) { "sync payload exists without a revision" }
@@ -1148,63 +1269,66 @@ internal class SqliteAccountStore private constructor(
         version: Long,
         updatedAtEpochMs: Long,
     ) {
-        connection.prepareStatement(
-            """
-            INSERT INTO sync_revisions(user_id, version, updated_at_ms)
-            VALUES (?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                version = excluded.version,
-                updated_at_ms = excluded.updated_at_ms
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setString(1, userId)
-            statement.setLong(2, version)
-            statement.setLong(3, updatedAtEpochMs)
-            check(statement.executeUpdate() == 1) { "sync revision was not updated" }
-        }
+        connection
+            .prepareStatement(
+                """
+                INSERT INTO sync_revisions(user_id, version, updated_at_ms)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    version = excluded.version,
+                    updated_at_ms = excluded.updated_at_ms
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.setLong(2, version)
+                statement.setLong(3, updatedAtEpochMs)
+                check(statement.executeUpdate() == 1) { "sync revision was not updated" }
+            }
     }
 
     private fun insertSyncRecordLocked(record: StoredSyncRecord) {
-        connection.prepareStatement(
-            """
-            INSERT INTO sync_records (
-                user_id, version, schema_version, algorithm, key_version, nonce,
-                ciphertext, wrap_version, wrap_kdf, wrap_iterations,
-                wrapped_vault_key, wrap_salt, wrap_nonce, updated_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """.trimIndent(),
-        ).use { statement ->
-            statement.bindSyncRecord(record)
-            statement.executeUpdate()
-        }
+        connection
+            .prepareStatement(
+                """
+                INSERT INTO sync_records (
+                    user_id, version, schema_version, algorithm, key_version, nonce,
+                    ciphertext, wrap_version, wrap_kdf, wrap_iterations,
+                    wrapped_vault_key, wrap_salt, wrap_nonce, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { statement ->
+                statement.bindSyncRecord(record)
+                statement.executeUpdate()
+            }
     }
 
     private fun updateSyncRecordLocked(record: StoredSyncRecord) {
-        connection.prepareStatement(
-            """
-            UPDATE sync_records
-            SET version = ?, schema_version = ?, algorithm = ?, key_version = ?, nonce = ?,
-                ciphertext = ?, wrap_version = ?, wrap_kdf = ?, wrap_iterations = ?,
-                wrapped_vault_key = ?, wrap_salt = ?, wrap_nonce = ?, updated_at_ms = ?
-            WHERE user_id = ?
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setLong(1, record.version)
-            statement.setInt(2, record.schemaVersion)
-            statement.setString(3, record.algorithm)
-            statement.setInt(4, record.keyVersion)
-            statement.setBytes(5, record.nonce)
-            statement.setBytes(6, record.ciphertext)
-            statement.setNullableInt(7, record.wrapVersion)
-            statement.setString(8, record.wrapKdf)
-            statement.setNullableInt(9, record.wrapIterations)
-            statement.setBytes(10, record.wrappedVaultKey)
-            statement.setBytes(11, record.wrapSalt)
-            statement.setBytes(12, record.wrapNonce)
-            statement.setLong(13, record.updatedAtEpochMs)
-            statement.setString(14, record.userId)
-            check(statement.executeUpdate() == 1) { "sync record disappeared during update" }
-        }
+        connection
+            .prepareStatement(
+                """
+                UPDATE sync_records
+                SET version = ?, schema_version = ?, algorithm = ?, key_version = ?, nonce = ?,
+                    ciphertext = ?, wrap_version = ?, wrap_kdf = ?, wrap_iterations = ?,
+                    wrapped_vault_key = ?, wrap_salt = ?, wrap_nonce = ?, updated_at_ms = ?
+                WHERE user_id = ?
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setLong(1, record.version)
+                statement.setInt(2, record.schemaVersion)
+                statement.setString(3, record.algorithm)
+                statement.setInt(4, record.keyVersion)
+                statement.setBytes(5, record.nonce)
+                statement.setBytes(6, record.ciphertext)
+                statement.setNullableInt(7, record.wrapVersion)
+                statement.setString(8, record.wrapKdf)
+                statement.setNullableInt(9, record.wrapIterations)
+                statement.setBytes(10, record.wrappedVaultKey)
+                statement.setBytes(11, record.wrapSalt)
+                statement.setBytes(12, record.wrapNonce)
+                statement.setLong(13, record.updatedAtEpochMs)
+                statement.setString(14, record.userId)
+                check(statement.executeUpdate() == 1) { "sync record disappeared during update" }
+            }
     }
 
     private fun java.sql.PreparedStatement.bindSyncRecord(record: StoredSyncRecord) {
@@ -1224,19 +1348,24 @@ internal class SqliteAccountStore private constructor(
         setLong(14, record.updatedAtEpochMs)
     }
 
-    private fun ensureColumnLocked(table: String, column: String, definition: String) {
-        val exists = connection.createStatement().use { statement ->
-            statement.executeQuery("PRAGMA table_info($table)").use { result ->
-                var found = false
-                while (result.next()) {
-                    if (result.getString("name") == column) {
-                        found = true
-                        break
+    private fun ensureColumnLocked(
+        table: String,
+        column: String,
+        definition: String,
+    ) {
+        val exists =
+            connection.createStatement().use { statement ->
+                statement.executeQuery("PRAGMA table_info($table)").use { result ->
+                    var found = false
+                    while (result.next()) {
+                        if (result.getString("name") == column) {
+                            found = true
+                            break
+                        }
                     }
+                    found
                 }
-                found
             }
-        }
         if (!exists) {
             connection.createStatement().use { statement ->
                 statement.execute("ALTER TABLE $table ADD COLUMN $column $definition")
@@ -1252,14 +1381,16 @@ internal class SqliteAccountStore private constructor(
      * anonymized without reviving the invitation.
      */
     private fun migrateInviteRedemptionAuthorityLocked() {
-        val schema = connection.prepareStatement(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'account_invites'",
-        ).use { statement ->
-            statement.executeQuery().use { result ->
-                check(result.next()) { "account_invites schema is missing" }
-                result.getString("sql")
-            }
-        }
+        val schema =
+            connection
+                .prepareStatement(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'account_invites'",
+                ).use { statement ->
+                    statement.executeQuery().use { result ->
+                        check(result.next()) { "account_invites schema is missing" }
+                        result.getString("sql")
+                    }
+                }
         val normalized = schema.lowercase().replace(Regex("\\s+"), " ")
         val currentConstraint =
             "check(redeemed_at_ms is not null or redeemed_by_user_id is null)"
@@ -1313,48 +1444,56 @@ internal class SqliteAccountStore private constructor(
         val clockMovedBackwards = nowEpochMs < lastNonceHistoryClockEpochMs
         lastNonceHistoryClockEpochMs = nowEpochMs
         if (clockMovedBackwards) {
-            nextNonceHistoryCleanupAtEpochMs = saturatedAdd(
-                nowEpochMs,
-                nonceHistoryCleanupIntervalMs,
-            )
+            nextNonceHistoryCleanupAtEpochMs =
+                saturatedAdd(
+                    nowEpochMs,
+                    nonceHistoryCleanupIntervalMs,
+                )
             return
         }
         if (nowEpochMs < nextNonceHistoryCleanupAtEpochMs) return
-        connection.prepareStatement(
-            "DELETE FROM sync_nonce_history WHERE recorded_at_ms < ?",
-        ).use { statement ->
-            statement.setLong(1, saturatedSubtract(nowEpochMs, nonceHistoryRetentionMs))
-            statement.executeUpdate()
-        }
-        nextNonceHistoryCleanupAtEpochMs = saturatedAdd(
-            nowEpochMs,
-            nonceHistoryCleanupIntervalMs,
-        )
+        connection
+            .prepareStatement(
+                "DELETE FROM sync_nonce_history WHERE recorded_at_ms < ?",
+            ).use { statement ->
+                statement.setLong(1, saturatedSubtract(nowEpochMs, nonceHistoryRetentionMs))
+                statement.executeUpdate()
+            }
+        nextNonceHistoryCleanupAtEpochMs =
+            saturatedAdd(
+                nowEpochMs,
+                nonceHistoryCleanupIntervalMs,
+            )
     }
 
     private fun trimNonceHistoryForUserLocked(userId: String) {
-        connection.prepareStatement(
-            """
-            DELETE FROM sync_nonce_history
-            WHERE rowid IN (
-                SELECT rowid FROM sync_nonce_history
-                WHERE user_id = ?
-                ORDER BY recorded_at_ms DESC, rowid DESC
-                LIMIT -1 OFFSET ?
-            )
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setString(1, userId)
-            statement.setInt(2, nonceHistoryPerUserLimit)
-            statement.executeUpdate()
-        }
+        connection
+            .prepareStatement(
+                """
+                DELETE FROM sync_nonce_history
+                WHERE rowid IN (
+                    SELECT rowid FROM sync_nonce_history
+                    WHERE user_id = ?
+                    ORDER BY recorded_at_ms DESC, rowid DESC
+                    LIMIT -1 OFFSET ?
+                )
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.setInt(2, nonceHistoryPerUserLimit)
+                statement.executeUpdate()
+            }
     }
 
-    private fun saturatedAdd(left: Long, right: Long): Long =
-        if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
+    private fun saturatedAdd(
+        left: Long,
+        right: Long,
+    ): Long = if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
 
-    private fun saturatedSubtract(left: Long, right: Long): Long =
-        if (left < Long.MIN_VALUE + right) Long.MIN_VALUE else left - right
+    private fun saturatedSubtract(
+        left: Long,
+        right: Long,
+    ): Long = if (left < Long.MIN_VALUE + right) Long.MIN_VALUE else left - right
 
     private inline fun <T> transaction(block: () -> T): T {
         val previousAutoCommit = connection.autoCommit
@@ -1414,14 +1553,15 @@ internal class SqliteAccountStore private constructor(
             nonceHistoryRetentionMs: Long = DEFAULT_NONCE_HISTORY_RETENTION_MS,
             nonceHistoryCleanupIntervalMs: Long = DEFAULT_NONCE_HISTORY_CLEANUP_INTERVAL_MS,
             activeSessionsPerUserLimit: Int = DEFAULT_ACTIVE_SESSIONS_PER_USER_LIMIT,
-        ): SqliteAccountStore = openUrl(
-            url = "jdbc:sqlite::memory:",
-            fileBacked = false,
-            nonceHistoryPerUserLimit = nonceHistoryPerUserLimit,
-            nonceHistoryRetentionMs = nonceHistoryRetentionMs,
-            nonceHistoryCleanupIntervalMs = nonceHistoryCleanupIntervalMs,
-            activeSessionsPerUserLimit = activeSessionsPerUserLimit,
-        )
+        ): SqliteAccountStore =
+            openUrl(
+                url = "jdbc:sqlite::memory:",
+                fileBacked = false,
+                nonceHistoryPerUserLimit = nonceHistoryPerUserLimit,
+                nonceHistoryRetentionMs = nonceHistoryRetentionMs,
+                nonceHistoryCleanupIntervalMs = nonceHistoryCleanupIntervalMs,
+                activeSessionsPerUserLimit = activeSessionsPerUserLimit,
+            )
 
         private fun openUrl(
             url: String,
@@ -1449,7 +1589,10 @@ internal class SqliteAccountStore private constructor(
     }
 }
 
-private fun java.sql.PreparedStatement.setNullableInt(index: Int, value: Int?) {
+private fun java.sql.PreparedStatement.setNullableInt(
+    index: Int,
+    value: Int?,
+) {
     if (value == null) setNull(index, Types.INTEGER) else setInt(index, value)
 }
 
@@ -1460,19 +1603,21 @@ private fun ResultSet.getNullableInt(column: String): Int? {
     return if (wasNull()) null else value
 }
 
-private fun ResultSet.readUser(): StoredUser = StoredUser(
-    id = getString("user_id"),
-    username = getString("user_username"),
-    normalizedUsername = getString("user_username_normalized"),
-    nickname = getString("user_nickname"),
-    avatarId = getInt("user_avatar_id"),
-    createdAtEpochMs = getLong("user_created_at_ms"),
-    updatedAtEpochMs = getLong("user_updated_at_ms"),
-)
+private fun ResultSet.readUser(): StoredUser =
+    StoredUser(
+        id = getString("user_id"),
+        username = getString("user_username"),
+        normalizedUsername = getString("user_username_normalized"),
+        nickname = getString("user_nickname"),
+        avatarId = getInt("user_avatar_id"),
+        createdAtEpochMs = getLong("user_created_at_ms"),
+        updatedAtEpochMs = getLong("user_updated_at_ms"),
+    )
 
-private fun ResultSet.readCredentials(): StoredCredentials = StoredCredentials(
-    user = readUser(),
-    passwordSalt = getBytes("user_password_salt"),
-    passwordHash = getBytes("user_password_hash"),
-    passwordIterations = getInt("user_password_iterations"),
-)
+private fun ResultSet.readCredentials(): StoredCredentials =
+    StoredCredentials(
+        user = readUser(),
+        passwordSalt = getBytes("user_password_salt"),
+        passwordHash = getBytes("user_password_hash"),
+        passwordIterations = getInt("user_password_iterations"),
+    )

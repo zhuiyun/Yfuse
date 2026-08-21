@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -34,8 +35,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -58,10 +61,13 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DolbyChip
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 
 /**
  * Player top chrome after the control hierarchy was simplified.
@@ -208,18 +214,23 @@ internal fun RefinedBottomBar(
     onOpenSkipSettings: () -> Unit,
     danmakuEnabled: Boolean,
     onOpenDanmaku: () -> Unit,
+    artworkUrl: String?,
+    artworkIdentity: Any?,
     modifier: Modifier = Modifier,
 ) {
     var scrubbed by remember { mutableStateOf<Float?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
-    val fraction = scrubbed ?: (state.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+    val fraction = scrubbed ?: playbackProgressFraction(state.positionMs, state.durationMs)
     val bufferedFraction =
-        if (state.durationMs > 0L) {
-            (state.bufferedPositionMs.toFloat() / duration).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
+        playbackProgressFraction(state.bufferedPositionMs, state.durationMs)
     val shownPosition = scrubbed?.let { scrubPositionMs(it, state.durationMs) } ?: state.positionMs
+    val progressAccent =
+        rememberAnimatedArtworkAccent(
+            url = artworkUrl,
+            fallback = PlayerTokens.progressAccentFallback,
+            darkTheme = true,
+            identity = artworkIdentity,
+        )
 
     Column(
         modifier
@@ -268,6 +279,7 @@ internal fun RefinedBottomBar(
                     positionMs = shownPosition,
                     durationMs = state.durationMs,
                     progressMarkers = progressMarkers,
+                    accent = progressAccent,
                     enabled = !seekLocked && state.durationMs > 0L,
                     onScrubTo = {
                         scrubbed = it
@@ -459,9 +471,9 @@ private fun RefinedTimeText(timeMs: Long) {
 }
 
 /**
- * Conventional neutral scrubber: white played progress, translucent white buffer/track and one
- * white thumb. No brand gradient, liquid halo or specular streak, so it reads like a normal video
- * timeline instead of a decorative control.
+ * Artwork-aware scrubber. The current still/poster supplies one restrained accent that is reused
+ * for the played rail, thumb halo and semantic chapter markers. The unplayed rail stays neutral and
+ * the buffer is a low-saturation tint, keeping time and control readability stable across artwork.
  */
 @Composable
 private fun StandardSeekBar(
@@ -470,6 +482,7 @@ private fun StandardSeekBar(
     positionMs: Long,
     durationMs: Long,
     progressMarkers: List<PlaybackProgressMarker>,
+    accent: Color,
     onScrubTo: (Float) -> Unit,
     onCommit: (Float) -> Unit,
     onCancel: () -> Unit,
@@ -477,6 +490,7 @@ private fun StandardSeekBar(
     enabled: Boolean = true,
 ) {
     val haptics = LocalHaptics.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     var dragFraction by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
@@ -485,6 +499,17 @@ private fun StandardSeekBar(
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
     val shownFraction = if (dragging) dragFraction else fraction.coerceIn(0f, 1f)
+    val interaction by animateFloatAsState(
+        targetValue = if (dragging) 1f else 0f,
+        animationSpec = Motion.pressSpec(pressed = dragging, reduceMotion = reduceMotion),
+        label = "artwork-seek-interaction",
+    )
+    val playedStart = lerp(accent, Color.Black, 0.14f)
+    val playedEnd = lerp(accent, Color.White, 0.24f)
+    val bufferedTint = lerp(accent, Color.Gray, 0.62f)
+    val trackHeight = 3.dp + interaction.dp
+    val thumbDiameter = 10.dp + 3.dp * interaction
+    val haloDiameter = 20.dp + 8.dp * interaction
     val keyStep = (5_000f / durationMs.coerceAtLeast(1L)).coerceIn(0.01f, 0.1f)
     val commit: (Float) -> Boolean = { target ->
         if (!enabled) {
@@ -501,7 +526,7 @@ private fun StandardSeekBar(
             .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
             .then(
                 if (focused) {
-                    Modifier.border(1.dp, Color.White.copy(alpha = 0.42f), AppShapes.thumb)
+                    Modifier.border(1.dp, accent.copy(alpha = 0.72f), AppShapes.thumb)
                 } else {
                     Modifier
                 },
@@ -559,45 +584,84 @@ private fun StandardSeekBar(
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(3.dp)
+                .height(trackHeight)
                 .clip(AppShapes.track)
-                .background(Color.White.copy(alpha = 0.18f)),
+                .background(Color.White.copy(alpha = 0.16f)),
         ) {
             Box(
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(bufferedFraction.coerceIn(shownFraction, 1f))
-                    .background(Color.White.copy(alpha = 0.34f)),
+                    .background(bufferedTint.copy(alpha = 0.50f)),
             )
             Box(
                 Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(shownFraction)
-                    .background(Color.White.copy(alpha = 0.92f)),
+                    .background(Brush.horizontalGradient(listOf(playedStart, playedEnd))),
+            )
+        }
+
+        repeat(TIMELINE_MINOR_TICK_COUNT - 1) { index ->
+            val tickFraction = (index + 1).toFloat() / TIMELINE_MINOR_TICK_COUNT
+            val tickHeight = if ((index + 1) % 5 == 0) 6.dp else 4.dp
+            Box(
+                Modifier
+                    .width(1.dp)
+                    .height(tickHeight)
+                    .offset {
+                        IntOffset(
+                            x = (widthPx * tickFraction).toInt().coerceIn(0, widthPx - 1),
+                            y = 7.dp.roundToPx(),
+                        )
+                    }.background(
+                        if (tickFraction <= shownFraction) {
+                            accent.copy(alpha = 0.62f)
+                        } else {
+                            Color.White.copy(alpha = 0.28f)
+                        },
+                    ),
             )
         }
 
         progressMarkers.forEach { marker ->
             val markerFraction =
                 (marker.positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
-            val markerDiameter = if (marker.emphasized) 6.dp else 4.dp
             Box(
                 Modifier
-                    .size(markerDiameter)
+                    .width(if (marker.emphasized) 2.dp else 1.dp)
+                    .height(if (marker.emphasized) 9.dp else 7.dp)
                     .offset {
-                        val markerPx = markerDiameter.roundToPx()
                         IntOffset(
                             x =
-                                (widthPx * markerFraction - markerPx / 2f)
+                                (widthPx * markerFraction)
                                     .toInt()
-                                    .coerceIn(-markerPx / 2, (widthPx - markerPx / 2).coerceAtLeast(0)),
-                            y = 0,
+                                    .coerceIn(0, (widthPx - 1).coerceAtLeast(0)),
+                            y = 7.dp.roundToPx(),
                         )
-                    }.background(Color.White.copy(alpha = if (marker.emphasized) 0.94f else 0.66f), CircleShape),
+                    }.background(
+                        if (marker.emphasized) accent else accent.copy(alpha = 0.70f),
+                        AppShapes.track,
+                    ),
             )
         }
 
-        val thumbDiameter = if (dragging) 12.dp else 9.dp
+        Box(
+            Modifier
+                .size(haloDiameter)
+                .offset {
+                    val haloPx = haloDiameter.roundToPx()
+                    IntOffset(
+                        x =
+                            (widthPx * shownFraction - haloPx / 2f)
+                                .toInt()
+                                .coerceIn(-haloPx / 2, (widthPx - haloPx / 2).coerceAtLeast(0)),
+                        y = 0,
+                    )
+                }.graphicsLayer { alpha = if (enabled) 0.28f + 0.18f * interaction else 0.10f }
+                .background(accent, CircleShape),
+        )
+
         Box(
             Modifier
                 .size(thumbDiameter)
@@ -611,10 +675,12 @@ private fun StandardSeekBar(
                         y = 0,
                     )
                 }.graphicsLayer { alpha = if (enabled) 1f else 0.45f }
-                .background(Color.White, CircleShape),
+                .background(Color.White, CircleShape)
+                .border(2.dp, playedEnd, CircleShape),
         )
     }
 }
 
 private val RefinedTrickplayPreviewWidth = 160.dp
 private const val REFINED_SEEK_STEP_MS = 10_000L
+private const val TIMELINE_MINOR_TICK_COUNT = 20

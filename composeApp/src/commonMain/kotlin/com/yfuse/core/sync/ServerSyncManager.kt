@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -155,6 +157,7 @@ class ServerSyncManager(
     private val retryStateSerializer = ListSerializer(ServerRetryState.serializer())
     private val pending = MutableStateFlow(loadPending())
     private val snapshots = mutableMapOf<String, List<SyncedUserItem>>()
+    private val syncMutex = Mutex()
 
     /**
      * Persisted per-server consecutive failures, and the earliest time each may be tried again.
@@ -174,9 +177,12 @@ class ServerSyncManager(
         )
     val state: StateFlow<ServerSyncState> = _state.asStateFlow()
     val autoSync = MutableStateFlow(settings.getBoolean(AUTO_KEY, true))
-    val syncMetadata = MutableStateFlow(settings.getBoolean(METADATA_KEY, true))
+
+    // Metadata and artwork mirroring are not implemented by this user-state synchronizer.
+    // Expose them as disabled for cloud-snapshot compatibility instead of persisting no-op flags.
+    val syncMetadata = MutableStateFlow(false)
     val syncProgress = MutableStateFlow(settings.getBoolean(PROGRESS_KEY, true))
-    val syncArtwork = MutableStateFlow(settings.getBoolean(ARTWORK_KEY, true))
+    val syncArtwork = MutableStateFlow(false)
     val syncFavorites = MutableStateFlow(settings.getBoolean(FAVORITES_KEY, true))
     private val appForeground = MutableStateFlow(false)
     private var automaticJob: Job? = null
@@ -226,27 +232,29 @@ class ServerSyncManager(
     }
 
     fun setMetadata(value: Boolean) {
-        syncMetadata.value = value
-        settings.putBoolean(METADATA_KEY, value)
+        syncMetadata.value = false
+        settings.remove(METADATA_KEY)
     }
 
     fun setProgress(value: Boolean) {
         syncProgress.value = value
         settings.putBoolean(PROGRESS_KEY, value)
+        if (value && appForeground.value) automaticScope?.launch { syncAll() }
     }
 
     fun setArtwork(value: Boolean) {
-        syncArtwork.value = value
-        settings.putBoolean(ARTWORK_KEY, value)
+        syncArtwork.value = false
+        settings.remove(ARTWORK_KEY)
     }
 
     fun setFavorites(value: Boolean) {
         syncFavorites.value = value
         settings.putBoolean(FAVORITES_KEY, value)
+        if (value && appForeground.value) automaticScope?.launch { syncAll() }
     }
 
     suspend fun syncCurrent() {
-        registry.defaultServer?.let { sync(it) }
+        syncMutex.withLock { registry.defaultServer?.let { sync(it) } }
     }
 
     /**
@@ -256,8 +264,10 @@ class ServerSyncManager(
      * before HTTP, because forcing them can only repeat the same DNS failure.
      */
     suspend fun syncAll(force: Boolean = false) {
-        registry.data.value.servers
-            .forEach { sync(it, force) }
+        syncMutex.withLock {
+            registry.data.value.servers
+                .forEach { sync(it, force) }
+        }
     }
 
     suspend fun setFavorite(
@@ -327,6 +337,12 @@ class ServerSyncManager(
         kind: SyncMutationKind,
         desired: Boolean,
     ): Result<Unit> {
+        if (!kindEnabled(kind)) {
+            return when (kind) {
+                SyncMutationKind.Favorite -> repo.setFavorite(server, itemId, desired)
+                SyncMutationKind.Played -> repo.setPlayed(server, itemId, desired)
+            }
+        }
         val base =
             snapshots[server.id]?.let { snapshot ->
                 snapshot.firstOrNull { it.id == itemId }?.let {
@@ -385,6 +401,9 @@ class ServerSyncManager(
         server: SavedServer,
         force: Boolean = false,
     ) {
+        val hasEnabledPending =
+            pending.value.any { it.serverId == server.id && kindEnabled(it.kind) }
+        if (!syncFavorites.value && !syncProgress.value && !hasEnabledPending) return
         val unavailableReason = server.knownUnavailableEndpointReason()
         if (unavailableReason != null) {
             setStatus(server) {
@@ -616,7 +635,7 @@ class ServerSyncManager(
     ) {
         val blocked = conflicts.map { it.mutation }.toSet()
         pending.value
-            .filter { it.serverId == server.id && it !in blocked }
+            .filter { it.serverId == server.id && it !in blocked && kindEnabled(it.kind) }
             .forEach { mutation ->
                 val result =
                     when (mutation.kind) {
@@ -649,7 +668,7 @@ class ServerSyncManager(
     ): List<SyncConflict> {
         val remoteById = remote.associateBy(SyncedUserItem::id)
         return pending.value
-            .filter { it.serverId == serverId }
+            .filter { it.serverId == serverId && kindEnabled(it.kind) }
             .mapNotNull { mutation ->
                 val item = remoteById[mutation.itemId]
                 val remoteValue =
@@ -668,6 +687,12 @@ class ServerSyncManager(
                 }
             }
     }
+
+    private fun kindEnabled(kind: SyncMutationKind): Boolean =
+        when (kind) {
+            SyncMutationKind.Favorite -> syncFavorites.value
+            SyncMutationKind.Played -> syncProgress.value
+        }
 
     private fun setStatus(
         server: SavedServer,

@@ -8,7 +8,6 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class MigrationRelayBackendTest {
@@ -36,9 +35,10 @@ class MigrationRelayBackendTest {
         backend.use {
             it.create(createRequest(), "198.51.100.1")
             repeat(5) { attempt ->
-                val failure = assertFailsWith<MigrationRelayException> {
-                    it.redeem(redeemRequest("${attempt}99999".takeLast(6)), "198.51.100.2")
-                }
+                val failure =
+                    assertFailsWith<MigrationRelayException> {
+                        it.redeem(redeemRequest("${attempt}99999".takeLast(6)), "198.51.100.2")
+                    }
                 assertEquals("invalid_migration_code", failure.errorCode)
             }
             assertFailsWith<MigrationRelayException> {
@@ -54,16 +54,18 @@ class MigrationRelayBackendTest {
         backend.use {
             it.create(createRequest(), "198.51.100.1")
             val wrongHash = ByteArray(32) { 7 }
-            val mismatch = assertFailsWith<MigrationRelayException> {
-                it.redeem(
-                    redeemRequest("111111").copy(payloadSha256 = MigrationRelayBackend.encode(wrongHash)),
-                    "198.51.100.2",
-                )
-            }
+            val mismatch =
+                assertFailsWith<MigrationRelayException> {
+                    it.redeem(
+                        redeemRequest("111111").copy(payloadSha256 = MigrationRelayBackend.encode(wrongHash)),
+                        "198.51.100.2",
+                    )
+                }
             now += MigrationRelayBackend.RELAY_TTL_MS + 1
-            val expired = assertFailsWith<MigrationRelayException> {
-                it.redeem(redeemRequest("111111"), "198.51.100.2")
-            }
+            val expired =
+                assertFailsWith<MigrationRelayException> {
+                    it.redeem(redeemRequest("111111"), "198.51.100.2")
+                }
             assertEquals(mismatch.errorCode, expired.errorCode)
             assertEquals(mismatch.message, expired.message)
         }
@@ -77,15 +79,16 @@ class MigrationRelayBackendTest {
             val ready = CountDownLatch(8)
             val start = CountDownLatch(1)
             val pool = Executors.newFixedThreadPool(8)
-            val results = (0 until 8).map { index ->
-                pool.submit<Boolean> {
-                    ready.countDown()
-                    start.await()
-                    runCatching {
-                        it.redeem(redeemRequest("654321"), "198.51.100.${index + 2}")
-                    }.isSuccess
+            val results =
+                (0 until 8).map { index ->
+                    pool.submit<Boolean> {
+                        ready.countDown()
+                        start.await()
+                        runCatching {
+                            it.redeem(redeemRequest("654321"), "198.51.100.${index + 2}")
+                        }.isSuccess
+                    }
                 }
-            }
             assertTrue(ready.await(5, TimeUnit.SECONDS))
             start.countDown()
             assertEquals(1, results.count { it.get(5, TimeUnit.SECONDS) })
@@ -120,9 +123,10 @@ class MigrationRelayBackendTest {
         backend.use {
             it.create(createRequest(), "198.51.100.1")
             listOf("12345", "1234567", "12A456", " 12345").forEach { malformed ->
-                val error = assertFailsWith<MigrationRelayException> {
-                    it.redeem(redeemRequest(malformed), "198.51.100.2")
-                }
+                val error =
+                    assertFailsWith<MigrationRelayException> {
+                        it.redeem(redeemRequest(malformed), "198.51.100.2")
+                    }
                 assertEquals("invalid_migration_code", error.errorCode)
             }
         }
@@ -137,17 +141,19 @@ class MigrationRelayBackendTest {
         codeGenerator = { code },
     )
 
-    private fun createRequest() = CreateMigrationRelayRequest(
-        MigrationRelayBackend.encode(relayId),
-        MigrationRelayBackend.encode(secret),
-        MigrationRelayBackend.encode(payloadHash),
-    )
+    private fun createRequest() =
+        CreateMigrationRelayRequest(
+            MigrationRelayBackend.encode(relayId),
+            MigrationRelayBackend.encode(secret),
+            MigrationRelayBackend.encode(payloadHash),
+        )
 
-    private fun redeemRequest(code: String) = RedeemMigrationRelayRequest(
-        MigrationRelayBackend.encode(relayId),
-        code,
-        MigrationRelayBackend.encode(payloadHash),
-    )
+    private fun redeemRequest(code: String) =
+        RedeemMigrationRelayRequest(
+            MigrationRelayBackend.encode(relayId),
+            code,
+            MigrationRelayBackend.encode(payloadHash),
+        )
 
     private fun codeGeneratorRandom(code: String): java.security.SecureRandom =
         object : java.security.SecureRandom() {

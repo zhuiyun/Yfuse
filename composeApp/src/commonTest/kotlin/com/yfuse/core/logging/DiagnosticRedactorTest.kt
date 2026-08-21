@@ -19,6 +19,7 @@ class DiagnosticRedactorTest {
             Cookie: session=private-session
             Set-Cookie: auth=private-cookie
             https://admin:private@example.test/path
+            GET https://private-emby.example:8096/Users/7a2dadae07dc47d1825a0efb60277e8f/Views
             """.trimIndent()
 
         val redacted = redactDiagnosticText(input)
@@ -33,6 +34,9 @@ class DiagnosticRedactorTest {
         assertFalse("private-session" in redacted)
         assertFalse("private-cookie" in redacted)
         assertFalse("admin:private" in redacted)
+        assertFalse("private-emby.example" in redacted)
+        assertFalse("7a2dadae07dc47d1825a0efb60277e8f" in redacted)
+        assertTrue("https://<redacted-host>/Users/<redacted>/Views" in redacted)
         assertTrue(redacted.count { it == '<' } >= 5)
         assertTrue("item=42" in redacted)
         assertTrue("\"name\":\"safe\"" in redacted)
@@ -45,12 +49,14 @@ class DiagnosticRedactorTest {
                 mapOf(
                     "accessToken" to "secret",
                     "set-cookie" to "private-cookie",
+                    "serverId" to "https://private.example#user-id",
                     "operation" to "load_detail",
                 ),
             )
 
         assertFalse(redacted.getValue("accessToken").contains("secret"))
         assertFalse(redacted.getValue("set-cookie").contains("private-cookie"))
+        assertFalse(redacted.getValue("serverId").contains("private.example"))
         assertTrue(redacted.getValue("operation") == "load_detail")
     }
 

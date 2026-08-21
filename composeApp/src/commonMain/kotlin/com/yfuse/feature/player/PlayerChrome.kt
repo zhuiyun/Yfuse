@@ -85,6 +85,7 @@ import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.playback.PlaybackDiscChapter
 import com.yfuse.core.util.currentClockTime
 import kotlinx.coroutines.delay
 
@@ -100,6 +101,9 @@ private val LiquidProgressViolet = Color(0xFF7D5FF6)
 @Composable
 internal fun PlaybackErrorOverlay(
     message: String,
+    details: String? = null,
+    manualActionLabel: String? = null,
+    onManualAction: () -> Unit = {},
     onRetry: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -121,6 +125,15 @@ internal fun PlaybackErrorOverlay(
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
+            details?.takeIf(String::isNotBlank)?.let { value ->
+                Text(
+                    value,
+                    style = AppTypography.caption.regular,
+                    color = Color.White.copy(alpha = 0.55f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     "返回",
@@ -146,6 +159,21 @@ internal fun PlaybackErrorOverlay(
                                 fill = Color.White.copy(alpha = 0.68f),
                                 border = Color.White.copy(alpha = 0.88f),
                             ).noRippleClickable(onRetry)
+                            .padding(horizontal = 18.dp, vertical = 9.dp),
+                )
+            }
+            manualActionLabel?.let { label ->
+                Text(
+                    label,
+                    style = AppTypography.body.strong,
+                    color = Color.White,
+                    modifier =
+                        Modifier
+                            .glass(
+                                shape = AppShapes.pill,
+                                fill = Color(0xFF8B5CF6).copy(alpha = 0.70f),
+                                border = Color(0xFFC4B5FD).copy(alpha = 0.82f),
+                            ).noRippleClickable(onManualAction)
                             .padding(horizontal = 18.dp, vertical = 9.dp),
                 )
             }
@@ -558,13 +586,9 @@ internal fun BottomBar(
     // so the bar doesn't snap back between ticks.
     var scrubbed by remember { mutableStateOf<Float?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
-    val fraction = scrubbed ?: (state.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+    val fraction = scrubbed ?: playbackProgressFraction(state.positionMs, state.durationMs)
     val bufferedFraction =
-        if (state.durationMs > 0L) {
-            (state.bufferedPositionMs.toFloat() / duration).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
+        playbackProgressFraction(state.bufferedPositionMs, state.durationMs)
     val shownPosition = scrubbed?.let { scrubPositionMs(it, state.durationMs) } ?: state.positionMs
 
     Column(
@@ -944,6 +968,7 @@ internal data class PlaybackProgressMarker(
 internal fun playbackProgressMarkers(
     skip: SkipSegmentState,
     durationMs: Long,
+    chapters: List<PlaybackDiscChapter> = emptyList(),
 ): List<PlaybackProgressMarker> {
     if (durationMs <= 0L) return emptyList()
     val markers = mutableListOf<PlaybackProgressMarker>()
@@ -975,6 +1000,18 @@ internal fun playbackProgressMarkers(
                 label = "片尾",
                 emphasized = true,
             )
+    }
+    chapters.forEach { chapter ->
+        chapter.startMs
+            ?.takeIf { it in 0..durationMs }
+            ?.let { positionMs ->
+                markers +=
+                    PlaybackProgressMarker(
+                        positionMs = positionMs,
+                        label = chapter.label,
+                        emphasized = chapter.index == 0,
+                    )
+            }
     }
     return markers
         .sortedBy(PlaybackProgressMarker::positionMs)

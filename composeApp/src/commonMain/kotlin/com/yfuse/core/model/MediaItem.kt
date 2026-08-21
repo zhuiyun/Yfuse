@@ -26,6 +26,8 @@ data class MediaItem(
     val overview: String? = null,
     /** Production year shown below poster cards. */
     val year: Int? = null,
+    /** Runtime exposed by Emby's RunTimeTicks field. */
+    val runtimeMinutes: Int? = null,
     /** Community score shown by compact recommendation cards. */
     val communityRating: Double? = null,
     /** External IDs such as TMDB, used to match recommendations precisely. */

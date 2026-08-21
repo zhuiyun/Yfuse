@@ -57,6 +57,8 @@ internal data class PlaybackDeltaResponse(
  */
 internal class PlaybackRelayStore private constructor(
     private val connection: Connection,
+    private val maxEntitiesPerUser: Int,
+    private val maxCiphertextBytesPerUser: Long,
 ) : AutoCloseable {
     private val lock = Any()
 
@@ -203,6 +205,10 @@ internal class PlaybackRelayStore private constructor(
                             cursor = cursor,
                         )
                 }
+                enforceQuotaLocked(
+                    userId = userId,
+                    protectedEntityKeys = accepted.mapTo(hashSetOf()) { it.entityKey },
+                )
                 setCursorLocked(userId, cursor)
                 connection.commit()
                 PlaybackPushResponse(cursor = cursor, accepted = accepted, conflicts = conflicts)
@@ -339,6 +345,65 @@ internal class PlaybackRelayStore private constructor(
                 statement.executeQuery().use { it.next() }
             }
 
+    private fun enforceQuotaLocked(
+        userId: String,
+        protectedEntityKeys: Set<String>,
+    ) {
+        while (true) {
+            val (count, bytes) = accountUsageLocked(userId)
+            if (count <= maxEntitiesPerUser && bytes <= maxCiphertextBytesPerUser) return
+            val removed = deleteOldestEntityLocked(userId, protectedEntityKeys)
+            check(removed) { "playback account quota cannot retain the accepted batch" }
+        }
+    }
+
+    private fun accountUsageLocked(userId: String): Pair<Int, Long> =
+        connection
+            .prepareStatement(
+                "SELECT COUNT(*), COALESCE(SUM(length(ciphertext)), 0) FROM playback_sync_entities WHERE user_id = ?",
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.executeQuery().use { result ->
+                    check(result.next())
+                    result.getInt(1) to result.getLong(2)
+                }
+            }
+
+    private fun deleteOldestEntityLocked(
+        userId: String,
+        protectedEntityKeys: Set<String>,
+    ): Boolean {
+        val candidate =
+            connection
+                .prepareStatement(
+                    """
+                    SELECT entity_key
+                    FROM playback_sync_entities
+                    WHERE user_id = ?
+                    ORDER BY updated_at_ms ASC, cursor ASC
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, userId)
+                    statement.executeQuery().use { result ->
+                        var key: String? = null
+                        while (result.next() && key == null) {
+                            result.getString(1).takeIf { it !in protectedEntityKeys }?.let { key = it }
+                        }
+                        key
+                    }
+                } ?: return false
+        return connection
+            .prepareStatement(
+                "DELETE FROM playback_sync_entities WHERE user_id = ? AND entity_key = ?",
+            ).use { statement ->
+                statement.setString(1, userId)
+                statement.setString(2, candidate)
+                statement.executeUpdate() == 1
+            }
+    }
+
+    internal fun entityCountForTests(userId: String): Int = synchronized(lock) { accountUsageLocked(userId).first }
+
     override fun close() {
         synchronized(lock) { connection.close() }
     }
@@ -348,12 +413,24 @@ internal class PlaybackRelayStore private constructor(
             val file = File(System.getenv("ACCOUNT_DB_PATH") ?: "/var/lib/yfuse/account.db")
             file.parentFile?.mkdirs()
             val connection = DriverManager.getConnection("jdbc:sqlite:${file.absolutePath}")
-            return PlaybackRelayStore(connection)
+            return PlaybackRelayStore(
+                connection = connection,
+                maxEntitiesPerUser = MAX_PLAYBACK_ENTITIES_PER_USER,
+                maxCiphertextBytesPerUser = MAX_PLAYBACK_CIPHERTEXT_BYTES_PER_USER,
+            )
         }
 
-        internal fun inMemoryForTests(): PlaybackRelayStore {
+        internal fun inMemoryForTests(
+            maxEntitiesPerUser: Int = MAX_PLAYBACK_ENTITIES_PER_USER,
+            maxCiphertextBytesPerUser: Long = MAX_PLAYBACK_CIPHERTEXT_BYTES_PER_USER,
+        ): PlaybackRelayStore {
             val connection = DriverManager.getConnection("jdbc:sqlite::memory:")
-            val store = PlaybackRelayStore(connection)
+            val store =
+                PlaybackRelayStore(
+                    connection = connection,
+                    maxEntitiesPerUser = maxEntitiesPerUser,
+                    maxCiphertextBytesPerUser = maxCiphertextBytesPerUser,
+                )
             // Production always has the account `users` table and intentionally keeps FK checks
             // enabled. This isolated unit store has no account schema; disable only after the
             // relay constructor has created its own tables so tests exercise relay semantics.
@@ -380,3 +457,5 @@ private const val MAX_PLAYBACK_CIPHERTEXT_BYTES = 96 * 1024 + 16
 private const val MAX_PULL_CIPHERTEXT_BUDGET = 192 * 1024
 private const val MAX_PULL_ITEMS = 200
 private const val MAX_PUSH_ITEMS = 64
+private const val MAX_PLAYBACK_ENTITIES_PER_USER = 1_024
+private const val MAX_PLAYBACK_CIPHERTEXT_BYTES_PER_USER = 64L * 1024L * 1024L

@@ -107,6 +107,7 @@ class PlaybackRoadmapTest {
             ).toPlayerMediaVersions("http://host", "item", "token", "session").single()
 
         assertEquals(PlaybackMethod.Transcode, player.playMethod)
+        assertTrue(player.serverTranscodeSupported)
         assertContains(player.url, "/Videos/item/master.m3u8")
         assertEquals(player.url, player.transcodeUrl)
     }
@@ -180,6 +181,22 @@ class PlaybackRoadmapTest {
 
         assertTrue(player.transcodeUrl.isEmpty())
         assertTrue(player.fallbackTranscodeUrl.isEmpty())
+        assertFalse(player.serverTranscodeSupported)
+    }
+
+    @Test
+    fun omitted_transcode_capability_keeps_best_effort_urls_out_of_preflight_truth() {
+        val player =
+            listOf(
+                version(
+                    supportsDirectPlay = true,
+                    supportsDirectStream = true,
+                    supportsTranscoding = null,
+                ),
+            ).toPlayerMediaVersions("http://host", "item", "token").single()
+
+        assertTrue(player.transcodeUrl.isNotEmpty())
+        assertFalse(player.serverTranscodeSupported)
     }
 
     @Test

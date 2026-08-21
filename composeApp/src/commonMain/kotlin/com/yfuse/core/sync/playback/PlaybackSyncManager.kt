@@ -146,9 +146,10 @@ class PlaybackSyncManager(
     fun updatePreference(
         mediaKey: String,
         aliases: List<String> = emptyList(),
+        serverId: String? = null,
         transform: (PlaybackTrackPreference?) -> PlaybackTrackPreference,
     ) {
-        if (store.updatePreference(mediaKey, aliases, transform) == null) return
+        if (store.updatePreference(mediaKey, aliases, serverId, transform) == null) return
         updatePendingState()
         scheduleCloudSync(immediate = false)
     }
@@ -163,17 +164,20 @@ class PlaybackSyncManager(
     fun startPositionMs(
         mediaKey: String,
         aliases: List<String> = emptyList(),
+        serverId: String? = null,
     ): Long? =
         store.authoritativeStartPositionMs(
             mediaKey = mediaKey,
             aliases = aliases,
+            serverId = serverId,
             completedRatio = COMPLETED_RATIO,
         )
 
     fun resumePositionMs(
         mediaKey: String,
         aliases: List<String> = emptyList(),
-    ): Long? = startPositionMs(mediaKey, aliases)?.takeIf { it > 0L }
+        serverId: String? = null,
+    ): Long? = startPositionMs(mediaKey, aliases, serverId)?.takeIf { it > 0L }
 
     /**
      * Best-effort pull immediately before an ordinary resume, closing the small gap between the
@@ -192,9 +196,10 @@ class PlaybackSyncManager(
 
     suspend fun syncNow() {
         syncMutex.withLock {
-            if (cloudPlaybackEndpointUnavailable) return
             val userId = cipher.currentUserId() ?: return
             if (store.bindAccount(userId)) updatePendingState()
+            drainServerApplyQueue()
+            if (cloudPlaybackEndpointUnavailable) return
             val accessToken = accessTokens.validAccessTokenFor(cloud.origin) ?: return
             val now = nowEpochMs()
             if (now < retryNotBeforeEpochMs) return
@@ -243,6 +248,7 @@ class PlaybackSyncManager(
     private suspend fun syncWithToken(accessToken: String) {
         pullAll(accessToken)
         pushPending(accessToken)
+        drainServerApplyQueue()
     }
 
     private suspend fun pullAll(accessToken: String) {
@@ -250,7 +256,9 @@ class PlaybackSyncManager(
         do {
             val response = cloud.pull(accessToken, store.cursor(), PULL_PAGE_SIZE)
             response.changes.forEach { encrypted ->
-                val document = cipher.decrypt(encrypted) ?: return@forEach
+                val document =
+                    cipher.decrypt(encrypted)
+                        ?: throw PlaybackEntityDecryptException(encrypted.entityKey)
                 val applied =
                     store.applyRemote(
                         remote = document,
@@ -258,7 +266,10 @@ class PlaybackSyncManager(
                         cursor = encrypted.cursor,
                     )
                 if (applied.changedLocal && document.state.deviceId != store.deviceId) {
-                    scope.launch { serverApplier.apply(applied.document) }
+                    store.enqueueServerApply(
+                        document = applied.document,
+                        serverIds = serverApplier.targetServerIds(applied.document),
+                    )
                 }
             }
             store.updateCursor(response.cursor)
@@ -290,13 +301,16 @@ class PlaybackSyncManager(
                 store.markUploaded(
                     mediaKey = local.document.state.mediaKey,
                     aliases = local.document.state.aliases,
+                    serverId = local.document.state.serverId,
                     entityKey = accepted.entityKey,
                     mutationId = accepted.mutationId,
                     cursor = accepted.cursor,
                 )
             }
             response.conflicts.forEach { conflict ->
-                val remote = cipher.decrypt(conflict) ?: return@forEach
+                val remote =
+                    cipher.decrypt(conflict)
+                        ?: throw PlaybackEntityDecryptException(conflict.entityKey)
                 val applied =
                     store.applyRemote(
                         remote = remote,
@@ -304,11 +318,48 @@ class PlaybackSyncManager(
                         cursor = conflict.cursor,
                     )
                 if (applied.changedLocal && remote.state.deviceId != store.deviceId) {
-                    scope.launch { serverApplier.apply(applied.document) }
+                    store.enqueueServerApply(
+                        document = applied.document,
+                        serverIds = serverApplier.targetServerIds(applied.document),
+                    )
                 }
             }
         }
     }
+
+    private suspend fun drainServerApplyQueue() {
+        repeat(MAX_SERVER_APPLIES_PER_SYNC) {
+            val task = store.pendingServerApplies(nowEpochMs(), limit = 1).firstOrNull() ?: return
+            val serverId = task.remainingServerIds.firstOrNull()
+            if (serverId == null || registryServerMissing(serverId)) {
+                serverId?.let { store.markServerApplySucceeded(task.id, it) }
+                return@repeat
+            }
+            val result = serverApplier.apply(task.document, serverId)
+            if (result.isSuccess) {
+                store.markServerApplySucceeded(task.id, serverId)
+            } else {
+                val nextAttempt =
+                    nowEpochMs() + playbackServerApplyBackoffMs(task.attemptCount + 1)
+                store.deferServerApply(task.id, nextAttempt)
+                AppLog.warning(
+                    category = "playback.sync",
+                    event = "server_apply_deferred",
+                    message = "Cloud playback state remains queued for a media server",
+                    throwable = result.exceptionOrNull(),
+                    attributes =
+                        mapOf(
+                            "serverId" to serverId,
+                            "attempt" to (task.attemptCount + 1).toString(),
+                            "pendingCount" to store.serverApplyCount().toString(),
+                        ),
+                )
+                return
+            }
+        }
+    }
+
+    private fun registryServerMissing(serverId: String): Boolean = serverApplier.serverMissing(serverId)
 
     private fun scheduleCloudSync(immediate: Boolean) {
         if (cloudPlaybackEndpointUnavailable) return
@@ -363,23 +414,35 @@ class PlaybackSyncManager(
         cloudFailureStreak = 0
         retryNotBeforeEpochMs = Long.MAX_VALUE
         val pendingCount = store.pending(128).size
-        AppLog.warning(
-            category = "playback.sync",
-            event = "cloud_endpoint_unavailable",
-            message = "Cloud playback synchronization is not enabled; local records remain queued",
-            attributes =
-                mapOf(
-                    "status" to error.status.value.toString(),
-                    "code" to error.code.take(64),
-                    "pendingCount" to pendingCount.toString(),
-                ),
-        )
+        val attributes =
+            mapOf(
+                "status" to error.status.value.toString(),
+                "code" to error.code.take(64),
+                "pendingCount" to pendingCount.toString(),
+            )
+        if (pendingCount == 0) {
+            AppLog.info(
+                category = "playback.sync",
+                event = "cloud_endpoint_unavailable",
+                message = "Cloud playback synchronization is not enabled; no local records are pending",
+                attributes = attributes,
+            )
+        } else {
+            AppLog.warning(
+                category = "playback.sync",
+                event = "cloud_endpoint_unavailable",
+                message = "Cloud playback synchronization is not enabled; local records remain queued",
+                attributes = attributes,
+            )
+        }
         _state.value =
             _state.value.copy(
                 syncing = false,
                 pendingCount = pendingCount,
                 cursor = store.cursor(),
-                error = "云端播放记录同步尚未启用，本地记录已保留",
+                error =
+                    "云端播放记录同步尚未启用，本地记录已保留"
+                        .takeIf { pendingCount > 0 },
             )
     }
 
@@ -428,6 +491,7 @@ class PlaybackSyncManager(
         const val MAX_PULL_PAGES_PER_SYNC = 8
         const val PUSH_BATCH_SIZE = 8
         const val MAX_PUSH_ROUNDS = 2
+        const val MAX_SERVER_APPLIES_PER_SYNC = 16
         const val COMPLETED_RATIO = 0.95
     }
 }
@@ -436,6 +500,15 @@ internal fun playbackCloudRetryBackoffMs(failureStreak: Int): Long {
     val exponent = (failureStreak - 1).coerceIn(0, 5)
     return (30_000L * (1L shl exponent)).coerceAtMost(15 * 60_000L)
 }
+
+internal fun playbackServerApplyBackoffMs(failureStreak: Int): Long {
+    val exponent = (failureStreak - 1).coerceIn(0, 6)
+    return (15_000L * (1L shl exponent)).coerceAtMost(30 * 60_000L)
+}
+
+private class PlaybackEntityDecryptException(
+    entityKey: String,
+) : IllegalStateException("无法解密云端播放记录，已保留游标等待重试：${entityKey.take(12)}")
 
 internal fun playbackCloudEndpointUnavailable(error: Throwable): Boolean =
     error is AccountApiException && error.status == HttpStatusCode.NotFound
@@ -457,48 +530,62 @@ private class EmbyCompatiblePlaybackStateApplier(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
 ) {
-    suspend fun apply(document: PlaybackSyncDocument) {
+    fun serverMissing(serverId: String): Boolean = registry.serverById(serverId) == null
+
+    fun targetServerIds(document: PlaybackSyncDocument): List<String> {
         val state = document.state
-        registry.data.value.servers.forEach { server ->
+        val keys = listOf(state.mediaKey) + state.aliases
+        val hasPortableIdentity = keys.any { !it.startsWith("emby:", ignoreCase = true) }
+        return if (hasPortableIdentity) {
+            registry.data.value.servers
+                .map { it.id }
+        } else {
+            listOfNotNull(state.serverId?.takeIf { registry.serverById(it) != null })
+        }
+    }
+
+    suspend fun apply(
+        document: PlaybackSyncDocument,
+        serverId: String,
+    ): Result<Unit> =
+        runCatching {
+            val state = document.state
+            val server = registry.serverById(serverId) ?: return@runCatching
             val item =
                 (listOf(state.mediaKey) + state.aliases)
-                    .firstNotNullOfOrNull { key -> repo.findByMediaKey(server, key).getOrNull() }
-                    ?: return@forEach
+                    .firstNotNullOfOrNull { key -> repo.findByMediaKey(server, key).getOrThrow() }
+                    ?: return@runCatching
             val isOrigin = server.id == state.serverId && item.id == state.serverItemId
             if (isOrigin && state.mutationKind != PlaybackMutationKind.ManualUnwatched) {
-                return@forEach
+                return@runCatching
             }
             when (state.mutationKind) {
                 PlaybackMutationKind.ManualWatched,
                 PlaybackMutationKind.AutoFinished,
-                -> repo.setPlayed(server, item.id, true)
-                PlaybackMutationKind.ManualUnwatched -> resetServerProgress(server, item.id, state.deviceId)
+                -> repo.setPlayed(server, item.id, true).getOrThrow()
+                PlaybackMutationKind.ManualUnwatched ->
+                    resetServerProgress(server, item.id, state.deviceId).getOrThrow()
                 PlaybackMutationKind.AutoProgress -> {
                     when {
-                        state.positionMs > 0L ->
-                            repo.reportPlaybackStopped(
-                                server = server,
-                                itemId = item.id,
-                                playSessionId = "yfuse-cloud-${state.deviceId.takeLast(12)}",
-                                positionTicks =
-                                    state.positionMs.coerceAtMost(Long.MAX_VALUE / 10_000L) * 10_000L,
-                                isPaused = true,
-                            )
-                        state.progressEpoch > 0L -> resetServerProgress(server, item.id, state.deviceId)
-                        else -> Result.success(Unit)
+                        state.positionMs > 0L -> {
+                            repo
+                                .reportPlaybackStopped(
+                                    server = server,
+                                    itemId = item.id,
+                                    playSessionId = "yfuse-cloud-${state.deviceId.takeLast(12)}",
+                                    positionTicks =
+                                        state.positionMs.coerceAtMost(Long.MAX_VALUE / 10_000L) *
+                                            10_000L,
+                                    isPaused = true,
+                                ).getOrThrow()
+                        }
+                        state.progressEpoch > 0L ->
+                            resetServerProgress(server, item.id, state.deviceId).getOrThrow()
+                        else -> Unit
                     }
                 }
-            }.onFailure { error ->
-                AppLog.warning(
-                    category = "playback.sync",
-                    event = "server_apply_failed",
-                    message = "Cloud playback state could not be applied to a media server",
-                    throwable = error,
-                    attributes = mapOf("serverId" to server.id),
-                )
             }
         }
-    }
 
     private suspend fun resetServerProgress(
         server: com.yfuse.core.model.SavedServer,

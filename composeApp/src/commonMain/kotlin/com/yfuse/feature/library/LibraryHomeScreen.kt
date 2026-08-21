@@ -71,9 +71,10 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroActionDock
-import com.yfuse.core.designsystem.HeroCaptionClearance
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
+import com.yfuse.core.designsystem.LivingPosterAmbient
+import com.yfuse.core.designsystem.LivingPosterDefaults
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -88,7 +89,11 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.heroDurationLabel
+import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroReelScrim
+import com.yfuse.core.designsystem.livingPosterFrame
+import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
 import com.yfuse.core.designsystem.loopingCarouselSemantics
@@ -112,39 +117,28 @@ import com.yfuse.core.network.EmbyImages
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val LibraryHeroIndicatorBottom = 12.dp
-
 /**
  * The caption clears the whole dissolve band — white copy cannot follow the artwork into
  * the page. Only the dots, whose ink is the page's, sit inside it.
  */
-private val LibraryHeroContentBottom = HeroCaptionClearance
+private val LibraryHeroContentBottom = LivingPosterDefaults.CAPTION_BOTTOM
 
 /** How far the content column is pulled up over the lower edge of the hero. */
 private val HeroLift = 52.dp
 
 internal data class LibraryHeroPresentation(
     val playActionLabel: String,
-    val detailActionLabel: String,
-    val showOverview: Boolean,
 )
 
 internal val libraryHeroPresentation =
     LibraryHeroPresentation(
         playActionLabel = "播放影片",
-        detailActionLabel = "查看详情",
-        showOverview = false,
     )
 
 internal fun libraryHeroHeight(
     viewportHeight: androidx.compose.ui.unit.Dp,
     wideLayout: Boolean,
-): androidx.compose.ui.unit.Dp =
-    if (wideLayout) {
-        (viewportHeight * 0.60f).coerceIn(420.dp, 720.dp)
-    } else {
-        (viewportHeight * 0.60f).coerceIn(350.dp, 520.dp)
-    }
+): androidx.compose.ui.unit.Dp = livingPosterHeroHeight(viewportHeight, wideLayout)
 
 /** Poster rail column width, shared by the real rails and the loading skeleton. */
 private val PosterWidth = MediaSizing.posterRailWidth
@@ -213,7 +207,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val accessToken = state.currentServer?.accessToken.orEmpty()
     val palette = LocalPalette.current
 
-    val slides = state.content.featured.take(4)
+    val slides = state.content.featured.take(8)
     val pagerState =
         rememberPagerState(
             pageCount = { loopingCarouselPageCount(slides.size) },
@@ -224,11 +218,15 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     // Interaction restarts the reel's clock instead of stopping it; see 首页's hero.
     var interaction by remember { mutableStateOf(0) }
     val slide = slides.getOrNull(slideIndex)
-    val slideUrl =
-        slide?.let {
-            EmbyImages.backdrop(baseUrl, it, accessToken = accessToken)
-                ?: EmbyImages.poster(baseUrl, it, accessToken = accessToken)
-        }
+    val slideUrls =
+        slide
+            ?.let {
+                listOf(
+                    EmbyImages.backdrop(baseUrl, it, accessToken = accessToken),
+                    EmbyImages.poster(baseUrl, it, accessToken = accessToken),
+                )
+            }.orEmpty()
+    val slideUrl = slideUrls.firstOrNull { it != null }
     val accent =
         rememberAnimatedDominantColor(
             slideUrl,
@@ -282,6 +280,11 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
         BoxWithConstraints(Modifier.fillMaxSize().background(ground)) {
             val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
+            val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
+            val indicatorStart =
+                if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
+            val indicatorEnd =
+                if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp
             StatusBarIconStyle(darkIcons = (slide == null || lightPageReached) && !palette.isDark)
             when {
                 state.currentServer == null ->
@@ -312,12 +315,27 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                             if (slide != null) {
                                 item {
                                     Box(Modifier.fillMaxWidth().height(heroHeight)) {
+                                        LivingPosterAmbient(
+                                            urls = slideUrls,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
                                         HorizontalPager(
                                             state = pagerState,
                                             modifier =
                                                 Modifier
                                                     .fillMaxSize()
                                                     .loopingCarouselSemantics(pagerState.currentPage, slides.size),
+                                            contentPadding =
+                                                if (showSidePreview) {
+                                                    PaddingValues(
+                                                        start = LivingPosterDefaults.LEADING_INSET,
+                                                        end = LivingPosterDefaults.TRAILING_PEEK,
+                                                    )
+                                                } else {
+                                                    PaddingValues(0.dp)
+                                                },
+                                            pageSpacing =
+                                                if (showSidePreview) LivingPosterDefaults.PAGE_SPACING else 0.dp,
                                             beyondViewportPageCount = 1,
                                             key = { page -> page },
                                         ) { page ->
@@ -350,7 +368,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 accent = animatedAccent,
                                                 serverId = state.currentServer?.id,
                                                 serverName = state.currentServer?.serverName.orEmpty(),
-                                                height = heroHeight,
+                                                framed = showSidePreview,
+                                                modifier = Modifier.fillMaxSize(),
                                                 onClick = { component.onOpenItem(animatedItem.id) },
                                                 onPlay = { component.onPlayItem(animatedItem.id) },
                                                 onToggleFavorite = {
@@ -368,37 +387,46 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             )
                                         }
                                         if (slides.size > 1) {
-                                            HeroPageIndicator(
-                                                pageCount = slides.size,
-                                                selectedPage = slideIndex,
-                                                onPageSelected = { targetIndex ->
-                                                    interaction++
-                                                    carouselScope.launch {
-                                                        val targetPage =
-                                                            loopingCarouselTargetPage(
-                                                                currentPage = pagerState.currentPage,
-                                                                targetIndex = targetIndex,
-                                                                itemCount = slides.size,
-                                                            )
-                                                        if (reduceMotion) {
-                                                            pagerState.scrollToPage(targetPage)
-                                                        } else {
-                                                            pagerState.animateScrollToPage(
-                                                                page = targetPage,
-                                                                animationSpec =
-                                                                    tween(
-                                                                        Motion.EMPHASIZED,
-                                                                        easing = Motion.Curve,
-                                                                    ),
-                                                            )
+                                            Box(
+                                                Modifier
+                                                    .align(Alignment.BottomStart)
+                                                    .fillMaxWidth()
+                                                    .padding(
+                                                        start = indicatorStart,
+                                                        end = indicatorEnd,
+                                                        bottom = LivingPosterDefaults.INDICATOR_BOTTOM,
+                                                    ),
+                                            ) {
+                                                HeroPageIndicator(
+                                                    pageCount = slides.size,
+                                                    selectedPage = slideIndex,
+                                                    onPageSelected = { targetIndex ->
+                                                        interaction++
+                                                        carouselScope.launch {
+                                                            val targetPage =
+                                                                loopingCarouselTargetPage(
+                                                                    currentPage = pagerState.currentPage,
+                                                                    targetIndex = targetIndex,
+                                                                    itemCount = slides.size,
+                                                                )
+                                                            if (reduceMotion) {
+                                                                pagerState.scrollToPage(targetPage)
+                                                            } else {
+                                                                pagerState.animateScrollToPage(
+                                                                    page = targetPage,
+                                                                    animationSpec =
+                                                                        tween(
+                                                                            Motion.EMPHASIZED,
+                                                                            easing = Motion.Curve,
+                                                                        ),
+                                                                )
+                                                            }
                                                         }
-                                                    }
-                                                },
-                                                modifier =
-                                                    Modifier
-                                                        .align(Alignment.BottomCenter)
-                                                        .padding(bottom = LibraryHeroIndicatorBottom),
-                                            )
+                                                    },
+                                                    onArtwork = true,
+                                                    modifier = Modifier.align(Alignment.Center),
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -639,7 +667,8 @@ private fun HeroCarousel(
     accent: Color,
     serverId: String?,
     serverName: String,
-    height: androidx.compose.ui.unit.Dp,
+    framed: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onPlay: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -649,9 +678,9 @@ private fun HeroCarousel(
     val openDetail = sharedMediaOnClick(sharedKey, onClick)
     val palette = LocalPalette.current
     Box(
-        Modifier
-            .fillMaxWidth()
-            .height(height)
+        modifier
+            .fillMaxSize()
+            .then(if (framed) Modifier.livingPosterFrame() else Modifier)
             .pressable(onClick = openDetail),
     ) {
         FallbackImage(
@@ -671,7 +700,7 @@ private fun HeroCarousel(
             Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -747,14 +776,41 @@ private fun HeroCarousel(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            val facts =
+                listOfNotNull(
+                    item.year?.toString(),
+                    heroMediaTypeLabel(item.type),
+                    heroDurationLabel(item.runtimeMinutes),
+                )
+            if (facts.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = facts.joinToString(" · "),
+                    style = AppTypography.caption.medium.copy(shadow = HeroTextShadow),
+                    color = Color.White.copy(alpha = 0.88f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            item.overview
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+                ?.let { overview ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = overview,
+                        style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
+                        color = Color.White.copy(alpha = 0.80f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             Spacer(Modifier.height(14.dp))
             HeroActionDock(
                 favorite = item.isFavorite,
                 playActionLabel = libraryHeroPresentation.playActionLabel,
-                detailsActionLabel = libraryHeroPresentation.detailActionLabel,
                 onPlay = onPlay,
                 onFavorite = onToggleFavorite,
-                onDetails = openDetail,
             )
         }
     }

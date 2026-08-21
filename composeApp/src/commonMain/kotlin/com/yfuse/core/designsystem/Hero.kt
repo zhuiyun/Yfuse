@@ -1,13 +1,11 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -86,11 +84,9 @@ private val HeroToolSelectedFill = Color.White.copy(alpha = 0.20f)
 fun HeroActionDock(
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
-    onDetails: () -> Unit,
     modifier: Modifier = Modifier,
     favorite: Boolean? = null,
     playActionLabel: String = "播放影片",
-    detailsActionLabel: String = "查看详情",
     favoriteActionLabel: String = if (favorite == true) "取消收藏" else "加入收藏",
 ) {
     Row(
@@ -122,33 +118,28 @@ fun HeroActionDock(
                 tint = HeroPlayInk,
                 modifier = Modifier.size(17.dp),
             )
-            Text("播放", style = AppTypography.body.strong, color = HeroPlayInk, maxLines = 1)
+            Text("继续播放", style = AppTypography.body.strong, color = HeroPlayInk, maxLines = 1)
         }
-        HeroDockTool(
+        HeroFavoriteButton(
             icon = if (favorite == true) AppIcons.HeartFilled else AppIcons.Heart,
             description = favoriteActionLabel,
             onClick = onFavorite,
             active = favorite,
         )
-        HeroDockTool(
-            icon = AppIcons.Info,
-            description = detailsActionLabel,
-            onClick = onDetails,
-        )
     }
 }
 
 @Composable
-private fun HeroDockTool(
+private fun HeroFavoriteButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     onClick: () -> Unit,
     active: Boolean? = null,
 ) {
-    val shape = CircleShape
-    Box(
+    val shape = AppShapes.pill
+    Row(
         Modifier
-            .size(46.dp)
+            .height(46.dp)
             .pressable(
                 haptic = HapticSignal.Confirm.takeIf { active != null },
                 role = if (active == null) Role.Button else Role.Checkbox,
@@ -168,21 +159,28 @@ private fun HeroDockTool(
                 border = HeroDockBorder,
                 over = HeroInk,
                 sheen = 0.58f,
-            ),
-        contentAlignment = Alignment.Center,
+            ).padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         if (active == null) {
-            Icon(icon, description, tint = Color.White.copy(alpha = 0.88f), modifier = Modifier.size(18.dp))
+            Icon(icon, null, tint = Color.White.copy(alpha = 0.88f), modifier = Modifier.size(17.dp))
         } else {
             BurstIcon(
                 icon = icon,
                 active = active,
-                contentDescription = description,
+                contentDescription = null,
                 tint = Color.White.copy(alpha = 0.88f),
                 burstColor = Color.White,
-                iconSize = 18.dp,
+                iconSize = 17.dp,
             )
         }
+        Text(
+            text = if (active == true) "已收藏" else "收藏",
+            style = AppTypography.body.strong,
+            color = Color.White.copy(alpha = 0.92f),
+            maxLines = 1,
+        )
     }
 }
 

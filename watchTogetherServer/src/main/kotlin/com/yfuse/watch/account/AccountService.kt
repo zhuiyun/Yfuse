@@ -34,8 +34,7 @@ class AccountBackend private constructor(
     private val store: AccountStore,
     private val workExecutor: AccountWorkExecutor,
 ) : AutoCloseable {
-    internal suspend fun <T> execute(block: AccountService.() -> T): T =
-        workExecutor.execute { service.block() }
+    internal suspend fun <T> execute(block: AccountService.() -> T): T = workExecutor.execute { service.block() }
 
     suspend fun authenticateAccessToken(accessToken: String): AuthenticatedAccount =
         execute {
@@ -79,27 +78,29 @@ class AccountBackend private constructor(
             databaseFile: File,
             registrationPolicy: AccountRegistrationPolicy =
                 AccountRegistrationPolicy.fromEnvironment(),
-        ): AccountBackend = create(
-            store = SqliteAccountStore.open(databaseFile),
-            passwordHasher = Pbkdf2PasswordHasher(),
-            workExecutor = AccountWorkExecutor(),
-            usernameFailureLimiter = UsernameFailureLimiter(),
-            syncUserRateLimiter = AccountRateLimiter(),
-            registrationPolicy = registrationPolicy,
-        )
+        ): AccountBackend =
+            create(
+                store = SqliteAccountStore.open(databaseFile),
+                passwordHasher = Pbkdf2PasswordHasher(),
+                workExecutor = AccountWorkExecutor(),
+                usernameFailureLimiter = UsernameFailureLimiter(),
+                syncUserRateLimiter = AccountRateLimiter(),
+                registrationPolicy = registrationPolicy,
+            )
 
         /** Useful for local/test application instances; data intentionally dies with the process. */
         fun inMemory(
             registrationPolicy: AccountRegistrationPolicy =
                 AccountRegistrationPolicy(enabled = true),
-        ): AccountBackend = create(
-            store = SqliteAccountStore.inMemory(),
-            passwordHasher = Pbkdf2PasswordHasher(),
-            workExecutor = AccountWorkExecutor(),
-            usernameFailureLimiter = UsernameFailureLimiter(),
-            syncUserRateLimiter = AccountRateLimiter(),
-            registrationPolicy = registrationPolicy,
-        )
+        ): AccountBackend =
+            create(
+                store = SqliteAccountStore.inMemory(),
+                passwordHasher = Pbkdf2PasswordHasher(),
+                workExecutor = AccountWorkExecutor(),
+                usernameFailureLimiter = UsernameFailureLimiter(),
+                syncUserRateLimiter = AccountRateLimiter(),
+                registrationPolicy = registrationPolicy,
+            )
 
         internal fun inMemoryForTests(
             passwordIterations: Int = 1_000,
@@ -113,20 +114,22 @@ class AccountBackend private constructor(
             activeSessionsPerUserLimit: Int = 10,
             registrationPolicy: AccountRegistrationPolicy =
                 AccountRegistrationPolicy(enabled = true),
-        ): AccountBackend = create(
-            store = SqliteAccountStore.inMemory(
-                nonceHistoryPerUserLimit = nonceHistoryPerUserLimit,
-                nonceHistoryRetentionMs = nonceHistoryRetentionMs,
-                nonceHistoryCleanupIntervalMs = nonceHistoryCleanupIntervalMs,
-                activeSessionsPerUserLimit = activeSessionsPerUserLimit,
-            ),
-            passwordHasher = Pbkdf2PasswordHasher(passwordIterations),
-            clock = clock,
-            workExecutor = workExecutor,
-            usernameFailureLimiter = usernameFailureLimiter,
-            syncUserRateLimiter = syncUserRateLimiter,
-            registrationPolicy = registrationPolicy,
-        )
+        ): AccountBackend =
+            create(
+                store =
+                    SqliteAccountStore.inMemory(
+                        nonceHistoryPerUserLimit = nonceHistoryPerUserLimit,
+                        nonceHistoryRetentionMs = nonceHistoryRetentionMs,
+                        nonceHistoryCleanupIntervalMs = nonceHistoryCleanupIntervalMs,
+                        activeSessionsPerUserLimit = activeSessionsPerUserLimit,
+                    ),
+                passwordHasher = Pbkdf2PasswordHasher(passwordIterations),
+                clock = clock,
+                workExecutor = workExecutor,
+                usernameFailureLimiter = usernameFailureLimiter,
+                syncUserRateLimiter = syncUserRateLimiter,
+                registrationPolicy = registrationPolicy,
+            )
 
         internal fun sqliteForTests(
             databaseFile: File,
@@ -141,21 +144,23 @@ class AccountBackend private constructor(
             activeSessionsPerUserLimit: Int = 10,
             registrationPolicy: AccountRegistrationPolicy =
                 AccountRegistrationPolicy(enabled = true),
-        ): AccountBackend = create(
-            store = SqliteAccountStore.open(
-                databaseFile,
-                nonceHistoryPerUserLimit = nonceHistoryPerUserLimit,
-                nonceHistoryRetentionMs = nonceHistoryRetentionMs,
-                nonceHistoryCleanupIntervalMs = nonceHistoryCleanupIntervalMs,
-                activeSessionsPerUserLimit = activeSessionsPerUserLimit,
-            ),
-            passwordHasher = Pbkdf2PasswordHasher(passwordIterations),
-            clock = clock,
-            workExecutor = workExecutor,
-            usernameFailureLimiter = usernameFailureLimiter,
-            syncUserRateLimiter = syncUserRateLimiter,
-            registrationPolicy = registrationPolicy,
-        )
+        ): AccountBackend =
+            create(
+                store =
+                    SqliteAccountStore.open(
+                        databaseFile,
+                        nonceHistoryPerUserLimit = nonceHistoryPerUserLimit,
+                        nonceHistoryRetentionMs = nonceHistoryRetentionMs,
+                        nonceHistoryCleanupIntervalMs = nonceHistoryCleanupIntervalMs,
+                        activeSessionsPerUserLimit = activeSessionsPerUserLimit,
+                    ),
+                passwordHasher = Pbkdf2PasswordHasher(passwordIterations),
+                clock = clock,
+                workExecutor = workExecutor,
+                usernameFailureLimiter = usernameFailureLimiter,
+                syncUserRateLimiter = syncUserRateLimiter,
+                registrationPolicy = registrationPolicy,
+            )
 
         private fun create(
             store: AccountStore,
@@ -171,14 +176,15 @@ class AccountBackend private constructor(
                 clock(),
             )
             return AccountBackend(
-                service = AccountService(
-                store = store,
-                passwordHasher = passwordHasher,
-                clock = clock,
-                usernameFailureLimiter = usernameFailureLimiter,
-                syncUserRateLimiter = syncUserRateLimiter,
-                registrationPolicy = registrationPolicy,
-            ),
+                service =
+                    AccountService(
+                        store = store,
+                        passwordHasher = passwordHasher,
+                        clock = clock,
+                        usernameFailureLimiter = usernameFailureLimiter,
+                        syncUserRateLimiter = syncUserRateLimiter,
+                        registrationPolicy = registrationPolicy,
+                    ),
                 store = store,
                 workExecutor = workExecutor,
             )
@@ -227,39 +233,43 @@ internal class AccountService(
         }
         validateRegistrationPassword(request.password)
         val nickname = request.nickname?.let(::validateNickname) ?: username
-        val avatarId = request.avatarId?.let(::validateAvatarId)
-            ?: ((normalizedUsername.hashCode() and Int.MAX_VALUE) % AVATAR_COUNT)
+        val avatarId =
+            request.avatarId?.let(::validateAvatarId)
+                ?: ((normalizedUsername.hashCode() and Int.MAX_VALUE) % AVATAR_COUNT)
         val now = clock()
-        val user = StoredUser(
-            id = UUID.randomUUID().toString(),
-            username = username,
-            normalizedUsername = normalizedUsername,
-            nickname = nickname,
-            avatarId = avatarId,
-            createdAtEpochMs = now,
-            updatedAtEpochMs = now,
-        )
+        val user =
+            StoredUser(
+                id = UUID.randomUUID().toString(),
+                username = username,
+                normalizedUsername = normalizedUsername,
+                nickname = nickname,
+                avatarId = avatarId,
+                createdAtEpochMs = now,
+                updatedAtEpochMs = now,
+            )
         val digest = passwordHasher.hash(request.password)
         val issued = issueSession(now)
-        val credentials = StoredCredentials(
-            user = user,
-            passwordSalt = digest.salt,
-            passwordHash = digest.hash,
-            passwordIterations = digest.iterations,
-        )
-        val result = try {
-            store.createUserWithSession(
-                credentials,
-                issued.asNewSession(user.id, validateDeviceName(request.deviceName)),
-                registrationPolicy.maxUsers,
-                invitation?.digest,
-                invitation?.kind,
+        val credentials =
+            StoredCredentials(
+                user = user,
+                passwordSalt = digest.salt,
+                passwordHash = digest.hash,
+                passwordIterations = digest.iterations,
             )
-        } finally {
-            digest.salt.fill(0)
-            digest.hash.fill(0)
-            invitation?.digest?.fill(0)
-        }
+        val result =
+            try {
+                store.createUserWithSession(
+                    credentials,
+                    issued.asNewSession(user.id, validateDeviceName(request.deviceName)),
+                    registrationPolicy.maxUsers,
+                    invitation?.digest,
+                    invitation?.kind,
+                )
+            } finally {
+                digest.salt.fill(0)
+                digest.hash.fill(0)
+                invitation?.digest?.fill(0)
+            }
         when (result) {
             RegistrationWriteResult.Created -> Unit
             RegistrationWriteResult.UsernameUnavailable -> usernameUnavailable()
@@ -272,8 +282,9 @@ internal class AccountService(
     }
 
     fun login(request: LoginRequest): AuthResponse {
-        val normalizedUsername = normalizeLoginUsername(request.username)
-            ?: invalidCredentials()
+        val normalizedUsername =
+            normalizeLoginUsername(request.username)
+                ?: invalidCredentials()
         enforceRateLimit(usernameFailureLimiter.checkOrReserve(normalizedUsername))
         if (!isPlausiblePassword(request.password)) {
             usernameFailureLimiter.recordFailure(normalizedUsername)
@@ -287,19 +298,20 @@ internal class AccountService(
             usernameFailureLimiter.recordFailure(normalizedUsername)
             invalidCredentials()
         }
-        val verified = try {
-            passwordHasher.verify(
-                request.password,
-                PasswordDigest(
-                    salt = credentials.passwordSalt,
-                    hash = credentials.passwordHash,
-                    iterations = credentials.passwordIterations,
-                ),
-            )
-        } finally {
-            credentials.passwordSalt.fill(0)
-            credentials.passwordHash.fill(0)
-        }
+        val verified =
+            try {
+                passwordHasher.verify(
+                    request.password,
+                    PasswordDigest(
+                        salt = credentials.passwordSalt,
+                        hash = credentials.passwordHash,
+                        iterations = credentials.passwordIterations,
+                    ),
+                )
+            } finally {
+                credentials.passwordSalt.fill(0)
+                credentials.passwordHash.fill(0)
+            }
         if (!verified) {
             usernameFailureLimiter.recordFailure(normalizedUsername)
             invalidCredentials()
@@ -319,11 +331,12 @@ internal class AccountService(
         if (!tokenFactory.isWellFormed(rawToken)) unauthorized()
         val now = clock()
         val issued = issueSession(now)
-        val session = store.rotateSessionByRefreshHash(
-            currentRefreshHash = tokenFactory.digest(rawToken),
-            replacement = issued.asReplacement(request.deviceName?.let(::validateDeviceName)),
-            nowEpochMs = now,
-        ) ?: unauthorized()
+        val session =
+            store.rotateSessionByRefreshHash(
+                currentRefreshHash = tokenFactory.digest(rawToken),
+                replacement = issued.asReplacement(request.deviceName?.let(::validateDeviceName)),
+                nowEpochMs = now,
+            ) ?: unauthorized()
         return issued.toResponse(session.user, capabilitiesFor(session.user.id))
     }
 
@@ -334,9 +347,10 @@ internal class AccountService(
         }
     }
 
-    fun getProfile(accessToken: String): UserResponse = authenticate(accessToken).user.let {
-        it.toResponse(capabilitiesFor(it.id))
-    }
+    fun getProfile(accessToken: String): UserResponse =
+        authenticate(accessToken).user.let {
+            it.toResponse(capabilitiesFor(it.id))
+        }
 
     fun authenticateAccessToken(accessToken: String): AuthenticatedSession =
         authenticate(accessToken, touchLastSeen = true)
@@ -349,20 +363,22 @@ internal class AccountService(
         val now = clock()
         val issued = tokenFactory.issue()
         val expiresAt = saturatedAdd(now, registrationPolicy.issuedInviteTtlMs)
-        val result = try {
-            store.issueInvite(
-                authenticatedSessionId = authenticated.sessionId,
-                invite = NewIssuedInvite(
-                    digest = issued.hash,
-                    issuerUserId = authenticated.user.id,
-                    createdAtEpochMs = now,
-                    expiresAtEpochMs = expiresAt,
-                ),
-                nowEpochMs = now,
-            )
-        } finally {
-            issued.hash.fill(0)
-        }
+        val result =
+            try {
+                store.issueInvite(
+                    authenticatedSessionId = authenticated.sessionId,
+                    invite =
+                        NewIssuedInvite(
+                            digest = issued.hash,
+                            issuerUserId = authenticated.user.id,
+                            createdAtEpochMs = now,
+                            expiresAtEpochMs = expiresAt,
+                        ),
+                    nowEpochMs = now,
+                )
+            } finally {
+                issued.hash.fill(0)
+            }
         return when (result) {
             InviteIssueWriteResult.Created -> IssuedInviteResponse(issued.plaintext, expiresAt)
             InviteIssueWriteResult.Forbidden -> forbidden()
@@ -385,7 +401,10 @@ internal class AccountService(
         )
     }
 
-    fun revokeSession(accessToken: String, sessionId: String) {
+    fun revokeSession(
+        accessToken: String,
+        sessionId: String,
+    ) {
         val authenticated = authenticate(accessToken)
         if (!SESSION_ID_PATTERN.matches(sessionId)) {
             invalidRequest("session_id_invalid", "会话编号无效")
@@ -415,30 +434,35 @@ internal class AccountService(
         )
     }
 
-    fun deleteAccount(accessToken: String, request: DeleteAccountRequest) {
+    fun deleteAccount(
+        accessToken: String,
+        request: DeleteAccountRequest,
+    ) {
         val authenticated = authenticate(accessToken)
         if (!isPlausiblePassword(request.password)) currentPasswordInvalid()
         val credentials = store.findCredentialsByUserId(authenticated.user.id) ?: unauthorized()
-        val digest = PasswordDigest(
-            credentials.passwordSalt,
-            credentials.passwordHash,
-            credentials.passwordIterations,
-        )
+        val digest =
+            PasswordDigest(
+                credentials.passwordSalt,
+                credentials.passwordHash,
+                credentials.passwordIterations,
+            )
         val verified = passwordHasher.verify(request.password, digest)
         if (!verified) {
             digest.wipe()
             currentPasswordInvalid()
         }
-        val result = try {
-            store.deleteUser(
-                userId = authenticated.user.id,
-                expectedCurrent = digest,
-                authenticatedSessionId = authenticated.sessionId,
-                nowEpochMs = clock(),
-            )
-        } finally {
-            digest.wipe()
-        }
+        val result =
+            try {
+                store.deleteUser(
+                    userId = authenticated.user.id,
+                    expectedCurrent = digest,
+                    authenticatedSessionId = authenticated.sessionId,
+                    nowEpochMs = clock(),
+                )
+            } finally {
+                digest.wipe()
+            }
         when (result) {
             DeleteAccountWriteResult.Deleted ->
                 usernameFailureLimiter.clear(authenticated.user.normalizedUsername)
@@ -447,19 +471,26 @@ internal class AccountService(
         }
     }
 
-    fun updateProfile(accessToken: String, request: UpdateProfileRequest): UserResponse {
+    fun updateProfile(
+        accessToken: String,
+        request: UpdateProfileRequest,
+    ): UserResponse {
         if (request.nickname == null && request.avatarId == null) {
             invalidRequest("profile_empty", "至少提供一个资料字段")
         }
         val current = authenticate(accessToken).user
         val nickname = request.nickname?.let(::validateNickname) ?: current.nickname
         val avatarId = request.avatarId?.let(::validateAvatarId) ?: current.avatarId
-        return store.updateProfile(current.id, nickname, avatarId, clock())
+        return store
+            .updateProfile(current.id, nickname, avatarId, clock())
             ?.let { it.toResponse(capabilitiesFor(it.id)) }
             ?: unauthorized()
     }
 
-    fun changePassword(accessToken: String, request: ChangePasswordRequest): AuthResponse {
+    fun changePassword(
+        accessToken: String,
+        request: ChangePasswordRequest,
+    ): AuthResponse {
         val authenticated = authenticate(accessToken)
         val user = authenticated.user
         enforceRateLimit(
@@ -478,47 +509,52 @@ internal class AccountService(
         }
         val replacementWrap = decodePasswordChangeWrap(request)
         val credentials = store.findCredentialsByUserId(user.id) ?: unauthorized()
-        val expectedDigest = PasswordDigest(
-            salt = credentials.passwordSalt,
-            hash = credentials.passwordHash,
-            iterations = credentials.passwordIterations,
-        )
-        val verified = try {
-            passwordHasher.verify(request.currentPassword, expectedDigest)
-        } catch (failure: Throwable) {
-            expectedDigest.wipe()
-            throw failure
-        }
+        val expectedDigest =
+            PasswordDigest(
+                salt = credentials.passwordSalt,
+                hash = credentials.passwordHash,
+                iterations = credentials.passwordIterations,
+            )
+        val verified =
+            try {
+                passwordHasher.verify(request.currentPassword, expectedDigest)
+            } catch (failure: Throwable) {
+                expectedDigest.wipe()
+                throw failure
+            }
         if (!verified) {
             expectedDigest.wipe()
             currentPasswordInvalid()
         }
 
         val now = clock()
-        val replacementDigest = try {
-            passwordHasher.hash(request.newPassword)
-        } catch (failure: Throwable) {
-            expectedDigest.wipe()
-            throw failure
-        }
+        val replacementDigest =
+            try {
+                passwordHasher.hash(request.newPassword)
+            } catch (failure: Throwable) {
+                expectedDigest.wipe()
+                throw failure
+            }
         val issued = issueSession(now)
-        val result = try {
-            store.changePasswordAndWrapper(
-                userId = user.id,
-                expectedCurrent = expectedDigest,
-                replacement = replacementDigest,
-                expectedSyncVersion = request.expectedSyncVersion,
-                replacementWrap = replacementWrap,
-                replacementSession = issued.asNewSession(
-                    user.id,
-                    validateDeviceName(request.deviceName),
-                ),
-                updatedAtEpochMs = now,
-            )
-        } finally {
-            expectedDigest.wipe()
-            replacementDigest.wipe()
-        }
+        val result =
+            try {
+                store.changePasswordAndWrapper(
+                    userId = user.id,
+                    expectedCurrent = expectedDigest,
+                    replacement = replacementDigest,
+                    expectedSyncVersion = request.expectedSyncVersion,
+                    replacementWrap = replacementWrap,
+                    replacementSession =
+                        issued.asNewSession(
+                            user.id,
+                            validateDeviceName(request.deviceName),
+                        ),
+                    updatedAtEpochMs = now,
+                )
+            } finally {
+                expectedDigest.wipe()
+                replacementDigest.wipe()
+            }
         return when (result) {
             PasswordChangeWriteResult.Changed -> {
                 usernameFailureLimiter.clear(user.normalizedUsername)
@@ -549,7 +585,10 @@ internal class AccountService(
         return store.getSyncState(user.id).toResponse()
     }
 
-    fun putSync(accessToken: String, request: PutSyncRequest): SyncResponse {
+    fun putSync(
+        accessToken: String,
+        request: PutSyncRequest,
+    ): SyncResponse {
         val authenticated = authenticate(accessToken)
         val user = authenticated.user
         enforceRateLimit(syncUserRateLimiter.check(user.id, AccountRateLimitBucket.SyncWrite))
@@ -574,29 +613,31 @@ internal class AccountService(
         }
         val envelope = resolveKeyWrap(decodedEnvelope, current.record)
         val now = clock()
-        val record = StoredSyncRecord(
-            userId = user.id,
-            version = request.baseVersion + 1L,
-            schemaVersion = envelope.schemaVersion,
-            algorithm = envelope.algorithm,
-            keyVersion = envelope.keyVersion,
-            nonce = envelope.nonce,
-            ciphertext = envelope.ciphertext,
-            wrapVersion = envelope.wrapVersion,
-            wrapKdf = envelope.wrapKdf,
-            wrapIterations = envelope.wrapIterations,
-            wrappedVaultKey = envelope.wrappedVaultKey,
-            wrapSalt = envelope.wrapSalt,
-            wrapNonce = envelope.wrapNonce,
-            updatedAtEpochMs = now,
-        )
-        return when (
-            val result = store.putSyncRecord(
-                record = record,
-                baseVersion = request.baseVersion,
-                authenticatedSessionId = authenticated.sessionId,
-                nowEpochMs = now,
+        val record =
+            StoredSyncRecord(
+                userId = user.id,
+                version = request.baseVersion + 1L,
+                schemaVersion = envelope.schemaVersion,
+                algorithm = envelope.algorithm,
+                keyVersion = envelope.keyVersion,
+                nonce = envelope.nonce,
+                ciphertext = envelope.ciphertext,
+                wrapVersion = envelope.wrapVersion,
+                wrapKdf = envelope.wrapKdf,
+                wrapIterations = envelope.wrapIterations,
+                wrappedVaultKey = envelope.wrappedVaultKey,
+                wrapSalt = envelope.wrapSalt,
+                wrapNonce = envelope.wrapNonce,
+                updatedAtEpochMs = now,
             )
+        return when (
+            val result =
+                store.putSyncRecord(
+                    record = record,
+                    baseVersion = request.baseVersion,
+                    authenticatedSessionId = authenticated.sessionId,
+                    nowEpochMs = now,
+                )
         ) {
             is SyncWriteResult.Saved -> result.record.toResponse()
             is SyncWriteResult.VersionConflict -> throw AccountServiceException(
@@ -619,11 +660,12 @@ internal class AccountService(
         val user = authenticated.user
         enforceRateLimit(syncUserRateLimiter.check(user.id, AccountRateLimitBucket.SyncWrite))
         return when (
-            val result = store.deleteSyncData(
-                userId = user.id,
-                authenticatedSessionId = authenticated.sessionId,
-                updatedAtEpochMs = clock(),
-            )
+            val result =
+                store.deleteSyncData(
+                    userId = user.id,
+                    authenticatedSessionId = authenticated.sessionId,
+                    updatedAtEpochMs = clock(),
+                )
         ) {
             is SyncDeleteResult.Deleted -> result.state.toResponse()
             SyncDeleteResult.SessionInvalid -> unauthorized()
@@ -643,17 +685,20 @@ internal class AccountService(
             ?: unauthorized()
     }
 
-    private fun issueSession(nowEpochMs: Long): IssuedSession = IssuedSession(
-        id = UUID.randomUUID().toString(),
-        access = tokenFactory.issue(),
-        refresh = tokenFactory.issue(),
-        accessExpiresAtEpochMs = nowEpochMs + accessTtlMs,
-        refreshExpiresAtEpochMs = nowEpochMs + refreshTtlMs,
-        createdAtEpochMs = nowEpochMs,
-    )
+    private fun issueSession(nowEpochMs: Long): IssuedSession =
+        IssuedSession(
+            id = UUID.randomUUID().toString(),
+            access = tokenFactory.issue(),
+            refresh = tokenFactory.issue(),
+            accessExpiresAtEpochMs = nowEpochMs + accessTtlMs,
+            refreshExpiresAtEpochMs = nowEpochMs + refreshTtlMs,
+            createdAtEpochMs = nowEpochMs,
+        )
 
-    private fun saturatedAdd(left: Long, right: Long): Long =
-        if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
+    private fun saturatedAdd(
+        left: Long,
+        right: Long,
+    ): Long = if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
 
     private fun decodeEnvelope(payload: EncryptedSyncEnvelope): DecodedSyncEnvelope {
         if (payload.schemaVersion != SYNC_SCHEMA_VERSION) {
@@ -665,14 +710,15 @@ internal class AccountService(
         if (payload.keyVersion !in 1..MAX_KEY_VERSION) {
             invalidRequest("sync_key_version_invalid", "同步密钥版本无效")
         }
-        val wrappedFields = listOf(
-            payload.wrapVersion,
-            payload.wrapKdf,
-            payload.wrapIterations,
-            payload.wrappedVaultKey,
-            payload.wrapSalt,
-            payload.wrapNonce,
-        )
+        val wrappedFields =
+            listOf(
+                payload.wrapVersion,
+                payload.wrapKdf,
+                payload.wrapIterations,
+                payload.wrappedVaultKey,
+                payload.wrapSalt,
+                payload.wrapNonce,
+            )
         if (wrappedFields.any { it != null } && wrappedFields.any { it == null }) {
             invalidRequest("sync_key_wrap_incomplete", "密钥包裹字段必须同时提供")
         }
@@ -688,29 +734,33 @@ internal class AccountService(
             algorithm = payload.algorithm,
             keyVersion = payload.keyVersion,
             nonce = decodeBase64Url("nonce", payload.nonce, NONCE_BYTES, NONCE_BYTES),
-            ciphertext = decodeBase64Url(
-                "ciphertext",
-                payload.ciphertext,
-                GCM_TAG_BYTES,
-                AccountLimits.MAX_CIPHERTEXT_BYTES,
-            ),
+            ciphertext =
+                decodeBase64Url(
+                    "ciphertext",
+                    payload.ciphertext,
+                    GCM_TAG_BYTES,
+                    AccountLimits.MAX_CIPHERTEXT_BYTES,
+                ),
             wrapVersion = payload.wrapVersion,
             wrapKdf = payload.wrapKdf,
             wrapIterations = payload.wrapIterations,
-            wrappedVaultKey = payload.wrappedVaultKey?.let {
-                decodeBase64Url(
-                    "wrappedVaultKey",
-                    it,
-                    WRAPPED_VAULT_KEY_BYTES,
-                    WRAPPED_VAULT_KEY_BYTES,
-                )
-            },
-            wrapSalt = payload.wrapSalt?.let {
-                decodeBase64Url("wrapSalt", it, WRAP_SALT_BYTES, WRAP_SALT_BYTES)
-            },
-            wrapNonce = payload.wrapNonce?.let {
-                decodeBase64Url("wrapNonce", it, NONCE_BYTES, NONCE_BYTES)
-            },
+            wrappedVaultKey =
+                payload.wrappedVaultKey?.let {
+                    decodeBase64Url(
+                        "wrappedVaultKey",
+                        it,
+                        WRAPPED_VAULT_KEY_BYTES,
+                        WRAPPED_VAULT_KEY_BYTES,
+                    )
+                },
+            wrapSalt =
+                payload.wrapSalt?.let {
+                    decodeBase64Url("wrapSalt", it, WRAP_SALT_BYTES, WRAP_SALT_BYTES)
+                },
+            wrapNonce =
+                payload.wrapNonce?.let {
+                    decodeBase64Url("wrapNonce", it, NONCE_BYTES, NONCE_BYTES)
+                },
         )
     }
 
@@ -725,28 +775,35 @@ internal class AccountService(
             wrapVersion = request.wrapVersion,
             wrapKdf = request.wrapKdf,
             wrapIterations = request.wrapIterations,
-            wrappedVaultKey = decodeBase64Url(
-                "wrappedVaultKey",
-                request.wrappedVaultKey,
-                WRAPPED_VAULT_KEY_BYTES,
-                WRAPPED_VAULT_KEY_BYTES,
-            ),
-            wrapSalt = decodeBase64Url(
-                "wrapSalt",
-                request.wrapSalt,
-                WRAP_SALT_BYTES,
-                WRAP_SALT_BYTES,
-            ),
-            wrapNonce = decodeBase64Url(
-                "wrapNonce",
-                request.wrapNonce,
-                NONCE_BYTES,
-                NONCE_BYTES,
-            ),
+            wrappedVaultKey =
+                decodeBase64Url(
+                    "wrappedVaultKey",
+                    request.wrappedVaultKey,
+                    WRAPPED_VAULT_KEY_BYTES,
+                    WRAPPED_VAULT_KEY_BYTES,
+                ),
+            wrapSalt =
+                decodeBase64Url(
+                    "wrapSalt",
+                    request.wrapSalt,
+                    WRAP_SALT_BYTES,
+                    WRAP_SALT_BYTES,
+                ),
+            wrapNonce =
+                decodeBase64Url(
+                    "wrapNonce",
+                    request.wrapNonce,
+                    NONCE_BYTES,
+                    NONCE_BYTES,
+                ),
         )
     }
 
-    private fun validateKeyWrapMetadata(version: Int, kdf: String, iterations: Int) {
+    private fun validateKeyWrapMetadata(
+        version: Int,
+        kdf: String,
+        iterations: Int,
+    ) {
         if (version != WRAP_VERSION) {
             invalidRequest("sync_wrap_version_unsupported", "不支持的密钥包裹版本")
         }
@@ -783,15 +840,21 @@ internal class AccountService(
         )
     }
 
-    private fun decodeBase64Url(field: String, raw: String, minBytes: Int, maxBytes: Int): ByteArray {
+    private fun decodeBase64Url(
+        field: String,
+        raw: String,
+        minBytes: Int,
+        maxBytes: Int,
+    ): ByteArray {
         if (raw.isEmpty() || raw.length > encodedLengthUpperBound(maxBytes)) {
             invalidRequest("sync_envelope_invalid", "$field 长度无效")
         }
         if (!BASE64_URL_PATTERN.matches(raw)) {
             invalidRequest("sync_envelope_invalid", "$field 必须是无填充 Base64URL")
         }
-        val decoded = runCatching { base64Decoder.decode(raw) }.getOrNull()
-            ?: invalidRequest("sync_envelope_invalid", "$field 编码无效")
+        val decoded =
+            runCatching { base64Decoder.decode(raw) }.getOrNull()
+                ?: invalidRequest("sync_envelope_invalid", "$field 编码无效")
         if (decoded.size !in minBytes..maxBytes || base64Encoder.encodeToString(decoded) != raw) {
             decoded.fill(0)
             invalidRequest("sync_envelope_invalid", "$field 长度或编码无效")
@@ -809,9 +872,11 @@ internal class AccountService(
         return value
     }
 
-    private fun normalizeLoginUsername(raw: String): String? = raw.trim()
-        .takeIf(USERNAME_PATTERN::matches)
-        ?.lowercase(Locale.ROOT)
+    private fun normalizeLoginUsername(raw: String): String? =
+        raw
+            .trim()
+            .takeIf(USERNAME_PATTERN::matches)
+            ?.lowercase(Locale.ROOT)
 
     private fun validateRegistrationPassword(password: String) {
         if (!isPlausiblePassword(password) || password.codePointCount(0, password.length) < MIN_PASSWORD_CHARS) {
@@ -880,60 +945,72 @@ internal class AccountService(
         }
     }
 
-    private fun keyWrapRequired(): Nothing = invalidRequest(
-        "sync_key_wrap_required",
-        "首次同步或更换密钥版本时必须提供完整密钥包裹信息",
-    )
+    private fun keyWrapRequired(): Nothing =
+        invalidRequest(
+            "sync_key_wrap_required",
+            "首次同步或更换密钥版本时必须提供完整密钥包裹信息",
+        )
 
-    private fun invalidCredentials(): Nothing = throw AccountServiceException(
-        problem = AccountProblem.InvalidCredentials,
-        safeCode = "invalid_credentials",
-        safeMessage = "用户名或密码错误",
-    )
+    private fun invalidCredentials(): Nothing =
+        throw AccountServiceException(
+            problem = AccountProblem.InvalidCredentials,
+            safeCode = "invalid_credentials",
+            safeMessage = "用户名或密码错误",
+        )
 
-    private fun usernameUnavailable(): Nothing = throw AccountServiceException(
-        problem = AccountProblem.UsernameUnavailable,
-        safeCode = "username_unavailable",
-        safeMessage = "用户名不可用",
-    )
+    private fun usernameUnavailable(): Nothing =
+        throw AccountServiceException(
+            problem = AccountProblem.UsernameUnavailable,
+            safeCode = "username_unavailable",
+            safeMessage = "用户名不可用",
+        )
 
-    private fun registrationClosed(): Nothing = throw AccountServiceException(
-        problem = AccountProblem.RegistrationClosed,
-        safeCode = "registration_closed",
-        safeMessage = "暂不开放新账号注册",
-    )
+    private fun registrationClosed(): Nothing =
+        throw AccountServiceException(
+            problem = AccountProblem.RegistrationClosed,
+            safeCode = "registration_closed",
+            safeMessage = "暂不开放新账号注册",
+        )
 
-    private fun invitationInvalid(): Nothing = throw AccountServiceException(
-        problem = AccountProblem.InvitationInvalid,
-        safeCode = "invite_invalid",
-        safeMessage = "邀请码无效或已使用",
-    )
+    private fun invitationInvalid(): Nothing =
+        throw AccountServiceException(
+            problem = AccountProblem.InvitationInvalid,
+            safeCode = "invite_invalid",
+            safeMessage = "邀请码无效或已使用",
+        )
 
-    private fun currentPasswordInvalid(): Nothing = throw AccountServiceException(
-        problem = AccountProblem.CurrentPasswordInvalid,
-        safeCode = "current_password_invalid",
-        safeMessage = "当前密码不正确",
-    )
+    private fun currentPasswordInvalid(): Nothing =
+        throw AccountServiceException(
+            problem = AccountProblem.CurrentPasswordInvalid,
+            safeCode = "current_password_invalid",
+            safeMessage = "当前密码不正确",
+        )
 
-    private fun unauthorized(): Nothing = throw AccountServiceException(
-        problem = AccountProblem.Unauthorized,
-        safeCode = "unauthorized",
-        safeMessage = "登录状态无效或已过期",
-    )
+    private fun unauthorized(): Nothing =
+        throw AccountServiceException(
+            problem = AccountProblem.Unauthorized,
+            safeCode = "unauthorized",
+            safeMessage = "登录状态无效或已过期",
+        )
 
-    private fun forbidden(): Nothing = throw AccountServiceException(
-        problem = AccountProblem.Forbidden,
-        safeCode = "forbidden",
-        safeMessage = "当前账号没有执行此操作的权限",
-    )
+    private fun forbidden(): Nothing =
+        throw AccountServiceException(
+            problem = AccountProblem.Forbidden,
+            safeCode = "forbidden",
+            safeMessage = "当前账号没有执行此操作的权限",
+        )
 
     private fun capabilitiesFor(userId: String): Set<String> = store.permissionsForUser(userId)
 
-    private fun invalidRequest(code: String, message: String): Nothing = throw AccountServiceException(
-        problem = AccountProblem.InvalidRequest,
-        safeCode = code,
-        safeMessage = message,
-    )
+    private fun invalidRequest(
+        code: String,
+        message: String,
+    ): Nothing =
+        throw AccountServiceException(
+            problem = AccountProblem.InvalidRequest,
+            safeCode = code,
+            safeMessage = message,
+        )
 
     private data class IssuedSession(
         val id: String,
@@ -943,34 +1020,43 @@ internal class AccountService(
         val refreshExpiresAtEpochMs: Long,
         val createdAtEpochMs: Long,
     ) {
-        fun asNewSession(userId: String, deviceName: String): NewSession = NewSession(
-            id = id,
-            userId = userId,
-            accessTokenHash = access.hash,
-            refreshTokenHash = refresh.hash,
-            accessExpiresAtEpochMs = accessExpiresAtEpochMs,
-            refreshExpiresAtEpochMs = refreshExpiresAtEpochMs,
-            createdAtEpochMs = createdAtEpochMs,
-            deviceName = deviceName,
-        )
+        fun asNewSession(
+            userId: String,
+            deviceName: String,
+        ): NewSession =
+            NewSession(
+                id = id,
+                userId = userId,
+                accessTokenHash = access.hash,
+                refreshTokenHash = refresh.hash,
+                accessExpiresAtEpochMs = accessExpiresAtEpochMs,
+                refreshExpiresAtEpochMs = refreshExpiresAtEpochMs,
+                createdAtEpochMs = createdAtEpochMs,
+                deviceName = deviceName,
+            )
 
-        fun asReplacement(deviceName: String?): SessionReplacement = SessionReplacement(
-            id = id,
-            accessTokenHash = access.hash,
-            refreshTokenHash = refresh.hash,
-            accessExpiresAtEpochMs = accessExpiresAtEpochMs,
-            refreshExpiresAtEpochMs = refreshExpiresAtEpochMs,
-            createdAtEpochMs = createdAtEpochMs,
-            deviceName = deviceName,
-        )
+        fun asReplacement(deviceName: String?): SessionReplacement =
+            SessionReplacement(
+                id = id,
+                accessTokenHash = access.hash,
+                refreshTokenHash = refresh.hash,
+                accessExpiresAtEpochMs = accessExpiresAtEpochMs,
+                refreshExpiresAtEpochMs = refreshExpiresAtEpochMs,
+                createdAtEpochMs = createdAtEpochMs,
+                deviceName = deviceName,
+            )
 
-        fun toResponse(user: StoredUser, capabilities: Set<String>): AuthResponse = AuthResponse(
-            user = user.toResponse(capabilities),
-            accessToken = access.plaintext,
-            accessExpiresAtEpochMs = accessExpiresAtEpochMs,
-            refreshToken = refresh.plaintext,
-            refreshExpiresAtEpochMs = refreshExpiresAtEpochMs,
-        )
+        fun toResponse(
+            user: StoredUser,
+            capabilities: Set<String>,
+        ): AuthResponse =
+            AuthResponse(
+                user = user.toResponse(capabilities),
+                accessToken = access.plaintext,
+                accessExpiresAtEpochMs = accessExpiresAtEpochMs,
+                refreshToken = refresh.plaintext,
+                refreshExpiresAtEpochMs = refreshExpiresAtEpochMs,
+            )
     }
 
     private data class DecodedSyncEnvelope(
@@ -1024,33 +1110,36 @@ internal class AccountService(
     }
 }
 
-private fun StoredUser.toResponse(capabilities: Set<String> = emptySet()): UserResponse = UserResponse(
-    id = id,
-    username = username,
-    nickname = nickname,
-    avatarId = avatarId,
-    createdAtEpochMs = createdAtEpochMs,
-    updatedAtEpochMs = updatedAtEpochMs,
-    capabilities = capabilities,
-)
+private fun StoredUser.toResponse(capabilities: Set<String> = emptySet()): UserResponse =
+    UserResponse(
+        id = id,
+        username = username,
+        nickname = nickname,
+        avatarId = avatarId,
+        createdAtEpochMs = createdAtEpochMs,
+        updatedAtEpochMs = updatedAtEpochMs,
+        capabilities = capabilities,
+    )
 
-private fun StoredSyncRecord.toResponse(): SyncResponse = SyncResponse(
-    version = version,
-    payload = EncryptedSyncEnvelope(
-        schemaVersion = schemaVersion,
-        algorithm = algorithm,
-        keyVersion = keyVersion,
-        nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonce),
-        ciphertext = Base64.getUrlEncoder().withoutPadding().encodeToString(ciphertext),
-        wrapVersion = wrapVersion,
-        wrapKdf = wrapKdf,
-        wrapIterations = wrapIterations,
-        wrappedVaultKey = wrappedVaultKey?.let(Base64.getUrlEncoder().withoutPadding()::encodeToString),
-        wrapSalt = wrapSalt?.let(Base64.getUrlEncoder().withoutPadding()::encodeToString),
-        wrapNonce = wrapNonce?.let(Base64.getUrlEncoder().withoutPadding()::encodeToString),
-    ),
-    updatedAtEpochMs = updatedAtEpochMs,
-)
+private fun StoredSyncRecord.toResponse(): SyncResponse =
+    SyncResponse(
+        version = version,
+        payload =
+            EncryptedSyncEnvelope(
+                schemaVersion = schemaVersion,
+                algorithm = algorithm,
+                keyVersion = keyVersion,
+                nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonce),
+                ciphertext = Base64.getUrlEncoder().withoutPadding().encodeToString(ciphertext),
+                wrapVersion = wrapVersion,
+                wrapKdf = wrapKdf,
+                wrapIterations = wrapIterations,
+                wrappedVaultKey = wrappedVaultKey?.let(Base64.getUrlEncoder().withoutPadding()::encodeToString),
+                wrapSalt = wrapSalt?.let(Base64.getUrlEncoder().withoutPadding()::encodeToString),
+                wrapNonce = wrapNonce?.let(Base64.getUrlEncoder().withoutPadding()::encodeToString),
+            ),
+        updatedAtEpochMs = updatedAtEpochMs,
+    )
 
 private fun StoredSyncState.toResponse(): SyncResponse =
     record?.toResponse() ?: SyncResponse(

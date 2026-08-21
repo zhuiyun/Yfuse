@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /** A lightweight health model used by server rows and playback failover decisions. */
 enum class ServerHealthStatus { Unknown, Healthy, Degraded, Offline, AuthRequired }
@@ -103,6 +105,7 @@ class ServerHealthMonitor(
     private val appForeground = MutableStateFlow(false)
     private var started = false
     private val lastAutoSwitchAtMs = mutableMapOf<String, Long>()
+    private val probePermits = Semaphore(4)
 
     fun start(scope: CoroutineScope) {
         if (started) return
@@ -149,8 +152,8 @@ class ServerHealthMonitor(
     suspend fun refresh(server: SavedServer) {
         val routes = server.effectiveRoutes
         if (routes.size <= 1) {
-            repository
-                .probeServer(server)
+            probePermits
+                .withPermit { repository.probeServer(server) }
                 .onSuccess { latency -> recordSuccess(server.id, latency) }
                 .onFailure { recordFailure(server.id, it) }
             return
@@ -159,7 +162,12 @@ class ServerHealthMonitor(
             coroutineScope {
                 routes
                     .map { route ->
-                        async { route to repository.probeAddress(route.url, server.accessToken) }
+                        async {
+                            route to
+                                probePermits.withPermit {
+                                    repository.probeAddress(route.url, server.accessToken)
+                                }
+                        }
                     }.awaitAll()
             }
         val routeHealth =
@@ -277,7 +285,8 @@ class ServerHealthMonitor(
 
     private fun statusFor(error: Throwable): ServerHealthStatus =
         when (val emby = (error as? EmbyErrorException)?.error) {
-            EmbyError.Unauthorized, is EmbyError.AccessDenied -> ServerHealthStatus.AuthRequired
+            EmbyError.Unauthorized -> ServerHealthStatus.AuthRequired
+            is EmbyError.AccessDenied -> ServerHealthStatus.Offline
             EmbyError.Network -> ServerHealthStatus.Offline
             is EmbyError.Server ->
                 if (emby.code in 500..599) {

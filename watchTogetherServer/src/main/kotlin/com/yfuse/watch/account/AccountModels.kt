@@ -28,7 +28,9 @@ internal data class RefreshRequest(
 )
 
 @Serializable
-internal data class DeleteAccountRequest(val password: String)
+internal data class DeleteAccountRequest(
+    val password: String,
+)
 
 @Serializable
 internal data class UpdateProfileRequest(
@@ -87,7 +89,9 @@ internal data class AccountSessionResponse(
 )
 
 @Serializable
-internal data class AccountSessionsResponse(val sessions: List<AccountSessionResponse>)
+internal data class AccountSessionsResponse(
+    val sessions: List<AccountSessionResponse>,
+)
 
 @Serializable
 internal data class AccountExportResponse(
@@ -196,6 +200,7 @@ internal data class NewIssuedInvite(
 
 internal sealed interface InviteConsumptionResult {
     data object Consumed : InviteConsumptionResult
+
     data object Unavailable : InviteConsumptionResult
 }
 
@@ -234,14 +239,24 @@ internal data class StoredSyncState(
 )
 
 internal sealed interface SyncWriteResult {
-    data class Saved(val record: StoredSyncRecord) : SyncWriteResult
-    data class VersionConflict(val currentVersion: Long) : SyncWriteResult
+    data class Saved(
+        val record: StoredSyncRecord,
+    ) : SyncWriteResult
+
+    data class VersionConflict(
+        val currentVersion: Long,
+    ) : SyncWriteResult
+
     data object NonceReused : SyncWriteResult
+
     data object SessionInvalid : SyncWriteResult
 }
 
 internal sealed interface SyncDeleteResult {
-    data class Deleted(val state: StoredSyncState) : SyncDeleteResult
+    data class Deleted(
+        val state: StoredSyncState,
+    ) : SyncDeleteResult
+
     data object SessionInvalid : SyncDeleteResult
 }
 
@@ -253,8 +268,11 @@ internal enum class RegistrationAvailability {
 
 internal sealed interface RegistrationWriteResult {
     data object Created : RegistrationWriteResult
+
     data object UsernameUnavailable : RegistrationWriteResult
+
     data object Closed : RegistrationWriteResult
+
     data object InviteUnavailable : RegistrationWriteResult
 }
 
@@ -265,7 +283,9 @@ internal enum class InvitationKind {
 
 internal sealed interface InviteIssueWriteResult {
     data object Created : InviteIssueWriteResult
+
     data object Forbidden : InviteIssueWriteResult
+
     data object SessionInvalid : InviteIssueWriteResult
 }
 
@@ -281,13 +301,22 @@ internal data class StoredKeyWrap(
 
 internal sealed interface PasswordChangeWriteResult {
     data object Changed : PasswordChangeWriteResult
-    data class VersionConflict(val currentVersion: Long) : PasswordChangeWriteResult
-    data class KeyVersionConflict(val currentVersion: Long) : PasswordChangeWriteResult
+
+    data class VersionConflict(
+        val currentVersion: Long,
+    ) : PasswordChangeWriteResult
+
+    data class KeyVersionConflict(
+        val currentVersion: Long,
+    ) : PasswordChangeWriteResult
+
     data object CredentialsChanged : PasswordChangeWriteResult
 }
 
 internal sealed interface DeleteAccountWriteResult {
     data object Deleted : DeleteAccountWriteResult
+
     data object CredentialsChanged : DeleteAccountWriteResult
+
     data object SessionInvalid : DeleteAccountWriteResult
 }

@@ -8,6 +8,38 @@ import kotlin.test.assertTrue
 
 class PlaybackRelayStoreTest {
     @Test
+    fun accountQuotaEvictsOldestEntityWithoutAffectingOtherUsers() {
+        PlaybackRelayStore.inMemoryForTests(maxEntitiesPerUser = 2).use { store ->
+            listOf('A', 'B', 'C').forEachIndexed { index, key ->
+                store.push(
+                    userId = "user-a",
+                    request =
+                        PlaybackPushRequest(
+                            listOf(PlaybackPutItem(0L, entity(key, "mutation-$key", index + 1))),
+                        ),
+                    nowEpochMs = 1_000L + index,
+                )
+            }
+            store.push(
+                userId = "user-b",
+                request = PlaybackPushRequest(listOf(PlaybackPutItem(0L, entity('Z', "mutation-z", 9)))),
+                nowEpochMs = 2_000L,
+            )
+
+            assertEquals(2, store.entityCountForTests("user-a"))
+            assertEquals(
+                setOf("B", "C"),
+                store
+                    .pull("user-a", 0L, 10)
+                    .changes
+                    .map { it.entityKey.first().toString() }
+                    .toSet(),
+            )
+            assertEquals(1, store.entityCountForTests("user-b"))
+        }
+    }
+
+    @Test
     fun mutationIsIdempotentAndStaleBaseCursorReturnsConflict() {
         PlaybackRelayStore.inMemoryForTests().use { store ->
             val first = entity(keyChar = 'A', mutationId = "mutation-1", fill = 1)

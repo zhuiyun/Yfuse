@@ -512,7 +512,7 @@ class ExoVideoEngine(
                 _state.update {
                     it.copy(
                         buffering = buffering,
-                        durationMs = knownDuration(),
+                        durationMs = knownDuration(it.durationMs),
                         ended = state == Player.STATE_ENDED,
                         diagnostics =
                             it.diagnostics.copy(
@@ -557,15 +557,16 @@ class ExoVideoEngine(
                     applyTrackSelectionCeiling(PlaybackQuality.Original)
                 }
                 _state.update {
+                    val sameMedia = it.currentIndex == index
                     it.copy(
                         currentIndex = index,
                         transcoding = transcoding,
                         videoHeight = item?.sourceVideoHeight(transcoding) ?: 0,
                         fallbacksExhausted = false,
                         automaticFallbackBlocked = false,
-                        positionMs = 0L,
-                        durationMs = knownDuration(),
-                        bufferedPositionMs = 0L,
+                        positionMs = if (sameMedia) it.positionMs else 0L,
+                        durationMs = knownDuration(if (sameMedia) it.durationMs else 0L),
+                        bufferedPositionMs = if (sameMedia) it.bufferedPositionMs else 0L,
                         error = null,
                         ended = false,
                         diagnostics =
@@ -774,7 +775,7 @@ class ExoVideoEngine(
                         val bufferedDurationMs = player.totalBufferedDuration.coerceAtLeast(0L)
                         it.copy(
                             positionMs = player.currentPosition,
-                            durationMs = knownDuration(),
+                            durationMs = knownDuration(it.durationMs),
                             bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0L),
                             diagnostics =
                                 it.diagnostics.copy(
@@ -1116,6 +1117,7 @@ class ExoVideoEngine(
         val index = player.currentMediaItemIndex
         if (index in transcodedIndices) return switchToProgressiveTranscode()
         val item = items.getOrNull(index) ?: return false
+        if (!item.allowsServerTranscodeFallback(reason)) return false
         if (item.transcodeUrl.isEmpty()) return switchToProgressiveTranscode()
         transcodedIndices += index
         val position = player.currentPosition
@@ -1193,6 +1195,7 @@ class ExoVideoEngine(
         if (index in progressiveTranscodeIndices) return false
         if (index in progressiveTransitionIndices) return true
         val item = items.getOrNull(index) ?: return false
+        if (item.requiresLocalDolbyPipeline && index !in transcodedIndices) return false
         if (item.fallbackTranscodeUrl.isEmpty()) return false
         transcodedIndices += index
         progressiveTransitionIndices += index
@@ -1369,7 +1372,10 @@ class ExoVideoEngine(
         }
     }
 
-    private fun knownDuration(): Long = player.duration.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
+    private fun knownDuration(previousDurationMs: Long = 0L): Long =
+        player.duration
+            .takeIf { it != C.TIME_UNSET && it > 0L }
+            ?: previousDurationMs.coerceAtLeast(0L)
 }
 
 private const val AV_SYNC_SAMPLE_INTERVAL_NS = 1_000_000_000L

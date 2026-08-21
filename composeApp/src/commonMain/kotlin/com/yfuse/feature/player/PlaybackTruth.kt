@@ -2,15 +2,46 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.DolbyVisionP7ValidationEvidence
+import com.yfuse.core.playback.DolbyVisionP7ValidationResult
 import com.yfuse.core.playback.PlaybackMediaProbe
 import com.yfuse.core.playback.PlaybackSourceRequirements
 import com.yfuse.core.playback.PlaybackVideoCodec
 import com.yfuse.core.playback.detectPlaybackDiscKind
+import com.yfuse.core.playback.evaluateDolbyVisionP7Output
 
 /** True when this request must begin on the server output rather than the original file. */
 internal fun PlayerMediaItem.startsWithServerTranscode(quality: PlaybackQuality): Boolean =
     transcodeUrl.isNotBlank() &&
-        (quality.requiresServerTranscode || playMethod == PlaybackMethod.Transcode)
+        (
+            quality.requiresServerTranscode ||
+                (playMethod == PlaybackMethod.Transcode && !requiresLocalDolbyPipeline)
+        )
+
+/** Dolby decode/output belongs to the app; negotiated server transcode is only an explicit choice. */
+internal val PlayerMediaVersion.requiresLocalDolbyPipeline: Boolean
+    get() = !discSource && (dolbyVision || dolbyAtmos)
+
+internal val PlayerMediaItem.requiresLocalDolbyPipeline: Boolean
+    get() = activeVersion?.requiresLocalDolbyPipeline == true
+
+/** Automatic decoder/network recovery must continue through local engines for Dolby sources. */
+internal fun PlayerMediaItem.allowsServerTranscodeFallback(reason: String?): Boolean =
+    !requiresLocalDolbyPipeline || reason?.startsWith("用户手动") == true
+
+/** Evaluates P7 output from source-layer facts plus explicit runtime trace evidence. */
+internal fun PlayerMediaVersion.dolbyVisionP7Output(diagnostics: PlaybackDiagnostics): DolbyVisionP7ValidationResult =
+    evaluateDolbyVisionP7Output(
+        DolbyVisionP7ValidationEvidence(
+            profile = dolbyProfile,
+            sourceRpuPresent = sourceDolbyRpuPresent,
+            sourceEnhancementLayerPresent = sourceDolbyEnhancementLayerPresent,
+            sourceBaseLayerPresent = sourceDolbyBaseLayerPresent,
+            outputBaseLayerDecoded = diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering,
+            outputRpuApplied = diagnostics.dolbyVisionRpuApplied,
+            outputEnhancementLayerComposed = diagnostics.dolbyVisionEnhancementLayerComposed,
+        ),
+    )
 
 /** The method shown before an engine has enough runtime facts to refine it. */
 internal fun PlayerMediaItem.effectivePlaybackMethod(quality: PlaybackQuality): PlaybackMethod =
@@ -83,8 +114,14 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
         // the registered raw-ISO route before libbluray gets one attempt.
         hasServerTranscode =
             !nativeRemoteDisc &&
+                version?.requiresLocalDolbyPipeline != true &&
                 item?.let { media ->
-                    media.transcodeUrl.isNotBlank() || media.fallbackTranscodeUrl.isNotBlank()
+                    (
+                        media.serverTranscodeSupported ||
+                            media.playMethod == PlaybackMethod.Transcode ||
+                            version?.serverTranscodeSupported == true
+                    ) &&
+                        (media.transcodeUrl.isNotBlank() || media.fallbackTranscodeUrl.isNotBlank())
                 } == true,
         drmProtected = item?.drmConfiguration != null || version?.drmConfiguration != null,
         usingServerTranscode = usingServerTranscode,
@@ -98,6 +135,7 @@ internal fun PlayerMediaItem?.playbackMediaProbe(usingServerTranscode: Boolean =
             sourceUrl.startsWith("file://", ignoreCase = true) ||
                 sourceUrl.startsWith("content://", ignoreCase = true),
         discMainFeatureResolved = serverResolvedDiscMainFeature,
+        sourceSizeBytes = version?.sourceSizeBytes,
     )
 }
 

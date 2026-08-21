@@ -76,6 +76,8 @@ data class PlaybackMediaProbe(
     val audioCodec: PlaybackAudioCodec? = null,
     val audioChannelCount: Int? = null,
     val durationMs: Long? = null,
+    /** Original file size, used for demux/startup policy rather than quality selection. */
+    val sourceSizeBytes: Long? = null,
     val probeDepth: PlaybackProbeDepth = PlaybackProbeDepth.ServerMetadata,
 ) {
     val normalizedContainer: String
@@ -85,7 +87,18 @@ data class PlaybackMediaProbe(
         get() =
             !discMainFeatureResolved &&
                 !usingServerTranscode &&
-                (discSource || normalizedContainer in NATIVE_FIRST_CONTAINERS)
+                (
+                    discSource ||
+                        normalizedContainer in NATIVE_FIRST_CONTAINERS ||
+                        isHugeRemoteMov
+                )
+
+    /** Media3 can wait indefinitely while locating metadata in very large remote MOV files. */
+    val isHugeRemoteMov: Boolean
+        get() =
+            !localSource &&
+                normalizedContainer == "MOV" &&
+                (sourceSizeBytes ?: 0L) >= HUGE_REMOTE_MOV_BYTES
 
     /** Credential-free, URL-free key used by the bounded failure memory. */
     val capabilitySignature: String
@@ -161,22 +174,25 @@ fun planPlayback(
             videoSupport = videoSupport,
         )
     val discNeedsServer = discDecision.requiresServerTranscode
+    val localDolbyVideo = probe.source.dolbyVision
     val softwareFirstVideo = probe.source.videoRequirements.codec in SOFTWARE_FIRST_VIDEO_CODECS
     val unsupportedVideoCanUseLocalSoftware =
         engineSelection == PlaybackEngineSelection.Auto &&
             (videoSupport.isUnsupported || softwareFirstVideo) &&
             !probe.source.needsDolbyDecoder &&
             !probe.usingServerTranscode &&
-            (!probe.hasServerTranscode || softwareFirstVideo)
+            (localDolbyVideo || !probe.hasServerTranscode || softwareFirstVideo)
     val unsupportedVideoUsesServer =
         engineSelection == PlaybackEngineSelection.Auto &&
             videoSupport.isUnsupported &&
             !softwareFirstVideo &&
             !probe.source.needsDolbyDecoder &&
+            !localDolbyVideo &&
             probe.hasServerTranscode &&
             preferredDecoderMode != DecoderMode.Software
     val powerSaverToneMapTranscode =
         optimizationMode == PlaybackOptimizationMode.PowerSaver &&
+            !localDolbyVideo &&
             hdrRoute.engine == PlayerEngine.Mpv &&
             hdrRoute.reason != null &&
             probe.hasServerTranscode
@@ -300,6 +316,7 @@ fun planPlayback(
                 unsupportedVideoCanUseLocalSoftware -> DecoderMode.Software
                 requiresServerTranscode -> DecoderMode.Hardware
                 strictPlatformPath -> DecoderMode.Hardware
+                localDolbyVideo && primary == hdrRoute.engine -> hdrRoute.decoderMode
                 lockedEngine == null &&
                     optimizationMode == PlaybackOptimizationMode.PowerSaver &&
                     primary == PlayerEngine.Exo -> DecoderMode.Hardware
@@ -339,6 +356,8 @@ private val NATIVE_FIRST_CONTAINERS =
         "AVI",
         "FLV",
     )
+
+private const val HUGE_REMOTE_MOV_BYTES = 64L * 1024L * 1024L * 1024L
 
 /**
  * Platform decoders are not a useful first attempt for these formats on Android. Keep the original

@@ -15,7 +15,10 @@ internal data class PasswordDigest(
 internal interface PasswordHasher {
     fun hash(password: String): PasswordDigest
 
-    fun verify(password: String, expected: PasswordDigest): Boolean
+    fun verify(
+        password: String,
+        expected: PasswordDigest,
+    ): Boolean
 }
 
 /**
@@ -43,7 +46,10 @@ internal class Pbkdf2PasswordHasher(
         )
     }
 
-    override fun verify(password: String, expected: PasswordDigest): Boolean {
+    override fun verify(
+        password: String,
+        expected: PasswordDigest,
+    ): Boolean {
         val actual = derive(password, expected.salt, expected.iterations)
         return try {
             MessageDigest.isEqual(expected.hash, actual)
@@ -52,7 +58,11 @@ internal class Pbkdf2PasswordHasher(
         }
     }
 
-    private fun derive(password: String, salt: ByteArray, rounds: Int): ByteArray {
+    private fun derive(
+        password: String,
+        salt: ByteArray,
+        rounds: Int,
+    ): ByteArray {
         val chars = password.toCharArray()
         val spec = PBEKeySpec(chars, salt, rounds, HASH_BITS)
         return try {
@@ -89,8 +99,10 @@ internal class SessionTokenFactory(
         }
     }
 
-    fun digest(raw: String): ByteArray = MessageDigest.getInstance("SHA-256")
-        .digest(raw.toByteArray(Charsets.US_ASCII))
+    fun digest(raw: String): ByteArray =
+        MessageDigest
+            .getInstance("SHA-256")
+            .digest(raw.toByteArray(Charsets.US_ASCII))
 
     fun isWellFormed(raw: String): Boolean {
         if (raw.length != ENCODED_TOKEN_LENGTH || !TOKEN_PATTERN.matches(raw)) return false

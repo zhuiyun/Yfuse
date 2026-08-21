@@ -61,44 +61,52 @@ class AccountRateLimiter(
     private var nextCleanupAtEpochMs = Long.MIN_VALUE
     private var lastObservedAtEpochMs = Long.MIN_VALUE
 
-    internal fun check(clientIp: String, bucket: AccountRateLimitBucket): RateLimitDecision =
+    internal fun check(
+        clientIp: String,
+        bucket: AccountRateLimitBucket,
+    ): RateLimitDecision =
         synchronized(lock) {
             require(clientIp.isNotBlank() && clientIp.length <= MAX_CLIENT_IDENTITY_CHARS)
             val now = clock()
             cleanupIfDue(now)
             val key = RateLimitKey(clientIp, bucket)
-            val limit = when (bucket) {
-                AccountRateLimitBucket.Credentials -> policy.credentialAttemptsPerWindow
-                AccountRateLimitBucket.Refresh -> policy.refreshAttemptsPerWindow
-                AccountRateLimitBucket.Logout -> policy.logoutAttemptsPerWindow
-                AccountRateLimitBucket.ProfileRead -> policy.profileReadAttemptsPerWindow
-                AccountRateLimitBucket.ProfileWrite -> policy.profileWriteAttemptsPerWindow
-                AccountRateLimitBucket.SyncRead -> policy.syncReadAttemptsPerWindow
-                AccountRateLimitBucket.SyncWrite -> policy.syncWriteAttemptsPerWindow
-                AccountRateLimitBucket.PasswordChange -> policy.passwordChangeAttemptsPerWindow
-                AccountRateLimitBucket.InviteIssue -> policy.inviteIssueAttemptsPerWindow
-            }
-            val windowMs = when (bucket) {
-                AccountRateLimitBucket.Credentials -> policy.credentialWindowMs
-                AccountRateLimitBucket.Refresh -> policy.refreshWindowMs
-                AccountRateLimitBucket.Logout -> policy.logoutWindowMs
-                AccountRateLimitBucket.ProfileRead,
-                AccountRateLimitBucket.ProfileWrite,
-                -> policy.profileWindowMs
-                AccountRateLimitBucket.SyncRead,
-                AccountRateLimitBucket.SyncWrite,
-                -> policy.syncWindowMs
-                AccountRateLimitBucket.PasswordChange -> policy.passwordChangeWindowMs
-                AccountRateLimitBucket.InviteIssue -> policy.inviteIssueWindowMs
-            }
+            val limit =
+                when (bucket) {
+                    AccountRateLimitBucket.Credentials -> policy.credentialAttemptsPerWindow
+                    AccountRateLimitBucket.Refresh -> policy.refreshAttemptsPerWindow
+                    AccountRateLimitBucket.Logout -> policy.logoutAttemptsPerWindow
+                    AccountRateLimitBucket.ProfileRead -> policy.profileReadAttemptsPerWindow
+                    AccountRateLimitBucket.ProfileWrite -> policy.profileWriteAttemptsPerWindow
+                    AccountRateLimitBucket.SyncRead -> policy.syncReadAttemptsPerWindow
+                    AccountRateLimitBucket.SyncWrite -> policy.syncWriteAttemptsPerWindow
+                    AccountRateLimitBucket.PasswordChange -> policy.passwordChangeAttemptsPerWindow
+                    AccountRateLimitBucket.InviteIssue -> policy.inviteIssueAttemptsPerWindow
+                }
+            val windowMs =
+                when (bucket) {
+                    AccountRateLimitBucket.Credentials -> policy.credentialWindowMs
+                    AccountRateLimitBucket.Refresh -> policy.refreshWindowMs
+                    AccountRateLimitBucket.Logout -> policy.logoutWindowMs
+                    AccountRateLimitBucket.ProfileRead,
+                    AccountRateLimitBucket.ProfileWrite,
+                    -> policy.profileWindowMs
+                    AccountRateLimitBucket.SyncRead,
+                    AccountRateLimitBucket.SyncWrite,
+                    -> policy.syncWindowMs
+                    AccountRateLimitBucket.PasswordChange -> policy.passwordChangeWindowMs
+                    AccountRateLimitBucket.InviteIssue -> policy.inviteIssueWindowMs
+                }
             val existing = entries[key]
             if (existing != null) {
                 if (now < existing.startedAtEpochMs || now >= existing.expiresAtEpochMs) {
-                    putEntry(key, WindowEntry(
-                        attempts = 1,
-                        startedAtEpochMs = now,
-                        expiresAtEpochMs = saturatedAdd(now, windowMs),
-                    ))
+                    putEntry(
+                        key,
+                        WindowEntry(
+                            attempts = 1,
+                            startedAtEpochMs = now,
+                            expiresAtEpochMs = saturatedAdd(now, windowMs),
+                        ),
+                    )
                     return@synchronized RateLimitDecision.Allowed
                 }
                 if (existing.attempts >= limit) {
@@ -119,11 +127,14 @@ class AccountRateLimiter(
                     retryAfterSeconds(earliestExpiry, now),
                 )
             }
-            putEntry(key, WindowEntry(
-                attempts = 1,
-                startedAtEpochMs = now,
-                expiresAtEpochMs = saturatedAdd(now, windowMs),
-            ))
+            putEntry(
+                key,
+                WindowEntry(
+                    attempts = 1,
+                    startedAtEpochMs = now,
+                    expiresAtEpochMs = saturatedAdd(now, windowMs),
+                ),
+            )
             RateLimitDecision.Allowed
         }
 
@@ -165,18 +176,26 @@ class AccountRateLimiter(
         }
     }
 
-    private fun putEntry(key: RateLimitKey, entry: WindowEntry) {
+    private fun putEntry(
+        key: RateLimitKey,
+        entry: WindowEntry,
+    ) {
         entries[key] = entry
         expirations.add(ExpiryRecord(key, entry.expiresAtEpochMs))
     }
 
-    private fun retryAfterSeconds(expiresAtEpochMs: Long, nowEpochMs: Long): Long {
+    private fun retryAfterSeconds(
+        expiresAtEpochMs: Long,
+        nowEpochMs: Long,
+    ): Long {
         val remainingMs = (expiresAtEpochMs - nowEpochMs).coerceAtLeast(1L)
         return ((remainingMs + 999L) / 1_000L).coerceAtLeast(1L)
     }
 
-    private fun saturatedAdd(left: Long, right: Long): Long =
-        if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
+    private fun saturatedAdd(
+        left: Long,
+        right: Long,
+    ): Long = if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
 
     private data class RateLimitKey(
         val clientIp: String,
@@ -213,5 +232,8 @@ internal enum class AccountRateLimitBucket {
 
 internal sealed interface RateLimitDecision {
     data object Allowed : RateLimitDecision
-    data class Limited(val retryAfterSeconds: Long) : RateLimitDecision
+
+    data class Limited(
+        val retryAfterSeconds: Long,
+    ) : RateLimitDecision
 }

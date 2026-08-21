@@ -50,4 +50,15 @@ tmp/
 
 # Downloaded GitHub Actions packages kept only for local verification
 artifacts/
+
+# Historical audit media belongs in CI/release artifacts, not every Git checkout.
+audit/**/*.png
+audit/**/*.jpg
+audit/**/*.jpeg
+audit/**/*.webp
+audit/**/*.gif
+audit/**/*.mp4
+
+# Extracted native AAR contents are fetched and verified during the build.
+mpvaar/
 .native-build/

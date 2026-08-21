@@ -394,7 +394,7 @@ internal class EmbyBrowseService(
                     parameter(
                         "Fields",
                         "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
-                            "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+                            "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")
                     parameter("EnableUserData", true)
@@ -577,7 +577,7 @@ internal class EmbyBrowseService(
             buildString {
                 append(
                     "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
-                        "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+                        "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks",
                 )
                 if (includePlaylistItemId) append(",PlaylistItemId")
             }
@@ -596,7 +596,7 @@ internal class EmbyBrowseService(
         parameter(
             "Fields",
             "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
-                "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+                "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks",
         )
         parameter("EnableImageTypes", "Primary,Backdrop")
         parameter("EnableUserData", true)
@@ -672,7 +672,7 @@ internal class EmbyBrowseService(
         parameter(
             "Fields",
             "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
-                "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
+                "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks",
         )
         parameter("EnableImageTypes", "Primary,Backdrop")
         parameter("ImageTypeLimit", 2)

@@ -28,6 +28,15 @@ import kotlin.test.assertTrue
 
 class AndroidHttpEnginePolicyTest {
     @Test
+    fun emby_dispatcher_bounds_startup_connection_fanout() {
+        val dispatcher = embyRequestDispatcher()
+
+        assertEquals(EMBY_MAX_CONCURRENT_REQUESTS, dispatcher.maxRequests)
+        assertEquals(EMBY_MAX_CONCURRENT_REQUESTS_PER_HOST, dispatcher.maxRequestsPerHost)
+        assertTrue(dispatcher.maxRequestsPerHost < dispatcher.maxRequests)
+    }
+
+    @Test
     fun android_actual_uses_the_websocket_capable_okhttp_engine() {
         val engine = embyHttpEngine()
 

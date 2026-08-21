@@ -10,6 +10,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.util.componentScope
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -21,6 +22,7 @@ class HomeComponent(
     emby: EmbyRepository,
     registry: ServerRegistry,
     cache: TmdbHomeCache,
+    syncManager: ServerSyncManager,
     private val onOpenEmbyItem: (String, String) -> Unit,
     private val onPlayEmbyItem: (String, String) -> Unit,
     private val onOpenTmdbItem: (TmdbItem, String?) -> Unit,
@@ -41,6 +43,7 @@ class HomeComponent(
             emby = emby,
             registry = registry,
             cache = cache,
+            syncManager = syncManager,
         ).create()
 
     init {

@@ -26,7 +26,7 @@ physical-device regression rerun on 2026-08-21.
 | 19 | Device quirk database | `YDeviceQuirkDatabase` matches device, SoC, API, decoder, container, codec, HDR/profile and resolution to declarative fixes. Android route evaluation applies shipped rules before strategy selection; no manufacturer `if` chain is used. | `YDeviceQuirkDatabaseTest` |
 | 20 | Runtime self-learning | `YPlaybackLearningEngine` persists privacy-safe route metrics for success, dropped frames, codec resets, audio underruns, A/V drift, battery and thermal state. Three failures avoid the exact route; poor tunnel quality falls back to direct. System-image-scoped Android persistence prevents stale cross-update learning. | `YPlaybackLearningTest`, `YCore2FailureLedgerTest`, `AndroidRuntimeCapabilityRegistryTest` |
 | 21 | Diagnostics | `YPlayerDiagnostics` exposes container/codec/decoder/demux/render/audio/output truth, drops and A/V drift. Player settings renders it; `DiagnosticLogStore` creates a bounded, redacted `diagnostics.zip` through the one-click export tool. | diagnostics/export and playback-truth tests |
-| 22 | Stress/compatibility suite | `YMediaTestSuite` enforces the full codec/DV/HDR/FPS/container/audio/subtitle/resolution/bitrate matrix. `YCoreMediaSuiteInstrumentedTest` verifies selected audio/subtitle state, performs ten matrix seeks, waits for natural `Ended`, and executes surface/background/foreground/next operations while collecting drop/decoder/memory/thermal/battery/A/V-sync observations. | `YMediaTestSuiteTest`; instrumentation APK compilation; `media-tests/ycore-suite.example.json`; Samsung baseline run below |
+| 22 | Stress/compatibility suite | `YMediaTestSuite` enforces the full codec/DV/HDR/FPS/container/audio/subtitle/resolution/bitrate matrix. `YCoreMediaSuiteInstrumentedTest` now rejects manifest labels that disagree with FFmpeg-observed media facts before playback, gives ISO/BDMV cases explicit disc identity, verifies selected audio/subtitle state, performs ten matrix seeks, waits for natural `Ended`, and executes surface/background/foreground/next operations while collecting drop/decoder/memory/thermal/battery/A/V-sync observations. | `YMediaTestSuiteTest`; instrumentation APK compilation; negative declaration-truth device test; `media-tests/ycore-suite.example.json`; Samsung baseline run below |
 
 ## Automated gates
 
@@ -75,6 +75,12 @@ This rerun exposed and fixed a short-media race in the test harness: media could
 now explicitly calls `play` after seeking. The original installed `com.yfuse` package and data were
 not modified. The temporary validation packages and their generated media were removed after the
 successful run.
+
+On 2026-08-21 the same isolated-package lane also ran a deliberately false matrix declaration on
+the SM-N960U. A regular screen-recording MP4 was labelled as the first 720p/AAC/SRT corpus case; the
+runner rejected its observed frame rate, missing audio/subtitle tracks and 3040px height in 0.204
+seconds. This is negative evidence that manifest labels can no longer substitute for real corpus
+metadata. The temporary validation packages and test directory were removed after the run.
 
 ## Truth boundary
 

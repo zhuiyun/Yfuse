@@ -19,8 +19,11 @@ internal object EmbyDeviceProfileFactory {
                 videoCodecs += codec.embyNames
             }
         }
+        // The packaged native FFmpeg path can decode these formats to PCM even when Android's
+        // current AudioTrack route cannot passthrough them. Advertising only the active route made
+        // Emby start an unnecessary server audio/video transcode for Atmos and TrueHD sources.
         val audioCodecs =
-            capabilities.directPlayableAudio.flatMapTo(
+            (capabilities.directPlayableAudio + LOCAL_AUDIO_DECODERS).flatMapTo(
                 linkedSetOf(),
                 PlaybackAudioCodec::embyNames,
             )
@@ -52,7 +55,7 @@ internal object EmbyDeviceProfileFactory {
                         MaxAudioChannels = maxAudioChannels.toString(),
                     ),
                 ),
-            CodecProfiles = codecProfiles(capabilities, videoCodecs, maxAudioChannels),
+            CodecProfiles = codecProfiles(capabilities, videoCodecs, LOCAL_DECODE_MAX_CHANNELS),
             SubtitleProfiles = subtitleProfiles(),
         )
     }
@@ -189,3 +192,19 @@ internal object EmbyDeviceProfileFactory {
 }
 
 private const val DIRECT_PLAY_VIDEO_CONTAINERS = "mkv,mp4,m4v,mov,ts,m2ts,webm"
+private const val LOCAL_DECODE_MAX_CHANNELS = 8
+private val LOCAL_AUDIO_DECODERS =
+    setOf(
+        PlaybackAudioCodec.Aac,
+        PlaybackAudioCodec.Mp3,
+        PlaybackAudioCodec.Ac3,
+        PlaybackAudioCodec.Eac3,
+        PlaybackAudioCodec.Eac3Joc,
+        PlaybackAudioCodec.TrueHd,
+        PlaybackAudioCodec.Dts,
+        PlaybackAudioCodec.DtsHd,
+        PlaybackAudioCodec.Flac,
+        PlaybackAudioCodec.Opus,
+        PlaybackAudioCodec.Vorbis,
+        PlaybackAudioCodec.Pcm,
+    )

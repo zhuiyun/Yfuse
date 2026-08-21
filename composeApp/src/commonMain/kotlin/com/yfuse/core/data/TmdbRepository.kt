@@ -14,6 +14,7 @@ import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.TMDB_BASE
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.isoDateDaysBefore
+import com.yfuse.core.util.pickForDay
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
@@ -421,6 +422,7 @@ class TmdbRepository(
                 // The pool 今日精选 rotates through, not a shortlist anyone sees all of. Only
                 // one is shown per day, so a handful would come back round inside a fortnight.
                 val featured = popular.filter { it.backdropPath != null }.take(FEATURED_POOL)
+                val enrichedFeatured = enrichFeaturedRuntimes(featured, today, language)
                 val rows =
                     listOf(
                         TmdbRow("热门", popular),
@@ -441,7 +443,7 @@ class TmdbRepository(
                     )
                     Result.failure(EmbyErrorException(EmbyError.Network))
                 } else {
-                    Result.success(TmdbHome(featured = featured, rows = rows))
+                    Result.success(TmdbHome(featured = enrichedFeatured, rows = rows))
                 }
             }
         } catch (e: CancellationException) {
@@ -468,6 +470,9 @@ class TmdbRepository(
                         parameter("language", language)
                         parameter("append_to_response", "credits")
                     }.body<TmdbDetailDto>()
+            val runtimeMinutes =
+                dto.runtime?.takeIf { it > 0 }
+                    ?: dto.episodeRunTime.firstOrNull { it > 0 }
             val enriched =
                 item.copy(
                     title = dto.title ?: dto.name ?: item.title,
@@ -477,14 +482,13 @@ class TmdbRepository(
                     year = (dto.releaseDate ?: dto.firstAirDate)?.take(4)?.ifBlank { null } ?: item.year,
                     releaseDate = (dto.releaseDate ?: dto.firstAirDate)?.ifBlank { null } ?: item.releaseDate,
                     rating = dto.voteAverage?.takeIf { it > 0.0 } ?: item.rating,
+                    runtimeMinutes = runtimeMinutes ?: item.runtimeMinutes,
                 )
             Result.success(
                 TmdbDetail(
                     item = enriched,
                     genres = dto.genres.map { it.name },
-                    runtimeMinutes =
-                        dto.runtime?.takeIf { it > 0 }
-                            ?: dto.episodeRunTime.firstOrNull { it > 0 },
+                    runtimeMinutes = runtimeMinutes,
                     numberOfSeasons = dto.numberOfSeasons?.takeIf { it > 0 },
                     status = dto.status?.ifBlank { null },
                     tagline = dto.tagline?.ifBlank { null },
@@ -514,6 +518,58 @@ class TmdbRepository(
             )
             Result.failure(EmbyErrorException(e.toError()))
         }
+
+    /**
+     * List endpoints do not include runtime. Enrich only the eight titles that the carousel
+     * can actually show, keeping the broader recommendation pool and shelves lightweight.
+     */
+    private suspend fun enrichFeaturedRuntimes(
+        featured: List<TmdbItem>,
+        today: String,
+        language: String,
+    ): List<TmdbItem> =
+        coroutineScope {
+            val first = featured.pickForDay(today) ?: return@coroutineScope featured
+            val visible = (listOf(first) + featured.filterNot { it.id == first.id }).take(8)
+            val permits = Semaphore(4)
+            val runtimes =
+                visible
+                    .map { item ->
+                        async {
+                            val runtime =
+                                try {
+                                    permits.withPermit { fetchRuntimeMinutes(item, language) }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Throwable) {
+                                    null
+                                }
+                            (item.mediaType to item.id) to runtime
+                        }
+                    }.awaitAll()
+                    .toMap()
+            featured.map { item ->
+                item.copy(
+                    runtimeMinutes =
+                        runtimes[item.mediaType to item.id]
+                            ?: item.runtimeMinutes,
+                )
+            }
+        }
+
+    private suspend fun fetchRuntimeMinutes(
+        item: TmdbItem,
+        language: String,
+    ): Int? {
+        val type = if (item.mediaType == "tv") "tv" else "movie"
+        val dto =
+            client
+                .get("$TMDB_BASE/$type/${item.id}") {
+                    parameter("language", language)
+                }.body<TmdbDetailDto>()
+        return dto.runtime?.takeIf { it > 0 }
+            ?: dto.episodeRunTime.firstOrNull { it > 0 }
+    }
 
     /**
      * Shows broadcasting around now, and where each one is in its run.

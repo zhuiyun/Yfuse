@@ -78,6 +78,17 @@ class YCorePlaybackSessionTest {
         assertEquals(0, memory.failureCount(SIGNATURE, PlayerEngine.Exo))
     }
 
+    @Test
+    fun huge_mov_gets_a_long_but_finite_startup_budget() {
+        val probe =
+            probe().copy(
+                container = "mov",
+                sourceSizeBytes = 195_738_044_172L,
+            )
+
+        assertEquals(60_000L, playbackStartupTimeoutMs(probe))
+    }
+
     private fun session(memory: PlaybackFailureMemory): YCorePlaybackSession =
         YCorePlaybackSession(
             engine = PlayerEngine.Exo,

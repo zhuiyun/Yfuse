@@ -8,6 +8,7 @@ import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.SavedServer
+import com.yfuse.core.model.VideoStreamInfo
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
@@ -302,6 +303,105 @@ class PlayerStoreTest {
         }
 
     @Test
+    fun selected_source_id_survives_a_single_playback_info_source_that_omits_its_id() =
+        runTest {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val repo =
+                testRepo { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                            json(
+                                """
+                                {
+                                  "MediaSources":[{
+                                    "Container":"mov",
+                                    "Size":195738044172,
+                                    "SupportsDirectPlay":true,
+                                    "SupportsTranscoding":false
+                                  }],
+                                  "PlaySessionId":"session-182"
+                                }
+                                """.trimIndent(),
+                            )
+                        request.url.encodedPath.endsWith("/Items/movie") ->
+                            json(
+                                """
+                                {
+                                  "Id":"movie",
+                                  "Name":"超大母版",
+                                  "Type":"Movie",
+                                  "MediaSources":[
+                                    {"Id":"source-40","Container":"mkv","Size":40825518261},
+                                    {"Id":"source-182","Container":"mov","Size":195738044172}
+                                  ]
+                                }
+                                """.trimIndent(),
+                            )
+                        else -> json("{}")
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "movie",
+                    startPositionTicks = 0L,
+                    mediaSourceId = "source-182",
+                ).create()
+
+            val state = store.states.first { !it.loading }
+            val item = state.items.single()
+
+            assertNull(state.error)
+            assertEquals("source-182", item.versionId)
+            assertEquals(195_738_044_172L, item.activeVersion?.sourceSizeBytes)
+            assertTrue("MediaSourceId=source-182" in item.url, item.url)
+            assertFalse("MediaSourceId=source-40" in item.url, item.url)
+            store.dispose()
+        }
+
+    @Test
+    fun playback_info_cannot_silently_replace_the_selected_physical_source() {
+        val mismatch =
+            playbackSourceMismatch(
+                requestedMediaSourceId = "source-182",
+                detailVersions =
+                    listOf(
+                        MediaVersion(
+                            id = "source-182",
+                            name = "182 GB",
+                            container = "mov",
+                            sizeBytes = 195_738_044_172L,
+                            bitrateBps = null,
+                            videoCodec = null,
+                            videoHeight = null,
+                            videoRange = null,
+                        ),
+                    ),
+                negotiatedVersions =
+                    listOf(
+                        MediaVersion(
+                            id = "source-40",
+                            name = "40 GB",
+                            container = "mkv",
+                            sizeBytes = 40_825_518_261L,
+                            bitrateBps = null,
+                            videoCodec = null,
+                            videoHeight = null,
+                            videoRange = null,
+                        ),
+                    ),
+            )
+
+        assertEquals(195_738_044_172L, mismatch?.expectedSizeBytes)
+        assertEquals(40_825_518_261L, mismatch?.returnedSizeBytes)
+    }
+
+    @Test
     fun playback_info_cannot_erase_iso_metadata_or_route_it_to_direct_stream() =
         runTest {
             val registry =
@@ -400,6 +500,56 @@ class PlayerStoreTest {
         assertEquals(PlaybackMethod.Transcode, selected.playMethod)
         assertTrue("/Videos/movie/master.m3u8" in selected.url, selected.url)
         assertFalse("static=true" in selected.url, selected.url)
+    }
+
+    @Test
+    fun server_cannot_replace_a_linear_dolby_source_with_transcode() {
+        val version =
+            MediaVersion(
+                id = "dolby-source",
+                name = "Dolby Vision",
+                container = "mkv",
+                sizeBytes = 5_140_000_000L,
+                bitrateBps = 42_000_000,
+                videoCodec = "hevc",
+                videoHeight = 2_160,
+                videoRange = "DOVI",
+                video =
+                    VideoStreamInfo(
+                        codec = "hevc",
+                        width = 3_840,
+                        height = 2_160,
+                        bitDepth = 10,
+                        dolbyProfile = 7,
+                        dolbyBaseLayerCompatibility = 1,
+                        dolbyRpuPresent = true,
+                        dolbyEnhancementLayerPresent = true,
+                        dolbyBaseLayerPresent = true,
+                    ),
+                supportsDirectPlay = false,
+                supportsDirectStream = false,
+                supportsTranscoding = true,
+                transcodingUrl = "/Videos/movie/master.m3u8",
+            )
+
+        val selected =
+            listOf(version)
+                .toPlayerMediaVersions(
+                    baseUrl = "http://host:8096",
+                    itemId = "movie",
+                    token = "tok",
+                    negotiatedPlaySessionId = "session-dolby",
+                ).single()
+
+        assertTrue(selected.dolbyVision)
+        assertEquals(7, selected.dolbyProfile)
+        assertEquals(true, selected.sourceDolbyRpuPresent)
+        assertEquals(true, selected.sourceDolbyEnhancementLayerPresent)
+        assertEquals(true, selected.sourceDolbyBaseLayerPresent)
+        assertEquals(1, selected.sourceDolbyBaseLayerCompatibility)
+        assertEquals(PlaybackMethod.DirectPlay, selected.playMethod)
+        assertTrue("/Videos/movie/stream" in selected.url, selected.url)
+        assertFalse("master.m3u8" in selected.url, selected.url)
     }
 
     @Test

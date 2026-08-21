@@ -285,8 +285,8 @@ Two things that look like savings and are not: turning off
 for a smaller install footprint), and the `.so` files in both engines are
 already stripped, so there is nothing for `strip` to remove.
 
-Unrelated to the APK: `mpvaar/` is 24 MB of an extracted libmpv AAR tracked in
-git. No build file references it — `composeApp` consumes
-`libs/libmpv-release.aar`, which `scripts/fetch-engines.sh` downloads — so it
-costs every clone 24 MB and ships nothing. It is a verified cleanup candidate for a
-dedicated binary-removal change; no runtime or Gradle migration is required.
+Unrelated to the APK: the former `mpvaar/` directory was a 24 MB extracted libmpv
+AAR that no build file referenced. It was removed from the current Git tree on
+2026-08-21; `composeApp` continues to consume `libs/libmpv-release.aar`, which
+`scripts/fetch-engines.sh` downloads and verifies. The removal requires no runtime
+or Gradle migration.

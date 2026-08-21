@@ -236,6 +236,39 @@ class PlaybackPlannerTest {
     }
 
     @Test
+    fun dolby_vision_stays_on_local_mpv_even_when_server_transcode_exists() {
+        val dolbyProbe =
+            PlaybackMediaProbe(
+                container = "mkv",
+                discSource = false,
+                source =
+                    PlaybackSourceRequirements(
+                        dolbyVision = true,
+                        needsDolbyDecoder = true,
+                        dynamicRange = "Dolby Vision P5",
+                        videoCodec = PlaybackVideoCodec.Hevc,
+                        bitDepth = 10,
+                    ),
+                hasServerTranscode = true,
+            )
+
+        val plan =
+            planPlayback(
+                probe = dolbyProbe,
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Hardware,
+                optimizationMode = PlaybackOptimizationMode.PowerSaver,
+                videoSupport = PlaybackVideoSupport.unsupported("平台没有 Dolby 解码器"),
+            )
+
+        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertEquals(DecoderMode.Software, plan.decoderMode)
+        assertFalse(plan.requiresServerTranscode)
+        assertEquals(PlaybackRenderPath.GpuToneMapped, plan.renderPath)
+    }
+
+    @Test
     fun prores_12bit_prefers_original_ffmpeg_decode_even_when_server_can_transcode() {
         val proResProbe =
             PlaybackMediaProbe(
@@ -343,6 +376,29 @@ class PlaybackPlannerTest {
 
         assertEquals(listOf(PlayerEngine.Exo), plan.engineOrder)
         assertEquals(PlaybackRenderPath.PlatformDirect, plan.renderPath)
+    }
+
+    @Test
+    fun huge_remote_mov_uses_native_demux_and_keeps_every_backend_in_the_fallback_chain() {
+        val source =
+            probe(container = "mov").copy(
+                sourceSizeBytes = 195_738_044_172L,
+                localSource = false,
+            )
+
+        val plan =
+            planPlayback(
+                probe = source,
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Exo,
+                preferredDecoderMode = DecoderMode.Auto,
+            )
+
+        assertTrue(source.isHugeRemoteMov)
+        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertEquals(listOf(PlayerEngine.Mpv, PlayerEngine.Exo, PlayerEngine.Mdk), plan.engineOrder)
+        assertEquals(PlaybackRenderPath.NativeDirect, plan.renderPath)
+        assertFalse(plan.requiresServerTranscode)
     }
 
     private fun probe(

@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.DolbyVisionP7OutputEvidence
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.playback.PlaybackDrmScheme
 import kotlin.test.Test
@@ -128,6 +129,7 @@ class PlaybackTruthTest {
                 sourceFrameRate = 23.976,
                 sourceBitDepth = 10,
                 sourceDynamicRange = "HDR10",
+                serverTranscodeSupported = true,
             )
         val probe =
             PlayerMediaItem(
@@ -137,12 +139,99 @@ class PlaybackTruthTest {
                 title = "电影",
                 versions = listOf(version),
                 versionId = version.id,
+                serverTranscodeSupported = true,
             ).playbackMediaProbe()
 
         assertEquals("MKV", probe.normalizedContainer)
         assertTrue(probe.hasServerTranscode)
         assertFalse(secret in probe.capabilitySignature)
         assertFalse("example" in probe.capabilitySignature)
+    }
+
+    @Test
+    fun generated_fallback_url_is_not_treated_as_server_approved_transcoding() {
+        val probe =
+            PlayerMediaItem(
+                id = "dolby",
+                url = "direct",
+                transcodeUrl = "generated-best-effort-hls",
+                fallbackTranscodeUrl = "generated-best-effort-progressive",
+                title = "Dolby Vision",
+                playMethod = PlaybackMethod.DirectPlay,
+                serverTranscodeSupported = false,
+            ).playbackMediaProbe()
+
+        assertFalse(probe.hasServerTranscode)
+    }
+
+    @Test
+    fun dolby_source_disables_automatic_server_fallback_but_keeps_manual_choice() {
+        val version =
+            PlayerMediaVersion(
+                id = "dolby-source",
+                label = "Dolby Vision",
+                detail = "4K Dolby Vision",
+                url = "direct-dolby",
+                transcodeUrl = "server-hls",
+                fallbackTranscodeUrl = "server-mp4",
+                dolbyVision = true,
+                playMethod = PlaybackMethod.Transcode,
+                serverTranscodeSupported = true,
+            )
+        val item =
+            PlayerMediaItem(
+                id = "dolby",
+                url = version.url,
+                transcodeUrl = version.transcodeUrl,
+                fallbackTranscodeUrl = version.fallbackTranscodeUrl,
+                title = "Dolby Vision",
+                versions = listOf(version),
+                versionId = version.id,
+                playMethod = version.playMethod,
+                serverTranscodeSupported = true,
+            )
+
+        assertFalse(item.startsWithServerTranscode(PlaybackQuality.Auto))
+        assertFalse(item.playbackMediaProbe().hasServerTranscode)
+        assertFalse(item.allowsServerTranscodeFallback("解码失败"))
+        assertTrue(item.allowsServerTranscodeFallback("用户手动选择服务器转码"))
+        assertTrue(item.startsWithServerTranscode(PlaybackQuality.FullHd))
+    }
+
+    @Test
+    fun p7_fel_log_never_claims_enhancement_without_explicit_output_trace() {
+        val version =
+            PlayerMediaVersion(
+                id = "p7-fel",
+                label = "Dolby Vision P7",
+                detail = "P7 + EL",
+                url = "direct",
+                transcodeUrl = "",
+                fallbackTranscodeUrl = "",
+                dolbyVision = true,
+                dolbyProfile = 7,
+                sourceDolbyRpuPresent = true,
+                sourceDolbyEnhancementLayerPresent = true,
+                sourceDolbyBaseLayerPresent = true,
+            )
+
+        val baseLayer =
+            version.dolbyVisionP7Output(
+                PlaybackDiagnostics(videoReadiness = PlaybackOutputReadiness.Rendering),
+            )
+        val composed =
+            version.dolbyVisionP7Output(
+                PlaybackDiagnostics(
+                    videoReadiness = PlaybackOutputReadiness.Rendering,
+                    dolbyVisionRpuApplied = true,
+                    dolbyVisionEnhancementLayerComposed = true,
+                ),
+            )
+
+        assertEquals(DolbyVisionP7OutputEvidence.BaseLayerOnly, baseLayer.evidence)
+        assertFalse(baseLayer.canClaimFel)
+        assertEquals(DolbyVisionP7OutputEvidence.EnhancementLayerComposed, composed.evidence)
+        assertTrue(composed.canClaimFel)
     }
 
     @Test

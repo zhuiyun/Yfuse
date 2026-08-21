@@ -145,6 +145,7 @@ class HomeTabComponent(
                                 emby = repo,
                                 registry = registry,
                                 cache = dependencies.tmdbHomeCache,
+                                syncManager = dependencies.serverSyncManager,
                                 onOpenEmbyItem = { serverId, itemId ->
                                     navigation.push(Config.Detail(serverId, itemId))
                                 },

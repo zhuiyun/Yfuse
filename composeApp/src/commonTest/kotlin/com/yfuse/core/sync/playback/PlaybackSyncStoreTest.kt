@@ -8,6 +8,87 @@ import kotlin.test.assertTrue
 
 class PlaybackSyncStoreTest {
     @Test
+    fun serverLocalEmbyIdsNeverMergeAcrossServers() {
+        val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+
+        fun update(
+            serverId: String,
+            positionMs: Long,
+        ) = store.updatePlayback(
+            mediaKey = "emby:42",
+            aliases = emptyList(),
+            positionMs = positionMs,
+            durationMs = 100_000L,
+            played = false,
+            sessionId = serverId,
+            serverId = serverId,
+            serverItemId = "42",
+            mutationKind = PlaybackMutationKind.AutoProgress,
+            trigger = PlaybackSyncTrigger.Periodic,
+        )
+
+        update("server-a", 10_000L)
+        update("server-b", 80_000L)
+
+        assertEquals(
+            10_000L,
+            store
+                .find("emby:42", serverId = "server-a")
+                ?.document
+                ?.state
+                ?.positionMs,
+        )
+        assertEquals(
+            80_000L,
+            store
+                .find("emby:42", serverId = "server-b")
+                ?.document
+                ?.state
+                ?.positionMs,
+        )
+        assertEquals(null, store.find("emby:42"))
+        assertEquals(2, store.pending().size)
+    }
+
+    @Test
+    fun invalidLocalDocumentsResetCloudCursorForFullRecovery() {
+        val settings =
+            MapSettings().apply {
+                putString("playback.cross_platform.documents.v1", "{broken-json")
+                putLong("playback.cross_platform.cursor.v1", 91L)
+            }
+
+        val store = PlaybackSyncStore(settings) { 1_000L }
+
+        assertTrue(store.pending().isEmpty())
+        assertEquals(0L, store.cursor())
+    }
+
+    @Test
+    fun serverApplyQueueSurvivesRestartAndAdvancesOneServerAtATime() {
+        val settings = MapSettings()
+        val document =
+            PlaybackSyncDocument(
+                state =
+                    PlaybackStateRecord(
+                        mediaKey = "tmdb:1",
+                        deviceId = "remote-device",
+                    ),
+            )
+        val first = PlaybackSyncStore(settings) { 1_000L }
+        first.enqueueServerApply(document, listOf("server-a", "server-b"))
+
+        val restored = PlaybackSyncStore(settings) { 2_000L }
+        val task = restored.pendingServerApplies(nowEpochMs = 2_000L).single()
+        assertEquals(listOf("server-a", "server-b"), task.remainingServerIds)
+
+        restored.markServerApplySucceeded(task.id, "server-a")
+        assertEquals(listOf("server-b"), restored.pendingServerApplies(2_000L).single().remainingServerIds)
+        restored.markServerApplySucceeded(task.id, "server-b")
+        assertEquals(0, restored.serverApplyCount())
+    }
+
+    @Test
     fun sameAccountKeepsOfflineMutationsButDifferentAccountResetsPartition() {
         val settings = MapSettings()
         var now = 1_000L

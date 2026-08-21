@@ -1,5 +1,8 @@
 # Yfuse 详情页 UI 审查
 
+> 截图证据已迁移到 `repository-binaries-before-cleanup-20260821.zip`；文件名保持不变，
+> 归档校验值见 `audit/README.md`。
+
 ## 审查范围
 
 - 页面顶部海报、信息摘要及首屏层级。

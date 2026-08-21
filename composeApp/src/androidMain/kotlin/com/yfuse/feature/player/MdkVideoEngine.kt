@@ -255,13 +255,14 @@ class MdkVideoEngine(
         val transcoding = index in transcodedIndices
         val nextItem = items.getOrNull(index)
         _state.update {
+            val mediaChanged = it.currentIndex != index
             it.copy(
                 currentIndex = index,
                 playing = true,
                 buffering = true,
-                positionMs = 0L,
-                durationMs = 0L,
-                bufferedPositionMs = 0L,
+                positionMs = if (mediaChanged) 0L else it.positionMs,
+                durationMs = if (mediaChanged) 0L else it.durationMs,
+                bufferedPositionMs = if (mediaChanged) 0L else it.bufferedPositionMs,
                 videoHeight = nextItem?.sourceVideoHeight(transcoding) ?: 0,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
@@ -451,9 +452,12 @@ class MdkVideoEngine(
             }
 
             val positionMs = instance.position().coerceAtLeast(0L)
-            val durationMs = instance.duration().coerceAtLeast(0L)
+            val reportedDurationMs = instance.duration().coerceAtLeast(0L)
             val bufferedDurationMs = instance.bufferedDuration().coerceAtLeast(0L)
             _state.update { current ->
+                val durationMs =
+                    reportedDurationMs.takeIf { it > 0L }
+                        ?: current.durationMs.coerceAtLeast(0L)
                 current.copy(
                     playing =
                         instance.state() == MDKPlayer.STATE_PLAYING && !ended && !invalid,
@@ -568,6 +572,7 @@ class MdkVideoEngine(
         if (released) return false
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return false
+        if (index !in transcodedIndices && !item.allowsServerTranscodeFallback(reason)) return false
         val progressive =
             when {
                 index in progressiveIndices -> return false

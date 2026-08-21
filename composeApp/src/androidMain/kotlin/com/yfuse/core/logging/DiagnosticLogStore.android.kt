@@ -341,7 +341,15 @@ internal object DiagnosticLogStore {
                 zip.closeEntry()
                 logFilesLocked().forEach { file ->
                     zip.putNextEntry(ZipEntry("logs/${file.name}"))
-                    file.inputStream().buffered().use { it.copyTo(zip) }
+                    // Re-sanitize at the export boundary as well as at write time. This protects
+                    // packages that still contain lines written by an older app version whose
+                    // redactor did not hide server hosts or user identifiers.
+                    file.useLines { lines ->
+                        lines.forEach { line ->
+                            zip.write(redactDiagnosticText(line).encodeToByteArray())
+                            zip.write('\n'.code)
+                        }
+                    }
                     zip.closeEntry()
                 }
             }
@@ -500,7 +508,7 @@ internal object DiagnosticLogStore {
             lastWriteFailure.get()?.let { appendLine("lastLogWriteFailure=$it") }
             appendLine("format=JSON Lines; one JSON object per line")
             appendLine("retention=7 days, at most $MaxFiles files / ${MaxTotalBytes / 1024 / 1024} MiB")
-            appendLine("privacy=Known tokens, API keys, passwords and URL credentials are redacted.")
+            appendLine("privacy=Tokens, credentials, server hosts and user identifiers are redacted.")
         }
     }
 

@@ -41,7 +41,7 @@ internal class AndroidYPlaybackLearningStore(
     }
 
     private fun persist(records: List<YPlaybackLearningRecord>) {
-        preferences.edit().putStringSet(KEY_RECORDS, records.mapTo(linkedSetOf(), ::encode)).commit()
+        preferences.edit().putStringSet(KEY_RECORDS, records.mapTo(linkedSetOf(), ::encode)).apply()
     }
 
     private fun encode(record: YPlaybackLearningRecord): String =

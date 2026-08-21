@@ -18,6 +18,7 @@ data class PlaybackRuntimeFault(
 class PlaybackRuntimeFaultDetector(
     private val startedAtEpochMs: Long,
     private val initialPositionMs: Long,
+    private val startupTimeoutMs: Long = DEFAULT_STARTUP_TIMEOUT_MS,
 ) {
     private var lastPositionMs = initialPositionMs
     private var lastProgressAtEpochMs = startedAtEpochMs
@@ -25,6 +26,10 @@ class PlaybackRuntimeFaultDetector(
     private var missingVideoSinceEpochMs: Long? = null
     private var missingAudioSinceEpochMs: Long? = null
     private var reported = false
+
+    init {
+        require(startupTimeoutMs > 0L)
+    }
 
     fun observe(observation: YCoreRuntimeObservation): PlaybackRuntimeFault? {
         if (reported) return null
@@ -38,7 +43,6 @@ class PlaybackRuntimeFaultDetector(
         }
         if (
             !observation.playbackRequested ||
-            observation.buffering ||
             observation.errorPresent ||
             observation.ended
         ) {
@@ -50,11 +54,16 @@ class PlaybackRuntimeFaultDetector(
         }
 
         val renderedProgressMs = (observation.positionMs - initialPositionMs).coerceAtLeast(0L)
-        val awaitingFirstFrame =
-            observation.videoExpected &&
-                observation.videoOutputVerifiable &&
-                !observation.videoReady &&
-                renderedProgressMs == 0L
+        val awaitingFirstOutput =
+            renderedProgressMs == 0L &&
+                (
+                    (observation.videoExpected && !observation.videoReady) ||
+                        (
+                            !observation.videoExpected &&
+                                observation.audioExpected &&
+                                !observation.audioReady
+                        )
+                )
         val videoMissing =
             observation.videoExpected &&
                 observation.videoOutputVerifiable &&
@@ -72,13 +81,34 @@ class PlaybackRuntimeFaultDetector(
         // was measured from the *first* time it appeared: the four-second grace had already
         // elapsed, and a second momentary dropout reported instantly. Since a report hands
         // playback to another backend, that turned one glitch into a switched engine.
-        firstFrameWaitSinceEpochMs = if (awaitingFirstFrame) firstFrameWaitSinceEpochMs ?: now else null
+        firstFrameWaitSinceEpochMs =
+            if (awaitingFirstOutput) firstFrameWaitSinceEpochMs ?: now else null
         missingVideoSinceEpochMs = if (videoMissing) missingVideoSinceEpochMs ?: now else null
         missingAudioSinceEpochMs = if (audioMissing) missingAudioSinceEpochMs ?: now else null
 
+        // Buffering suppresses mid-play stall/output judgements, but not an initial load that never
+        // produces a format or first frame. Previously the observer stopped on the first buffering
+        // sample, so a backend could spin forever without entering the fallback chain.
+        if (observation.buffering) {
+            lastProgressAtEpochMs = now
+            missingVideoSinceEpochMs = null
+            missingAudioSinceEpochMs = null
+            val fault =
+                if (awaitingFirstOutput && now.heldSince(firstFrameWaitSinceEpochMs) >= startupTimeoutMs) {
+                    PlaybackRuntimeFault(
+                        PlaybackRuntimeFaultKind.StartupTimeout,
+                        "内核持续缓冲但未在限定时间内输出首帧",
+                    )
+                } else {
+                    null
+                }
+            if (fault != null) reported = true
+            return fault
+        }
+
         val fault =
             when {
-                awaitingFirstFrame && now.heldSince(firstFrameWaitSinceEpochMs) >= STARTUP_TIMEOUT_MS ->
+                awaitingFirstOutput && now.heldSince(firstFrameWaitSinceEpochMs) >= startupTimeoutMs ->
                     PlaybackRuntimeFault(
                         PlaybackRuntimeFaultKind.StartupTimeout,
                         "内核在限定时间内未输出首帧",
@@ -93,7 +123,7 @@ class PlaybackRuntimeFaultDetector(
                         PlaybackRuntimeFaultKind.AudioOutputMissing,
                         "播放进度前进但没有可验证的音频输出",
                     )
-                !awaitingFirstFrame &&
+                !awaitingFirstOutput &&
                     (observation.videoExpected || observation.audioExpected) &&
                     now - lastProgressAtEpochMs >= POSITION_STALL_TIMEOUT_MS ->
                     PlaybackRuntimeFault(
@@ -114,5 +144,5 @@ private const val MIN_PROGRESS_STEP_MS = 250L
 private const val BACKWARD_SEEK_THRESHOLD_MS = 1_000L
 private const val MISSING_OUTPUT_PROGRESS_MS = 3_000L
 private const val MISSING_OUTPUT_GRACE_MS = 4_000L
-private const val STARTUP_TIMEOUT_MS = 15_000L
+private const val DEFAULT_STARTUP_TIMEOUT_MS = 15_000L
 private const val POSITION_STALL_TIMEOUT_MS = 12_000L

@@ -161,7 +161,14 @@ internal class AndroidYCapabilityProvider(
                 .getSystemService(DisplayManager::class.java)
                 ?.getDisplay(Display.DEFAULT_DISPLAY)
                 ?: return setOf(YHdrType.Sdr)
-        val platformTypes = runCatching { display.hdrCapabilities.supportedHdrTypes }.getOrDefault(intArrayOf())
+        val platformTypes =
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    display.mode.supportedHdrTypes
+                } else {
+                    display.legacySupportedHdrTypes()
+                }
+            }.getOrDefault(intArrayOf())
         return buildSet {
             add(YHdrType.Sdr)
             platformTypes.forEach { type ->
@@ -174,6 +181,10 @@ internal class AndroidYCapabilityProvider(
             }
         }
     }
+
+    /** Android 13 and older expose HDR support only through the now-deprecated display API. */
+    @Suppress("DEPRECATION")
+    private fun Display.legacySupportedHdrTypes(): IntArray = hdrCapabilities.supportedHdrTypes
 
     private fun queryFrameRateSwitching(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false

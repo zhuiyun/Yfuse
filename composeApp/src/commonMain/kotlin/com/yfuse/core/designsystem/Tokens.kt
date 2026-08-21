@@ -326,6 +326,9 @@ object PlayerTokens {
     val nextUpRingTrack = Color.White.copy(alpha = 0.15f)
     val nextUpCore = Color(0xFF151A26)
 
+    /** Calm blue used only until artwork extraction resolves (or when artwork is unavailable). */
+    val progressAccentFallback = Color(0xFF6F9FEA)
+
     /** Progress fill `linear-gradient(90deg,#7FA2E8,#A7C0F2)`. */
     val progress: Brush =
         cssLinearGradient(
@@ -381,6 +384,7 @@ object Dimens {
     val sectionGap = 22.dp
 
     // ------------------------------------------------------------ 圆角三档
+
     /** 小 10px — 缩略图、内嵌小块. */
     val small = 10.dp
 

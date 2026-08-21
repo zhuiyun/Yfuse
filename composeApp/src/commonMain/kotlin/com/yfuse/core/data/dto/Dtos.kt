@@ -372,6 +372,7 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         playedPercentage = UserData?.PlayedPercentage,
         overview = Overview,
         year = ProductionYear,
+        runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },
         communityRating = CommunityRating,
         providerIds = ProviderIds.orEmpty(),
         isFavorite = UserData?.IsFavorite == true,

@@ -93,6 +93,16 @@ data class StoredPlaybackDocument(
     val mutationId: String,
 )
 
+/** A durable cloud-to-media-server write-back operation. */
+@Serializable
+data class PendingPlaybackServerApply(
+    val id: String,
+    val document: PlaybackSyncDocument,
+    val remainingServerIds: List<String>,
+    val attemptCount: Int = 0,
+    val nextAttemptAtEpochMs: Long = 0L,
+)
+
 @Serializable
 data class EncryptedPlaybackEntity(
     val entityKey: String,

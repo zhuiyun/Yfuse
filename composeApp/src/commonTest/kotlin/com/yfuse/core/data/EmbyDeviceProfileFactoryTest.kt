@@ -13,14 +13,16 @@ import kotlin.test.assertTrue
 
 class EmbyDeviceProfileFactoryTest {
     @Test
-    fun conservative_profile_does_not_overclaim_hdr_or_surround_codecs() {
+    fun conservative_profile_advertises_bundled_local_audio_decode_without_overclaiming_hdr() {
         val profile = DeviceProfileDto.yfuseAndroid()
         val direct = profile.DirectPlayProfiles.single()
         val h264Ranges = profile.videoRanges("h264")
+        val audio = direct.AudioCodec.split(',').toSet()
 
         assertEquals("h264", direct.VideoCodec)
-        assertEquals("aac,mp3,pcm", direct.AudioCodec)
+        assertTrue(audio.containsAll(setOf("aac", "ac3", "eac3", "truehd", "dts", "dca")))
         assertEquals(setOf("SDR"), h264Ranges)
+        assertEquals("8", profile.audioChannelLimit())
         assertEquals("2", profile.TranscodingProfiles.first().MaxAudioChannels)
     }
 
@@ -130,4 +132,11 @@ class EmbyDeviceProfileFactoryTest {
             .Value
             .split('|')
             .toSet()
+
+    private fun DeviceProfileDto.audioChannelLimit(): String =
+        CodecProfiles
+            .single { it.Type == "VideoAudio" }
+            .Conditions
+            .single { it.Property == "AudioChannels" }
+            .Value
 }

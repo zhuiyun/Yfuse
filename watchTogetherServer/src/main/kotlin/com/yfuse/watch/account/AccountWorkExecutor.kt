@@ -1,14 +1,14 @@
 package com.yfuse.watch.account
 
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.Semaphore
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
-import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.withContext
 
 data class AccountExecutionPolicy(
     val workerThreads: Int = 4,
@@ -27,10 +27,11 @@ class AccountWorkExecutor(
     policy: AccountExecutionPolicy = AccountExecutionPolicy(),
 ) : AutoCloseable {
     private val permits = Semaphore(policy.maxConcurrentOperations, true)
-    private val executorService = Executors.newFixedThreadPool(
-        policy.workerThreads,
-        AccountThreadFactory,
-    )
+    private val executorService =
+        Executors.newFixedThreadPool(
+            policy.workerThreads,
+            AccountThreadFactory,
+        )
     private val dispatcher: ExecutorCoroutineDispatcher = executorService.asCoroutineDispatcher()
 
     internal suspend fun <T> execute(block: () -> T): T {
@@ -56,10 +57,11 @@ class AccountWorkExecutor(
     private object AccountThreadFactory : ThreadFactory {
         private val nextId = AtomicInteger()
 
-        override fun newThread(task: Runnable): Thread = Thread(
-            task,
-            "yfuse-account-${nextId.incrementAndGet()}",
-        ).apply { isDaemon = true }
+        override fun newThread(task: Runnable): Thread =
+            Thread(
+                task,
+                "yfuse-account-${nextId.incrementAndGet()}",
+            ).apply { isDaemon = true }
     }
 
     companion object {

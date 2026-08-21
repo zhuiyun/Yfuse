@@ -3,7 +3,10 @@ package com.yfuse.watch.account
 import java.net.InetAddress
 
 internal sealed interface ClientIdentityResolution {
-    data class Resolved(val value: String) : ClientIdentityResolution
+    data class Resolved(
+        val value: String,
+    ) : ClientIdentityResolution
+
     data object InvalidForwardedFor : ClientIdentityResolution
 }
 
@@ -37,18 +40,24 @@ internal fun isLoopbackHost(raw: String): Boolean {
     return runCatching { InetAddress.getByName(literal).isLoopbackAddress }.getOrDefault(false)
 }
 
-private fun normalizeSocketPeer(raw: String): String = raw
-    .trim()
-    .removeSurrounding("[", "]")
-    .lowercase()
-    .take(MAX_SOCKET_PEER_CHARS)
-    .ifBlank { "unknown" }
+private fun normalizeSocketPeer(raw: String): String =
+    raw
+        .trim()
+        .removeSurrounding("[", "]")
+        .lowercase()
+        .take(MAX_SOCKET_PEER_CHARS)
+        .ifBlank { "unknown" }
 
 private fun normalizeIpLiteral(raw: String): String? {
     normalizeIpv4(raw)?.let { return it }
     if (':' !in raw || raw.any { it !in IPV6_LITERAL_CHARS }) return null
-    return runCatching { InetAddress.getByName(raw).hostAddress.substringBefore('%').lowercase() }
-        .getOrNull()
+    return runCatching {
+        InetAddress
+            .getByName(raw)
+            .hostAddress
+            .substringBefore('%')
+            .lowercase()
+    }.getOrNull()
 }
 
 private fun normalizeIpv4(raw: String): String? {

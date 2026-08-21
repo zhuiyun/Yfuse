@@ -57,7 +57,19 @@ class TgtoMediaRepository(
     private val client: HttpClient = createTgtoMediaClient(),
 ) {
     private val loginMutex = Mutex()
+
+    @Volatile
     private var authenticatedIdentity: String? = null
+
+    /**
+     * Monotonic authentication epoch used to collapse a burst of 401 responses into one login.
+     *
+     * Every request remembers the epoch under which it was sent. The first rejected request logs
+     * in and advances this value; rejected siblings then observe that newer epoch inside
+     * [loginMutex] and reuse the session cookie instead of logging in again.
+     */
+    @Volatile
+    private var authenticationEpoch = 0L
     private val pan123 = Pan123DirectClient(preferences, client)
 
     suspend fun testConnection(
@@ -66,8 +78,11 @@ class TgtoMediaRepository(
         password: String,
     ): Result<TgtoSettings> =
         runCatching {
-            login(endpoint.trim().trimEnd('/'), username.trim(), password)
-            request<TgtoSettings>(endpoint.trim().trimEnd('/')) { base -> client.get("$base/api/media/settings") }
+            val normalizedEndpoint = endpoint.trim().trimEnd('/')
+            loginMutex.withLock {
+                login(normalizedEndpoint, username.trim(), password)
+            }
+            request<TgtoSettings>(normalizedEndpoint) { base -> client.get("$base/api/media/settings") }
         }
 
     suspend fun settings(): Result<TgtoSettings> = apiCall { base -> client.get("$base/api/media/settings") }
@@ -256,19 +271,28 @@ class TgtoMediaRepository(
         endpoint: String,
         crossinline block: suspend (String) -> HttpResponse,
     ): HttpResponse {
+        val rejectedEpoch = authenticationEpoch
         var response = block(endpoint)
         if (response.status == HttpStatusCode.Unauthorized) {
-            loginStored(endpoint)
+            loginStored(endpoint, rejectedEpoch)
             response = block(endpoint)
         }
         return response
     }
 
-    private suspend fun loginStored(endpoint: String) {
+    private suspend fun loginStored(
+        endpoint: String,
+        rejectedEpoch: Long,
+    ) {
         val connection = preferences.connection.value
         val identity = "${connection.endpoint}\u0000${connection.username}"
+        require(connection.endpoint == endpoint) {
+            "TgtoDrive 连接已变化，请重试"
+        }
         loginMutex.withLock {
-            if (authenticatedIdentity == identity) authenticatedIdentity = null
+            if (authenticatedIdentity == identity && authenticationEpoch != rejectedEpoch) {
+                return@withLock
+            }
             login(endpoint, connection.username, preferences.password())
         }
     }
@@ -294,5 +318,6 @@ class TgtoMediaRepository(
             )
         }
         authenticatedIdentity = "$endpoint\u0000$username"
+        authenticationEpoch += 1L
     }
 }

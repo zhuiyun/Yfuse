@@ -16,6 +16,7 @@ import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.pickForDay
 import kotlinx.coroutines.CoroutineDispatcher
@@ -30,7 +31,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 data class HomeState(
@@ -228,6 +231,7 @@ class HomeStoreFactory(
     private val emby: EmbyRepository,
     private val registry: ServerRegistry,
     private val cache: TmdbHomeCache,
+    private val syncManager: ServerSyncManager? = null,
     private val cacheDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     fun create(): Store<HomeIntent, HomeState, HomeLabel> =
@@ -262,6 +266,9 @@ class HomeStoreFactory(
         private var resumeConnection: List<HomeServerConnection> = emptyList()
         private var resumeJob: Job? = null
         private var nextUpJob: Job? = null
+
+        /** Shared by both home rows so startup cannot fan out once per server twice. */
+        private val homeRequestPermits = Semaphore(3)
 
         override fun executeAction(action: Action) {
             when (action) {
@@ -359,8 +366,8 @@ class HomeStoreFactory(
                                 availableServers
                                     .map { server ->
                                         async {
-                                            emby
-                                                .homeContent(server)
+                                            homeRequestPermits
+                                                .withPermit { emby.homeContent(server) }
                                                 .onFailure { error ->
                                                     AppLog.warning(
                                                         category = "feature.home",
@@ -400,8 +407,8 @@ class HomeStoreFactory(
                             available
                                 .map { server ->
                                     async {
-                                        emby
-                                            .nextUpEpisodes(server, 8)
+                                        homeRequestPermits
+                                            .withPermit { emby.nextUpEpisodes(server, 8) }
                                             .getOrDefault(emptyList())
                                             .map { HomeResumeEntry(it, server) }
                                     }
@@ -492,8 +499,14 @@ class HomeStoreFactory(
                 if (match == null) {
                     dispatch(Msg.ActionMessage("媒体库中没有此资源，无法收藏"))
                 } else {
-                    emby
-                        .setFavorite(server, match.id, true)
+                    val result =
+                        syncManager?.setFavorite(
+                            server = server,
+                            itemId = match.id,
+                            title = match.title,
+                            value = true,
+                        ) ?: emby.setFavorite(server, match.id, true)
+                    result
                         .onSuccess { dispatch(Msg.ActionMessage("已加入收藏")) }
                         .onFailure {
                             AppLog.warning(

@@ -16,8 +16,10 @@ class PlaybackSyncStore(
             encodeDefaults = true
         }
     private val serializer = ListSerializer(StoredPlaybackDocument.serializer())
+    private val serverApplySerializer = ListSerializer(PendingPlaybackServerApply.serializer())
     private val lock = Any()
     private var documents = loadDocuments().toMutableList()
+    private var serverApplies = loadServerApplies().toMutableList()
 
     val deviceId: String =
         settings
@@ -44,7 +46,9 @@ class PlaybackSyncStore(
             if (previous == userId) return@synchronized false
 
             documents.clear()
+            serverApplies.clear()
             settings.remove(KEY_DOCUMENTS)
+            settings.remove(KEY_SERVER_APPLIES)
             settings.putLong(KEY_CURSOR, 0L)
             settings.putString(KEY_ACCOUNT_USER_ID, userId)
             true
@@ -57,12 +61,88 @@ class PlaybackSyncStore(
         if (bounded > cursor()) settings.putLong(KEY_CURSOR, bounded)
     }
 
+    fun enqueueServerApply(
+        document: PlaybackSyncDocument,
+        serverIds: List<String>,
+    ) = synchronized(lock) {
+        val targets = serverIds.filter(String::isNotBlank).distinct()
+        if (targets.isEmpty()) return@synchronized
+        val keys = (document.state.aliases + document.state.mediaKey).filter(String::isNotBlank).toSet()
+        val portableIdentity = keys.any { !it.startsWith("emby:", ignoreCase = true) }
+        val retained =
+            serverApplies.filterNot { queued ->
+                val queuedKeys =
+                    (queued.document.state.aliases + queued.document.state.mediaKey)
+                        .filter(String::isNotBlank)
+                        .toSet()
+                queuedKeys.any(keys::contains) &&
+                    (portableIdentity || queued.document.state.serverId == document.state.serverId)
+            }
+        serverApplies =
+            (
+                retained +
+                    PendingPlaybackServerApply(
+                        id = newId("server-apply"),
+                        document = document,
+                        remainingServerIds = targets,
+                    )
+            ).takeLast(MAX_SERVER_APPLIES).toMutableList()
+        persistServerAppliesLocked()
+    }
+
+    fun pendingServerApplies(
+        nowEpochMs: Long,
+        limit: Int = 16,
+    ): List<PendingPlaybackServerApply> =
+        synchronized(lock) {
+            serverApplies
+                .filter { it.remainingServerIds.isNotEmpty() && it.nextAttemptAtEpochMs <= nowEpochMs }
+                .take(limit.coerceIn(1, MAX_SERVER_APPLY_BATCH))
+        }
+
+    fun serverApplyCount(): Int = synchronized(lock) { serverApplies.size }
+
+    fun markServerApplySucceeded(
+        taskId: String,
+        serverId: String,
+    ) = synchronized(lock) {
+        val index = serverApplies.indexOfFirst { it.id == taskId }
+        val existing = serverApplies.getOrNull(index) ?: return@synchronized
+        val remaining = existing.remainingServerIds.filterNot { it == serverId }
+        if (remaining.isEmpty()) {
+            serverApplies.removeAt(index)
+        } else {
+            serverApplies[index] =
+                existing.copy(
+                    remainingServerIds = remaining,
+                    attemptCount = 0,
+                    nextAttemptAtEpochMs = 0L,
+                )
+        }
+        persistServerAppliesLocked()
+    }
+
+    fun deferServerApply(
+        taskId: String,
+        nextAttemptAtEpochMs: Long,
+    ) = synchronized(lock) {
+        val index = serverApplies.indexOfFirst { it.id == taskId }
+        val existing = serverApplies.getOrNull(index) ?: return@synchronized
+        serverApplies[index] =
+            existing.copy(
+                attemptCount = (existing.attemptCount + 1).coerceAtMost(MAX_SERVER_APPLY_ATTEMPTS),
+                nextAttemptAtEpochMs = nextAttemptAtEpochMs.coerceAtLeast(0L),
+            )
+        persistServerAppliesLocked()
+    }
+
     fun find(
         mediaKey: String,
         aliases: List<String> = emptyList(),
+        serverId: String? = null,
     ): StoredPlaybackDocument? =
         synchronized(lock) {
-            findIndexLocked(mediaKey, aliases).takeIf { it >= 0 }?.let(documents::get)
+            findIndexLocked(mediaKey, aliases, serverId).takeIf { it >= 0 }?.let(documents::get)
         }
 
     fun pending(limit: Int = 64): List<StoredPlaybackDocument> =
@@ -84,7 +164,7 @@ class PlaybackSyncStore(
     ): StoredPlaybackDocument =
         synchronized(lock) {
             val now = nowEpochMs()
-            val index = findIndexLocked(mediaKey, aliases)
+            val index = findIndexLocked(mediaKey, aliases, serverId)
             val existing = documents.getOrNull(index)
             val previous = existing?.document
             val previousState = previous?.state
@@ -146,10 +226,11 @@ class PlaybackSyncStore(
     fun updatePreference(
         mediaKey: String,
         aliases: List<String> = emptyList(),
+        serverId: String? = null,
         transform: (PlaybackTrackPreference?) -> PlaybackTrackPreference,
     ): StoredPlaybackDocument? =
         synchronized(lock) {
-            val index = findIndexLocked(mediaKey, aliases)
+            val index = findIndexLocked(mediaKey, aliases, serverId)
             val existing = documents.getOrNull(index) ?: return@synchronized null
             val preference = transform(existing.document.preference).copy(updatedAtEpochMs = nowEpochMs())
             val stored =
@@ -169,7 +250,7 @@ class PlaybackSyncStore(
         serverItemId: String? = null,
     ): StoredPlaybackDocument =
         synchronized(lock) {
-            val index = findIndexLocked(mediaKey, aliases)
+            val index = findIndexLocked(mediaKey, aliases, serverId)
             val existing = documents.getOrNull(index)
             val previous = existing?.document?.state
             val canonicalMediaKey = previous?.mediaKey?.takeIf(String::isNotBlank) ?: mediaKey
@@ -221,7 +302,7 @@ class PlaybackSyncStore(
         serverItemId: String? = null,
     ): StoredPlaybackDocument =
         synchronized(lock) {
-            val index = findIndexLocked(mediaKey, aliases)
+            val index = findIndexLocked(mediaKey, aliases, serverId)
             val existing = documents.getOrNull(index)
             val previous = existing?.document?.state
             val canonicalMediaKey = previous?.mediaKey?.takeIf(String::isNotBlank) ?: mediaKey
@@ -276,7 +357,12 @@ class PlaybackSyncStore(
         cursor: Long,
     ): RemoteApplyResult =
         synchronized(lock) {
-            val index = findIndexLocked(remote.state.mediaKey, remote.state.aliases)
+            val index =
+                findIndexLocked(
+                    remote.state.mediaKey,
+                    remote.state.aliases,
+                    remote.state.serverId,
+                )
             val existing = documents.getOrNull(index)
             if (existing == null) {
                 val stored =
@@ -327,11 +413,12 @@ class PlaybackSyncStore(
     fun markUploaded(
         mediaKey: String,
         aliases: List<String>,
+        serverId: String? = null,
         entityKey: String,
         mutationId: String,
         cursor: Long,
     ) = synchronized(lock) {
-        val index = findIndexLocked(mediaKey, aliases)
+        val index = findIndexLocked(mediaKey, aliases, serverId)
         val existing = documents.getOrNull(index) ?: return@synchronized
         if (existing.mutationId != mutationId) return@synchronized
         replaceLocked(
@@ -378,12 +465,17 @@ class PlaybackSyncStore(
     private fun findIndexLocked(
         mediaKey: String,
         aliases: List<String>,
+        serverId: String?,
     ): Int {
         val candidates = (aliases + mediaKey).filter(String::isNotBlank).toSet()
         if (candidates.isEmpty()) return -1
+        val portableIdentity = candidates.any { !it.startsWith("emby:", ignoreCase = true) }
+        if (!portableIdentity && serverId.isNullOrBlank()) return -1
         return documents.indexOfFirst { stored ->
             val state = stored.document.state
-            state.mediaKey in candidates || state.aliases.any(candidates::contains)
+            val identityMatches =
+                state.mediaKey in candidates || state.aliases.any(candidates::contains)
+            identityMatches && (portableIdentity || state.serverId == serverId)
         }
     }
 
@@ -413,16 +505,61 @@ class PlaybackSyncStore(
         }
     }
 
+    private fun persistServerAppliesLocked() {
+        runCatching {
+            if (serverApplies.isEmpty()) {
+                settings.remove(KEY_SERVER_APPLIES)
+            } else {
+                settings.putString(
+                    KEY_SERVER_APPLIES,
+                    json.encodeToString(serverApplySerializer, serverApplies),
+                )
+            }
+        }.onFailure { error ->
+            AppLog.error(
+                category = "playback.sync",
+                event = "server_apply_persist_failed",
+                message = "Cloud-to-server playback operations could not be persisted",
+                throwable = error,
+            )
+        }
+    }
+
     private fun loadDocuments(): List<StoredPlaybackDocument> {
         val raw = settings.getStringOrNull(KEY_DOCUMENTS) ?: return emptyList()
         if (raw.encodeToByteArray().size > MAX_STORED_BYTES) {
-            settings.remove(KEY_DOCUMENTS)
+            discardInvalidDocuments("oversized")
             return emptyList()
         }
         return runCatching { json.decodeFromString(serializer, raw) }
-            .onFailure { settings.remove(KEY_DOCUMENTS) }
+            .onFailure { discardInvalidDocuments("invalid") }
             .getOrDefault(emptyList())
             .takeLast(MAX_LOCAL_DOCUMENTS)
+    }
+
+    private fun discardInvalidDocuments(reason: String) {
+        settings.remove(KEY_DOCUMENTS)
+        settings.remove(KEY_SERVER_APPLIES)
+        settings.putLong(KEY_CURSOR, 0L)
+        AppLog.warning(
+            category = "playback.sync",
+            event = "local_documents_discarded",
+            message = "Invalid local playback state was discarded and cloud replay was requested",
+            attributes = mapOf("reason" to reason),
+        )
+    }
+
+    private fun loadServerApplies(): List<PendingPlaybackServerApply> {
+        val raw = settings.getStringOrNull(KEY_SERVER_APPLIES) ?: return emptyList()
+        if (raw.encodeToByteArray().size > MAX_SERVER_APPLY_STORED_BYTES) {
+            settings.remove(KEY_SERVER_APPLIES)
+            return emptyList()
+        }
+        return runCatching { json.decodeFromString(serverApplySerializer, raw) }
+            .onFailure { settings.remove(KEY_SERVER_APPLIES) }
+            .getOrDefault(emptyList())
+            .filter { it.id.isNotBlank() && it.remainingServerIds.isNotEmpty() }
+            .takeLast(MAX_SERVER_APPLIES)
     }
 
     private fun nextProgressEpoch(current: Long): Long =
@@ -436,8 +573,13 @@ class PlaybackSyncStore(
         const val KEY_CURSOR = "playback.cross_platform.cursor.v1"
         const val KEY_DEVICE_ID = "playback.cross_platform.device.v1"
         const val KEY_ACCOUNT_USER_ID = "playback.cross_platform.account_user.v1"
+        const val KEY_SERVER_APPLIES = "playback.cross_platform.server_applies.v1"
         const val MAX_LOCAL_DOCUMENTS = 512
         const val MAX_STORED_BYTES = 4 * 1024 * 1024
+        const val MAX_SERVER_APPLIES = 512
+        const val MAX_SERVER_APPLY_BATCH = 32
+        const val MAX_SERVER_APPLY_ATTEMPTS = 20
+        const val MAX_SERVER_APPLY_STORED_BYTES = 4 * 1024 * 1024
         const val NEW_GENERATION_START_WINDOW_MS = 5_000L
         val TERMINAL_TRIGGERS =
             setOf(

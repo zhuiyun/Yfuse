@@ -11,17 +11,27 @@ import android.os.PowerManager
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.yfuse.core2.api.YDiscKind
+import com.yfuse.core2.api.YDiscMedia
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.capability.YVideoCodec
+import com.yfuse.core2.demux.YDemuxSource
+import com.yfuse.core2.demux.YDemuxTrackType
+import com.yfuse.core2.dolby.YDolbyVisionConfig
+import com.yfuse.core2.dolby.YDolbyVisionEnhancementLayerKind
+import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
+import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.quirk.InMemoryYCore2FailureStore
 import com.yfuse.core2.quirk.YCore2FailureLedger
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.test.YMediaObservedFacts
 import com.yfuse.core2.test.YMediaTestCase
 import com.yfuse.core2.test.YMediaTestObservation
 import com.yfuse.core2.test.YMediaTestSuite
+import com.yfuse.core2.test.observedMetadataErrors
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
@@ -88,7 +98,7 @@ class YCoreMediaSuiteInstrumentedTest {
                         height = 1,
                         bitrateBitsPerSecond = 1L,
                     ),
-                mediaFile = mediaFile,
+                item = smokeItem,
                 verifyNextEpisode = true,
                 seekStartIteration = arguments.intArgument(SEEK_START_ARGUMENT, 0),
                 seekIterations = arguments.intArgument(SEEK_ITERATIONS_ARGUMENT, BASELINE_SEEK_ITERATIONS),
@@ -117,10 +127,12 @@ class YCoreMediaSuiteInstrumentedTest {
                 val mediaFile = File(mediaRoot, testCase.relativePath).canonicalFile
                 assertTrue("${testCase.id}: path escaped corpus root", mediaFile.isInside(mediaRoot))
                 assertTrue("${testCase.id}: media file is missing", mediaFile.isFile)
+                val item = testCase.mediaItem(mediaFile)
+                verifyObservedMetadata(testCase, item)
                 exerciseCase(
                     context = instrumentation.targetContext,
                     testCase = testCase,
-                    mediaFile = mediaFile,
+                    item = item,
                     verifyNextEpisode = index == 0,
                     seekStartIteration = 0,
                     seekIterations = MATRIX_SEEK_ITERATIONS,
@@ -132,28 +144,25 @@ class YCoreMediaSuiteInstrumentedTest {
     private suspend fun exerciseCase(
         context: android.content.Context,
         testCase: YMediaTestCase,
-        mediaFile: File,
+        item: YMediaItem,
         verifyNextEpisode: Boolean,
         seekStartIteration: Int,
         seekIterations: Int,
         surfaceRecreationIterations: Int,
     ) {
-        val item =
-            YMediaItem(
-                id = testCase.id,
-                uri = Uri.fromFile(mediaFile).toString(),
-                title = testCase.id,
-            )
         val request =
             YPlayerOpenRequest(
                 items = if (verifyNextEpisode) listOf(item, item.copy(id = "${item.id}:next")) else listOf(item),
                 autoPlay = true,
                 autoNext = false,
             )
+        val compatibilityFactory = AndroidMpvCore2FallbackFactory(context)
         val player =
             AndroidAdaptiveCore2YPlayer(
                 context = context,
                 request = request,
+                fallbackRouteFactory = compatibilityFactory,
+                discRouteFactory = compatibilityFactory,
                 allowAudioPassthrough = true,
                 frameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
                 failureLedger =
@@ -163,7 +172,7 @@ class YCoreMediaSuiteInstrumentedTest {
                     ),
             )
         var output = TestSurfaceOutput()
-        val health = DeviceHealthSampler(context, testCase.id)
+        val health = DeviceHealthSampler(context, testCase)
         var completed = false
         var timedOut = false
         try {
@@ -273,6 +282,57 @@ class YCoreMediaSuiteInstrumentedTest {
             )
             player.release()
             output.close()
+        }
+    }
+
+    private fun verifyObservedMetadata(
+        testCase: YMediaTestCase,
+        item: YMediaItem,
+    ) {
+        // Disc images are verified by the real libbluray route below. FFmpeg cannot truthfully
+        // describe the selected MPLS before libbluray resolves the authored main feature.
+        if (item.disc != null) return
+
+        val demuxer = AndroidFfmpegDemuxer()
+        assertTrue("${testCase.id}: FFmpeg metadata probe unavailable", demuxer.available)
+        try {
+            val result = demuxer.open(YDemuxSource(item.uri, item.headers))
+            val video =
+                result.tracks
+                    .firstOrNull { it.type == YDemuxTrackType.Video }
+                    ?.video
+            assertTrue("${testCase.id}: no video metadata observed", video != null)
+            val observedVideo = requireNotNull(video)
+            val deepProbe = AndroidEnhancedMediaProbe().probe(item) as? YCore2ProbeResult.Success
+            val dolbyConfig = deepProbe?.dolbyVisionConfig ?: observedVideo.dolbyVisionConfig
+            val dolbyEvidence = deepProbe?.dolbyVisionStreamEvidence
+            val observed =
+                YMediaObservedFacts(
+                    videoCodec = observedVideo.codec.name,
+                    bitDepth = observedVideo.bitDepth,
+                    hdr = observedVideo.hdrType.name,
+                    dolbyVisionProfile = dolbyConfig?.manifestProfile(dolbyEvidence),
+                    frameRate = observedVideo.frameRate.toDouble(),
+                    container = result.container.name,
+                    audioCodecs =
+                        result.tracks
+                            .asSequence()
+                            .filter { it.type == YDemuxTrackType.Audio }
+                            .mapNotNull { it.audio?.codec?.name }
+                            .toSet(),
+                    subtitleFormats =
+                        result.tracks
+                            .asSequence()
+                            .filter { it.type == YDemuxTrackType.Subtitle }
+                            .mapNotNull { it.subtitle?.format?.name }
+                            .toSet(),
+                    height = observedVideo.height,
+                    bitrateBitsPerSecond = result.bitRateBitsPerSecond,
+                )
+            val errors = testCase.observedMetadataErrors(observed)
+            assertTrue(errors.joinToString("\n"), errors.isEmpty())
+        } finally {
+            demuxer.close()
         }
     }
 
@@ -443,7 +503,7 @@ class YCoreMediaSuiteInstrumentedTest {
 
     private class DeviceHealthSampler(
         context: android.content.Context,
-        private val caseId: String,
+        private val testCase: com.yfuse.core2.test.YMediaTestCase,
     ) {
         private val startedAtMs = SystemClock.elapsedRealtime()
         private val batteryManager = context.getSystemService(BatteryManager::class.java)
@@ -476,7 +536,7 @@ class YCoreMediaSuiteInstrumentedTest {
         ): YMediaTestObservation {
             val endBattery = batteryPermille()
             return YMediaTestObservation(
-                caseId = caseId,
+                caseId = testCase.id,
                 elapsedMs = (SystemClock.elapsedRealtime() - startedAtMs).coerceAtLeast(0L),
                 completed = completed,
                 timedOut = timedOut,
@@ -492,6 +552,15 @@ class YCoreMediaSuiteInstrumentedTest {
                     } else {
                         0
                     },
+                dolbyVisionProfile = testCase.dolbyVisionProfile,
+                videoOutputMode = state.diagnostics.videoOutput.takeIf(String::isNotBlank),
+                audioOutputMode = state.diagnostics.audioOutput.takeIf(String::isNotBlank),
+                // Core2's device runner has no server-transcode route. A future non-local route
+                // must opt in explicitly instead of silently inheriting false.
+                serverTranscodeUsed = false,
+                // A native-DV badge/decoder name alone proves neither RPU application nor P7 EL.
+                dolbyRpuApplied = false,
+                dolbyEnhancementLayerComposed = false,
             )
         }
 
@@ -514,6 +583,34 @@ private fun Throwable.hasTimeoutCause(): Boolean {
     }
     return false
 }
+
+private fun YMediaTestCase.mediaItem(mediaFile: File): YMediaItem =
+    YMediaItem(
+        id = id,
+        uri = Uri.fromFile(mediaFile).toString(),
+        title = id,
+        disc =
+            when (container.trim().lowercase()) {
+                "iso" -> YDiscMedia(kind = YDiscKind.Iso, container = "iso", label = id)
+                "bdmv" -> YDiscMedia(kind = YDiscKind.Bdmv, container = "bdmv", label = id)
+                else -> null
+            },
+    )
+
+private fun YDolbyVisionConfig.manifestProfile(evidence: YDolbyVisionStreamEvidence?): String =
+    when (profile) {
+        7 ->
+            when (evidence?.enhancementLayerKind) {
+                YDolbyVisionEnhancementLayerKind.Mel -> "p7_mel"
+                YDolbyVisionEnhancementLayerKind.Fel -> "p7_fel"
+                YDolbyVisionEnhancementLayerKind.None,
+                YDolbyVisionEnhancementLayerKind.Unknown,
+                null,
+                -> "p7_unknown"
+            }
+        8, 10 -> "p$profile.$baseLayerCompatibilityId"
+        else -> "p$profile"
+    }
 
 private fun File.isInside(root: File): Boolean = path == root.path || path.startsWith(root.path + File.separator)
 

@@ -18,6 +18,8 @@ data class TmdbItem(
     val popularity: Double = 0.0,
     val genreIds: List<Int> = emptyList(),
     val originalLanguage: String? = null,
+    /** Runtime used by the home carousel; populated from the TMDB detail endpoint. */
+    val runtimeMinutes: Int? = null,
 )
 
 data class TmdbPerson(

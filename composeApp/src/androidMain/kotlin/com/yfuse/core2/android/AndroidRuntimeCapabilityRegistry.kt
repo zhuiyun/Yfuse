@@ -124,7 +124,7 @@ internal class AndroidRuntimeCapabilityRegistry(
     }
 
     private fun persist(records: List<YRuntimeCapabilityRecord>) {
-        preferences.edit().putStringSet(KEY_RECORDS, records.mapTo(linkedSetOf(), ::encode)).commit()
+        preferences.edit().putStringSet(KEY_RECORDS, records.mapTo(linkedSetOf(), ::encode)).apply()
     }
 
     private fun encode(record: YRuntimeCapabilityRecord): String =

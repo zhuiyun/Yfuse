@@ -17,6 +17,8 @@ import io.ktor.client.request.parameter
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 internal class EmbyHomeService(
     private val client: HttpClient,
@@ -28,11 +30,14 @@ internal class EmbyHomeService(
         embyApiCall("home_content") {
             coroutineScope {
                 val views = libraryService.views(server)
+                // One server can expose dozens of views. Bound the section fan-out so opening
+                // Home does not turn those rows into a TLS/HTTP connection storm.
+                val sectionPermits = Semaphore(4)
                 // A single library (or the resume row) failing must not blank the
                 // whole home screen — degrade to an empty row instead.
                 val resumeDeferred =
                     async {
-                        runCatching { fetchResume(server) }
+                        runCatching { sectionPermits.withPermit { fetchResume(server) } }
                             .onFailure {
                                 AppLog.warning(
                                     category = "emby",
@@ -50,13 +55,16 @@ internal class EmbyHomeService(
                 val favoritesDeferred =
                     async {
                         runCatching {
-                            val collection = browseService.fetchFavorites(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
-                            HomeRow(
-                                libraryId = FAVORITES_COLLECTION_ID,
-                                title = "我的收藏",
-                                items = collection.items,
-                                totalCount = collection.totalCount,
-                            )
+                            sectionPermits.withPermit {
+                                val collection =
+                                    browseService.fetchFavorites(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
+                                HomeRow(
+                                    libraryId = FAVORITES_COLLECTION_ID,
+                                    title = "我的收藏",
+                                    items = collection.items,
+                                    totalCount = collection.totalCount,
+                                )
+                            }
                         }.onFailure {
                             AppLog.warning(
                                 category = "emby",
@@ -74,13 +82,16 @@ internal class EmbyHomeService(
                 val watchLaterDeferred =
                     async {
                         runCatching {
-                            val collection = browseService.fetchWatchLater(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
-                            HomeRow(
-                                libraryId = WATCH_LATER_COLLECTION_ID,
-                                title = "稍后观看",
-                                items = collection.items,
-                                totalCount = collection.totalCount,
-                            )
+                            sectionPermits.withPermit {
+                                val collection =
+                                    browseService.fetchWatchLater(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
+                                HomeRow(
+                                    libraryId = WATCH_LATER_COLLECTION_ID,
+                                    title = "稍后观看",
+                                    items = collection.items,
+                                    totalCount = collection.totalCount,
+                                )
+                            }
                         }.onFailure {
                             AppLog.warning(
                                 category = "emby",
@@ -97,7 +108,7 @@ internal class EmbyHomeService(
                     }
                 val countsDeferred =
                     async {
-                        runCatching { libraryService.counts(server) }
+                        runCatching { sectionPermits.withPermit { libraryService.counts(server) } }
                             .onFailure {
                                 // Counts are useful footer metadata, not a reason to blank an
                                 // otherwise healthy library page. A missing/older endpoint simply
@@ -114,13 +125,15 @@ internal class EmbyHomeService(
                 val collectionsDeferred =
                     async {
                         runCatching {
-                            browseService
-                                .fetchMediaContainers(
-                                    server,
-                                    MediaContainerKind.BoxSet,
-                                    startIndex = 0,
-                                    limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
-                                ).containers
+                            sectionPermits.withPermit {
+                                browseService
+                                    .fetchMediaContainers(
+                                        server,
+                                        MediaContainerKind.BoxSet,
+                                        startIndex = 0,
+                                        limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
+                                    ).containers
+                            }
                         }.onFailure {
                             AppLog.warning(
                                 category = "emby",
@@ -138,13 +151,15 @@ internal class EmbyHomeService(
                 val playlistsDeferred =
                     async {
                         runCatching {
-                            browseService
-                                .fetchMediaContainers(
-                                    server,
-                                    MediaContainerKind.Playlist,
-                                    startIndex = 0,
-                                    limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
-                                ).containers
+                            sectionPermits.withPermit {
+                                browseService
+                                    .fetchMediaContainers(
+                                        server,
+                                        MediaContainerKind.Playlist,
+                                        startIndex = 0,
+                                        limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
+                                    ).containers
+                            }
                         }.onFailure {
                             AppLog.warning(
                                 category = "emby",
@@ -163,37 +178,39 @@ internal class EmbyHomeService(
                     views.map { view ->
                         async {
                             val items =
-                                runCatching { fetchLatest(server, view.id) }
-                                    .onFailure {
-                                        AppLog.warning(
-                                            category = "emby",
-                                            event = "home_section_degraded",
-                                            message = "Library latest-items section failed and was omitted",
-                                            throwable = it,
-                                            attributes =
-                                                mapOf(
-                                                    "serverId" to server.id,
-                                                    "section" to "latest",
-                                                    "libraryId" to view.id,
-                                                ),
-                                        )
-                                    }.getOrDefault(emptyList())
+                                runCatching {
+                                    sectionPermits.withPermit { fetchLatest(server, view.id) }
+                                }.onFailure {
+                                    AppLog.warning(
+                                        category = "emby",
+                                        event = "home_section_degraded",
+                                        message = "Library latest-items section failed and was omitted",
+                                        throwable = it,
+                                        attributes =
+                                            mapOf(
+                                                "serverId" to server.id,
+                                                "section" to "latest",
+                                                "libraryId" to view.id,
+                                            ),
+                                    )
+                                }.getOrDefault(emptyList())
                             // The chip shows the library's real size, not the loaded page.
                             val total =
-                                runCatching { fetchLibraryCount(server, view.id) }
-                                    .onFailure {
-                                        AppLog.warning(
-                                            category = "emby",
-                                            event = "library_count_degraded",
-                                            message = "Library count failed; loaded item count used as fallback",
-                                            throwable = it,
-                                            attributes =
-                                                mapOf(
-                                                    "serverId" to server.id,
-                                                    "libraryId" to view.id,
-                                                ),
-                                        )
-                                    }.getOrDefault(items.size)
+                                runCatching {
+                                    sectionPermits.withPermit { fetchLibraryCount(server, view.id) }
+                                }.onFailure {
+                                    AppLog.warning(
+                                        category = "emby",
+                                        event = "library_count_degraded",
+                                        message = "Library count failed; loaded item count used as fallback",
+                                        throwable = it,
+                                        attributes =
+                                            mapOf(
+                                                "serverId" to server.id,
+                                                "libraryId" to view.id,
+                                            ),
+                                    )
+                                }.getOrDefault(items.size)
                             HomeRow(view.id, view.name, items, total)
                         }
                     }
@@ -208,7 +225,7 @@ internal class EmbyHomeService(
                     (resume + rows.flatMap { it.items })
                         .filter { it.backdropTag != null }
                         .distinctBy { it.id }
-                        .take(6)
+                        .take(8)
                 HomeContent(
                     featured = featured,
                     resume = resume,
@@ -249,7 +266,7 @@ internal class EmbyHomeService(
                     parameter(
                         "Fields",
                         "BackdropImageTags,UserData,Overview,ParentBackdropItemId," +
-                            "ParentBackdropImageTags,SeriesPrimaryImageTag",
+                            "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")
                     parameter("ImageTypeLimit", 2)
@@ -271,7 +288,7 @@ internal class EmbyHomeService(
                     parameter(
                         "Fields",
                         "BackdropImageTags,ProductionYear,Overview,ParentBackdropItemId," +
-                            "ParentBackdropImageTags,SeriesPrimaryImageTag",
+                            "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")
                     parameter("ImageTypeLimit", 2)

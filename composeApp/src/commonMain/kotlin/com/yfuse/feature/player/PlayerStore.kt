@@ -69,6 +69,11 @@ data class PlayerMediaVersion(
     val dolbyProfile: Int? = null,
     /** True when nothing but a Dolby-capable decoder will render this correctly. */
     val needsDolbyDecoder: Boolean = false,
+    /** Source-layer facts retained for privacy-safe P7/FEL runtime diagnostics. */
+    val sourceDolbyRpuPresent: Boolean? = null,
+    val sourceDolbyEnhancementLayerPresent: Boolean? = null,
+    val sourceDolbyBaseLayerPresent: Boolean? = null,
+    val sourceDolbyBaseLayerCompatibility: Int? = null,
     /**
      * What the original file is, so a transcode can aim at it instead of a fixed 1080p.
      *
@@ -83,6 +88,8 @@ data class PlayerMediaVersion(
     val sourceFrameRate: Double? = null,
     val sourceVideoLevel: Double? = null,
     val sourceBitDepth: Int? = null,
+    /** Original file size, retained so YCore can identify huge remote container edge cases. */
+    val sourceSizeBytes: Long? = null,
     /** Source facts used until an engine reports the actual decoded output. */
     val sourceDynamicRange: String? = null,
     val sourceAudio: String? = null,
@@ -90,6 +97,8 @@ data class PlayerMediaVersion(
     val audioTrackCount: Int = 0,
     /** Initial method approved by PlaybackInfo for [url]. */
     val playMethod: PlaybackMethod = PlaybackMethod.DirectPlay,
+    /** True only when PlaybackInfo explicitly approved a server-transcoded representation. */
+    val serverTranscodeSupported: Boolean = false,
     /**
      * The id already baked into the three URLs above, so the playback reports can name the
      * same session the server started an encoding for. See [EmbyStream.newPlaySessionId].
@@ -159,6 +168,11 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                 )
             }
         val requiresDiscStream = version.requiresDiscNavigation
+        // Dolby is implemented by the client pipeline. PlaybackInfo is still used for URLs and
+        // source metadata, but a server-side codec/profile verdict must not replace the original
+        // file with H.264/AAC before Exo/mpv/MDK get a chance to render or downmix it locally.
+        val preserveDolbyLocally =
+            !requiresDiscStream && (version.isDolbyVision || version.hasDolbyAtmos)
         val safeDiscDirectStream =
             requiresDiscStream &&
                 version.supportsDirectStream == true &&
@@ -181,6 +195,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                 // ISO bytes, which no Android backend can consume as a linear stream.
                 safeDiscDirectStream -> PlaybackMethod.DirectStream
                 requiresDiscStream && hlsTranscode.isNotBlank() -> PlaybackMethod.Transcode
+                preserveDolbyLocally -> PlaybackMethod.DirectPlay
                 version.supportsDirectPlay != false -> PlaybackMethod.DirectPlay
                 version.supportsDirectStream == true && directStream != null -> PlaybackMethod.DirectStream
                 version.supportsTranscoding == true && hlsTranscode.isNotBlank() -> PlaybackMethod.Transcode
@@ -207,12 +222,20 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             fallbackTranscodeUrl = progressiveTranscode,
             playSessionId = sessionId,
             playMethod = method,
+            serverTranscodeSupported =
+                requiresDiscStream ||
+                    negotiatedTranscode != null ||
+                    version.supportsTranscoding == true,
             container = version.container?.uppercase(),
             discSource = requiresDiscStream,
             dolbyVision = version.isDolbyVision,
             dolbyAtmos = version.hasDolbyAtmos,
             dolbyProfile = version.dolbyProfile,
             needsDolbyDecoder = version.needsDolbyCapableDecoder,
+            sourceDolbyRpuPresent = version.video?.dolbyRpuPresent,
+            sourceDolbyEnhancementLayerPresent = version.video?.dolbyEnhancementLayerPresent,
+            sourceDolbyBaseLayerPresent = version.video?.dolbyBaseLayerPresent,
+            sourceDolbyBaseLayerCompatibility = version.video?.dolbyBaseLayerCompatibility,
             sourceWidth = version.video?.width,
             sourceHeight = version.videoHeight ?: version.video?.height,
             sourceBitrateBps = version.bitrateBps ?: version.video?.bitrateBps,
@@ -220,6 +243,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             sourceFrameRate = version.video?.frameRate,
             sourceVideoLevel = version.video?.level,
             sourceBitDepth = version.video?.bitDepth,
+            sourceSizeBytes = version.sizeBytes,
             sourceDynamicRange = version.rangeLabel,
             sourceAudio =
                 (
@@ -265,6 +289,43 @@ internal fun List<MediaVersion>.preservingSourceMetadataFrom(detailVersions: Lis
             subtitleTracks = negotiated.subtitleTracks.ifEmpty { detail.subtitleTracks },
         )
     }
+
+internal data class PlaybackSourceMismatch(
+    val expectedSizeBytes: Long?,
+    val returnedSizeBytes: Long?,
+    val expectedContainer: String?,
+    val returnedContainer: String?,
+)
+
+/** Prevents a requested physical edition from silently turning into the server's first source. */
+internal fun playbackSourceMismatch(
+    requestedMediaSourceId: String?,
+    detailVersions: List<MediaVersion>,
+    negotiatedVersions: List<MediaVersion>,
+): PlaybackSourceMismatch? {
+    val requestedId = requestedMediaSourceId?.takeIf(String::isNotBlank) ?: return null
+    if (negotiatedVersions.isEmpty()) return null
+    val expected = detailVersions.firstOrNull { it.id == requestedId }
+    val returned =
+        negotiatedVersions.firstOrNull { it.id == requestedId }
+            ?: return PlaybackSourceMismatch(
+                expectedSizeBytes = expected?.sizeBytes,
+                returnedSizeBytes = negotiatedVersions.firstOrNull()?.sizeBytes,
+                expectedContainer = expected?.container,
+                returnedContainer = negotiatedVersions.firstOrNull()?.container,
+            )
+    val expectedSize = expected?.sizeBytes?.takeIf { it > 0L }
+    val returnedSize = returned.sizeBytes?.takeIf { it > 0L }
+    if (expectedSize != null && returnedSize != null && expectedSize != returnedSize) {
+        return PlaybackSourceMismatch(
+            expectedSizeBytes = expectedSize,
+            returnedSizeBytes = returnedSize,
+            expectedContainer = expected.container,
+            returnedContainer = returned.container,
+        )
+    }
+    return null
+}
 
 /** One entry in the player's playlist, with a transcode fallback URL. */
 data class PlayerMediaItem(
@@ -317,6 +378,8 @@ data class PlayerMediaItem(
     /** See [PlayerMediaVersion.playSessionId]; this is the active version's. */
     val playSessionId: String = "",
     val playMethod: PlaybackMethod = PlaybackMethod.DirectPlay,
+    /** Prevents generated best-effort URLs from masquerading as negotiated transcode support. */
+    val serverTranscodeSupported: Boolean = false,
     /** Secure configuration for [url], updated atomically when a media version changes. */
     val drmConfiguration: PlaybackDrmConfiguration? = null,
     /** Local preflight reason when the device forces the prepared server stream before rendering. */
@@ -368,6 +431,7 @@ data class PlayerMediaItem(
             // and reporting one session's id against another's stream ends the wrong job.
             playSessionId = version.playSessionId,
             playMethod = version.playMethod,
+            serverTranscodeSupported = version.serverTranscodeSupported,
             drmConfiguration = version.drmConfiguration,
             forcedTranscodeReason =
                 when {
@@ -707,8 +771,9 @@ class PlayerStoreFactory(
                         )
                     // The file the detail page picked, else the server's first — which is
                     // also what an unqualified stream request would have returned anyway.
+                    val requestedVersionId = effectiveMediaSourceId.takeIf { id == effectiveItemId }
                     val chosen =
-                        playerVersions.firstOrNull { it.id == effectiveMediaSourceId }
+                        playerVersions.firstOrNull { it.id == requestedVersionId }
                             ?: playerVersions.firstOrNull()
                     if (id == effectiveItemId && chosen != null) {
                         val selectedMetadata =
@@ -756,6 +821,7 @@ class PlayerStoreFactory(
                         fallbackTranscodeUrl = unqualified.fallbackTranscodeUrl,
                         playSessionId = unqualified.playSessionId,
                         playMethod = unqualified.playMethod,
+                        serverTranscodeSupported = unqualified.serverTranscodeSupported,
                         forcedTranscodeReason =
                             DISC_SOURCE_TRANSCODE_REASON.takeIf {
                                 unqualified.discSource &&
@@ -835,6 +901,7 @@ class PlayerStoreFactory(
                 }
                 val detail = detailResult.getOrNull()
                 val requestedSessionId = EmbyStream.newPlaySessionId()
+                var selectedSourceMismatch: PlaybackSourceMismatch? = null
                 val playbackInfoResult =
                     withTimeoutOrNull(PLAYBACK_NEGOTIATION_TIMEOUT_MS) {
                         repo.playbackInfo(
@@ -857,8 +924,17 @@ class PlayerStoreFactory(
                         .onSuccess { playbackInfo ->
                             negotiatedVersions =
                                 playbackInfo.MediaSources.mapIndexed { index, source ->
-                                    source.toMediaVersion(fallbackId = effectiveItemId, ordinal = index)
+                                    source.toMediaVersion(
+                                        fallbackId = effectiveMediaSourceId ?: effectiveItemId,
+                                        ordinal = index,
+                                    )
                                 }
+                            selectedSourceMismatch =
+                                playbackSourceMismatch(
+                                    requestedMediaSourceId = effectiveMediaSourceId,
+                                    detailVersions = detail?.versions.orEmpty(),
+                                    negotiatedVersions = negotiatedVersions,
+                                )
                             negotiatedSessionId = playbackInfo.PlaySessionId
                                 ?.takeIf { it.isNotBlank() }
                                 ?: requestedSessionId
@@ -882,6 +958,8 @@ class PlayerStoreFactory(
                                             negotiatedVersions
                                                 .any { it.transcodingUrl != null }
                                                 .toString(),
+                                        "selectedSourceVerified" to
+                                            (selectedSourceMismatch == null).toString(),
                                     ),
                             )
                         }.onFailure { error ->
@@ -893,6 +971,22 @@ class PlayerStoreFactory(
                                 attributes = mapOf("serverId" to server.id),
                             )
                         }
+                }
+                selectedSourceMismatch?.let { mismatch ->
+                    AppLog.error(
+                        category = "feature.player",
+                        event = "selected_source_mismatch",
+                        message = "PlaybackInfo returned a different physical media source",
+                        attributes =
+                            mapOf(
+                                "expectedSizeBytes" to (mismatch.expectedSizeBytes?.toString() ?: "unknown"),
+                                "returnedSizeBytes" to (mismatch.returnedSizeBytes?.toString() ?: "unknown"),
+                                "expectedContainer" to (mismatch.expectedContainer ?: "unknown"),
+                                "returnedContainer" to (mismatch.returnedContainer ?: "unknown"),
+                            ),
+                    )
+                    dispatch(PlayerMsg.Failed("所选资源与服务器返回不一致，请刷新详情后重试"))
+                    return@launch
                 }
                 // The shared Ktor client already enforces a request timeout. Wrapping a second
                 // request in a coroutine timeout here can strand MockEngine/UI continuations
@@ -1168,6 +1262,7 @@ class PlayerStoreFactory(
                 versionId = selected?.id,
                 playSessionId = playable.playSessionId,
                 playMethod = playable.playMethod,
+                serverTranscodeSupported = playable.serverTranscodeSupported,
                 forcedTranscodeReason =
                     DISC_SOURCE_TRANSCODE_REASON.takeIf {
                         playable.discSource && playable.playMethod == PlaybackMethod.Transcode

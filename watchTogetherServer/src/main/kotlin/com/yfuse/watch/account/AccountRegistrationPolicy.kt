@@ -21,43 +21,49 @@ data class AccountRegistrationPolicy(
         private val INVITE_PATTERN = Regex("[A-Za-z0-9_-]{12,128}")
 
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): AccountRegistrationPolicy {
-            val enabled = when (val raw = environment["ACCOUNT_REGISTRATION_ENABLED"]?.trim()?.lowercase()) {
-                // Production-safe default: operators must deliberately open registration for
-                // initial provisioning instead of accidentally exposing an unlimited signup API.
-                null, "" -> false
-                "true" -> true
-                "false" -> false
-                else -> error("ACCOUNT_REGISTRATION_ENABLED must be true or false")
-            }
-            val rawMaxUsers = environment["ACCOUNT_MAX_USERS"]?.trim()
-            val maxUsers = if (rawMaxUsers.isNullOrEmpty()) {
-                DEFAULT_MAX_USERS
-            } else {
-                rawMaxUsers.toIntOrNull()
-                    ?: error("ACCOUNT_MAX_USERS must be an integer")
-            }
-            val invitationCodes = environment["ACCOUNT_REGISTRATION_INVITE_CODES"]
-                ?.split(',')
-                ?.map(String::trim)
-                ?.filter(String::isNotEmpty)
-                ?.toSet()
-                .orEmpty()
-            val inviteIssuerUsernames = environment["ACCOUNT_INVITE_ISSUER_USERNAMES"]
-                ?.split(',')
-                ?.map { it.trim().lowercase() }
-                ?.filter(String::isNotEmpty)
-                ?.toSet()
-                .orEmpty()
-            val rawIssuedInviteTtlHours = environment["ACCOUNT_ISSUED_INVITE_TTL_HOURS"]
-                ?.trim()
-                ?.takeIf(String::isNotEmpty)
-            val issuedInviteTtlHours = rawIssuedInviteTtlHours
-                ?.toLongOrNull()
-                ?: if (rawIssuedInviteTtlHours == null) {
-                    DEFAULT_ISSUED_INVITE_TTL_HOURS
-                } else {
-                    error("ACCOUNT_ISSUED_INVITE_TTL_HOURS must be an integer")
+            val enabled =
+                when (val raw = environment["ACCOUNT_REGISTRATION_ENABLED"]?.trim()?.lowercase()) {
+                    // Production-safe default: operators must deliberately open registration for
+                    // initial provisioning instead of accidentally exposing an unlimited signup API.
+                    null, "" -> false
+                    "true" -> true
+                    "false" -> false
+                    else -> error("ACCOUNT_REGISTRATION_ENABLED must be true or false")
                 }
+            val rawMaxUsers = environment["ACCOUNT_MAX_USERS"]?.trim()
+            val maxUsers =
+                if (rawMaxUsers.isNullOrEmpty()) {
+                    DEFAULT_MAX_USERS
+                } else {
+                    rawMaxUsers.toIntOrNull()
+                        ?: error("ACCOUNT_MAX_USERS must be an integer")
+                }
+            val invitationCodes =
+                environment["ACCOUNT_REGISTRATION_INVITE_CODES"]
+                    ?.split(',')
+                    ?.map(String::trim)
+                    ?.filter(String::isNotEmpty)
+                    ?.toSet()
+                    .orEmpty()
+            val inviteIssuerUsernames =
+                environment["ACCOUNT_INVITE_ISSUER_USERNAMES"]
+                    ?.split(',')
+                    ?.map { it.trim().lowercase() }
+                    ?.filter(String::isNotEmpty)
+                    ?.toSet()
+                    .orEmpty()
+            val rawIssuedInviteTtlHours =
+                environment["ACCOUNT_ISSUED_INVITE_TTL_HOURS"]
+                    ?.trim()
+                    ?.takeIf(String::isNotEmpty)
+            val issuedInviteTtlHours =
+                rawIssuedInviteTtlHours
+                    ?.toLongOrNull()
+                    ?: if (rawIssuedInviteTtlHours == null) {
+                        DEFAULT_ISSUED_INVITE_TTL_HOURS
+                    } else {
+                        error("ACCOUNT_ISSUED_INVITE_TTL_HOURS must be an integer")
+                    }
             if (issuedInviteTtlHours !in 1..MAX_ISSUED_INVITE_TTL_HOURS) {
                 error("ACCOUNT_ISSUED_INVITE_TTL_HOURS must be between 1 and 168")
             }

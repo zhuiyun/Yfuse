@@ -24,7 +24,7 @@ class PlaybackHdrPolicyTest {
     }
 
     @Test
-    fun dolby_only_source_requires_server_transcode_without_dolby_display() {
+    fun dolby_only_source_uses_local_mpv_without_dolby_display() {
         val route =
             playbackHdrRoute(
                 source = dolby(needsDolbyDecoder = true),
@@ -33,8 +33,10 @@ class PlaybackHdrPolicyTest {
                 preferredDecoderMode = DecoderMode.Auto,
             )
 
-        assertTrue(route.requiresServerTranscode)
-        assertEquals(DecoderMode.Hardware, route.decoderMode)
+        assertFalse(route.requiresServerTranscode)
+        assertEquals(PlayerEngine.Mpv, route.engine)
+        assertEquals(DecoderMode.Software, route.decoderMode)
+        assertTrue(route.reason.orEmpty().contains("客户端"))
     }
 
     @Test

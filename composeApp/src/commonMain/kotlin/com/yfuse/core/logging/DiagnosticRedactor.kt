@@ -25,13 +25,17 @@ private val sensitiveKeys =
         "refresh-token",
         "secret",
         "set-cookie",
+        "serverid",
+        "server_id",
         "token",
+        "userid",
+        "user_id",
         "x-emby-token",
     )
 
 private val jsonSecret =
     Regex(
-        """(?i)("(?:access[_-]?token|api[_-]?key|authorization|client[_-]?secret|cookie|password|pw|refresh[_-]?token|secret|set-cookie|token|x-emby-token)"\s*:\s*")([^"]*)(")""",
+        """(?i)("(?:access[_-]?token|api[_-]?key|authorization|client[_-]?secret|cookie|password|pw|refresh[_-]?token|secret|server[_-]?id|set-cookie|token|user[_-]?id|x-emby-token)"\s*:\s*")([^"]*)(")""",
     )
 private val parameterSecret =
     Regex(
@@ -51,6 +55,8 @@ private val cookieSecret =
     )
 private val bearerSecret = Regex("""(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]+""")
 private val urlCredentials = Regex("""(?i)(https?://)[^/@\s]+@""")
+private val urlAuthority = Regex("""(?i)\b(https?://)[^/\s?#]+""")
+private val embyUserPath = Regex("""(?i)(/Users/)[^/?#\s]+""")
 
 internal fun redactDiagnosticText(value: String): String =
     value
@@ -61,6 +67,8 @@ internal fun redactDiagnosticText(value: String): String =
         .replace(assignmentSecret, "$1$Redacted")
         .replace(bearerSecret, "$1$Redacted")
         .replace(urlCredentials, "$1$Redacted@")
+        .replace(urlAuthority, "$1<redacted-host>")
+        .replace(embyUserPath, "$1$Redacted")
 
 internal fun redactDiagnosticAttributes(attributes: Map<String, String>): Map<String, String> =
     attributes.mapValues { (key, value) ->

@@ -58,6 +58,7 @@ class YCorePlaybackSession(
         PlaybackRuntimeFaultDetector(
             startedAtEpochMs = startedAtEpochMs,
             initialPositionMs = initialPositionMs,
+            startupTimeoutMs = playbackStartupTimeoutMs(probe),
         )
     private var reported = false
     private var penaltyRecorded = false
@@ -137,3 +138,12 @@ class YCorePlaybackSession(
         failureMemory.record(probe.capabilitySignature, engine, kind)
     }
 }
+
+/** Large MOV/optical sources receive enough probe time while still having a finite escape hatch. */
+internal fun playbackStartupTimeoutMs(probe: PlaybackMediaProbe): Long =
+    when {
+        probe.discSource || probe.discKind != PlaybackDiscKind.None -> 180_000L
+        probe.normalizedContainer == "MOV" ||
+            probe.source.videoRequirements.codec == PlaybackVideoCodec.ProRes -> 60_000L
+        else -> 15_000L
+    }

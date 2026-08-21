@@ -1,5 +1,8 @@
 # Yfuse 全应用功能缺口审计
 
+> 截图证据已迁移到 `repository-binaries-before-cleanup-20260821.zip`；文件名保持不变，
+> 归档校验值见 `audit/README.md`。
+
 审计日期：2026-07-27
 
 ## 范围与依据

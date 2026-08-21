@@ -80,6 +80,9 @@ data class PlaybackDiagnostics(
     val dolbyVisionOutput: Boolean = false,
     /** A Dolby object-audio bitstream is leaving the device, rather than being decoded to PCM. */
     val dolbyAtmosOutput: Boolean = false,
+    /** Output-trace facts used by P7 validation; false means unproven, never inferred from metadata. */
+    val dolbyVisionRpuApplied: Boolean = false,
+    val dolbyVisionEnhancementLayerComposed: Boolean = false,
     /** Current display/audio-route capability snapshot, kept separate from active output. */
     val deviceOutputCapabilities: String = "未探测",
     /** YCore route selected before backend construction: direct/native/GPU/server. */

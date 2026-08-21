@@ -61,9 +61,10 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroActionDock
-import com.yfuse.core.designsystem.HeroCaptionClearance
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
+import com.yfuse.core.designsystem.LivingPosterAmbient
+import com.yfuse.core.designsystem.LivingPosterDefaults
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
@@ -79,7 +80,11 @@ import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.heroDurationLabel
+import com.yfuse.core.designsystem.heroMediaTypeLabel
 import com.yfuse.core.designsystem.heroReelScrim
+import com.yfuse.core.designsystem.livingPosterFrame
+import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselPageCount
 import com.yfuse.core.designsystem.loopingCarouselSemantics
@@ -90,15 +95,12 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.model.TmdbGenres
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private val HomeHeroIndicatorBottom = 7.dp
 
 /**
  * The hero artwork changes every few seconds, while the status-bar ink stays white.
@@ -124,7 +126,7 @@ private val HomeStatusBarScrimHeight = 128.dp
  * the artwork is turning into. Every line of the caption therefore stays above the band,
  * and only the dots — whose ink is the page's — sit inside it.
  */
-private val HomeHeroContentBottom = HeroCaptionClearance
+private val HomeHeroContentBottom = LivingPosterDefaults.CAPTION_BOTTOM
 
 /**
  * 首页 — the prototype's `isHome` screen:
@@ -176,12 +178,7 @@ private fun HomeContent(
     ScrollToTopOnReselect(listState)
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val heroHeight =
-            if (maxWidth >= 600.dp) {
-                (maxHeight * 0.60f).coerceIn(420.dp, 720.dp)
-            } else {
-                (maxHeight * 0.60f).coerceIn(350.dp, 520.dp)
-            }
+        val heroHeight = livingPosterHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
         val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
         val heroVisible = !scrolledPastHero
         StatusBarIconStyle(darkIcons = !heroVisible && !palette.isDark)
@@ -206,7 +203,7 @@ private fun HomeContent(
                 // recommendation feed is loading or unavailable.
                 item {
                     HomeHeroCarousel(
-                        items = state.featuredSlides.take(5),
+                        items = state.featuredSlides.take(8),
                         userName = state.server?.userName,
                         height = heroHeight,
                         visible = heroVisible,
@@ -370,6 +367,8 @@ private fun HomeHeroCarousel(
     // control this replaces could only be undone by finding it again, so a single swipe
     // left the hero permanently still with a play glyph as the only clue why.
     var interaction by remember { mutableStateOf(0) }
+    val ambientItem = items.getOrNull(loopingCarouselItemIndex(pagerState.currentPage, items.size))
+    val ambientUrls = remember(ambientItem) { tmdbHeroArtworkUrls(ambientItem) }
 
     LaunchedEffect(items.map { it.id }) {
         pagerState.scrollToPage(loopingCarouselStartPage(items.size))
@@ -390,9 +389,26 @@ private fun HomeHeroCarousel(
         }
     }
 
-    Box(Modifier.fillMaxWidth().height(height)) {
+    BoxWithConstraints(Modifier.fillMaxWidth().height(height)) {
+        val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
+        val indicatorStart =
+            if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
+        val indicatorEnd =
+            if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp
+        LivingPosterAmbient(
+            urls = ambientUrls,
+            modifier = Modifier.fillMaxSize(),
+        )
         if (items.isEmpty()) {
-            HeroSlide(item = null, onPlay = {}, onDetails = {}, onFavorite = {})
+            HeroSlide(
+                item = null,
+                onPlay = {},
+                onDetails = {},
+                onFavorite = {},
+                modifier =
+                    Modifier
+                        .fillMaxSize(),
+            )
         } else {
             HorizontalPager(
                 state = pagerState,
@@ -400,6 +416,16 @@ private fun HomeHeroCarousel(
                     Modifier
                         .fillMaxSize()
                         .loopingCarouselSemantics(pagerState.currentPage, items.size),
+                contentPadding =
+                    if (showSidePreview) {
+                        PaddingValues(
+                            start = LivingPosterDefaults.LEADING_INSET,
+                            end = LivingPosterDefaults.TRAILING_PEEK,
+                        )
+                    } else {
+                        PaddingValues(0.dp)
+                    },
+                pageSpacing = if (showSidePreview) LivingPosterDefaults.PAGE_SPACING else 0.dp,
                 beyondViewportPageCount = 1,
                 key = { page -> page },
             ) { page ->
@@ -412,6 +438,8 @@ private fun HomeHeroCarousel(
                     onFavorite = { onFavorite(item) },
                     settled = settled,
                     onAccent = onAccent,
+                    framed = showSidePreview,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }
@@ -433,36 +461,57 @@ private fun HomeHeroCarousel(
         )
 
         if (items.size > 1) {
-            HeroPageIndicator(
-                pageCount = items.size,
-                selectedPage = loopingCarouselItemIndex(pagerState.currentPage, items.size),
-                onPageSelected = { targetIndex ->
-                    interaction++
-                    carouselScope.launch {
-                        val targetPage =
-                            loopingCarouselTargetPage(
-                                currentPage = pagerState.currentPage,
-                                targetIndex = targetIndex,
-                                itemCount = items.size,
-                            )
-                        if (reduceMotion) {
-                            pagerState.scrollToPage(targetPage)
-                        } else {
-                            pagerState.animateScrollToPage(
-                                page = targetPage,
-                                animationSpec = tween(Motion.EMPHASIZED, easing = Motion.Curve),
-                            )
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(
+                        start = indicatorStart,
+                        end = indicatorEnd,
+                        bottom = LivingPosterDefaults.INDICATOR_BOTTOM,
+                    ),
+            ) {
+                HeroPageIndicator(
+                    pageCount = items.size,
+                    selectedPage = loopingCarouselItemIndex(pagerState.currentPage, items.size),
+                    onPageSelected = { targetIndex ->
+                        interaction++
+                        carouselScope.launch {
+                            val targetPage =
+                                loopingCarouselTargetPage(
+                                    currentPage = pagerState.currentPage,
+                                    targetIndex = targetIndex,
+                                    itemCount = items.size,
+                                )
+                            if (reduceMotion) {
+                                pagerState.scrollToPage(targetPage)
+                            } else {
+                                pagerState.animateScrollToPage(
+                                    page = targetPage,
+                                    animationSpec = tween(Motion.EMPHASIZED, easing = Motion.Curve),
+                                )
+                            }
                         }
-                    }
-                },
-                modifier =
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = HomeHeroIndicatorBottom),
-            )
+                    },
+                    onArtwork = true,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
         }
     }
 }
+
+private fun tmdbHeroArtworkUrls(item: TmdbItem?): List<String?> =
+    if (item == null) {
+        emptyList()
+    } else {
+        listOf(
+            TmdbImages.backdrop(item.backdropPath),
+            TmdbImages.media(item.backdropPath, "w1280"),
+            TmdbImages.poster(item.posterPath, "w780"),
+            TmdbImages.media(item.posterPath, "w780"),
+        )
+    }
 
 @Composable
 private fun HeroSlide(
@@ -472,21 +521,12 @@ private fun HeroSlide(
     onFavorite: () -> Unit,
     settled: Boolean = false,
     onAccent: (Color) -> Unit = {},
+    framed: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     val artworkUrls: List<String?> =
-        remember(item) {
-            if (item == null) {
-                emptyList()
-            } else {
-                listOf(
-                    TmdbImages.backdrop(item.backdropPath),
-                    TmdbImages.media(item.backdropPath, "w1280"),
-                    TmdbImages.poster(item.posterPath, "w780"),
-                    TmdbImages.media(item.posterPath, "w780"),
-                )
-            }
-        }
+        remember(item) { tmdbHeroArtworkUrls(item) }
     val artworkAccent =
         rememberAnimatedArtworkAccent(
             url = artworkUrls.firstOrNull { it != null },
@@ -501,8 +541,9 @@ private fun HeroSlide(
         if (settled) onAccent(artworkAccent)
     }
     Box(
-        Modifier
+        modifier
             .fillMaxSize()
+            .then(if (framed) Modifier.livingPosterFrame() else Modifier)
             .then(
                 if (item == null) {
                     Modifier
@@ -701,11 +742,9 @@ private fun HeroCaption(
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(6.dp))
-        // ★ 6.2 · 2012 · 喜剧 · 电影 — the four things a person uses to decide whether to
-        // open something, in the order they weigh them. The line used to read
-        // 「2012 · 评分 6.2」: the word 评分 spends four characters saying what a star says,
-        // and the genre — the single most useful of the four when the title is unfamiliar —
-        // was not there at all.
+        // Rating stays visually distinct; the decision facts follow the reference order:
+        // year · type · duration. Runtime is detail-backed and disappears only when TMDB
+        // did not provide one.
         Row(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -726,7 +765,12 @@ private fun HeroCaption(
                         maxLines = 1,
                     )
                 }
-            val facts = listOfNotNull(item.year, TmdbGenres.labelFor(item.genreIds))
+            val facts =
+                listOfNotNull(
+                    item.year,
+                    heroMediaTypeLabel(item.mediaType),
+                    heroDurationLabel(item.runtimeMinutes),
+                )
             if (facts.isNotEmpty()) {
                 Text(
                     facts.joinToString(" · "),
@@ -737,27 +781,24 @@ private fun HeroCaption(
                     modifier = Modifier.weight(1f, fill = false),
                 )
             }
-            // Boxed rather than another dot-separated word: it is a classification, not
-            // another fact about this title, and the reference frames its rating the same way.
-            Text(
-                if (item.mediaType == "tv") "剧集" else "电影",
-                style = AppTypography.caption.medium,
-                color = Color.White.copy(alpha = 0.92f),
-                maxLines = 1,
-                modifier =
-                    Modifier
-                        .border(
-                            width = Dimens.hairline,
-                            color = Color.White.copy(alpha = 0.42f),
-                            shape = GlassShapes.chip,
-                        ).padding(horizontal = 6.dp, vertical = 1.dp),
-            )
         }
+        item.overview
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.let { overview ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = overview,
+                    style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
+                    color = Color.White.copy(alpha = 0.80f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         Spacer(Modifier.height(14.dp))
         HeroActionDock(
             onPlay = onPlay,
             onFavorite = onFavorite,
-            onDetails = onDetails,
         )
     }
 }
