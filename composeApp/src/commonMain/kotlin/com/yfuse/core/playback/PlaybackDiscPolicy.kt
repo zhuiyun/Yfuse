@@ -69,6 +69,27 @@ fun detectPlaybackDiscKind(
     }
 }
 
+/**
+ * Requires positive Blu-ray evidence before an ISO can enter a libbluray-only route.
+ *
+ * Container metadata commonly reports both DVD and Blu-ray images as plain `ISO`. A trusted
+ * Blu-ray/BDMV kind is sufficient; a generic ISO additionally needs an explicit Blu-ray label until
+ * the bounded image inspector has classified its contents.
+ */
+internal fun isConfirmedBluRaySource(
+    kind: PlaybackDiscKind,
+    labelHint: String?,
+): Boolean {
+    val normalizedLabel = labelHint?.trim()?.uppercase().orEmpty()
+    val explicitlyBluRay =
+        "BLU-RAY" in normalizedLabel ||
+            "BLURAY" in normalizedLabel ||
+            "BDMV" in normalizedLabel
+    return kind == PlaybackDiscKind.BluRay ||
+        kind == PlaybackDiscKind.Bdmv ||
+        (kind == PlaybackDiscKind.Iso && explicitlyBluRay)
+}
+
 fun planDiscPlayback(probe: PlaybackMediaProbe): PlaybackDiscDecision {
     if (!probe.discSource && probe.discKind == PlaybackDiscKind.None) {
         return PlaybackDiscDecision(PlaybackDiscKind.None, PlaybackDiscStrategy.NotRequired)

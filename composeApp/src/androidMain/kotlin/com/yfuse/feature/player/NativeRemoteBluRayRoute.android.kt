@@ -2,8 +2,8 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.PlaybackMethod
-import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
+import com.yfuse.core.playback.isConfirmedBluRaySource
 
 /**
  * Replaces only the active raw remote Blu-ray image with an opaque process-local native route.
@@ -44,7 +44,7 @@ private fun PlayerMediaItem.nativeRemoteBluRayRequest(
             labelHint = version.label,
             declaredDiscSource = true,
         )
-    if (kind !in setOf(PlaybackDiscKind.Iso, PlaybackDiscKind.BluRay, PlaybackDiscKind.Bdmv)) return null
+    if (!isConfirmedBluRaySource(kind, version.label)) return null
     if (serverRegistry.serverById(serverId) == null) return null
     return NativeRemoteBluRayPreflightRequest(
         serverId = serverId,

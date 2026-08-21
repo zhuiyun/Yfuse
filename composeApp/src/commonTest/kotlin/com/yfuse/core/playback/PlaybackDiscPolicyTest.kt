@@ -85,6 +85,15 @@ class PlaybackDiscPolicyTest {
         )
     }
 
+    @Test
+    fun generic_iso_requires_positive_bluray_evidence_before_libbluray_routing() {
+        assertFalse(isConfirmedBluRaySource(PlaybackDiscKind.Iso, "Movie.iso"))
+        assertFalse(isConfirmedBluRaySource(PlaybackDiscKind.Dvd, "DVD ISO"))
+        assertTrue(isConfirmedBluRaySource(PlaybackDiscKind.Iso, "UHD Blu-ray ISO"))
+        assertTrue(isConfirmedBluRaySource(PlaybackDiscKind.BluRay, null))
+        assertTrue(isConfirmedBluRaySource(PlaybackDiscKind.Bdmv, "Movie/BDMV"))
+    }
+
     private fun probe(
         kind: PlaybackDiscKind,
         local: Boolean,

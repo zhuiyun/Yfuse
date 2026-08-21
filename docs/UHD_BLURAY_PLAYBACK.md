@@ -75,6 +75,10 @@ Range request. A source is changed to `yfusebd://` only after the origin proves 
 Content-Range semantics required by normal block reads. Failed preflight is not itself a playback
 error: YCore leaves the existing server main-feature/transcode route intact.
 
+Range support proves transport semantics, not disc type. A generic remote ISO remains on the server
+route unless trusted metadata explicitly identifies Blu-ray/BDMV; this prevents DVD ISO images from
+being registered with the libbluray-only `yfusebd://` bridge.
+
 Only the active optical-disc queue item is registered with JNI, preventing unused queued images from
 retaining Java global references. The original server transcode/progressive URLs remain on the item so
 a native failure can still enter the existing recovery chain.

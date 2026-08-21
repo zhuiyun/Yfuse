@@ -2,9 +2,9 @@ package com.yfuse.feature.player
 
 import android.content.Context
 import com.yfuse.core.model.PlaybackMethod
-import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
+import com.yfuse.core.playback.isConfirmedBluRaySource
 
 /**
  * Gives known local Blu-ray sources the same libbluray session used for HDMV menus.
@@ -40,13 +40,7 @@ private fun PlayerMediaItem.prepareNativeLocalBluRayRoute(
             declaredDiscSource = true,
         )
     val classified = cachedLocalPlaybackDiscKind(url) ?: declared
-    val explicitBluRayLabel =
-        version.label.uppercase().let { "BLU-RAY" in it || "BLURAY" in it || "BDMV" in it }
-    val confirmedBluRay =
-        classified == PlaybackDiscKind.BluRay ||
-            classified == PlaybackDiscKind.Bdmv ||
-            (classified == PlaybackDiscKind.Iso && explicitBluRayLabel)
-    if (!confirmedBluRay) return null
+    if (!isConfirmedBluRaySource(classified, version.label)) return null
 
     // Prefer the filesystem bridge. It recognizes a directory containing BDMV/, the BDMV directory
     // itself, index.bdmv/MovieObject.bdmv, and persisted SAF tree URIs. An ISO file simply fails this
