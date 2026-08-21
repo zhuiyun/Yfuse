@@ -7,9 +7,11 @@ LIBS="$ROOT/composeApp/libs"
 CHECKSUMS="$ROOT/scripts/engine-checksums.sha256"
 
 MPV_FILE="libmpv-release.aar"
+MPV_STOCK_CHECKSUM_NAME="libmpv-release-stock.aar"
 MDK_FILE="mdk-sdk-android.7z"
 MPV_RELEASE_TAG="native-mpv-fcf6745-yfuse2-arm64"
 MPV_URL="https://github.com/zhuiyun/Yfuse/releases/download/$MPV_RELEASE_TAG/$MPV_FILE"
+MPV_STOCK_URL="https://github.com/jarnedemeulemeester/libmpv-android/releases/download/v1.0.0/$MPV_FILE"
 MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/$MDK_FILE"
 MPV_CUSTOM_SHA="$LIBS/libmpv-release.aar.sha256"
 MPV_CUSTOM_SOURCES="$LIBS/libmpv-release.sources.txt"
@@ -50,6 +52,22 @@ verify_file() {
     die "SHA-256 mismatch for $(basename "$file"): expected $expected, got $actual"
 }
 
+download_file() {
+  local url="$1"
+  local destination="$2"
+  curl \
+    --fail \
+    --location \
+    --proto '=https' \
+    --proto-redir '=https' \
+    --retry 5 \
+    --retry-all-errors \
+    --retry-delay 2 \
+    --connect-timeout 20 \
+    --output "$destination" \
+    "$url"
+}
+
 fetch_verified() {
   local name="$1"
   local url="$2"
@@ -66,20 +84,14 @@ fetch_verified() {
   temporary="$(mktemp "$LIBS/.${name}.download.XXXXXX")"
   trap 'rm -f "${temporary:-}"' RETURN
   printf '==> downloading %s\n' "$name"
-  curl \
-    --fail \
-    --location \
-    --proto '=https' \
-    --proto-redir '=https' \
-    --retry 5 \
-    --retry-all-errors \
-    --retry-delay 2 \
-    --connect-timeout 20 \
-    --output "$temporary" \
-    "$url"
+  download_file "$url" "$temporary"
   verify_file "$temporary" "$expected"
   mv -f "$temporary" "$destination"
   trap - RETURN
+}
+
+clear_stock_mpv_sidecars() {
+  rm -f "$MPV_CUSTOM_SHA" "$MPV_CUSTOM_SOURCES"
 }
 
 install_custom_mpv_sidecars() {
@@ -89,6 +101,58 @@ install_custom_mpv_sidecars() {
   printf '%s  %s\n' "$expected" "$MPV_FILE" >"$MPV_CUSTOM_SHA"
   cp -f "$MPV_PINNED_SOURCES" "$MPV_CUSTOM_SOURCES"
   "$MPV_VERIFIER" "$LIBS/$MPV_FILE" "$MPV_CUSTOM_SHA" "$MPV_CUSTOM_SOURCES"
+}
+
+fetch_mpv() {
+  local destination="$LIBS/$MPV_FILE"
+  local custom_expected
+  local stock_expected
+  local actual=""
+  local temporary=""
+
+  custom_expected="$(checksum_for "$MPV_FILE")"
+  stock_expected="$(checksum_for "$MPV_STOCK_CHECKSUM_NAME")"
+
+  if [[ -f "$destination" ]]; then
+    actual="$(sha256_of "$destination")"
+    if [[ "$actual" == "$custom_expected" ]]; then
+      install_custom_mpv_sidecars "$custom_expected"
+      printf '==> %s custom build already verified\n' "$MPV_FILE"
+      return
+    fi
+    if [[ "$actual" == "$stock_expected" ]]; then
+      clear_stock_mpv_sidecars
+      printf '==> %s stock fallback already verified\n' "$MPV_FILE"
+      return
+    fi
+    printf 'warning: removing unrecognized %s before refetch\n' "$MPV_FILE" >&2
+    rm -f "$destination"
+    clear_stock_mpv_sidecars
+  fi
+
+  temporary="$(mktemp "$LIBS/.${MPV_FILE}.download.XXXXXX")"
+  trap 'rm -f "${temporary:-}"' RETURN
+  printf '==> downloading preferred Yfuse %s\n' "$MPV_FILE"
+  if download_file "$MPV_URL" "$temporary"; then
+    verify_file "$temporary" "$custom_expected"
+    mv -f "$temporary" "$destination"
+    trap - RETURN
+    install_custom_mpv_sidecars "$custom_expected"
+    printf '==> installed verified Yfuse custom mpv\n'
+    return
+  fi
+
+  rm -f "$temporary"
+  temporary="$(mktemp "$LIBS/.${MPV_FILE}.download.XXXXXX")"
+  printf 'warning: pinned Yfuse mpv release is unavailable; using verified stock mpv fallback\n' >&2
+  printf 'warning: custom Blu-ray capabilities will remain disabled for this build\n' >&2
+  download_file "$MPV_STOCK_URL" "$temporary" ||
+    die "failed to download both the pinned Yfuse mpv and the verified stock fallback"
+  verify_file "$temporary" "$stock_expected"
+  mv -f "$temporary" "$destination"
+  trap - RETURN
+  clear_stock_mpv_sidecars
+  printf '==> installed verified stock mpv fallback\n'
 }
 
 extract_mdk() {
@@ -127,9 +191,7 @@ extract_mdk() {
 [[ -r "$CHECKSUMS" ]] || die "checksum manifest not found: $CHECKSUMS"
 mkdir -p "$LIBS"
 
-mpv_checksum="$(checksum_for "$MPV_FILE")"
-fetch_verified "$MPV_FILE" "$MPV_URL" "$mpv_checksum"
-install_custom_mpv_sidecars "$mpv_checksum"
+fetch_mpv
 fetch_verified "$MDK_FILE" "$MDK_URL" "$(checksum_for "$MDK_FILE")"
 extract_mdk
 
