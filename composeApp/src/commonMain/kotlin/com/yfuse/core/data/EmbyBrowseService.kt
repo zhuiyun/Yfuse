@@ -369,8 +369,8 @@ internal class EmbyBrowseService(
             val reportedTotal = dto.TotalRecordCount
             exhausted =
                 pageSize == 0 ||
-                    pageSize < RESOLUTION_SCAN_PAGE_SIZE ||
-                    (reportedTotal != null && rawStartIndex >= reportedTotal)
+                pageSize < RESOLUTION_SCAN_PAGE_SIZE ||
+                (reportedTotal != null && rawStartIndex >= reportedTotal)
         }
 
         val pageIds =
@@ -605,9 +605,7 @@ internal class EmbyBrowseService(
         parameter("Limit", limit)
     }
 
-    private fun io.ktor.client.request.HttpRequestBuilder.applyServerResolutionFilter(
-        resolution: LibraryResolution,
-    ) {
+    private fun io.ktor.client.request.HttpRequestBuilder.applyServerResolutionFilter(resolution: LibraryResolution) {
         when (resolution) {
             LibraryResolution.All -> Unit
             LibraryResolution.FourK -> {

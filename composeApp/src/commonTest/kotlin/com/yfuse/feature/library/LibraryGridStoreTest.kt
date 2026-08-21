@@ -163,9 +163,10 @@ class LibraryGridStoreTest {
     @Test
     fun changing_the_sort_reloads_from_the_first_page() =
         runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
             val sorts = mutableListOf<String?>()
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher) { request ->
                     if (request.url.encodedPath.endsWith("/Genres")) {
                         json("""{"Items":[]}""")
                     } else {
@@ -179,17 +180,21 @@ class LibraryGridStoreTest {
                     repo,
                     registry(),
                     "lib1",
-                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                    mainContext = dispatcher,
                 ).create()
-            store.states.first { !it.loading && it.items.isNotEmpty() }
+            advanceUntilIdle()
+            assertTrue(!store.state.loading && store.state.items.isNotEmpty())
 
             store.accept(GridIntent.SetSort(LibrarySort.Name))
 
-            val sorted = store.states.first { it.sort == LibrarySort.Name && !it.loading }
+            advanceUntilIdle()
+            val sorted = store.state
+            assertEquals(LibrarySort.Name, sorted.sort)
+            assertFalse(sorted.loading)
             assertEquals(3, sorted.items.size)
             assertEquals(listOf<String?>("DateCreated", "SortName"), sorts)
             store.dispose()
-            runCurrent()
+            advanceUntilIdle()
         }
 
     @Test

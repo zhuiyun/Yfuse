@@ -500,8 +500,11 @@ private fun StandardSeekBar(
             .height(44.dp)
             .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
             .then(
-                if (focused) Modifier.border(1.dp, Color.White.copy(alpha = 0.42f), AppShapes.thumb)
-                else Modifier,
+                if (focused) {
+                    Modifier.border(1.dp, Color.White.copy(alpha = 0.42f), AppShapes.thumb)
+                } else {
+                    Modifier
+                },
             ).semantics {
                 stateDescription = "播放进度 ${formatTime(positionMs)} / ${formatTime(durationMs)}"
                 progressBarRangeInfo = ProgressBarRangeInfo(shownFraction, 0f..1f)

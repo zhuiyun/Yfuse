@@ -32,8 +32,7 @@ internal class InvalidHlsManifestResponseException(
 internal class HlsManifestGuardDataSourceFactory(
     private val upstreamFactory: DataSource.Factory,
 ) : DataSource.Factory {
-    override fun createDataSource(): DataSource =
-        HlsManifestGuardDataSource(upstreamFactory.createDataSource())
+    override fun createDataSource(): DataSource = HlsManifestGuardDataSource(upstreamFactory.createDataSource())
 }
 
 @UnstableApi

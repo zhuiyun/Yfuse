@@ -130,6 +130,7 @@ class ExoVideoEngine(
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
     private val retryCounts = mutableMapOf<String, Int>()
+
     /** Compact, credential-free failure trail preserved across replaceMediaItem fallback hops. */
     private val failureHistory = mutableMapOf<Int, MutableList<String>>()
     private var retryJob: Job? = null
