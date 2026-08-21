@@ -310,9 +310,8 @@ internal class EmbyBrowseService(
     /**
      * Filters the actual playable stream rows, then maps every matching episode back to its Series.
      * This keeps the category page a Movie/Series grid instead of turning one show into hundreds of
-     * episode cards. 4K is verified from MediaSources because Emby's Items endpoint has no MinWidth
-     * filter; sending MinWidth was the reason that option could return an empty page on compatible
-     * servers that simply ignore or reject the undocumented parameter.
+     * episode cards. The server-side MinWidth hint keeps the scan bounded, while MediaSources are
+     * still verified because server metadata and filtering behavior can vary.
      */
     private suspend fun fetchResolutionFilteredLibraryPage(
         server: SavedServer,
@@ -611,9 +610,11 @@ internal class EmbyBrowseService(
     ) {
         when (resolution) {
             LibraryResolution.All -> Unit
-            LibraryResolution.FourK,
-            LibraryResolution.Hd,
-            -> parameter("IsHD", true)
+            LibraryResolution.FourK -> {
+                parameter("IsHD", true)
+                parameter("MinWidth", 2_560)
+            }
+            LibraryResolution.Hd -> parameter("IsHD", true)
             LibraryResolution.Sd -> parameter("IsHD", false)
             LibraryResolution.DolbyVision -> {
                 parameter("IsHD", true)
