@@ -294,15 +294,16 @@ private fun Color.chromaBoosted(factor: Float): Color {
  * Tinting the whole page instead makes the artwork the room the content sits in, and because
  * the accent handed in is already animated, the room changes with the slide.
  *
- * Deliberately a small fraction. This colour ends up behind body copy, chips and cards whose
- * inks were measured against the flat palette; far enough toward the artwork to be felt, not
- * far enough to start deciding contrast.
+ * The light theme previously kept only 11% of the artwork colour. That left an almost-white
+ * page under a dark or saturated poster, so even a mathematically continuous dissolve looked
+ * like a white fog bank. The stronger, still contrast-safe mix makes the page visibly belong
+ * to the poster while retaining the palette background as the majority colour.
  */
 @Composable
 @ReadOnlyComposable
 fun pageTint(accent: Color): Color {
     val palette = LocalPalette.current
-    return lerp(palette.background, accent, if (palette.isDark) 0.16f else 0.11f)
+    return lerp(palette.background, accent, if (palette.isDark) 0.24f else 0.30f)
 }
 
 /**
@@ -326,34 +327,18 @@ fun heroScrim(
     )
 
 /**
- * How a reel ends — 首页 and 媒体库's carousels, which dissolve into the page rather than
- * hand over to a sheet.
+ * Readability wash for 首页 and 媒体库's reels.
  *
- * They used to borrow [heroScrim] from 影视详情页, and the two pages want opposite things
- * from it. The detail hero has an information sheet lifted over its lower edge, so its
- * wash is deliberately heavy and reaches 55% by 22% of the height — there is a card about
- * to cover that strip. A carousel has nothing over it, so the same wash read as fog laid
- * on the picture from mid-height down. Worse, it faded through *two* colours: the artwork's
- * lightened [heroSurface] in the middle of the ramp and the page's own [pageTint] at the
- * very bottom, which put a grey seam between the picture and the page it was supposedly
- * melting into.
- *
- * One colour and one ramp, therefore. [page] is the ground the carousel is sitting on, so
- * the last band is that colour exactly and the join is invisible by construction rather
- * than by matching. The picture stays untouched for its top two thirds, thins out over the
- * bottom third, and is fully page by the time the pagination dots sit in it.
+ * This brush deliberately contains no page-coloured stops. Painting an opaque light colour
+ * over a photograph creates the pale fog band the reel used to show even when the final pixel
+ * happened to equal the page. The artwork layer now owns the transition through
+ * [Modifier.fadeIntoPage]; this scrim only stabilizes contrast near the status bar and is
+ * completely transparent throughout the lower half.
  */
-fun heroReelScrim(page: Color): Brush =
+fun heroReelScrim(): Brush =
     scrim(
-        0f to page,
-        // A solid hem. The dots live here, in page ink on page colour.
-        0.06f to page,
-        0.14f to page.copy(alpha = 0.82f),
-        0.22f to page.copy(alpha = 0.42f),
-        0.30f to page.copy(alpha = 0.12f),
-        // Clear of the artwork well before the caption's top line, so white copy is never
-        // asked to sit on a pale wash.
-        0.40f to Color.Transparent,
+        0f to Color.Transparent,
+        0.54f to Color.Transparent,
         0.68f to HeroInk.copy(alpha = 0.10f),
         1f to HeroInk.copy(alpha = 0.42f),
     )
