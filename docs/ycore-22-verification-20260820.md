@@ -60,8 +60,8 @@ full licensed DV/HDR/audio/container matrix remains reproducible through the cor
 `media-tests/README.md`; licensed samples are intentionally not committed to the repository.
 
 The merged head was independently rerun with an isolated `com.yfuse.validation` package on a
-Samsung SM-N960U (Android 10). A 28.445-second locally recorded H.264 baseline passed in 109.702
-seconds:
+Samsung SM-N960U (Android 9 / API 28). A 28.445-second locally recorded H.264 baseline passed in
+109.702 seconds:
 
 - 100/100 deterministic seek/reset/new-frame cycles;
 - 8/8 Surface detach/recreate cycles;
