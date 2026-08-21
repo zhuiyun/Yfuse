@@ -103,8 +103,9 @@ jobs:
 
           scripts/install-yfuse-mpv-bluray.sh "$aar" "$sha_file" "$sources"
 
-          manifest_backup="$RUNNER_TEMP/engine-checksums.sha256"
-          cp scripts/engine-checksums.sha256 "$manifest_backup"
+          # Keep the verified artifact digest pinned for the entire Gradle build. Restoring the
+          # repository's historical libmpv digest here would make verifyCustomMpvArtifact reject
+          # the same AAR that verify-ycore-native.sh just authenticated above.
           mpv_sha="$(sha256sum composeApp/libs/libmpv-release.aar | awk '{print tolower($1)}')"
           awk -v sha="$mpv_sha" '
             $2 == "libmpv-release.aar" { print sha "  libmpv-release.aar"; next }
@@ -112,7 +113,6 @@ jobs:
           ' scripts/engine-checksums.sha256 > scripts/engine-checksums.sha256.tmp
           mv scripts/engine-checksums.sha256.tmp scripts/engine-checksums.sha256
           scripts/fetch-engines.sh
-          mv "$manifest_backup" scripts/engine-checksums.sha256
 
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
