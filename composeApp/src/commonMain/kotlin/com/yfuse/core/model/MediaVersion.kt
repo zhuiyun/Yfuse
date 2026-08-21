@@ -144,17 +144,24 @@ data class MediaVersion(
         get() = dolbyProfile == 7 && hasDolbyVisionEnhancementLayer
 
     /**
-     * True when only a Dolby-capable decoder can render this file correctly.
+     * True when only a Dolby-capable decoder can be trusted to render this file correctly.
      *
-     * Profile 5, a stream with no base layer at all, and profile 7 or 8 that the server explicitly
-     * marks as having no compatible base layer cannot be repaired by pretending it is ordinary HEVC.
+     * Profile 5, a stream with no base layer at all, and a stream explicitly reporting compatibility
+     * id 0 are unconditionally Dolby-only. The important fail-safe is the final branch: some servers
+     * identify a stream as Dolby Vision but omit both `DvProfile` and the `dvhe.xx` tag. Treating that
+     * unknown profile as ordinary HEVC is how P5 can silently turn into a magenta/green picture. An
+     * unknown profile is therefore Dolby-only unless the server positively proves an HDR10/SDR/HLG
+     * compatible base layer through `DvBlSignalCompatibilityId`.
      */
     val needsDolbyCapableDecoder: Boolean
         get() {
             if (!isDolbyVision) return false
             if (dolbyProfile == 5) return true
             if (video?.dolbyBaseLayerPresent == false) return true
-            return video?.dolbyBaseLayerCompatibility == 0
+            val compatibility = video?.dolbyBaseLayerCompatibility
+            if (compatibility == 0) return true
+            if (dolbyProfile == null) return compatibility !in DOLBY_COMPATIBLE_BASE_LAYER_IDS
+            return false
         }
 
     /** `SDR` when the server reported no range at all — the chip always says something. */
@@ -199,6 +206,7 @@ data class MediaVersion(
             }
 }
 
+private val DOLBY_COMPATIBLE_BASE_LAYER_IDS = setOf(1, 2, 4)
 private val DISC_VIDEO_TYPES = setOf("iso", "dvd", "bluray", "blu-ray")
 private val DISC_CONTAINERS = setOf("iso", "dvd", "bluray", "blu-ray", "bdmv", "video_ts", "udf")
 
@@ -209,6 +217,9 @@ private fun String?.mentionsDolbyVision(): Boolean {
         "dovi" in value ||
         value.startsWith("dvhe") ||
         value.startsWith("dvh1") ||
+        value.startsWith("dvav") ||
+        value.startsWith("dva1") ||
+        // Keep accepting the old transposition because some hand-authored metadata already uses it.
         value.startsWith("dav1")
 }
 
