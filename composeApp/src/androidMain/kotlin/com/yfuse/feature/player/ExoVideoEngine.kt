@@ -540,7 +540,7 @@ class ExoVideoEngine(
                 val transcoding = index in transcodedIndices
                 val preservedFallbackReason =
                     previousState.diagnostics.fallbackReason
-                        .takeIf { previousState.currentIndex == index && it.isNotBlank() }
+                        ?.takeIf { previousState.currentIndex == index && it.isNotBlank() }
                         ?: failureHistoryLabel(index)
                 if (
                     !transcoding &&
