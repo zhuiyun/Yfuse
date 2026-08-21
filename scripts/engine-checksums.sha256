@@ -1,4 +1,7 @@
 # SHA-256 values for the exact artifacts downloaded by fetch-engines.sh.
-# Update the URL/version and its independently verified digest in the same review.
+# The custom Yfuse mpv is preferred. The stock entry is a verified fallback used only when
+# the pinned custom release asset is unavailable; stock builds must not advertise custom
+# Blu-ray capabilities.
 ba2d9ef865d0c710d2115234da0c84cb5ce9fc505ac31c17cc75685bd0a368d7  libmpv-release.aar
+df146592480fc8418415a06b1f1a1d6318b0088e21f52254b0e9a82b61ca8fa2  libmpv-release-stock.aar
 87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba  mdk-sdk-android.7z
