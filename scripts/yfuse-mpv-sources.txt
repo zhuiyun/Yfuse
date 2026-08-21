@@ -9,3 +9,7 @@ multi-angle=true
 capability-class=dev/yfuse/mpv/YfuseMpvCapabilities.class
 registry-class=dev/yfuse/mpv/YfuseBluRayRegistry.class
 bdmv-registry-class=dev/yfuse/mpv/YfuseBdmvRegistry.class
+ycore-demux=true
+ycore-demux-ffmpeg=n8.1
+ycore-demux-source=scripts/native/ycore_demux_jni.cpp
+ycore-demux-abis=arm64-v8a
