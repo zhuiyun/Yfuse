@@ -1,48 +1,9 @@
 name: Build Yfuse mpv Blu-ray
 
 on:
-  workflow_dispatch:
-    inputs:
-      architectures:
-        description: Native ABI set
-        required: true
-        default: arm64
-        type: choice
-        options:
-          - arm64
-          - all
-      publish_release:
-        description: Publish this verified arm64 build as a new immutable native dependency release
-        required: true
-        default: false
-        type: boolean
-      release_tag:
-        description: New native dependency tag (must not already exist)
-        required: true
-        default: native-mpv-fcf6745-yfuse2-arm64
-        type: string
-  push:
-    branches:
-      - feature/uhd-bluray
-      - agent/ycore2-foundation
-    paths:
-      - .github/workflows/build-yfuse-mpv-bluray.yml
-      - scripts/build-yfuse-mpv-bluray.sh
-      - scripts/build-ycore-native.sh
-      - scripts/build-ycore-demux.sh
-      - scripts/install-yfuse-mpv-bluray.sh
-      - scripts/verify-yfuse-mpv-bluray-aar.sh
-      - scripts/verify-ycore-native.sh
-      - scripts/native/**
-      - composeApp/src/androidMain/kotlin/com/yfuse/core2/android/FfmpegNativeBridge.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeRemoteBluRaySource.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/RemoteDiscBlockSource.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBluRaySource.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvSource.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvRegistryProxy.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBluRayRoute.android.kt
   pull_request:
+    branches:
+      - master
     paths:
       - .github/workflows/build-yfuse-mpv-bluray.yml
       - scripts/build-yfuse-mpv-bluray.sh
@@ -52,25 +13,20 @@ on:
       - scripts/verify-yfuse-mpv-bluray-aar.sh
       - scripts/verify-ycore-native.sh
       - scripts/native/**
-      - composeApp/src/androidMain/kotlin/com/yfuse/core2/android/FfmpegNativeBridge.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvSource.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvRegistryProxy.android.kt
-      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBluRayRoute.android.kt
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: yfuse-mpv-bluray-${{ github.ref }}
+  group: repair-yfuse-mpv-bluray-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: libmpv + libbluray + YCore demux
+  build-and-repair-release:
+    if: github.event.pull_request.head.ref == 'codex/repair-native-mpv-20260821'
+    name: Rebuild and repair pinned native dependency
     runs-on: ubuntu-24.04
     timeout-minutes: 180
-
     steps:
       - name: Checkout Yfuse
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -79,122 +35,99 @@ jobs:
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: '21'
 
       - name: Install host build tools
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y \
             autoconf automake binutils build-essential cmake curl git gperf libtool \
             ninja-build pkg-config python3 python3-venv unzip wget yasm
           python3 -m venv "$RUNNER_TEMP/yfuse-meson"
           "$RUNNER_TEMP/yfuse-meson/bin/pip" install --disable-pip-version-check \
-            "Jinja2==3.1.6" "meson==1.6.1"
+            'Jinja2==3.1.6' 'meson==1.6.1'
           echo "$RUNNER_TEMP/yfuse-meson/bin" >> "$GITHUB_PATH"
 
-      - name: Resolve ABI set
-        id: abi
+      - name: Build pinned arm64 native engine
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "value=${{ inputs.architectures }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=arm64" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build pinned native engine
-        shell: bash
-        run: |
+          set -euo pipefail
           chmod +x \
             scripts/build-yfuse-mpv-bluray.sh \
             scripts/build-ycore-native.sh \
             scripts/build-ycore-demux.sh \
             scripts/verify-yfuse-mpv-bluray-aar.sh \
             scripts/verify-ycore-native.sh
-          if [[ "${{ steps.abi.outputs.value }}" == "arm64" ]]; then
-            scripts/build-ycore-native.sh --arch arm64
-          else
-            scripts/build-ycore-native.sh
-          fi
-
-      - name: Verify native release gates
-        shell: bash
-        run: |
+          scripts/build-ycore-native.sh --arch arm64
           scripts/verify-ycore-native.sh
 
-      - name: Record artifact manifest
-        shell: bash
-        run: |
-          {
-            cat .native-build/artifacts/NATIVE-SOURCES.txt
-            echo "architectures=${{ steps.abi.outputs.value }}"
-            cat .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
-          } > .native-build/artifacts/BUILD-MANIFEST.txt
-
-      - name: Upload libmpv AAR
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: libmpv-yfuse-bluray-${{ steps.abi.outputs.value }}
-          path: |
-            .native-build/artifacts/libmpv-yfuse-bluray.aar
-            .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
-            .native-build/artifacts/NATIVE-SOURCES.txt
-            .native-build/artifacts/BUILD-MANIFEST.txt
-          if-no-files-found: error
-          retention-days: 14
-
-  publish:
-    name: Publish pinned native dependency
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Require the production ABI
+      - name: Require repository-locked digest
+        id: digest
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ inputs.architectures }}" != "arm64" ]]; then
-            echo "::error::The app ships arm64-v8a only; native releases must use architectures=arm64"
+          src='.native-build/artifacts/libmpv-yfuse-bluray.aar'
+          test -s "$src"
+          expected="$(awk '$2 == "libmpv-release.aar" { print tolower($1) }' scripts/engine-checksums.sha256)"
+          actual="$(sha256sum "$src" | awk '{ print tolower($1) }')"
+          if [[ ! "$expected" =~ ^[0-9a-f]{64}$ || "$actual" != "$expected" ]]; then
+            echo "::error::Native build digest does not match scripts/engine-checksums.sha256"
+            echo "expected=$expected"
+            echo "actual=$actual"
             exit 1
           fi
+          echo "sha=$actual" >> "$GITHUB_OUTPUT"
 
-      - name: Download verified native artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: libmpv-yfuse-bluray-arm64
-          path: native-release
+      - name: Stage release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p native-release
+          cp .native-build/artifacts/libmpv-yfuse-bluray.aar native-release/libmpv-release.aar
+          printf '%s  libmpv-release.aar\n' '${{ steps.digest.outputs.sha }}' > native-release/libmpv-release.aar.sha256
+          cp .native-build/artifacts/NATIVE-SOURCES.txt native-release/NATIVE-SOURCES.txt
+          {
+            cat native-release/NATIVE-SOURCES.txt
+            echo 'architectures=arm64'
+            cat native-release/libmpv-release.aar.sha256
+          } > native-release/BUILD-MANIFEST.txt
 
-      - name: Publish a non-replaceable native release
+      - name: Create or repair pinned native release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: native-mpv-fcf6745-yfuse2-arm64
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^native-mpv-[a-zA-Z0-9._-]+$ ]]
+          assets=(
+            native-release/libmpv-release.aar
+            native-release/libmpv-release.aar.sha256
+            native-release/NATIVE-SOURCES.txt
+            native-release/BUILD-MANIFEST.txt
+          )
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Native release $RELEASE_TAG already exists; refusing to replace it"
-            exit 1
+            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target '${{ github.event.pull_request.base.sha }}' \
+              --title "Yfuse native mpv $RELEASE_TAG" \
+              --notes 'Pinned arm64-v8a Yfuse libmpv build repaired from repository source and accepted only when its SHA-256 matches scripts/engine-checksums.sha256.' \
+              "${assets[@]}"
           fi
-          aar="$(find native-release -type f -name 'libmpv-yfuse-bluray.aar' -print -quit)"
-          sha="$(find native-release -type f -name 'libmpv-yfuse-bluray.aar.sha256' -print -quit)"
-          sources="$(find native-release -type f -name 'NATIVE-SOURCES.txt' -print -quit)"
-          manifest="$(find native-release -type f -name 'BUILD-MANIFEST.txt' -print -quit)"
-          test -s "$aar"
-          test -s "$sha"
-          test -s "$sources"
-          test -s "$manifest"
-          cp "$aar" native-release/libmpv-release.aar
-          sha256sum native-release/libmpv-release.aar |
-            sed 's#  .*#  libmpv-release.aar#' > native-release/libmpv-release.aar.sha256
-          gh release create "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "Yfuse native mpv $RELEASE_TAG" \
-            --notes "Pinned arm64-v8a Yfuse libmpv build with libbluray, remote ISO, SAF BDMV, HDMV menus and multi-angle support. BD-J is disabled. Source revisions and SHA-256 are attached." \
-            native-release/libmpv-release.aar \
-            native-release/libmpv-release.aar.sha256 \
-            "$sources" \
-            "$manifest"
+
+      - name: Verify published AAR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: native-mpv-fcf6745-yfuse2-arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p published
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern libmpv-release.aar --dir published
+          expected="$(awk '$2 == "libmpv-release.aar" { print tolower($1) }' scripts/engine-checksums.sha256)"
+          actual="$(sha256sum published/libmpv-release.aar | awk '{ print tolower($1) }')"
+          [[ "$actual" == "$expected" ]]
