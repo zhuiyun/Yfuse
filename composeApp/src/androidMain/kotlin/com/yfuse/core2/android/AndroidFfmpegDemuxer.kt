@@ -23,6 +23,7 @@ import com.yfuse.core2.hdr.YHdrStaticMetadata
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
+import com.yfuse.core2.sync.YMediaTimestampTimeline
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -32,15 +33,21 @@ import java.nio.ByteOrder
  * FFmpeg stops at AVPacket: no video/audio decode API is exposed by this class. Encoded samples are
  * copied once from a reusable native DirectByteBuffer into the immutable common demux contract,
  * then Core2 Bitstream/MediaCodec own the rest of the playback path.
+ *
+ * FFmpeg exposes container timestamps rather than the zero-based product timeline used by the
+ * other player engines. The first selected compressed packet establishes the source timestamp
+ * origin; all outgoing PTS/DTS values are rebased and seek targets are translated back before JNI.
  */
 internal class AndroidFfmpegDemuxer :
     YDemuxer,
     YSubtitlePacketDecoder {
     override val name: String = "FFmpeg 8.1 / libavformat"
 
+    private val timeline = YMediaTimestampTimeline()
     private var handle = 0L
     private var openResult: YDemuxOpenResult? = null
     private var packetBuffer = ByteBuffer.allocateDirect(INITIAL_PACKET_BUFFER_BYTES)
+    private var prefetchedSample: YCompressedSample? = null
 
     val available: Boolean get() = FfmpegNativeBridge.available
 
@@ -69,6 +76,8 @@ internal class AndroidFfmpegDemuxer :
             if (openedHandle != 0L) FfmpegNativeBridge.close(openedHandle)
             handle = 0L
             openResult = null
+            prefetchedSample = null
+            timeline.reset()
             throw throwable
         }
     }
@@ -77,13 +86,33 @@ internal class AndroidFfmpegDemuxer :
         val result = requireOpenResult()
         val known = result.tracks.mapTo(mutableSetOf()) { it.id }
         require(trackIds.all { it in known }) { "Selected track does not belong to this demux session" }
+        val retainedPrefetched = prefetchedSample?.takeIf { it.trackId in trackIds }
         FfmpegNativeBridge.selectTracks(
             requireHandle(),
             trackIds.map(YTrackId::value).sorted().toIntArray(),
         )
+        prefetchedSample = retainedPrefetched
+        // The first packet is retained rather than consumed. At an ordinary 0 ms start it becomes
+        // the first packet returned to the decoder; for a resume seek it only supplies the source
+        // timestamp origin before the seek invalidates it.
+        if (!timeline.established && trackIds.isNotEmpty()) {
+            readRawSample()?.let { first ->
+                timeline.establish(first.presentationTimeUs)
+                prefetchedSample = first
+            }
+        }
     }
 
     override fun readSample(): YCompressedSample? {
+        val raw = prefetchedSample?.also { prefetchedSample = null } ?: readRawSample() ?: return null
+        if (!timeline.established) timeline.establish(raw.presentationTimeUs)
+        return raw.copy(
+            presentationTimeUs = timeline.presentationTimeUs(raw.presentationTimeUs),
+            decodeTimeUs = raw.decodeTimeUs?.let(timeline::decodeTimeUs),
+        )
+    }
+
+    private fun readRawSample(): YCompressedSample? {
         val handle = requireHandle()
         while (true) {
             val result = FfmpegNativeBridge.readPacket(handle, packetBuffer)
@@ -137,7 +166,11 @@ internal class AndroidFfmpegDemuxer :
     }
 
     override fun seekTo(positionUs: Long) {
-        FfmpegNativeBridge.seek(requireHandle(), positionUs.coerceAtLeast(0L))
+        prefetchedSample = null
+        FfmpegNativeBridge.seek(
+            requireHandle(),
+            timeline.sourceTimeUs(positionUs),
+        )
     }
 
     override fun decodeSubtitle(sample: YCompressedSample): List<YSubtitleCue> {
@@ -152,7 +185,9 @@ internal class AndroidFfmpegDemuxer :
                 handle = requireHandle(),
                 trackIndex = sample.trackId.value,
                 data = sample.data,
-                presentationTimeUs = sample.presentationTimeUs,
+                // The native subtitle decoder still owns stream-local codec state. Feed it the
+                // original timestamp while keeping the cue emitted below on the normalized clock.
+                presentationTimeUs = timeline.sourceTimeUs(sample.presentationTimeUs),
                 durationUs = sample.durationUs,
             ) ?: return emptyList()
         return decoded.toBitmapSubtitleCues(sample)
@@ -162,6 +197,8 @@ internal class AndroidFfmpegDemuxer :
         val previous = handle
         handle = 0L
         openResult = null
+        prefetchedSample = null
+        timeline.reset()
         packetBuffer.clear()
         if (previous != 0L) FfmpegNativeBridge.close(previous)
     }
