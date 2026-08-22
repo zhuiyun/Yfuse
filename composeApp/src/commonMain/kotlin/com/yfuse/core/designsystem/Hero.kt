@@ -192,8 +192,8 @@ private fun HeroFavoriteButton(
  * keeps the darkness clear of the dissolve.
  */
 fun heroTopScrim(
-    topInk: Float = 0.58f,
-    midInk: Float = 0.24f,
+    topInk: Float = 0.66f,
+    midInk: Float = 0.28f,
 ): Brush =
     scrim(
         0f to Color.Transparent,
