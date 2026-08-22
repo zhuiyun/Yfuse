@@ -5,23 +5,19 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 
 /**
- * Brightness envelope for a page that visually continues a poster/backdrop.
+ * Soft safety envelope for the one opaque colour revealed by an artwork dissolve.
  *
- * The artwork itself is never retinted. Only the opaque colour revealed by the lower
- * alpha-dissolve is adjusted, so a dark poster remains a dark poster while the content
- * surface below it stays readable and consistent with the active light/dark appearance.
+ * The page must still look like the poster. These thresholds are deliberately wide: they
+ * only rescue extreme near-black/near-light targets instead of normalising every poster into
+ * the same beige/grey family. The artwork itself is never retinted.
  */
-private const val LightArtworkPageMinimumLuminance = 0.30f
-private const val DarkArtworkPageMinimumLuminance = 0.04f
-private const val DarkArtworkPageMaximumLuminance = 0.12f
+private const val LightArtworkPageMinimumLuminance = 0.18f
+private const val DarkArtworkPageMinimumLuminance = 0.025f
+private const val DarkArtworkPageMaximumLuminance = 0.20f
 
 /**
- * Protects the poster-derived page colour without replacing its hue with a fixed fallback.
- *
- * Light appearance only lifts colours that would make the whole page read as a dark theme.
- * Dark appearance keeps the same artwork colour inside a restrained dark envelope: very
- * bright artwork is brought down, while near-black artwork is lifted just enough that glass
- * edges and secondary surfaces do not disappear into a single black slab.
+ * Protects only pathological page targets while preserving the sampled hue and most of its
+ * original luminance. Home, Library and detail all use this same final fade target.
  */
 fun artworkPageSurface(
     sampled: Color,
@@ -37,18 +33,18 @@ fun artworkPageSurface(
 
 private fun Color.moveLuminanceAtLeast(minimum: Float): Color {
     var result = this
-    repeat(24) {
+    repeat(28) {
         if (result.luminance() >= minimum) return result
-        result = lerp(result, Color.White, 0.08f)
+        result = lerp(result, Color.White, 0.06f)
     }
     return result
 }
 
 private fun Color.moveLuminanceAtMost(maximum: Float): Color {
     var result = this
-    repeat(24) {
+    repeat(28) {
         if (result.luminance() <= maximum) return result
-        result = lerp(result, Color.Black, 0.08f)
+        result = lerp(result, Color.Black, 0.06f)
     }
     return result
 }
