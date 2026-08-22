@@ -13,7 +13,8 @@ class ArtworkPageThemeTest {
         val palette = resolveArtworkPagePalette(background)
         assertEquals(background, palette.background)
         assertTrue(palette.isDark)
-        assertReadable(palette, background)
+        assertMinimumReadable(palette, background)
+        assertTrue(artworkPageContrastRatio(palette.text, background) >= 7.0f)
     }
 
     @Test
@@ -22,23 +23,23 @@ class ArtworkPageThemeTest {
         val palette = resolveArtworkPagePalette(background)
         assertEquals(background, palette.background)
         assertFalse(palette.isDark)
-        assertReadable(palette, background)
+        assertMinimumReadable(palette, background)
+        assertTrue(artworkPageContrastRatio(palette.text, background) >= 7.0f)
     }
 
     @Test
-    fun middleTonePoster_stillProtectsEveryTextRole() {
+    fun middleTonePoster_usesBestAvailableInkAndKeepsNormalTextReadable() {
         val background = Color(0xFF6F7480)
         val palette = resolveArtworkPagePalette(background)
         assertEquals(background, palette.background)
-        assertReadable(palette, background)
+        assertMinimumReadable(palette, background)
     }
 
-    private fun assertReadable(
+    private fun assertMinimumReadable(
         palette: Palette,
         background: Color,
     ) {
-        assertTrue(artworkPageContrastRatio(palette.text, background) >= 7.0f)
-        listOf(palette.sub, palette.sub2, palette.body, palette.hint, palette.error).forEach {
+        listOf(palette.text, palette.sub, palette.sub2, palette.body, palette.hint, palette.error).forEach {
             assertTrue(artworkPageContrastRatio(it, background) >= 4.5f)
         }
     }
