@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 /**
  * Accepts plain seconds, `mm:ss`, or `hh:mm:ss` for the manual intro/credits editor.
  * A blank field deliberately means zero so clearing a field can clear that stored boundary.
+ * The editor keeps this parsing shared between typed values and current-position captures.
  */
 internal fun parseSkipTimestamp(input: String): Long? {
     val value = input.trim().replace('：', ':')
