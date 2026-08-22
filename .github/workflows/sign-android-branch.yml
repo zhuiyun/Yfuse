@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: android-merged-sign-${{ github.ref }}
@@ -37,6 +38,7 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
       EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
+      VERIFIED_NATIVE_RUN_ID: "32477358164"
 
     steps:
       - name: Check out source
@@ -69,14 +71,49 @@ jobs:
 
       - name: Download player engines
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if ! command -v 7z >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y p7zip-full
           fi
-          chmod +x gradlew scripts/fetch-engines.sh
+          command -v gh >/dev/null
+          chmod +x \
+            gradlew \
+            scripts/fetch-engines.sh \
+            scripts/install-yfuse-mpv-bluray.sh \
+            scripts/verify-ycore-native.sh \
+            scripts/verify-yfuse-mpv-bluray-aar.sh
+
+          native_dir="$RUNNER_TEMP/yfuse-native"
+          mkdir -p "$native_dir"
+          gh run download "$VERIFIED_NATIVE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name libmpv-yfuse-bluray-arm64 \
+            --dir "$native_dir"
+
+          aar="$(find "$native_dir" -type f -name 'libmpv-yfuse-bluray.aar' -print -quit)"
+          sha_file="$(find "$native_dir" -type f -name 'libmpv-yfuse-bluray.aar.sha256' -print -quit)"
+          sources="$(find "$native_dir" -type f -name 'NATIVE-SOURCES.txt' -print -quit)"
+          test -s "$aar"
+          test -s "$sha_file"
+          test -s "$sources"
+
+          scripts/install-yfuse-mpv-bluray.sh "$aar" "$sha_file" "$sources"
+
+          manifest_backup="$RUNNER_TEMP/engine-checksums.sha256"
+          cp scripts/engine-checksums.sha256 "$manifest_backup"
+          mpv_sha="$(sha256sum composeApp/libs/libmpv-release.aar | awk '{print tolower($1)}')"
+          awk -v sha="$mpv_sha" '
+            $2 == "libmpv-release.aar" { print sha "  libmpv-release.aar"; next }
+            { print }
+          ' scripts/engine-checksums.sha256 > scripts/engine-checksums.sha256.tmp
+          mv scripts/engine-checksums.sha256.tmp scripts/engine-checksums.sha256
           scripts/fetch-engines.sh
+          mv "$manifest_backup" scripts/engine-checksums.sha256
+
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
 
