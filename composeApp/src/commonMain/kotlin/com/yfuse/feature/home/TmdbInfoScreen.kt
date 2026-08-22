@@ -27,14 +27,16 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,21 +44,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.heroPanelBrush
-import com.yfuse.core.designsystem.heroScrim
-import com.yfuse.core.designsystem.heroSurface
+import com.yfuse.core.designsystem.artworkPageSurface
+import com.yfuse.core.designsystem.fadeIntoPage
+import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberAnimatedDominantColor
+import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberArtworkPageColor
+import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
@@ -70,10 +76,9 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
     val state by component.state.collectAsState()
     val detail = state.detail
     val item = detail.item
-    val palette = LocalPalette.current
-    val themeAccent = LocalAccentColors.current.accent
+    val inheritedPalette = LocalPalette.current
     // image.tmdb.org is the primary CDN and media.themoviedb.org the official mirror for
-    // when it is unreachable; the dominant-colour probe follows whichever one is showing.
+    // when it is unreachable; colour sampling follows whichever candidate is actually shown.
     val heroUrls =
         listOf(
             TmdbImages.backdrop(item.backdropPath),
@@ -82,289 +87,298 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
             TmdbImages.media(item.posterPath, "w780"),
         )
     val heroUrl = heroUrls.firstOrNull { it != null }
+    var resolvedHeroUrl by remember(item.id) { mutableStateOf<String?>(null) }
     val accent =
-        rememberAnimatedDominantColor(
-            heroUrl,
-            Brand.Primary, // design-system: brand-identity
+        rememberAnimatedArtworkAccent(
+            url = resolvedHeroUrl ?: heroUrl,
+            fallback = Brand.Primary, // design-system: brand-identity
+            darkTheme = inheritedPalette.isDark,
+            identity = item.id,
         )
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = maxHeight * 0.34f
-        val density = LocalDensity.current
-        val detailSurface =
-            remember(accent, palette.isDark) {
-                heroSurface(accent, palette.isDark)
+        val artworkAspectRatio = maxWidth.value / heroHeight.value.coerceAtLeast(1f)
+        val artworkFadeFraction =
+            (HeroPageFade.value / heroHeight.value.coerceAtLeast(1f)).coerceIn(0.02f, 1f)
+        val sampledPageColor =
+            rememberArtworkPageColor(
+                url = resolvedHeroUrl,
+                targetAspectRatio = artworkAspectRatio,
+                fadeFraction = artworkFadeFraction,
+            )
+        val retainedPageColor = rememberRetainedArtworkPageColor("tmdb-detail:${item.id}")
+        LaunchedEffect(sampledPageColor) {
+            sampledPageColor?.let(retainedPageColor::update)
+        }
+        val pageColor =
+            remember(retainedPageColor.value, inheritedPalette.isDark) {
+                retainedPageColor.value?.let { artworkPageSurface(it, inheritedPalette.isDark) }
             }
-        val panelBrush =
-            remember(detailSurface, density) {
-                heroPanelBrush(detailSurface, density, height = 220.dp)
-            }
-        val listState = rememberLazyListState()
-        val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
-        StatusBarIconStyle(darkIcons = lightPageReached)
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(if (palette.isDark) palette.background else Color.White),
-        )
 
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            state = listState,
-            contentPadding = PaddingValues(bottom = Dimens.contentBottom),
+        ArtworkPageTheme(
+            background = pageColor,
+            artworkAccent = accent,
         ) {
-            item {
-                Box(Modifier.fillMaxWidth().height(heroHeight)) {
-                    FallbackImage(
-                        urls = heroUrls,
-                        contentDescription = item.title,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    Box(Modifier.fillMaxSize().background(heroScrim(detailSurface)))
-                    Icon(
-                        AppIcons.ChevronLeft,
-                        contentDescription = "返回",
-                        tint = Color.White,
-                        modifier =
-                            Modifier
-                                .align(Alignment.TopStart)
-                                .statusBarsPadding()
-                                .padding(start = 18.dp, top = 12.dp)
-                                .pressable(onClickLabel = "返回上一页", onClick = component.onBack)
-                                .touchTarget()
-                                .size(38.dp)
-                                .solidGlass(
-                                    shape = CircleShape,
-                                    fill = Color(0xFF11151F).copy(alpha = 0.28f),
-                                    border = Color.White.copy(alpha = 0.34f),
-                                ).padding(10.dp),
-                    )
-                }
-            }
+            val palette = LocalPalette.current
+            val themeAccent = LocalAccentColors.current.accent
+            val listState = rememberLazyListState()
+            val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
+            StatusBarIconStyle(darkIcons = lightPageReached && !palette.isDark)
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(pageColor ?: palette.background),
+            )
 
-            item {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .liftOverHero(46.dp)
-                        .background(panelBrush)
-                        .padding(
-                            start = Dimens.pageHorizontal,
-                            top = 0.dp,
-                            end = Dimens.pageHorizontal,
-                            bottom = 12.dp,
-                        ),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(bottom = Dimens.contentBottom),
+            ) {
+                item {
+                    Box(Modifier.fillMaxWidth().height(heroHeight)) {
+                        FallbackImage(
+                            urls = heroUrls,
+                            contentDescription = item.title,
+                            onResolvedUrl = { resolvedHeroUrl = it },
+                            modifier = Modifier.fillMaxSize().fadeIntoPage(),
+                        )
+                        Box(Modifier.fillMaxSize().background(heroTopScrim()))
+                        Icon(
+                            AppIcons.ChevronLeft,
+                            contentDescription = "返回",
+                            tint = Color.White,
+                            modifier =
+                                Modifier
+                                    .align(Alignment.TopStart)
+                                    .statusBarsPadding()
+                                    .padding(start = 18.dp, top = 12.dp)
+                                    .pressable(onClickLabel = "返回上一页", onClick = component.onBack)
+                                    .touchTarget()
+                                    .size(38.dp)
+                                    .solidGlass(
+                                        shape = CircleShape,
+                                        fill = Color(0xFF11151F).copy(alpha = 0.28f),
+                                        border = Color.White.copy(alpha = 0.34f),
+                                    ).padding(10.dp),
+                        )
+                    }
+                }
+
+                item {
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .shadow(Shadows.sheet, GlassShapes.sheet)
-                            .solidGlass(
-                                shape = GlassShapes.card,
-                                fill =
-                                    if (palette.isDark) {
-                                        palette.glassStrong
-                                    } else {
-                                        Color(0xFFEAF0FA).copy(alpha = 0.82f)
-                                    },
-                                border =
-                                    if (palette.isDark) {
-                                        palette.border
-                                    } else {
-                                        Color.White.copy(alpha = 0.94f)
-                                    },
-                            ).padding(10.dp),
+                            .liftOverHero(46.dp)
+                            .padding(
+                                start = Dimens.pageHorizontal,
+                                top = 0.dp,
+                                end = Dimens.pageHorizontal,
+                                bottom = 12.dp,
+                            ),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .shadow(Shadows.sheet, GlassShapes.sheet)
+                                .solidGlass(
+                                    shape = GlassShapes.card,
+                                    fill = palette.card2,
+                                    border = palette.border,
+                                ).padding(10.dp),
                         ) {
-                            Poster(
-                                url = TmdbImages.poster(item.posterPath),
-                                fallbackUrls =
-                                    listOfNotNull(
-                                        TmdbImages.media(item.posterPath),
-                                        TmdbImages.backdrop(item.backdropPath, "w780"),
-                                        TmdbImages.media(item.backdropPath, "w780"),
-                                    ),
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Poster(
+                                    url = TmdbImages.poster(item.posterPath),
+                                    fallbackUrls =
+                                        listOfNotNull(
+                                            TmdbImages.media(item.posterPath),
+                                            TmdbImages.backdrop(item.backdropPath, "w780"),
+                                            TmdbImages.media(item.backdropPath, "w780"),
+                                        ),
+                                    modifier =
+                                        Modifier
+                                            .width(78.dp)
+                                            .height(110.dp)
+                                            .shadow(Shadows.detailPoster, GlassShapes.poster)
+                                            .border(2.dp, palette.border, GlassShapes.poster),
+                                )
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        item.title,
+                                        style = AppTypography.section.strong,
+                                        color = palette.text,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(Modifier.height(5.dp))
+                                    Text(
+                                        listOfNotNull(
+                                            detail.genres.firstOrNull(),
+                                            item.year,
+                                            detail.runtimeMinutes?.let { "$it 分钟" },
+                                            detail.numberOfSeasons?.let { "$it 季" },
+                                        ).joinToString(" · "),
+                                        style = AppTypography.caption.regular,
+                                        color = palette.sub,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    item.rating?.let { rating ->
+                                        Spacer(Modifier.height(7.dp))
+                                        Text(
+                                            "TMDB ${(rating * 10).toInt() / 10.0}",
+                                            style = AppTypography.caption.strong,
+                                            color = Brand.Imdb,
+                                            modifier =
+                                                Modifier
+                                                    .solidGlass(
+                                                        shape = GlassShapes.thumb,
+                                                        fill = Brand.Imdb.copy(alpha = 0.14f),
+                                                        border = Brand.Imdb.copy(alpha = 0.24f),
+                                                    ).padding(horizontal = 7.dp, vertical = 3.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        TmdbPlayDock(
+                            playable = state.playable,
+                            resolving = state.resolvingPlay,
+                            accent = themeAccent,
+                            onPlay = component::play,
+                        )
+
+                        if (state.sources.any {
+                                it.reachable && it.source != null && it.itemId != null
+                            }
+                        ) {
+                            TmdbSourceStrip(
+                                sources = state.sources,
+                                accent = themeAccent,
+                                onSelect = component::playSource,
+                            )
+                        }
+
+                        state.error?.let { error ->
+                            Text(
+                                error,
+                                style = AppTypography.body.strong,
+                                color = palette.error,
+                                textAlign = TextAlign.Center,
                                 modifier =
                                     Modifier
-                                        .width(78.dp)
-                                        .height(110.dp)
-                                        .shadow(Shadows.detailPoster, GlassShapes.poster)
-                                        .border(2.dp, Color.White, GlassShapes.poster),
+                                        .fillMaxWidth()
+                                        .pressable(onClick = component::dismissError)
+                                        .solidGlass(GlassShapes.card)
+                                        .padding(12.dp),
                             )
-                            Column(Modifier.weight(1f)) {
+                        }
+
+                        if (!detail.tagline.isNullOrBlank()) {
+                            Text(
+                                "“${detail.tagline}”",
+                                style = AppTypography.body.medium.copy(lineHeight = 20.sp),
+                                fontStyle = FontStyle.Italic,
+                                color = palette.sub,
+                            )
+                        }
+
+                        if (!item.overview.isNullOrBlank()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("剧情简介", style = AppTypography.section.strong, color = palette.text)
                                 Text(
-                                    item.title,
-                                    style = AppTypography.section.strong,
-                                    color = palette.text,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
+                                    item.overview,
+                                    style = AppTypography.body.regular.copy(lineHeight = 20.sp),
+                                    color = palette.body,
                                 )
-                                Spacer(Modifier.height(5.dp))
-                                Text(
-                                    listOfNotNull(
-                                        detail.genres.firstOrNull(),
-                                        item.year,
-                                        detail.runtimeMinutes?.let { "$it 分钟" },
-                                        detail.numberOfSeasons?.let { "$it 季" },
-                                    ).joinToString(" · "),
-                                    style = AppTypography.caption.regular,
-                                    color = palette.sub,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                item.rating?.let { rating ->
-                                    Spacer(Modifier.height(7.dp))
+                            }
+                        }
+
+                        if (detail.genres.isNotEmpty()) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(detail.genres, key = { it }) { genre ->
                                     Text(
-                                        "TMDB ${(rating * 10).toInt() / 10.0}",
-                                        style = AppTypography.caption.strong,
-                                        color = Brand.Imdb,
+                                        genre,
+                                        style = AppTypography.body.strong,
+                                        color = palette.sub,
                                         modifier =
                                             Modifier
-                                                .solidGlass(
-                                                    shape = GlassShapes.thumb,
-                                                    fill = Brand.Imdb.copy(alpha = 0.14f),
-                                                    border = Brand.Imdb.copy(alpha = 0.24f),
-                                                ).padding(horizontal = 7.dp, vertical = 3.dp),
+                                                .solidGlass(GlassShapes.thumb)
+                                                .padding(horizontal = 11.dp, vertical = 7.dp),
                                     )
                                 }
                             }
                         }
-                    }
 
-                    TmdbPlayDock(
-                        playable = state.playable,
-                        resolving = state.resolvingPlay,
-                        accent = themeAccent,
-                        onPlay = component::play,
-                    )
-
-                    if (state.sources.any {
-                            it.reachable && it.source != null && it.itemId != null
-                        }
-                    ) {
-                        TmdbSourceStrip(
-                            sources = state.sources,
-                            accent = themeAccent,
-                            onSelect = component::playSource,
-                        )
-                    }
-
-                    state.error?.let { error ->
-                        Text(
-                            error,
-                            style = AppTypography.body.strong,
-                            color = palette.error,
-                            textAlign = TextAlign.Center,
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .pressable(onClick = component::dismissError)
-                                    .solidGlass(GlassShapes.card)
-                                    .padding(12.dp),
-                        )
-                    }
-
-                    if (!detail.tagline.isNullOrBlank()) {
-                        Text(
-                            "“${detail.tagline}”",
-                            style = AppTypography.body.medium.copy(lineHeight = 20.sp),
-                            fontStyle = FontStyle.Italic,
-                            color = palette.sub,
-                        )
-                    }
-
-                    if (!item.overview.isNullOrBlank()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("剧情简介", style = AppTypography.section.strong, color = palette.text)
-                            Text(
-                                item.overview,
-                                style = AppTypography.body.regular.copy(lineHeight = 20.sp),
-                                color = palette.body,
-                            )
-                        }
-                    }
-
-                    if (detail.genres.isNotEmpty()) {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(detail.genres, key = { it }) { genre ->
-                                Text(
-                                    genre,
-                                    style = AppTypography.body.strong,
-                                    color = palette.sub,
-                                    modifier =
-                                        Modifier
-                                            .solidGlass(GlassShapes.thumb)
-                                            .padding(horizontal = 11.dp, vertical = 7.dp),
-                                )
-                            }
-                        }
-                    }
-
-                    if (detail.cast.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("演职人员", style = AppTypography.section.strong, color = palette.text)
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                items(detail.cast, key = { it.id }) { person ->
-                                    Column(
-                                        Modifier.width(70.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                    ) {
-                                        FallbackImage(
-                                            urls =
-                                                listOf(
-                                                    TmdbImages.poster(person.profilePath, "w185"),
-                                                    TmdbImages.media(person.profilePath, "w185"),
-                                                ),
-                                            contentDescription = person.name,
-                                            modifier =
-                                                Modifier
-                                                    .size(58.dp)
-                                                    .clip(CircleShape)
-                                                    .background(palette.card)
-                                                    .border(
-                                                        1.dp,
-                                                        Color.White.copy(alpha = 0.88f),
-                                                        CircleShape,
+                        if (detail.cast.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("演职人员", style = AppTypography.section.strong, color = palette.text)
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    items(detail.cast, key = { it.id }) { person ->
+                                        Column(
+                                            Modifier.width(70.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                        ) {
+                                            FallbackImage(
+                                                urls =
+                                                    listOf(
+                                                        TmdbImages.poster(person.profilePath, "w185"),
+                                                        TmdbImages.media(person.profilePath, "w185"),
                                                     ),
-                                        )
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(
-                                            person.name,
-                                            style = AppTypography.body.strong,
-                                            color = palette.text,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        person.role?.let {
+                                                contentDescription = person.name,
+                                                modifier =
+                                                    Modifier
+                                                        .size(58.dp)
+                                                        .clip(CircleShape)
+                                                        .background(palette.card)
+                                                        .border(
+                                                            1.dp,
+                                                            palette.border,
+                                                            CircleShape,
+                                                        ),
+                                            )
+                                            Spacer(Modifier.height(6.dp))
                                             Text(
-                                                it,
-                                                style = AppTypography.caption.regular,
-                                                color = palette.sub2,
+                                                person.name,
+                                                style = AppTypography.body.strong,
+                                                color = palette.text,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                             )
+                                            person.role?.let {
+                                                Text(
+                                                    it,
+                                                    style = AppTypography.caption.regular,
+                                                    color = palette.sub2,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    if (state.loading) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            CircularProgressIndicator(
-                                color = themeAccent,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(18.dp),
-                            )
+                        if (state.loading) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                CircularProgressIndicator(
+                                    color = themeAccent,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -399,18 +413,8 @@ private fun TmdbSourceStrip(
                         entry.itemId?.let { onSelect(entry.serverId, it) }
                     }.solidGlass(
                         shape = GlassShapes.thumb,
-                        fill =
-                            if (palette.isDark) {
-                                Color.White.copy(alpha = 0.07f)
-                            } else {
-                                Color(0xFFEFF3FA).copy(alpha = 0.72f)
-                            },
-                        border =
-                            if (palette.isDark) {
-                                Color.White.copy(alpha = 0.20f)
-                            } else {
-                                Color(0xFFD7DDE9)
-                            },
+                        fill = palette.card2,
+                        border = palette.border,
                     ).padding(horizontal = 10.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -461,13 +465,8 @@ private fun TmdbPlayDock(
             .fillMaxWidth()
             .solidGlass(
                 shape = GlassShapes.card,
-                fill =
-                    if (palette.isDark) {
-                        Color.White.copy(alpha = 0.08f)
-                    } else {
-                        Color.White.copy(alpha = 0.72f)
-                    },
-                border = if (palette.isDark) palette.border else Color.White.copy(alpha = 0.96f),
+                fill = palette.card2,
+                border = palette.border,
             ).padding(7.dp),
     ) {
         if (playable) {

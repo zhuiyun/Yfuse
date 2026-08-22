@@ -220,7 +220,7 @@ fun DetailScreen(component: DetailComponent) {
     // Which library, and which episode. It used to append the version name, its quality
     // label and the resume timestamp as well, which on a long server name ran past the
     // button and ellipsized the part that identifies the episode. The version is stated by
-    // 版本 and 媒体信息, and the resume point by the progress bar under the button.
+    // 版本 and 媒体信息; the resume clock is now a dedicated right-aligned datum in the key.
     val playDetailLine =
         remember(state.playServer, state.playTarget) {
             val target = state.playTarget
@@ -435,8 +435,9 @@ fun DetailScreen(component: DetailComponent) {
                                 )
                                 DetailActionDock(
                                     accent = detailAccent,
-                                    label = if (state.playPositionTicks > 0L) "继续观看" else "播放",
+                                    label = if (state.playPositionTicks > 0L) "继续播放" else "播放",
                                     detailLine = playDetailLine,
+                                    resumeTimeLabel = formatResumePosition(state.playPositionTicks),
                                     resolving = state.resolvingPlay || state.selectionLoading,
                                     favorite = detail.isFavorite,
                                     watchLater = state.watchLater,

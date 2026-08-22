@@ -35,18 +35,29 @@ import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 
+private const val EmbyTicksPerSecond = 10_000_000L
+
+internal fun formatResumePosition(playPositionTicks: Long): String? {
+    if (playPositionTicks <= 0L) return null
+    val totalSeconds = playPositionTicks / EmbyTicksPerSecond
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        "$hours:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+    } else {
+        "${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+    }
+}
+
 @Composable
 internal fun DetailActionDock(
     accent: Color,
     label: String,
-    /**
-     * `S1 E4 · 20:01` — which entry the key opens and where it picks up.
-     *
-     * The button used to say 继续观看 and nothing else, which on a show is the one word that
-     * leaves the actual question unanswered: continue *what*. Null for a film that has
-     * never been started, where there is nothing to add.
-     */
+    /** `S1 E4` / server identity; the resume clock is rendered separately at the right edge. */
     detailLine: String?,
+    /** Resume position shown immediately to the left of the chevron. */
+    resumeTimeLabel: String?,
     resolving: Boolean,
     favorite: Boolean,
     watchLater: Boolean,
@@ -132,10 +143,19 @@ internal fun DetailActionDock(
                         )
                     }
                 }
+                resumeTimeLabel?.let { resumeTime ->
+                    Text(
+                        resumeTime,
+                        style = AppTypography.caption.strong,
+                        color = Color.White.copy(alpha = 0.94f),
+                        maxLines = 1,
+                        modifier = Modifier.padding(start = 8.dp, end = 5.dp),
+                    )
+                }
                 Icon(
                     AppIcons.ChevronRight,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.72f),
+                    tint = Color.White.copy(alpha = 0.78f),
                     modifier = Modifier.size(14.dp),
                 )
             }
