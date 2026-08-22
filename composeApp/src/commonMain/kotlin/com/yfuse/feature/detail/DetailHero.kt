@@ -63,8 +63,8 @@ import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.cssLinearGradient
-import com.yfuse.core.designsystem.heroPanelBrush
-import com.yfuse.core.designsystem.heroScrim
+import com.yfuse.core.designsystem.fadeIntoPage
+import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.isSharedMediaArtworkActive
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
@@ -240,6 +240,7 @@ internal fun Hero(
                     Modifier
                         .sharedMediaArtwork(sharedKey)
                         .fillMaxSize()
+                        .fadeIntoPage()
                         .graphicsLayer {
                             val scale =
                                 1f +
@@ -251,7 +252,7 @@ internal fun Hero(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(heroScrim(surfaceColor)),
+                    .background(heroTopScrim()),
             )
         }
     }

@@ -21,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
@@ -36,6 +38,15 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
 
 private const val EmbyTicksPerSecond = 10_000_000L
+
+internal fun resumeTimeColor(accent: Color): Color {
+    val opaque = accent.copy(alpha = 1f)
+    return if (opaque.luminance() < 0.34f) {
+        lerp(opaque, Color.White, 0.58f)
+    } else {
+        opaque
+    }
+}
 
 internal fun formatResumePosition(playPositionTicks: Long): String? {
     if (playPositionTicks <= 0L) return null
@@ -147,9 +158,18 @@ internal fun DetailActionDock(
                     Text(
                         resumeTime,
                         style = AppTypography.caption.strong,
-                        color = Color.White.copy(alpha = 0.94f),
+                        color = resumeTimeColor(accent),
                         maxLines = 1,
-                        modifier = Modifier.padding(start = 8.dp, end = 5.dp),
+                        modifier =
+                            Modifier
+                                .padding(start = 8.dp, end = 5.dp)
+                                .clip(GlassShapes.thumb)
+                                .background(Color.Black.copy(alpha = 0.22f))
+                                .border(
+                                    Dimens.hairline,
+                                    Color.White.copy(alpha = 0.14f),
+                                    GlassShapes.thumb,
+                                ).padding(horizontal = 7.dp, vertical = 3.dp),
                     )
                 }
                 Icon(

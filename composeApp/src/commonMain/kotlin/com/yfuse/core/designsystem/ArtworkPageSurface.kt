@@ -5,23 +5,21 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 
 /**
- * Brightness envelope for a page that visually continues a poster/backdrop.
+ * Soft safety envelope for the opaque colour revealed by an artwork dissolve.
  *
- * The artwork itself is never retinted. Only the opaque colour revealed by the lower
- * alpha-dissolve is adjusted, so a dark poster remains a dark poster while the content
- * surface below it stays readable and consistent with the active light/dark appearance.
+ * Every poster keeps its own sampled hue and normal brightness. Protection only enters for
+ * extremes: near-black colours in light appearance, and near-black / overly bright colours
+ * in dark appearance. The artwork itself is never retinted.
  */
-private const val LightArtworkPageMinimumLuminance = 0.30f
-private const val DarkArtworkPageMinimumLuminance = 0.04f
-private const val DarkArtworkPageMaximumLuminance = 0.12f
+private const val LightArtworkPageMinimumLuminance = 0.18f
+private const val DarkArtworkPageMinimumLuminance = 0.025f
+private const val DarkArtworkPageMaximumLuminance = 0.20f
 
 /**
- * Protects the poster-derived page colour without replacing its hue with a fixed fallback.
- *
- * Light appearance only lifts colours that would make the whole page read as a dark theme.
- * Dark appearance keeps the same artwork colour inside a restrained dark envelope: very
- * bright artwork is brought down, while near-black artwork is lifted just enough that glass
- * edges and secondary surfaces do not disappear into a single black slab.
+ * Protects only extreme targets. The correction uses a soft knee: the farther a sample is
+ * outside the safe envelope the larger each correction step is; close to the threshold the
+ * step becomes very small. That keeps red posters red, blue posters blue and green posters
+ * green instead of normalising them towards one grey/beige surface.
  */
 fun artworkPageSurface(
     sampled: Color,
@@ -29,26 +27,34 @@ fun artworkPageSurface(
 ): Color =
     if (darkTheme) {
         sampled
-            .moveLuminanceAtLeast(DarkArtworkPageMinimumLuminance)
-            .moveLuminanceAtMost(DarkArtworkPageMaximumLuminance)
+            .softLiftTo(DarkArtworkPageMinimumLuminance)
+            .softLowerTo(DarkArtworkPageMaximumLuminance)
     } else {
-        sampled.moveLuminanceAtLeast(LightArtworkPageMinimumLuminance)
+        sampled.softLiftTo(LightArtworkPageMinimumLuminance)
     }
 
-private fun Color.moveLuminanceAtLeast(minimum: Float): Color {
+private fun Color.softLiftTo(minimum: Float): Color {
+    if (luminance() >= minimum) return this
     var result = this
-    repeat(24) {
-        if (result.luminance() >= minimum) return result
-        result = lerp(result, Color.White, 0.08f)
+    repeat(48) {
+        val current = result.luminance()
+        if (current >= minimum) return result
+        val severity = ((minimum - current) / minimum).coerceIn(0f, 1f)
+        val step = 0.012f + 0.078f * severity * severity
+        result = lerp(result, Color.White, step)
     }
     return result
 }
 
-private fun Color.moveLuminanceAtMost(maximum: Float): Color {
+private fun Color.softLowerTo(maximum: Float): Color {
+    if (luminance() <= maximum) return this
     var result = this
-    repeat(24) {
-        if (result.luminance() <= maximum) return result
-        result = lerp(result, Color.Black, 0.08f)
+    repeat(48) {
+        val current = result.luminance()
+        if (current <= maximum) return result
+        val severity = ((current - maximum) / (1f - maximum)).coerceIn(0f, 1f)
+        val step = 0.012f + 0.078f * severity * severity
+        result = lerp(result, Color.Black, step)
     }
     return result
 }
