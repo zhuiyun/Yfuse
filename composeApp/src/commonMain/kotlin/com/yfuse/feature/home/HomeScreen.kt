@@ -79,6 +79,7 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
@@ -493,7 +494,7 @@ private fun HomeHeroCarousel(
                             }
                         }
                     },
-                    onArtwork = true,
+                    onArtwork = false,
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
@@ -540,10 +541,14 @@ private fun HeroSlide(
     LaunchedEffect(settled, artworkAccent) {
         if (settled) onAccent(artworkAccent)
     }
+    val slideGround = pageTint(artworkAccent)
     Box(
         modifier
             .fillMaxSize()
             .then(if (framed) Modifier.livingPosterFrame() else Modifier)
+            // The alpha mask reveals this slide's own ground. When the pager is between two
+            // titles each half therefore resolves into the colour belonging to its artwork.
+            .background(slideGround)
             .then(
                 if (item == null) {
                     Modifier
@@ -563,13 +568,11 @@ private fun HeroSlide(
             FallbackImage(
                 urls = artworkUrls,
                 contentDescription = item.title,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().fadeIntoPage(),
             )
         }
-        // Its own slide's page colour rather than the settled one: mid-swipe the neighbour
-        // dissolves into the ground it is about to give the page, so the two arrive together
-        // instead of the scrim stepping to the new colour after the pager settles.
-        Box(Modifier.fillMaxSize().background(heroReelScrim(pageTint(artworkAccent))))
+        // Contrast only. The image itself owns the lower transition through fadeIntoPage().
+        Box(Modifier.fillMaxSize().background(heroReelScrim()))
 
         if (item != null) {
             HeroCaption(

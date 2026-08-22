@@ -24,7 +24,7 @@ object LivingPosterDefaults {
     val LEADING_INSET = 18.dp
     val TRAILING_PEEK = 58.dp
     val PAGE_SPACING = 12.dp
-    val CAPTION_BOTTOM = 76.dp
+    val CAPTION_BOTTOM = HeroCaptionClearance
     val INDICATOR_BOTTOM = 16.dp
 }
 
@@ -73,7 +73,9 @@ fun LivingPosterAmbient(
     modifier: Modifier = Modifier,
 ) {
     if (urls.none { !it.isNullOrBlank() }) return
-    Box(modifier) {
+    // Fade the blurred echo as well as the foreground artwork. Leaving this layer opaque made
+    // its clipped lower edge visible after the main image had already dissolved into the page.
+    Box(modifier.fadeIntoPage()) {
         FallbackImage(
             urls = urls,
             contentDescription = null,
