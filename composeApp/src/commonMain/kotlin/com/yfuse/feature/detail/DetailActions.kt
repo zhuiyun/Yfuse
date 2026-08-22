@@ -205,7 +205,7 @@ internal fun DetailActionDock(
     }
 }
 
-/** A layered secondary key: glass body, inset icon well and a visible selected state. */
+/** Soft secondary glass: enough edge to read, without becoming a white card on the tinted page. */
 @Composable
 private fun GlassActionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -220,15 +220,15 @@ private fun GlassActionButton(
     val palette = LocalPalette.current
     val fill =
         when {
-            active -> accent.copy(alpha = if (palette.isDark) 0.30f else 0.20f)
-            palette.isDark -> Color.White.copy(alpha = 0.075f)
-            else -> Color.White.copy(alpha = 0.72f)
+            active -> accent.copy(alpha = if (palette.isDark) 0.28f else 0.16f)
+            palette.isDark -> Color.White.copy(alpha = 0.07f)
+            else -> Color.White.copy(alpha = 0.28f)
         }
     val edge =
         when {
-            active -> accent.copy(alpha = 0.58f)
-            palette.isDark -> Color.White.copy(alpha = 0.19f)
-            else -> Color(0xFFE0E7F1)
+            active -> accent.copy(alpha = if (palette.isDark) 0.54f else 0.46f)
+            palette.isDark -> Color.White.copy(alpha = 0.18f)
+            else -> Color.White.copy(alpha = 0.52f)
         }
     Row(
         modifier
@@ -241,7 +241,7 @@ private fun GlassActionButton(
                 shape = GlassShapes.card,
                 fill = fill,
                 border = edge,
-                sheen = 0.72f,
+                sheen = 0.58f,
             ).padding(horizontal = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -252,13 +252,13 @@ private fun GlassActionButton(
                 .clip(CircleShape)
                 .background(
                     if (active) {
-                        accent.copy(alpha = 0.22f)
+                        accent.copy(alpha = if (palette.isDark) 0.22f else 0.14f)
                     } else {
-                        palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f)
+                        palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.035f)
                     },
                 ).border(
                     Dimens.hairline,
-                    if (active) accent.copy(alpha = 0.46f) else palette.border,
+                    if (active) accent.copy(alpha = 0.42f) else edge,
                     CircleShape,
                 ),
             contentAlignment = Alignment.Center,
@@ -288,9 +288,6 @@ private fun GlassActionButton(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (active) {
-            Box(Modifier.size(6.dp).clip(CircleShape).background(accent))
-        }
     }
 }
 
