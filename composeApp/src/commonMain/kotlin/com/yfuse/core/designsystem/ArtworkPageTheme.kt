@@ -21,18 +21,28 @@ internal fun artworkPageContrastRatio(
     return (light + 0.05f) / (dark + 0.05f)
 }
 
+/**
+ * Moves a semantic foreground toward whichever neutral endpoint has the greater contrast.
+ *
+ * [preferredContrast] is a target, not a promise: around middle luminance no colour can reach
+ * 7:1 against the background. In that case the function returns the higher-contrast of black
+ * or white. One of those endpoints always clears the 4.5:1 normal-text floor, so readability
+ * is protected without changing the sampled page colour that has to meet the hero exactly.
+ */
 private fun readableArtworkInk(
     foreground: Color,
     background: Color,
-    minimumContrast: Float,
-    lightInk: Boolean,
+    preferredContrast: Float,
 ): Color {
-    if (artworkPageContrastRatio(foreground, background) >= minimumContrast) return foreground
-    val target = if (lightInk) Color.White else Color.Black
+    if (artworkPageContrastRatio(foreground, background) >= preferredContrast) return foreground
+
+    val whiteContrast = artworkPageContrastRatio(Color.White, background)
+    val blackContrast = artworkPageContrastRatio(Color.Black, background)
+    val target = if (whiteContrast >= blackContrast) Color.White else Color.Black
     var result = foreground
     repeat(24) {
         result = lerp(result, target, 0.12f)
-        if (artworkPageContrastRatio(result, background) >= minimumContrast) return result
+        if (artworkPageContrastRatio(result, background) >= preferredContrast) return result
     }
     return target
 }
@@ -51,12 +61,12 @@ fun resolveArtworkPagePalette(background: Color): Palette {
     val base = if (useDarkPalette) DarkPalette else LightPalette
     return base.copy(
         background = background,
-        text = readableArtworkInk(base.text, background, StrongArtworkPageContrast, useDarkPalette),
-        sub = readableArtworkInk(base.sub, background, MinimumArtworkPageContrast, useDarkPalette),
-        sub2 = readableArtworkInk(base.sub2, background, MinimumArtworkPageContrast, useDarkPalette),
-        body = readableArtworkInk(base.body, background, MinimumArtworkPageContrast, useDarkPalette),
-        hint = readableArtworkInk(base.hint, background, MinimumArtworkPageContrast, useDarkPalette),
-        error = readableArtworkInk(base.error, background, MinimumArtworkPageContrast, useDarkPalette),
+        text = readableArtworkInk(base.text, background, StrongArtworkPageContrast),
+        sub = readableArtworkInk(base.sub, background, MinimumArtworkPageContrast),
+        sub2 = readableArtworkInk(base.sub2, background, MinimumArtworkPageContrast),
+        body = readableArtworkInk(base.body, background, MinimumArtworkPageContrast),
+        hint = readableArtworkInk(base.hint, background, MinimumArtworkPageContrast),
+        error = readableArtworkInk(base.error, background, MinimumArtworkPageContrast),
         isDark = useDarkPalette,
     )
 }
