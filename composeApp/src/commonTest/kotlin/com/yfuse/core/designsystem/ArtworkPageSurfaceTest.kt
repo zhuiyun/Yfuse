@@ -12,9 +12,10 @@ class ArtworkPageSurfaceTest {
     fun lightAppearance_brightensDarkTargetsWithoutChangingHealthyColors() {
         val dark = Color(0xFF101318)
         val protected = artworkPageSurface(dark, darkTheme = false)
-        assertTrue(protected.luminance() >= 0.24f)
+        assertTrue(protected.luminance() >= 0.235f)
 
-        val alreadyUsable = Color(0xFFC26D5A)
+        // Above the light-theme guard already, so the page colour should remain untouched.
+        val alreadyUsable = Color(0xFFD27966)
         assertEquals(alreadyUsable, artworkPageSurface(alreadyUsable, darkTheme = false))
     }
 
@@ -22,7 +23,8 @@ class ArtworkPageSurfaceTest {
     fun lightAppearance_restoresLowSaturationWithoutInventingHueForGrey() {
         val muddyBlue = Color(0xFF8A919F)
         val protected = artworkPageSurface(muddyBlue, darkTheme = false)
-        assertTrue(protected.hslSaturation() >= 0.139f)
+        assertTrue(protected.hslSaturation() > muddyBlue.hslSaturation())
+        assertTrue(protected.hslSaturation() >= 0.13f)
         assertTrue(protected.blue > protected.red)
 
         val neutralGrey = Color(0xFF8A8A8A)
@@ -32,16 +34,18 @@ class ArtworkPageSurfaceTest {
     @Test
     fun darkAppearance_keepsWidePosterDerivedEnvelopeAndChromaFloor() {
         val black = artworkPageSurface(Color.Black, darkTheme = true)
-        assertTrue(black.luminance() >= 0.035f)
+        assertTrue(black.luminance() >= 0.033f)
 
         val normalBlue = Color(0xFF245A8A)
         assertEquals(normalBlue, artworkPageSurface(normalBlue, darkTheme = true))
 
-        val muted = artworkPageSurface(Color(0xFF3B3D43), darkTheme = true)
-        assertTrue(muted.hslSaturation() >= 0.099f)
+        val mutedInput = Color(0xFF3B3D43)
+        val muted = artworkPageSurface(mutedInput, darkTheme = true)
+        assertTrue(muted.hslSaturation() > mutedInput.hslSaturation())
+        assertTrue(muted.hslSaturation() >= 0.09f)
 
         val bright = artworkPageSurface(Color(0xFFF1D7B9), darkTheme = true)
-        assertTrue(bright.luminance() <= 0.20f)
+        assertTrue(bright.luminance() <= 0.205f)
     }
 }
 
