@@ -1,0 +1,89 @@
+name: Restore 1.0.7 poster transition
+
+on:
+  push:
+    branches:
+      - codex/restore-1.0.7-poster-transition
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out restore branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+
+      - name: Restore only the 1.0.7 poster-transition deltas
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # PR #91 contains the exact source chain used for the successful 1.0.7 (166) build.
+          git fetch origin refs/pull/91/head:refs/remotes/origin/pr91-head
+
+          merge_delta() {
+            local commit="$1"
+            local path="$2"
+            local parent
+            local temp
+            parent="$(git rev-parse "${commit}^")"
+            temp="$(mktemp -d)"
+
+            cp "$path" "$temp/ours"
+            git show "$parent:$path" > "$temp/base"
+            git show "$commit:$path" > "$temp/theirs"
+
+            # Preserve current code outside the historical delta. If both current master and
+            # 1.0.7 touched the same transition hunk, 1.0.7 wins for that hunk only.
+            git merge-file --theirs -p "$temp/ours" "$temp/base" "$temp/theirs" > "$temp/merged"
+            mv "$temp/merged" "$path"
+            rm -rf "$temp"
+          }
+
+          merge_delta f4e2194bd63f75b54bb2351fbd386f41951048ee composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/DominantColor.android.kt
+          merge_delta 6c07a97530b0739342fcb9d5210cae70d2ea909c composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DominantColor.kt
+          merge_delta 9a33ccc4e511ec4c6c10e33e8619b07a368ea9c6 composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Hero.kt
+          merge_delta 2cc82e5ec1f7ba98d20c211e36793a59a7a6236f composeApp/src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt
+          merge_delta 123d23d5b633845fcdc0fb1d20f83ef3e72149cb composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt
+          merge_delta 0d859908d526c3f1f495ba78f739d18966807673 composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/DominantColorTest.kt
+
+          if grep -R -n -E '^(<<<<<<<|=======|>>>>>>>)' \
+            composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/DominantColor.android.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DominantColor.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Hero.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt \
+            composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/DominantColorTest.kt; then
+            echo '::error::Merge conflict markers remain'
+            exit 1
+          fi
+
+          git diff --check
+
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            composeApp/src/androidMain/kotlin/com/yfuse/core/designsystem/DominantColor.android.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/DominantColor.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/core/designsystem/Hero.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/home/HomeScreen.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/library/LibraryHomeScreen.kt \
+            composeApp/src/commonTest/kotlin/com/yfuse/core/designsystem/DominantColorTest.kt | sort)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo '::error::Unexpected files changed by poster-transition restore'
+            diff -u <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") || true
+            exit 1
+          fi
+
+          # The helper workflow is not product code and must never land in master.
+          rm .github/workflows/restore-1.0.7-poster-transition.yml
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(ui): restore 1.0.7 poster fade sampling'
+          git push origin HEAD:codex/restore-1.0.7-poster-transition
