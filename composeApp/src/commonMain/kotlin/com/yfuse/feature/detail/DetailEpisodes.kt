@@ -93,12 +93,12 @@ private fun EpisodeHeader(
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("共 $episodeCount 集", style = AppTypography.caption.medium, color = palette.sub2)
+                    Text("共 $episodeCount 集", style = AppTypography.caption.strong, color = palette.body)
                     Icon(
                         AppIcons.ChevronRight,
                         contentDescription = "查看全部剧集",
-                        tint = palette.hint,
-                        modifier = Modifier.size(11.dp),
+                        tint = palette.sub2,
+                        modifier = Modifier.size(12.dp),
                     )
                 }
                 if (seasons.size > 1) {
@@ -155,7 +155,7 @@ private fun EpisodeHeader(
                                         } else if (palette.isDark) {
                                             palette.card2
                                         } else {
-                                            Color.White.copy(alpha = 0.52f)
+                                            Color.White.copy(alpha = 0.30f)
                                         },
                                     border =
                                         if (selected) {
@@ -277,17 +277,19 @@ private fun EpisodeCard(
                 shape = GlassShapes.card,
                 fill =
                     when {
-                        selected -> accent.copy(alpha = 0.14f)
-                        watching -> accent.copy(alpha = 0.08f)
+                        selected && palette.isDark -> Color.White.copy(alpha = 0.10f)
+                        selected -> Color.White.copy(alpha = 0.42f)
+                        watching -> accent.copy(alpha = if (palette.isDark) 0.08f else 0.06f)
                         palette.isDark -> palette.card
-                        else -> Color.White.copy(alpha = 0.56f)
+                        else -> Color.White.copy(alpha = 0.24f)
                     },
-                border =
-                    if (selected) {
-                        accent.copy(alpha = 0.52f)
-                    } else {
-                        Color.White.copy(alpha = if (palette.isDark) 0.20f else 0.86f)
-                    },
+                border = palette.border,
+            ).then(
+                if (selected) {
+                    Modifier.border(1.25.dp, accent.copy(alpha = 0.58f), GlassShapes.card)
+                } else {
+                    Modifier
+                },
             ).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
