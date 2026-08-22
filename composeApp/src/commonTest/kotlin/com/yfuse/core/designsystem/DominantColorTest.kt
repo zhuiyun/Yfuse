@@ -36,12 +36,12 @@ class DominantColorTest {
     }
 
     @Test
-    fun heroMask_revealsTheExactPageColourAtTheLastPixel() {
+    fun heroMask_revealsThePageOnlyAtTheLastPixelWithoutAFlatTail() {
         val stops = heroPageFadeMaskStops()
 
         assertTrue(stops.first().second.alpha == 0f)
-        assertTrue(stops[stops.lastIndex - 1].first == 0.90f)
-        assertTrue(stops[stops.lastIndex - 1].second.alpha == 1f)
+        assertTrue(stops.dropLast(1).all { it.second.alpha < 1f })
+        assertTrue(stops.last().first == 1f)
         assertTrue(stops.last().second.alpha == 1f)
         assertTrue(
             stops

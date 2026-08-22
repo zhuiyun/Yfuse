@@ -114,10 +114,10 @@ fun rememberAnimatedArtworkAccent(
 /**
  * Weight used by the raw page-colour sampler at [fadeProgress] through [HeroPageFade].
  *
- * Squaring the mask coverage concentrates the fit at the lower edge that must meet the page,
- * while still following the exact S-curve used to remove the artwork. The final colour is a
- * direct linear-light average of source pixels; this weight does not brand, brighten, darken,
- * desaturate, or otherwise retone those pixels.
+ * Cubing the mask coverage concentrates the fit on the final visible rows that actually meet
+ * the page. This matters when the lower hero changes brightness quickly: averaging too much of the
+ * earlier fade makes the page target look like a separate colour band even though the last pixel is
+ * mathematically continuous. The colour itself is still a direct linear-light source average.
  */
 internal fun artworkPageSampleWeight(fadeProgress: Float): Float {
     val progress = fadeProgress.coerceIn(0f, 1f)
@@ -133,7 +133,7 @@ internal fun artworkPageSampleWeight(fadeProgress: Float): Float {
                 start.second.alpha + (end.second.alpha - start.second.alpha) * fraction
             }
             ?: stops.last().second.alpha
-    return coverage * coverage
+    return coverage * coverage * coverage
 }
 
 /**
