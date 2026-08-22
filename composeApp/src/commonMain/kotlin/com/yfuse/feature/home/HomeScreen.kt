@@ -95,6 +95,7 @@ import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberArtworkPageColor
+import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.TmdbItem
@@ -143,17 +144,19 @@ fun HomeScreen(
     // The carousel owns which slide is settled, so it reports the colour up rather than the
     // page trying to work it out from an index it does not hold. Hoisted above the content
     // so 跟随封面 can hand it to every control on the page — see [ArtworkPageTheme].
+    val navigationState by component.store.states.collectAsState(component.store.state)
+    val retainedPageColor =
+        rememberRetainedArtworkPageColor("home:${navigationState.server?.id.orEmpty()}")
     var heroAccent by remember { mutableStateOf<Color?>(null) }
-    var heroPageColor by remember { mutableStateOf<Color?>(null) }
     ArtworkPageTheme(
-        background = heroPageColor,
+        background = retainedPageColor.value,
         artworkAccent = heroAccent,
     ) {
         HomeContent(
             component = component,
-            heroPageColor = heroPageColor,
+            heroPageColor = retainedPageColor.value,
             onHeroAccent = { heroAccent = it },
-            onHeroPageColor = { heroPageColor = it },
+            onHeroPageColor = retainedPageColor::update,
             onOpenDiscovery = onOpenDiscovery,
         )
     }

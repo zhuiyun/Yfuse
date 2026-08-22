@@ -105,6 +105,7 @@ import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberArtworkPagePalette
+import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.scrim
@@ -229,7 +230,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 )
             }.orEmpty()
     val slideUrl = slideUrls.firstOrNull { it != null }
-    var sampledPageColor by remember { mutableStateOf<Color?>(null) }
+    val retainedPageColor =
+        rememberRetainedArtworkPageColor("library:${state.currentServer?.id.orEmpty()}")
+    val sampledPageColor = retainedPageColor.value
     val palette = rememberArtworkPagePalette(sampledPageColor)
     val accent =
     rememberAnimatedArtworkAccent(
@@ -386,7 +389,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 settled = page == pagerState.currentPage,
                                                 artworkAspectRatio = artworkAspectRatio,
                                                 artworkFadeFraction = artworkFadeFraction,
-                                                onPageColor = { sampledPageColor = it },
+                                                onPageColor = retainedPageColor::update,
                                                 framed = showSidePreview,
                                                 modifier = Modifier.fillMaxSize(),
                                                 onClick = { component.onOpenItem(animatedItem.id) },
