@@ -88,7 +88,6 @@ import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
@@ -424,7 +423,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                             }
                                                         }
                                                     },
-                                                    onArtwork = false,
+                                                    onArtwork = true,
                                                     modifier = Modifier.align(Alignment.Center),
                                                 )
                                             }
@@ -678,14 +677,10 @@ private fun HeroCarousel(
     val sharedKey = MediaSharedElementKey(serverId, item.id)
     val openDetail = sharedMediaOnClick(sharedKey, onClick)
     val palette = LocalPalette.current
-    val slideGround = pageTint(accent)
     Box(
         modifier
             .fillMaxSize()
             .then(if (framed) Modifier.livingPosterFrame() else Modifier)
-            // The mask below reveals this item's colour, including while two pager pages are
-            // simultaneously visible during a drag.
-            .background(slideGround)
             .pressable(onClick = openDetail),
     ) {
         FallbackImage(
@@ -694,11 +689,13 @@ private fun HeroCarousel(
             modifier =
                 Modifier
                     .sharedMediaArtwork(sharedKey)
-                    .fillMaxSize()
-                    .fadeIntoPage(),
+                    .fillMaxSize(),
         )
-        // Contrast only. The image itself owns the lower transition through fadeIntoPage().
-        Box(Modifier.fillMaxSize().background(heroReelScrim()))
+        // Its own slide's tint rather than the page's: mid-swipe the neighbour dissolves
+        // into the colour it is about to give the page, so the two arrive together instead
+        // of the scrim stepping to the new ground after the pager settles. Same rule as
+        // 首页's hero.
+        Box(Modifier.fillMaxSize().background(heroReelScrim(pageTint(accent))))
         Row(
             Modifier
                 .fillMaxWidth()

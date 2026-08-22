@@ -23,8 +23,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -66,6 +68,7 @@ val HeroTextShadow: Shadow =
 
 private val HeroDockFill = HeroInk.copy(alpha = 0.58f)
 private val HeroDockBorder = Color.White.copy(alpha = 0.22f)
+private val HeroPlayFill = HeroInk.copy(alpha = 0.68f)
 private val HeroPlayBorder = Color.White.copy(alpha = 0.30f)
 private val HeroPlayInk = Color.White.copy(alpha = 0.94f)
 private val HeroToolSelectedFill = Color.White.copy(alpha = 0.20f)
@@ -73,9 +76,9 @@ private val HeroToolSelectedFill = Color.White.copy(alpha = 0.20f)
 /**
  * Artwork-safe action row shared by the 首页 and 媒体库 reels.
  *
- * The play key follows the artwork accent but is pulled toward [HeroInk], so white copy keeps
- * its contrast even for a pale poster. Secondary tools remain restrained dark glass. Keeping
- * both screens on this one dock prevents the 首页 and 媒体库 hero materials from drifting.
+ * Play uses a wider dark-glass pill; secondary tools use matching glass circles. Keeping each
+ * control to one material layer avoids both a white block over the artwork and the previous
+ * toolbar-inside-toolbar look.
  */
 @Composable
 fun HeroActionDock(
@@ -86,8 +89,6 @@ fun HeroActionDock(
     playActionLabel: String = "播放影片",
     favoriteActionLabel: String = if (favorite == true) "取消收藏" else "加入收藏",
 ) {
-    val actionAccent = LocalAccentColors.current.accent
-    val playFill = lerp(actionAccent, HeroInk, 0.28f).copy(alpha = 0.80f)
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -103,10 +104,10 @@ fun HeroActionDock(
                 ).shadow(GlassLift.control, AppShapes.pill)
                 .liquidGlass(
                     shape = AppShapes.pill,
-                    fill = playFill,
+                    fill = HeroPlayFill,
                     border = HeroPlayBorder,
                     over = HeroInk,
-                    sheen = 0.66f,
+                    sheen = 0.68f,
                 ).padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -201,164 +202,183 @@ fun heroTopScrim(
         1f to HeroInk.copy(alpha = topInk),
     )
 
-private data class ArtworkHsl(
-    val hue: Float,
-    val saturation: Float,
-    val lightness: Float,
-)
-
 /**
- * The page is a tone of the artwork, not a translucent dark swatch laid over white.
+ * Page colour under the artwork — the poster's own colour, washed into the page.
  *
- * Lifting RGB channels toward white drains hue and is the reason dark posters used to converge
- * on the same cement grey. Work in HSL instead: keep the poster hue, clamp chroma to a quiet but
- * visible band, and move only the surface lightness. This is deliberately the same transform for
- * the detail body and the 首页 / 媒体库 grounds, so a hero always dissolves into the exact colour
- * that continues below it.
+ * The light theme used to be flat white, which made the one screen that is *about* a
+ * single piece of artwork the one screen that took no colour from it: the hero faded into
+ * a slab that could have belonged to any title. Both themes now carry the harmonized
+ * artwork accent (see [harmonizeArtworkAccent], which has already pulled it into a
+ * restrained luminance band before it reaches here).
+ *
+ * The guards are the point. 次文字 and 提示文字 were measured against a page of a
+ * particular brightness, and a wash is allowed to colour that page, not to darken it out
+ * from under its own text — so a light surface is lifted back towards white until it is
+ * as bright as the standard page, and a dark one is pushed back towards the dark page
+ * until it is as deep.
  */
-private fun artworkPageSurface(
-    accent: Color,
-    isDark: Boolean,
-): Color {
-    val source = accent.toArtworkHsl()
-    val fallbackHue = Brand.Primary.toArtworkHsl().hue
-    val hue = if (source.saturation >= 0.015f) source.hue else fallbackHue
-    val saturation =
-        if (isDark) {
-            source.saturation.coerceIn(0.12f, 0.28f)
-        } else {
-            source.saturation.coerceIn(0.09f, 0.18f)
-        }
-    val lightness =
-        if (isDark) {
-            (0.15f + (source.lightness - 0.50f) * 0.04f).coerceIn(0.12f, 0.18f)
-        } else {
-            (0.86f + (source.lightness - 0.50f) * 0.04f).coerceIn(0.82f, 0.88f)
-        }
-    return colorFromArtworkHsl(hue, saturation, lightness)
-}
-
-private fun Color.toArtworkHsl(): ArtworkHsl {
-    val maximum = maxOf(red, green, blue)
-    val minimum = minOf(red, green, blue)
-    val delta = maximum - minimum
-    val lightness = (maximum + minimum) / 2f
-    if (delta <= 0.0001f) return ArtworkHsl(0f, 0f, lightness)
-
-    val saturation =
-        (delta / (1f - kotlin.math.abs(2f * lightness - 1f)).coerceAtLeast(0.0001f))
-            .coerceIn(0f, 1f)
-    val hueSix =
-        when (maximum) {
-            red -> ((green - blue) / delta) % 6f
-            green -> (blue - red) / delta + 2f
-            else -> (red - green) / delta + 4f
-        }
-    val hue = (((hueSix / 6f) % 1f) + 1f) % 1f
-    return ArtworkHsl(hue, saturation, lightness)
-}
-
-private fun colorFromArtworkHsl(
-    hue: Float,
-    saturation: Float,
-    lightness: Float,
-): Color {
-    if (saturation <= 0.0001f) return Color(lightness, lightness, lightness, 1f)
-    val chroma = (1f - kotlin.math.abs(2f * lightness - 1f)) * saturation
-    val h = (hue * 6f).let { value -> ((value % 6f) + 6f) % 6f }
-    val x = chroma * (1f - kotlin.math.abs((h % 2f) - 1f))
-    val (r1, g1, b1) =
-        when {
-            h < 1f -> Triple(chroma, x, 0f)
-            h < 2f -> Triple(x, chroma, 0f)
-            h < 3f -> Triple(0f, chroma, x)
-            h < 4f -> Triple(0f, x, chroma)
-            h < 5f -> Triple(x, 0f, chroma)
-            else -> Triple(chroma, 0f, x)
-        }
-    val m = lightness - chroma / 2f
-    return Color(
-        red = (r1 + m).coerceIn(0f, 1f),
-        green = (g1 + m).coerceIn(0f, 1f),
-        blue = (b1 + m).coerceIn(0f, 1f),
-        alpha = 1f,
-    )
-}
-
-/** Page colour under detail artwork, with hue/chroma retained through brightness protection. */
 fun heroSurface(
     accent: Color,
     isDark: Boolean,
-): Color = artworkPageSurface(accent, isDark)
+): Color =
+    if (isDark) {
+        accent
+            .copy(alpha = 0.34f)
+            .compositeOver(Color(0xFF0B111C))
+            .darkenedTo(DARK_HERO_SURFACE_LUMINANCE, Color(0xFF0B111C))
+            .chromaBoosted(DARK_HERO_SURFACE_CHROMA)
+    } else {
+        accent
+            .copy(alpha = 0.34f)
+            .compositeOver(Color.White)
+            .lightenedTo(LIGHT_HERO_SURFACE_LUMINANCE, Color.White)
+            .chromaBoosted(LIGHT_HERO_SURFACE_CHROMA)
+    }
+
+/** As bright as [LightPalette]'s own `background`, where its greys were measured. */
+private const val LIGHT_HERO_SURFACE_LUMINANCE = 0.87f
+
+/** No lighter than the tint the dark detail page already carried. */
+private const val DARK_HERO_SURFACE_LUMINANCE = 0.032f
 
 /**
- * The page's ground follows the artwork with the same transform as [heroSurface].
+ * How much of the artwork's colour survives the brightness guards.
  *
- * This is intentionally not a second blend with `palette.background`: two independently
- * calculated endpoint colours are enough to leave a hairline between a hero and its page.
+ * Lifting a colour towards white is also draining it: guard first, then push the chroma
+ * back out from the grey of the same brightness, and the page reads as *this poster's*
+ * colour rather than as a hint of one. Chroma is symmetric about the channel mean, so it
+ * moves the hue back into view without moving the brightness the guards just fixed.
+ */
+private const val LIGHT_HERO_SURFACE_CHROMA = 2.6f
+private const val DARK_HERO_SURFACE_CHROMA = 2.2f
+
+private fun Color.lightenedTo(
+    minimum: Float,
+    towards: Color,
+): Color {
+    var result = this
+    repeat(10) {
+        if (result.luminance() >= minimum) return result
+        result = lerp(result, towards, 0.14f)
+    }
+    return result
+}
+
+private fun Color.darkenedTo(
+    maximum: Float,
+    towards: Color,
+): Color {
+    var result = this
+    repeat(10) {
+        if (result.luminance() <= maximum) return result
+        result = lerp(result, towards, 0.14f)
+    }
+    return result
+}
+
+private fun Color.chromaBoosted(factor: Float): Color {
+    val mean = (red + green + blue) / 3f
+    return Color(
+        red = (mean + (red - mean) * factor).coerceIn(0f, 1f),
+        green = (mean + (green - mean) * factor).coerceIn(0f, 1f),
+        blue = (mean + (blue - mean) * factor).coerceIn(0f, 1f),
+        alpha = alpha,
+    )
+}
+
+/**
+ * The page's ground, washed toward the artwork the hero is currently showing.
+ *
+ * A hero used to dissolve into `palette.background` — a fixed grey — so the colour stopped
+ * dead at the bottom of the carousel and everything below it belonged to a different picture.
+ * Tinting the whole page instead makes the artwork the room the content sits in, and because
+ * the accent handed in is already animated, the room changes with the slide.
+ *
+ * Deliberately a small fraction. This colour ends up behind body copy, chips and cards whose
+ * inks were measured against the flat palette; far enough toward the artwork to be felt, not
+ * far enough to start deciding contrast.
  */
 @Composable
 @ReadOnlyComposable
 fun pageTint(accent: Color): Color {
     val palette = LocalPalette.current
-    return artworkPageSurface(accent, palette.isDark)
+    return lerp(palette.background, accent, if (palette.isDark) 0.16f else 0.11f)
 }
 
 /**
- * Detail hero wash. The image remains untouched through most of its height; only the lower
- * ~one-third hands off to the exact body surface. A separate top ink cap protects system/title
- * copy, with a clear middle between the two. There is no neutral-grey intermediate layer.
+ * `0deg {page} 3%, {page}55% 22%, rgba(18,22,32,.12) 62%, rgba(18,22,32,.42)`
+ * (「影视详情页 优化」).
+ *
+ * The 22% stop is the one that matters. Running the page colour straight into the dark
+ * stop — which is what the three-stop version did — keeps the wash above 50% opaque all
+ * the way to mid-hero, so the artwork is only ever visible in its top third. Reaching
+ * 55% by 22% confines the blend to the strip the information sheet actually sits over.
  */
 fun heroScrim(
     surface: Color,
     bottomSurface: Color = surface,
 ): Brush =
     scrim(
-        0f to bottomSurface,
-        0.05f to surface,
-        0.13f to surface.copy(alpha = 0.88f),
-        0.21f to surface.copy(alpha = 0.52f),
-        0.29f to surface.copy(alpha = 0.16f),
-        0.34f to Color.Transparent,
-        0.72f to Color.Transparent,
-        0.86f to HeroInk.copy(alpha = 0.10f),
+        0.03f to bottomSurface,
+        0.22f to surface.copy(alpha = 0.55f),
+        0.62f to HeroInk.copy(alpha = 0.12f),
         1f to HeroInk.copy(alpha = 0.42f),
     )
 
 /**
- * 首页 and 媒体库 use the same one-colour dissolve as the detail page. The final pixel is
- * literally [page], so the artwork and body cannot disagree at their join. The picture stays
- * clean until the bottom third instead of carrying a long grey fog over its lower half.
+ * How a reel ends — 首页 and 媒体库's carousels, which dissolve into the page rather than
+ * hand over to a sheet.
+ *
+ * They used to borrow [heroScrim] from 影视详情页, and the two pages want opposite things
+ * from it. The detail hero has an information sheet lifted over its lower edge, so its
+ * wash is deliberately heavy and reaches 55% by 22% of the height — there is a card about
+ * to cover that strip. A carousel has nothing over it, so the same wash read as fog laid
+ * on the picture from mid-height down. Worse, it faded through *two* colours: the artwork's
+ * lightened [heroSurface] in the middle of the ramp and the page's own [pageTint] at the
+ * very bottom, which put a grey seam between the picture and the page it was supposedly
+ * melting into.
+ *
+ * One colour and one ramp, therefore. [page] is the ground the carousel is sitting on, so
+ * the last band is that colour exactly and the join is invisible by construction rather
+ * than by matching. The picture stays untouched for its top two thirds, thins out over the
+ * bottom third, and is fully page by the time the pagination dots sit in it.
  */
 fun heroReelScrim(page: Color): Brush =
     scrim(
         0f to page,
-        0.05f to page,
-        0.13f to page.copy(alpha = 0.88f),
-        0.21f to page.copy(alpha = 0.52f),
-        0.29f to page.copy(alpha = 0.16f),
-        0.34f to Color.Transparent,
-        0.72f to Color.Transparent,
-        0.86f to HeroInk.copy(alpha = 0.10f),
+        // A solid hem. The dots live here, in page ink on page colour.
+        0.06f to page,
+        0.14f to page.copy(alpha = 0.82f),
+        0.22f to page.copy(alpha = 0.42f),
+        0.30f to page.copy(alpha = 0.12f),
+        // Clear of the artwork well before the caption's top line, so white copy is never
+        // asked to sit on a pale wash.
+        0.40f to Color.Transparent,
+        0.68f to HeroInk.copy(alpha = 0.10f),
         1f to HeroInk.copy(alpha = 0.42f),
     )
 
 /**
- * Blend band drawn behind the lifted detail sheet. The band begins after the hero copy and
- * reaches the exact page surface over a short distance, avoiding the former broad fog bank.
+ * Blend band drawn behind the lifted sheet, over a fixed [height] of page.
+ *
+ * [start] holds the band off for that much first, leaving the sheet's top transparent. A
+ * sheet lifted far enough that its own copy sits on the artwork needs that: the band ramps
+ * towards the page colour, so text over the ramp has to be page ink, and text over the
+ * artwork has to be artwork ink. Text that spans the ramp cannot be either. Starting the
+ * band where the artwork ends keeps each piece of copy on one side of that line.
  */
 fun heroPanelBrush(
     surface: Color,
     density: Density,
-    height: Dp = 140.dp,
+    height: Dp = 170.dp,
     start: Dp = 0.dp,
 ): Brush =
     Brush.verticalGradient(
         colorStops =
             arrayOf(
                 0f to Color.Transparent,
-                0.42f to surface.copy(alpha = 0.30f),
-                0.72f to surface.copy(alpha = 0.78f),
+                0.30f to surface.copy(alpha = 0.42f),
+                0.66f to surface.copy(alpha = 0.90f),
                 1f to surface,
             ),
         startY = with(density) { start.toPx() },
