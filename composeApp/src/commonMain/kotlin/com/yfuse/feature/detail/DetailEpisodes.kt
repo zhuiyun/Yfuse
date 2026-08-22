@@ -277,16 +277,16 @@ private fun EpisodeCard(
                 shape = GlassShapes.card,
                 fill =
                     when {
-                        selected -> accent.copy(alpha = 0.14f)
-                        watching -> accent.copy(alpha = 0.08f)
+                        selected -> accent.copy(alpha = if (palette.isDark) 0.16f else 0.10f)
+                        watching -> accent.copy(alpha = if (palette.isDark) 0.10f else 0.06f)
                         palette.isDark -> palette.card
-                        else -> Color.White.copy(alpha = 0.56f)
+                        else -> Color.White.copy(alpha = 0.32f)
                     },
                 border =
                     if (selected) {
-                        accent.copy(alpha = 0.52f)
+                        accent.copy(alpha = if (palette.isDark) 0.68f else 0.58f)
                     } else {
-                        Color.White.copy(alpha = if (palette.isDark) 0.20f else 0.86f)
+                        Color.White.copy(alpha = if (palette.isDark) 0.20f else 0.52f)
                     },
             ).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -337,7 +337,7 @@ private fun EpisodeCard(
             Text(
                 buildString {
                     if (selected) {
-                        append("已选中 · 再次点击播放")
+                        append("已选")
                     } else if (watching) {
                         append("正在观看")
                     }
