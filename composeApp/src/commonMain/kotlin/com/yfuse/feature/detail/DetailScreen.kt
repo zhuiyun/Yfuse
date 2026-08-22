@@ -25,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -35,10 +34,12 @@ import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.ArtworkAccent
+import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
@@ -48,10 +49,10 @@ import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.backdropSource
-import com.yfuse.core.designsystem.heroPanelBrush
-import com.yfuse.core.designsystem.heroSurface
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberArtworkPageColor
+import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.ServerSource
@@ -324,35 +325,29 @@ fun DetailScreen(component: DetailComponent) {
                 mutableStateOf(TypicalCaptionHeight + SheetGap + PlayButtonHeroOverlap)
             }
 
-            val detailSurface =
-                remember(detailAccent, palette.isDark) {
-                    heroSurface(detailAccent, palette.isDark)
-                }
-            val ambientBrush =
-                remember(
-                    detailAccent,
-                    detailSurface,
-                    heroHeightPx,
-                    palette.isDark,
-                ) {
-                    Brush.verticalGradient(
-                        colors =
-                            listOf(
-                                detailAccent.copy(alpha = if (palette.isDark) 0.18f else 0.10f),
-                                detailSurface.copy(alpha = 0f),
-                            ),
-                        startY = 0f,
-                        // The hero scrim reaches pure [detailSurface] at this exact edge. Ambient
-                        // colour must also be fully transparent here or the two sides cannot match.
-                        endY = heroHeightPx,
-                    )
-                }
-            // Blend band between the artwork and the page. It starts where the artwork ends,
-            // leaving the title block on clean artwork — see [heroPanelBrush].
-            val panelBrush =
-                remember(detailSurface, density, captionLift) {
-                    heroPanelBrush(detailSurface, density, start = captionLift)
-                }
+            val artworkAspectRatio = maxWidth.value / heroHeight.value.coerceAtLeast(1f)
+            val artworkFadeFraction =
+                (HeroPageFade.value / heroHeight.value.coerceAtLeast(1f)).coerceIn(0.02f, 1f)
+            val sampledPageColor =
+                rememberArtworkPageColor(
+                    url = resolvedHeroUrl,
+                    targetAspectRatio = artworkAspectRatio,
+                    fadeFraction = artworkFadeFraction,
+                )
+            val retainedPageColor =
+                rememberRetainedArtworkPageColor(
+                    "detail:${state.server?.id ?: component.serverId}:${detail?.id ?: component.itemId}",
+                )
+            LaunchedEffect(sampledPageColor) {
+                sampledPageColor?.let(retainedPageColor::update)
+            }
+            val detailSurface = retainedPageColor.value ?: palette.background
+
+            ArtworkPageTheme(
+                background = detailSurface,
+                artworkAccent = detailAccent,
+            ) {
+                val pagePalette = LocalPalette.current
 
             // A different detail route must always start at its hero. Keying the state by the
             // route item also prevents a newly opened title inheriting the previous title's offset.
@@ -366,14 +361,10 @@ fun DetailScreen(component: DetailComponent) {
             val topBarProgress = rememberTopBarProgress(listState, heroHeightPx, density)
             val barSolid by remember(topBarProgress) { derivedStateOf { topBarProgress.value > 0.5f } }
 
-            StatusBarIconStyle(darkIcons = !palette.isDark && (detail == null || barSolid))
+            StatusBarIconStyle(darkIcons = !pagePalette.isDark && (detail == null || barSolid))
 
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(detailSurface)
-                    .background(ambientBrush),
-            )
+            // The only opaque ground on the page. Hero, sheet and tail all reveal this exact colour.
+            Box(Modifier.fillMaxSize().background(detailSurface))
 
             when {
                 detail == null && state.error == null -> DetailSkeleton(heroHeight)
@@ -414,7 +405,6 @@ fun DetailScreen(component: DetailComponent) {
                                 Modifier
                                     .fillMaxWidth()
                                     .liftOverHero(captionLift)
-                                    .background(panelBrush)
                                     .padding(horizontal = Dimens.pageHorizontal)
                                     .padding(top = SheetGap),
                                 verticalArrangement = Arrangement.spacedBy(SheetGap),
@@ -824,6 +814,7 @@ fun DetailScreen(component: DetailComponent) {
                 accent = detailAccent,
                 modifier = Modifier.padding(bottom = 28.dp),
             )
+            }
         }
     }
 }

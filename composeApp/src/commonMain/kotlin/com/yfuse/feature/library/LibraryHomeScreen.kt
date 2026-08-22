@@ -45,7 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
@@ -146,9 +145,6 @@ internal fun libraryHeroHeight(
 
 /** Poster rail column width, shared by the real rails and the loading skeleton. */
 private val PosterWidth = MediaSizing.posterRailWidth
-
-/** `transparent 320px` — how far the artwork's tint reaches into the content. */
-private val ContentWashHeight = 320.dp
 
 private const val MINUTE_MS = 60_000L
 private const val HOUR_MS = 60 * MINUTE_MS
@@ -456,27 +452,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
                             item {
                                 val liftPx = with(density) { HeroLift.roundToPx() }
-                                // Artwork tint only. This used to carry a `palette.background` stop
-                                // at 86% as well, to blend the hero into the page — a job
-                                // [Modifier.fadeIntoPage] now does at the hero itself, by removing
-                                // the artwork's alpha so the real page shows through. Painting a
-                                // *flat* background over that was the one thing guaranteed to break
-                                // it: the page is not flat, it is [appBackdropBrushes]' gradient, so
-                                // the band met it at a visible seam whose colour was almost, but
-                                // never quite, the page's own.
-                                val wash =
-                                    remember(accent, density) {
-                                        Brush.verticalGradient(
-                                            colorStops =
-                                                arrayOf(
-                                                    0f to Color.Transparent,
-                                                    0.20f to accent.copy(alpha = 0.10f),
-                                                    1f to Color.Transparent,
-                                                ),
-                                            startY = 0f,
-                                            endY = with(density) { ContentWashHeight.toPx() },
-                                        )
-                                    }
+                                // One page colour only: the hero removes its own alpha and reveals the exact background below.
                                 Column(
                                     Modifier
                                         .fillMaxWidth()
@@ -491,8 +467,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             ) {
                                                 placeable.place(0, -liftPx)
                                             }
-                                        }.background(wash)
-                                        .padding(top = 78.dp),
+                                        }.padding(top = 78.dp),
                                     verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                                 ) {
                                     if (

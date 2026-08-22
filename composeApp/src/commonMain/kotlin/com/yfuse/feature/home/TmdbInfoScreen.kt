@@ -55,7 +55,6 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
-import com.yfuse.core.designsystem.artworkPageSurface
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.liftOverHero
@@ -111,10 +110,9 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
         LaunchedEffect(sampledPageColor) {
             sampledPageColor?.let(retainedPageColor::update)
         }
-        val pageColor =
-            remember(retainedPageColor.value, inheritedPalette.isDark) {
-                retainedPageColor.value?.let { artworkPageSurface(it, inheritedPalette.isDark) }
-            }
+        // RetainedArtworkPageColor already applies the appearance-aware safety envelope.
+        // Do not protect it a second time or different posters collapse towards the same grey.
+        val pageColor = retainedPageColor.value
 
         ArtworkPageTheme(
             background = pageColor,
@@ -132,7 +130,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
             )
 
             LazyColumn(
-                Modifier.fillMaxSize(),
+                Modifier.fillMaxSize().background(pageColor ?: palette.background),
                 state = listState,
                 contentPadding = PaddingValues(bottom = Dimens.contentBottom),
             ) {
