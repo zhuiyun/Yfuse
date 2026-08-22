@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
+/** Regression coverage for the editable intro/credits clock fields. */
 class SkipTimeInputTest {
     @Test
     fun parser_acceptsSecondsMinuteAndHourClocks() {
