@@ -18,11 +18,11 @@ internal fun playbackProgressMarkers(
 
     val markers = playbackProgressMarkers(skip, durationMs).toMutableList()
     chapters.forEach { chapter ->
-        val position = chapter.startMs.coerceIn(0L, durationMs)
+        val position = chapter.startMs?.coerceIn(0L, durationMs) ?: return@forEach
         markers +=
             PlaybackProgressMarker(
                 positionMs = position,
-                label = chapter.title.takeIf { it.isNotBlank() },
+                label = chapter.title?.takeIf { it.isNotBlank() },
             )
     }
 
