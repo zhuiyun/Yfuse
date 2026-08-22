@@ -410,10 +410,11 @@ fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier =
 internal fun heroPageFadeMaskStops(): Array<Pair<Float, Color>> =
     arrayOf(
         0f to Color.Transparent,
-        0.28f to Color.Black.copy(alpha = 0.10f),
-        0.58f to Color.Black.copy(alpha = 0.55f),
-        0.82f to Color.Black.copy(alpha = 0.94f),
-        0.90f to Color.Black,
+        0.24f to Color.Black.copy(alpha = 0.04f),
+        0.50f to Color.Black.copy(alpha = 0.28f),
+        0.72f to Color.Black.copy(alpha = 0.62f),
+        0.88f to Color.Black.copy(alpha = 0.86f),
+        0.97f to Color.Black.copy(alpha = 0.97f),
         1f to Color.Black,
     )
 

@@ -467,7 +467,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             ) {
                                                 placeable.place(0, -liftPx)
                                             }
-                                        }.padding(top = 78.dp),
+                                        // Match the visual lift exactly: a larger top inset left a
+                                        // full-width strip of bare page colour between the hero melt and
+                                        // the first library card, which read as a horizontal seam.
+                                        }.padding(top = HeroLift),
                                     verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                                 ) {
                                     if (
