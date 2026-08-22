@@ -80,13 +80,12 @@ internal fun shouldShowManualSkipPill(
  * [HOLD_SEEK_TICK_MS] — 20× to start, [HOLD_SEEK_FAST_STEP_MS] (60×) once the press has
  * lasted [HOLD_SEEK_RAMP_MS], so a short hold nudges and a long one crosses an episode.
  *
- * Like the horizontal drag, this previews: the HUD tracks the target and the engine is
- * only asked to seek once, on release. Seeking every tick would mean twenty seeks a
- * second at a remote server that answers each one by rebuilding the stream.
+ * The engine is now sought every 300ms while held, so the decoded picture visibly follows
+ * the HUD without hammering a remote direct-play stream with frame-rate-frequency seeks.
  */
-private const val HOLD_SEEK_TICK_MS = 150L
-private const val HOLD_SEEK_STEP_MS = 3_000L
-private const val HOLD_SEEK_FAST_STEP_MS = 9_000L
+private const val HOLD_SEEK_TICK_MS = 300L
+private const val HOLD_SEEK_STEP_MS = 6_000L
+private const val HOLD_SEEK_FAST_STEP_MS = 18_000L
 private const val HOLD_SEEK_RAMP_MS = 3_000L
 
 /**
@@ -204,7 +203,7 @@ internal fun PlayerControls(
     var gestureHud by remember { mutableStateOf<String?>(null) }
     var controlsHaveFocus by remember { mutableStateOf(false) }
     // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
-    // is held. [holdSeekTarget] is where the timeline has run to, committed on release.
+    // is held. [holdSeekTarget] is the last position already sent to the playback engine.
     var holdSeekDirection by remember { mutableIntStateOf(0) }
     var holdSeekTarget by remember { mutableLongStateOf(0L) }
     // The app's own vocabulary, not Compose's two-constant one. These two call sites were
@@ -447,6 +446,8 @@ internal fun PlayerControls(
             val span = latestDuration.coerceAtLeast(1L)
             val step = if (heldMs < HOLD_SEEK_RAMP_MS) HOLD_SEEK_STEP_MS else HOLD_SEEK_FAST_STEP_MS
             holdSeekTarget = (holdSeekTarget + direction * step).coerceIn(0L, span)
+            // Real seek while held: decoded video follows the timeline instead of waiting for release.
+            latestOnSeek(holdSeekTarget)
             gestureHud = "${if (direction < 0) "快退" else "快进"} " +
                 "${holdSeekTarget.asClock()} / ${span.asClock()}"
             delay(HOLD_SEEK_TICK_MS)
@@ -521,14 +522,10 @@ internal fun PlayerControls(
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onPress = {
-                            // Fires on every press; only a press that turned into a hold
-                            // has a seek to land. `tryAwaitRelease` also returns after the
-                            // long-press path consumes its way to the up event.
+                            // The engine is already following every held tick; release only stops it.
                             tryAwaitRelease()
                             if (holdSeekDirection != 0) {
-                                val target = holdSeekTarget
                                 holdSeekDirection = 0
-                                latestOnSeek(target)
                                 poke()
                             }
                         },
