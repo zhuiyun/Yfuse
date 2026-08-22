@@ -8,21 +8,21 @@ import kotlin.test.assertTrue
 
 class ArtworkPageSurfaceTest {
     @Test
-    fun lightAppearance_liftsOnlyOverlyDarkPageTargets() {
+    fun lightAppearance_liftsOnlyExtremeDarkTargets() {
         val dark = Color(0xFF101318)
         val protected = artworkPageSurface(dark, darkTheme = false)
-        assertTrue(protected.luminance() >= 0.30f)
+        assertTrue(protected.luminance() >= 0.18f)
 
-        val alreadyLight = Color(0xFFE7D6C2)
-        assertEquals(alreadyLight, artworkPageSurface(alreadyLight, darkTheme = false))
+        val alreadyUsable = Color(0xFF8B5B4C)
+        assertEquals(alreadyUsable, artworkPageSurface(alreadyUsable, darkTheme = false))
     }
 
     @Test
-    fun darkAppearance_keepsPageInsideDarkBrightnessEnvelope() {
+    fun darkAppearance_keepsWidePosterDerivedEnvelope() {
         val black = artworkPageSurface(Color.Black, darkTheme = true)
-        assertTrue(black.luminance() >= 0.04f)
+        assertTrue(black.luminance() >= 0.025f)
 
         val bright = artworkPageSurface(Color(0xFFF1D7B9), darkTheme = true)
-        assertTrue(bright.luminance() <= 0.12f)
+        assertTrue(bright.luminance() <= 0.20f)
     }
 }
