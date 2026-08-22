@@ -1,9 +1,6 @@
 name: Restore 1.0.7 poster transition
 
 on:
-  push:
-    branches:
-      - codex/restore-1.0.7-poster-transition
   pull_request:
     branches:
       - master
@@ -27,8 +24,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          # PR #91 contains the exact source chain used for the successful 1.0.7 (166) build.
-          git fetch origin refs/pull/91/head:refs/remotes/origin/pr91-head
+          # The original signing branch was later force-reset, so keep an explicit temporary
+          # source ref at the exact 1.0.7 head while replaying its transition-only commits.
+          git fetch origin codex/restore-1.0.7-source:refs/remotes/origin/restore-1.0.7-source
 
           merge_delta() {
             local commit="$1"
