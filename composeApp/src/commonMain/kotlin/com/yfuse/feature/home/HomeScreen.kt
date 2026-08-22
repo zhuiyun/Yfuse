@@ -84,7 +84,7 @@ import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
-import com.yfuse.core.designsystem.heroReelScrim
+import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
@@ -92,7 +92,6 @@ import com.yfuse.core.designsystem.loopingCarouselPageCount
 import com.yfuse.core.designsystem.loopingCarouselSemantics
 import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
-import com.yfuse.core.designsystem.pageTint
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberArtworkPageColor
@@ -178,7 +177,6 @@ private fun HomeContent(
     // The shelf opened out into a grid, or null. Held here rather than in the store: it is
     // which page is on screen, not anything about the data.
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
-    val ground = pageTint(heroAccent ?: Brand.Primary) // design-system: brand-identity
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
@@ -205,7 +203,7 @@ private fun HomeContent(
             isRefreshing = state.refreshing,
             onRefresh = { component.store.accept(HomeIntent.Refresh) },
             state = pullState,
-            modifier = Modifier.fillMaxSize().background(ground),
+            modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -590,14 +588,10 @@ private fun HeroSlide(
             artworkPageColor?.let(onPageColor)
         }
     }
-    val slideGround = pageTint(artworkAccent)
     Box(
         modifier
             .fillMaxSize()
             .then(if (framed) Modifier.livingPosterFrame() else Modifier)
-            // The alpha mask reveals this slide's own ground. When the pager is between two
-            // titles each half therefore resolves into the colour belonging to its artwork.
-            .background(slideGround)
             .then(
                 if (item == null) {
                     Modifier
@@ -625,7 +619,7 @@ private fun HeroSlide(
             )
         }
         // Contrast only. The image itself owns the lower transition through fadeIntoPage().
-        Box(Modifier.fillMaxSize().background(heroReelScrim()))
+        Box(Modifier.fillMaxSize().background(heroTopScrim()))
 
         if (item != null) {
             HeroCaption(
