@@ -96,7 +96,7 @@ internal fun DetailActionDock(
                 .background(actionKeyBrush(accent))
                 .border(
                     Dimens.hairline,
-                    Color.White.copy(alpha = 0.34f),
+                    Color.White.copy(alpha = 0.26f),
                     GlassShapes.card,
                 ),
             verticalAlignment = Alignment.CenterVertically,
@@ -260,15 +260,15 @@ private fun GlassActionButton(
     val palette = LocalPalette.current
     val fill =
         when {
-            active -> accent.copy(alpha = if (palette.isDark) 0.30f else 0.20f)
+            active -> accent.copy(alpha = if (palette.isDark) 0.28f else 0.18f)
             palette.isDark -> Color.White.copy(alpha = 0.075f)
-            else -> Color.White.copy(alpha = 0.72f)
+            else -> Color.White.copy(alpha = 0.30f)
         }
     val edge =
         when {
-            active -> accent.copy(alpha = 0.58f)
+            active -> accent.copy(alpha = 0.48f)
             palette.isDark -> Color.White.copy(alpha = 0.19f)
-            else -> Color(0xFFE0E7F1)
+            else -> Color.White.copy(alpha = 0.34f)
         }
     Row(
         modifier
