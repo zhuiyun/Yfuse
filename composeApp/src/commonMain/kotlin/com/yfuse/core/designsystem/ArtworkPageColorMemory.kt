@@ -31,24 +31,35 @@ private object ArtworkPageColorMemory {
 class RetainedArtworkPageColor internal constructor(
     initial: Color?,
     private val key: String,
+    private val darkTheme: Boolean,
 ) {
-    private val state = mutableStateOf(initial)
+    /** Raw sampled artwork colour stays untouched so changing appearance never compounds a tint. */
+    private val rawState = mutableStateOf(initial)
 
+    /**
+     * The colour pages actually paint. Only this opaque fade target is protected; the artwork
+     * itself is never brightened/darkened, so the adjustment is confined to the lower dissolve.
+     */
     val value: Color?
-        get() = state.value
+        get() = rawState.value?.let { artworkPageSurface(it, darkTheme) }
 
     /** Only real samples are written, so a loading/fallback frame can never erase the return colour. */
     fun update(color: Color) {
         ArtworkPageColorMemory.write(key, color)
-        state.value = color
+        rawState.value = color
     }
 }
 
 @Composable
-fun rememberRetainedArtworkPageColor(key: String): RetainedArtworkPageColor =
-    remember(key) {
+fun rememberRetainedArtworkPageColor(key: String): RetainedArtworkPageColor {
+    // Read this before a poster-aware ArtworkPageTheme is installed. At Home/Library/detail
+    // call sites it represents the user's actual light/dark appearance, not the poster colour.
+    val darkTheme = LocalPalette.current.isDark
+    return remember(key, darkTheme) {
         RetainedArtworkPageColor(
             initial = ArtworkPageColorMemory.read(key),
             key = key,
+            darkTheme = darkTheme,
         )
     }
+}
