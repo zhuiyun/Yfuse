@@ -436,6 +436,7 @@ class LibraryStoreTest {
             assertEquals(2, switched.content.counts?.movieCount)
             assertEquals(1_600_000_000_002L, switched.updatedAtEpochMs)
             store.dispose()
+            advanceUntilIdle()
         }
 
     private fun content(
