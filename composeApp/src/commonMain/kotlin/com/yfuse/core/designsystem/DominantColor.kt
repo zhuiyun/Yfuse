@@ -23,6 +23,20 @@ expect fun rememberDominantColor(
 ): Color
 
 /**
+ * Raw colour sampled from the part of the displayed artwork removed by [fadeIntoPage].
+ *
+ * [targetAspectRatio] describes the actual hero slot, so Android can reproduce
+ * `ContentScale.Crop` before sampling. [fadeFraction] is the fraction of that slot occupied by
+ * [HeroPageFade]. A null result means that the resolved bitmap has not been sampled yet.
+ */
+@Composable
+expect fun rememberArtworkPageColor(
+    url: String?,
+    targetAspectRatio: Float,
+    fadeFraction: Float,
+): Color?
+
+/**
  * [rememberDominantColor], eased into place.
  *
  * The artwork accent reaches a long way — the library hero's content wash, the detail
@@ -95,6 +109,31 @@ fun rememberAnimatedArtworkAccent(
         label = "artworkAccent",
     )
     return eased
+}
+
+/**
+ * Weight used by the raw page-colour sampler at [fadeProgress] through [HeroPageFade].
+ *
+ * Squaring the mask coverage concentrates the fit at the lower edge that must meet the page,
+ * while still following the exact S-curve used to remove the artwork. The final colour is a
+ * direct linear-light average of source pixels; this weight does not brand, brighten, darken,
+ * desaturate, or otherwise retone those pixels.
+ */
+internal fun artworkPageSampleWeight(fadeProgress: Float): Float {
+    val progress = fadeProgress.coerceIn(0f, 1f)
+    val stops = heroPageFadeMaskStops()
+    val coverage =
+        stops
+            .asList()
+            .zipWithNext()
+            .firstOrNull { (start, end) -> progress <= end.first && progress >= start.first }
+            ?.let { (start, end) ->
+                val span = (end.first - start.first).coerceAtLeast(0.0001f)
+                val fraction = (progress - start.first) / span
+                start.second.alpha + (end.second.alpha - start.second.alpha) * fraction
+            }
+            ?: stops.last().second.alpha
+    return coverage * coverage
 }
 
 /**

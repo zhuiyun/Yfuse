@@ -62,7 +62,7 @@ import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.ArtworkAccent
+import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
@@ -71,6 +71,7 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroActionDock
+import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LivingPosterAmbient
@@ -92,7 +93,7 @@ import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
 import com.yfuse.core.designsystem.heroMediaTypeLabel
-import com.yfuse.core.designsystem.heroReelScrim
+import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
@@ -101,9 +102,11 @@ import com.yfuse.core.designsystem.loopingCarouselSemantics
 import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.mediaLazyItemKey
-import com.yfuse.core.designsystem.pageTint
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberAnimatedDominantColor
+import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberArtworkPagePalette
+import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
+import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.sharedMediaArtwork
@@ -206,7 +209,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     // the token travels with the base URL to every artwork on this page — not just to
     // 播放记录, which was the only row that had it.
     val accessToken = state.currentServer?.accessToken.orEmpty()
-    val palette = LocalPalette.current
 
     val slides = state.content.featured.take(8)
     val pagerState =
@@ -228,11 +230,17 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 )
             }.orEmpty()
     val slideUrl = slideUrls.firstOrNull { it != null }
+    val retainedPageColor =
+        rememberRetainedArtworkPageColor("library:${state.currentServer?.id.orEmpty()}")
+    val sampledPageColor = retainedPageColor.value
+    val palette = rememberArtworkPagePalette(sampledPageColor)
     val accent =
-        rememberAnimatedDominantColor(
-            slideUrl,
-            Brand.Primary, // design-system: brand-identity
-        )
+    rememberAnimatedArtworkAccent(
+        url = slideUrl,
+        fallback = Brand.Primary, // design-system: brand-identity
+        darkTheme = palette.isDark,
+        identity = slide?.id,
+    )
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.loading)
@@ -272,16 +280,27 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     }
     ScrollToTopOnReselect(listState)
 
-    // The room the shelves sit in, taken from whatever the carousel is showing. `accent` is
-    // already animated, so the page changes colour with the slide rather than on a cut — and
-    // under 跟随封面 the page's controls travel with it too.
-    val ground = pageTint(accent)
     val bottomContentInset = floatingNavigationContentInset()
-    ArtworkAccent(accent) {
-        BoxWithConstraints(Modifier.fillMaxSize().background(ground)) {
+    ArtworkPageTheme(
+        background = sampledPageColor,
+        artworkAccent = accent,
+    ) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
             val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
+            val pageColor = sampledPageColor ?: palette.background
+            Box(Modifier.fillMaxSize().background(pageColor))
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
+            val artworkWidth =
+                if (showSidePreview) {
+                    (maxWidth - LivingPosterDefaults.LEADING_INSET - LivingPosterDefaults.TRAILING_PEEK)
+                        .coerceAtLeast(1.dp)
+                } else {
+                    maxWidth
+                }
+            val artworkAspectRatio = artworkWidth.value / heroHeight.value.coerceAtLeast(1f)
+            val artworkFadeFraction =
+                (HeroPageFade.value / heroHeight.value.coerceAtLeast(1f)).coerceIn(0.02f, 1f)
             val indicatorStart =
                 if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
             val indicatorEnd =
@@ -316,10 +335,13 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                             if (slide != null) {
                                 item {
                                     Box(Modifier.fillMaxWidth().height(heroHeight)) {
-                                        LivingPosterAmbient(
-                                            urls = slideUrls,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
+                                        // No second full-bleed copy on phones: it would show through the dissolve.
+                                        if (showSidePreview) {
+                                            LivingPosterAmbient(
+                                                urls = slideUrls,
+                                                modifier = Modifier.fillMaxSize().fadeIntoPage(),
+                                            )
+                                        }
                                         HorizontalPager(
                                             state = pagerState,
                                             modifier =
@@ -337,7 +359,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 },
                                             pageSpacing =
                                                 if (showSidePreview) LivingPosterDefaults.PAGE_SPACING else 0.dp,
-                                            beyondViewportPageCount = 1,
+                                            beyondViewportPageCount = 0,
                                             key = { page -> page },
                                         ) { page ->
                                             val animatedIndex = loopingCarouselItemIndex(page, slides.size)
@@ -358,17 +380,16 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                         accessToken = accessToken,
                                                     ),
                                                 )
-                                            val animatedAccent =
-                                                rememberAnimatedDominantColor(
-                                                    animatedUrls.firstOrNull { it != null },
-                                                    Brand.Primary, // design-system: brand-identity
-                                                )
                                             HeroCarousel(
                                                 item = animatedItem,
                                                 urls = animatedUrls,
-                                                accent = animatedAccent,
+                                                accent = accent,
                                                 serverId = state.currentServer?.id,
                                                 serverName = state.currentServer?.serverName.orEmpty(),
+                                                settled = page == pagerState.currentPage,
+                                                artworkAspectRatio = artworkAspectRatio,
+                                                artworkFadeFraction = artworkFadeFraction,
+                                                onPageColor = retainedPageColor::update,
                                                 framed = showSidePreview,
                                                 modifier = Modifier.fillMaxSize(),
                                                 onClick = { component.onOpenItem(animatedItem.id) },
@@ -560,7 +581,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                     Modifier
                         .fillMaxWidth()
                         .windowInsetsTopHeight(WindowInsets.statusBars)
-                        .background(ground),
+                        .background(pageColor),
                 )
             }
 
@@ -668,6 +689,10 @@ private fun HeroCarousel(
     accent: Color,
     serverId: String?,
     serverName: String,
+    settled: Boolean,
+    artworkAspectRatio: Float,
+    artworkFadeFraction: Float,
+    onPageColor: (Color) -> Unit,
     framed: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -677,20 +702,26 @@ private fun HeroCarousel(
 ) {
     val sharedKey = MediaSharedElementKey(serverId, item.id)
     val openDetail = sharedMediaOnClick(sharedKey, onClick)
-    val palette = LocalPalette.current
-    val slideGround = pageTint(accent)
+    var resolvedArtworkUrl by remember(item.id) { mutableStateOf<String?>(null) }
+    val artworkPageColor =
+        rememberArtworkPageColor(
+            url = resolvedArtworkUrl,
+            targetAspectRatio = artworkAspectRatio,
+            fadeFraction = artworkFadeFraction,
+        )
+    LaunchedEffect(settled, artworkPageColor) {
+        if (settled) artworkPageColor?.let(onPageColor)
+    }
     Box(
         modifier
             .fillMaxSize()
             .then(if (framed) Modifier.livingPosterFrame() else Modifier)
-            // The mask below reveals this item's colour, including while two pager pages are
-            // simultaneously visible during a drag.
-            .background(slideGround)
             .pressable(onClick = openDetail),
     ) {
         FallbackImage(
             urls = urls,
             contentDescription = item.title,
+            onResolvedUrl = { resolvedArtworkUrl = it },
             modifier =
                 Modifier
                     .sharedMediaArtwork(sharedKey)
@@ -698,7 +729,7 @@ private fun HeroCarousel(
                     .fadeIntoPage(),
         )
         // Contrast only. The image itself owns the lower transition through fadeIntoPage().
-        Box(Modifier.fillMaxSize().background(heroReelScrim()))
+        Box(Modifier.fillMaxSize().background(heroTopScrim()))
         Row(
             Modifier
                 .fillMaxWidth()

@@ -192,12 +192,12 @@ private fun HeroFavoriteButton(
  * keeps the darkness clear of the dissolve.
  */
 fun heroTopScrim(
-    topInk: Float = 0.45f,
-    midInk: Float = 0.10f,
+    topInk: Float = 0.58f,
+    midInk: Float = 0.24f,
 ): Brush =
     scrim(
         0f to Color.Transparent,
-        0.52f to Color.Transparent,
+        0.46f to Color.Transparent,
         0.80f to HeroInk.copy(alpha = midInk),
         1f to HeroInk.copy(alpha = topInk),
     )
@@ -382,33 +382,13 @@ fun heroPanelBrush(
  * rather than as the picture settling into the page, so the band is now most of the space
  * below the caption.
  */
-val HeroPageFade: Dp = 124.dp
+val HeroPageFade: Dp = 120.dp
 
-/**
- * Where hero copy has to stop.
- *
- * Slightly *inside* the band rather than clear of it: coverage at the band's top edge is
- * a few percent, which is nothing to read through, and insisting on the full clearance
- * costs a caption of vertical room it does not have on a short phone.
- */
-val HeroCaptionClearance: Dp = HeroPageFade - 12.dp
+/** Copy stays out of the part of the hero that has mostly dissolved into the page. */
+val HeroCaptionClearance: Dp = HeroPageFade - 20.dp
 
-/**
- * Dissolves the bottom [height] of this element into whatever is drawn behind it.
- *
- * Painting the page colour over the artwork would have been the obvious way to end a
- * carousel, and it is the one that cannot work: the page is not a colour but an ambient
- * gradient, so a band of [Palette.background] meets it at a seam that moves with the
- * scroll. Removing the artwork's own alpha instead lets the real page through, which is
- * the same colour as the page by construction rather than by matching.
- *
- * Apply it to the artwork layer only. Anything that must stay legible — a caption, the
- * pagination — belongs outside this node, over the band rather than inside it.
- */
 fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier =
     this
-        // The mask is a subtractive blend, and it can only subtract from pixels that are in a
-        // layer of their own. Without this it would punch through the whole page beneath.
         .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
         .drawWithContent {
             drawContent()
@@ -416,27 +396,26 @@ fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier =
             if (fade <= 0f) return@drawWithContent
             val top = size.height - fade
             drawRect(
-                brush =
-                    Brush.verticalGradient(
-                        colorStops =
-                            arrayOf(
-                                0f to Color.Transparent,
-                                // An S-curve rather than a ramp: slow to start, so the picture stays
-                                // itself for most of the band, and fully resolved before the last
-                                // pixel, so there is never a faint edge where the page begins.
-                                0.34f to Color.Black.copy(alpha = 0.16f),
-                                0.68f to Color.Black.copy(alpha = 0.68f),
-                                0.92f to Color.Black.copy(alpha = 0.98f),
-                                1f to Color.Black,
-                            ),
-                        startY = top,
-                        endY = size.height,
-                    ),
+                brush = Brush.verticalGradient(
+                    colorStops = heroPageFadeMaskStops(),
+                    startY = top,
+                    endY = size.height,
+                ),
                 topLeft = Offset(0f, top),
                 size = Size(size.width, fade),
                 blendMode = BlendMode.DstOut,
             )
         }
+
+internal fun heroPageFadeMaskStops(): Array<Pair<Float, Color>> =
+    arrayOf(
+        0f to Color.Transparent,
+        0.28f to Color.Black.copy(alpha = 0.10f),
+        0.58f to Color.Black.copy(alpha = 0.55f),
+        0.82f to Color.Black.copy(alpha = 0.94f),
+        0.90f to Color.Black,
+        1f to Color.Black,
+    )
 
 /**
  * Pulls content up over the lower edge of the hero by [lift].
