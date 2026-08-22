@@ -274,7 +274,7 @@ internal fun MediaInfoSection(
                             if (palette.isDark) {
                                 Color.White.copy(alpha = 0.05f)
                             } else {
-                                Color.White.copy(alpha = 0.55f)
+                                Color.White.copy(alpha = 0.32f)
                             },
                         border = palette.border,
                     ).padding(horizontal = 12.dp, vertical = 11.dp),
@@ -304,13 +304,11 @@ private fun SpecCard(
     rows: List<Pair<String, String>>,
 ) {
     val palette = LocalPalette.current
-    // A white palette border disappears against this card's pale surface. Keep the
-    // glass card body, but give it one calm, solid outline in both themes.
     val edge =
         if (palette.isDark) {
             Color.White.copy(alpha = 0.16f)
         } else {
-            Color(0xFF141A26).copy(alpha = 0.12f)
+            Color.White.copy(alpha = 0.30f)
         }
     Column(
         Modifier
@@ -321,7 +319,7 @@ private fun SpecCard(
                     if (palette.isDark) {
                         Color.White.copy(alpha = 0.06f)
                     } else {
-                        Color.White.copy(alpha = 0.72f)
+                        Color.White.copy(alpha = 0.36f)
                     },
                 border = edge,
             ).padding(horizontal = 13.dp, vertical = 12.dp),
@@ -510,7 +508,7 @@ private fun TrackChipRow(
                                 if (palette.isDark) {
                                     Color.White.copy(alpha = 0.075f)
                                 } else {
-                                    Color.White.copy(alpha = 0.72f)
+                                    Color.White.copy(alpha = 0.30f)
                                 },
                             border = if (active) accent.copy(alpha = 0.32f) else palette.border,
                             sheen = 0.7f,
@@ -542,12 +540,12 @@ private fun VersionCard(
                     if (palette.isDark) {
                         Color.White.copy(alpha = 0.06f)
                     } else {
-                        Color.White.copy(alpha = 0.82f)
+                        Color.White.copy(alpha = 0.36f)
                     },
-                border = null,
+                border = palette.border,
             ).then(
                 if (selected) {
-                    Modifier.border(1.5.dp, accent, GlassShapes.card)
+                    Modifier.border(1.25.dp, accent.copy(alpha = 0.62f), GlassShapes.card)
                 } else {
                     Modifier
                 },
@@ -620,14 +618,14 @@ internal fun SourceSection(
             ) {
                 Text(
                     "${availableSources.size} 个媒体库",
-                    style = AppTypography.caption.medium,
-                    color = palette.sub2,
+                    style = AppTypography.caption.strong,
+                    color = palette.body,
                 )
                 Icon(
                     AppIcons.ChevronRight,
                     contentDescription = "查看全部资源",
-                    tint = palette.hint,
-                    modifier = Modifier.size(11.dp),
+                    tint = palette.sub2,
+                    modifier = Modifier.size(12.dp),
                 )
             }
         }
@@ -680,9 +678,6 @@ private fun SourceCard(
 ) {
     val palette = LocalPalette.current
     val source = entry.source
-    // 1.5dp on the selected ring, so switching sources moves the edge as well as the
-    // colour. The body keeps its glass-card sheen; the edge itself is always one solid
-    // colour and is drawn separately so it can become heavier for the selected source.
     Column(
         Modifier
             .width(width)
@@ -697,12 +692,12 @@ private fun SourceCard(
                     if (palette.isDark) {
                         Color.White.copy(alpha = 0.06f)
                     } else {
-                        Color.White.copy(alpha = 0.82f)
+                        Color.White.copy(alpha = 0.36f)
                     },
-                border = null,
+                border = palette.border,
             ).then(
                 if (selected) {
-                    Modifier.border(1.5.dp, accent, GlassShapes.card)
+                    Modifier.border(1.25.dp, accent.copy(alpha = 0.62f), GlassShapes.card)
                 } else {
                     Modifier
                 },
