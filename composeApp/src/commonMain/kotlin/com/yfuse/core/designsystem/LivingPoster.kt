@@ -50,15 +50,21 @@ fun heroMediaTypeLabel(type: String): String =
         else -> type.ifBlank { "视频" }
     }
 
-/** A little taller than the old full-bleed reel, because the poster now begins below the header. */
+/**
+ * Shared reel height for 首页 and 媒体库.
+ *
+ * Keep the living poster cinematic, but expose a little more of the first content rail on
+ * compact phones. Both tabs still resolve from the same token so switching tabs never makes
+ * the carousel jump in height.
+ */
 fun livingPosterHeroHeight(
     viewportHeight: Dp,
     wideLayout: Boolean,
 ): Dp =
     if (wideLayout) {
-        (viewportHeight * 0.70f).coerceIn(500.dp, 760.dp)
+        (viewportHeight * 0.67f).coerceIn(480.dp, 730.dp)
     } else {
-        (viewportHeight * 0.76f).coerceIn(500.dp, 640.dp)
+        (viewportHeight * 0.72f).coerceIn(480.dp, 610.dp)
     }
 
 /**
