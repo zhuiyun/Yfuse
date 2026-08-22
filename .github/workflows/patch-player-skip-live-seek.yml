@@ -1,0 +1,493 @@
+name: Patch player skip editor and live hold seek
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]' && github.head_ref == 'codex/player-skip-editor-live-hold-seek-20260822'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: codex/player-skip-editor-live-hold-seek-20260822
+          fetch-depth: 0
+
+      - name: Apply player interaction changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return text.replace(old, new, 1)
+
+          # ------------------------------------------------------------------
+          # Long-press seek: real engine seeks while the finger remains down.
+          controls_path = Path('composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt')
+          controls = controls_path.read_text()
+          controls = replace_once(
+              controls,
+              '''/**
+ * 长按快进/快退 — how fast the playhead runs while a press is held down.
+ *
+ * Holding used to jump to 2× playback, which is a different thing than it looks like:
+ * the picture keeps playing and the finger has to stay down to keep it there, so
+ * skipping a minute of credits meant holding for thirty seconds and watching them. A
+ * held press now runs along the timeline instead, at [HOLD_SEEK_STEP_MS] per
+ * [HOLD_SEEK_TICK_MS] — 20× to start, [HOLD_SEEK_FAST_STEP_MS] (60×) once the press has
+ * lasted [HOLD_SEEK_RAMP_MS], so a short hold nudges and a long one crosses an episode.
+ *
+ * Like the horizontal drag, this previews: the HUD tracks the target and the engine is
+ * only asked to seek once, on release. Seeking every tick would mean twenty seeks a
+ * second at a remote server that answers each one by rebuilding the stream.
+ */
+private const val HOLD_SEEK_TICK_MS = 150L
+private const val HOLD_SEEK_STEP_MS = 3_000L
+private const val HOLD_SEEK_FAST_STEP_MS = 9_000L
+private const val HOLD_SEEK_RAMP_MS = 3_000L
+''',
+              '''/**
+ * 长按快进/快退 — both timeline and decoded video move while the press is held.
+ *
+ * A 300ms cadence is intentionally slower than a UI animation: it is frequent enough for
+ * the picture to visibly follow the finger, but low enough that remote direct-play engines
+ * are not hammered with dozens of seek requests per second. The distance per tick keeps the
+ * effective rate at roughly 20× initially and 60× after the hold ramps up.
+ */
+private const val HOLD_SEEK_TICK_MS = 300L
+private const val HOLD_SEEK_STEP_MS = 6_000L
+private const val HOLD_SEEK_FAST_STEP_MS = 18_000L
+private const val HOLD_SEEK_RAMP_MS = 3_000L
+''',
+              'hold seek constants',
+          )
+          controls = replace_once(
+              controls,
+              '''    // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
+    // is held. [holdSeekTarget] is where the timeline has run to, committed on release.
+''',
+              '''    // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
+    // is held. [holdSeekTarget] is the last position already sent to the playback engine.
+''',
+              'hold target comment',
+          )
+          controls = replace_once(
+              controls,
+              '''            holdSeekTarget = (holdSeekTarget + direction * step).coerceIn(0L, span)
+            gestureHud = "${if (direction < 0) "快退" else "快进"} " +
+                "${holdSeekTarget.asClock()} / ${span.asClock()}"
+            delay(HOLD_SEEK_TICK_MS)
+''',
+              '''            holdSeekTarget = (holdSeekTarget + direction * step).coerceIn(0L, span)
+            // This is a real seek, not a preview. The decoded picture and audio position follow
+            // the held gesture instead of waiting for the up event to jump once at the end.
+            latestOnSeek(holdSeekTarget)
+            gestureHud = "${if (direction < 0) "快退" else "快进"} " +
+                "${holdSeekTarget.asClock()} / ${span.asClock()}"
+            delay(HOLD_SEEK_TICK_MS)
+''',
+              'live hold seek dispatch',
+          )
+          controls = replace_once(
+              controls,
+              '''                        onPress = {
+                            // Fires on every press; only a press that turned into a hold
+                            // has a seek to land. `tryAwaitRelease` also returns after the
+                            // long-press path consumes its way to the up event.
+                            tryAwaitRelease()
+                            if (holdSeekDirection != 0) {
+                                val target = holdSeekTarget
+                                holdSeekDirection = 0
+                                latestOnSeek(target)
+                                poke()
+                            }
+                        },
+''',
+              '''                        onPress = {
+                            // A hold already seeks continuously. Release only stops the loop;
+                            // there is no second jump after the finger comes up.
+                            tryAwaitRelease()
+                            if (holdSeekDirection != 0) {
+                                holdSeekDirection = 0
+                                poke()
+                            }
+                        },
+''',
+              'hold release behavior',
+          )
+          controls_path.write_text(controls)
+
+          # ------------------------------------------------------------------
+          # Skip editor: intro has start+end; credits has one absolute timestamp.
+          settings_path = Path('composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt')
+          settings = settings_path.read_text()
+          settings = replace_once(
+              settings,
+              'import androidx.compose.foundation.rememberScrollState\n',
+              'import androidx.compose.foundation.rememberScrollState\nimport androidx.compose.foundation.text.BasicTextField\nimport androidx.compose.foundation.text.KeyboardOptions\n',
+              'text field imports',
+          )
+          settings = replace_once(
+              settings,
+              'import androidx.compose.ui.graphics.Color\n',
+              'import androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.graphics.SolidColor\n',
+              'cursor import',
+          )
+          settings = replace_once(
+              settings,
+              'import androidx.compose.ui.text.style.TextAlign\n',
+              'import androidx.compose.ui.text.input.KeyboardType\nimport androidx.compose.ui.text.style.TextAlign\n',
+              'keyboard type import',
+          )
+
+          old_skip = '''                SettingsPanelKind.Skip -> {
+                    val enabled = skip.mode != SkipMode.Off
+                    val here = (state.positionMs / 1000).coerceAtLeast(0L)
+                    val leftFromHere =
+                        ((state.durationMs - state.positionMs) / 1000).coerceAtLeast(0L)
+                    PopupToggleHeader(
+                        label = "跳过片头/片尾",
+                        checked = enabled,
+                        onToggle = {
+                            skipActions.onSelectMode(
+                                if (enabled) SkipMode.Off else SkipMode.Button,
+                            )
+                        },
+                    )
+                    SegmentedRow(
+                        options = listOf("显示跳过按钮", "自动跳过"),
+                        selectedIndex = if (skip.mode == SkipMode.Auto) 1 else 0,
+                        onSelect = { index ->
+                            skipActions.onSelectMode(
+                                if (index == 0) SkipMode.Button else SkipMode.Auto,
+                            )
+                        },
+                    )
+                    PopupDivider()
+                    PopupMenuRow(
+                        icon = AppIcons.SkipMarkers,
+                        title = "标记片头",
+                        subtitle = "将当前时间标记为片头结束",
+                        detail =
+                            skip.introEndSeconds
+                                .takeIf { it > 0L }
+                                ?.let { formatTime(it * 1000L) },
+                        selected = skip.introEndSeconds > 0L,
+                        onClick = {
+                            skipActions.onSetTimes(
+                                0L,
+                                here,
+                                skip.creditsLeadSeconds,
+                            )
+                        },
+                    )
+                    PopupDivider()
+                    PopupMenuRow(
+                        icon = AppIcons.SkipMarkers,
+                        title = "标记片尾",
+                        subtitle = "将当前时间标记为片尾开始",
+                        detail =
+                            skip.creditsLeadSeconds
+                                .takeIf { it > 0L }
+                                ?.let { "距结束 ${it}秒" },
+                        selected = skip.creditsLeadSeconds > 0L,
+                        onClick = {
+                            skipActions.onSetTimes(
+                                skip.introStartSeconds,
+                                skip.introEndSeconds,
+                                leftFromHere,
+                            )
+                        },
+                    )
+                    if (skip.anySet) {
+                        PopupDivider()
+                        OptionRow(
+                            label = "清除片头片尾标记",
+                            selected = false,
+                            onClick = { skipActions.onSetTimes(0L, 0L, 0L) },
+                        )
+                    }
+                }
+'''
+          new_skip = '''                SettingsPanelKind.Skip -> {
+                    val enabled = skip.mode != SkipMode.Off
+                    val here = (state.positionMs / 1000).coerceAtLeast(0L)
+                    val durationSeconds = (state.durationMs / 1000).coerceAtLeast(0L)
+                    val savedCreditsStart =
+                        creditsStartSecondsFromLead(skip.creditsLeadSeconds, durationSeconds)
+                    var introStartInput by remember(skip.introStartSeconds) {
+                        mutableStateOf(formatSkipTimestamp(skip.introStartSeconds))
+                    }
+                    var introEndInput by remember(skip.introEndSeconds) {
+                        mutableStateOf(
+                            skip.introEndSeconds
+                                .takeIf { it > 0L }
+                                ?.let(::formatSkipTimestamp)
+                                .orEmpty(),
+                        )
+                    }
+                    var creditsInput by remember(skip.creditsLeadSeconds, durationSeconds) {
+                        mutableStateOf(savedCreditsStart?.let(::formatSkipTimestamp).orEmpty())
+                    }
+                    var introError by remember(skip.introStartSeconds, skip.introEndSeconds) {
+                        mutableStateOf<String?>(null)
+                    }
+                    var creditsError by remember(skip.creditsLeadSeconds, durationSeconds) {
+                        mutableStateOf<String?>(null)
+                    }
+
+                    PopupToggleHeader(
+                        label = "跳过片头/片尾",
+                        checked = enabled,
+                        onToggle = {
+                            skipActions.onSelectMode(
+                                if (enabled) SkipMode.Off else SkipMode.Button,
+                            )
+                        },
+                    )
+                    SegmentedRow(
+                        options = listOf("显示跳过按钮", "自动跳过"),
+                        selectedIndex = if (skip.mode == SkipMode.Auto) 1 else 0,
+                        onSelect = { index ->
+                            skipActions.onSelectMode(
+                                if (index == 0) SkipMode.Button else SkipMode.Auto,
+                            )
+                        },
+                    )
+                    PopupDivider()
+                    GroupLabel("片头")
+                    SkipTimeField(
+                        label = "开始时间",
+                        value = introStartInput,
+                        onValueChange = {
+                            introStartInput = it
+                            introError = null
+                        },
+                        onUseCurrent = {
+                            introStartInput = formatSkipTimestamp(here)
+                            introError = null
+                        },
+                    )
+                    SkipTimeField(
+                        label = "结束时间",
+                        value = introEndInput,
+                        onValueChange = {
+                            introEndInput = it
+                            introError = null
+                        },
+                        onUseCurrent = {
+                            introEndInput = formatSkipTimestamp(here)
+                            introError = null
+                        },
+                    )
+                    introError?.let { error ->
+                        Text(
+                            error,
+                            style = AppTypography.caption.medium,
+                            color = DarkPalette.error,
+                            modifier = Modifier.padding(horizontal = 5.dp),
+                        )
+                    }
+                    OptionRow(
+                        label = "保存片头时间",
+                        selected = false,
+                        onClick = {
+                            val start = parseSkipTimestamp(introStartInput)
+                            val end = parseSkipTimestamp(introEndInput)
+                            introError =
+                                when {
+                                    start == null || end == null -> "请输入秒数、mm:ss 或 hh:mm:ss"
+                                    start == 0L && end == 0L -> {
+                                        skipActions.onSetTimes(0L, 0L, skip.creditsLeadSeconds)
+                                        null
+                                    }
+                                    end <= start -> "片头结束时间必须晚于开始时间"
+                                    durationSeconds > 0L && end >= durationSeconds -> "片头结束时间必须早于视频结束"
+                                    else -> {
+                                        skipActions.onSetTimes(start, end, skip.creditsLeadSeconds)
+                                        null
+                                    }
+                                }
+                        },
+                    )
+
+                    PopupDivider()
+                    GroupLabel("片尾")
+                    Text(
+                        "只设置片尾开始的时间点；无需结束时间。",
+                        style = AppTypography.caption.medium,
+                        color = Color.White.copy(alpha = 0.54f),
+                        modifier = Modifier.padding(horizontal = 5.dp),
+                    )
+                    SkipTimeField(
+                        label = "片尾时间",
+                        value = creditsInput,
+                        onValueChange = {
+                            creditsInput = it
+                            creditsError = null
+                        },
+                        onUseCurrent = {
+                            creditsInput = formatSkipTimestamp(here)
+                            creditsError = null
+                        },
+                    )
+                    creditsError?.let { error ->
+                        Text(
+                            error,
+                            style = AppTypography.caption.medium,
+                            color = DarkPalette.error,
+                            modifier = Modifier.padding(horizontal = 5.dp),
+                        )
+                    }
+                    OptionRow(
+                        label = "保存片尾时间",
+                        selected = false,
+                        onClick = {
+                            val start = parseSkipTimestamp(creditsInput)
+                            creditsError =
+                                when {
+                                    start == null -> "请输入秒数、mm:ss 或 hh:mm:ss"
+                                    start == 0L -> {
+                                        skipActions.onSetTimes(
+                                            skip.introStartSeconds,
+                                            skip.introEndSeconds,
+                                            0L,
+                                        )
+                                        null
+                                    }
+                                    durationSeconds <= 0L -> "视频时长尚未就绪，暂时无法保存片尾时间"
+                                    else -> {
+                                        val lead = creditsLeadSecondsFromStart(start, durationSeconds)
+                                        if (lead == null) {
+                                            "片尾时间必须位于视频时长范围内"
+                                        } else {
+                                            skipActions.onSetTimes(
+                                                skip.introStartSeconds,
+                                                skip.introEndSeconds,
+                                                lead,
+                                            )
+                                            null
+                                        }
+                                    }
+                                }
+                        },
+                    )
+                    if (skip.anySet) {
+                        PopupDivider()
+                        OptionRow(
+                            label = "清除片头片尾标记",
+                            selected = false,
+                            onClick = { skipActions.onSetTimes(0L, 0L, 0L) },
+                        )
+                    }
+                }
+'''
+          settings = replace_once(settings, old_skip, new_skip, 'skip settings section')
+
+          marker = '''@Composable
+private fun PopupBackLabel(
+'''
+          editor = '''@Composable
+private fun SkipTimeField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    onUseCurrent: () -> Unit,
+) {
+    val accent = rememberAccentColorsForSurface(dark = true)
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 5.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Text(
+            label,
+            style = AppTypography.caption.strong,
+            color = Color.White.copy(alpha = 0.72f),
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .glass(
+                        shape = AppShapes.thumb,
+                        fill = Color.White.copy(alpha = 0.055f),
+                        border = Color.White.copy(alpha = 0.13f),
+                    ).padding(horizontal = 11.dp, vertical = 10.dp),
+            ) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = { candidate ->
+                        val normalized = candidate.replace('：', ':')
+                        if (
+                            normalized.length <= 10 &&
+                            normalized.all { it.isDigit() || it == ':' }
+                        ) {
+                            onValueChange(normalized)
+                        }
+                    },
+                    singleLine = true,
+                    textStyle = AppTypography.body.strong.copy(color = Color.White.copy(alpha = 0.94f)),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    cursorBrush = SolidColor(accent.accent),
+                    decorationBox = { field ->
+                        if (value.isBlank()) {
+                            Text(
+                                "mm:ss / hh:mm:ss",
+                                style = AppTypography.body.medium,
+                                color = Color.White.copy(alpha = 0.34f),
+                            )
+                        }
+                        field()
+                    },
+                )
+            }
+            Text(
+                "当前",
+                style = AppTypography.caption.strong,
+                color = accent.accent,
+                modifier =
+                    Modifier
+                        .glass(
+                            shape = AppShapes.thumb,
+                            fill = accent.container,
+                            border = accent.border,
+                        ).noRippleClickable(onUseCurrent)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PopupBackLabel(
+'''
+          settings = replace_once(settings, marker, editor, 'skip time editor helper')
+          settings_path.write_text(settings)
+          PY
+
+          git diff --check
+          grep -q 'latestOnSeek(holdSeekTarget)' composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt
+          grep -q 'label = "开始时间"' composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt
+          grep -q 'label = "结束时间"' composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt
+          grep -q 'label = "片尾时间"' composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerSettingsPanel.kt
+
+          rm .github/workflows/patch-player-skip-live-seek.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat(player): edit skip times and seek live on hold'
+          git push origin HEAD:codex/player-skip-editor-live-hold-seek-20260822
