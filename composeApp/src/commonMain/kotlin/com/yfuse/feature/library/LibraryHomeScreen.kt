@@ -62,7 +62,7 @@ import com.yfuse.core.data.WATCH_LATER_COLLECTION_ID
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.ArtworkAccent
+import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
@@ -71,6 +71,7 @@ import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroActionDock
+import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LivingPosterAmbient
@@ -103,7 +104,9 @@ import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.pageTint
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberAnimatedDominantColor
+import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberArtworkPagePalette
+import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.sharedMediaArtwork
@@ -206,7 +209,6 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     // the token travels with the base URL to every artwork on this page — not just to
     // 播放记录, which was the only row that had it.
     val accessToken = state.currentServer?.accessToken.orEmpty()
-    val palette = LocalPalette.current
 
     val slides = state.content.featured.take(8)
     val pagerState =
@@ -228,6 +230,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                 )
             }.orEmpty()
     val slideUrl = slideUrls.firstOrNull { it != null }
+    var sampledPageColor by remember { mutableStateOf<Color?>(null) }
+    val palette = rememberArtworkPagePalette(sampledPageColor)
     val accent =
         rememberAnimatedDominantColor(
             slideUrl,
@@ -277,11 +281,26 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     // under 跟随封面 the page's controls travel with it too.
     val ground = pageTint(accent)
     val bottomContentInset = floatingNavigationContentInset()
-    ArtworkAccent(accent) {
+    ArtworkPageTheme(
+        background = sampledPageColor,
+        artworkAccent = accent,
+    ) {
         BoxWithConstraints(Modifier.fillMaxSize().background(ground)) {
             val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
+            val pageColor = sampledPageColor ?: palette.background
+            Box(Modifier.fillMaxSize().background(pageColor))
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
+            val artworkWidth =
+                if (showSidePreview) {
+                    (maxWidth - LivingPosterDefaults.LEADING_INSET - LivingPosterDefaults.TRAILING_PEEK)
+                        .coerceAtLeast(1.dp)
+                } else {
+                    maxWidth
+                }
+            val artworkAspectRatio = artworkWidth.value / heroHeight.value.coerceAtLeast(1f)
+            val artworkFadeFraction =
+                (HeroPageFade.value / heroHeight.value.coerceAtLeast(1f)).coerceIn(0.02f, 1f)
             val indicatorStart =
                 if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
             val indicatorEnd =
@@ -369,6 +388,10 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 accent = animatedAccent,
                                                 serverId = state.currentServer?.id,
                                                 serverName = state.currentServer?.serverName.orEmpty(),
+                                                settled = page == pagerState.currentPage,
+                                                artworkAspectRatio = artworkAspectRatio,
+                                                artworkFadeFraction = artworkFadeFraction,
+                                                onPageColor = { sampledPageColor = it },
                                                 framed = showSidePreview,
                                                 modifier = Modifier.fillMaxSize(),
                                                 onClick = { component.onOpenItem(animatedItem.id) },
@@ -560,7 +583,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                     Modifier
                         .fillMaxWidth()
                         .windowInsetsTopHeight(WindowInsets.statusBars)
-                        .background(ground),
+                        .background(pageColor),
                 )
             }
 
@@ -668,6 +691,10 @@ private fun HeroCarousel(
     accent: Color,
     serverId: String?,
     serverName: String,
+    settled: Boolean,
+    artworkAspectRatio: Float,
+    artworkFadeFraction: Float,
+    onPageColor: (Color) -> Unit,
     framed: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -677,8 +704,16 @@ private fun HeroCarousel(
 ) {
     val sharedKey = MediaSharedElementKey(serverId, item.id)
     val openDetail = sharedMediaOnClick(sharedKey, onClick)
-    val palette = LocalPalette.current
-    val slideGround = pageTint(accent)
+    var resolvedArtworkUrl by remember(item.id) { mutableStateOf<String?>(null) }
+    val artworkPageColor =
+        rememberArtworkPageColor(
+            url = resolvedArtworkUrl,
+            targetAspectRatio = artworkAspectRatio,
+            fadeFraction = artworkFadeFraction,
+        )
+    LaunchedEffect(settled, artworkPageColor) {
+        if (settled) artworkPageColor?.let(onPageColor)
+    }
     Box(
         modifier
             .fillMaxSize()
@@ -691,6 +726,7 @@ private fun HeroCarousel(
         FallbackImage(
             urls = urls,
             contentDescription = item.title,
+            onResolvedUrl = { resolvedArtworkUrl = it },
             modifier =
                 Modifier
                     .sharedMediaArtwork(sharedKey)

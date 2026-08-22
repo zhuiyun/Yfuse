@@ -52,7 +52,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.ArtworkAccent
+import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.CloudPlayerLogo
@@ -61,6 +61,7 @@ import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroActionDock
+import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.HeroPageIndicator
 import com.yfuse.core.designsystem.HeroTextShadow
 import com.yfuse.core.designsystem.LivingPosterAmbient
@@ -94,6 +95,7 @@ import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.pageTint
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.TmdbItem
@@ -141,13 +143,18 @@ fun HomeScreen(
 ) {
     // The carousel owns which slide is settled, so it reports the colour up rather than the
     // page trying to work it out from an index it does not hold. Hoisted above the content
-    // so 跟随封面 can hand it to every control on the page — see [ArtworkAccent].
+    // so 跟随封面 can hand it to every control on the page — see [ArtworkPageTheme].
     var heroAccent by remember { mutableStateOf<Color?>(null) }
-    ArtworkAccent(heroAccent) {
+    var heroPageColor by remember { mutableStateOf<Color?>(null) }
+    ArtworkPageTheme(
+        background = heroPageColor,
+        artworkAccent = heroAccent,
+    ) {
         HomeContent(
             component = component,
-            heroAccent = heroAccent,
+            heroPageColor = heroPageColor,
             onHeroAccent = { heroAccent = it },
+            onHeroPageColor = { heroPageColor = it },
             onOpenDiscovery = onOpenDiscovery,
         )
     }
@@ -157,8 +164,9 @@ fun HomeScreen(
 @Composable
 private fun HomeContent(
     component: HomeComponent,
-    heroAccent: Color?,
+    heroPageColor: Color?,
     onHeroAccent: (Color) -> Unit,
+    onHeroPageColor: (Color) -> Unit,
     onOpenDiscovery: (() -> Unit)?,
 ) {
     val state by component.store.states.collectAsState(component.store.state)
@@ -180,6 +188,11 @@ private fun HomeContent(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = livingPosterHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
+        val pageColor = heroPageColor ?: palette.background
+        // The artwork alpha dissolves directly into this one opaque, poster-derived colour.
+        // No seam overlay or local colour band exists between the hero and the page.
+        Box(Modifier.fillMaxSize().background(pageColor))
+
         val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
         val heroVisible = !scrolledPastHero
         StatusBarIconStyle(darkIcons = !heroVisible && !palette.isDark)
@@ -215,6 +228,7 @@ private fun HomeContent(
                         onDetails = { component.store.accept(HomeIntent.Open(it)) },
                         onFavorite = { component.store.accept(HomeIntent.Favorite(it)) },
                         onAccent = onHeroAccent,
+                        onPageColor = onHeroPageColor,
                     )
                 }
 
@@ -355,6 +369,7 @@ private fun HomeHeroCarousel(
     onDetails: (TmdbItem) -> Unit,
     onFavorite: (TmdbItem) -> Unit,
     onAccent: (Color) -> Unit,
+    onPageColor: (Color) -> Unit,
 ) {
     val pagerState =
         rememberPagerState(
@@ -396,16 +411,34 @@ private fun HomeHeroCarousel(
             if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
         val indicatorEnd =
             if (showSidePreview) LivingPosterDefaults.TRAILING_PEEK else 0.dp
-        LivingPosterAmbient(
-            urls = ambientUrls,
-            modifier = Modifier.fillMaxSize(),
-        )
+        val artworkWidth =
+            if (showSidePreview) {
+                (maxWidth - LivingPosterDefaults.LEADING_INSET - LivingPosterDefaults.TRAILING_PEEK)
+                    .coerceAtLeast(1.dp)
+            } else {
+                maxWidth
+            }
+        val artworkAspectRatio = artworkWidth.value / maxHeight.value.coerceAtLeast(1f)
+        val artworkFadeFraction =
+            (HeroPageFade.value / maxHeight.value.coerceAtLeast(1f)).coerceIn(0.02f, 1f)
+        // Full-bleed phone artwork must dissolve straight into the real page. Drawing a
+        // second, blurred copy behind it made that copy show through the fade as a saturated
+        // horizontal band and also decoded the first image twice. Wide layouts still need
+        // the ambient layer behind their inset poster, so it shares the same dissolve.
+        if (showSidePreview) {
+            LivingPosterAmbient(
+                urls = ambientUrls,
+                modifier = Modifier.fillMaxSize().fadeIntoPage(),
+            )
+        }
         if (items.isEmpty()) {
             HeroSlide(
                 item = null,
                 onPlay = {},
                 onDetails = {},
                 onFavorite = {},
+                artworkAspectRatio = artworkAspectRatio,
+                artworkFadeFraction = artworkFadeFraction,
                 modifier =
                     Modifier
                         .fillMaxSize(),
@@ -439,6 +472,9 @@ private fun HomeHeroCarousel(
                     onFavorite = { onFavorite(item) },
                     settled = settled,
                     onAccent = onAccent,
+                    onPageColor = onPageColor,
+                    artworkAspectRatio = artworkAspectRatio,
+                    artworkFadeFraction = artworkFadeFraction,
                     framed = showSidePreview,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -522,12 +558,16 @@ private fun HeroSlide(
     onFavorite: () -> Unit,
     settled: Boolean = false,
     onAccent: (Color) -> Unit = {},
+    onPageColor: (Color) -> Unit = {},
+    artworkAspectRatio: Float,
+    artworkFadeFraction: Float,
     framed: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     val artworkUrls: List<String?> =
         remember(item) { tmdbHeroArtworkUrls(item) }
+    var resolvedArtworkUrl by remember(item?.id) { mutableStateOf<String?>(null) }
     val artworkAccent =
         rememberAnimatedArtworkAccent(
             url = artworkUrls.firstOrNull { it != null },
@@ -535,11 +575,20 @@ private fun HeroSlide(
             darkTheme = palette.isDark,
             identity = item?.id,
         )
+    val artworkPageColor =
+        rememberArtworkPageColor(
+            url = resolvedArtworkUrl,
+            targetAspectRatio = artworkAspectRatio,
+            fadeFraction = artworkFadeFraction,
+        )
     // Only the slide the reader is actually on gets to colour the page; the pager keeps its
     // neighbours composed, and letting those report would tint the page from a slide that is
     // off screen.
-    LaunchedEffect(settled, artworkAccent) {
-        if (settled) onAccent(artworkAccent)
+    LaunchedEffect(settled, artworkAccent, artworkPageColor) {
+        if (settled) {
+            onAccent(artworkAccent)
+            artworkPageColor?.let(onPageColor)
+        }
     }
     val slideGround = pageTint(artworkAccent)
     Box(
@@ -568,6 +617,10 @@ private fun HeroSlide(
             FallbackImage(
                 urls = artworkUrls,
                 contentDescription = item.title,
+                onResolvedUrl = { resolvedArtworkUrl = it },
+                // Remove the artwork itself at the lower edge. The real app backdrop then
+                // shows through continuously instead of being replaced by a rectangular
+                // page-tint layer beneath the carousel.
                 modifier = Modifier.fillMaxSize().fadeIntoPage(),
             )
         }
