@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class PremiumSeekBarTest {
-
     @Test
     fun seek_fraction_clamps_to_track() {
         assertEquals(0f, premiumSeekFraction(-20f, 100f))
@@ -15,11 +14,12 @@ class PremiumSeekBarTest {
 
     @Test
     fun buffered_progress_never_draws_behind_played_progress() {
-        val visual = premiumSeekVisualState(
-            playedFraction = 0.72f,
-            bufferedFraction = 0.40f,
-            interaction = 1.4f,
-        )
+        val visual =
+            premiumSeekVisualState(
+                playedFraction = 0.72f,
+                bufferedFraction = 0.40f,
+                interaction = 1.4f,
+            )
         assertEquals(0.72f, visual.playedFraction)
         assertEquals(0.72f, visual.bufferedFraction)
         assertEquals(1f, visual.interaction)
@@ -27,11 +27,12 @@ class PremiumSeekBarTest {
 
     @Test
     fun visual_state_clamps_external_values() {
-        val visual = premiumSeekVisualState(
-            playedFraction = -0.5f,
-            bufferedFraction = 3f,
-            interaction = -1f,
-        )
+        val visual =
+            premiumSeekVisualState(
+                playedFraction = -0.5f,
+                bufferedFraction = 3f,
+                interaction = -1f,
+            )
         assertEquals(0f, visual.playedFraction)
         assertEquals(1f, visual.bufferedFraction)
         assertEquals(0f, visual.interaction)
