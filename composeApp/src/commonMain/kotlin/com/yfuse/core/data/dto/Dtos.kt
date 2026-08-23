@@ -17,13 +17,6 @@ import com.yfuse.core.model.languageDisplayName
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import kotlinx.serialization.Serializable
 
-/**
- * PlaybackInfo is capability negotiation, not Yfuse's adaptive network limiter. Keep the server
- * ceiling well above UHD Blu-ray remux bitrates so an Auto/original request is not silently changed
- * into transcoding merely because the file metadata exceeds the old 120 Mbps profile cap.
- */
-internal const val YFUSE_MAX_STREAMING_BITRATE_BPS = 1_000_000_000L
-
 @Serializable
 data class PublicInfoDto(
     val ServerName: String? = null,
@@ -184,7 +177,7 @@ data class PlaybackInfoRequestDto(
     val StartTimeTicks: Long = 0L,
     val MediaSourceId: String? = null,
     val CurrentPlaySessionId: String? = null,
-    val MaxStreamingBitrate: Long = YFUSE_MAX_STREAMING_BITRATE_BPS,
+    val MaxStreamingBitrate: Long = 120_000_000L,
     val MaxAudioChannels: Int = 8,
     val EnableDirectPlay: Boolean = true,
     val EnableDirectStream: Boolean = true,
@@ -200,7 +193,7 @@ data class PlaybackInfoRequestDto(
 data class DeviceProfileDto(
     val Name: String = "Yfuse Android",
     val SupportedMediaTypes: String = "Video,Audio",
-    val MaxStreamingBitrate: Long = YFUSE_MAX_STREAMING_BITRATE_BPS,
+    val MaxStreamingBitrate: Long = 120_000_000L,
     val DirectPlayProfiles: List<DirectPlayProfileDto> = emptyList(),
     val TranscodingProfiles: List<TranscodingProfileDto> = emptyList(),
     val CodecProfiles: List<CodecProfileDto> = emptyList(),
@@ -345,26 +338,15 @@ data class PlaybackReportDto(
     val PositionTicks: Long,
     val IsPaused: Boolean,
     val IsMuted: Boolean = false,
-    val PlayMethod: String,
+    val CanSeek: Boolean = true,
+    val PlayMethod: String = "DirectPlay",
 )
-
-fun BaseItemDto.playbackSegments(): List<PlaybackSegment> =
-    Chapters.orEmpty().mapNotNull { chapter ->
-        val type =
-            when (chapter.MarkerType?.trim()?.lowercase()) {
-                "introstart" -> PlaybackSegmentType.IntroStart
-                "introend" -> PlaybackSegmentType.IntroEnd
-                "creditsstart" -> PlaybackSegmentType.CreditsStart
-                else -> null
-            }
-        type?.let { PlaybackSegment(type = it, positionTicks = chapter.StartPositionTicks) }
-    }.sortedBy(PlaybackSegment::positionTicks)
 
 fun BaseItemDto.toMediaItem(): MediaItem {
     val isEpisode = Type == "Episode"
+    val useSeriesPoster = isEpisode && SeriesId != null
     val ownBackdrop = BackdropImageTags?.firstOrNull()
     val inheritedBackdrop = ParentBackdropImageTags?.firstOrNull()
-    val useSeriesPoster = isEpisode && ImageTags?.get("Primary") == null && SeriesPrimaryImageTag != null
 
     val title = if (isEpisode) (SeriesName ?: Name ?: "") else (Name ?: "")
     val subtitle =
@@ -589,6 +571,7 @@ fun MediaSourceDto.toMediaVersion(
                             languageDisplayName(stream.Language)
                                 ?: stream.Title?.takeIf { it.isNotBlank() },
                         displayTitle = stream.DisplayTitle?.takeIf { it.isNotBlank() },
+                        displayLanguage = stream.DisplayLanguage?.takeIf { it.isNotBlank() },
                         profile = stream.Profile?.takeIf { it.isNotBlank() },
                         bitrateBps = stream.BitRate,
                         channelCount = stream.Channels,
@@ -668,9 +651,39 @@ fun BaseItemDto.bestTrickplay(): TrickplayInfo? =
             TrickplayInfo(
                 width = it.Width,
                 height = it.Height,
-                tileWidth = it.TileWidth,
-                tileHeight = it.TileHeight,
+                tileColumns = it.TileWidth,
+                tileRows = it.TileHeight,
+                intervalMs = it.Interval,
                 thumbnailCount = it.ThumbnailCount,
-                intervalMs = (it.Interval / 10_000L).coerceAtLeast(1L),
             )
         }
+
+/** Pairs Emby's IntroStart/IntroEnd markers and treats CreditsStart as open-ended. */
+fun BaseItemDto.playbackSegments(): List<PlaybackSegment> {
+    val markers = Chapters.orEmpty().sortedBy { it.StartPositionTicks }
+    val introStart = markers.firstOrNull { it.MarkerType.equals("IntroStart", true) }
+    val introEnd =
+        markers.firstOrNull {
+            it.MarkerType.equals("IntroEnd", true) &&
+                (introStart == null || it.StartPositionTicks > introStart.StartPositionTicks)
+        }
+    val intro =
+        if (introStart != null && introEnd != null) {
+            PlaybackSegment(
+                type = PlaybackSegmentType.Intro,
+                startMs = introStart.StartPositionTicks / 10_000L,
+                endMs = introEnd.StartPositionTicks / 10_000L,
+            )
+        } else {
+            null
+        }
+    val credits =
+        markers.firstOrNull { it.MarkerType.equals("CreditsStart", true) }?.let {
+            PlaybackSegment(
+                type = PlaybackSegmentType.Credits,
+                startMs = it.StartPositionTicks / 10_000L,
+                endMs = null,
+            )
+        }
+    return listOfNotNull(intro, credits)
+}
