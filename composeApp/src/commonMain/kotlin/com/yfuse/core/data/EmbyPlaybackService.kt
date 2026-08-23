@@ -4,6 +4,7 @@ import com.yfuse.core.data.dto.DeviceProfileDto
 import com.yfuse.core.data.dto.PlaybackInfoRequestDto
 import com.yfuse.core.data.dto.PlaybackInfoResponseDto
 import com.yfuse.core.data.dto.PlaybackReportDto
+import com.yfuse.core.data.dto.YFUSE_LOCAL_DECODE_MAX_AUDIO_CHANNELS
 import com.yfuse.core.data.dto.YFUSE_MAX_STREAMING_BITRATE_BPS
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
@@ -117,7 +118,9 @@ internal class EmbyPlaybackService(
                         MediaSourceId = mediaSourceId,
                         CurrentPlaySessionId = playSessionId,
                         MaxStreamingBitrate = YFUSE_MAX_STREAMING_BITRATE_BPS,
-                        MaxAudioChannels = capabilities.maxAudioChannels.coerceIn(2, 8),
+                        // This is what the client can ingest, not the current speaker layout.
+                        // mpv/FFmpeg can decode 7.1 and downmix locally to a stereo phone route.
+                        MaxAudioChannels = YFUSE_LOCAL_DECODE_MAX_AUDIO_CHANNELS,
                     )
                 // Eager serialization avoids a deferred request-body serializer deadlock on an
                 // unconfined UI/test dispatcher while the engine consumes the same body.
