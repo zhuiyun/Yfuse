@@ -33,4 +33,6 @@ data class Episode(
     /** Present only when the caller explicitly asks the episode list for MediaSources. */
     val versions: List<MediaVersion> = emptyList(),
     val trickplay: TrickplayInfo? = null,
+    /** Exact Emby runtime retained for the player timeline before an engine reports duration. */
+    val runtimeTicks: Long? = null,
 )
