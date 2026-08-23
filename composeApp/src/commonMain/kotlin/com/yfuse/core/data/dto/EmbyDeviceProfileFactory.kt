@@ -5,11 +5,19 @@ import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackVideoCodec
 
-/** Builds the server contract from observed capabilities instead of a model-wide allow-list. */
+/**
+ * Builds the server contract for what Yfuse can ingest locally.
+ *
+ * Android hardware/display capabilities still refine native passthrough, but they are not the whole
+ * client: the packaged mpv + FFmpeg + libplacebo path can decode HEVC/Dolby Vision and map it to the
+ * current display. If the profile describes only the panel/MediaCodec surface, Emby sees a P7/FEL
+ * source as unsupported and offers a server transcode even though Yfuse deliberately opens the
+ * original URL and performs the Dolby pipeline locally.
+ */
 internal object EmbyDeviceProfileFactory {
     fun create(capabilities: PlaybackDeviceCapabilities): DeviceProfileDto {
         val videoCodecs =
-            capabilities.videoDecoders.flatMapTo(
+            (capabilities.videoDecoders + LOCAL_VIDEO_DECODERS).flatMapTo(
                 linkedSetOf(),
                 PlaybackVideoCodec::embyNames,
             )
@@ -30,6 +38,7 @@ internal object EmbyDeviceProfileFactory {
         if (audioCodecs.isEmpty()) audioCodecs += "aac"
         val maxAudioChannels = capabilities.maxAudioChannels.coerceIn(2, 8)
         return DeviceProfileDto(
+            MaxStreamingBitrate = YFUSE_MAX_STREAMING_BITRATE_BPS,
             DirectPlayProfiles =
                 listOf(
                     DirectPlayProfileDto(
@@ -135,32 +144,18 @@ internal object EmbyDeviceProfileFactory {
 
     private fun hevcRangeTypes(capabilities: PlaybackDeviceCapabilities): Set<String> =
         buildSet {
+            // These are input formats the local mpv/libplacebo path can consume. Native panel HDR
+            // support decides whether the final frame is passthrough or tone-mapped; it must not
+            // decide whether Emby is allowed to send the original HEVC/Dolby bitstream at all.
+            addAll(LOCAL_HEVC_INPUT_RANGE_TYPES)
             addAll(openHdrRangeTypes(capabilities, PlaybackVideoCodec.Hevc))
-            if (
-                capabilities.supportsHdrOutput(
-                    PlaybackHdrFormat.Hdr10,
-                    PlaybackVideoCodec.Hevc,
-                )
-            ) {
-                add("DOVIWithHDR10")
-            }
             if (
                 capabilities.supportsHdrOutput(
                     PlaybackHdrFormat.Hdr10Plus,
                     PlaybackVideoCodec.Hevc,
-                )
+                ) || PlaybackHdrFormat.Hdr10Plus in capabilities.hdrFormats
             ) {
-                add("DOVIWithHDR10Plus")
-            }
-            if (
-                capabilities.supportsDolbyVisionOutput &&
-                PlaybackVideoCodec.Hevc in capabilities.dolbyVisionBaseCodecs
-            ) {
-                add("DOVI")
-                add("DOVIWithEL")
-                if (PlaybackHdrFormat.Hdr10Plus in capabilities.hdrFormats) {
-                    add("DOVIWithELHDR10Plus")
-                }
+                add("DOVIWithELHDR10Plus")
             }
         }
 
@@ -193,6 +188,22 @@ internal object EmbyDeviceProfileFactory {
 
 private const val DIRECT_PLAY_VIDEO_CONTAINERS = "mkv,mp4,m4v,mov,ts,m2ts,webm"
 private const val LOCAL_DECODE_MAX_CHANNELS = 8
+private val LOCAL_VIDEO_DECODERS =
+    setOf(
+        PlaybackVideoCodec.H264,
+        PlaybackVideoCodec.Hevc,
+    )
+private val LOCAL_HEVC_INPUT_RANGE_TYPES =
+    setOf(
+        "SDR",
+        "HDR10",
+        "HDR10Plus",
+        "HLG",
+        "DOVI",
+        "DOVIWithHDR10",
+        "DOVIWithHDR10Plus",
+        "DOVIWithEL",
+    )
 private val LOCAL_AUDIO_DECODERS =
     setOf(
         PlaybackAudioCodec.Aac,
