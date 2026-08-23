@@ -2,8 +2,8 @@
 """Transforms the proven optical-disc builder into the Dolby Vision/FEL builder.
 
 Keeping the optical builder as the base preserves its libbluray, remote ISO/BDMV, HDMV and
-multi-angle gates. This transformer replaces the codec/render stack, adds post-render Dolby
-runtime evidence, and fails on every source/build anchor drift.
+multi-angle gates. This transformer replaces the codec/render stack, routes the Android wrapper to
+mpv's gpu-next renderer, adds post-render Dolby runtime evidence, and fails on source/build drift.
 """
 from pathlib import Path
 import sys
@@ -39,13 +39,14 @@ replace_once(
     'YFUSE_ANGLE_PATCH="$ROOT/scripts/native/patch_yfuse_bluray_angle.py"\n',
     'YFUSE_ANGLE_PATCH="$ROOT/scripts/native/patch_yfuse_bluray_angle.py"\n'
     'YFUSE_DOLBY_PATCH="$ROOT/scripts/native/patch_yfuse_dolby_fel.py"\n'
-    'YFUSE_DOLBY_JNI_PATCH="$ROOT/scripts/native/patch_yfuse_dolby_jni.py"\n',
+    'YFUSE_DOLBY_JNI_PATCH="$ROOT/scripts/native/patch_yfuse_dolby_jni.py"\n'
+    'YFUSE_GPU_NEXT_PATCH="$ROOT/scripts/native/patch_yfuse_gpu_next.py"\n',
     "Dolby patch paths",
 )
 
 replace_once(
     'for native_source in "$YFUSE_STREAM_SOURCE" "$YFUSE_BDMV_STREAM_SOURCE" "$YFUSE_ANGLE_PATCH"; do\n',
-    'for native_source in "$YFUSE_STREAM_SOURCE" "$YFUSE_BDMV_STREAM_SOURCE" "$YFUSE_ANGLE_PATCH" "$YFUSE_DOLBY_PATCH" "$YFUSE_DOLBY_JNI_PATCH"; do\n',
+    'for native_source in "$YFUSE_STREAM_SOURCE" "$YFUSE_BDMV_STREAM_SOURCE" "$YFUSE_ANGLE_PATCH" "$YFUSE_DOLBY_PATCH" "$YFUSE_DOLBY_JNI_PATCH" "$YFUSE_GPU_NEXT_PATCH"; do\n',
     "native source verification",
 )
 
@@ -53,7 +54,8 @@ replace_once(
     'LIBBLURAY_BUILD="$SOURCE/buildscripts/scripts/libbluray.sh"\n',
     'LIBBLURAY_BUILD="$SOURCE/buildscripts/scripts/libbluray.sh"\n'
     'LIBPLACEBO_BUILD="$SOURCE/buildscripts/scripts/libplacebo.sh"\n'
-    'MPV_JNI_MAIN="$SOURCE/libmpv/src/main/cpp/main.cpp"\n',
+    'MPV_JNI_MAIN="$SOURCE/libmpv/src/main/cpp/main.cpp"\n'
+    'MPV_JNI_PROPERTY="$SOURCE/libmpv/src/main/cpp/property.cpp"\n',
     "native builder paths",
 )
 
@@ -169,7 +171,8 @@ replace_once(
     'MPV_ROOT="$SOURCE/buildscripts/deps/mpv"\n',
     'MPV_ROOT="$SOURCE/buildscripts/deps/mpv"\n'
     'python3 "$YFUSE_DOLBY_PATCH" "$MPV_ROOT/video/out/vo_gpu_next.c"\n'
-    'python3 "$YFUSE_DOLBY_JNI_PATCH" "$MPV_JNI_MAIN"\n',
+    'python3 "$YFUSE_DOLBY_JNI_PATCH" "$MPV_JNI_MAIN"\n'
+    'python3 "$YFUSE_GPU_NEXT_PATCH" "$MPV_JNI_PROPERTY"\n',
     "mpv/JNI source patch point",
 )
 
@@ -183,6 +186,7 @@ replace_once(
     "  printf 'dolby-vision-fel=true\\n'\n"
     "  printf 'ffmpeg-dovi-split=true\\n'\n"
     "  printf 'libplacebo-enhancement-layer=true\\n'\n"
+    "  printf 'dolby-renderer=gpu-next\\n'\n"
     "  printf 'dolby-render-evidence=YFUSE_DOVI_RPU_RENDERED,YFUSE_DOVI_FEL_COMPOSED\\n'\n"
     "  printf 'dolby-runtime-jni=true\\n'\n",
     "native provenance block",
@@ -197,6 +201,8 @@ required = (
     'dolbyVisionRuntimeEvidence',
     'patch_yfuse_dolby_fel.py',
     'patch_yfuse_dolby_jni.py',
+    'patch_yfuse_gpu_next.py',
+    'dolby-renderer=gpu-next',
     'dolby-vision-fel=true',
     'dolby-runtime-jni=true',
 )
