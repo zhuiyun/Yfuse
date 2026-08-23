@@ -99,7 +99,7 @@ internal fun RefinedTopBar(
             .background(
                 cssLinearGradient(
                     180f,
-                    0f to Color.Black.copy(alpha = 0.5f),
+                    0f to Color.Black.copy(alpha = 0.44f),
                     1f to Color.Transparent,
                 ),
             ).padding(horizontal = 22.dp, vertical = 14.dp),
@@ -131,8 +131,8 @@ internal fun RefinedTopBar(
                     Spacer(Modifier.height(2.dp))
                     Text(
                         subtitle,
-                        style = AppTypography.caption.medium,
-                        color = Color.White.copy(alpha = 0.55f),
+                        style = AppTypography.caption.regular,
+                        color = Color.White.copy(alpha = 0.44f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -602,28 +602,6 @@ private fun StandardSeekBar(
             )
         }
 
-        repeat(TIMELINE_MINOR_TICK_COUNT - 1) { index ->
-            val tickFraction = (index + 1).toFloat() / TIMELINE_MINOR_TICK_COUNT
-            val tickHeight = if ((index + 1) % 5 == 0) 6.dp else 4.dp
-            Box(
-                Modifier
-                    .width(1.dp)
-                    .height(tickHeight)
-                    .offset {
-                        IntOffset(
-                            x = (widthPx * tickFraction).toInt().coerceIn(0, widthPx - 1),
-                            y = 7.dp.roundToPx(),
-                        )
-                    }.background(
-                        if (tickFraction <= shownFraction) {
-                            accent.copy(alpha = 0.62f)
-                        } else {
-                            Color.White.copy(alpha = 0.28f)
-                        },
-                    ),
-            )
-        }
-
         progressMarkers.forEach { marker ->
             val markerFraction =
                 (marker.positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
@@ -683,4 +661,3 @@ private fun StandardSeekBar(
 
 private val RefinedTrickplayPreviewWidth = 160.dp
 private const val REFINED_SEEK_STEP_MS = 10_000L
-private const val TIMELINE_MINOR_TICK_COUNT = 20
