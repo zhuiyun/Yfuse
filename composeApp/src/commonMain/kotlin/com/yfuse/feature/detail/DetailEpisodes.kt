@@ -283,7 +283,7 @@ private fun EpisodeCard(
                         palette.isDark -> palette.card
                         else -> Color.White.copy(alpha = 0.24f)
                     },
-                border = palette.border,
+                border = Color.Transparent,
             ).then(
                 if (selected) {
                     Modifier.border(1.25.dp, accent.copy(alpha = 0.58f), GlassShapes.card)
