@@ -167,14 +167,6 @@ internal object EmbyDeviceProfileFactory {
             // decide whether Emby is allowed to send the original HEVC/Dolby bitstream at all.
             addAll(LOCAL_HEVC_INPUT_RANGE_TYPES)
             addAll(openHdrRangeTypes(capabilities, PlaybackVideoCodec.Hevc))
-            if (
-                capabilities.supportsHdrOutput(
-                    PlaybackHdrFormat.Hdr10Plus,
-                    PlaybackVideoCodec.Hevc,
-                ) || PlaybackHdrFormat.Hdr10Plus in capabilities.hdrFormats
-            ) {
-                add("DOVIWithELHDR10Plus")
-            }
         }
 
     private fun openHdrRangeTypes(
@@ -218,8 +210,11 @@ private val LOCAL_HEVC_INPUT_RANGE_TYPES =
         "HLG",
         "DOVI",
         "DOVIWithHDR10",
-        "DOVIWithHDR10Plus",
+        "DOVIWithHLG",
+        "DOVIWithSDR",
         "DOVIWithEL",
+        "DOVIWithHDR10Plus",
+        "DOVIWithELHDR10Plus",
     )
 private val LOCAL_AUDIO_DECODERS =
     setOf(
