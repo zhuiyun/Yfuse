@@ -1,0 +1,38 @@
+name: Temporary run detail state patch
+
+on:
+  pull_request:
+    branches:
+      - master
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'fix/playback-diagnostics-20260823'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out target branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: fix/playback-diagnostics-20260823
+          fetch-depth: 2
+
+      - name: Apply detail state patch
+        run: python3 scripts/apply-detail-state-contrast.py
+
+      - name: Commit patch to head branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/
+          git diff --cached --quiet && { echo "No changes produced"; exit 1; }
+          git commit -m "fix: clarify detail selected and watched states"
+          git push origin HEAD:fix/playback-diagnostics-20260823
