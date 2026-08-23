@@ -561,7 +561,7 @@ internal enum class PlaybackServerApplyFailurePolicy {
 
 internal fun playbackServerApplyFailurePolicy(error: Throwable?): PlaybackServerApplyFailurePolicy =
     when (val embyError = (error as? EmbyErrorException)?.error) {
-        EmbyError.AccessDenied -> PlaybackServerApplyFailurePolicy.CooldownServer
+        is EmbyError.AccessDenied -> PlaybackServerApplyFailurePolicy.CooldownServer
         is EmbyError.Server ->
             if (embyError.code == HttpStatusCode.NotFound.value) {
                 PlaybackServerApplyFailurePolicy.DropTarget
