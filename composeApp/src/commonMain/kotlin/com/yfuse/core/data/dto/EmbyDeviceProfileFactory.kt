@@ -13,6 +13,12 @@ import com.yfuse.core.playback.PlaybackVideoCodec
 internal const val YFUSE_MAX_STREAMING_BITRATE_BPS = 1_000_000_000L
 
 /**
+ * The native engines can decode up to 7.1 and downmix locally even when the current Android output
+ * route is stereo. Server negotiation therefore advertises ingest capacity, not speaker count.
+ */
+internal const val YFUSE_LOCAL_DECODE_MAX_AUDIO_CHANNELS = 8
+
+/**
  * Builds the server contract for what Yfuse can ingest locally.
  *
  * Android hardware/display capabilities still refine native passthrough, but they are not the whole
@@ -43,7 +49,7 @@ internal object EmbyDeviceProfileFactory {
                 PlaybackAudioCodec::embyNames,
             )
         if (audioCodecs.isEmpty()) audioCodecs += "aac"
-        val maxAudioChannels = capabilities.maxAudioChannels.coerceIn(2, 8)
+        val transcodeMaxAudioChannels = capabilities.maxAudioChannels.coerceIn(2, 8)
         return DeviceProfileDto(
             MaxStreamingBitrate = YFUSE_MAX_STREAMING_BITRATE_BPS,
             DirectPlayProfiles =
@@ -61,17 +67,22 @@ internal object EmbyDeviceProfileFactory {
                         VideoCodec = "h264",
                         AudioCodec = "aac",
                         Protocol = "hls",
-                        MaxAudioChannels = maxAudioChannels.toString(),
+                        MaxAudioChannels = transcodeMaxAudioChannels.toString(),
                     ),
                     TranscodingProfileDto(
                         Container = "mp4",
                         VideoCodec = "h264",
                         AudioCodec = "aac",
                         Protocol = "http",
-                        MaxAudioChannels = maxAudioChannels.toString(),
+                        MaxAudioChannels = transcodeMaxAudioChannels.toString(),
                     ),
                 ),
-            CodecProfiles = codecProfiles(capabilities, videoCodecs, LOCAL_DECODE_MAX_CHANNELS),
+            CodecProfiles =
+                codecProfiles(
+                    capabilities,
+                    videoCodecs,
+                    YFUSE_LOCAL_DECODE_MAX_AUDIO_CHANNELS,
+                ),
             SubtitleProfiles = subtitleProfiles(),
         )
     }
@@ -194,7 +205,6 @@ internal object EmbyDeviceProfileFactory {
 }
 
 private const val DIRECT_PLAY_VIDEO_CONTAINERS = "mkv,mp4,m4v,mov,ts,m2ts,webm"
-private const val LOCAL_DECODE_MAX_CHANNELS = 8
 private val LOCAL_VIDEO_DECODERS =
     setOf(
         PlaybackVideoCodec.H264,
