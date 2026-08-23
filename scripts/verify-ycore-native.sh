@@ -51,12 +51,17 @@ mapfile -t bridges < <(find "$stage/aar/jni" -mindepth 2 -maxdepth 2 -type f -na
 
 for bridge in "${bridges[@]}"; do
   abi="$(basename "$(dirname "$bridge")")"
-  readelf -Ws "$bridge" | grep -Fq 'JNI_OnLoad' || fail "$abi bridge does not export JNI_OnLoad"
+  symbols="$stage/$abi-ycore-symbols.txt"
+  dynamic="$stage/$abi-ycore-dynamic.txt"
+  readelf -Ws "$bridge" > "$symbols"
+  readelf -d "$bridge" > "$dynamic"
+
+  grep -F 'JNI_OnLoad' "$symbols" >/dev/null || fail "$abi bridge does not export JNI_OnLoad"
   for dependency in libavformat.so libavcodec.so libavutil.so; do
-    readelf -d "$bridge" | grep -Fq "Shared library: [$dependency]" ||
+    grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
       fail "$abi bridge is not dynamically linked to $dependency"
   done
-  if readelf -Ws "$bridge" | grep -Eq 'avcodec_(send_packet|receive_frame|send_frame|receive_packet)'; then
+  if grep -Eq 'avcodec_(send_packet|receive_frame|send_frame|receive_packet)' "$symbols"; then
     fail "$abi bridge links FFmpeg decode/encode entry points; YCore enhanced demux must stay demux-only"
   fi
   verify_alignment "$bridge"
