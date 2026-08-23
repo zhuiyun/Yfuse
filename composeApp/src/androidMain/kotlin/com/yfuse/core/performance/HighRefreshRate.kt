@@ -3,7 +3,6 @@ package com.yfuse.core.performance
 import android.app.Activity
 import android.os.Build
 import android.view.Display
-import android.view.WindowManager
 import com.yfuse.core.logging.AppLog
 import kotlin.math.abs
 
