@@ -51,14 +51,31 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Native release $RELEASE_TAG already exists; refusing to replace it"
-            exit 1
+            echo "Native release $RELEASE_TAG is already present; keeping the immutable release."
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Yfuse verified YCore native $RELEASE_TAG" \
+              --notes "Republished immutable arm64-v8a artifact from verified Actions artifact 9445009471. Includes libbluray, remote ISO/BDMV bridges and libycore_demux.so. SHA-256 and provenance are attached." \
+              native-release/libmpv-release.aar \
+              native-release/libmpv-release.aar.sha256 \
+              native-release/NATIVE-SOURCES.txt
           fi
-          gh release create "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "Yfuse verified YCore native $RELEASE_TAG" \
-            --notes "Republished immutable arm64-v8a artifact from verified Actions artifact 9445009471. Includes libbluray, remote ISO/BDMV bridges and libycore_demux.so. SHA-256 and provenance are attached." \
-            native-release/libmpv-release.aar \
-            native-release/libmpv-release.aar.sha256 \
-            native-release/NATIVE-SOURCES.txt
+
+      - name: Mark native release ready on branch
+        env:
+          EXPECTED_SHA256: "9900fe61971e39bf4bc69f306437ffd3de1587c63821570143e142a858b6f9a9"
+          RELEASE_TAG: native-mpv-fcf6745-yfuse3-arm64-20260823
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'tag=%s\nsha256=%s\n' "$RELEASE_TAG" "$EXPECTED_SHA256" > .native-release-ready
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .native-release-ready
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "ci: mark verified native release ready"
+          git push origin HEAD:fix/playback-diagnostics-20260823
