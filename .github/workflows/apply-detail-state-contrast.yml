@@ -1,0 +1,164 @@
+name: Apply detail state contrast polish
+
+on:
+  push:
+    branches:
+      - fix/playback-diagnostics-20260823
+    paths:
+      - .github/workflows/apply-detail-state-contrast.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: fix/playback-diagnostics-20260823
+          fetch-depth: 2
+
+      - name: Apply contrast-safe selected states
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}: {old[:100]!r}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          def regex_once(path: str, pattern: str, replacement: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f"{path}: regex expected one match, found {count}: {pattern[:100]!r}")
+              p.write_text(updated, encoding="utf-8")
+
+          actions = "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailActions.kt"
+          regex_once(
+              actions,
+              r"    val opaqueAccent = accent\.copy\(alpha = 1f\)\n    val activeSurface =.*?    val fill =\n",
+              "    val stateColors = detailStateColors(accent, palette.background, palette.isDark)\n    val fill =\n",
+          )
+          replace_once(actions, "            active -> activeSurface.copy(alpha = if (palette.isDark) 0.52f else 0.62f)", "            active -> stateColors.surface")
+          replace_once(actions, "            else -> Color.White.copy(alpha = 0.30f)", "            else -> Color.White.copy(alpha = 0.20f)")
+          replace_once(actions, "            active -> activeBorder", "            active -> stateColors.border")
+          replace_once(actions, "            palette.isDark -> Color.White.copy(alpha = 0.19f)", "            palette.isDark -> Color.White.copy(alpha = 0.14f)")
+          replace_once(actions, "            else -> Color.White.copy(alpha = 0.34f)", "            else -> Color.White.copy(alpha = 0.22f)")
+          replace_once(actions, "                        activeSurface.copy(alpha = if (palette.isDark) 0.64f else 0.74f)", "                        stateColors.iconSurface")
+          replace_once(actions, "                    if (active) activeBorder else palette.border,", "                    if (active) stateColors.border else palette.border.copy(alpha = 0.72f),")
+          replace_once(actions, "                    color = if (active) activeForeground else palette.body,", "                    color = if (active) stateColors.foreground else palette.body,")
+          replace_once(actions, "                    tint = if (active) activeForeground else palette.body,", "                    tint = if (active) stateColors.foreground else palette.body,")
+          replace_once(actions, "            color = if (active) activeForeground else palette.text,", "            color = if (active) stateColors.foreground else palette.text,")
+
+          episodes = "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailEpisodes.kt"
+          regex_once(
+              episodes,
+              r"    val opaqueAccent = accent\.copy\(alpha = 1f\)\n    val selectedSurface =.*?    val watching = \(episode\.playedPercentage \?: 0\.0\) > 0\.0\n",
+              "    val stateColors = detailStateColors(accent, palette.background, palette.isDark)\n    val watching = (episode.playedPercentage ?: 0.0) > 0.0\n",
+          )
+          replace_once(episodes, "                        selected && palette.isDark -> selectedSurface.copy(alpha = 0.38f)\n                        selected -> selectedSurface.copy(alpha = 0.52f)\n                        watching -> accent.copy(alpha = if (palette.isDark) 0.08f else 0.06f)", "                        selected -> stateColors.surface")
+          replace_once(episodes, "                    Modifier.border(1.5.dp, selectedEdge, GlassShapes.card)", "                    Modifier.border(1.75.dp, stateColors.border, GlassShapes.card)")
+          replace_once(episodes, "                        selected -> selectedText\n                        watching -> accent", "                        selected -> stateColors.onPage\n                        watching -> stateColors.mutedOnPage")
+          replace_once(episodes, "import androidx.compose.ui.graphics.lerp\n", "")
+
+          season = "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/SeasonEpisodesPage.kt"
+          replace_once(season, "import com.yfuse.core.designsystem.Brand\n", "")
+          replace_once(season, "    val palette = LocalPalette.current\n    Row(\n", "    val palette = LocalPalette.current\n    val stateColors = detailStateColors(accent, palette.background, palette.isDark)\n    Row(\n")
+          replace_once(season, "            .clip(GlassShapes.card)\n            .then(\n                if (current) {\n                    Modifier.border(1.5.dp, accent, GlassShapes.card)", "            .clip(GlassShapes.card)\n            .background(if (current) stateColors.surface else Color.Transparent)\n            .then(\n                if (current) {\n                    Modifier.border(1.75.dp, stateColors.border, GlassShapes.card)")
+          replace_once(season, "                color = if (current) accent else palette.text,", "                color = if (current) stateColors.foreground else palette.text,")
+          regex_once(
+              season,
+              r"@Composable\ninternal fun EpisodeWatchedBadge\(modifier: Modifier = Modifier\) \{.*?\n\}\n\n/\*\* `20:01`",
+              """@Composable
+internal fun EpisodeWatchedBadge(modifier: Modifier = Modifier) {
+    val palette = LocalPalette.current
+    Box(
+        modifier
+            .size(18.dp)
+            .clip(CircleShape)
+            .background(
+                if (palette.isDark) {
+                    Color.Black.copy(alpha = 0.48f)
+                } else {
+                    Color.White.copy(alpha = 0.68f)
+                },
+            ).border(Dimens.hairline, palette.border, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            AppIcons.Check,
+            contentDescription = \"已看完\",
+            tint = palette.sub,
+            modifier = Modifier.size(9.dp),
+        )
+    }
+}
+
+/** `20:01`""",
+          )
+
+          files = "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailFileSections.kt"
+          replace_once(files, "    val palette = LocalPalette.current\n    LazyRow(\n", "    val palette = LocalPalette.current\n    val stateColors = detailStateColors(accent, palette.background, palette.isDark)\n    LazyRow(\n")
+          replace_once(files, "                color = if (active) accent else palette.body,", "                color = if (active) stateColors.foreground else palette.body,")
+          replace_once(files, "                                    Color.White.copy(alpha = 0.30f)", "                                    Color.White.copy(alpha = 0.20f)")
+          replace_once(files, "                            border = if (active) accent.copy(alpha = 0.32f) else palette.border,", "                            border = if (active) stateColors.border else Color.Transparent,")
+
+          replace_once(files, "    val palette = LocalPalette.current\n    Column(\n        Modifier\n            .width(150.dp)", "    val palette = LocalPalette.current\n    val stateColors = detailStateColors(accent, palette.background, palette.isDark)\n    Column(\n        Modifier\n            .width(150.dp)")
+          replace_once(files, "                fill =\n                    if (palette.isDark) {\n                        Color.White.copy(alpha = 0.06f)\n                    } else {\n                        Color.White.copy(alpha = 0.36f)\n                    },\n                border = palette.border,\n            ).then(\n                if (selected) {\n                    Modifier.border(1.25.dp, accent.copy(alpha = 0.62f), GlassShapes.card)", "                fill =\n                    if (selected) {\n                        stateColors.surface\n                    } else if (palette.isDark) {\n                        Color.White.copy(alpha = 0.06f)\n                    } else {\n                        Color.White.copy(alpha = 0.28f)\n                    },\n                border = Color.Transparent,\n            ).then(\n                if (selected) {\n                    Modifier.border(1.5.dp, stateColors.border, GlassShapes.card)")
+          replace_once(files, "                    tint = accent,", "                    tint = stateColors.foreground,")
+          replace_once(files, "            color = accent,\n            maxLines = 1,", "            color = if (selected) stateColors.onPage else palette.sub,\n            maxLines = 1,")
+
+          replace_once(files, "    val palette = LocalPalette.current\n    val source = entry.source\n", "    val palette = LocalPalette.current\n    val stateColors = detailStateColors(accent, palette.background, palette.isDark)\n    val source = entry.source\n")
+          replace_once(files, "                fill =\n                    if (palette.isDark) {\n                        Color.White.copy(alpha = 0.06f)\n                    } else {\n                        Color.White.copy(alpha = 0.36f)\n                    },\n                border = palette.border,\n            ).then(\n                if (selected) {\n                    Modifier.border(1.25.dp, accent.copy(alpha = 0.62f), GlassShapes.card)", "                fill =\n                    if (selected) {\n                        stateColors.surface\n                    } else if (palette.isDark) {\n                        Color.White.copy(alpha = 0.055f)\n                    } else {\n                        Color.White.copy(alpha = 0.24f)\n                    },\n                border = Color.Transparent,\n            ).then(\n                if (selected) {\n                    Modifier.border(1.5.dp, stateColors.border, GlassShapes.card)")
+          replace_once(files, "                DolbyChip(\"VISION\", if (selected) accent else palette.sub)", "                DolbyChip(\"VISION\", if (selected) stateColors.onPage else palette.sub)")
+          replace_once(files, "                    color = if (selected) accent else palette.sub,", "                    color = if (selected) stateColors.onPage else palette.sub,")
+          replace_once(files, "                                    accent.copy(alpha = 0.12f)", "                                    stateColors.iconSurface.copy(alpha = 0.72f)")
+
+          sections = "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailSections.kt"
+          replace_once(sections, "                    genre,\n                    style = AppTypography.body.strong,", "                    genreDisplayLabel(genre),\n                    style = AppTypography.body.medium,")
+          replace_once(sections, "                                        Color.White.copy(alpha = 0.72f)", "                                        Color.White.copy(alpha = 0.42f)")
+          replace_once(sections, "                                border = palette.border,", "                                border = palette.border.copy(alpha = if (palette.isDark) 0.72f else 0.62f),")
+          replace_once(sections, "    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion\n", "    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion\n    val interactiveForeground = readableStateAccent(accent, palette.background, minimumRatio = 4.5f)\n")
+          replace_once(sections, "                color = accent,\n            )\n", "                color = interactiveForeground,\n            )\n")
+          insert_before = "\n/**\n * 艺术图 — the item's other backdrops."
+          genre_helper = """
+
+internal fun genreDisplayLabel(genre: String): String =
+    when (genre.trim().lowercase()) {
+        \"sci-fi & fantasy\", \"science fiction & fantasy\", \"sci-fi and fantasy\" -> \"科幻奇幻\"
+        else -> genre
+    }
+"""
+          replace_once(sections, insert_before, genre_helper + insert_before)
+
+          hero = "composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailHero.kt"
+          replace_once(hero, "        val start = (heroHeightPx - with(density) { 136.dp.toPx() }).coerceAtLeast(1f)\n        val span = with(density) { 64.dp.toPx() }", "        val start = (heroHeightPx - with(density) { 188.dp.toPx() }).coerceAtLeast(1f)\n        val span = with(density) { 96.dp.toPx() }")
+          PY
+
+      - name: Commit detail state polish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailActions.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailEpisodes.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/SeasonEpisodesPage.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailFileSections.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailSections.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/detail/DetailHero.kt
+          git diff --cached --quiet && { echo "No changes produced"; exit 1; }
+          git commit -m "fix: clarify detail selected and watched states"
+          git push origin HEAD:fix/playback-diagnostics-20260823
