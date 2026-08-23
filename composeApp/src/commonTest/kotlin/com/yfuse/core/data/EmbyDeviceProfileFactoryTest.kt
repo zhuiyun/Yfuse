@@ -96,8 +96,9 @@ class EmbyDeviceProfileFactoryTest {
     fun sdr_panel_still_accepts_all_valid_dolby_inputs_because_output_mapping_is_local() {
         val profile = DeviceProfileDto.yfuseAndroid(capabilities())
         val ranges = profile.videoRanges("hevc")
+        val directVideoCodecs = profile.DirectPlayProfiles.single().VideoCodec.split(',')
 
-        assertTrue("hevc" in profile.DirectPlayProfiles.single().VideoCodec.split(','))
+        assertTrue("hevc" in directVideoCodecs)
         assertTrue(
             ranges.containsAll(
                 setOf(
