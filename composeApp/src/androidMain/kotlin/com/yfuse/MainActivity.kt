@@ -25,6 +25,7 @@ import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.performance.AppJankMonitor
+import com.yfuse.core.performance.preferHighRefreshRateForUi
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.feature.player.PlaybackSourcePreloader
@@ -43,6 +44,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        preferHighRefreshRateForUi()
         enableEdgeToEdge()
 
         // Keep the window on exactly the colour the first Compose frame will draw. With the
@@ -155,6 +157,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        preferHighRefreshRateForUi()
         if (::updateManager.isInitialized) updateManager.resumeInstall()
     }
 
