@@ -1,6 +1,8 @@
 package com.yfuse.core.data
 
 import com.yfuse.core.data.dto.DeviceProfileDto
+import com.yfuse.core.data.dto.PlaybackInfoRequestDto
+import com.yfuse.core.data.dto.YFUSE_MAX_STREAMING_BITRATE_BPS
 import com.yfuse.core.playback.PlaybackAudioCodec
 import com.yfuse.core.playback.PlaybackAudioRoute
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
@@ -13,15 +15,16 @@ import kotlin.test.assertTrue
 
 class EmbyDeviceProfileFactoryTest {
     @Test
-    fun conservative_profile_advertises_bundled_local_audio_decode_without_overclaiming_hdr() {
+    fun conservative_profile_advertises_bundled_local_decode_pipeline() {
         val profile = DeviceProfileDto.yfuseAndroid()
         val direct = profile.DirectPlayProfiles.single()
-        val h264Ranges = profile.videoRanges("h264")
+        val codecs = direct.VideoCodec.split(',').toSet()
+        val hevcRanges = profile.videoRanges("hevc")
         val audio = direct.AudioCodec.split(',').toSet()
 
-        assertEquals("h264", direct.VideoCodec)
+        assertTrue(codecs.containsAll(setOf("h264", "hevc")))
         assertTrue(audio.containsAll(setOf("aac", "ac3", "eac3", "truehd", "dts", "dca")))
-        assertEquals(setOf("SDR"), h264Ranges)
+        assertTrue(hevcRanges.containsAll(setOf("SDR", "HDR10", "HLG", "DOVI", "DOVIWithEL")))
         assertEquals("8", profile.audioChannelLimit())
         assertEquals("2", profile.TranscodingProfiles.first().MaxAudioChannels)
     }
@@ -44,7 +47,7 @@ class EmbyDeviceProfileFactoryTest {
     }
 
     @Test
-    fun dolby_profile_requires_both_display_and_decoder_and_preserves_direct_atmos_route() {
+    fun dolby_profile_preserves_native_output_and_direct_atmos_route() {
         val profile =
             DeviceProfileDto.yfuseAndroid(
                 capabilities(
@@ -73,7 +76,7 @@ class EmbyDeviceProfileFactoryTest {
     }
 
     @Test
-    fun hdr10_only_profile_allows_compatible_base_layer_but_not_dolby_only_video() {
+    fun hdr10_only_panel_still_accepts_dolby_input_for_local_tone_mapping() {
         val profile =
             DeviceProfileDto.yfuseAndroid(
                 capabilities(
@@ -85,8 +88,34 @@ class EmbyDeviceProfileFactoryTest {
 
         assertTrue("HDR10" in ranges)
         assertTrue("DOVIWithHDR10" in ranges)
-        assertFalse("DOVI" in ranges)
-        assertFalse("DOVIWithEL" in ranges)
+        assertTrue("DOVI" in ranges)
+        assertTrue("DOVIWithEL" in ranges)
+    }
+
+    @Test
+    fun sdr_panel_still_accepts_p7_fel_because_output_mapping_is_local() {
+        val profile = DeviceProfileDto.yfuseAndroid(capabilities())
+        val ranges = profile.videoRanges("hevc")
+
+        assertTrue("hevc" in profile.DirectPlayProfiles.single().VideoCodec.split(','))
+        assertTrue("DOVI" in ranges)
+        assertTrue("DOVIWithEL" in ranges)
+        assertTrue("HDR10" in ranges)
+    }
+
+    @Test
+    fun playback_info_ceiling_does_not_force_uhd_remux_transcoding() {
+        val profile = DeviceProfileDto.yfuseAndroid()
+        val request =
+            PlaybackInfoRequestDto(
+                Id = "movie",
+                UserId = "user",
+                DeviceProfile = profile,
+            )
+
+        assertEquals(1_000_000_000L, YFUSE_MAX_STREAMING_BITRATE_BPS)
+        assertEquals(YFUSE_MAX_STREAMING_BITRATE_BPS, profile.MaxStreamingBitrate)
+        assertEquals(YFUSE_MAX_STREAMING_BITRATE_BPS, request.MaxStreamingBitrate)
     }
 
     private fun capabilities(
