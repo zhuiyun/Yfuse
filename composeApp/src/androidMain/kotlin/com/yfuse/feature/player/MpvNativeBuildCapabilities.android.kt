@@ -20,6 +20,15 @@ internal data class MpvNativeBuildCapabilities(
     val hdmvMenu: Boolean = false,
     /** Runtime JNI path for authored Blu-ray seamless-angle selection. */
     val multiAngle: Boolean = false,
+    /**
+     * Native build explicitly proves Dolby Vision RPU application support.
+     *
+     * Source metadata or a Dolby decoder name is not enough to enable this flag. Older custom AARs
+     * have no marker field and therefore safely resolve to false.
+     */
+    val dolbyVisionRpu: Boolean = false,
+    /** Native build explicitly proves Profile 7 enhancement-layer composition support. */
+    val dolbyVisionFel: Boolean = false,
     val libmpvAndroidRevision: String? = null,
     val libblurayRevision: String? = null,
     val libudfreadRevision: String? = null,
@@ -38,6 +47,14 @@ internal data class MpvNativeBuildCapabilities(
                 libmpvAndroidRevision == EXPECTED_LIBMPV_ANDROID_REVISION &&
                 libblurayRevision == EXPECTED_LIBBLURAY_REVISION &&
                 libudfreadRevision == EXPECTED_LIBUDFREAD_REVISION
+
+    val dolbyVisionDescription: String
+        get() =
+            when {
+                dolbyVisionFel -> "DV FEL"
+                dolbyVisionRpu -> "DV RPU"
+                else -> "DV 基础层/色调映射"
+            }
 
     val description: String
         get() =
@@ -69,6 +86,9 @@ internal val installedMpvNativeBuildCapabilities: MpvNativeBuildCapabilities by 
                     "hdmvMenu" to capabilities.hdmvMenu.toString(),
                     "multiAngle" to capabilities.multiAngle.toString(),
                     "bdj" to capabilities.bdj.toString(),
+                    "dolbyVisionRpu" to capabilities.dolbyVisionRpu.toString(),
+                    "dolbyVisionFel" to capabilities.dolbyVisionFel.toString(),
+                    "dolbyVisionGrade" to capabilities.dolbyVisionDescription,
                     "libmpvAndroidRevision" to capabilities.libmpvAndroidRevision.orEmpty(),
                     "libblurayRevision" to capabilities.libblurayRevision.orEmpty(),
                     "libudfreadRevision" to capabilities.libudfreadRevision.orEmpty(),
@@ -90,6 +110,8 @@ internal fun detectMpvNativeBuildCapabilities(
             bdmvVfs = marker.booleanField("BDMV_VFS"),
             hdmvMenu = marker.booleanField("HDMV_MENU"),
             multiAngle = marker.booleanField("MULTI_ANGLE"),
+            dolbyVisionRpu = marker.booleanField("DOLBY_VISION_RPU"),
+            dolbyVisionFel = marker.booleanField("DOLBY_VISION_FEL"),
             libmpvAndroidRevision = marker.stringField("LIBMPV_ANDROID_REVISION"),
             libblurayRevision = marker.stringField("LIBBLURAY_REVISION"),
             libudfreadRevision = marker.stringField("LIBUDFREAD_REVISION"),
