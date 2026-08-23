@@ -80,10 +80,12 @@ internal fun PremiumSeekBar(
     )
     val shownFraction = if (dragging) dragFraction else fraction.coerceIn(0f, 1f)
     val visual = premiumSeekVisualState(shownFraction, bufferedFraction, interaction)
-    val trackHeight = PremiumSeekTrackHeight +
-        (PremiumSeekTrackHeightDragging - PremiumSeekTrackHeight) * interaction
-    val thumbDiameter = PremiumSeekThumbDiameter +
-        (PremiumSeekThumbDiameterDragging - PremiumSeekThumbDiameter) * interaction
+    val trackHeight =
+        PremiumSeekTrackHeight +
+            (PremiumSeekTrackHeightDragging - PremiumSeekTrackHeight) * interaction
+    val thumbDiameter =
+        PremiumSeekThumbDiameter +
+            (PremiumSeekThumbDiameterDragging - PremiumSeekThumbDiameter) * interaction
 
     Box(
         modifier
@@ -99,8 +101,7 @@ internal fun PremiumSeekBar(
                             haptics.play(HapticSignal.Select)
                             latestOnCommit(target)
                         }
-                    }
-                    .pointerInput(enabled) {
+                    }.pointerInput(enabled) {
                         detectHorizontalDragGestures(
                             onDragStart = { offset ->
                                 dragging = true
@@ -157,35 +158,36 @@ internal fun PremiumSeekBar(
                 .offset {
                     val thumbPx = thumbDiameter.roundToPx()
                     IntOffset(
-                        x = (widthPx * visual.playedFraction - thumbPx / 2f)
-                            .toInt()
-                            .coerceIn(-thumbPx / 2, (widthPx - thumbPx / 2).coerceAtLeast(0)),
+                        x =
+                            (widthPx * visual.playedFraction - thumbPx / 2f)
+                                .toInt()
+                                .coerceIn(-thumbPx / 2, (widthPx - thumbPx / 2).coerceAtLeast(0)),
                         y = 0,
                     )
-                }
-                .graphicsLayer { alpha = 0.72f + 0.28f * interaction }
+                }.graphicsLayer { alpha = 0.72f + 0.28f * interaction }
                 .background(Color.White, CircleShape),
         )
 
         if (dragging) {
             val bubbleWidthPx = with(density) { 68.dp.roundToPx() }
-            val x = (widthPx * visual.playedFraction - bubbleWidthPx / 2f)
-                .toInt()
-                .coerceIn(0, (widthPx - bubbleWidthPx).coerceAtLeast(0))
+            val x =
+                (widthPx * visual.playedFraction - bubbleWidthPx / 2f)
+                    .toInt()
+                    .coerceIn(0, (widthPx - bubbleWidthPx).coerceAtLeast(0))
             Text(
                 label,
                 style = AppTypography.caption.strong,
                 color = Color.White,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .offset { IntOffset(x, -8.dp.roundToPx()) }
-                    .widthIn(min = 56.dp)
-                    .glass(
-                        shape = GlassShapes.chip,
-                        fill = Color.Black.copy(alpha = 0.68f),
-                        border = Color.White.copy(alpha = 0.24f),
-                    )
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .offset { IntOffset(x, -8.dp.roundToPx()) }
+                        .widthIn(min = 56.dp)
+                        .glass(
+                            shape = GlassShapes.chip,
+                            fill = Color.Black.copy(alpha = 0.68f),
+                            border = Color.White.copy(alpha = 0.24f),
+                        ).padding(horizontal = 9.dp, vertical = 5.dp),
             )
         }
     }
@@ -210,5 +212,7 @@ internal fun premiumSeekVisualState(
     )
 }
 
-internal fun premiumSeekFraction(x: Float, width: Float): Float =
-    if (width <= 0f) 0f else (x / width).coerceIn(0f, 1f)
+internal fun premiumSeekFraction(
+    x: Float,
+    width: Float,
+): Float = if (width <= 0f) 0f else (x / width).coerceIn(0f, 1f)

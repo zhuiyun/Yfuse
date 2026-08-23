@@ -103,9 +103,9 @@ import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberArtworkPagePalette
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
-import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.sharedMediaArtwork
@@ -231,12 +231,12 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val sampledPageColor = retainedPageColor.value
     val palette = rememberArtworkPagePalette(sampledPageColor)
     val accent =
-    rememberAnimatedArtworkAccent(
-        url = slideUrl,
-        fallback = Brand.Primary, // design-system: brand-identity
-        darkTheme = palette.isDark,
-        identity = slide?.id,
-    )
+        rememberAnimatedArtworkAccent(
+            url = slideUrl,
+            fallback = Brand.Primary, // design-system: brand-identity
+            darkTheme = palette.isDark,
+            identity = slide?.id,
+        )
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.loading)
@@ -467,9 +467,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                             ) {
                                                 placeable.place(0, -liftPx)
                                             }
-                                        // Match the visual lift exactly: a larger top inset left a
-                                        // full-width strip of bare page colour between the hero melt and
-                                        // the first library card, which read as a horizontal seam.
+                                            // Match the visual lift exactly: a larger top inset left a
+                                            // full-width strip of bare page colour between the hero melt and
+                                            // the first library card, which read as a horizontal seam.
                                         }.padding(top = HeroLift),
                                     verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
                                 ) {

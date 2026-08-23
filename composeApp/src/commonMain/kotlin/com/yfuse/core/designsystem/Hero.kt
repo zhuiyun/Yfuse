@@ -396,11 +396,12 @@ fun Modifier.fadeIntoPage(height: Dp = HeroPageFade): Modifier =
             if (fade <= 0f) return@drawWithContent
             val top = size.height - fade
             drawRect(
-                brush = Brush.verticalGradient(
-                    colorStops = heroPageFadeMaskStops(),
-                    startY = top,
-                    endY = size.height,
-                ),
+                brush =
+                    Brush.verticalGradient(
+                        colorStops = heroPageFadeMaskStops(),
+                        startY = top,
+                        endY = size.height,
+                    ),
                 topLeft = Offset(0f, top),
                 size = Size(size.width, fade),
                 blendMode = BlendMode.DstOut,

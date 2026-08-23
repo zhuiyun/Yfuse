@@ -84,7 +84,6 @@ internal fun GenreSection(
     }
 }
 
-
 internal fun genreDisplayLabel(genre: String): String =
     when (genre.trim().lowercase()) {
         "sci-fi & fantasy", "science fiction & fantasy", "sci-fi and fantasy" -> "科幻奇幻"

@@ -615,7 +615,8 @@ private class EmbyCompatiblePlaybackStateApplier(
         val hasPortableIdentity = keys.any { !it.startsWith("emby:", ignoreCase = true) }
         val candidates =
             if (hasPortableIdentity) {
-                registry.data.value.servers.map { it.id }
+                registry.data.value.servers
+                    .map { it.id }
             } else {
                 listOfNotNull(state.serverId?.takeIf { registry.serverById(it) != null })
             }
