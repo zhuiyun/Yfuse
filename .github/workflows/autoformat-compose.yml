@@ -33,7 +33,11 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew :composeApp:ktlintFormat --no-daemon
+          format_status=0
+          ./gradlew :composeApp:ktlintFormat --no-daemon || format_status=$?
+          if (( format_status != 0 )); then
+            echo "::notice::Auto-correctable changes were applied; non-auto-correctable findings remain for the next gate"
+          fi
       - name: Commit formatting only
         shell: bash
         run: |
