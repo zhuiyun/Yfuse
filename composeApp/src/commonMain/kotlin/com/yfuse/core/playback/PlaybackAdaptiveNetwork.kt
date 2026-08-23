@@ -20,9 +20,10 @@ data class PlaybackNetworkDecision(
 /**
  * Stateful but platform-free network guard used by every local backend.
  *
- * A downgrade requires either repeated rebuffers or sustained throughput pressure with a short
- * forward buffer. Unknown/zero bandwidth never triggers a decision, preventing startup telemetry
- * and local files from being mistaken for a slow network.
+ * A downgrade requires measured network pressure. Rebuffers count only while the smoothed
+ * throughput is actually below the media-rate headroom; route switches, manifest failures,
+ * decoder restarts, or other non-network stalls must not turn a healthy 50+ Mbps connection into
+ * a server-transcode downgrade. Unknown/zero bandwidth also never triggers a decision.
  */
 class PlaybackAdaptiveNetworkController(
     private val rebufferThreshold: Int = DEFAULT_REBUFFER_THRESHOLD,
@@ -50,6 +51,13 @@ class PlaybackAdaptiveNetworkController(
     fun observe(sample: PlaybackNetworkSample): PlaybackNetworkDecision {
         updateThroughput(sample.networkBitsPerSecond)
         val newRebuffers = updateRebuffers(sample.bufferEvents)
+        val rebufferThroughputPressure = hasRebufferThroughputPressure(sample)
+        if (!rebufferThroughputPressure) {
+            // Buffering by itself is not evidence of a slow link. In particular, a malformed
+            // manifest or an engine handover increments the same counter, and retaining those
+            // strikes would cause a later unrelated bandwidth sample to trigger a false downgrade.
+            rebufferStrikes = 0
+        }
         updatePressure(sample)
         updateRecovery(sample, newRebuffers)
 
@@ -63,7 +71,8 @@ class PlaybackAdaptiveNetworkController(
         val downgradeReason =
             when {
                 !downgradeCooledDown -> null
-                rebufferStrikes >= rebufferThreshold -> "连续缓冲，自动降低服务器码率"
+                rebufferStrikes >= rebufferThreshold && rebufferThroughputPressure ->
+                    "连续缓冲且带宽不足，自动降低服务器码率"
                 pressureSamples >= pressureSampleThreshold ->
                     "可用带宽持续低于片源码率，自动降低画质"
                 else -> null
@@ -121,6 +130,12 @@ class PlaybackAdaptiveNetworkController(
         val newEvents = previous?.let { (safeTotal - it).coerceAtLeast(0) } ?: 0
         rebufferStrikes += newEvents
         return newEvents
+    }
+
+    private fun hasRebufferThroughputPressure(sample: PlaybackNetworkSample): Boolean {
+        if (sample.mediaBitsPerSecond <= 0L) return false
+        val throughput = smoothedThroughput ?: return false
+        return throughput < sample.mediaBitsPerSecond * REQUIRED_THROUGHPUT_HEADROOM
     }
 
     private fun updatePressure(sample: PlaybackNetworkSample) {
