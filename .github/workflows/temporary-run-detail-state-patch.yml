@@ -22,6 +22,29 @@ jobs:
           ref: fix/playback-diagnostics-20260823
           fetch-depth: 2
 
+      - name: Make patch script deterministic
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("scripts/apply-detail-state-contrast.py")
+          text = p.read_text(encoding="utf-8")
+          helper = '''\n\ndef replace_first(path: str, old: str, new: str) -> None:\n    p = Path(path)\n    text = p.read_text(encoding="utf-8")\n    if old not in text:\n        raise SystemExit(f"{path}: expected at least one match: {old[:100]!r}")\n    p.write_text(text.replace(old, new, 1), encoding="utf-8")\n\n\n'''
+          text = text.replace("\n\ndef regex_once", helper + "def regex_once", 1)
+          lines = text.splitlines()
+          for i, line in enumerate(lines):
+              if line.startswith('replace_once(files, "                fill ='):
+                  lines[i] = line.replace("replace_once", "replace_first", 1)
+              elif line.startswith('replace_once(files, "                                    Color.White.copy(alpha = 0.30f)'):
+                  lines[i] = line.replace("replace_once", "replace_first", 1)
+              elif line.startswith('replace_once(sections, "                                        Color.White.copy(alpha = 0.72f)'):
+                  lines[i] = line.replace("replace_once", "replace_first", 1)
+              elif line.startswith('replace_once(sections, "                                border = palette.border,'):
+                  lines[i] = line.replace("replace_once", "replace_first", 1)
+          p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
       - name: Apply detail state patch
         run: python3 scripts/apply-detail-state-contrast.py
 
