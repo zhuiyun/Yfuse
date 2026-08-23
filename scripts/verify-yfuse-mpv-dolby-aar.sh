@@ -62,20 +62,29 @@ grep -F 'public static int dolbyVisionRuntimeEvidence();' "$stage/capabilities.t
 arm64_mpv="$stage/aar/jni/arm64-v8a/libmpv.so"
 arm64_player="$stage/aar/jni/arm64-v8a/libplayer.so"
 [[ -f "$arm64_player" ]] || fail "AAR is missing arm64-v8a/libplayer.so"
-strings "$arm64_mpv" | grep -F 'YFUSE_DOVI_RPU_RENDERED' >/dev/null ||
+
+# Materialize large native-tool output before matching. With `set -o pipefail`, a producer such as
+# strings/readelf can otherwise receive SIGPIPE when grep exits after the first match and make a
+# valid release gate fail nondeterministically.
+strings "$arm64_mpv" > "$stage/arm64-mpv-strings.txt"
+strings "$arm64_player" > "$stage/arm64-player-strings.txt"
+readelf -Ws "$arm64_mpv" > "$stage/arm64-mpv-symbols.txt"
+readelf -Ws "$arm64_player" > "$stage/arm64-player-symbols.txt"
+
+grep -F 'YFUSE_DOVI_RPU_RENDERED' "$stage/arm64-mpv-strings.txt" >/dev/null ||
   fail "libmpv.so is missing post-render RPU evidence"
-strings "$arm64_mpv" | grep -F 'YFUSE_DOVI_FEL_COMPOSED' >/dev/null ||
+grep -F 'YFUSE_DOVI_FEL_COMPOSED' "$stage/arm64-mpv-strings.txt" >/dev/null ||
   fail "libmpv.so is missing post-render FEL evidence"
-strings "$arm64_player" | grep -F 'gpu-next' >/dev/null ||
+grep -F 'gpu-next' "$stage/arm64-player-strings.txt" >/dev/null ||
   fail "libplayer.so is missing the gpu to gpu-next wrapper route"
 for symbol in yfuse_mpv_dolby_generation yfuse_mpv_dolby_evidence; do
-  readelf -Ws "$arm64_mpv" | grep -F "$symbol" >/dev/null ||
+  grep -F "$symbol" "$stage/arm64-mpv-symbols.txt" >/dev/null ||
     fail "libmpv.so is missing exported runtime symbol: $symbol"
 done
 for symbol in \
   Java_dev_yfuse_mpv_YfuseMpvCapabilities_nativeDolbyVisionGeneration \
   Java_dev_yfuse_mpv_YfuseMpvCapabilities_nativeDolbyVisionEvidence; do
-  readelf -Ws "$arm64_player" | grep -F "$symbol" >/dev/null ||
+  grep -F "$symbol" "$stage/arm64-player-symbols.txt" >/dev/null ||
     fail "libplayer.so is missing Dolby JNI symbol: $symbol"
 done
 
