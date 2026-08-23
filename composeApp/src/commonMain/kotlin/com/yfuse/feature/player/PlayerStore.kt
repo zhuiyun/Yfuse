@@ -396,6 +396,8 @@ data class PlayerMediaItem(
      * call, while one bad title can never create a recursive or unbounded failover graph.
      */
     val serverFallbacks: List<PlayerMediaItem> = emptyList(),
+    /** Exact server runtime used until the active engine reports an authoritative duration. */
+    val durationMsHint: Long = 0L,
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.
@@ -754,6 +756,7 @@ class PlayerStoreFactory(
                     posterUrl: String? = null,
                     progress: Float? = null,
                     caption: String? = null,
+                    runtimeTicks: Long? = null,
                 ): PlayerMediaItem {
                     val effectiveVersions =
                         if (id == effectiveItemId && negotiatedVersions.isNotEmpty()) {
@@ -887,6 +890,7 @@ class PlayerStoreFactory(
                         posterUrl = posterUrl,
                         progress = progress,
                         caption = caption,
+                        durationMsHint = runtimeTicks?.takeIf { it > 0L }?.div(10_000L) ?: 0L,
                     )
                 }
 
@@ -1077,6 +1081,12 @@ class PlayerStoreFactory(
                                             else -> ep.playedPercentage?.let { (it / 100.0).toFloat() }
                                         },
                                     caption = ep.indexNumber?.let { "第 $it 集" },
+                                    runtimeTicks =
+                                        if (ep.id == effectiveItemId) {
+                                            detail.runtimeTicks ?: ep.runtimeTicks
+                                        } else {
+                                            ep.runtimeTicks
+                                        },
                                 )
                             }
                         val effectiveIndex = items.indexOfFirst { it.id == effectiveItemId }
@@ -1109,6 +1119,7 @@ class PlayerStoreFactory(
                                 playbackSegments = detail?.playbackSegments.orEmpty(),
                                 providerIds = detail?.providerIds.orEmpty(),
                                 versions = detail?.versions.orEmpty(),
+                                runtimeTicks = detail?.runtimeTicks,
                             ).copy(serverFallbacks = serverFallbacks),
                         ),
                         0,
@@ -1268,6 +1279,7 @@ class PlayerStoreFactory(
                         playable.discSource && playable.playMethod == PlaybackMethod.Transcode
                     },
                 serverFallbacks = emptyList(),
+                durationMsHint = detail.runtimeTicks?.takeIf { it > 0L }?.div(10_000L) ?: 0L,
             )
         }
     }
