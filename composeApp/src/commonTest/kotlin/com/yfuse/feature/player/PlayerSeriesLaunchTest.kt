@@ -8,9 +8,9 @@ import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -28,7 +28,7 @@ class PlayerSeriesLaunchTest {
 
     @Test
     fun series_is_resolved_to_episode_before_playback_info() =
-        runTest {
+        runBlocking {
             val registry =
                 testRegistry().apply {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
