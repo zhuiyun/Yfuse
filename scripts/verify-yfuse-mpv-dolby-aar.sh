@@ -34,6 +34,7 @@ need readelf
 [[ "$(manifest_value dolby-vision-fel)" == "true" ]] || fail "native provenance does not enable Dolby Vision FEL"
 [[ "$(manifest_value ffmpeg-dovi-split)" == "true" ]] || fail "FFmpeg dovi_split gate is missing"
 [[ "$(manifest_value libplacebo-enhancement-layer)" == "true" ]] || fail "libplacebo enhancement-layer gate is missing"
+[[ "$(manifest_value dolby-renderer)" == "gpu-next" ]] || fail "Dolby renderer is not gpu-next"
 [[ "$(manifest_value dolby-render-evidence)" == "YFUSE_DOVI_RPU_RENDERED,YFUSE_DOVI_FEL_COMPOSED" ]] ||
   fail "native provenance does not name the Dolby render evidence markers"
 [[ "$(manifest_value dolby-runtime-jni)" == "true" ]] || fail "Dolby runtime JNI gate is missing"
@@ -65,6 +66,8 @@ strings "$arm64_mpv" | grep -F 'YFUSE_DOVI_RPU_RENDERED' >/dev/null ||
   fail "libmpv.so is missing post-render RPU evidence"
 strings "$arm64_mpv" | grep -F 'YFUSE_DOVI_FEL_COMPOSED' >/dev/null ||
   fail "libmpv.so is missing post-render FEL evidence"
+strings "$arm64_player" | grep -F 'gpu-next' >/dev/null ||
+  fail "libplayer.so is missing the gpu to gpu-next wrapper route"
 for symbol in yfuse_mpv_dolby_generation yfuse_mpv_dolby_evidence; do
   readelf -Ws "$arm64_mpv" | grep -F "$symbol" >/dev/null ||
     fail "libmpv.so is missing exported runtime symbol: $symbol"
@@ -80,4 +83,5 @@ printf 'Dolby Vision native gates verified\n'
 printf 'mpv:       %s\n' "$EXPECTED_MPV_CORE"
 printf 'FFmpeg:    %s\n' "$EXPECTED_FFMPEG"
 printf 'libplacebo:%s\n' "$EXPECTED_LIBPLACEBO"
+printf 'renderer:  gpu-next\n'
 printf 'evidence:  rendered RPU + rendered P7 enhancement layer + JNI snapshot\n'
