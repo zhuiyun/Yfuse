@@ -30,18 +30,21 @@ internal fun PlayerMediaItem.allowsServerTranscodeFallback(reason: String?): Boo
     !requiresLocalDolbyPipeline || reason?.startsWith("用户手动") == true
 
 /** Evaluates P7 output from source-layer facts plus explicit runtime trace evidence. */
-internal fun PlayerMediaVersion.dolbyVisionP7Output(diagnostics: PlaybackDiagnostics): DolbyVisionP7ValidationResult =
-    evaluateDolbyVisionP7Output(
+internal fun PlayerMediaVersion.dolbyVisionP7Output(diagnostics: PlaybackDiagnostics): DolbyVisionP7ValidationResult {
+    val mpvEvidence = diagnostics.mpvDolbyRuntimeEvidence()
+    return evaluateDolbyVisionP7Output(
         DolbyVisionP7ValidationEvidence(
             profile = dolbyProfile,
             sourceRpuPresent = sourceDolbyRpuPresent,
             sourceEnhancementLayerPresent = sourceDolbyEnhancementLayerPresent,
             sourceBaseLayerPresent = sourceDolbyBaseLayerPresent,
             outputBaseLayerDecoded = diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering,
-            outputRpuApplied = diagnostics.dolbyVisionRpuApplied,
-            outputEnhancementLayerComposed = diagnostics.dolbyVisionEnhancementLayerComposed,
+            outputRpuApplied = diagnostics.dolbyVisionRpuApplied || mpvEvidence.rpuRendered,
+            outputEnhancementLayerComposed =
+                diagnostics.dolbyVisionEnhancementLayerComposed || mpvEvidence.felComposed,
         ),
     )
+}
 
 /** The method shown before an engine has enough runtime facts to refine it. */
 internal fun PlayerMediaItem.effectivePlaybackMethod(quality: PlaybackQuality): PlaybackMethod =
