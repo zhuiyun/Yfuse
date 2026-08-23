@@ -98,6 +98,8 @@ data class MediaDetail(
     /** Intro and credits markers supplied by Emby chapter metadata. */
     val playbackSegments: List<PlaybackSegment> = emptyList(),
     val trickplay: TrickplayInfo? = null,
+    /** Exact Emby runtime retained so the player can paint its duration before the decoder reports it. */
+    val runtimeTicks: Long? = null,
 )
 
 /** A concrete, playable target resolved from a detail item. */
