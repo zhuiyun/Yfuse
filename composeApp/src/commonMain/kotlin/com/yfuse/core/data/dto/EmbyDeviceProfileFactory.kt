@@ -6,6 +6,13 @@ import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackVideoCodec
 
 /**
+ * PlaybackInfo is capability negotiation, not Yfuse's adaptive network limiter. Keep the server
+ * ceiling above UHD Blu-ray/remux peak bitrates so an original/Auto request is not silently changed
+ * into transcoding merely because file metadata exceeds the old 120 Mbps profile cap.
+ */
+internal const val YFUSE_MAX_STREAMING_BITRATE_BPS = 1_000_000_000L
+
+/**
  * Builds the server contract for what Yfuse can ingest locally.
  *
  * Android hardware/display capabilities still refine native passthrough, but they are not the whole
