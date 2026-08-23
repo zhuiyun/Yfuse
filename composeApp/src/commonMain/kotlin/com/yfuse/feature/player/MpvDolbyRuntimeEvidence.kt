@@ -17,12 +17,15 @@ internal data class MpvDolbyRuntimeEvidence(
     }
 }
 
+/** Platform fallback used before Android has installed its cached native reader. */
+internal expect fun platformMpvDolbyRuntimeEvidence(): MpvDolbyRuntimeEvidence
+
 /**
  * Platform code installs a zero-allocation reader for the native marker class.
  *
- * Common playback policy can then consume the runtime fact without knowing about JNI or Android.
- * The provider is read only for an actively rendering mpv state, which prevents evidence from a
- * previous native session being promoted during startup of a new one.
+ * Tests may also install a deterministic provider. If no provider has been installed yet, the
+ * platform fallback performs the one-time native capability discovery; that discovery then caches
+ * the reader for subsequent frames.
  */
 internal object MpvDolbyRuntimeEvidenceRegistry {
     private var provider: (() -> MpvDolbyRuntimeEvidence)? = null
@@ -36,7 +39,7 @@ internal object MpvDolbyRuntimeEvidenceRegistry {
     }
 
     fun current(): MpvDolbyRuntimeEvidence =
-        runCatching { provider?.invoke() ?: MpvDolbyRuntimeEvidence.None }
+        runCatching { provider?.invoke() ?: platformMpvDolbyRuntimeEvidence() }
             .getOrDefault(MpvDolbyRuntimeEvidence.None)
 }
 
