@@ -199,6 +199,51 @@ class PlaybackTruthTest {
     }
 
     @Test
+    fun dolby_local_pipeline_does_not_display_the_servers_transcode_recommendation_as_active() {
+        val version =
+            PlayerMediaVersion(
+                id = "dolby-source",
+                label = "Dolby Vision P7",
+                detail = "4K Dolby Vision",
+                url = "original-dolby",
+                transcodeUrl = "server-hls",
+                fallbackTranscodeUrl = "server-mp4",
+                dolbyVision = true,
+                dolbyProfile = 7,
+                playMethod = PlaybackMethod.Transcode,
+                serverTranscodeSupported = true,
+            )
+        val item =
+            PlayerMediaItem(
+                id = "dolby",
+                url = version.url,
+                transcodeUrl = version.transcodeUrl,
+                fallbackTranscodeUrl = version.fallbackTranscodeUrl,
+                title = "Dolby Vision",
+                versions = listOf(version),
+                versionId = version.id,
+                playMethod = PlaybackMethod.Transcode,
+                serverTranscodeSupported = true,
+            )
+
+        assertFalse(item.startsWithServerTranscode(PlaybackQuality.Auto))
+        assertEquals(PlaybackMethod.DirectPlay, item.effectivePlaybackMethod(PlaybackQuality.Auto))
+        assertEquals(
+            PlaybackMethod.DirectPlay.label,
+            initialPlaybackDiagnostics(
+                engine = "libmpv",
+                decoder = "自动",
+                item = item,
+                quality = PlaybackQuality.Auto,
+            ).playMethod,
+        )
+        assertEquals(
+            "服务器建议转码，已保留杜比原始流并由客户端本地解码",
+            item.initialFallbackReason(PlaybackQuality.Auto),
+        )
+    }
+
+    @Test
     fun p7_fel_log_never_claims_enhancement_without_explicit_output_trace() {
         val version =
             PlayerMediaVersion(
