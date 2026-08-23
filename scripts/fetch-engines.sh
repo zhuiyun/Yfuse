@@ -7,11 +7,9 @@ LIBS="$ROOT/composeApp/libs"
 CHECKSUMS="$ROOT/scripts/engine-checksums.sha256"
 
 MPV_FILE="libmpv-release.aar"
-MPV_STOCK_CHECKSUM_NAME="libmpv-release-stock.aar"
 MDK_FILE="mdk-sdk-android.7z"
 MPV_RELEASE_TAG="native-mpv-fcf6745-yfuse2-arm64"
 MPV_URL="https://github.com/zhuiyun/Yfuse/releases/download/$MPV_RELEASE_TAG/$MPV_FILE"
-MPV_STOCK_URL="https://github.com/jarnedemeulemeester/libmpv-android/releases/download/v1.0.0/$MPV_FILE"
 MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/$MDK_FILE"
 MPV_CUSTOM_SHA="$LIBS/libmpv-release.aar.sha256"
 MPV_CUSTOM_SOURCES="$LIBS/libmpv-release.sources.txt"
@@ -90,10 +88,6 @@ fetch_verified() {
   trap - RETURN
 }
 
-clear_stock_mpv_sidecars() {
-  rm -f "$MPV_CUSTOM_SHA" "$MPV_CUSTOM_SOURCES"
-}
-
 install_custom_mpv_sidecars() {
   local expected="$1"
   [[ -r "$MPV_PINNED_SOURCES" ]] || die "pinned Yfuse mpv source manifest is missing"
@@ -106,53 +100,35 @@ install_custom_mpv_sidecars() {
 fetch_mpv() {
   local destination="$LIBS/$MPV_FILE"
   local custom_expected
-  local stock_expected
   local actual=""
   local temporary=""
 
   custom_expected="$(checksum_for "$MPV_FILE")"
-  stock_expected="$(checksum_for "$MPV_STOCK_CHECKSUM_NAME")"
 
   if [[ -f "$destination" ]]; then
     actual="$(sha256_of "$destination")"
     if [[ "$actual" == "$custom_expected" ]]; then
       install_custom_mpv_sidecars "$custom_expected"
-      printf '==> %s custom build already verified\n' "$MPV_FILE"
+      printf '==> %s Yfuse build already verified\n' "$MPV_FILE"
       return
     fi
-    if [[ "$actual" == "$stock_expected" ]]; then
-      clear_stock_mpv_sidecars
-      printf '==> %s stock fallback already verified\n' "$MPV_FILE"
-      return
-    fi
-    printf 'warning: removing unrecognized %s before refetch\n' "$MPV_FILE" >&2
-    rm -f "$destination"
-    clear_stock_mpv_sidecars
+    printf 'warning: removing non-Yfuse %s before refetch\n' "$MPV_FILE" >&2
+    rm -f "$destination" "$MPV_CUSTOM_SHA" "$MPV_CUSTOM_SOURCES"
   fi
 
   temporary="$(mktemp "$LIBS/.${MPV_FILE}.download.XXXXXX")"
   trap 'rm -f "${temporary:-}"' RETURN
-  printf '==> downloading preferred Yfuse %s\n' "$MPV_FILE"
-  if download_file "$MPV_URL" "$temporary"; then
-    verify_file "$temporary" "$custom_expected"
-    mv -f "$temporary" "$destination"
+  printf '==> downloading required Yfuse %s\n' "$MPV_FILE"
+  download_file "$MPV_URL" "$temporary" || {
+    rm -f "$temporary"
     trap - RETURN
-    install_custom_mpv_sidecars "$custom_expected"
-    printf '==> installed verified Yfuse custom mpv\n'
-    return
-  fi
-
-  rm -f "$temporary"
-  temporary="$(mktemp "$LIBS/.${MPV_FILE}.download.XXXXXX")"
-  printf 'warning: pinned Yfuse mpv release is unavailable; using verified stock mpv fallback\n' >&2
-  printf 'warning: custom Blu-ray capabilities will remain disabled for this build\n' >&2
-  download_file "$MPV_STOCK_URL" "$temporary" ||
-    die "failed to download both the pinned Yfuse mpv and the verified stock fallback"
-  verify_file "$temporary" "$stock_expected"
+    die "required Yfuse mpv artifact is unavailable; refusing a stock fallback because it would remove native Blu-ray/YCore capabilities"
+  }
+  verify_file "$temporary" "$custom_expected"
   mv -f "$temporary" "$destination"
   trap - RETURN
-  clear_stock_mpv_sidecars
-  printf '==> installed verified stock mpv fallback\n'
+  install_custom_mpv_sidecars "$custom_expected"
+  printf '==> installed verified Yfuse custom mpv\n'
 }
 
 extract_mdk() {
