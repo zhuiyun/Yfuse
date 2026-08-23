@@ -8,7 +8,7 @@ CHECKSUMS="$ROOT/scripts/engine-checksums.sha256"
 
 MPV_FILE="libmpv-release.aar"
 MDK_FILE="mdk-sdk-android.7z"
-MPV_RELEASE_TAG="native-mpv-fcf6745-yfuse1-arm64"
+MPV_RELEASE_TAG="native-mpv-fcf6745-yfuse3-arm64-20260823"
 MPV_URL="https://github.com/zhuiyun/Yfuse/releases/download/$MPV_RELEASE_TAG/$MPV_FILE"
 MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/$MDK_FILE"
 MPV_CUSTOM_SHA="$LIBS/libmpv-release.aar.sha256"
