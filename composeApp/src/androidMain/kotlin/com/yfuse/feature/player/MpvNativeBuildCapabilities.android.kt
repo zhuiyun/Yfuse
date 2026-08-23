@@ -116,7 +116,7 @@ internal fun detectMpvNativeBuildCapabilities(
                 classLoader,
                 Thread.currentThread().contextClassLoader,
                 MpvVideoEngine::class.java.classLoader,
-                YFUSE_MPV_CAPABILITY_CLASS::class.java.classLoader,
+                MpvNativeBuildCapabilities::class.java.classLoader,
             ).distinct()
         val marker =
             candidateLoaders.firstNotNullOfOrNull { loader ->
