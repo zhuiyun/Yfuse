@@ -1,7 +1,9 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.PlaybackMethod
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class PlayerControlFormattingDolbyTest {
     @Test
@@ -118,5 +120,35 @@ class PlayerControlFormattingDolbyTest {
         } finally {
             MpvDolbyRuntimeEvidenceRegistry.clearProvider()
         }
+    }
+
+    @Test
+    fun staleServerTranscodeDiagnosticCannotOverrideDirectRuntimeRoute() {
+        val state =
+            PlaybackState(
+                transcoding = false,
+                diagnostics =
+                    PlaybackDiagnostics(
+                        playMethod = PlaybackMethod.Transcode.label,
+                        engine = "libmpv",
+                    ),
+            )
+
+        assertEquals(PlaybackMethod.DirectPlay.label, state.playbackMethodReadoutLabel())
+        assertFalse(state.readoutLine(sourceLabel = null, containerLabel = null).contains(PlaybackMethod.Transcode.label))
+    }
+
+    @Test
+    fun activeTranscodeRouteAlwaysReportsServerTranscode() {
+        val state =
+            PlaybackState(
+                transcoding = true,
+                diagnostics =
+                    PlaybackDiagnostics(
+                        playMethod = PlaybackMethod.DirectPlay.label,
+                    ),
+            )
+
+        assertEquals(PlaybackMethod.Transcode.label, state.playbackMethodReadoutLabel())
     }
 }
