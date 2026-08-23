@@ -34,8 +34,7 @@ internal fun selectHighRefreshRateMode(
             mode.width == currentWidth &&
                 mode.height == currentHeight &&
                 mode.refreshRate >= HIGH_REFRESH_RATE_THRESHOLD_HZ
-        }
-        .maxByOrNull(UiDisplayMode::refreshRate)
+        }.maxByOrNull(UiDisplayMode::refreshRate)
 
 /**
  * Gives normal app UI access to 90/120/144 Hz panels without hard-coding one vendor mode id.
