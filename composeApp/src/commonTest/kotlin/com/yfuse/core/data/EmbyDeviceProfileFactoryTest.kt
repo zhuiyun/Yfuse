@@ -111,6 +111,7 @@ class EmbyDeviceProfileFactoryTest {
                 Id = "movie",
                 UserId = "user",
                 DeviceProfile = profile,
+                MaxStreamingBitrate = YFUSE_MAX_STREAMING_BITRATE_BPS,
             )
 
         assertEquals(1_000_000_000L, YFUSE_MAX_STREAMING_BITRATE_BPS)
