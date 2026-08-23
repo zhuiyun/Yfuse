@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.sp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackOverlay
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
@@ -204,14 +203,16 @@ private fun EpisodeRow(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val stateColors = detailStateColors(accent, palette.background, palette.isDark)
     Row(
         modifier
             .fillMaxWidth()
             .pressable(onClick = onPlay)
             .clip(GlassShapes.card)
+            .background(if (current) stateColors.surface else Color.Transparent)
             .then(
                 if (current) {
-                    Modifier.border(1.5.dp, accent, GlassShapes.card)
+                    Modifier.border(1.75.dp, stateColors.border, GlassShapes.card)
                 } else {
                     Modifier
                 },
@@ -274,7 +275,7 @@ private fun EpisodeRow(
                 listOfNotNull(episode.indexNumber?.let { "E$it." }, episode.name)
                     .joinToString(" "),
                 style = AppTypography.body.strong,
-                color = if (current) accent else palette.text,
+                color = if (current) stateColors.foreground else palette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -329,18 +330,20 @@ internal fun episodeFocusIndex(
 
 @Composable
 internal fun EpisodeWatchedBadge(modifier: Modifier = Modifier) {
+    val palette = LocalPalette.current
     Box(
         modifier
             .size(18.dp)
             .clip(CircleShape)
-            .background(Brand.Online),
+            .background(if (palette.isDark) Color.Black.copy(alpha = 0.48f) else Color.White.copy(alpha = 0.68f))
+            .border(Dimens.hairline, palette.border, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             AppIcons.Check,
             contentDescription = "已看完",
-            tint = Color.White,
-            modifier = Modifier.size(10.dp),
+            tint = palette.sub,
+            modifier = Modifier.size(9.dp),
         )
     }
 }

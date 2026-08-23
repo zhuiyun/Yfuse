@@ -477,6 +477,7 @@ private fun TrackChipRow(
     onSelect: (String?) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val stateColors = detailStateColors(accent, palette.background, palette.isDark)
     LazyRow(
         modifier = Modifier.selectableGroup(),
         contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
@@ -489,7 +490,7 @@ private fun TrackChipRow(
             Text(
                 option.label,
                 style = if (active) AppTypography.body.strong else AppTypography.body.medium,
-                color = if (active) accent else palette.body,
+                color = if (active) stateColors.foreground else palette.body,
                 maxLines = 1,
                 modifier =
                     Modifier
@@ -508,9 +509,9 @@ private fun TrackChipRow(
                                 if (palette.isDark) {
                                     Color.White.copy(alpha = 0.075f)
                                 } else {
-                                    Color.White.copy(alpha = 0.30f)
+                                    Color.White.copy(alpha = 0.20f)
                                 },
-                            border = if (active) accent.copy(alpha = 0.32f) else palette.border,
+                            border = if (active) stateColors.border else Color.Transparent,
                             sheen = 0.7f,
                         ).padding(horizontal = 12.dp, vertical = 7.dp),
             )
@@ -526,6 +527,7 @@ private fun VersionCard(
     onSelect: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val stateColors = detailStateColors(accent, palette.background, palette.isDark)
     Column(
         Modifier
             .width(150.dp)
@@ -537,15 +539,17 @@ private fun VersionCard(
             .solidGlass(
                 shape = GlassShapes.card,
                 fill =
-                    if (palette.isDark) {
+                    if (selected) {
+                        stateColors.surface
+                    } else if (palette.isDark) {
                         Color.White.copy(alpha = 0.06f)
                     } else {
-                        Color.White.copy(alpha = 0.36f)
+                        Color.White.copy(alpha = 0.28f)
                     },
-                border = palette.border,
+                border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(1.25.dp, accent.copy(alpha = 0.62f), GlassShapes.card)
+                    Modifier.border(1.5.dp, stateColors.border, GlassShapes.card)
                 } else {
                     Modifier
                 },
@@ -565,7 +569,7 @@ private fun VersionCard(
                 Icon(
                     AppIcons.Check,
                     contentDescription = "当前版本",
-                    tint = accent,
+                    tint = stateColors.foreground,
                     modifier = Modifier.size(13.dp),
                 )
             }
@@ -573,7 +577,7 @@ private fun VersionCard(
         Text(
             version.qualityLabel,
             style = AppTypography.caption.medium,
-            color = accent,
+            color = if (selected) stateColors.onPage else palette.sub,
             maxLines = 1,
         )
         Text(
@@ -677,6 +681,7 @@ private fun SourceCard(
     onSelect: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val stateColors = detailStateColors(accent, palette.background, palette.isDark)
     val source = entry.source
     Column(
         Modifier
@@ -689,15 +694,17 @@ private fun SourceCard(
             .solidGlass(
                 shape = GlassShapes.card,
                 fill =
-                    if (palette.isDark) {
-                        Color.White.copy(alpha = 0.06f)
+                    if (selected) {
+                        stateColors.surface
+                    } else if (palette.isDark) {
+                        Color.White.copy(alpha = 0.055f)
                     } else {
-                        Color.White.copy(alpha = 0.36f)
+                        Color.White.copy(alpha = 0.24f)
                     },
-                border = palette.border,
+                border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(1.25.dp, accent.copy(alpha = 0.62f), GlassShapes.card)
+                    Modifier.border(1.5.dp, stateColors.border, GlassShapes.card)
                 } else {
                     Modifier
                 },
@@ -754,20 +761,20 @@ private fun SourceCard(
             // The mark rather than the words: at this size "Dolby Vision" would take the
             // width of the rest of the row, and the mark is what the eye is scanning for.
             if (source?.dolbyVision == true) {
-                DolbyChip("VISION", if (selected) accent else palette.sub)
+                DolbyChip("VISION", if (selected) stateColors.onPage else palette.sub)
             }
             source?.quality?.takeIf { it.isNotBlank() && source.dolbyVision != true }?.let { quality ->
                 Text(
                     quality,
                     style = AppTypography.caption.strong,
-                    color = if (selected) accent else palette.sub,
+                    color = if (selected) stateColors.onPage else palette.sub,
                     maxLines = 1,
                     modifier =
                         Modifier
                             .clip(GlassShapes.chip)
                             .background(
                                 if (selected) {
-                                    accent.copy(alpha = 0.12f)
+                                    stateColors.iconSurface.copy(alpha = 0.72f)
                                 } else {
                                     Color(0xFF141A26).copy(alpha = 0.05f)
                                 },

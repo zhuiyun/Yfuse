@@ -61,8 +61,8 @@ internal fun GenreSection(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             genres.take(6).forEach { genre ->
                 Text(
-                    genre,
-                    style = AppTypography.body.strong,
+                    genreDisplayLabel(genre),
+                    style = AppTypography.body.medium,
                     color = palette.body,
                     modifier =
                         Modifier
@@ -73,9 +73,9 @@ internal fun GenreSection(
                                     if (palette.isDark) {
                                         Color.White.copy(alpha = 0.075f)
                                     } else {
-                                        Color.White.copy(alpha = 0.72f)
+                                        Color.White.copy(alpha = 0.42f)
                                     },
-                                border = palette.border,
+                                border = palette.border.copy(alpha = if (palette.isDark) 0.72f else 0.62f),
                                 sheen = 0.7f,
                             ).padding(horizontal = 12.dp, vertical = 6.dp),
                 )
@@ -83,6 +83,13 @@ internal fun GenreSection(
         }
     }
 }
+
+
+internal fun genreDisplayLabel(genre: String): String =
+    when (genre.trim().lowercase()) {
+        "sci-fi & fantasy", "science fiction & fantasy", "sci-fi and fantasy" -> "科幻奇幻"
+        else -> genre
+    }
 
 /**
  * 艺术图 — the item's other backdrops.
@@ -218,6 +225,7 @@ internal fun OverviewSection(
 ) {
     val palette = LocalPalette.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val interactiveForeground = readableStateAccent(accent, palette.background, minimumRatio = 4.5f)
     var overflowed by remember(text) { mutableStateOf(false) }
     val canToggle = overflowed || expanded
     Column(
@@ -252,7 +260,7 @@ internal fun OverviewSection(
             Text(
                 if (expanded) "收起" else "展开",
                 style = AppTypography.body.strong,
-                color = accent,
+                color = interactiveForeground,
             )
         }
     }

@@ -150,8 +150,8 @@ internal fun rememberTopBarProgress(
     density: Density,
 ): State<Float> =
     remember(listState, heroHeightPx, density) {
-        val start = (heroHeightPx - with(density) { 136.dp.toPx() }).coerceAtLeast(1f)
-        val span = with(density) { 64.dp.toPx() }
+        val start = (heroHeightPx - with(density) { 188.dp.toPx() }).coerceAtLeast(1f)
+        val span = with(density) { 96.dp.toPx() }
         derivedStateOf {
             if (listState.firstVisibleItemIndex > 0) {
                 1f
