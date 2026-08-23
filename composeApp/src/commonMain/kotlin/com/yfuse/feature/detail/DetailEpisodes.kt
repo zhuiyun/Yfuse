@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -268,6 +269,25 @@ private fun EpisodeCard(
     onPlay: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val opaqueAccent = accent.copy(alpha = 1f)
+    val selectedSurface =
+        if (palette.isDark) {
+            lerp(opaqueAccent, Color.Black, 0.30f)
+        } else {
+            lerp(opaqueAccent, Color.White, 0.42f)
+        }
+    val selectedEdge =
+        if (palette.isDark) {
+            lerp(opaqueAccent, Color.White, 0.12f).copy(alpha = 0.88f)
+        } else {
+            lerp(opaqueAccent, Color.Black, 0.10f).copy(alpha = 0.82f)
+        }
+    val selectedText =
+        if (palette.isDark) {
+            lerp(opaqueAccent, Color.White, 0.28f)
+        } else {
+            lerp(opaqueAccent, Color.Black, 0.38f)
+        }
     val watching = (episode.playedPercentage ?: 0.0) > 0.0
     Column(
         Modifier
@@ -277,8 +297,8 @@ private fun EpisodeCard(
                 shape = GlassShapes.card,
                 fill =
                     when {
-                        selected && palette.isDark -> Color.White.copy(alpha = 0.10f)
-                        selected -> Color.White.copy(alpha = 0.42f)
+                        selected && palette.isDark -> selectedSurface.copy(alpha = 0.38f)
+                        selected -> selectedSurface.copy(alpha = 0.52f)
                         watching -> accent.copy(alpha = if (palette.isDark) 0.08f else 0.06f)
                         palette.isDark -> palette.card
                         else -> Color.White.copy(alpha = 0.24f)
@@ -286,7 +306,7 @@ private fun EpisodeCard(
                 border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(1.25.dp, accent.copy(alpha = 0.58f), GlassShapes.card)
+                    Modifier.border(1.5.dp, selectedEdge, GlassShapes.card)
                 } else {
                     Modifier
                 },
@@ -348,7 +368,12 @@ private fun EpisodeCard(
                     if (runtime != null) append(runtime)
                 },
                 style = AppTypography.caption.medium,
-                color = if (selected || watching) accent else palette.sub2,
+                color =
+                    when {
+                        selected -> selectedText
+                        watching -> accent
+                        else -> palette.sub2
+                    },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
