@@ -2,8 +2,8 @@
 """Transforms the proven optical-disc builder into the Dolby Vision/FEL builder.
 
 Keeping the optical builder as the base preserves its libbluray, remote ISO/BDMV, HDMV and
-multi-angle gates. This transformer only replaces the codec/render stack and adds stronger Dolby
-release evidence. Exact anchors make upstream or local script drift fail loudly.
+multi-angle gates. This transformer replaces the codec/render stack, adds post-render Dolby
+runtime evidence, and fails on every source/build anchor drift.
 """
 from pathlib import Path
 import sys
@@ -38,28 +38,40 @@ replace_once(
 replace_once(
     'YFUSE_ANGLE_PATCH="$ROOT/scripts/native/patch_yfuse_bluray_angle.py"\n',
     'YFUSE_ANGLE_PATCH="$ROOT/scripts/native/patch_yfuse_bluray_angle.py"\n'
-    'YFUSE_DOLBY_PATCH="$ROOT/scripts/native/patch_yfuse_dolby_fel.py"\n',
-    "Dolby patch path",
+    'YFUSE_DOLBY_PATCH="$ROOT/scripts/native/patch_yfuse_dolby_fel.py"\n'
+    'YFUSE_DOLBY_JNI_PATCH="$ROOT/scripts/native/patch_yfuse_dolby_jni.py"\n',
+    "Dolby patch paths",
 )
 
 replace_once(
     'for native_source in "$YFUSE_STREAM_SOURCE" "$YFUSE_BDMV_STREAM_SOURCE" "$YFUSE_ANGLE_PATCH"; do\n',
-    'for native_source in "$YFUSE_STREAM_SOURCE" "$YFUSE_BDMV_STREAM_SOURCE" "$YFUSE_ANGLE_PATCH" "$YFUSE_DOLBY_PATCH"; do\n',
+    'for native_source in "$YFUSE_STREAM_SOURCE" "$YFUSE_BDMV_STREAM_SOURCE" "$YFUSE_ANGLE_PATCH" "$YFUSE_DOLBY_PATCH" "$YFUSE_DOLBY_JNI_PATCH"; do\n',
     "native source verification",
 )
 
 replace_once(
     'LIBBLURAY_BUILD="$SOURCE/buildscripts/scripts/libbluray.sh"\n',
     'LIBBLURAY_BUILD="$SOURCE/buildscripts/scripts/libbluray.sh"\n'
-    'LIBPLACEBO_BUILD="$SOURCE/buildscripts/scripts/libplacebo.sh"\n',
-    "libplacebo builder path",
+    'LIBPLACEBO_BUILD="$SOURCE/buildscripts/scripts/libplacebo.sh"\n'
+    'MPV_JNI_MAIN="$SOURCE/libmpv/src/main/cpp/main.cpp"\n',
+    "native builder paths",
+)
+
+replace_once(
+    'public final class YfuseMpvCapabilities {\n',
+    'public final class YfuseMpvCapabilities {\n'
+    '    static {\n'
+    '        System.loadLibrary("mpv");\n'
+    '        System.loadLibrary("player");\n'
+    '    }\n',
+    "Java native library initializer",
 )
 
 replace_once(
     '    public static final boolean MULTI_ANGLE = true;\n',
     '    public static final boolean MULTI_ANGLE = true;\n'
-    '    // These flags mean the built native path contains the current mpv/FFmpeg/libplacebo\n'
-    '    // DOVI pipeline plus Yfuse post-render evidence. Runtime still proves each file.\n'
+    '    // These flags prove the built path contains current mpv/FFmpeg/libplacebo DOVI support.\n'
+    '    // Per-file RPU/FEL claims still require the runtime evidence accessors below.\n'
     '    public static final boolean DOLBY_VISION_RPU = true;\n'
     '    public static final boolean DOLBY_VISION_FEL = true;\n',
     "Java Dolby capability flags",
@@ -72,6 +84,20 @@ replace_once(
     '    public static final String FFMPEG_REVISION = "$FFMPEG_COMMIT";\n'
     '    public static final String LIBPLACEBO_REVISION = "$LIBPLACEBO_COMMIT";\n',
     "Java native revision fields",
+)
+
+replace_once(
+    '    private YfuseMpvCapabilities() {}\n',
+    '    public static long dolbyVisionRuntimeGeneration() {\n'
+    '        return nativeDolbyVisionGeneration();\n'
+    '    }\n\n'
+    '    public static int dolbyVisionRuntimeEvidence() {\n'
+    '        return nativeDolbyVisionEvidence();\n'
+    '    }\n\n'
+    '    private static native long nativeDolbyVisionGeneration();\n'
+    '    private static native int nativeDolbyVisionEvidence();\n\n'
+    '    private YfuseMpvCapabilities() {}\n',
+    "Java runtime evidence accessors",
 )
 
 download_block = """printf '==> downloading pinned native dependencies\\n'\n(\n  cd \"$SOURCE/buildscripts\"\n  ./download.sh\n)\n"""
@@ -97,8 +123,8 @@ pin_dependency "$SOURCE/buildscripts/deps/ffmpeg" "$FFMPEG_COMMIT" ffmpeg
 pin_dependency "$SOURCE/buildscripts/deps/libplacebo" "$LIBPLACEBO_COMMIT" libplacebo
 git -C "$SOURCE/buildscripts/deps/libplacebo" submodule update -q --init --recursive
 
-# libplacebo owns the RPU processing and P7 enhancement-layer composition. The FFmpeg/mpv path
-# already passes parsed Dolby metadata, so the external rust libdovi parser is unnecessary here.
+# libplacebo owns RPU processing and P7 enhancement-layer composition. FFmpeg/mpv already pass
+# parsed Dolby metadata, so a separate Rust libdovi parser is not required in this Android build.
 python3 - "$LIBPLACEBO_BUILD" <<'PY'
 from pathlib import Path
 import sys
@@ -142,8 +168,9 @@ replace_once(download_block, pin_block, "dependency download block")
 replace_once(
     'MPV_ROOT="$SOURCE/buildscripts/deps/mpv"\n',
     'MPV_ROOT="$SOURCE/buildscripts/deps/mpv"\n'
-    'python3 "$YFUSE_DOLBY_PATCH" "$MPV_ROOT/video/out/vo_gpu_next.c"\n',
-    "mpv source patch point",
+    'python3 "$YFUSE_DOLBY_PATCH" "$MPV_ROOT/video/out/vo_gpu_next.c"\n'
+    'python3 "$YFUSE_DOLBY_JNI_PATCH" "$MPV_JNI_MAIN"\n',
+    "mpv/JNI source patch point",
 )
 
 replace_once(
@@ -156,19 +183,22 @@ replace_once(
     "  printf 'dolby-vision-fel=true\\n'\n"
     "  printf 'ffmpeg-dovi-split=true\\n'\n"
     "  printf 'libplacebo-enhancement-layer=true\\n'\n"
-    "  printf 'dolby-render-evidence=YFUSE_DOVI_RPU_RENDERED,YFUSE_DOVI_FEL_COMPOSED\\n'\n",
+    "  printf 'dolby-render-evidence=YFUSE_DOVI_RPU_RENDERED,YFUSE_DOVI_FEL_COMPOSED\\n'\n"
+    "  printf 'dolby-runtime-jni=true\\n'\n",
     "native provenance block",
 )
 
-# Build-time source gates must agree with the generated marker class.
 required = (
     f'MPV_CORE_COMMIT="{MPV_CORE_COMMIT}"',
     f'FFMPEG_COMMIT="{FFMPEG_COMMIT}"',
     f'LIBPLACEBO_COMMIT="{LIBPLACEBO_COMMIT}"',
     'DOLBY_VISION_RPU = true',
     'DOLBY_VISION_FEL = true',
+    'dolbyVisionRuntimeEvidence',
     'patch_yfuse_dolby_fel.py',
+    'patch_yfuse_dolby_jni.py',
     'dolby-vision-fel=true',
+    'dolby-runtime-jni=true',
 )
 missing = [marker for marker in required if marker not in text]
 if missing:
