@@ -32,6 +32,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
@@ -39,7 +40,6 @@ import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
-import com.yfuse.core.designsystem.mr
 
 private val PremiumSeekTouchHeight = 40.dp
 private val PremiumSeekTrackHeight = 4.dp
@@ -174,7 +174,7 @@ internal fun PremiumSeekBar(
                 .coerceIn(0, (widthPx - bubbleWidthPx).coerceAtLeast(0))
             Text(
                 label,
-                style = mr(10.5f, 700),
+                style = AppTypography.caption.strong,
                 color = Color.White,
                 modifier = Modifier
                     .align(Alignment.TopStart)
