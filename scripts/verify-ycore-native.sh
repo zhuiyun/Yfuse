@@ -31,7 +31,7 @@ verify_alignment() {
   (( count > 0 )) || fail "$so contains no PT_LOAD segments"
 }
 
-"$ROOT/scripts/verify-yfuse-mpv-dolby-aar.sh" "$AAR" "$SHA_FILE" "$SOURCES"
+bash "$ROOT/scripts/verify-yfuse-mpv-dolby-aar.sh" "$AAR" "$SHA_FILE" "$SOURCES"
 
 FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$FFMPEG_REVISION" =~ ^[0-9a-f]{40}$ ]] || fail "native provenance is missing the pinned FFmpeg commit"
