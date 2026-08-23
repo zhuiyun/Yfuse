@@ -7,6 +7,8 @@ import com.yfuse.core.account.PlaybackVaultCipher
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.network.EmbyError
+import com.yfuse.core.network.EmbyErrorException
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -48,7 +50,7 @@ class PlaybackSyncManager(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val syncMutex = Mutex()
-    private val serverApplier = EmbyCompatiblePlaybackStateApplier(repo, registry)
+    private val serverApplier = EmbyCompatiblePlaybackStateApplier(repo, registry, nowEpochMs)
     private var started = false
     private var debounceJob: Job? = null
     private var urgentJob: Job? = null
@@ -338,23 +340,68 @@ class PlaybackSyncManager(
             val result = serverApplier.apply(task.document, serverId)
             if (result.isSuccess) {
                 store.markServerApplySucceeded(task.id, serverId)
-            } else {
-                val nextAttempt =
-                    nowEpochMs() + playbackServerApplyBackoffMs(task.attemptCount + 1)
-                store.deferServerApply(task.id, nextAttempt)
-                AppLog.warning(
-                    category = "playback.sync",
-                    event = "server_apply_deferred",
-                    message = "Cloud playback state remains queued for a media server",
-                    throwable = result.exceptionOrNull(),
-                    attributes =
-                        mapOf(
-                            "serverId" to serverId,
-                            "attempt" to (task.attemptCount + 1).toString(),
-                            "pendingCount" to store.serverApplyCount().toString(),
-                        ),
-                )
-                return
+                return@repeat
+            }
+
+            val failure = result.exceptionOrNull()
+            when (playbackServerApplyFailurePolicy(failure)) {
+                PlaybackServerApplyFailurePolicy.DropTarget -> {
+                    // A missing item is permanent for this server/media mapping. Treat the target
+                    // as consumed so it cannot sit at the head of the fan-out queue forever.
+                    store.markServerApplySucceeded(task.id, serverId)
+                    AppLog.warning(
+                        category = "playback.sync",
+                        event = "server_apply_target_dropped",
+                        message = "Playback state target no longer exists on this media server",
+                        throwable = failure,
+                        attributes =
+                            mapOf(
+                                "serverId" to serverId,
+                                "reason" to "not_found",
+                                "pendingCount" to store.serverApplyCount().toString(),
+                            ),
+                    )
+                }
+
+                PlaybackServerApplyFailurePolicy.CooldownServer -> {
+                    // Cloudflare/WAF blocks are server-wide, not item-specific. Repeating the same
+                    // request every sync only creates log noise and can extend a WAF ban. Drop this
+                    // target, cool the server, and allow other servers in the same task to proceed.
+                    val until = nowEpochMs() + PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS
+                    serverApplier.coolDownServer(serverId, until)
+                    store.markServerApplySucceeded(task.id, serverId)
+                    AppLog.warning(
+                        category = "playback.sync",
+                        event = "server_apply_access_denied_cooldown",
+                        message = "Playback sync paused for a media server after access was denied",
+                        throwable = failure,
+                        attributes =
+                            mapOf(
+                                "serverId" to serverId,
+                                "cooldownMs" to PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS.toString(),
+                                "pendingCount" to store.serverApplyCount().toString(),
+                            ),
+                    )
+                }
+
+                PlaybackServerApplyFailurePolicy.Retry -> {
+                    val nextAttempt =
+                        nowEpochMs() + playbackServerApplyBackoffMs(task.attemptCount + 1)
+                    store.deferServerApply(task.id, nextAttempt)
+                    AppLog.warning(
+                        category = "playback.sync",
+                        event = "server_apply_deferred",
+                        message = "Cloud playback state remains queued for a media server",
+                        throwable = failure,
+                        attributes =
+                            mapOf(
+                                "serverId" to serverId,
+                                "attempt" to (task.attemptCount + 1).toString(),
+                                "pendingCount" to store.serverApplyCount().toString(),
+                            ),
+                    )
+                    return
+                }
             }
         }
     }
@@ -506,6 +553,26 @@ internal fun playbackServerApplyBackoffMs(failureStreak: Int): Long {
     return (15_000L * (1L shl exponent)).coerceAtMost(30 * 60_000L)
 }
 
+internal enum class PlaybackServerApplyFailurePolicy {
+    DropTarget,
+    CooldownServer,
+    Retry,
+}
+
+internal fun playbackServerApplyFailurePolicy(error: Throwable?): PlaybackServerApplyFailurePolicy =
+    when (val embyError = (error as? EmbyErrorException)?.error) {
+        EmbyError.AccessDenied -> PlaybackServerApplyFailurePolicy.CooldownServer
+        is EmbyError.Server ->
+            if (embyError.code == HttpStatusCode.NotFound.value) {
+                PlaybackServerApplyFailurePolicy.DropTarget
+            } else {
+                PlaybackServerApplyFailurePolicy.Retry
+            }
+        else -> PlaybackServerApplyFailurePolicy.Retry
+    }
+
+internal const val PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS = 30 * 60_000L
+
 private class PlaybackEntityDecryptException(
     entityKey: String,
 ) : IllegalStateException("无法解密云端播放记录，已保留游标等待重试：${entityKey.take(12)}")
@@ -529,19 +596,37 @@ private val PlaybackSyncTrigger.isImmediateCloudTrigger: Boolean
 private class EmbyCompatiblePlaybackStateApplier(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
+    private val nowEpochMs: () -> Long,
 ) {
+    private val unavailableUntilByServerId = mutableMapOf<String, Long>()
+
     fun serverMissing(serverId: String): Boolean = registry.serverById(serverId) == null
+
+    fun coolDownServer(
+        serverId: String,
+        untilEpochMs: Long,
+    ) {
+        unavailableUntilByServerId[serverId] = untilEpochMs
+    }
 
     fun targetServerIds(document: PlaybackSyncDocument): List<String> {
         val state = document.state
         val keys = listOf(state.mediaKey) + state.aliases
         val hasPortableIdentity = keys.any { !it.startsWith("emby:", ignoreCase = true) }
-        return if (hasPortableIdentity) {
-            registry.data.value.servers
-                .map { it.id }
-        } else {
-            listOfNotNull(state.serverId?.takeIf { registry.serverById(it) != null })
-        }
+        val candidates =
+            if (hasPortableIdentity) {
+                registry.data.value.servers.map { it.id }
+            } else {
+                listOfNotNull(state.serverId?.takeIf { registry.serverById(it) != null })
+            }
+        return candidates.filterNot(::isCoolingDown)
+    }
+
+    private fun isCoolingDown(serverId: String): Boolean {
+        val until = unavailableUntilByServerId[serverId] ?: return false
+        if (nowEpochMs() < until) return true
+        unavailableUntilByServerId.remove(serverId)
+        return false
     }
 
     suspend fun apply(
