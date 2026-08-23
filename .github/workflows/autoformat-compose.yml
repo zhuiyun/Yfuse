@@ -1,0 +1,50 @@
+name: Temporary Compose ktlint formatter
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - .github/workflows/autoformat-compose.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-compose-ktlint-formatter
+  cancel-in-progress: false
+
+jobs:
+  format:
+    name: Apply composeApp ktlint formatting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Apply deterministic ktlint formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :composeApp:ktlintFormat --no-daemon
+      - name: Commit formatting only
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- composeApp; then
+            echo "No composeApp formatting changes were required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- composeApp
+          git diff --cached --check
+          git commit -m "style: apply composeApp ktlint formatting"
+          git push origin HEAD:master
