@@ -25,14 +25,22 @@ val ktlintVersion = libs.versions.ktlint.asProvider()
 val secureNettyVersion = "4.1.136.Final"
 val secureProtobufVersion = "3.25.5"
 val secureWireVersion = "6.3.0"
-val secureBouncyCastleVersion = "1.80.2"
+val securityOverrides =
+    java.util.Properties().apply {
+        rootProject.file("scripts/security-overrides.properties").inputStream().use { load(it) }
+    }
 
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
 
     configurations.configureEach {
         resolutionStrategy.eachDependency {
+            val securityOverride = securityOverrides.getProperty("${requested.group}:${requested.name}")
             when {
+                securityOverride != null -> {
+                    useVersion(securityOverride)
+                    because("Pinned security override shared with the supply-chain scanner")
+                }
                 requested.group == "io.netty" && requested.version.orEmpty().startsWith("4.1.") -> {
                     useVersion(secureNettyVersion)
                     because("Netty versions before 4.1.136.Final contain high-severity DoS vulnerabilities")
@@ -53,10 +61,6 @@ subprojects {
                     requested.name in setOf("wire-runtime", "wire-runtime-jvm") -> {
                     useVersion(secureWireVersion)
                     because("Wire versions before 6.3.0 allow malformed groups to escape the documented decode failure path")
-                }
-                requested.group == "org.bouncycastle" && requested.name == "bcprov-jdk18on" -> {
-                    useVersion(secureBouncyCastleVersion)
-                    because("Bouncy Castle 1.76 is affected by GHSA-574f-3g2m-x479")
                 }
             }
         }
