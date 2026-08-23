@@ -111,6 +111,7 @@ class ExoVideoEngine(
                 itemCount = items.size.coerceAtLeast(1),
                 speed = startSpeed,
                 transcoding = startTranscoding,
+                durationMs = this.items.getOrNull(startIndex)?.durationMsHint ?: 0L,
                 videoHeight = this.items.getOrNull(startIndex)?.sourceVideoHeight(startTranscoding) ?: 0,
                 diagnostics =
                     initialPlaybackDiagnostics(
@@ -565,7 +566,14 @@ class ExoVideoEngine(
                         fallbacksExhausted = false,
                         automaticFallbackBlocked = false,
                         positionMs = if (sameMedia) it.positionMs else 0L,
-                        durationMs = knownDuration(if (sameMedia) it.durationMs else 0L),
+                        durationMs =
+                            knownDuration(
+                                if (sameMedia) {
+                                    it.durationMs
+                                } else {
+                                    item?.durationMsHint ?: 0L
+                                },
+                            ),
                         bufferedPositionMs = if (sameMedia) it.bufferedPositionMs else 0L,
                         error = null,
                         ended = false,
