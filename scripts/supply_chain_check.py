@@ -16,6 +16,7 @@ OSV_BATCH_URL = "https://api.osv.dev/v1/querybatch"
 OSV_VULN_URL = "https://api.osv.dev/v1/vulns/"
 COORDINATE = re.compile(r"^([^:#=]+):([^:#=]+):([^:#=]+)=")
 SEVERITIES = {"HIGH", "CRITICAL"}
+SECURITY_OVERRIDES = pathlib.Path("scripts/security-overrides.properties")
 # A record that reaches the gate without a resolvable severity is treated as blocking:
 # the whole point of this script is that a security gate must never pass in silence.
 UNRESOLVED = "UNRESOLVED"
@@ -38,8 +39,34 @@ class Dependency:
         return f"{self.group}:{self.name}:{self.version}"
 
 
+def read_security_overrides(root: pathlib.Path) -> dict[str, str]:
+    """Read the same effective version overrides consumed by the root Gradle build.
+
+    Java .properties files escape ':' in keys. Keeping one shared manifest prevents the scanner
+    from reporting a stale lockfile version after Gradle has intentionally forced a patched version.
+    """
+    path = root / SECURITY_OVERRIDES
+    if not path.is_file():
+        return {}
+    overrides: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if not separator:
+            raise ValueError(f"Malformed security override: {line}")
+        coordinate = key.replace(r"\:", ":").strip()
+        version = value.strip()
+        if coordinate.count(":") != 1 or not version:
+            raise ValueError(f"Malformed security override: {line}")
+        overrides[coordinate] = version
+    return overrides
+
+
 def read_dependencies(root: pathlib.Path) -> list[Dependency]:
     found: dict[str, Dependency] = {}
+    overrides = read_security_overrides(root)
     for path in root.rglob("gradle.lockfile"):
         for raw in path.read_text(encoding="utf-8").splitlines():
             line = raw.strip()
@@ -48,8 +75,13 @@ def read_dependencies(root: pathlib.Path) -> list[Dependency]:
             match = COORDINATE.match(line)
             if not match:
                 continue
-            group, name, version = match.groups()
-            dep = Dependency(group, name, version, str(path.relative_to(root)))
+            group, name, locked_version = match.groups()
+            override = overrides.get(f"{group}:{name}")
+            version = override or locked_version
+            source = str(path.relative_to(root))
+            if override is not None and override != locked_version:
+                source += f"; effective security override from {SECURITY_OVERRIDES}"
+            dep = Dependency(group, name, version, source)
             found[dep.coordinate] = dep
     return sorted(found.values(), key=lambda item: item.coordinate)
 
@@ -256,7 +288,11 @@ def main() -> int:
     parser.add_argument("--sbom", required=True)
     args = parser.parse_args()
     root = pathlib.Path(args.root).resolve()
-    dependencies = read_dependencies(root)
+    try:
+        dependencies = read_dependencies(root)
+    except ValueError as exc:
+        print(f"::error::Security override manifest is invalid: {exc}")
+        return 2
     if not dependencies:
         print("::error::No Maven dependencies found in committed Gradle lockfiles")
         return 2

@@ -370,7 +370,10 @@ class PlaybackPreferences(
 
     private val _cellularQualityCap =
         MutableStateFlow(
-            enumSetting(KEY_CELLULAR_QUALITY_CAP, PlaybackQuality.Hd),
+            // Direct play is the default on both Wi-Fi and cellular. A lower cellular cap remains
+            // an explicit user choice; silently defaulting to HD forced otherwise compatible
+            // files into server transcode merely because the phone was on 5G.
+            enumSetting(KEY_CELLULAR_QUALITY_CAP, PlaybackQuality.Original),
         )
     val cellularQualityCap: StateFlow<PlaybackQuality> = _cellularQualityCap.asStateFlow()
 

@@ -268,6 +268,7 @@ private fun EpisodeCard(
     onPlay: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val stateColors = detailStateColors(accent, palette.background, palette.isDark)
     val watching = (episode.playedPercentage ?: 0.0) > 0.0
     Column(
         Modifier
@@ -277,16 +278,14 @@ private fun EpisodeCard(
                 shape = GlassShapes.card,
                 fill =
                     when {
-                        selected && palette.isDark -> Color.White.copy(alpha = 0.10f)
-                        selected -> Color.White.copy(alpha = 0.42f)
-                        watching -> accent.copy(alpha = if (palette.isDark) 0.08f else 0.06f)
+                        selected -> stateColors.surface
                         palette.isDark -> palette.card
                         else -> Color.White.copy(alpha = 0.24f)
                     },
-                border = palette.border,
+                border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(1.25.dp, accent.copy(alpha = 0.58f), GlassShapes.card)
+                    Modifier.border(1.75.dp, stateColors.border, GlassShapes.card)
                 } else {
                     Modifier
                 },
@@ -348,7 +347,12 @@ private fun EpisodeCard(
                     if (runtime != null) append(runtime)
                 },
                 style = AppTypography.caption.medium,
-                color = if (selected || watching) accent else palette.sub2,
+                color =
+                    when {
+                        selected -> stateColors.onPage
+                        watching -> stateColors.mutedOnPage
+                        else -> palette.sub2
+                    },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

@@ -65,7 +65,7 @@ internal data class MpvNativeBuildCapabilities(
                 libbluray && hdmvMenu && remoteRawBluRay -> "libbluray · HDMV · 远程原盘"
                 libbluray && remoteRawBluRay -> "libbluray · 远程原盘（BD-J 未启用）"
                 libbluray -> "libbluray（BD-J 未启用）"
-                else -> "stock libmpv（无 libbluray）"
+                else -> "原生能力标记不可用"
             }
 }
 
@@ -81,7 +81,7 @@ internal val installedMpvNativeBuildCapabilities: MpvNativeBuildCapabilities by 
                         when {
                             capabilities.pinnedYfuseDolbyVisionArtifact -> "yfuse-dolby-fel"
                             capabilities.pinnedYfuseBluRayArtifact -> "yfuse-bluray"
-                            else -> "stock-or-unknown"
+                            else -> "unknown"
                         },
                     "libbluray" to capabilities.libbluray.toString(),
                     "remoteRawBluRay" to capabilities.remoteRawBluRay.toString(),
@@ -108,7 +108,21 @@ internal fun detectMpvNativeBuildCapabilities(
     classLoader: ClassLoader? = MpvVideoEngine::class.java.classLoader,
 ): MpvNativeBuildCapabilities =
     runCatching {
-        val marker = Class.forName(className, false, classLoader)
+        // The app is built only with the verified Yfuse AAR, but Android can expose its marker
+        // through a different loader from the engine implementation. Probe the relevant loaders
+        // without initializing the class; Dolby builds load native libraries from a static block,
+        // and capability discovery must not depend on that initialization timing.
+        val candidateLoaders =
+            listOfNotNull(
+                classLoader,
+                Thread.currentThread().contextClassLoader,
+                MpvVideoEngine::class.java.classLoader,
+                MpvNativeBuildCapabilities::class.java.classLoader,
+            ).distinct()
+        val marker =
+            candidateLoaders.firstNotNullOfOrNull { loader ->
+                runCatching { Class.forName(className, false, loader) }.getOrNull()
+            } ?: error("Native MPV capability marker is unavailable: $className")
         val capabilities =
             MpvNativeBuildCapabilities(
                 libbluray = marker.booleanField("LIBBLURAY"),
@@ -128,8 +142,15 @@ internal fun detectMpvNativeBuildCapabilities(
             )
         marker.installDolbyRuntimeEvidenceProvider(capabilities)
         capabilities
-    }.getOrElse {
+    }.getOrElse { error ->
         MpvDolbyRuntimeEvidenceRegistry.clearProvider()
+        AppLog.error(
+            category = "player.native",
+            event = "mpv_capability_marker_unavailable",
+            message = "Verified Yfuse MPV capability marker could not be resolved at runtime",
+            throwable = error,
+            attributes = mapOf("marker" to className),
+        )
         MpvNativeBuildCapabilities()
     }
 

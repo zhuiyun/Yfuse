@@ -31,7 +31,7 @@ class PlaybackPreferencesTest {
         val first = PlaybackPreferences(settings)
 
         assertEquals(PlaybackQuality.Original, first.wifiQualityCap.value)
-        assertEquals(PlaybackQuality.Hd, first.cellularQualityCap.value)
+        assertEquals(PlaybackQuality.Original, first.cellularQualityCap.value)
         assertTrue(first.autoQualityDowngrade.value)
         assertFalse(first.qualityLocked.value)
         assertNull(first.rememberedQuality("server-a"))

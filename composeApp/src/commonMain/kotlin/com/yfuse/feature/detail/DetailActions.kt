@@ -258,17 +258,18 @@ private fun GlassActionButton(
     loading: Boolean = false,
 ) {
     val palette = LocalPalette.current
+    val stateColors = detailStateColors(accent, palette.background, palette.isDark)
     val fill =
         when {
-            active -> accent.copy(alpha = if (palette.isDark) 0.28f else 0.18f)
+            active -> stateColors.surface
             palette.isDark -> Color.White.copy(alpha = 0.075f)
-            else -> Color.White.copy(alpha = 0.30f)
+            else -> Color.White.copy(alpha = 0.20f)
         }
     val edge =
         when {
-            active -> accent.copy(alpha = 0.48f)
-            palette.isDark -> Color.White.copy(alpha = 0.19f)
-            else -> Color.White.copy(alpha = 0.34f)
+            active -> stateColors.border
+            palette.isDark -> Color.White.copy(alpha = 0.14f)
+            else -> Color.White.copy(alpha = 0.22f)
         }
     Row(
         modifier
@@ -292,13 +293,13 @@ private fun GlassActionButton(
                 .clip(CircleShape)
                 .background(
                     if (active) {
-                        accent.copy(alpha = 0.22f)
+                        stateColors.iconSurface
                     } else {
                         palette.text.copy(alpha = if (palette.isDark) 0.08f else 0.045f)
                     },
                 ).border(
                     Dimens.hairline,
-                    if (active) accent.copy(alpha = 0.46f) else palette.border,
+                    if (active) stateColors.border else palette.border.copy(alpha = 0.72f),
                     CircleShape,
                 ),
             contentAlignment = Alignment.Center,
@@ -306,7 +307,7 @@ private fun GlassActionButton(
             if (loading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(15.dp),
-                    color = if (active) accent else palette.body,
+                    color = if (active) stateColors.foreground else palette.body,
                     strokeWidth = 1.8.dp,
                 )
             } else {
@@ -314,7 +315,7 @@ private fun GlassActionButton(
                     icon = icon,
                     active = active,
                     contentDescription = label,
-                    tint = if (active) accent else palette.body,
+                    tint = if (active) stateColors.foreground else palette.body,
                     burstColor = accent,
                     iconSize = 16.dp,
                 )
@@ -323,14 +324,11 @@ private fun GlassActionButton(
         Text(
             label,
             style = if (active) AppTypography.body.strong else AppTypography.body.medium,
-            color = if (active) accent else palette.text,
+            color = if (active) stateColors.foreground else palette.text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (active) {
-            Box(Modifier.size(6.dp).clip(CircleShape).background(accent))
-        }
     }
 }
 

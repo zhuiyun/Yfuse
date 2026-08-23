@@ -6,12 +6,59 @@ import kotlin.test.assertTrue
 
 class PlaybackAdaptiveNetworkTest {
     @Test
-    fun repeated_rebuffers_request_one_quality_downgrade() {
+    fun repeated_rebuffers_request_one_quality_downgrade_when_bandwidth_is_constrained() {
         val controller = PlaybackAdaptiveNetworkController()
 
-        assertFalse(controller.observe(sample(bufferEvents = 0)).downgradeRecommended)
-        assertFalse(controller.observe(sample(bufferEvents = 1)).downgradeRecommended)
-        assertTrue(controller.observe(sample(bufferEvents = 2)).downgradeRecommended)
+        assertFalse(
+            controller
+                .observe(
+                    sample(
+                        bufferEvents = 0,
+                        networkBitsPerSecond = 5_000_000L,
+                        mediaBitsPerSecond = 8_000_000L,
+                    ),
+                ).downgradeRecommended,
+        )
+        assertFalse(
+            controller
+                .observe(
+                    sample(
+                        bufferEvents = 1,
+                        networkBitsPerSecond = 5_000_000L,
+                        mediaBitsPerSecond = 8_000_000L,
+                    ),
+                ).downgradeRecommended,
+        )
+        assertTrue(
+            controller
+                .observe(
+                    sample(
+                        bufferEvents = 2,
+                        networkBitsPerSecond = 5_000_000L,
+                        mediaBitsPerSecond = 8_000_000L,
+                    ),
+                ).downgradeRecommended,
+        )
+    }
+
+    @Test
+    fun high_throughput_rebuffers_do_not_request_quality_downgrade() {
+        val controller = PlaybackAdaptiveNetworkController()
+
+        repeat(6) { index ->
+            assertFalse(
+                controller
+                    .observe(
+                        sample(
+                            nowEpochMs = 120_000L + index * 2_000L,
+                            bufferEvents = index,
+                            networkBitsPerSecond = 60_000_000L,
+                            mediaBitsPerSecond = 14_000_000L,
+                            bufferedDurationMs = 1_000L,
+                        ),
+                    ).downgradeRecommended,
+            )
+        }
     }
 
     @Test
@@ -105,11 +152,24 @@ class PlaybackAdaptiveNetworkTest {
                 upgradeRecommendationCooldownMs = 60_000L,
             )
 
-        controller.observe(sample(nowEpochMs = 120_000L, bufferEvents = 0))
+        controller.observe(
+            sample(
+                nowEpochMs = 120_000L,
+                bufferEvents = 0,
+                networkBitsPerSecond = 5_000_000L,
+                mediaBitsPerSecond = 8_000_000L,
+            ),
+        )
         assertTrue(
             controller
-                .observe(sample(nowEpochMs = 122_000L, bufferEvents = 1))
-                .downgradeRecommended,
+                .observe(
+                    sample(
+                        nowEpochMs = 122_000L,
+                        bufferEvents = 1,
+                        networkBitsPerSecond = 5_000_000L,
+                        mediaBitsPerSecond = 8_000_000L,
+                    ),
+                ).downgradeRecommended,
         )
         assertFalse(
             controller

@@ -65,7 +65,7 @@ class MpvNativeBuildCapabilitiesTest {
     }
 
     @Test
-    fun marker_absence_means_stock_mpv_and_never_guesses_blu_ray_support() {
+    fun marker_absence_stays_unknown_and_never_guesses_blu_ray_support() {
         val capabilities =
             detectMpvNativeBuildCapabilities(
                 className = "missing.yfuse.NativeCapabilityMarker",
@@ -78,7 +78,7 @@ class MpvNativeBuildCapabilitiesTest {
         assertFalse(capabilities.bdmvVfs)
         assertFalse(capabilities.hdmvMenu)
         assertFalse(capabilities.nativeBluRay)
-        assertTrue(capabilities.description.contains("无 libbluray"))
+        assertEquals("原生能力标记不可用", capabilities.description)
     }
 
     @Test

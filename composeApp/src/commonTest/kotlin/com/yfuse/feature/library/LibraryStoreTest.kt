@@ -414,7 +414,7 @@ class LibraryStoreTest {
             val store =
                 LibraryStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { throw IOException("offline") },
+                    testRepo { json("{") },
                     registry,
                     cache,
                 ).create()

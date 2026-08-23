@@ -659,7 +659,6 @@ class PlayerStoreFactory(
 
         private fun load() {
             val primaryServer = serverId?.let(registry::serverById) ?: registry.defaultServer
-            val startMs = startPositionTicks / 10_000L
             scope.launch {
                 if (primaryServer == null) {
                     AppLog.error(
@@ -674,6 +673,7 @@ class PlayerStoreFactory(
                 var server = requireNotNull(primaryServer)
                 var effectiveItemId = itemId
                 var effectiveMediaSourceId = mediaSourceId
+                var effectiveStartPositionTicks = startPositionTicks
                 var detailResult = repo.itemDetail(server, effectiveItemId)
                 val failoverPlan = failoverRequest.consume(itemId)
                 val primaryFailure = detailResult.exceptionOrNull()
@@ -726,6 +726,59 @@ class PlayerStoreFactory(
                         }
                     }
                 }
+
+                val launchDetail = detailResult.getOrNull()
+                if (launchDetail?.type == "Series") {
+                    val targetResult = repo.resolvePlayTarget(server, launchDetail)
+                    val target = targetResult.getOrNull()
+                    if (target == null) {
+                        targetResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(server.id, it) }
+                        AppLog.warning(
+                            category = "feature.player",
+                            event = "series_play_target_failed",
+                            message = "Series launch could not resolve a playable episode",
+                            throwable = targetResult.exceptionOrNull(),
+                            attributes = mapOf("serverId" to server.id, "seriesId" to launchDetail.id),
+                        )
+                        dispatch(PlayerMsg.Failed("没有可播放的剧集"))
+                        return@launch
+                    }
+                    effectiveItemId = target.itemId
+                    effectiveMediaSourceId = null
+                    effectiveStartPositionTicks = target.startPositionTicks
+                    detailResult = repo.itemDetail(server, effectiveItemId)
+                    if (detailResult.isFailure) {
+                        val failure = detailResult.exceptionOrNull()
+                        failure?.let { healthMonitor?.recordFailure(server.id, it) }
+                        AppLog.warning(
+                            category = "feature.player",
+                            event = "series_episode_detail_failed",
+                            message = "Resolved series episode detail could not be loaded",
+                            throwable = failure,
+                            attributes =
+                                mapOf(
+                                    "serverId" to server.id,
+                                    "seriesId" to launchDetail.id,
+                                    "episodeId" to effectiveItemId,
+                                ),
+                        )
+                        dispatch(PlayerMsg.Failed("无法加载可播放剧集"))
+                        return@launch
+                    }
+                    healthMonitor?.recordSuccess(server.id)
+                    AppLog.info(
+                        category = "feature.player",
+                        event = "series_play_target_resolved",
+                        message = "Series launch resolved to a playable episode before PlaybackInfo",
+                        attributes =
+                            mapOf(
+                                "serverId" to server.id,
+                                "seriesId" to launchDetail.id,
+                                "episodeId" to effectiveItemId,
+                            ),
+                    )
+                }
+                val startMs = effectiveStartPositionTicks / 10_000L
                 val remainingFallbackServerIds =
                     failoverPlan
                         ?.fallbackServerIds
@@ -912,7 +965,7 @@ class PlayerStoreFactory(
                             server = server,
                             itemId = effectiveItemId,
                             mediaSourceId = effectiveMediaSourceId,
-                            startPositionTicks = startPositionTicks,
+                            startPositionTicks = effectiveStartPositionTicks,
                             playSessionId = requestedSessionId,
                         )
                     }
@@ -1003,7 +1056,7 @@ class PlayerStoreFactory(
                             resolveServerFallbacks(
                                 serverIds = remainingFallbackServerIds,
                                 mediaKey = plan.mediaKey,
-                                startPositionTicks = startPositionTicks,
+                                startPositionTicks = effectiveStartPositionTicks,
                                 titleFallback = detail?.title.orEmpty(),
                             )
                         }.orEmpty()
@@ -1199,11 +1252,27 @@ class PlayerStoreFactory(
                 hitResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(serverId, it) }
                 return null
             }
-            val detailResult = repo.itemDetail(fallback, hit.id)
-            val detail = detailResult.getOrNull()
+            var detailResult = repo.itemDetail(fallback, hit.id)
+            var detail = detailResult.getOrNull()
             if (detail == null) {
                 detailResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(serverId, it) }
                 return null
+            }
+            var fallbackStartPositionTicks = startPositionTicks
+            if (detail.type == "Series") {
+                val targetResult = repo.resolvePlayTarget(fallback, detail)
+                val target = targetResult.getOrNull()
+                if (target == null) {
+                    targetResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(serverId, it) }
+                    return null
+                }
+                fallbackStartPositionTicks = target.startPositionTicks
+                detailResult = repo.itemDetail(fallback, target.itemId)
+                detail = detailResult.getOrNull()
+                if (detail == null) {
+                    detailResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(serverId, it) }
+                    return null
+                }
             }
             val requestedSessionId = EmbyStream.newPlaySessionId()
             val playbackInfo =
@@ -1211,7 +1280,7 @@ class PlayerStoreFactory(
                     .playbackInfo(
                         server = fallback,
                         itemId = detail.id,
-                        startPositionTicks = startPositionTicks,
+                        startPositionTicks = fallbackStartPositionTicks,
                         playSessionId = requestedSessionId,
                     ).getOrNull()
             val versions =
