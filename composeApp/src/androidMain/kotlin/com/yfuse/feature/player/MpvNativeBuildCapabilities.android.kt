@@ -108,7 +108,20 @@ internal fun detectMpvNativeBuildCapabilities(
     classLoader: ClassLoader? = MpvVideoEngine::class.java.classLoader,
 ): MpvNativeBuildCapabilities =
     runCatching {
-        val marker = Class.forName(className, false, classLoader)
+        // Android may expose the AAR marker through the app/context loader before the concrete
+        // engine class loader sees it. Trying every relevant loader prevents a transient startup
+        // miss from being cached for the whole process as "stock-or-unknown".
+        val candidateLoaders =
+            listOfNotNull(
+                classLoader,
+                Thread.currentThread().contextClassLoader,
+                MpvVideoEngine::class.java.classLoader,
+                YFUSE_MPV_CAPABILITY_CLASS::class.java.classLoader,
+            ).distinct()
+        val marker =
+            candidateLoaders.firstNotNullOfOrNull { loader ->
+                runCatching { Class.forName(className, true, loader) }.getOrNull()
+            } ?: Class.forName(className)
         val capabilities =
             MpvNativeBuildCapabilities(
                 libbluray = marker.booleanField("LIBBLURAY"),
@@ -128,8 +141,15 @@ internal fun detectMpvNativeBuildCapabilities(
             )
         marker.installDolbyRuntimeEvidenceProvider(capabilities)
         capabilities
-    }.getOrElse {
+    }.getOrElse { error ->
         MpvDolbyRuntimeEvidenceRegistry.clearProvider()
+        AppLog.warning(
+            category = "player.native",
+            event = "mpv_capability_marker_unavailable",
+            message = "Native MPV capability marker could not be resolved; using conservative capabilities",
+            throwable = error,
+            attributes = mapOf("marker" to className),
+        )
         MpvNativeBuildCapabilities()
     }
 
