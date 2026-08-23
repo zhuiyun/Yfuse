@@ -1,5 +1,5 @@
 # SHA-256 values for the exact artifacts downloaded by fetch-engines.sh.
 # Yfuse playback builds require the pinned custom libmpv artifact; a stock fallback is intentionally
 # not accepted because it would silently remove Blu-ray/YCore native capabilities.
-cd43b184678e7be6c6ec8fb34299c75513f6e90eaca34da613b2515349c29cc8  libmpv-release.aar
+9900fe61971e39bf4bc69f306437ffd3de1587c63821570143e142a858b6f9a9  libmpv-release.aar
 87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba  mdk-sdk-android.7z
