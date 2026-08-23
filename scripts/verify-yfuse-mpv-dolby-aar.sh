@@ -23,6 +23,7 @@ manifest_value() {
 need unzip
 need strings
 need javap
+need readelf
 
 "$ROOT/scripts/verify-yfuse-mpv-bluray-aar.sh" "$AAR" "$SHA_FILE" "$SOURCES"
 
@@ -35,12 +36,13 @@ need javap
 [[ "$(manifest_value libplacebo-enhancement-layer)" == "true" ]] || fail "libplacebo enhancement-layer gate is missing"
 [[ "$(manifest_value dolby-render-evidence)" == "YFUSE_DOVI_RPU_RENDERED,YFUSE_DOVI_FEL_COMPOSED" ]] ||
   fail "native provenance does not name the Dolby render evidence markers"
+[[ "$(manifest_value dolby-runtime-jni)" == "true" ]] || fail "Dolby runtime JNI gate is missing"
 
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 unzip -q "$AAR" -d "$stage/aar"
 
-javap -classpath "$stage/aar/classes.jar" -constants "$CAPABILITY_CLASS" > "$stage/capabilities.txt"
+javap -classpath "$stage/aar/classes.jar" -private -constants "$CAPABILITY_CLASS" > "$stage/capabilities.txt"
 grep -F 'DOLBY_VISION_RPU = true' "$stage/capabilities.txt" >/dev/null ||
   fail "capability marker does not prove DOLBY_VISION_RPU=true"
 grep -F 'DOLBY_VISION_FEL = true' "$stage/capabilities.txt" >/dev/null ||
@@ -51,15 +53,31 @@ grep -F "FFMPEG_REVISION = \"$EXPECTED_FFMPEG\"" "$stage/capabilities.txt" >/dev
   fail "capability marker FFmpeg revision mismatch"
 grep -F "LIBPLACEBO_REVISION = \"$EXPECTED_LIBPLACEBO\"" "$stage/capabilities.txt" >/dev/null ||
   fail "capability marker libplacebo revision mismatch"
+grep -F 'public static long dolbyVisionRuntimeGeneration();' "$stage/capabilities.txt" >/dev/null ||
+  fail "capability marker is missing the runtime generation accessor"
+grep -F 'public static int dolbyVisionRuntimeEvidence();' "$stage/capabilities.txt" >/dev/null ||
+  fail "capability marker is missing the runtime evidence accessor"
 
 arm64_mpv="$stage/aar/jni/arm64-v8a/libmpv.so"
+arm64_player="$stage/aar/jni/arm64-v8a/libplayer.so"
+[[ -f "$arm64_player" ]] || fail "AAR is missing arm64-v8a/libplayer.so"
 strings "$arm64_mpv" | grep -F 'YFUSE_DOVI_RPU_RENDERED' >/dev/null ||
   fail "libmpv.so is missing post-render RPU evidence"
 strings "$arm64_mpv" | grep -F 'YFUSE_DOVI_FEL_COMPOSED' >/dev/null ||
   fail "libmpv.so is missing post-render FEL evidence"
+for symbol in yfuse_mpv_dolby_generation yfuse_mpv_dolby_evidence; do
+  readelf -Ws "$arm64_mpv" | grep -F "$symbol" >/dev/null ||
+    fail "libmpv.so is missing exported runtime symbol: $symbol"
+done
+for symbol in \
+  Java_dev_yfuse_mpv_YfuseMpvCapabilities_nativeDolbyVisionGeneration \
+  Java_dev_yfuse_mpv_YfuseMpvCapabilities_nativeDolbyVisionEvidence; do
+  readelf -Ws "$arm64_player" | grep -F "$symbol" >/dev/null ||
+    fail "libplayer.so is missing Dolby JNI symbol: $symbol"
+done
 
 printf 'Dolby Vision native gates verified\n'
 printf 'mpv:       %s\n' "$EXPECTED_MPV_CORE"
 printf 'FFmpeg:    %s\n' "$EXPECTED_FFMPEG"
 printf 'libplacebo:%s\n' "$EXPECTED_LIBPLACEBO"
-printf 'evidence:  rendered RPU + rendered P7 enhancement layer\n'
+printf 'evidence:  rendered RPU + rendered P7 enhancement layer + JNI snapshot\n'
