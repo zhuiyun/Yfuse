@@ -1,5 +1,7 @@
 package com.yfuse.feature.player
 
+import com.yfuse.core.model.PlaybackMethod
+
 /** Converts a scrubber fraction to a clamped media position. */
 internal fun scrubPositionMs(
     fraction: Float,
@@ -84,6 +86,20 @@ internal fun PlaybackState.dolbyVisionReadoutLabel(): String? {
 }
 
 /**
+ * The route flag is the runtime source of truth. Diagnostics are descriptive and can briefly carry
+ * the server's original PlayMethod while Yfuse has deliberately kept the original file for local
+ * Dolby decoding. Never surface "服务器转码" unless the engine is actually on a transcode URL.
+ */
+internal fun PlaybackState.playbackMethodReadoutLabel(): String? {
+    val diagnostic = diagnostics.playMethod.takeIf { it.isNotBlank() }
+    return when {
+        transcoding -> PlaybackMethod.Transcode.label
+        diagnostic == PlaybackMethod.Transcode.label -> PlaybackMethod.DirectPlay.label
+        else -> diagnostic
+    }
+}
+
+/**
  * `alphatv · 1080P · EXO · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.
  *
  * Every part is dropped the moment it has nothing to say: one server means no server name,
@@ -98,7 +114,7 @@ internal fun PlaybackState.readoutLine(
     val dolbyVisionLabel = dolbyVisionReadoutLabel()
     return listOfNotNull(
         sourceLabel?.takeIf { it.isNotBlank() },
-        diagnostics.playMethod.takeIf { it.isNotBlank() },
+        playbackMethodReadoutLabel(),
         resolutionLabel(videoHeight),
         dolbyVisionLabel,
         diagnostics.dynamicRange.takeIf { it.isNotBlank() && dolbyVisionLabel == null },
