@@ -67,8 +67,9 @@ subprojects {
     }
 
     dependencyLocking {
-        // Refresh intentionally with `./gradlew dependencies --write-locks` whenever
-        // dependency versions change.
+        // Security-overridden modules are reproducibly pinned by security-overrides.properties,
+        // so an older committed lock entry must not veto the centrally forced patched version.
+        securityOverrides.stringPropertyNames().forEach { ignoredDependencies.add(it) }
         lockAllConfigurations()
     }
 
