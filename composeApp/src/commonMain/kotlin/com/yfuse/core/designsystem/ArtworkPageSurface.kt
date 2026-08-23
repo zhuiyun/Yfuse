@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:property-naming")
+
 package com.yfuse.core.designsystem
 
 import androidx.compose.ui.graphics.Color

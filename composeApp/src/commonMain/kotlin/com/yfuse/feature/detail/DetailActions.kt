@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:property-naming")
+
 package com.yfuse.feature.detail
 
 import androidx.compose.foundation.background

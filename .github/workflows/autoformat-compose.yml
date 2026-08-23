@@ -52,3 +52,8 @@ jobs:
           git diff --cached --check
           git commit -m "style: apply composeApp ktlint formatting"
           git push origin HEAD:master
+      - name: Verify composeApp ktlint gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :composeApp:ktlintCheck --no-daemon
