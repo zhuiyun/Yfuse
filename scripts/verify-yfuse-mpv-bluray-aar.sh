@@ -78,30 +78,39 @@ unzip -q "$AAR" -d "$staging/aar"
 [[ -f "$staging/aar/AndroidManifest.xml" ]] || die "AAR is missing AndroidManifest.xml"
 [[ -f "$staging/aar/classes.jar" ]] || die "AAR is missing classes.jar"
 [[ -f "$staging/aar/jni/arm64-v8a/libmpv.so" ]] || die "AAR is missing arm64-v8a/libmpv.so"
+
+# Avoid command|grep checks while pipefail is enabled. Large native-tool producers can receive
+# SIGPIPE after grep exits on the first match, turning a successful capability match into a false
+# release-gate failure. Materialize diagnostics once and grep the files instead.
+unzip -l "$staging/aar/classes.jar" > "$staging/classes-list.txt"
 for required_class in "$EXPECTED_CAPABILITY_CLASS" "$EXPECTED_REGISTRY_CLASS" "$EXPECTED_BDMV_REGISTRY_CLASS"; do
-  unzip -l "$staging/aar/classes.jar" | grep -F "$required_class" >/dev/null ||
+  grep -F "$required_class" "$staging/classes-list.txt" >/dev/null ||
     die "AAR classes.jar is missing $required_class"
 done
 
 arm64_mpv="$staging/aar/jni/arm64-v8a/libmpv.so"
+readelf -Ws "$arm64_mpv" > "$staging/arm64-mpv-symbols.txt"
+strings "$arm64_mpv" > "$staging/arm64-mpv-strings.txt"
 for prefix in \
   Java_dev_yfuse_mpv_YfuseBluRayRegistry \
   Java_dev_yfuse_mpv_YfuseBdmvRegistry; do
   for suffix in nativeRegister nativeUnregister nativeSelectAngle nativeSendMenuCommand nativeSelectMenuPoint; do
     symbol="${prefix}_${suffix}"
-    readelf -Ws "$arm64_mpv" | grep -F "$symbol" >/dev/null || die "libmpv.so is missing JNI symbol: $symbol"
+    grep -F "$symbol" "$staging/arm64-mpv-symbols.txt" >/dev/null || die "libmpv.so is missing JNI symbol: $symbol"
   done
 done
-strings "$arm64_mpv" | grep -F 'yfusebd' >/dev/null || die "libmpv.so is missing the yfusebd stream protocol"
-strings "$arm64_mpv" | grep -F 'yfusebdmv' >/dev/null || die "libmpv.so is missing the yfusebdmv stream protocol"
-strings "$arm64_mpv" | grep -F 'Yfuse remote Blu-ray source opened with libbluray' >/dev/null ||
+grep -F 'yfusebd' "$staging/arm64-mpv-strings.txt" >/dev/null || die "libmpv.so is missing the yfusebd stream protocol"
+grep -F 'yfusebdmv' "$staging/arm64-mpv-strings.txt" >/dev/null || die "libmpv.so is missing the yfusebdmv stream protocol"
+grep -F 'Yfuse remote Blu-ray source opened with libbluray' "$staging/arm64-mpv-strings.txt" >/dev/null ||
   die "libmpv.so is missing the Yfuse libbluray stream implementation"
 
 mapfile -t arm64_libs < <(find "$staging/aar/jni/arm64-v8a" -maxdepth 1 -type f -name '*.so' -print | sort)
 (( ${#arm64_libs[@]} > 0 )) || die "AAR contains no arm64 native libraries"
 for so in "${arm64_libs[@]}"; do
-  readelf -h "$so" | grep -E 'Class:[[:space:]]+ELF64' >/dev/null || die "$(basename "$so") is not ELF64"
-  readelf -h "$so" | grep -E 'Machine:[[:space:]]+(AArch64|ARM aarch64)' >/dev/null || die "$(basename "$so") is not AArch64"
+  header="$staging/$(basename "$so").header.txt"
+  readelf -h "$so" > "$header"
+  grep -E 'Class:[[:space:]]+ELF64' "$header" >/dev/null || die "$(basename "$so") is not ELF64"
+  grep -E 'Machine:[[:space:]]+(AArch64|ARM aarch64)' "$header" >/dev/null || die "$(basename "$so") is not AArch64"
   verify_load_alignment "$so"
 done
 
