@@ -52,24 +52,23 @@ internal fun Long.asClock(): String {
  * A short, evidence-based Dolby Vision grade for the always-visible playback readout.
  *
  * The order matters: FEL/RPU are stronger output claims than a generic native-DV signal. A source
- * badge by itself never authorizes either claim. When mpv is doing compatibility work, the label
- * says what actually happens to the picture instead of pretending the original DV pipeline
- * survived unchanged.
+ * badge by itself never authorizes either claim. mpv's native evidence is accepted only after its
+ * video output is rendering and the libplacebo render path reports the exact frame facts.
  */
 internal fun PlaybackState.dolbyVisionReadoutLabel(): String? {
+    val mpvEvidence = diagnostics.mpvDolbyRuntimeEvidence()
+    val rpuRendered = diagnostics.dolbyVisionRpuApplied || mpvEvidence.rpuRendered
+    val felComposed = diagnostics.dolbyVisionEnhancementLayerComposed || mpvEvidence.felComposed
     val sourceLooksDolby =
         diagnostics.dynamicRange.contains("dolby", ignoreCase = true) ||
             diagnostics.dynamicRange.contains("dovi", ignoreCase = true) ||
             diagnostics.planningReason?.contains("Dolby Vision", ignoreCase = true) == true
-    val hasDolbyOutputEvidence =
-        diagnostics.dolbyVisionOutput ||
-            diagnostics.dolbyVisionRpuApplied ||
-            diagnostics.dolbyVisionEnhancementLayerComposed
+    val hasDolbyOutputEvidence = diagnostics.dolbyVisionOutput || rpuRendered || felComposed
     if (!sourceLooksDolby && !hasDolbyOutputEvidence) return null
 
     return when {
-        diagnostics.dolbyVisionEnhancementLayerComposed -> "DV FEL"
-        diagnostics.dolbyVisionRpuApplied -> "DV RPU"
+        felComposed -> "DV FEL"
+        rpuRendered -> "DV RPU"
         diagnostics.dolbyVisionOutput -> "DV 原生"
         transcoding -> "DV→转码"
         diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering &&
