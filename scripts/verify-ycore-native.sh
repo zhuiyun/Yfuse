@@ -31,10 +31,13 @@ verify_alignment() {
   (( count > 0 )) || fail "$so contains no PT_LOAD segments"
 }
 
-"$ROOT/scripts/verify-yfuse-mpv-bluray-aar.sh" "$AAR" "$SHA_FILE" "$SOURCES"
+"$ROOT/scripts/verify-yfuse-mpv-dolby-aar.sh" "$AAR" "$SHA_FILE" "$SOURCES"
 
+FFMPEG_REVISION="$(manifest_value ffmpeg)"
+[[ "$FFMPEG_REVISION" =~ ^[0-9a-f]{40}$ ]] || fail "native provenance is missing the pinned FFmpeg commit"
 [[ "$(manifest_value ycore-demux)" == "true" ]] || fail "native provenance is missing ycore-demux=true"
-[[ "$(manifest_value ycore-demux-ffmpeg)" == "n8.1" ]] || fail "YCore demux is not pinned to FFmpeg n8.1"
+[[ "$(manifest_value ycore-demux-ffmpeg)" == "$FFMPEG_REVISION" ]] ||
+  fail "YCore demux was not built against the same FFmpeg revision as libmpv"
 [[ "$(manifest_value ycore-demux-source)" == "scripts/native/ycore_demux_jni.cpp" ]] ||
   fail "native provenance points at an unexpected YCore demux source"
 
@@ -57,9 +60,9 @@ for bridge in "${bridges[@]}"; do
     fail "$abi bridge links FFmpeg decode/encode entry points; YCore enhanced demux must stay demux-only"
   fi
   verify_alignment "$bridge"
-
 done
 
 printf 'verified YCore demux bridge: %s\n' "$AAR"
-printf 'ffmpeg: n8.1 shared ABI, demux-only JNI\n'
+printf 'ffmpeg: %s shared ABI, demux-only JNI\n' "$FFMPEG_REVISION"
+printf 'Dolby: verified RPU + P7 FEL render path\n'
 printf 'page alignment: all libycore_demux.so PT_LOAD >= 16 KiB\n'
