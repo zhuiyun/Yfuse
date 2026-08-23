@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE="$ROOT/.native-build"
 ARTIFACTS="$WORKSPACE/artifacts"
 AAR="$ARTIFACTS/libmpv-yfuse-bluray.aar"
+SOURCES_MANIFEST="$ARTIFACTS/NATIVE-SOURCES.txt"
 SOURCE="$ROOT/scripts/native/ycore_demux_jni.cpp"
 NDK_VERSION="29.0.14206865"
 ANDROID_API="26"
@@ -15,7 +16,12 @@ fail() {
   exit 1
 }
 
-# build-ycore-native.sh builds libmpv first via build-yfuse-mpv-bluray.sh. That script keeps its
+manifest_value() {
+  local key="$1"
+  awk -F= -v key="$key" '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$SOURCES_MANIFEST"
+}
+
+# build-ycore-native.sh builds libmpv first via build-yfuse-mpv-dolby.sh. That script keeps its
 # pinned checkout under .native-build/yfuse-mpv/source. Reuse the exact same FFmpeg prefix and NDK
 # tree so the demux bridge is compiled against the libraries that are packaged into the AAR.
 # Keep the legacy .native-build/upstream fallback for older/local workspaces and allow an explicit
@@ -31,10 +37,14 @@ else
 fi
 
 [[ -f "$AAR" ]] || fail "missing native AAR: $AAR"
+[[ -f "$SOURCES_MANIFEST" ]] || fail "missing native provenance: $SOURCES_MANIFEST"
 [[ -f "$SOURCE" ]] || fail "missing JNI source: $SOURCE"
 [[ -d "$UPSTREAM/buildscripts/prefix" ]] || fail "missing upstream FFmpeg prefix tree: $UPSTREAM/buildscripts/prefix"
+FFMPEG_REVISION="$(manifest_value ffmpeg)"
+[[ "$FFMPEG_REVISION" =~ ^[0-9a-f]{40}$ ]] || fail "native provenance has no pinned FFmpeg commit"
 
 echo "[ycore-demux] reusing native workspace: $UPSTREAM"
+echo "[ycore-demux] FFmpeg revision: $FFMPEG_REVISION"
 
 TOOLCHAIN_ROOT=("$UPSTREAM"/buildscripts/sdk/android-sdk-linux/ndk/"$NDK_VERSION"/toolchains/llvm/prebuilt/*)
 [[ ${#TOOLCHAIN_ROOT[@]} -eq 1 && -d "${TOOLCHAIN_ROOT[0]}" ]] || fail "cannot resolve NDK toolchain"
@@ -129,9 +139,9 @@ PY
 sha256sum "$AAR" | awk '{print $1}' > "$AAR.sha256"
 {
   echo "ycore-demux=true"
-  echo "ycore-demux-ffmpeg=n8.1"
+  echo "ycore-demux-ffmpeg=$FFMPEG_REVISION"
   echo "ycore-demux-source=scripts/native/ycore_demux_jni.cpp"
   echo "ycore-demux-abis=$(IFS=,; echo "${ABIS[*]}")"
-} >> "$ARTIFACTS/NATIVE-SOURCES.txt"
+} >> "$SOURCES_MANIFEST"
 
 echo "[ycore-demux] injected libycore_demux.so into $AAR"
