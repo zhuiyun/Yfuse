@@ -46,9 +46,20 @@ internal fun PlayerMediaVersion.dolbyVisionP7Output(diagnostics: PlaybackDiagnos
     )
 }
 
-/** The method shown before an engine has enough runtime facts to refine it. */
+/**
+ * The method shown before an engine has enough runtime facts to refine it.
+ *
+ * A Dolby source may arrive from PlaybackInfo with PlayMethod=Transcode, while Yfuse intentionally
+ * keeps the original URL and performs Dolby decode/output locally. In that case the server value is
+ * only a negotiation recommendation; showing it as "服务器转码" would contradict the URL that the
+ * engine actually opens.
+ */
 internal fun PlayerMediaItem.effectivePlaybackMethod(quality: PlaybackQuality): PlaybackMethod =
-    if (startsWithServerTranscode(quality)) PlaybackMethod.Transcode else playMethod
+    when {
+        startsWithServerTranscode(quality) -> PlaybackMethod.Transcode
+        requiresLocalDolbyPipeline && playMethod == PlaybackMethod.Transcode -> PlaybackMethod.DirectPlay
+        else -> playMethod
+    }
 
 /** Human-readable cause paired with the actual method, never inferred from a badge. */
 internal fun PlayerMediaItem.initialFallbackReason(quality: PlaybackQuality): String? =
@@ -57,6 +68,8 @@ internal fun PlayerMediaItem.initialFallbackReason(quality: PlaybackQuality): St
         forcedTranscodeReason != null && transcodeUrl.isNotBlank() -> forcedTranscodeReason
         quality.requiresServerTranscode && transcodeUrl.isNotBlank() -> "用户选择 ${quality.label}"
         quality.requiresServerTranscode -> "服务器未提供转码地址，已保留原始播放方式"
+        requiresLocalDolbyPipeline && playMethod == PlaybackMethod.Transcode ->
+            "服务器建议转码，已保留杜比原始流并由客户端本地解码"
         playMethod == PlaybackMethod.DirectStream -> "服务器协商为直串流"
         playMethod == PlaybackMethod.Transcode -> "服务器协商要求转码"
         else -> null
