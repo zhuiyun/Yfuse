@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -398,7 +399,7 @@ class LibraryStoreTest {
 
     @Test
     fun serverSwitchUsesOnlyTheSelectedServersCacheAndFreshness() =
-        runTest {
+        runBlocking {
             val first = SavedServer("first", "http://first:8096", "一号", "u1", "user", "one")
             val second = SavedServer("second", "http://second:8096", "二号", "u2", "user", "two")
             val registry =
@@ -436,7 +437,6 @@ class LibraryStoreTest {
             assertEquals(2, switched.content.counts?.movieCount)
             assertEquals(1_600_000_000_002L, switched.updatedAtEpochMs)
             store.dispose()
-            advanceUntilIdle()
         }
 
     private fun content(
