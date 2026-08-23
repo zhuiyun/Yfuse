@@ -67,4 +67,56 @@ class PlayerControlFormattingDolbyTest {
 
         assertEquals("DV FEL", state.dolbyVisionReadoutLabel())
     }
+
+    @Test
+    fun mpvPostRenderFelEvidenceUpgradesReadout() {
+        MpvDolbyRuntimeEvidenceRegistry.installProvider {
+            MpvDolbyRuntimeEvidence(
+                generation = 7L,
+                rpuRendered = true,
+                felComposed = true,
+            )
+        }
+        try {
+            val state =
+                PlaybackState(
+                    diagnostics =
+                        PlaybackDiagnostics(
+                            engine = "libmpv",
+                            dynamicRange = "Dolby Vision Profile 7",
+                            videoReadiness = PlaybackOutputReadiness.Rendering,
+                        ),
+                )
+
+            assertEquals("DV FEL", state.dolbyVisionReadoutLabel())
+        } finally {
+            MpvDolbyRuntimeEvidenceRegistry.clearProvider()
+        }
+    }
+
+    @Test
+    fun mpvEvidenceIsIgnoredBeforeVideoOutputRenders() {
+        MpvDolbyRuntimeEvidenceRegistry.installProvider {
+            MpvDolbyRuntimeEvidence(
+                generation = 8L,
+                rpuRendered = true,
+                felComposed = true,
+            )
+        }
+        try {
+            val state =
+                PlaybackState(
+                    diagnostics =
+                        PlaybackDiagnostics(
+                            engine = "libmpv",
+                            dynamicRange = "Dolby Vision Profile 7",
+                            videoReadiness = PlaybackOutputReadiness.Waiting,
+                        ),
+                )
+
+            assertEquals("DV", state.dolbyVisionReadoutLabel())
+        } finally {
+            MpvDolbyRuntimeEvidenceRegistry.clearProvider()
+        }
+    }
 }
