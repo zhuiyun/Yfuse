@@ -18,8 +18,8 @@ class MpvDolbyRuntimeEvidenceTest {
             dolbyVision = true,
             dolbyProfile = 7,
             sourceDolbyRpuPresent = true,
-            sourceEnhancementLayerPresent = true,
-            sourceBaseLayerPresent = true,
+            sourceDolbyEnhancementLayerPresent = true,
+            sourceDolbyBaseLayerPresent = true,
         )
 
     @Test
