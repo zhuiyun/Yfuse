@@ -429,6 +429,7 @@ fun BaseItemDto.toMediaDetail(): MediaDetail {
         providerIds = ProviderIds.orEmpty(),
         playbackSegments = playbackSegments(),
         trickplay = bestTrickplay(),
+        runtimeTicks = RunTimeTicks?.takeIf { it > 0L },
     )
 }
 
@@ -637,6 +638,7 @@ fun BaseItemDto.toEpisode() =
                 source.toMediaVersion(fallbackId = Id, ordinal = index)
             },
         trickplay = bestTrickplay(),
+        runtimeTicks = RunTimeTicks?.takeIf { it > 0L },
     )
 
 fun BaseItemDto.bestTrickplay(): TrickplayInfo? =
