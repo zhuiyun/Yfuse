@@ -49,6 +49,42 @@ internal fun Long.asClock(): String {
 }
 
 /**
+ * A short, evidence-based Dolby Vision grade for the always-visible playback readout.
+ *
+ * The order matters: FEL/RPU are stronger output claims than a generic native-DV signal. A source
+ * badge by itself never authorizes either claim. When mpv is doing compatibility work, the label
+ * says what actually happens to the picture instead of pretending the original DV pipeline
+ * survived unchanged.
+ */
+internal fun PlaybackState.dolbyVisionReadoutLabel(): String? {
+    val sourceLooksDolby =
+        diagnostics.dynamicRange.contains("dolby", ignoreCase = true) ||
+            diagnostics.dynamicRange.contains("dovi", ignoreCase = true) ||
+            diagnostics.planningReason?.contains("Dolby Vision", ignoreCase = true) == true
+    val hasDolbyOutputEvidence =
+        diagnostics.dolbyVisionOutput ||
+            diagnostics.dolbyVisionRpuApplied ||
+            diagnostics.dolbyVisionEnhancementLayerComposed
+    if (!sourceLooksDolby && !hasDolbyOutputEvidence) return null
+
+    return when {
+        diagnostics.dolbyVisionEnhancementLayerComposed -> "DV FEL"
+        diagnostics.dolbyVisionRpuApplied -> "DV RPU"
+        diagnostics.dolbyVisionOutput -> "DV 原生"
+        transcoding -> "DV→转码"
+        diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering &&
+            diagnostics.videoOutput.contains("→ SDR", ignoreCase = true) -> "DV→SDR"
+        diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering &&
+            diagnostics.planningReason?.contains("HDR10 基础层", ignoreCase = true) == true ->
+            "DV→HDR10"
+        diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering &&
+            diagnostics.videoOutput.contains("色调映射") -> "DV Tone Map"
+        diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering -> "DV 兼容输出"
+        else -> "DV"
+    }
+}
+
+/**
  * `alphatv · 1080P · EXO · HEVC · 18.1 Mbps · 60.0 fps` — the line under the title.
  *
  * Every part is dropped the moment it has nothing to say: one server means no server name,
@@ -59,18 +95,21 @@ internal fun Long.asClock(): String {
 internal fun PlaybackState.readoutLine(
     sourceLabel: String?,
     containerLabel: String?,
-): String =
-    listOfNotNull(
+): String {
+    val dolbyVisionLabel = dolbyVisionReadoutLabel()
+    return listOfNotNull(
         sourceLabel?.takeIf { it.isNotBlank() },
         diagnostics.playMethod.takeIf { it.isNotBlank() },
         resolutionLabel(videoHeight),
-        diagnostics.dynamicRange.takeIf { it.isNotBlank() },
+        dolbyVisionLabel,
+        diagnostics.dynamicRange.takeIf { it.isNotBlank() && dolbyVisionLabel == null },
         containerLabel?.takeIf { it.isNotBlank() },
         diagnostics.engine.takeIf { it.isNotBlank() }?.let(::engineShortLabel),
         diagnostics.videoCodec.takeIf { it.isNotBlank() && it != "未知" }?.uppercase(),
         diagnostics.bitrateBitsPerSecond.takeIf { it > 0L }?.asBitrate(),
         diagnostics.frameRate.takeIf { it > 0f }?.asFrameRate(),
     ).joinToString(" · ")
+}
 
 /**
  * `Media3 / ExoPlayer` reads as a sentence; this line has room for a word.
