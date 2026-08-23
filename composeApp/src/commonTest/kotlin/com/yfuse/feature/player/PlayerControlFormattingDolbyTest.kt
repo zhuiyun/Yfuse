@@ -133,9 +133,10 @@ class PlayerControlFormattingDolbyTest {
                         engine = "libmpv",
                     ),
             )
+        val readout = state.readoutLine(sourceLabel = null, containerLabel = null)
 
         assertEquals(PlaybackMethod.DirectPlay.label, state.playbackMethodReadoutLabel())
-        assertFalse(state.readoutLine(sourceLabel = null, containerLabel = null).contains(PlaybackMethod.Transcode.label))
+        assertFalse(PlaybackMethod.Transcode.label in readout)
     }
 
     @Test
