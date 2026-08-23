@@ -93,13 +93,25 @@ class EmbyDeviceProfileFactoryTest {
     }
 
     @Test
-    fun sdr_panel_still_accepts_p7_fel_because_output_mapping_is_local() {
+    fun sdr_panel_still_accepts_all_valid_dolby_inputs_because_output_mapping_is_local() {
         val profile = DeviceProfileDto.yfuseAndroid(capabilities())
         val ranges = profile.videoRanges("hevc")
 
         assertTrue("hevc" in profile.DirectPlayProfiles.single().VideoCodec.split(','))
-        assertTrue("DOVI" in ranges)
-        assertTrue("DOVIWithEL" in ranges)
+        assertTrue(
+            ranges.containsAll(
+                setOf(
+                    "DOVI",
+                    "DOVIWithHDR10",
+                    "DOVIWithHLG",
+                    "DOVIWithSDR",
+                    "DOVIWithEL",
+                    "DOVIWithHDR10Plus",
+                    "DOVIWithELHDR10Plus",
+                ),
+            ),
+        )
+        assertFalse("DOVIInvalid" in ranges)
         assertTrue("HDR10" in ranges)
     }
 
