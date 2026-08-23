@@ -90,7 +90,7 @@ fun playbackHdrRoute(
                     engine = PlayerEngine.Mpv,
                     decoderMode = DecoderMode.Hardware,
                     requiresServerTranscode = false,
-                    reason = "使用客户端 HDR 基础层和色调映射，不依赖服务器转码",
+                    reason = "Dolby Vision 使用客户端 HDR10 基础层和色调映射，不依赖服务器转码",
                 )
         }
     }
