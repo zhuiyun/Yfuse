@@ -176,8 +176,7 @@ private fun Class<*>.installDolbyRuntimeEvidenceProvider(capabilities: MpvNative
     }
 }
 
-private fun Class<*>.staticMethodOrNull(name: String): Method? =
-    runCatching { getMethod(name) }.getOrNull()
+private fun Class<*>.staticMethodOrNull(name: String): Method? = runCatching { getMethod(name) }.getOrNull()
 
 /** Missing fields/methods on older custom AARs are safely treated as unsupported. */
 private fun Class<*>.booleanField(name: String): Boolean =
