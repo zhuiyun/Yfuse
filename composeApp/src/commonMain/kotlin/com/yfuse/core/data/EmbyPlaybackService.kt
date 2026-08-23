@@ -4,6 +4,7 @@ import com.yfuse.core.data.dto.DeviceProfileDto
 import com.yfuse.core.data.dto.PlaybackInfoRequestDto
 import com.yfuse.core.data.dto.PlaybackInfoResponseDto
 import com.yfuse.core.data.dto.PlaybackReportDto
+import com.yfuse.core.data.dto.YFUSE_MAX_STREAMING_BITRATE_BPS
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.normalizeBaseUrl
@@ -115,6 +116,7 @@ internal class EmbyPlaybackService(
                         StartTimeTicks = startPositionTicks.coerceAtLeast(0L),
                         MediaSourceId = mediaSourceId,
                         CurrentPlaySessionId = playSessionId,
+                        MaxStreamingBitrate = YFUSE_MAX_STREAMING_BITRATE_BPS,
                         MaxAudioChannels = capabilities.maxAudioChannels.coerceIn(2, 8),
                     )
                 // Eager serialization avoids a deferred request-body serializer deadlock on an
