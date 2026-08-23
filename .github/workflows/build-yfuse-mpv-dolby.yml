@@ -16,11 +16,13 @@ on:
       - scripts/verify-ycore-native.sh
       - scripts/native/**
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvDolbyRuntimeEvidence.android.kt
       - composeApp/src/commonMain/kotlin/com/yfuse/feature/player/MpvDolbyRuntimeEvidence.kt
       - composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlaybackTruth.kt
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: yfuse-mpv-dolby-${{ github.ref }}
@@ -64,6 +66,7 @@ jobs:
           grep -F 'DOLBY_VISION_RPU = true' "$RUNNER_TEMP/generated-dolby-builder.sh"
           grep -F 'DOLBY_VISION_FEL = true' "$RUNNER_TEMP/generated-dolby-builder.sh"
           grep -F 'dolbyVisionRuntimeEvidence' "$RUNNER_TEMP/generated-dolby-builder.sh"
+          grep -F 'dolby-renderer=gpu-next' "$RUNNER_TEMP/generated-dolby-builder.sh"
 
       - name: Build pinned Dolby native engine
         shell: bash
@@ -98,3 +101,42 @@ jobs:
             .native-build/artifacts/BUILD-MANIFEST.txt
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish native build status
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          status = os.environ.get("JOB_STATUS", "failure")
+          state = "success" if status == "success" else "failure"
+          description = (
+              "mpv Dolby RPU/FEL native gates passed"
+              if state == "success"
+              else "mpv Dolby native build or release gate failed"
+          )
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          run = os.environ["GITHUB_RUN_ID"]
+          payload = json.dumps({
+              "state": state,
+              "context": "yfuse/mpv-dolby-native",
+              "description": description,
+              "target_url": f"https://github.com/{repo}/actions/runs/{run}",
+          }).encode()
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/statuses/{sha}",
+              data=payload,
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+          )
+          urllib.request.urlopen(request, timeout=30).read()
+          PY
