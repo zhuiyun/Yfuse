@@ -13,11 +13,13 @@ import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
+import kotlin.coroutines.CoroutineContext
 
 enum class LibraryContentSource {
     None,
@@ -107,13 +109,14 @@ class LibraryStoreFactory(
     private val registry: ServerRegistry,
     private val cache: LibraryCache,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
+    private val mainContext: CoroutineContext = Dispatchers.Main,
 ) {
     fun create(): Store<LibraryIntent, LibraryState, Nothing> =
         storeFactory.create(
             name = "LibraryStore",
             initialState = LibraryState(),
             bootstrapper =
-                coroutineBootstrapper<Action> {
+                coroutineBootstrapper<Action>(mainContext) {
                     registry.data
                         .onEach { dispatch(Action.Data(it.servers, it.defaultServer)) }
                         .launchIn(this)
@@ -122,7 +125,8 @@ class LibraryStoreFactory(
             reducer = ReducerImpl,
         )
 
-    private inner class ExecutorImpl : CoroutineExecutor<LibraryIntent, Action, LibraryState, Msg, Nothing>() {
+    private inner class ExecutorImpl :
+        CoroutineExecutor<LibraryIntent, Action, LibraryState, Msg, Nothing>(mainContext) {
         private var loadedConnection: LibraryConnection? = null
         private var loadGeneration = 0L
         private var loadJob: Job? = null

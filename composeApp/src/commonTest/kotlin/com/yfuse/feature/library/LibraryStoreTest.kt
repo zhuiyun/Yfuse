@@ -17,25 +17,16 @@ import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.io.IOException
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class LibraryStoreTest {
-    @BeforeTest fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
-
-    @AfterTest fun tearDown() = Dispatchers.resetMain()
-
     @Test
     fun loads_home_content_for_default_server() =
         runTest {
@@ -48,6 +39,7 @@ class LibraryStoreTest {
                     registry,
                     LibraryCache(MapSettings()),
                     nowEpochMs = { 1_700_000_000_000L },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             val s = store.states.first { !it.loading && !it.content.isEmpty }
@@ -59,6 +51,7 @@ class LibraryStoreTest {
             assertEquals(LibraryContentSource.Live, s.contentSource)
             assertEquals(1_700_000_000_000L, s.updatedAtEpochMs)
             store.dispose()
+            advanceUntilIdle()
         }
 
     @Test
@@ -70,11 +63,13 @@ class LibraryStoreTest {
                     testRepo { json("{}") },
                     testRegistry(),
                     LibraryCache(MapSettings()),
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
             val s = store.states.first()
             assertEquals(null, s.currentServer)
             assertTrue(s.content.isEmpty)
             store.dispose()
+            advanceUntilIdle()
         }
 
     @Test
@@ -128,6 +123,7 @@ class LibraryStoreTest {
                     },
                     registry,
                     LibraryCache(MapSettings()),
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             oldRequestStarted.await()
@@ -157,6 +153,7 @@ class LibraryStoreTest {
                     .isNotEmpty(),
             )
             store.dispose()
+            advanceUntilIdle()
         }
 
     @Test
@@ -200,6 +197,7 @@ class LibraryStoreTest {
                     },
                     registry,
                     LibraryCache(MapSettings()),
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             oldRequestStarted.await()
@@ -233,6 +231,7 @@ class LibraryStoreTest {
             )
             assertEquals(null, store.state.error)
             store.dispose()
+            advanceUntilIdle()
         }
 
     @Test
@@ -271,6 +270,7 @@ class LibraryStoreTest {
                     },
                     registry,
                     cache,
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             store.states.first { !it.loading && it.content.counts?.movieCount == 99 }
@@ -343,6 +343,7 @@ class LibraryStoreTest {
                     registry,
                     cache,
                     nowEpochMs = { liveUpdatedAt },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             requestStarted.await()
@@ -362,6 +363,7 @@ class LibraryStoreTest {
             assertEquals(liveUpdatedAt, live.updatedAtEpochMs)
             assertEquals(liveUpdatedAt, cache.readSnapshot(server.id)?.updatedAtEpochMs)
             store.dispose()
+            advanceUntilIdle()
         }
 
     @Test
@@ -380,6 +382,7 @@ class LibraryStoreTest {
                     testRepo { throw IOException("offline") },
                     registry,
                     cache,
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             val failed = store.states.first { !it.loading && it.error != null }
@@ -394,6 +397,7 @@ class LibraryStoreTest {
             assertEquals(3, failed.content.counts?.movieCount)
             assertEquals(updatedAt, failed.updatedAtEpochMs)
             store.dispose()
+            advanceUntilIdle()
         }
 
     @Test
@@ -417,6 +421,7 @@ class LibraryStoreTest {
                     testRepo { json("{") },
                     registry,
                     cache,
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
                 ).create()
 
             store.states.first { it.currentServer?.id == first.id && !it.loading && it.error != null }
