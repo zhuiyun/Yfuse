@@ -49,6 +49,7 @@ internal class AndroidCronetMediaTransport(
     private var request: UrlRequest? = null
     private var activeChunk: ByteArray? = null
     private var activeOffset = 0
+    private var endOfStream = false
 
     @Volatile private var callbackFailure: Throwable? = null
 
@@ -60,6 +61,7 @@ internal class AndroidCronetMediaTransport(
             callbackFailure = null
             activeChunk = null
             activeOffset = 0
+            endOfStream = false
             val responseReady = CountDownLatch(1)
             var responseInfo: UrlResponseInfo? = null
             val callback =
@@ -165,6 +167,7 @@ internal class AndroidCronetMediaTransport(
         withContext(Dispatchers.IO) {
             require(offset >= 0 && length >= 0 && offset + length <= destination.size)
             if (length == 0) return@withContext 0
+            if (endOfStream) return@withContext -1
             var outputOffset = offset
             var remaining = length
             while (remaining > 0) {
@@ -191,7 +194,10 @@ internal class AndroidCronetMediaTransport(
                         activeChunk = next.bytes
                         activeOffset = 0
                     }
-                    CronetChunk.End -> return@withContext if (outputOffset == offset) -1 else outputOffset - offset
+                    CronetChunk.End -> {
+                        endOfStream = true
+                        return@withContext if (outputOffset == offset) -1 else outputOffset - offset
+                    }
                     CronetChunk.Failed -> {
                         val failure = callbackFailure
                         closeRequest()
@@ -212,6 +218,7 @@ internal class AndroidCronetMediaTransport(
         chunks.clear()
         activeChunk = null
         activeOffset = 0
+        endOfStream = false
     }
 }
 
