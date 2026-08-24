@@ -6,8 +6,6 @@ data class YCoreRuntimeObservation(
     val nowEpochMs: Long,
     val positionMs: Long,
     val playbackRequested: Boolean,
-    /** Actual output progression. False for an explicit pause even if a backend kept its intent. */
-    val playing: Boolean = true,
     val buffering: Boolean,
     val videoReady: Boolean,
     val videoExpected: Boolean = true,
@@ -20,6 +18,8 @@ data class YCoreRuntimeObservation(
     val bufferEvents: Int,
     val droppedFrames: Int,
     val measuredPowerMilliwatts: Int? = null,
+    /** Actual output progression. False for an explicit pause even if a backend kept its intent. */
+    val playing: Boolean = true,
 )
 
 data class YCoreRuntimeAssessment(
