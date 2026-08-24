@@ -13,6 +13,7 @@ import org.chromium.net.CronetEngine
 import org.chromium.net.CronetException
 import org.chromium.net.UrlRequest
 import org.chromium.net.UrlResponseInfo
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
@@ -124,11 +125,19 @@ internal class AndroidCronetMediaTransport(
             val opened = builder.build()
             this@AndroidCronetMediaTransport.request = opened
             opened.start()
-            check(responseReady.await(CRONET_OPEN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                "Cronet response timed out"
+            if (!responseReady.await(CRONET_OPEN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                closeRequest()
+                throw IOException("Cronet response timed out")
             }
-            callbackFailure?.let { throw IllegalStateException("Cronet request failed", it) }
-            val info = checkNotNull(responseInfo) { "Cronet response metadata is unavailable" }
+            callbackFailure?.let { failure ->
+                closeRequest()
+                throw IOException("Cronet request failed", failure)
+            }
+            val info =
+                responseInfo ?: run {
+                    closeRequest()
+                    throw IOException("Cronet response metadata is unavailable")
+                }
             val contentRange = info.headerValue("Content-Range")?.let(::parseContentRange)
             val protocol = info.negotiatedProtocol.lowercase()
             YMediaTransportResponse(
@@ -172,13 +181,22 @@ internal class AndroidCronetMediaTransport(
                     }
                     continue
                 }
-                when (val next = chunks.take()) {
+                val next = chunks.poll(CRONET_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                if (next == null) {
+                    closeRequest()
+                    throw IOException("Cronet streaming read timed out")
+                }
+                when (next) {
                     is CronetChunk.Data -> {
                         activeChunk = next.bytes
                         activeOffset = 0
                     }
                     CronetChunk.End -> return@withContext if (outputOffset == offset) -1 else outputOffset - offset
-                    CronetChunk.Failed -> throw IllegalStateException("Cronet streaming read failed", callbackFailure)
+                    CronetChunk.Failed -> {
+                        val failure = callbackFailure
+                        closeRequest()
+                        throw IOException("Cronet streaming read failed", failure)
+                    }
                 }
             }
             outputOffset - offset
@@ -213,4 +231,5 @@ private fun UrlResponseInfo.headerValue(name: String): String? =
 private fun String.isSafeCronetHeader(): Boolean = isNotBlank() && '\r' !in this && '\n' !in this
 
 private const val CRONET_READ_BYTES = 256 * 1024
-private const val CRONET_OPEN_TIMEOUT_SECONDS = 20L
+private const val CRONET_OPEN_TIMEOUT_SECONDS = 8L
+private const val CRONET_READ_TIMEOUT_SECONDS = 8L
