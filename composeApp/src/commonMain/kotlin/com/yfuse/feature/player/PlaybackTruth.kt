@@ -22,9 +22,15 @@ internal val PlayerMediaVersion.requiresLocalDolbyPipeline: Boolean
 internal val PlayerMediaItem.requiresLocalDolbyPipeline: Boolean
     get() = activeVersion?.requiresLocalDolbyPipeline == true
 
-/** Automatic decoder/network recovery must continue through local engines for Dolby sources. */
+/** Automatic recovery may use only a server-approved representation with a concrete URL. */
 internal fun PlayerMediaItem.allowsServerTranscodeFallback(reason: String?): Boolean =
-    !requiresLocalDolbyPipeline || reason?.startsWith("用户手动") == true
+    (
+        serverTranscodeSupported ||
+            playMethod == PlaybackMethod.Transcode ||
+            activeVersion?.serverTranscodeSupported == true
+    ) &&
+        (transcodeUrl.isNotBlank() || fallbackTranscodeUrl.isNotBlank()) &&
+        (!requiresLocalDolbyPipeline || reason?.startsWith("用户手动") == true)
 
 /** Evaluates P7 output from source-layer facts plus explicit runtime trace evidence. */
 internal fun PlayerMediaVersion.dolbyVisionP7Output(diagnostics: PlaybackDiagnostics): DolbyVisionP7ValidationResult {
