@@ -8,7 +8,7 @@ internal class SingleFlightNavigationGuard<T> {
         target: T,
         active: T?,
     ): Boolean {
-        if (pending != null || active == target) return false
+        if (pending != null || active != null) return false
         pending = target
         return true
     }
