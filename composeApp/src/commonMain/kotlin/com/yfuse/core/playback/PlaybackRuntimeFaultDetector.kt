@@ -43,9 +43,13 @@ class PlaybackRuntimeFaultDetector(
         }
         if (
             !observation.playbackRequested ||
+            !observation.playbackAdvancementExpected ||
             observation.errorPresent ||
             observation.ended
         ) {
+            // A user pause, audio-focus pause, lifecycle stop or detached output is not a silent
+            // playback failure. Reset every clock so resuming receives the complete startup/stall
+            // budget instead of inheriting time spent intentionally stationary.
             lastProgressAtEpochMs = now
             firstFrameWaitSinceEpochMs = null
             missingVideoSinceEpochMs = null
