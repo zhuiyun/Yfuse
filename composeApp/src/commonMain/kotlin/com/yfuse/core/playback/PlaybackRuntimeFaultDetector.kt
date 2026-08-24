@@ -25,6 +25,7 @@ class PlaybackRuntimeFaultDetector(
     private var firstFrameWaitSinceEpochMs: Long? = startedAtEpochMs
     private var missingVideoSinceEpochMs: Long? = null
     private var missingAudioSinceEpochMs: Long? = null
+    private var positionAdvancementWasExpected = false
     private var reported = false
 
     init {
@@ -50,6 +51,7 @@ class PlaybackRuntimeFaultDetector(
             firstFrameWaitSinceEpochMs = null
             missingVideoSinceEpochMs = null
             missingAudioSinceEpochMs = null
+            positionAdvancementWasExpected = false
             return null
         }
 
@@ -64,13 +66,22 @@ class PlaybackRuntimeFaultDetector(
                                 !observation.audioReady
                         )
                 )
+        val positionAdvancementExpected = observation.playing && !observation.buffering
+        if (positionAdvancementExpected && !positionAdvancementWasExpected) {
+            // An explicit pause can last arbitrarily long. Resume starts a fresh stall budget
+            // instead of measuring from the last frame before audio focus or user intent paused it.
+            lastProgressAtEpochMs = now
+        }
+        positionAdvancementWasExpected = positionAdvancementExpected
         val videoMissing =
-            observation.videoExpected &&
+            positionAdvancementExpected &&
+                observation.videoExpected &&
                 observation.videoOutputVerifiable &&
                 !observation.videoReady &&
                 renderedProgressMs >= MISSING_OUTPUT_PROGRESS_MS
         val audioMissing =
-            observation.audioExpected &&
+            positionAdvancementExpected &&
+                observation.audioExpected &&
                 observation.audioOutputVerifiable &&
                 !observation.audioReady &&
                 renderedProgressMs >= MISSING_OUTPUT_PROGRESS_MS
@@ -106,6 +117,17 @@ class PlaybackRuntimeFaultDetector(
             return fault
         }
 
+        // Requested intent may remain true while Android audio focus, the user, or lifecycle has
+        // paused actual output. A stationary clock is expected then and must never switch engines.
+        // Initial startup remains observable because some backends do not mark preparation as
+        // buffering; only an already-started, explicitly paused binding takes this exit.
+        if (!positionAdvancementExpected && !awaitingFirstOutput) {
+            lastProgressAtEpochMs = now
+            missingVideoSinceEpochMs = null
+            missingAudioSinceEpochMs = null
+            return null
+        }
+
         val fault =
             when {
                 awaitingFirstOutput && now.heldSince(firstFrameWaitSinceEpochMs) >= startupTimeoutMs ->
@@ -123,7 +145,8 @@ class PlaybackRuntimeFaultDetector(
                         PlaybackRuntimeFaultKind.AudioOutputMissing,
                         "播放进度前进但没有可验证的音频输出",
                     )
-                !awaitingFirstOutput &&
+                positionAdvancementExpected &&
+                    !awaitingFirstOutput &&
                     (observation.videoExpected || observation.audioExpected) &&
                     now - lastProgressAtEpochMs >= POSITION_STALL_TIMEOUT_MS ->
                     PlaybackRuntimeFault(
