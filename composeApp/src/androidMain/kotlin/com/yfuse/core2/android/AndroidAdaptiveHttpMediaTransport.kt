@@ -41,6 +41,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
                 preferred = cronet
                 try {
                     val response = cronet.open(request)
+                    response.requireAcceptedRange(request)
                     bind(
                         transport = cronet,
                         request = request,
@@ -110,20 +111,13 @@ internal class AndroidAdaptiveHttpMediaTransport(
         cronetUnavailable = true
         preferred = null
         closeActive(propagateCancellation = true)
-        val response =
-            try {
-                openOkHttp(resumedRequest)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (fallbackFailure: Throwable) {
-                fallbackFailure.addSuppressed(cronetFailure)
-                throw fallbackFailure
-            }
-        resumedRequest.range?.let { range ->
-            require(response.statusCode == 206) { "Fallback transport did not accept byte range" }
-            require(response.acceptedRange?.startInclusive == range.startInclusive) {
-                "Fallback transport returned mismatched range metadata"
-            }
+        try {
+            openOkHttp(resumedRequest)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (fallbackFailure: Throwable) {
+            fallbackFailure.addSuppressed(cronetFailure)
+            throw fallbackFailure
         }
         return checkNotNull(active) { "Fallback transport is not open" }
             .read(destination, offset, length)
@@ -134,6 +128,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
         val transport = createOkHttp()
         return try {
             val response = transport.open(request)
+            response.requireAcceptedRange(request)
             bind(
                 transport = transport,
                 request = request,
@@ -189,6 +184,14 @@ internal class AndroidAdaptiveHttpMediaTransport(
             // A failed transport is already being abandoned; its close error must not prevent the
             // bounded OkHttp recovery path from opening the exact remaining byte range.
         }
+    }
+}
+
+private fun YMediaTransportResponse.requireAcceptedRange(request: YMediaTransportRequest) {
+    val requestedRange = request.range ?: return
+    require(statusCode == 206) { "Random-access transport did not accept byte range" }
+    require(acceptedRange?.startInclusive == requestedRange.startInclusive) {
+        "Random-access transport returned mismatched range metadata"
     }
 }
 
