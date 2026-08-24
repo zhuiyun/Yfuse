@@ -110,14 +110,20 @@ val verifyCustomMpvArtifact by tasks.registering {
         require(checksumFile.isFile && sourcesFile.isFile) {
             "libmpv must include Yfuse SHA-256 and native-source sidecars; run scripts/fetch-engines.sh"
         }
-        val expected =
-            pinnedChecksum.asFile
-                .readLines()
-                .firstOrNull { it.trim().endsWith("  libmpv-release.aar") }
-                ?.trim()
+        val pinnedLines = pinnedChecksum.asFile.readLines().map(String::trim)
+        val accepted =
+            pinnedLines
+                .filter { line ->
+                    line.endsWith("  libmpv-release.aar") ||
+                        line.endsWith("  libmpv-dolby-release.aar")
+                }.map { it.substringBefore(' ').lowercase() }
+                .toSet()
+        require(accepted.isNotEmpty()) { "Pinned Yfuse libmpv checksums are missing" }
+        val dolbyChecksum =
+            pinnedLines
+                .firstOrNull { it.endsWith("  libmpv-dolby-release.aar") }
                 ?.substringBefore(' ')
                 ?.lowercase()
-                ?: throw GradleException("Pinned Yfuse libmpv checksum is missing")
         val sidecar =
             checksumFile
                 .readText()
@@ -134,8 +140,8 @@ val verifyCustomMpvArtifact by tasks.registering {
             }
         }
         val actual = digest.digest().joinToString("") { "%02x".format(it) }
-        require(expected == sidecar && expected == actual) {
-            "Unverified libmpv AAR: pinned=$expected sidecar=$sidecar actual=$actual"
+        require(sidecar == actual && actual in accepted) {
+            "Unverified libmpv AAR: accepted=${accepted.sorted()} sidecar=$sidecar actual=$actual"
         }
         val provenance = sourcesFile.readText()
         listOf(
@@ -145,9 +151,25 @@ val verifyCustomMpvArtifact by tasks.registering {
             "multi-angle=true",
             "capability-class=dev/yfuse/mpv/YfuseMpvCapabilities.class",
             "ycore-demux=true",
-            "ycore-demux-ffmpeg=n8.1",
             "ycore-demux-source=scripts/native/ycore_demux_jni.cpp",
         ).forEach { marker -> require(marker in provenance) { "libmpv provenance is missing $marker" } }
+        if (actual == dolbyChecksum) {
+            listOf(
+                "ycore-demux-ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
+                "dolby-vision-rpu=true",
+                "dolby-vision-fel=true",
+                "ffmpeg-dovi-split=true",
+                "libplacebo-enhancement-layer=true",
+                "dolby-renderer=gpu-next",
+                "dolby-runtime-jni=true",
+            ).forEach { marker ->
+                require(marker in provenance) { "Dolby libmpv provenance is missing $marker" }
+            }
+        } else {
+            require("ycore-demux-ffmpeg=n8.1" in provenance) {
+                "Stable libmpv provenance is missing ycore-demux-ffmpeg=n8.1"
+            }
+        }
         ZipFile(aarFile).use { archive ->
             require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
                 "libmpv AAR is missing arm64-v8a/libycore_demux.so; build and install the YCore native artifact"

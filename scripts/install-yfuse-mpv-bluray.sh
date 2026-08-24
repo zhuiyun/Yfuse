@@ -44,4 +44,9 @@ trap - EXIT
 
 printf 'installed: %s\n' "$DEST"
 printf 'sha256:   %s\n' "$actual_sha"
-printf 'capability: native Blu-ray ISO + BDMV VFS + HDMV menu + YCore demux; BD-J disabled\n'
+if grep -Fx 'dolby-vision-rpu=true' "$SOURCES" >/dev/null &&
+  grep -Fx 'dolby-vision-fel=true' "$SOURCES" >/dev/null; then
+  printf 'capability: native Blu-ray + YCore demux + Dolby Vision RPU/FEL gpu-next; BD-J disabled\n'
+else
+  printf 'capability: native Blu-ray ISO + BDMV VFS + HDMV menu + YCore demux; BD-J disabled\n'
+fi
