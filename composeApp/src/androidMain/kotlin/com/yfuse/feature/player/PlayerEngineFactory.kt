@@ -8,6 +8,7 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackDiscKind
+import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
@@ -35,6 +36,8 @@ internal fun createVideoEngine(
     core2TrialEnabled: Boolean = false,
     allowAudioPassthrough: Boolean = false,
     frameRateMatch: PlaybackFrameRateMatch = PlaybackFrameRateMatch.Disabled,
+    dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
+        PlaybackDolbyVisionRuntimeCapabilities.conservative(),
 ): VideoEngine {
     if (core2TrialEnabled) {
         AndroidCore2TrialFactory
@@ -92,6 +95,7 @@ internal fun createVideoEngine(
                     customUserAgent = customUserAgent,
                     scope = scope,
                     stopEncoding = stopEncoding,
+                    dolbyVisionRuntime = dolbyVisionRuntime,
                 )
             }
         }

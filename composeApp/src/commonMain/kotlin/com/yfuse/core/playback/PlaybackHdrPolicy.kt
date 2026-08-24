@@ -7,6 +7,13 @@ data class PlaybackSourceRequirements(
     val dolbyVision: Boolean,
     val needsDolbyDecoder: Boolean,
     val dynamicRange: String?,
+    /** Semantic Dolby profile (5/7/8/9), not Android CodecProfileLevel. */
+    val dolbyVisionProfile: Int? = null,
+    val dolbyRpuPresent: Boolean? = null,
+    val dolbyEnhancementLayerPresent: Boolean? = null,
+    val dolbyBaseLayerPresent: Boolean? = null,
+    /** Profile suffix/BL signal compatibility id: for example 1 in P8.1. */
+    val dolbyBaseLayerCompatibilityId: Int? = null,
     val videoCodec: PlaybackVideoCodec? = null,
     val width: Int? = null,
     val height: Int? = null,
@@ -52,6 +59,8 @@ data class PlaybackHdrRoute(
     val decoderMode: DecoderMode,
     val requiresServerTranscode: Boolean,
     val reason: String? = null,
+    val dolbyVisionPath: PlaybackDolbyVisionPath = PlaybackDolbyVisionPath.None,
+    val stripDolbyVisionToBaseLayer: Boolean = false,
 )
 
 /**
@@ -67,32 +76,26 @@ fun playbackHdrRoute(
     preferredEngine: PlayerEngine,
     preferredDecoderMode: DecoderMode,
     videoSupport: PlaybackVideoSupport = capabilities.videoSupport(source.videoRequirements),
+    dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
+        PlaybackDolbyVisionRuntimeCapabilities.conservative(),
+    requiresNativeDemuxer: Boolean = false,
 ): PlaybackHdrRoute {
     if (source.dolbyVision) {
-        return when {
-            source.needsDolbyDecoder && capabilities.supportsDolbyVisionOutput ->
-                PlaybackHdrRoute(
-                    engine = PlayerEngine.Exo,
-                    decoderMode = DecoderMode.Hardware,
-                    requiresServerTranscode = false,
-                )
-            source.needsDolbyDecoder ->
-                PlaybackHdrRoute(
-                    engine = PlayerEngine.Mpv,
-                    decoderMode = DecoderMode.Software,
-                    requiresServerTranscode = false,
-                    reason = "设备没有完整 Dolby Vision 输出链，使用客户端 Dolby 解码和色调映射",
-                )
-            capabilities.supportsDolbyVisionOutput ->
-                PlaybackHdrRoute(PlayerEngine.Exo, DecoderMode.Hardware, false)
-            else ->
-                PlaybackHdrRoute(
-                    engine = PlayerEngine.Mpv,
-                    decoderMode = DecoderMode.Hardware,
-                    requiresServerTranscode = false,
-                    reason = "Dolby Vision 使用客户端 HDR10 基础层和色调映射，不依赖服务器转码",
-                )
-        }
+        val dolbyRoute =
+            playbackDolbyVisionRoute(
+                source = source,
+                capabilities = capabilities,
+                runtime = dolbyVisionRuntime,
+                requiresNativeDemuxer = requiresNativeDemuxer,
+            )
+        return PlaybackHdrRoute(
+            engine = dolbyRoute.engine,
+            decoderMode = dolbyRoute.decoderMode,
+            requiresServerTranscode = false,
+            reason = dolbyRoute.reason,
+            dolbyVisionPath = dolbyRoute.path,
+            stripDolbyVisionToBaseLayer = dolbyRoute.stripDolbyVisionToBaseLayer,
+        )
     }
     if (
         videoSupport.isUnsupported &&

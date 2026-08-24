@@ -42,6 +42,8 @@ enum class PlaybackEngineSelection {
 enum class PlaybackRenderPath {
     PlatformDirect,
     NativeDirect,
+    GpuDolbyVision,
+    Hdr10BaseLayer,
     GpuToneMapped,
     ServerTranscode,
 }
@@ -103,26 +105,33 @@ data class PlaybackMediaProbe(
     /** Credential-free, URL-free key used by the bounded failure memory. */
     val capabilitySignature: String
         get() =
-            listOf(
-                normalizedContainer.ifEmpty { "UNKNOWN" },
-                source.videoRequirements.codec?.name ?: "UnknownCodec",
-                source.width?.resolutionBucket() ?: "UnknownWidth",
-                source.height?.resolutionBucket() ?: "UnknownHeight",
-                source.frameRate?.frameRateBucket() ?: "UnknownFps",
-                source.bitDepth?.toString() ?: "UnknownDepth",
-                source.hdrFormat?.name ?: "Sdr",
-                audioCodec?.name ?: "UnknownAudio",
-                audioChannelCount?.toString() ?: "UnknownChannels",
-                discKind.name,
-                when {
-                    discMainFeatureResolved -> "ResolvedDiscMainFeature"
-                    discSource || discKind != PlaybackDiscKind.None -> "RawDiscSource"
-                    else -> "LinearMedia"
-                },
-                if (styledSubtitles) "StyledSubtitles" else "PlainSubtitles",
-                if (drmProtected) "Drm" else "Clear",
-                if (usingServerTranscode) "Transcode" else "Original",
-            ).joinToString("|")
+            buildList {
+                add(normalizedContainer.ifEmpty { "UNKNOWN" })
+                add(source.videoRequirements.codec?.name ?: "UnknownCodec")
+                add(source.width?.resolutionBucket() ?: "UnknownWidth")
+                add(source.height?.resolutionBucket() ?: "UnknownHeight")
+                add(source.frameRate?.frameRateBucket() ?: "UnknownFps")
+                add(source.bitDepth?.toString() ?: "UnknownDepth")
+                add(source.hdrFormat?.name ?: "Sdr")
+                if (source.dolbyVision) {
+                    add(source.dolbyVisionProfile?.let { "DolbyP$it" } ?: "UnknownDolbyProfile")
+                    add(source.dolbyEnhancementLayerPresent?.let { "DolbyEL=$it" } ?: "UnknownDolbyEL")
+                    add(source.dolbyBaseLayerCompatibilityId?.let { "DolbyBL=$it" } ?: "UnknownDolbyBL")
+                }
+                add(audioCodec?.name ?: "UnknownAudio")
+                add(audioChannelCount?.toString() ?: "UnknownChannels")
+                add(discKind.name)
+                add(
+                    when {
+                        discMainFeatureResolved -> "ResolvedDiscMainFeature"
+                        discSource || discKind != PlaybackDiscKind.None -> "RawDiscSource"
+                        else -> "LinearMedia"
+                    },
+                )
+                add(if (styledSubtitles) "StyledSubtitles" else "PlainSubtitles")
+                add(if (drmProtected) "Drm" else "Clear")
+                add(if (usingServerTranscode) "Transcode" else "Original")
+            }.joinToString("|")
 }
 
 data class PlaybackPlan(
@@ -133,6 +142,7 @@ data class PlaybackPlan(
     /** Includes [primaryEngine] as the first entry. */
     val engineOrder: List<PlayerEngine>,
     val reason: String? = null,
+    val dolbyVisionPath: PlaybackDolbyVisionPath = PlaybackDolbyVisionPath.None,
 )
 
 /**
@@ -154,6 +164,8 @@ fun planPlayback(
     excludedEngines: Set<PlayerEngine> = emptySet(),
     engineCosts: Map<PlayerEngine, Int> = emptyMap(),
     videoSupport: PlaybackVideoSupport = capabilities.videoSupport(probe.source.videoRequirements),
+    dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
+        PlaybackDolbyVisionRuntimeCapabilities.conservative(),
 ): PlaybackPlan {
     val lockedEngine = engineSelection.lockedEngine
     val discDecision = planDiscPlayback(probe)
@@ -172,6 +184,9 @@ fun planPlayback(
             preferredEngine = preferredEngine,
             preferredDecoderMode = preferredDecoderMode,
             videoSupport = videoSupport,
+            dolbyVisionRuntime = dolbyVisionRuntime,
+            requiresNativeDemuxer =
+                discDecision.requiresNativeEngine || probe.requiresNativeDemuxer,
         )
     val discNeedsServer = discDecision.requiresServerTranscode
     val localDolbyVideo = probe.source.dolbyVision
@@ -206,8 +221,7 @@ fun planPlayback(
             (
                 probe.drmProtected ||
                     (
-                        probe.source.needsDolbyDecoder &&
-                            capabilities.supportsDolbyVisionOutput &&
+                        hdrRoute.dolbyVisionPath == PlaybackDolbyVisionPath.MediaCodecNative &&
                             !requiresServerTranscode
                     )
             )
@@ -280,6 +294,15 @@ fun planPlayback(
     val renderPath =
         when {
             requiresServerTranscode || probe.usingServerTranscode -> PlaybackRenderPath.ServerTranscode
+            primary == PlayerEngine.Mpv &&
+                hdrRoute.dolbyVisionPath == PlaybackDolbyVisionPath.MpvGpuNext ->
+                PlaybackRenderPath.GpuDolbyVision
+            primary == PlayerEngine.Mpv &&
+                hdrRoute.dolbyVisionPath == PlaybackDolbyVisionPath.Hdr10BaseLayer ->
+                PlaybackRenderPath.Hdr10BaseLayer
+            primary == PlayerEngine.Mpv &&
+                hdrRoute.dolbyVisionPath == PlaybackDolbyVisionPath.SdrToneMap ->
+                PlaybackRenderPath.GpuToneMapped
             primary == PlayerEngine.Exo -> PlaybackRenderPath.PlatformDirect
             hdrRoute.engine == PlayerEngine.Mpv && hdrRoute.reason != null ->
                 PlaybackRenderPath.GpuToneMapped
@@ -296,6 +319,7 @@ fun planPlayback(
             unsupportedVideoCanUseLocalSoftware ->
                 "${videoSupport.detail}，服务器无可用转码，使用 FFmpeg 软件解码"
             unsupportedVideoUsesServer -> "${videoSupport.detail}，使用服务器转码后平台硬解"
+            localDolbyVideo && hdrRoute.reason != null -> hdrRoute.reason
             discDecision.reason != null -> discDecision.reason
             powerSaverToneMapTranscode -> "当前显示设备不支持片源 HDR，省电模式使用服务器色调映射"
             hdrRoute.reason != null -> hdrRoute.reason
@@ -326,6 +350,7 @@ fun planPlayback(
         requiresServerTranscode = requiresServerTranscode,
         engineOrder = finalOrder,
         reason = reason,
+        dolbyVisionPath = hdrRoute.dolbyVisionPath,
     )
 }
 

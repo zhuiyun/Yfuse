@@ -10,13 +10,17 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackQuality
+import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
+import com.yfuse.core.playback.PlaybackDolbyVisionPath
+import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
 import com.yfuse.core.playback.bluRayDiscRoot
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
+import com.yfuse.core.playback.playbackDolbyVisionRoute
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -70,6 +74,13 @@ internal fun mpvDecoderDiagnostic(hwdecCurrent: String?): String =
         ?.let { "硬件解码 · $it" }
         ?: "FFmpeg 软件解码"
 
+internal fun mpvDolbyVisionVideoFilter(stripToBaseLayer: Boolean): String =
+    if (stripToBaseLayer) {
+        "format=dolbyvision=no:enhancement-layer=no"
+    } else {
+        ""
+    }
+
 /**
  * Native optical-disc URLs are explicit so Blu-ray always starts on the main feature instead of
  * relying on whichever playlist libbluray happens to expose first. mpv documents `bd://longest`
@@ -105,6 +116,8 @@ class MpvVideoEngine(
     private val customUserAgent: String,
     private val scope: CoroutineScope,
     private val stopEncoding: suspend (String) -> Boolean = { true },
+    private val dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
+        PlaybackDolbyVisionRuntimeCapabilities.conservative(),
 ) : VideoEngine {
     private val items = items.map { it.withPlaybackQuality(quality) }
     private val audioPassthroughMode =
@@ -1446,6 +1459,7 @@ class MpvVideoEngine(
         val replacing = endFileTracker.beforeLoad()
         val loaded =
             withMpvResult { instance ->
+                instance.configureDolbyVisionRouteForCurrentItem()
                 val preparedUrl = instance.prepareDiscUrl(url)
                 val transportUrl = networkProxy?.localUrl(preparedUrl) ?: preparedUrl
                 instance.command(arrayOf("loadfile", transportUrl))
@@ -1467,6 +1481,42 @@ class MpvVideoEngine(
             armFileLoadWatchdog(policy)
         }
         return loaded
+    }
+
+    /** Keeps MPV's actual frame pipeline aligned with the planner's Dolby decision. */
+    private fun MPVLib.configureDolbyVisionRouteForCurrentItem() {
+        val item = items.getOrNull(_state.value.currentIndex) ?: return
+        val probe = item.playbackMediaProbe(usingServerTranscode = _state.value.transcoding)
+        if (!probe.source.dolbyVision) {
+            setPropertyString("vf", "")
+            return
+        }
+        val capabilities =
+            runCatching { capabilityProvider?.current() }
+                .getOrNull()
+                ?: PlaybackDeviceCapabilities.conservative()
+        val route =
+            playbackDolbyVisionRoute(
+                source = probe.source,
+                capabilities = capabilities,
+                runtime = dolbyVisionRuntime,
+                requiresNativeDemuxer = probe.requiresNativeDemuxer,
+            )
+        val videoFilter = mpvDolbyVisionVideoFilter(route.stripDolbyVisionToBaseLayer)
+        setPropertyString("vf", videoFilter)
+        AppLog.info(
+            category = "player.dolby",
+            event = "mpv_dolby_route_applied",
+            message = "MPV applied the planned Dolby Vision frame route",
+            attributes =
+                mapOf(
+                    "path" to route.path.name,
+                    "profile" to (probe.source.dolbyVisionProfile?.toString() ?: "unknown"),
+                    "stripToBaseLayer" to route.stripDolbyVisionToBaseLayer.toString(),
+                    "gpuNextFull" to
+                        (route.path == PlaybackDolbyVisionPath.MpvGpuNext).toString(),
+                ),
+        )
     }
 
     /** Rebind once in place before a native-window failure is allowed to rotate the engine. */

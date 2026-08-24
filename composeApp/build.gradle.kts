@@ -115,7 +115,8 @@ val verifyCustomMpvArtifact by tasks.registering {
             pinnedLines
                 .filter { line ->
                     line.endsWith("  libmpv-release.aar") ||
-                        line.endsWith("  libmpv-dolby-release.aar")
+                        line.endsWith("  libmpv-dolby-release.aar") ||
+                        line.endsWith("  libmpv-stable-release.aar")
                 }.map { it.substringBefore(' ').lowercase() }
                 .toSet()
         require(accepted.isNotEmpty()) { "Pinned Yfuse libmpv checksums are missing" }

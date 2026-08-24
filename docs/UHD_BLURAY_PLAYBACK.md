@@ -182,11 +182,12 @@ native renderer without turning a valid resolved Blu-ray DirectStream into serve
 
 - **BD-J is not supported.** The custom native build explicitly uses `bdj_jar=disabled`; a separately
   maintainable Android Java/Xlet runtime is required before this can change.
-- **Dolby Vision P7 FEL composition is not claimed.** Source metadata recognition is not reconstruction.
+- **Dolby Vision P7 FEL is never claimed from source metadata alone.** The permanent native package
+  can compose it, but the output label still requires its independent JNI post-render evidence.
 - **Encrypted commercial-disc circumvention is not included.** AACS/BD+ handling depends on external,
   legally supplied components/keys; Yfuse does not ship bypass material.
-- **Native ISO/BDMV/HDMV is not release-validated yet.** A real custom AAR build and physical-device
-  validation remain gates.
+- **The native ISO/BDMV/HDMV AAR release gate now passes.** Physical-disc/device corpus validation is
+  still required before claiming every authored disc and phone combination as validated.
 
 ## Release gates
 

@@ -61,6 +61,7 @@ import com.yfuse.core.playback.PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS
 import com.yfuse.core.playback.PlaybackAdaptiveNetworkController
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
+import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackNetworkRecoveryController
@@ -181,6 +182,11 @@ internal fun PlayerRoot(
                 ?: PlaybackDeviceCapabilities.conservative()
         }
     val runtimeEnvironment = rememberPlaybackRuntimeEnvironment()
+    val dolbyVisionRuntime =
+        remember(context, runtimeEnvironment) {
+            runCatching { dolbyVisionRuntimeCapabilities(context, runtimeEnvironment) }
+                .getOrElse { PlaybackDolbyVisionRuntimeCapabilities.conservative() }
+        }
     val resolvedOptimization = resolvePlaybackOptimization(optimizationMode, runtimeEnvironment)
     val effectiveOptimizationMode = resolvedOptimization.mode
     val failureMemory =
@@ -206,6 +212,7 @@ internal fun PlayerRoot(
                 videoSupport =
                     capabilityProvider?.videoSupport(probe.source.videoRequirements)
                         ?: deviceCapabilities.videoSupport(probe.source.videoRequirements),
+                dolbyVisionRuntime = dolbyVisionRuntime,
             )
         }
     var kind by remember {
@@ -291,6 +298,7 @@ internal fun PlayerRoot(
                 engineSelection = sessionEngineSelection,
                 engineCosts = performanceMemory.engineCosts(probe.capabilitySignature),
                 videoSupport = videoSupport,
+                dolbyVisionRuntime = dolbyVisionRuntime,
             )
         return if (plan.requiresServerTranscode) {
             item.withForcedServerTranscode(
@@ -311,6 +319,7 @@ internal fun PlayerRoot(
             effectiveDecoderMode,
             effectiveOptimizationMode,
             sessionEngineSelection,
+            dolbyVisionRuntime,
         ) {
             activeItems.map(::preflightItem)
         }
@@ -362,6 +371,7 @@ internal fun PlayerRoot(
                 core2TrialEnabled = core2TrialEnabled && !core2DisabledForSession,
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateMatch = frameRateMatch,
+                dolbyVisionRuntime = dolbyVisionRuntime,
             )
         }
     val player = remember(engine) { engine.asYPlayer() }
@@ -495,6 +505,7 @@ internal fun PlayerRoot(
                     videoSupport =
                         capabilityProvider?.videoSupport(probe.source.videoRequirements)
                             ?: deviceCapabilities.videoSupport(probe.source.videoRequirements),
+                    dolbyVisionRuntime = dolbyVisionRuntime,
                 )
             }
         val targetEngine = plan?.primaryEngine ?: kind
@@ -673,6 +684,7 @@ internal fun PlayerRoot(
             videoSupport =
                 capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
                     ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
+            dolbyVisionRuntime = dolbyVisionRuntime,
         )
     LaunchedEffect(
         localCastItem?.id,
@@ -721,6 +733,8 @@ internal fun PlayerRoot(
                     "engine" to kind.name,
                     "decoderMode" to effectiveDecoderMode.name,
                     "renderPath" to activePlan.renderPath.name,
+                    "dolbyVisionPath" to activePlan.dolbyVisionPath.name,
+                    "fullFelGpuCapable" to dolbyVisionRuntime.fullFelGpuCapable.toString(),
                     "serverTranscode" to localState.transcoding.toString(),
                     "clientDolbyRequired" to
                         (localCastItem?.requiresLocalDolbyPipeline == true).toString(),
@@ -1634,6 +1648,7 @@ internal fun PlayerRoot(
                 videoSupport =
                     capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
                         ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
+                dolbyVisionRuntime = dolbyVisionRuntime,
             )
         val decoderChanged = selectionPlan.decoderMode != effectiveDecoderMode
         effectiveDecoderMode = selectionPlan.decoderMode
@@ -1915,6 +1930,7 @@ internal fun PlayerRoot(
                 videoSupport =
                     capabilityProvider?.videoSupport(activeProbe.source.videoRequirements)
                         ?: deviceCapabilities.videoSupport(activeProbe.source.videoRequirements),
+                dolbyVisionRuntime = dolbyVisionRuntime,
             )
         val backendFallbackEligible = failureKind.allowsBackendFallback
         val nextEngine =

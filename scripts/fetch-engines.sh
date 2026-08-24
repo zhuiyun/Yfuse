@@ -8,13 +8,13 @@ CHECKSUMS="$ROOT/scripts/engine-checksums.sha256"
 
 MPV_FILE="libmpv-release.aar"
 MDK_FILE="mdk-sdk-android.7z"
-MPV_RELEASE_TAG="native-mpv-fcf6745-yfuse3-arm64-20260823"
+MPV_RELEASE_TAG="native-mpv-b955aa2-yfuse-dolby1-arm64-20260824"
 MPV_URL="https://github.com/zhuiyun/Yfuse/releases/download/$MPV_RELEASE_TAG/$MPV_FILE"
 MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/$MDK_FILE"
 MPV_CUSTOM_SHA="$LIBS/libmpv-release.aar.sha256"
 MPV_CUSTOM_SOURCES="$LIBS/libmpv-release.sources.txt"
 MPV_PINNED_SOURCES="$ROOT/scripts/yfuse-mpv-sources.txt"
-MPV_VERIFIER="$ROOT/scripts/verify-yfuse-mpv-bluray-aar.sh"
+MPV_VERIFIER="$ROOT/scripts/verify-ycore-native.sh"
 
 die() {
   printf 'error: %s\n' "$*" >&2

@@ -79,14 +79,19 @@ Passing behavior:
 
 ## mpv Android HDR / Dolby boundary
 
-The libmpv optical-disc path is useful for libbluray, title/chapter navigation, HDMV overlays, PGS, and
-compatible HDR rendering. It is not used as evidence of native Dolby Vision metadata passthrough on
-Android.
+The permanent Yfuse native package contains mpv `gpu-next`, FFmpeg `dovi_split`, libplacebo
+enhancement-layer composition and JNI runtime evidence. It is a client-side Dolby processing path,
+not evidence of Android Dolby metadata passthrough.
 
 Rules:
 
-- Dolby-only sources are routed to the verified platform Dolby decoder path or server compatibility
-  transcode; they are not intentionally handed to mpv as ordinary HEVC;
+- P7 with an enhancement layer uses the verified mpv `gpu-next` path when the device performance
+  budget is sufficient;
+- constrained P7 devices set `format=dolbyvision=no:enhancement-layer=no`, which really discards RPU
+  and EL before rendering the HDR10 base layer;
+- P8.1 uses the platform MediaCodec Dolby route when the current display/decoder chain supports it;
+- a display without Dolby Vision uses the HDR10 base layer when available, otherwise client-side SDR
+  tone mapping; the server is not asked to decode Dolby media;
 - `video-out-params`/gamma labels can describe what mpv rendered but cannot by themselves authorize a
   Dolby Vision output badge;
 - Profile 7 EL presence is source evidence only;
@@ -126,7 +131,8 @@ These are not fixed by pretending the app supports them:
 - BD-J remains unsupported until a separately verified Android Java/Xlet runtime exists.
 - AACS/BD+ commercial-disc decryption is not bundled; legally supplied external components/keys are a
   separate integration boundary.
-- Dolby Vision Profile 7 FEL composition remains evidence-gated.
+- Dolby Vision Profile 7 FEL output labels remain evidence-gated even though the native package has
+  a verified composition path; only the JNI post-render signal may authorize the label.
 - Native ISO/BDMV support is release-supported only when the exact custom libmpv/libbluray AAR builds,
   passes ABI/16-KiB verification, and passes the physical-disc/device corpus.
 

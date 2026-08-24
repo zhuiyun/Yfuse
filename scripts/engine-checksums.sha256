@@ -1,8 +1,9 @@
 # SHA-256 values for the exact artifacts downloaded by fetch-engines.sh.
 # Yfuse playback builds require the pinned custom libmpv artifact; a stock fallback is intentionally
 # not accepted because it would silently remove Blu-ray/YCore native capabilities.
-9900fe61971e39bf4bc69f306437ffd3de1587c63821570143e142a858b6f9a9  libmpv-release.aar
-# Locally installed output of the pinned Dolby RPU/FEL workflow at 8db1f62e. The fetch script keeps
-# using the stable release above; the second name lets Gradle authenticate the separately gated AAR.
+# Permanent default release: pinned Dolby RPU/FEL + gpu-next + native Blu-ray/YCore artifact.
+074121c3fbbfd32fad74b14400c0a4c2678235f5dc818f9e4a79699ee77f3ecb  libmpv-release.aar
 074121c3fbbfd32fad74b14400c0a4c2678235f5dc818f9e4a79699ee77f3ecb  libmpv-dolby-release.aar
+# Previous Blu-ray/YCore-only stable artifact remains an explicitly authenticated fallback.
+9900fe61971e39bf4bc69f306437ffd3de1587c63821570143e142a858b6f9a9  libmpv-stable-release.aar
 87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba  mdk-sdk-android.7z
