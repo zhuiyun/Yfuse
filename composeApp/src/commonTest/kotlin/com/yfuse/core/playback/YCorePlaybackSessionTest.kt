@@ -42,18 +42,18 @@ class YCorePlaybackSessionTest {
     }
 
     @Test
-    fun startup_without_a_first_frame_is_reported_once() {
+    fun remote_startup_without_a_first_frame_is_reported_once_after_transport_budget() {
         val memory = PlaybackFailureMemory(failureThreshold = 1)
         val session = session(memory)
         val waiting =
-            observation(now = 15_000L, droppedFrames = 0).copy(
+            observation(now = 30_000L, droppedFrames = 0).copy(
                 positionMs = 0L,
                 videoReady = false,
                 videoExpected = true,
             )
 
         val first = session.observe(waiting)
-        val second = session.observe(waiting.copy(nowEpochMs = 16_000L))
+        val second = session.observe(waiting.copy(nowEpochMs = 31_000L))
 
         assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, first.runtimeFault?.kind)
         assertEquals(null, second.runtimeFault)
@@ -89,6 +89,16 @@ class YCorePlaybackSessionTest {
         assertEquals(60_000L, playbackStartupTimeoutMs(probe))
     }
 
+    @Test
+    fun remote_direct_media_gets_time_for_transport_recovery() {
+        assertEquals(30_000L, playbackStartupTimeoutMs(probe()))
+    }
+
+    @Test
+    fun local_media_keeps_the_short_startup_budget() {
+        assertEquals(15_000L, playbackStartupTimeoutMs(probe().copy(localSource = true)))
+    }
+
     private fun session(memory: PlaybackFailureMemory): YCorePlaybackSession =
         YCorePlaybackSession(
             engine = PlayerEngine.Exo,
@@ -115,6 +125,7 @@ class YCorePlaybackSessionTest {
         nowEpochMs = now,
         positionMs = now,
         playbackRequested = true,
+        playing = true,
         buffering = false,
         videoReady = true,
         errorPresent = false,
