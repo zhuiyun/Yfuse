@@ -23,8 +23,8 @@ class PlaybackRuntimeFaultDetectorTest {
     fun a_missing_first_frame_is_reported_after_the_startup_budget() {
         val detector = detector()
 
-        assertNull(detector.observe(observation(now = 14_000L, positionMs = 0L)))
-        val fault = detector.observe(observation(now = 15_000L, positionMs = 0L))
+        assertNull(detector.observe(observation(now = 14_000L, positionMs = 0L, playing = false)))
+        val fault = detector.observe(observation(now = 15_000L, positionMs = 0L, playing = false))
 
         assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, assertNotNull(fault).kind)
         assertEquals(PlaybackFailureKind.Decoder, fault.kind.failureKind)
@@ -34,7 +34,7 @@ class PlaybackRuntimeFaultDetectorTest {
     fun a_first_frame_that_arrives_cancels_the_startup_clock() {
         val detector = detector()
 
-        detector.observe(observation(now = 14_000L, positionMs = 0L))
+        detector.observe(observation(now = 14_000L, positionMs = 0L, playing = false))
 
         assertNull(
             detector.observe(observation(now = 20_000L, positionMs = 500L, videoReady = true)),
@@ -111,6 +111,41 @@ class PlaybackRuntimeFaultDetectorTest {
         val fault = detector.observe(observation(now = 13_500L, positionMs = 1_000L, videoReady = true))
 
         assertEquals(PlaybackRuntimeFaultKind.PositionStalled, assertNotNull(fault).kind)
+    }
+
+    @Test
+    fun audio_focus_pause_with_stale_playback_intent_never_switches_engines() {
+        val detector = detector()
+
+        detector.observe(observation(now = 1_000L, positionMs = 1_000L, videoReady = true))
+        assertNull(
+            detector.observe(
+                observation(
+                    now = 30_000L,
+                    positionMs = 1_000L,
+                    playbackRequested = true,
+                    playing = false,
+                    videoReady = true,
+                ),
+            ),
+            "focus loss can leave user intent true while the backend is already paused",
+        )
+        assertNull(
+            detector.observe(
+                observation(
+                    now = 60_000L,
+                    positionMs = 1_000L,
+                    playbackRequested = true,
+                    playing = false,
+                    videoReady = true,
+                ),
+            ),
+            "a long intentional pause is not PositionStalled",
+        )
+        assertNull(
+            detector.observe(observation(now = 61_000L, positionMs = 1_000L, videoReady = true)),
+            "resuming starts a fresh stall window",
+        )
     }
 
     @Test
@@ -273,6 +308,7 @@ class PlaybackRuntimeFaultDetectorTest {
         positionMs: Long,
         playbackRequested: Boolean = true,
         buffering: Boolean = false,
+        playing: Boolean = !buffering,
         videoReady: Boolean = false,
         videoExpected: Boolean = true,
         videoOutputVerifiable: Boolean = true,
@@ -284,6 +320,7 @@ class PlaybackRuntimeFaultDetectorTest {
         positionMs = positionMs,
         playbackRequested = playbackRequested,
         buffering = buffering,
+        playing = playing,
         videoReady = videoReady,
         videoExpected = videoExpected,
         videoOutputVerifiable = videoOutputVerifiable,
