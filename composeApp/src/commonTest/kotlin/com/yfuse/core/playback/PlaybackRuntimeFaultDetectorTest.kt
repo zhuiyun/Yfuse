@@ -114,6 +114,68 @@ class PlaybackRuntimeFaultDetectorTest {
     }
 
     @Test
+    fun requested_but_paused_playback_never_becomes_a_position_stall() {
+        val detector = detector()
+
+        detector.observe(observation(now = 1_000L, positionMs = 1_000L, videoReady = true))
+        assertNull(
+            detector.observe(
+                observation(
+                    now = 20_000L,
+                    positionMs = 1_000L,
+                    playing = false,
+                    videoReady = true,
+                ),
+            ),
+            "audio focus may pause actual output while a backend still exposes requested intent",
+        )
+        assertNull(
+            detector.observe(
+                observation(
+                    now = 60_000L,
+                    positionMs = 1_000L,
+                    playing = false,
+                    videoReady = true,
+                ),
+            ),
+        )
+        assertNull(
+            detector.observe(
+                observation(
+                    now = 60_500L,
+                    positionMs = 1_000L,
+                    playing = true,
+                    videoReady = true,
+                ),
+            ),
+            "resuming starts a fresh stall budget",
+        )
+        assertNull(
+            detector.observe(
+                observation(
+                    now = 72_000L,
+                    positionMs = 1_000L,
+                    playing = true,
+                    videoReady = true,
+                ),
+            ),
+        )
+        assertEquals(
+            PlaybackRuntimeFaultKind.PositionStalled,
+            assertNotNull(
+                detector.observe(
+                    observation(
+                        now = 73_000L,
+                        positionMs = 1_000L,
+                        playing = true,
+                        videoReady = true,
+                    ),
+                ),
+            ).kind,
+        )
+    }
+
+    @Test
     fun a_backward_seek_restarts_the_stall_clock() {
         val detector = detector()
 
@@ -272,6 +334,7 @@ class PlaybackRuntimeFaultDetectorTest {
         now: Long,
         positionMs: Long,
         playbackRequested: Boolean = true,
+        playing: Boolean = true,
         buffering: Boolean = false,
         videoReady: Boolean = false,
         videoExpected: Boolean = true,
@@ -283,6 +346,7 @@ class PlaybackRuntimeFaultDetectorTest {
         nowEpochMs = now,
         positionMs = positionMs,
         playbackRequested = playbackRequested,
+        playing = playing,
         buffering = buffering,
         videoReady = videoReady,
         videoExpected = videoExpected,
