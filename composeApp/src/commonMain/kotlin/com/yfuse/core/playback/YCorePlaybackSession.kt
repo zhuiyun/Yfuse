@@ -7,6 +7,8 @@ data class YCoreRuntimeObservation(
     val positionMs: Long,
     val playbackRequested: Boolean,
     val buffering: Boolean,
+    /** Actual backend activity; user intent may remain true during focus/lifecycle pauses. */
+    val playing: Boolean = playbackRequested && !buffering,
     val videoReady: Boolean,
     val videoExpected: Boolean = true,
     val videoOutputVerifiable: Boolean = true,
@@ -88,7 +90,7 @@ class YCorePlaybackSession(
                 nowEpochMs = observation.nowEpochMs,
                 positionMs = observation.positionMs,
                 activelyRendering =
-                    observation.playbackRequested &&
+                    observation.playing &&
                         !observation.buffering &&
                         !observation.errorPresent &&
                         !observation.ended,
@@ -114,6 +116,7 @@ class YCorePlaybackSession(
 
         val confirmCapability =
             !capabilityConfirmed &&
+                observation.playing &&
                 runtimeFault == null &&
                 health.evaluationReady &&
                 !health.enginePenaltyRecommended &&
@@ -139,11 +142,12 @@ class YCorePlaybackSession(
     }
 }
 
-/** Large MOV/optical sources receive enough probe time while still having a finite escape hatch. */
+/** Large/remote sources receive enough probe time while still having a finite escape hatch. */
 internal fun playbackStartupTimeoutMs(probe: PlaybackMediaProbe): Long =
     when {
         probe.discSource || probe.discKind != PlaybackDiscKind.None -> 180_000L
         probe.normalizedContainer == "MOV" ||
             probe.source.videoRequirements.codec == PlaybackVideoCodec.ProRes -> 60_000L
+        !probe.localSource -> 30_000L
         else -> 15_000L
     }
