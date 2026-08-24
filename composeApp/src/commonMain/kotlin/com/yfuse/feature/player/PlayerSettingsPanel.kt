@@ -73,7 +73,6 @@ internal fun SettingsPanel(
     state: PlaybackState,
     containerLabel: String?,
     engineOptions: List<Pair<String, Boolean>>,
-    qualityOptions: List<Pair<String, Boolean>>,
     transcodeLabel: String?,
     transcodeActive: Boolean,
     castDevices: List<Pair<String, String>>,
@@ -98,7 +97,6 @@ internal fun SettingsPanel(
     sleepTimer: SleepTimerState,
     sleepTimerActions: SleepTimerActions,
     onSelectEngine: (Int) -> Unit,
-    onSelectQuality: (Int) -> Unit,
     onTranscode: () -> Unit,
     onResetAdaptiveLearning: () -> Unit,
     onNextDiscTitle: () -> Unit,
@@ -506,7 +504,7 @@ internal fun SettingsPanel(
                             PopupMenuRow(
                                 icon = AppIcons.Grid,
                                 title = "播放设置",
-                                subtitle = "画质、定时与控制",
+                                subtitle = "定时与播放控制",
                                 onClick = { advancedPage = AdvancedPage.Playback },
                             )
                         }
@@ -634,12 +632,6 @@ internal fun SettingsPanel(
                                     sleepTimer.selected == option,
                                     onClick = { sleepTimerActions.onSelect(option) },
                                 )
-                            }
-                            if (qualityOptions.isNotEmpty()) {
-                                GroupLabel("播放画质")
-                                qualityOptions.forEachIndexed { index, (label, selected) ->
-                                    OptionRow(label, selected, onClick = { onSelectQuality(index) })
-                                }
                             }
                         }
 

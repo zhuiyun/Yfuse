@@ -52,6 +52,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackdropState
+import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
@@ -502,17 +503,21 @@ private fun runtimeLabel(minutes: Int): String {
 }
 
 /**
- * Body of the primary key, derived from the same artwork accent the rest of the page is tinted
- * by. A fixed brand gradient made the one saturated element on the page the one element that
- * ignored the poster it sits under.
+ * Body of the primary key, anchored to the product blue with a restrained amount of artwork
+ * influence. Letting the poster own the entire fill made yellow/olive swatches look unrelated to
+ * the cool glass page around them; keeping the artwork contribution small preserves continuity
+ * without allowing one image to redesign the primary action.
  *
  * A poster's vibrant swatch lands anywhere on the lightness scale and this key carries white
- * copy, so the hue is kept while lightness is pulled into a band white stays legible on.
+ * copy, so the blended result is kept inside a luminance band where that copy stays legible.
  */
 internal fun actionKeyBrush(accent: Color): Brush {
-    val body = accent.forWhiteInk()
-    return cssLinearGradient(135f, 0f to lerp(body, Color.White, 0.22f), 1f to body)
+    val body = primaryActionColor(accent)
+    return cssLinearGradient(135f, 0f to lerp(body, Color.White, 0.14f), 1f to body)
 }
+
+internal fun primaryActionColor(accent: Color): Color =
+    lerp(Brand.Primary, accent.copy(alpha = 1f), PRIMARY_ACTION_ARTWORK_INFLUENCE).forWhiteInk()
 
 private fun Color.forWhiteInk(): Color {
     val luminance = luminance()
@@ -523,6 +528,7 @@ private fun Color.forWhiteInk(): Color {
 }
 
 private const val MAX_ACTION_KEY_LUMINANCE = 0.22f
+private const val PRIMARY_ACTION_ARTWORK_INFLUENCE = 0.12f
 
 /**
  * The title block's inks.

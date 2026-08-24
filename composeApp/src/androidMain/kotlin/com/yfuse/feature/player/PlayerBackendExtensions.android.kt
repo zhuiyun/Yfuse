@@ -1,6 +1,5 @@
 package com.yfuse.feature.player
 
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core2.api.YPlayer
 
@@ -16,8 +15,6 @@ internal class PlayerBackendExtensions(
 ) {
     val supportsSecondarySubtitleTrack: Boolean
         get() = engine.supportsSecondarySubtitleTrack
-
-    fun setQualityCeiling(quality: PlaybackQuality): Boolean = engine.setQualityCeiling(quality)
 
     fun setAudioDelayMs(delayMs: Long): Boolean = engine.setAudioDelayMs(delayMs)
 

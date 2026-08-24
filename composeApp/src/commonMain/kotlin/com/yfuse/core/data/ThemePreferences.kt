@@ -8,7 +8,6 @@ import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.StartupTab
@@ -25,7 +24,6 @@ class ThemePreferences(
         const val KEY_ENGINE = "player.engine"
         const val KEY_DECODER = "player.decoder"
         const val KEY_AUTO_NEXT = "player.autoNext"
-        const val KEY_QUALITY = "player.quality"
         const val KEY_REDUCE_TRANSPARENCY = "accessibility.reduceTransparency"
         const val KEY_LARGE_TEXT = "accessibility.largeText"
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
@@ -57,9 +55,6 @@ class ThemePreferences(
 
     private val _autoNext = MutableStateFlow(settings.getBoolean(KEY_AUTO_NEXT, true))
     val autoNext: StateFlow<Boolean> = _autoNext.asStateFlow()
-
-    private val _quality = MutableStateFlow(load(KEY_QUALITY, PlaybackQuality.entries, PlaybackQuality.Auto))
-    val quality: StateFlow<PlaybackQuality> = _quality.asStateFlow()
 
     private val _reduceTransparency = MutableStateFlow(settings.getBoolean(KEY_REDUCE_TRANSPARENCY, false))
     val reduceTransparency: StateFlow<Boolean> = _reduceTransparency.asStateFlow()
@@ -110,11 +105,6 @@ class ThemePreferences(
     fun setAutoNext(enabled: Boolean) {
         _autoNext.value = enabled
         settings.putBoolean(KEY_AUTO_NEXT, enabled)
-    }
-
-    fun setQuality(quality: PlaybackQuality) {
-        _quality.value = quality
-        settings.putString(KEY_QUALITY, quality.name)
     }
 
     fun setMode(mode: ThemeMode) {

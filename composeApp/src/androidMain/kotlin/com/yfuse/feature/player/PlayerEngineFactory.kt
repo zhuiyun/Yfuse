@@ -5,7 +5,6 @@ import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
@@ -28,7 +27,6 @@ internal fun createVideoEngine(
     decoderMode: DecoderMode,
     optimizationMode: PlaybackOptimizationMode,
     autoNext: Boolean,
-    quality: PlaybackQuality,
     customUserAgent: String,
     videoCacheBytes: Long,
     scope: CoroutineScope,
@@ -49,7 +47,6 @@ internal fun createVideoEngine(
                 startPlaybackRequested = startPlaybackRequested,
                 startSpeed = startSpeed,
                 autoNext = autoNext,
-                quality = quality,
                 customUserAgent = customUserAgent,
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateMatch = frameRateMatch,
@@ -66,7 +63,6 @@ internal fun createVideoEngine(
                 startSpeed = startSpeed,
                 decoderMode = decoderMode,
                 autoNext = autoNext,
-                quality = quality,
                 customUserAgent = customUserAgent,
                 scope = scope,
                 stopEncoding = stopEncoding,
@@ -91,7 +87,6 @@ internal fun createVideoEngine(
                     startSpeed = startSpeed,
                     decoderMode = decoderMode,
                     autoNext = autoNext,
-                    quality = quality,
                     customUserAgent = customUserAgent,
                     scope = scope,
                     stopEncoding = stopEncoding,
@@ -112,7 +107,6 @@ internal fun createVideoEngine(
                 decoderMode = decoderMode,
                 optimizationMode = optimizationMode,
                 autoNext = autoNext,
-                quality = quality,
                 customUserAgent = customUserAgent,
                 videoCacheBytes = videoCacheBytes,
                 stopEncoding = stopEncoding,

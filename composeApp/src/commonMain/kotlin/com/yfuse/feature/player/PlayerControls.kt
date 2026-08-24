@@ -142,9 +142,6 @@ internal fun PlayerControls(
     // Engine picker rows: label to selected.
     engineOptions: List<Pair<String, Boolean>> = emptyList(),
     onSelectEngine: (Int) -> Unit = {},
-    // Persisted quality intent; the diagnostics separately reports the actual method.
-    qualityOptions: List<Pair<String, Boolean>> = emptyList(),
-    onSelectQuality: (Int) -> Unit = {},
     // Null when the active engine has no transcode fallback.
     transcodeLabel: String? = null,
     transcodeActive: Boolean = false,
@@ -806,7 +803,6 @@ internal fun PlayerControls(
                     state = state,
                     containerLabel = containerLabel,
                     engineOptions = engineOptions,
-                    qualityOptions = qualityOptions,
                     transcodeLabel = transcodeLabel,
                     transcodeActive = transcodeActive,
                     castDevices = castDevices,
@@ -845,10 +841,6 @@ internal fun PlayerControls(
                     sleepTimerActions = sleepTimerActions,
                     onSelectEngine = {
                         onSelectEngine(it)
-                        settingsPanelKind = null
-                    },
-                    onSelectQuality = {
-                        onSelectQuality(it)
                         settingsPanelKind = null
                     },
                     onTranscode = {

@@ -9,7 +9,6 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackDiscKind
@@ -112,14 +111,13 @@ class MpvVideoEngine(
     private val startSpeed: Float,
     private val decoderMode: DecoderMode,
     private val autoNext: Boolean,
-    private val quality: PlaybackQuality,
     private val customUserAgent: String,
     private val scope: CoroutineScope,
     private val stopEncoding: suspend (String) -> Boolean = { true },
     private val dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
 ) : VideoEngine {
-    private val items = items.map { it.withPlaybackQuality(quality) }
+    private val items = items
     private val audioPassthroughMode =
         GlobalContext
             .get()
@@ -134,7 +132,7 @@ class MpvVideoEngine(
      *  rest of the season. */
     private val transcodedIndices =
         items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
-            index.takeIf { item.startsWithServerTranscode(quality) }
+            index.takeIf { item.startsWithServerTranscode() }
         }
     private val progressiveIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
@@ -181,7 +179,6 @@ class MpvVideoEngine(
                         engine = "libmpv",
                         decoder = decoderMode.label,
                         item = items.getOrNull(startIndex),
-                        quality = quality,
                     ),
             ),
         )
@@ -980,7 +977,6 @@ class MpvVideoEngine(
                         engine = "libmpv",
                         decoder = it.diagnostics.decoder,
                         item = nextItem,
-                        quality = quality,
                         transcoding = transcoding,
                     ),
             )

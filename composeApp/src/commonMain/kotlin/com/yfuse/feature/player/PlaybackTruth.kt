@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackMethod
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.DolbyVisionP7ValidationEvidence
 import com.yfuse.core.playback.DolbyVisionP7ValidationResult
 import com.yfuse.core.playback.PlaybackMediaProbe
@@ -11,12 +10,10 @@ import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core.playback.evaluateDolbyVisionP7Output
 
 /** True when this request must begin on the server output rather than the original file. */
-internal fun PlayerMediaItem.startsWithServerTranscode(quality: PlaybackQuality): Boolean =
+internal fun PlayerMediaItem.startsWithServerTranscode(): Boolean =
     transcodeUrl.isNotBlank() &&
-        (
-            quality.requiresServerTranscode ||
-                (playMethod == PlaybackMethod.Transcode && !requiresLocalDolbyPipeline)
-        )
+        playMethod == PlaybackMethod.Transcode &&
+        !requiresLocalDolbyPipeline
 
 /** Dolby decode/output belongs to the app; negotiated server transcode is only an explicit choice. */
 internal val PlayerMediaVersion.requiresLocalDolbyPipeline: Boolean
@@ -54,20 +51,18 @@ internal fun PlayerMediaVersion.dolbyVisionP7Output(diagnostics: PlaybackDiagnos
  * only a negotiation recommendation; showing it as "服务器转码" would contradict the URL that the
  * engine actually opens.
  */
-internal fun PlayerMediaItem.effectivePlaybackMethod(quality: PlaybackQuality): PlaybackMethod =
+internal fun PlayerMediaItem.effectivePlaybackMethod(): PlaybackMethod =
     when {
-        startsWithServerTranscode(quality) -> PlaybackMethod.Transcode
+        startsWithServerTranscode() -> PlaybackMethod.Transcode
         requiresLocalDolbyPipeline && playMethod == PlaybackMethod.Transcode -> PlaybackMethod.DirectPlay
         else -> playMethod
     }
 
 /** Human-readable cause paired with the actual method, never inferred from a badge. */
-internal fun PlayerMediaItem.initialFallbackReason(quality: PlaybackQuality): String? =
+internal fun PlayerMediaItem.initialFallbackReason(): String? =
     when {
         url.isYfuseNativeRemoteBluRayUrl() -> "远程 Blu-ray 原盘使用客户端随机块读取"
         forcedTranscodeReason != null && transcodeUrl.isNotBlank() -> forcedTranscodeReason
-        quality.requiresServerTranscode && transcodeUrl.isNotBlank() -> "用户选择 ${quality.label}"
-        quality.requiresServerTranscode -> "服务器未提供转码地址，已保留原始播放方式"
         requiresLocalDolbyPipeline && playMethod == PlaybackMethod.Transcode ->
             "服务器建议转码，已保留杜比原始流并由客户端本地解码"
         playMethod == PlaybackMethod.DirectStream -> "服务器协商为直串流"
@@ -203,21 +198,19 @@ internal fun initialPlaybackDiagnostics(
     engine: String,
     decoder: String,
     item: PlayerMediaItem?,
-    quality: PlaybackQuality,
-    transcoding: Boolean = item?.startsWithServerTranscode(quality) == true,
+    transcoding: Boolean = item?.startsWithServerTranscode() == true,
 ): PlaybackDiagnostics =
     PlaybackDiagnostics(
         engine = engine,
         decoder = decoder,
         playMethod =
-            item?.effectivePlaybackMethod(quality)?.label
+            item?.effectivePlaybackMethod()?.label
                 ?: PlaybackMethod.DirectPlay.label,
-        requestedQuality = quality.label,
         videoCodec = item?.activeVersion?.sourceVideoCodec?.uppercase() ?: "未知",
         videoWidth = item?.activeVersion?.sourceWidth?.takeUnless { transcoding } ?: 0,
         dynamicRange = item?.sourceDynamicRange(transcoding).orEmpty(),
         audioFormat = item?.sourceAudioFormat(transcoding).orEmpty(),
-        fallbackReason = item?.initialFallbackReason(quality),
+        fallbackReason = item?.initialFallbackReason(),
         bitrateBitsPerSecond =
             item
                 ?.activeVersion

@@ -1,6 +1,5 @@
 package com.yfuse.core.network
 
-import com.yfuse.core.model.PlaybackQuality
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -108,48 +107,6 @@ class EmbyStreamTest {
     }
 
     @Test
-    fun selected_quality_rewrites_transcode_limits() {
-        val original = EmbyStream.transcode("http://emby", "movie", "token")
-
-        val fullHd = EmbyStream.withQuality(original, PlaybackQuality.FullHd)
-
-        assertTrue("MaxWidth=1920" in fullHd)
-        assertTrue("VideoBitrate=8000000" in fullHd)
-        assertTrue("api_key=token" in fullHd)
-        assertTrue("MediaSourceId=movie" in fullHd)
-        assertTrue("TranscodingProtocol=hls" in fullHd)
-        assertTrue("Container=ts" in fullHd)
-        assertTrue("MaxAudioChannels=2" in fullHd)
-        assertTrue("TranscodingMaxAudioChannels=2" in fullHd)
-    }
-
-    @Test
-    fun automatic_quality_keeps_original_transcode_url() {
-        val original = EmbyStream.transcode("http://emby", "movie", "token")
-
-        assertEquals(original, EmbyStream.withQuality(original, PlaybackQuality.Auto))
-        assertEquals(original, EmbyStream.withQuality(original, PlaybackQuality.Original))
-    }
-
-    @Test
-    fun selected_quality_adds_limits_to_a_server_negotiated_url() {
-        val negotiated =
-            "https://emby/Videos/movie/master.m3u8?api_key=token&PlaySessionId=session"
-
-        val capped = EmbyStream.withQuality(negotiated, PlaybackQuality.Hd)
-
-        assertTrue("MaxWidth=1280" in capped, capped)
-        assertTrue("VideoBitrate=4000000" in capped, capped)
-        assertTrue("api_key=token" in capped, capped)
-        assertTrue("PlaySessionId=session" in capped, capped)
-    }
-
-    @Test
-    fun selected_quality_does_not_materialize_a_missing_transcode_url() {
-        assertEquals("", EmbyStream.withQuality("", PlaybackQuality.FullHd))
-    }
-
-    @Test
     fun progressive_fallback_requests_mp4_transcoding() {
         val url = EmbyStream.progressiveTranscode("http://emby", "movie", "token")
 
@@ -251,13 +208,4 @@ class EmbyStreamTest {
         assertTrue("MaxWidth=3840" in urls.progressiveTranscode, urls.progressiveTranscode)
     }
 
-    @Test
-    fun quality_selection_still_rewrites_a_session_bearing_url() {
-        val urls = EmbyStream.streamUrls("http://emby", "movie", "token", sourceWidth = 3840)
-
-        val capped = EmbyStream.withQuality(urls.transcode, PlaybackQuality.FullHd)
-
-        assertTrue("MaxWidth=1920" in capped, capped)
-        assertTrue("PlaySessionId=${urls.playSessionId}" in capped, capped)
-    }
 }

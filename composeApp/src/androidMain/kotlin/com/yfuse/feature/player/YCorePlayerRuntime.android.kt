@@ -12,7 +12,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.playback.PlaybackAdaptiveNetworkController
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackMediaProbe
 import com.yfuse.core.playback.PlaybackMediaProbeService
@@ -30,10 +29,6 @@ import com.yfuse.core2.api.YPlayer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
-
-/** Explicit return type avoids Compose KMP lint inferring the constructor call as Unit. */
-internal fun createPlaybackAdaptiveNetworkController(): PlaybackAdaptiveNetworkController =
-    PlaybackAdaptiveNetworkController()
 
 /** Compose lifecycle adapter; all playback decisions remain in common YCore classes. */
 @Composable

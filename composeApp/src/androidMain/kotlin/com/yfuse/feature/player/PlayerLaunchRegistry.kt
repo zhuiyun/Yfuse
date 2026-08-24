@@ -6,7 +6,6 @@ import android.os.Looper
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import java.util.UUID
 
@@ -24,7 +23,6 @@ internal data class PlayerLaunchRequest(
     val engine: PlayerEngine,
     val decoder: DecoderMode,
     val autoNext: Boolean,
-    val quality: PlaybackQuality,
 ) {
     companion object {
         const val MAX_QUEUE_ITEMS = 10_000
@@ -36,7 +34,6 @@ internal data class PlayerLaunchRequest(
             engine: PlayerEngine,
             decoder: DecoderMode,
             autoNext: Boolean,
-            quality: PlaybackQuality,
         ): PlayerLaunchRequest {
             require(items.isNotEmpty()) { "A player launch requires at least one item" }
             require(items.size <= MAX_QUEUE_ITEMS) { "Player queue exceeds the in-process limit" }
@@ -48,7 +45,6 @@ internal data class PlayerLaunchRequest(
                 engine = engine,
                 decoder = decoder,
                 autoNext = autoNext,
-                quality = quality,
             )
         }
     }

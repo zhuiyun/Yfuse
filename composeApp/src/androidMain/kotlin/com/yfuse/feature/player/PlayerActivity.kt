@@ -48,7 +48,6 @@ import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
@@ -95,7 +94,6 @@ class PlayerActivity : ComponentActivity() {
             engine: PlayerEngine,
             decoder: DecoderMode,
             autoNext: Boolean,
-            quality: PlaybackQuality,
         ): Intent {
             val request =
                 PlayerLaunchRequest.create(
@@ -105,7 +103,6 @@ class PlayerActivity : ComponentActivity() {
                     engine = engine,
                     decoder = decoder,
                     autoNext = autoNext,
-                    quality = quality,
                 )
             val payload =
                 PlayerLaunchIntentPayload.create(
@@ -323,7 +320,6 @@ class PlayerActivity : ComponentActivity() {
         val initialEngine = launchRequest.engine
         val decoderMode = launchRequest.decoder
         val autoNext = launchRequest.autoNext
-        val quality = launchRequest.quality
         val retainedResume = launchViewModel.resume
         val initialStartIndex = retainedResume?.first ?: launchRequest.startIndex
         val initialStartPositionMs = retainedResume?.second ?: launchRequest.startPositionMs
@@ -438,14 +434,7 @@ class PlayerActivity : ComponentActivity() {
                     initialEngine = initialEngine,
                     decoderMode = decoderMode,
                     autoNext = autoNext,
-                    initialQuality = quality,
-                    autoQualityDowngrade = playbackPreferences.autoQualityDowngrade.value,
-                    qualityLocked = playbackPreferences.qualityLocked.value,
                     playbackPreferences = playbackPreferences,
-                    onQualityChanged = { selected, serverId ->
-                        preferences?.setQuality(selected)
-                        serverId?.let { playbackPreferences.rememberQuality(it, selected) }
-                    },
                     inPictureInPicture = inPictureInPicture,
                     playbackSinkFor = playbackSinkFor,
                     danmakuPreferences = danmakuPreferences,

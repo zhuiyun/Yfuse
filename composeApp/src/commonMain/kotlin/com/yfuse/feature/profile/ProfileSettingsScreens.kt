@@ -11,7 +11,6 @@ import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
@@ -146,10 +145,6 @@ internal fun PlaybackSettingsScreen(
     optimizationMode: PlaybackOptimizationMode,
     autoNext: Boolean,
     smartCrossServerSource: Boolean,
-    wifiQualityCap: PlaybackQuality,
-    cellularQualityCap: PlaybackQuality,
-    autoQualityDowngrade: Boolean,
-    qualityLocked: Boolean,
     anonymousQoeSharing: Boolean,
     resumePrompt: Boolean,
     videoCacheSize: VideoCacheSize,
@@ -158,10 +153,6 @@ internal fun PlaybackSettingsScreen(
     onOpenAdvanced: () -> Unit,
     onAutoNext: (Boolean) -> Unit,
     onSmartCrossServerSource: (Boolean) -> Unit,
-    onWifiQuality: () -> Unit,
-    onCellularQuality: () -> Unit,
-    onAutoQualityDowngrade: (Boolean) -> Unit,
-    onQualityLocked: (Boolean) -> Unit,
     onAnonymousQoeSharing: (Boolean) -> Unit,
     onResumePrompt: (Boolean) -> Unit,
     onVideoCache: () -> Unit,
@@ -169,7 +160,7 @@ internal fun PlaybackSettingsScreen(
 ) {
     SettingsPage(
         title = "播放",
-        subtitle = "播放行为、网络与画质",
+        subtitle = "播放行为、性能与兼容性",
         onBack = onBack,
     ) {
         item {
@@ -189,34 +180,6 @@ internal fun PlaybackSettingsScreen(
                     SettingRow("视频缓存大小", "${videoCacheSize.label} ›", true, onVideoCache)
                     SettingsDivider()
                     SettingRow("片头片尾", skipSegments, true, onSkipSegments)
-                }
-            }
-        }
-        item {
-            Section(title = "网络感知画质") {
-                SettingsCard {
-                    SettingRow("Wi-Fi 画质上限", "${wifiQualityCap.label} ›", true, onWifiQuality)
-                    SettingsDivider()
-                    SettingRow(
-                        "蜂窝网络画质上限",
-                        "${cellularQualityCap.label} ›",
-                        true,
-                        onCellularQuality,
-                    )
-                    SettingsDivider()
-                    SwitchRow(
-                        "卡顿后自动降档",
-                        autoQualityDowngrade,
-                        true,
-                        onChange = onAutoQualityDowngrade,
-                    )
-                    SettingsDivider()
-                    SwitchRow(
-                        "锁定手动画质",
-                        qualityLocked,
-                        true,
-                        onChange = onQualityLocked,
-                    )
                 }
             }
         }

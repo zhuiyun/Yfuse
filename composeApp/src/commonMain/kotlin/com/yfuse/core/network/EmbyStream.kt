@@ -1,6 +1,5 @@
 package com.yfuse.core.network
 
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.deviceId
 import io.ktor.http.URLProtocol
 import io.ktor.http.Url
@@ -404,16 +403,4 @@ object EmbyStream {
         }
     }
 
-    /** Rewrites the generated HLS cap without rebuilding the authenticated URL. */
-    fun withQuality(
-        url: String,
-        quality: PlaybackQuality,
-    ): String {
-        if (url.isBlank()) return url
-        val maxWidth = quality.maxWidth ?: return url
-        val bitrate = quality.videoBitrate ?: return url
-        return url
-            .withOrReplaceQueryParameter("MaxWidth", maxWidth.toString())
-            .withOrReplaceQueryParameter("VideoBitrate", bitrate.toString())
-    }
 }

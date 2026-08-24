@@ -42,11 +42,11 @@ import com.yfuse.core.designsystem.shadow
 private const val EmbyTicksPerSecond = 10_000_000L
 
 internal fun resumeTimeColor(accent: Color): Color {
-    val opaque = accent.copy(alpha = 1f)
-    return if (opaque.luminance() < 0.34f) {
-        lerp(opaque, Color.White, 0.58f)
+    val actionColor = primaryActionColor(accent)
+    return if (actionColor.luminance() < 0.34f) {
+        lerp(actionColor, Color.White, 0.66f)
     } else {
-        opaque
+        actionColor
     }
 }
 

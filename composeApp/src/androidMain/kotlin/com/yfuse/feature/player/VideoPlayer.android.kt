@@ -4,13 +4,10 @@ import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
-import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
-import com.yfuse.core.data.resolveNetworkAwareQuality
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
-import com.yfuse.core.network.currentPlaybackNetworkClass
 import org.koin.core.context.GlobalContext
 
 @Composable
@@ -40,26 +37,6 @@ actual fun PlayerLauncher(
                 )
             }
         val preferences = preferencesResult.getOrNull()
-        val playbackPreferences =
-            runCatching {
-                koin.get<PlaybackPreferences>()
-            }.getOrNull()
-        val serverId = preparedItems.getOrNull(startIndex)?.serverId
-        val preferredQuality =
-            serverId
-                ?.let { playbackPreferences?.rememberedQuality(it) }
-                ?: preferences?.quality?.value
-                ?: com.yfuse.core.model.PlaybackQuality.Auto
-        val launchQuality =
-            playbackPreferences?.let { policy ->
-                resolveNetworkAwareQuality(
-                    preferred = preferredQuality,
-                    networkType = currentPlaybackNetworkClass(),
-                    wifiCap = policy.wifiQualityCap.value,
-                    cellularCap = policy.cellularQualityCap.value,
-                    qualityLocked = policy.qualityLocked.value,
-                )
-            } ?: preferredQuality
         var pendingLaunch: Intent? = null
         runCatching {
             PlayerActivity
@@ -79,7 +56,6 @@ actual fun PlayerLauncher(
                         ),
                     decoder = preferences?.decoder?.value ?: com.yfuse.core.model.DecoderMode.Hardware,
                     autoNext = preferences?.autoNext?.value ?: true,
-                    quality = launchQuality,
                 ).also { launchIntent ->
                     pendingLaunch = launchIntent
                     context.startActivity(launchIntent)

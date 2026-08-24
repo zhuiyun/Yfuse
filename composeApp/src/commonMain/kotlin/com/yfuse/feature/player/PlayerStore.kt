@@ -15,7 +15,6 @@ import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackMethod
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlaybackSegment
 import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.network.EmbyError
@@ -445,26 +444,6 @@ data class PlayerMediaItem(
             // A storyboard tile URL is qualified by MediaSourceId. Carrying it to another
             // physical file shows wrong/missing thumbnails; PlayerActivity lazily reloads it.
             trickplay = trickplay.takeIf { version.id == previousMediaSourceId },
-        )
-    }
-
-    /** Applies a manual server-transcode cap without touching authenticated/session fields. */
-    fun withPlaybackQuality(quality: PlaybackQuality): PlayerMediaItem {
-        if (!quality.requiresServerTranscode) return this
-        return copy(
-            transcodeUrl = EmbyStream.withQuality(transcodeUrl, quality),
-            fallbackTranscodeUrl = EmbyStream.withQuality(fallbackTranscodeUrl, quality),
-            versions =
-                versions.map { version ->
-                    version.copy(
-                        transcodeUrl = EmbyStream.withQuality(version.transcodeUrl, quality),
-                        fallbackTranscodeUrl =
-                            EmbyStream.withQuality(
-                                version.fallbackTranscodeUrl,
-                                quality,
-                            ),
-                    )
-                },
         )
     }
 

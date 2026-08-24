@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackMethod
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.DolbyVisionP7OutputEvidence
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.playback.PlaybackDrmScheme
@@ -13,24 +12,6 @@ import kotlin.test.assertTrue
 
 class PlaybackTruthTest {
     @Test
-    fun manual_cap_starts_on_transcode_and_records_the_user_reason() {
-        val item =
-            PlayerMediaItem(
-                id = "movie",
-                url = "direct",
-                transcodeUrl = "hls",
-                title = "电影",
-            )
-
-        assertTrue(item.startsWithServerTranscode(PlaybackQuality.FullHd))
-        assertEquals(
-            PlaybackMethod.Transcode,
-            item.effectivePlaybackMethod(PlaybackQuality.FullHd),
-        )
-        assertEquals("用户选择 1080P · 8 Mbps", item.initialFallbackReason(PlaybackQuality.FullHd))
-    }
-
-    @Test
     fun auto_preserves_the_server_negotiated_direct_stream_truth() {
         val item =
             PlayerMediaItem(
@@ -41,22 +22,18 @@ class PlaybackTruthTest {
                 playMethod = PlaybackMethod.DirectStream,
             )
 
-        assertFalse(item.startsWithServerTranscode(PlaybackQuality.Auto))
-        assertEquals(PlaybackMethod.DirectStream, item.effectivePlaybackMethod(PlaybackQuality.Auto))
-        assertEquals("服务器协商为直串流", item.initialFallbackReason(PlaybackQuality.Auto))
+        assertFalse(item.startsWithServerTranscode())
+        assertEquals(PlaybackMethod.DirectStream, item.effectivePlaybackMethod())
+        assertEquals("服务器协商为直串流", item.initialFallbackReason())
     }
 
     @Test
     fun missing_transcode_url_does_not_replace_a_working_direct_source() {
         val item = PlayerMediaItem("movie", "direct", "", "电影")
 
-        assertFalse(item.startsWithServerTranscode(PlaybackQuality.Hd))
-        assertEquals(PlaybackMethod.DirectPlay, item.effectivePlaybackMethod(PlaybackQuality.Hd))
-        assertEquals(
-            "服务器未提供转码地址，已保留原始播放方式",
-            item.initialFallbackReason(PlaybackQuality.Hd),
-        )
-        assertNull(item.initialFallbackReason(PlaybackQuality.Original))
+        assertFalse(item.startsWithServerTranscode())
+        assertEquals(PlaybackMethod.DirectPlay, item.effectivePlaybackMethod())
+        assertNull(item.initialFallbackReason())
     }
 
     @Test
@@ -69,11 +46,11 @@ class PlaybackTruthTest {
                 title = "杜比视界",
             ).withForcedServerTranscode("设备不支持 4K60 Dolby Vision")
 
-        assertTrue(item.startsWithServerTranscode(PlaybackQuality.Auto))
-        assertEquals(PlaybackMethod.Transcode, item.effectivePlaybackMethod(PlaybackQuality.Auto))
+        assertTrue(item.startsWithServerTranscode())
+        assertEquals(PlaybackMethod.Transcode, item.effectivePlaybackMethod())
         assertEquals(
             "设备不支持 4K60 Dolby Vision",
-            item.initialFallbackReason(PlaybackQuality.Auto),
+            item.initialFallbackReason(),
         )
     }
 
@@ -191,11 +168,10 @@ class PlaybackTruthTest {
                 serverTranscodeSupported = true,
             )
 
-        assertFalse(item.startsWithServerTranscode(PlaybackQuality.Auto))
+        assertFalse(item.startsWithServerTranscode())
         assertFalse(item.playbackMediaProbe().hasServerTranscode)
         assertFalse(item.allowsServerTranscodeFallback("解码失败"))
         assertTrue(item.allowsServerTranscodeFallback("用户手动选择服务器转码"))
-        assertTrue(item.startsWithServerTranscode(PlaybackQuality.FullHd))
     }
 
     @Test
@@ -226,20 +202,19 @@ class PlaybackTruthTest {
                 serverTranscodeSupported = true,
             )
 
-        assertFalse(item.startsWithServerTranscode(PlaybackQuality.Auto))
-        assertEquals(PlaybackMethod.DirectPlay, item.effectivePlaybackMethod(PlaybackQuality.Auto))
+        assertFalse(item.startsWithServerTranscode())
+        assertEquals(PlaybackMethod.DirectPlay, item.effectivePlaybackMethod())
         assertEquals(
             PlaybackMethod.DirectPlay.label,
             initialPlaybackDiagnostics(
                 engine = "libmpv",
                 decoder = "自动",
                 item = item,
-                quality = PlaybackQuality.Auto,
             ).playMethod,
         )
         assertEquals(
             "服务器建议转码，已保留杜比原始流并由客户端本地解码",
-            item.initialFallbackReason(PlaybackQuality.Auto),
+            item.initialFallbackReason(),
         )
     }
 

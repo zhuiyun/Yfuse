@@ -6,7 +6,6 @@ import com.mediadevkit.sdk.MDKPlayer
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,19 +38,18 @@ class MdkVideoEngine(
     private val startSpeed: Float,
     private val decoderMode: DecoderMode,
     private val autoNext: Boolean,
-    private val quality: PlaybackQuality,
     private val customUserAgent: String,
     private val scope: CoroutineScope,
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
-    private val items = items.map { it.withPlaybackQuality(quality) }
+    private val items = items
 
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
      *  rest of the season. */
     private val transcodedIndices =
         items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
-            index.takeIf { item.startsWithServerTranscode(quality) }
+            index.takeIf { item.startsWithServerTranscode() }
         }
     private val progressiveIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
@@ -73,7 +71,6 @@ class MdkVideoEngine(
                         engine = "MDK",
                         decoder = decoderMode.label,
                         item = items.getOrNull(startIndex),
-                        quality = quality,
                     ).copy(
                         videoOutput = "MDK 未提供可验证的视频输出状态",
                         audioOutput = "MDK 未提供可验证的音频输出状态",
@@ -276,7 +273,6 @@ class MdkVideoEngine(
                         engine = "MDK",
                         decoder = it.diagnostics.decoder,
                         item = nextItem,
-                        quality = quality,
                         transcoding = transcoding,
                     ).copy(
                         videoOutput = "MDK 未提供可验证的视频输出状态",

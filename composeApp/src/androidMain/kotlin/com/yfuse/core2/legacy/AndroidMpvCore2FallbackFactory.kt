@@ -2,7 +2,6 @@ package com.yfuse.core2.legacy
 
 import android.content.Context
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core2.android.AndroidCore2DiscRouteFactory
 import com.yfuse.core2.android.AndroidCore2FallbackRouteFactory
 import com.yfuse.core2.android.AndroidExternalSubtitleLoader
@@ -131,7 +130,6 @@ private class AndroidMpvCore2FallbackPlayer(
                     DecoderMode.Hardware
                 },
             autoNext = false,
-            quality = PlaybackQuality.Original,
             customUserAgent = item.headers[USER_AGENT_HEADER].orEmpty(),
             scope = scope,
         )

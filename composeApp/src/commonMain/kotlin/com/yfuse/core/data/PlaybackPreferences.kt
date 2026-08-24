@@ -1,7 +1,6 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureRecord
@@ -357,50 +356,6 @@ class PlaybackPreferences(
         settings.putBoolean(KEY_SMART_CROSS_SERVER_SOURCE, enabled)
     }
 
-    private val _wifiQualityCap =
-        MutableStateFlow(
-            enumSetting(KEY_WIFI_QUALITY_CAP, PlaybackQuality.Original),
-        )
-    val wifiQualityCap: StateFlow<PlaybackQuality> = _wifiQualityCap.asStateFlow()
-
-    fun setWifiQualityCap(quality: PlaybackQuality) {
-        _wifiQualityCap.value = quality
-        settings.putString(KEY_WIFI_QUALITY_CAP, quality.name)
-    }
-
-    private val _cellularQualityCap =
-        MutableStateFlow(
-            // Direct play is the default on both Wi-Fi and cellular. A lower cellular cap remains
-            // an explicit user choice; silently defaulting to HD forced otherwise compatible
-            // files into server transcode merely because the phone was on 5G.
-            enumSetting(KEY_CELLULAR_QUALITY_CAP, PlaybackQuality.Original),
-        )
-    val cellularQualityCap: StateFlow<PlaybackQuality> = _cellularQualityCap.asStateFlow()
-
-    fun setCellularQualityCap(quality: PlaybackQuality) {
-        _cellularQualityCap.value = quality
-        settings.putString(KEY_CELLULAR_QUALITY_CAP, quality.name)
-    }
-
-    private val _autoQualityDowngrade =
-        MutableStateFlow(
-            settings.getBoolean(KEY_AUTO_QUALITY_DOWNGRADE, true),
-        )
-    val autoQualityDowngrade: StateFlow<Boolean> = _autoQualityDowngrade.asStateFlow()
-
-    fun setAutoQualityDowngrade(enabled: Boolean) {
-        _autoQualityDowngrade.value = enabled
-        settings.putBoolean(KEY_AUTO_QUALITY_DOWNGRADE, enabled)
-    }
-
-    private val _qualityLocked = MutableStateFlow(settings.getBoolean(KEY_QUALITY_LOCKED, false))
-    val qualityLocked: StateFlow<Boolean> = _qualityLocked.asStateFlow()
-
-    fun setQualityLocked(locked: Boolean) {
-        _qualityLocked.value = locked
-        settings.putBoolean(KEY_QUALITY_LOCKED, locked)
-    }
-
     private val _anonymousQoeSharing =
         MutableStateFlow(settings.getBoolean(KEY_ANONYMOUS_QOE_SHARING, false))
     val anonymousQoeSharing: StateFlow<Boolean> = _anonymousQoeSharing.asStateFlow()
@@ -409,21 +364,6 @@ class PlaybackPreferences(
         _anonymousQoeSharing.value = enabled
         settings.putBoolean(KEY_ANONYMOUS_QOE_SHARING, enabled)
         if (!enabled) settings.remove(PLAYBACK_QOE_OUTBOX_KEY)
-    }
-
-    fun rememberedQuality(serverId: String): PlaybackQuality? {
-        val id = serverId.trim().takeIf { it.isNotEmpty() } ?: return null
-        return settings
-            .getStringOrNull("$KEY_SERVER_QUALITY_PREFIX$id")
-            ?.let { stored -> PlaybackQuality.entries.firstOrNull { it.name == stored } }
-    }
-
-    fun rememberQuality(
-        serverId: String,
-        quality: PlaybackQuality,
-    ) {
-        val id = serverId.trim().takeIf { it.isNotEmpty() } ?: return
-        settings.putString("$KEY_SERVER_QUALITY_PREFIX$id", quality.name)
     }
 
     private val _resumePrompt = MutableStateFlow(settings.getBoolean(KEY_RESUME_PROMPT, true))
@@ -551,12 +491,7 @@ class PlaybackPreferences(
         const val KEY_PLAYBACK_FAILURES = "player.ycore.failures.v1"
         const val KEY_PLAYBACK_PERFORMANCE = "player.ycore.performance.v1"
         const val KEY_SMART_CROSS_SERVER_SOURCE = "player.smartCrossServerSource"
-        const val KEY_WIFI_QUALITY_CAP = "player.networkQuality.wifi"
-        const val KEY_CELLULAR_QUALITY_CAP = "player.networkQuality.cellular"
-        const val KEY_AUTO_QUALITY_DOWNGRADE = "player.networkQuality.autoDowngrade"
-        const val KEY_QUALITY_LOCKED = "player.networkQuality.locked"
         const val KEY_ANONYMOUS_QOE_SHARING = "player.ycore.qoeSharing"
-        const val KEY_SERVER_QUALITY_PREFIX = "player.networkQuality.server."
         const val KEY_RESUME_PROMPT = "player.resumePrompt"
         const val KEY_SERIES_PLAYBACK = "player.seriesPlayback.v1"
         const val MAX_SERIES_KEY_CHARS = 256

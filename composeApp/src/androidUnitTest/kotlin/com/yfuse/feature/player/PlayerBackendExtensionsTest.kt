@@ -1,6 +1,5 @@
 package com.yfuse.feature.player
 
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,7 +15,6 @@ class PlayerBackendExtensionsTest {
         val extensions = PlayerBackendExtensions(engine)
 
         assertTrue(extensions.supportsSecondarySubtitleTrack)
-        assertTrue(extensions.setQualityCeiling(PlaybackQuality.FullHd))
         assertTrue(extensions.setAudioDelayMs(125L))
         assertTrue(extensions.selectSecondarySubtitleTrack("7"))
         assertTrue(extensions.setSubtitleOffsetMs(-80L))
@@ -26,7 +24,6 @@ class PlayerBackendExtensionsTest {
         extensions.setPauseAtEndOfCurrentItem(true)
         assertTrue(extensions.switchToTranscode("decoder"))
 
-        assertEquals(PlaybackQuality.FullHd, engine.quality)
         assertEquals(125L, engine.audioDelayMs)
         assertEquals("7", engine.secondarySubtitleId)
         assertEquals(-80L, engine.subtitleOffsetMs)
@@ -54,7 +51,6 @@ private class FakeBackendEngine : VideoEngine {
     override val state: StateFlow<PlaybackState> = mutableState
     override val supportsSecondarySubtitleTrack: Boolean = true
 
-    var quality: PlaybackQuality? = null
     var audioDelayMs: Long? = null
     var secondarySubtitleId: String? = null
     var subtitleOffsetMs: Long? = null
@@ -71,11 +67,6 @@ private class FakeBackendEngine : VideoEngine {
     override fun seekTo(positionMs: Long) = Unit
 
     override fun setSpeed(speed: Float) = Unit
-
-    override fun setQualityCeiling(quality: PlaybackQuality): Boolean {
-        this.quality = quality
-        return true
-    }
 
     override fun selectAudioTrack(id: String) = Unit
 

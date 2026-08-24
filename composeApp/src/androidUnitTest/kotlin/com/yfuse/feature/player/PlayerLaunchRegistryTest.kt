@@ -1,7 +1,6 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -253,6 +252,5 @@ class PlayerLaunchRegistryTest {
             engine = PlayerEngine.Exo,
             decoder = DecoderMode.Hardware,
             autoNext = true,
-            quality = PlaybackQuality.Auto,
         )
 }

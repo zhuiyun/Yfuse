@@ -103,7 +103,6 @@ import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.StartupTab
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.offlinePlaybackUri
@@ -131,8 +130,6 @@ private enum class Sheet {
     WatchTogether,
     WatchProfile,
     VideoCache,
-    WifiQuality,
-    CellularQuality,
 }
 
 /** Light to dark, which is how the segmented control is read left to right. */
@@ -175,10 +172,6 @@ fun ProfileScreen(component: ProfileComponent) {
     val optimizationMode by component.playbackPreferences.optimizationMode.collectAsState()
     val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
     val smartCrossServerSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
-    val wifiQualityCap by component.playbackPreferences.wifiQualityCap.collectAsState()
-    val cellularQualityCap by component.playbackPreferences.cellularQualityCap.collectAsState()
-    val autoQualityDowngrade by component.playbackPreferences.autoQualityDowngrade.collectAsState()
-    val qualityLocked by component.playbackPreferences.qualityLocked.collectAsState()
     val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
     val resumePrompt by component.playbackPreferences.resumePrompt.collectAsState()
     val watchTogether = component.watchTogether
@@ -267,10 +260,6 @@ fun ProfileScreen(component: ProfileComponent) {
                         optimizationMode = optimizationMode,
                         autoNext = autoNext,
                         smartCrossServerSource = smartCrossServerSource,
-                        wifiQualityCap = wifiQualityCap,
-                        cellularQualityCap = cellularQualityCap,
-                        autoQualityDowngrade = autoQualityDowngrade,
-                        qualityLocked = qualityLocked,
                         anonymousQoeSharing = anonymousQoeSharing,
                         resumePrompt = resumePrompt,
                         videoCacheSize = videoCacheSize,
@@ -279,10 +268,6 @@ fun ProfileScreen(component: ProfileComponent) {
                         onOpenAdvanced = { openPage(ProfilePage.AdvancedPlayback) },
                         onAutoNext = prefs::setAutoNext,
                         onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
-                        onWifiQuality = { sheet = Sheet.WifiQuality },
-                        onCellularQuality = { sheet = Sheet.CellularQuality },
-                        onAutoQualityDowngrade = component.playbackPreferences::setAutoQualityDowngrade,
-                        onQualityLocked = component.playbackPreferences::setQualityLocked,
                         onAnonymousQoeSharing = component.playbackPreferences::setAnonymousQoeSharing,
                         onResumePrompt = component.playbackPreferences::setResumePrompt,
                         onVideoCache = { sheet = Sheet.VideoCache },
@@ -727,30 +712,6 @@ fun ProfileScreen(component: ProfileComponent) {
                     options = VideoCacheSize.entries.map { it.label to (it == videoCacheSize) },
                     onSelect = { index ->
                         component.playbackPreferences.setVideoCacheSize(VideoCacheSize.entries[index])
-                        sheet = null
-                    },
-                    onDismiss = { sheet = null },
-                )
-
-            Sheet.WifiQuality ->
-                OptionSheet(
-                    title = "Wi-Fi 画质上限",
-                    subtitle = "新播放会在保留每服务器偏好的同时遵守此上限",
-                    options = PlaybackQuality.entries.map { it.label to (it == wifiQualityCap) },
-                    onSelect = { index ->
-                        component.playbackPreferences.setWifiQualityCap(PlaybackQuality.entries[index])
-                        sheet = null
-                    },
-                    onDismiss = { sheet = null },
-                )
-
-            Sheet.CellularQuality ->
-                OptionSheet(
-                    title = "蜂窝网络画质上限",
-                    subtitle = "移动网络与其他计费网络使用此上限",
-                    options = PlaybackQuality.entries.map { it.label to (it == cellularQualityCap) },
-                    onSelect = { index ->
-                        component.playbackPreferences.setCellularQualityCap(PlaybackQuality.entries[index])
                         sheet = null
                     },
                     onDismiss = { sheet = null },

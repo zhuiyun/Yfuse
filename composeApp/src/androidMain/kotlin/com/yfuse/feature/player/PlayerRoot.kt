@@ -45,27 +45,20 @@ import com.yfuse.core.data.SeriesPlaybackPreference
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
-import com.yfuse.core.data.dataEstimateLabel
-import com.yfuse.core.data.lowerPlaybackQuality
-import com.yfuse.core.data.raisePlaybackQuality
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackMethod
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.playbackNetworkClasses
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
-import com.yfuse.core.playback.PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS
-import com.yfuse.core.playback.PlaybackAdaptiveNetworkController
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackNetworkRecoveryController
-import com.yfuse.core.playback.PlaybackNetworkSample
 import com.yfuse.core.playback.PlaybackPerformanceMemory
 import com.yfuse.core.playback.PlaybackProbeStatus
 import com.yfuse.core.playback.classifyPlaybackFailure
@@ -107,11 +100,7 @@ internal fun PlayerRoot(
     initialEngine: PlayerEngine,
     decoderMode: DecoderMode,
     autoNext: Boolean,
-    initialQuality: PlaybackQuality,
-    autoQualityDowngrade: Boolean,
-    qualityLocked: Boolean,
     playbackPreferences: PlaybackPreferences,
-    onQualityChanged: (PlaybackQuality, String?) -> Unit,
     inPictureInPicture: Boolean,
     playbackSinkFor: (PlaybackReportingTarget) -> PlaybackEventSink?,
     danmakuPreferences: DanmakuPreferences,
@@ -231,8 +220,6 @@ internal fun PlayerRoot(
         )
     }
     var engineGeneration by remember { mutableIntStateOf(0) }
-    var selectedQuality by remember(initialQuality) { mutableStateOf(initialQuality) }
-    var adaptiveQualityCeiling by remember(initialQuality) { mutableStateOf(initialQuality) }
     var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
     var handoverItemId by remember { mutableStateOf<String?>(null) }
     var audioRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
@@ -268,7 +255,7 @@ internal fun PlayerRoot(
             items.mapIndexed { index, item -> index to item.serverFallbacks }.toMap()
         }
     val activeItems =
-        remember(items, serverChoices, versionChoices, selectedQuality) {
+        remember(items, serverChoices, versionChoices) {
             val sourcedItems =
                 items.mapIndexed { index, item -> serverChoices[index] ?: item }
             val versionedItems =
@@ -279,7 +266,7 @@ internal fun PlayerRoot(
                         versionChoices[item.id]?.let(item::withVersion) ?: item
                     }
                 }
-            versionedItems.map { it.withPlaybackQuality(selectedQuality) }
+            versionedItems
         }
 
     fun preflightItem(item: PlayerMediaItem): PlayerMediaItem {
@@ -361,7 +348,6 @@ internal fun PlayerRoot(
                 decoderMode = effectiveDecoderMode,
                 optimizationMode = effectiveOptimizationMode,
                 autoNext = autoNext,
-                quality = selectedQuality,
                 customUserAgent = customUserAgent,
                 videoCacheBytes = videoCacheBytes,
                 scope = scope,
@@ -384,12 +370,12 @@ internal fun PlayerRoot(
             } else {
                 val prepared =
                     appended.map { item ->
-                        preflightItem(item.withPlaybackQuality(selectedQuality))
+                        preflightItem(item)
                     }
                 val appendedToPlayer =
                     prepared.canUseCore2Trial(startIndex = 0) &&
                         player.appendItems(
-                            prepared.toCore2MediaItems(customUserAgent, selectedQuality),
+                            prepared.toCore2MediaItems(customUserAgent),
                         )
                 appendedToPlayer || backendExtensions.appendItems(prepared)
             }
@@ -513,7 +499,7 @@ internal fun PlayerRoot(
         val targetTranscoding =
             preflightItems
                 .getOrNull(index)
-                ?.startsWithServerTranscode(selectedQuality) == true
+                ?.startsWithServerTranscode() == true
         val requiresRebuild =
             targetEngine != kind ||
                 targetDecoder != effectiveDecoderMode ||
@@ -933,8 +919,7 @@ internal fun PlayerRoot(
         val version = activeDolbyVersion ?: return@LaunchedEffect
         val p7 = version.dolbyVisionP7Output(state.diagnostics)
         val explicitServerTranscode =
-            selectedQuality.requiresServerTranscode ||
-                state.diagnostics.fallbackReason?.startsWith("用户手动") == true
+            state.diagnostics.fallbackReason?.startsWith("用户手动") == true
         val attributes =
             mapOf(
                 "itemIndex" to state.currentIndex.toString(),
@@ -1725,145 +1710,6 @@ internal fun PlayerRoot(
         }
     }
 
-    fun applyQuality(
-        target: PlaybackQuality,
-        persistSelection: Boolean,
-    ) {
-        // Adaptive bandwidth recovery must not silently turn a Dolby source into a server encode.
-        // A persisted user selection remains explicit and is intentionally still honored.
-        if (
-            !persistSelection &&
-            target.requiresServerTranscode &&
-            currentItem?.requiresLocalDolbyPipeline == true
-        ) {
-            return
-        }
-        if (persistSelection) {
-            adaptiveQualityCeiling = target
-            onQualityChanged(target, currentItem?.serverId)
-        }
-        if (target == selectedQuality) return
-        if (backendExtensions.setQualityCeiling(target)) {
-            AppLog.info(
-                category = "player.quality",
-                event = "adaptive_track_ceiling_changed",
-                message = "YCore changed the client-side adaptive track ceiling",
-                attributes =
-                    mapOf(
-                        "engine" to kind.name,
-                        "from" to selectedQuality.name,
-                        "to" to target.name,
-                    ),
-            )
-            selectedQuality = target
-            return
-        }
-        capturePlaybackHandover()
-        player.pause()
-        resume =
-            resume.copy(
-                itemIndex = state.currentIndex,
-                positionMs = player.currentPositionMs(),
-            )
-        selectedQuality = target
-        engineGeneration++
-    }
-
-    fun selectQuality(target: PlaybackQuality) = applyQuality(target, persistSelection = true)
-
-    val adaptiveNetworkController: PlaybackAdaptiveNetworkController =
-        remember(state.currentIndex, currentItem?.serverId) {
-            createPlaybackAdaptiveNetworkController()
-        }
-    val latestAdaptiveState by rememberUpdatedState(state)
-    LaunchedEffect(
-        engine,
-        adaptiveNetworkController,
-        state.currentIndex,
-        state.playing,
-        state.buffering,
-        state.ended,
-        autoQualityDowngrade,
-        qualityLocked,
-        castAuthoritative,
-        activeProbe.localSource,
-        selectedQuality,
-        adaptiveQualityCeiling,
-    ) {
-        if (
-            !autoQualityDowngrade ||
-            qualityLocked ||
-            castAuthoritative ||
-            activeProbe.localSource ||
-            (!state.playing && !state.buffering) ||
-            state.ended
-        ) {
-            adaptiveNetworkController.reset(state.diagnostics.bufferEvents)
-            return@LaunchedEffect
-        }
-        while (true) {
-            val current = latestAdaptiveState
-            val decision =
-                adaptiveNetworkController.observe(
-                    PlaybackNetworkSample(
-                        nowEpochMs = System.currentTimeMillis(),
-                        playbackPositionMs = current.positionMs,
-                        bufferEvents = current.diagnostics.bufferEvents,
-                        bufferedDurationMs = current.diagnostics.bufferedDurationMs,
-                        networkBitsPerSecond = current.diagnostics.networkBitsPerSecond,
-                        mediaBitsPerSecond = current.diagnostics.bitrateBitsPerSecond,
-                        buffering = current.buffering,
-                    ),
-                )
-            if (decision.downgradeRecommended) {
-                val target = lowerPlaybackQuality(selectedQuality)
-                if (target == null) {
-                    delay(PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS)
-                    continue
-                }
-                AppLog.info(
-                    category = "player.quality",
-                    event = "automatic_downgrade",
-                    message = "YCore lowered playback quality after sustained network pressure",
-                    attributes =
-                        mapOf(
-                            "from" to selectedQuality.name,
-                            "to" to target.name,
-                            "reason" to decision.reason.orEmpty(),
-                            "throughputBitsPerSecond" to
-                                (decision.smoothedThroughputBitsPerSecond?.toString() ?: "unknown"),
-                        ),
-                )
-                applyQuality(target, persistSelection = false)
-                return@LaunchedEffect
-            }
-            if (decision.upgradeRecommended) {
-                val target = raisePlaybackQuality(selectedQuality, adaptiveQualityCeiling)
-                if (target == null) {
-                    delay(PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS)
-                    continue
-                }
-                AppLog.info(
-                    category = "player.quality",
-                    event = "automatic_upgrade",
-                    message = "YCore restored playback quality after sustained network recovery",
-                    attributes =
-                        mapOf(
-                            "from" to selectedQuality.name,
-                            "to" to target.name,
-                            "ceiling" to adaptiveQualityCeiling.name,
-                            "reason" to decision.reason.orEmpty(),
-                            "throughputBitsPerSecond" to
-                                (decision.smoothedThroughputBitsPerSecond?.toString() ?: "unknown"),
-                        ),
-                )
-                applyQuality(target, persistSelection = false)
-                return@LaunchedEffect
-            }
-            delay(PLAYBACK_NETWORK_OBSERVATION_INTERVAL_MS)
-        }
-    }
-
     PlayerTrackEffects(
         player = player,
         backendExtensions = backendExtensions,
@@ -2475,13 +2321,6 @@ internal fun PlayerRoot(
                     },
                 onSelectEngine = { index ->
                     PlaybackEngineSelection.entries.getOrNull(index)?.let(::selectEngineStrategy)
-                },
-                qualityOptions =
-                    PlaybackQuality.entries.map {
-                        it.dataEstimateLabel() to (it == selectedQuality)
-                    },
-                onSelectQuality = { index ->
-                    PlaybackQuality.entries.getOrNull(index)?.let(::selectQuality)
                 },
                 // Manual escape hatch when the picture is black but audio plays. Offered on
                 // every engine now — it used to be ExoPlayer-only, which left the native

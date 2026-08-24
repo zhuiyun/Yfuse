@@ -33,13 +33,11 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackMethod
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackOptimizationMode
-import com.yfuse.core.playback.isAdaptivePlaybackManifest
 import com.yfuse.core.playback.playbackBufferProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -81,12 +79,11 @@ class ExoVideoEngine(
     decoderMode: DecoderMode,
     optimizationMode: PlaybackOptimizationMode,
     private val autoNext: Boolean,
-    private val quality: PlaybackQuality,
     customUserAgent: String,
     videoCacheBytes: Long,
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
-    private val items = items.map { it.withPlaybackQuality(quality) }.toMutableList()
+    private val items = items.toMutableList()
     private val outputPreferences = GlobalContext.get().get<PlaybackPreferences>()
     private val capabilityProvider =
         runCatching { GlobalContext.get().get<PlaybackDeviceCapabilitiesProvider>() }.getOrNull()
@@ -102,7 +99,7 @@ class ExoVideoEngine(
     private val startTranscoding =
         this.items
             .getOrNull(startIndex)
-            ?.startsWithServerTranscode(quality) == true
+            ?.startsWithServerTranscode() == true
 
     private val _state =
         MutableStateFlow(
@@ -118,7 +115,6 @@ class ExoVideoEngine(
                         engine = "Media3 / ExoPlayer",
                         decoder = decoderMode.label,
                         item = this.items.getOrNull(startIndex),
-                        quality = quality,
                     ),
             ),
         )
@@ -126,7 +122,7 @@ class ExoVideoEngine(
 
     private val transcodedIndices =
         items.mapIndexedNotNullTo(mutableSetOf()) { index, item ->
-            index.takeIf { item.startsWithServerTranscode(quality) }
+            index.takeIf { item.startsWithServerTranscode() }
         }
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
@@ -139,7 +135,6 @@ class ExoVideoEngine(
     private var released = false
     private val cacheHandle = VideoCachePool.acquire(context.applicationContext, videoCacheBytes)
     private val trackSelector = DefaultTrackSelector(context)
-    private var qualityCeiling = quality
 
     val player: ExoPlayer =
         run {
@@ -544,19 +539,6 @@ class ExoVideoEngine(
                     previousState.diagnostics.fallbackReason
                         ?.takeIf { previousState.currentIndex == index && it.isNotBlank() }
                         ?: failureHistoryLabel(index)
-                if (
-                    !transcoding &&
-                    mediaItem
-                        ?.localConfiguration
-                        ?.uri
-                        ?.toString()
-                        .orEmpty()
-                        .isAdaptivePlaybackManifest()
-                ) {
-                    applyTrackSelectionCeiling(qualityCeiling)
-                } else {
-                    applyTrackSelectionCeiling(PlaybackQuality.Original)
-                }
                 _state.update {
                     val sameMedia = it.currentIndex == index
                     it.copy(
@@ -582,7 +564,6 @@ class ExoVideoEngine(
                                 engine = "Media3 / ExoPlayer",
                                 decoder = it.diagnostics.decoder,
                                 item = item,
-                                quality = qualityCeiling,
                                 transcoding = transcoding,
                             ).copy(fallbackReason = preservedFallbackReason),
                     )
@@ -756,13 +737,6 @@ class ExoVideoEngine(
         player.addListener(listener)
         player.addAnalyticsListener(analyticsListener)
         player.setVideoFrameMetadataListener(videoFrameMetadataListener)
-        val initialItem = items.getOrNull(startIndex)
-        if (
-            startIndex !in transcodedIndices &&
-            initialItem?.url?.isAdaptivePlaybackManifest() == true
-        ) {
-            applyTrackSelectionCeiling(quality)
-        }
         player.setMediaItems(
             items.mapIndexed { index, item ->
                 mediaItem(item, if (index in transcodedIndices) item.transcodeUrl else item.url)
@@ -830,38 +804,6 @@ class ExoVideoEngine(
 
     override fun setSpeed(speed: Float) {
         player.setPlaybackSpeed(speed)
-    }
-
-    override fun setQualityCeiling(quality: PlaybackQuality): Boolean {
-        val uri =
-            player.currentMediaItem
-                ?.localConfiguration
-                ?.uri
-                ?.toString()
-                .orEmpty()
-        if (_state.value.transcoding || !uri.isAdaptivePlaybackManifest()) return false
-        qualityCeiling = quality
-        applyTrackSelectionCeiling(quality)
-        _state.update {
-            it.copy(diagnostics = it.diagnostics.copy(requestedQuality = quality.label))
-        }
-        return true
-    }
-
-    private fun applyTrackSelectionCeiling(quality: PlaybackQuality) {
-        val builder = trackSelector.buildUponParameters()
-        val maxWidth = quality.maxWidth
-        val maxBitrate = quality.videoBitrate
-        if (maxWidth == null || maxBitrate == null) {
-            builder.clearVideoSizeConstraints().setMaxVideoBitrate(Int.MAX_VALUE)
-        } else {
-            builder
-                // The quality model stores the longest display edge. A square constraint keeps
-                // portrait ladders eligible while still capping their effective resolution.
-                .setMaxVideoSize(maxWidth, maxWidth)
-                .setMaxVideoBitrate(maxBitrate)
-        }
-        trackSelector.parameters = builder.build()
     }
 
     override fun selectAudioTrack(id: String) = select(C.TRACK_TYPE_AUDIO, id)
@@ -1171,14 +1113,13 @@ class ExoVideoEngine(
 
     override fun appendItems(items: List<PlayerMediaItem>): Boolean {
         if (items.isEmpty()) return true
-        val qualityItems = items.map { it.withPlaybackQuality(quality) }
         val offset = this.items.size
-        qualityItems.forEachIndexed { relativeIndex, item ->
-            if (item.startsWithServerTranscode(quality)) transcodedIndices += offset + relativeIndex
+        items.forEachIndexed { relativeIndex, item ->
+            if (item.startsWithServerTranscode()) transcodedIndices += offset + relativeIndex
         }
-        this.items += qualityItems
+        this.items += items
         val mediaItems =
-            qualityItems.mapIndexed { relativeIndex, item ->
+            items.mapIndexed { relativeIndex, item ->
                 val index = offset + relativeIndex
                 mediaItem(item, if (index in transcodedIndices) item.transcodeUrl else item.url)
             }

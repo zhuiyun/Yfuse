@@ -30,4 +30,13 @@ class DetailActionFormattingTest {
         assertTrue(readable.luminance() > source.luminance())
         assertTrue(readable.blue > readable.red)
     }
+
+    @Test
+    fun oliveArtwork_keepsPrimaryActionInTheCoolBrandFamily() {
+        val oliveArtwork = Color(0xFF9B9F55)
+        val action = primaryActionColor(oliveArtwork)
+
+        assertTrue(action.blue > action.green)
+        assertTrue(action.luminance() <= 0.22f)
+    }
 }

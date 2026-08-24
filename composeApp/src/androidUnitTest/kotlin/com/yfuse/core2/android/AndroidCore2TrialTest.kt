@@ -1,7 +1,6 @@
 package com.yfuse.core2.android
 
 import com.yfuse.core.model.PlaybackMethod
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.playback.PlaybackDrmScheme
 import com.yfuse.feature.player.PlayerMediaItem
@@ -115,7 +114,7 @@ class AndroidCore2TrialTest {
 
         val mapped =
             listOf(item)
-                .toCore2MediaItems("  Yfuse-Test/2.0  ", PlaybackQuality.Original)
+                .toCore2MediaItems("  Yfuse-Test/2.0  ")
                 .single()
 
         assertEquals(item.id, mapped.id)
@@ -137,7 +136,7 @@ class AndroidCore2TrialTest {
 
         val mapped =
             listOf(item)
-                .toCore2MediaItems("", PlaybackQuality.Original)
+                .toCore2MediaItems("")
                 .single()
 
         assertEquals(item.transcodeUrl, mapped.uri)
@@ -168,7 +167,7 @@ class AndroidCore2TrialTest {
 
         val mapped =
             listOf(item)
-                .toCore2MediaItems("", PlaybackQuality.Original)
+                .toCore2MediaItems("")
                 .single()
 
         assertEquals(version.transcodeUrl, mapped.uri)
@@ -196,7 +195,7 @@ class AndroidCore2TrialTest {
 
         val mapped =
             listOf(item)
-                .toCore2MediaItems("", PlaybackQuality.Original)
+                .toCore2MediaItems("")
                 .single()
 
         assertEquals(com.yfuse.core2.api.YDiscKind.Bdmv, mapped.disc?.kind)

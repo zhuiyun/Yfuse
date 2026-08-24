@@ -10,7 +10,6 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.model.ServersData
 import kotlinx.serialization.Serializable
 
@@ -35,7 +34,6 @@ data class CloudSyncSnapshotV1(
 data class CloudAppearanceSettings(
     val themeMode: String = ThemeMode.Light.name,
     val autoNext: Boolean = true,
-    val quality: String = PlaybackQuality.Auto.name,
     val reduceTransparency: Boolean = false,
     val largeText: Boolean = false,
     val reduceMotion: Boolean = false,
@@ -73,7 +71,6 @@ fun captureCloudSyncSnapshot(
             CloudAppearanceSettings(
                 themeMode = theme.mode.value.name,
                 autoNext = theme.autoNext.value,
-                quality = theme.quality.value.name,
                 reduceTransparency = theme.reduceTransparency.value,
                 largeText = theme.largeText.value,
                 reduceMotion = theme.reduceMotion.value,
@@ -118,7 +115,6 @@ fun applyCloudSyncSnapshot(
         }
 
         val mode = ThemeMode.entries.named(snapshot.appearance.themeMode, ThemeMode.Light)
-        val quality = PlaybackQuality.entries.named(snapshot.appearance.quality, PlaybackQuality.Auto)
         val splash =
             SplashAnimation.entries.named(
                 snapshot.appearance.splashVariant,
@@ -130,7 +126,6 @@ fun applyCloudSyncSnapshot(
         registry.replaceFromSync(snapshot.servers).getOrThrow()
         theme.setMode(mode)
         theme.setAutoNext(snapshot.appearance.autoNext)
-        theme.setQuality(quality)
         theme.setReduceTransparency(snapshot.appearance.reduceTransparency)
         theme.setLargeText(snapshot.appearance.largeText)
         theme.setReduceMotion(snapshot.appearance.reduceMotion)

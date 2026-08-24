@@ -1,6 +1,5 @@
 package com.yfuse.feature.player
 
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackFailureKind
@@ -59,8 +58,6 @@ data class PlaybackDiagnostics(
     val decoder: String = "等待视频轨道",
     val videoCodec: String = "未知",
     val playMethod: String = "直播放",
-    /** The user's persisted intent, distinct from the method the server actually chose. */
-    val requestedQuality: String = "自动",
     val videoWidth: Int = 0,
     val dynamicRange: String = "",
     val audioFormat: String = "",
@@ -225,9 +222,6 @@ interface VideoEngine {
     fun seekTo(positionMs: Long)
 
     fun setSpeed(speed: Float)
-
-    /** Applies an in-manifest video ceiling without reloading. False requests a caller rebuild. */
-    fun setQualityCeiling(quality: PlaybackQuality): Boolean = false
 
     fun selectAudioTrack(id: String)
 

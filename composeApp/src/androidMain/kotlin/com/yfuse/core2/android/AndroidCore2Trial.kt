@@ -2,7 +2,6 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import com.yfuse.core.data.PlaybackFrameRateMatch
-import com.yfuse.core.model.PlaybackQuality
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core2.api.YDiscKind
@@ -32,7 +31,6 @@ internal object AndroidCore2TrialFactory {
         startPlaybackRequested: Boolean,
         startSpeed: Float,
         autoNext: Boolean,
-        quality: PlaybackQuality,
         customUserAgent: String,
         allowAudioPassthrough: Boolean,
         frameRateMatch: PlaybackFrameRateMatch,
@@ -40,7 +38,7 @@ internal object AndroidCore2TrialFactory {
         if (!items.canUseCore2Trial(startIndex)) return null
         val request =
             YPlayerOpenRequest(
-                items = items.toCore2MediaItems(customUserAgent, quality),
+                items = items.toCore2MediaItems(customUserAgent),
                 startIndex = startIndex,
                 startPositionMs = startPositionMs.coerceAtLeast(0L),
                 autoPlay = startPlaybackRequested,
@@ -94,7 +92,6 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
 
 internal fun List<PlayerMediaItem>.toCore2MediaItems(
     customUserAgent: String,
-    quality: PlaybackQuality,
 ): List<YMediaItem> {
     val headers =
         customUserAgent
@@ -102,14 +99,13 @@ internal fun List<PlayerMediaItem>.toCore2MediaItems(
             .takeIf(String::isNotEmpty)
             ?.let { mapOf(USER_AGENT_HEADER to it) }
             .orEmpty()
-    return map { item -> item.toCore2MediaItem(headers, quality) }
+    return map { item -> item.toCore2MediaItem(headers) }
 }
 
 private fun PlayerMediaItem.toCore2MediaItem(
     headers: Map<String, String>,
-    quality: PlaybackQuality,
 ): YMediaItem {
-    val usingServerTranscode = startsWithServerTranscode(quality)
+    val usingServerTranscode = startsWithServerTranscode()
     val version = activeVersion
     return YMediaItem(
         id = id,
