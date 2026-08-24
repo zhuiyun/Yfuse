@@ -5,6 +5,7 @@ import com.arkivanov.decompose.DelicateDecomposeApi
 import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
+import com.arkivanov.decompose.router.stack.navigate
 import com.arkivanov.decompose.router.stack.pop
 import com.arkivanov.decompose.router.stack.popTo
 import com.arkivanov.decompose.router.stack.pushToFront
@@ -189,7 +190,11 @@ class LibraryComponent(
                             navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
                         onPlay = { serverId, itemId, ticks, mediaSourceId ->
-                            navigation.pushToFront(Config.Player(serverId, itemId, ticks, mediaSourceId))
+                            val player = Config.Player(serverId, itemId, ticks, mediaSourceId)
+                            // Player is a single-instance destination. pushToFront removes only
+                            // the last equal entry, so a re-entrant Play label can leave an older
+                            // duplicate behind and Decompose rejects the resulting stack.
+                            navigation.navigate { stack -> replacePlayerDestination(stack, player) }
                         },
                     ),
                 )
@@ -210,3 +215,9 @@ class LibraryComponent(
                 )
         }
 }
+
+internal fun replacePlayerDestination(
+    stack: List<LibraryComponent.Config>,
+    destination: LibraryComponent.Config.Player,
+): List<LibraryComponent.Config> =
+    stack.filterNot { it is LibraryComponent.Config.Player } + destination
