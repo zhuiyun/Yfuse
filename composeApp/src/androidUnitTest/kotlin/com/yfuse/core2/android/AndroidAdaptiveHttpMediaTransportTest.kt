@@ -40,6 +40,51 @@ class AndroidAdaptiveHttpMediaTransportTest {
         }
 
     @Test
+    fun cronet_range_rejection_falls_back_before_media_extractor_sees_it() =
+        runBlocking {
+            val cronet = FakeTransport(statusCode = 200)
+            val fallback = FakeTransport()
+            val transport =
+                AndroidAdaptiveHttpMediaTransport(
+                    createCronet = { cronet },
+                    createOkHttp = { fallback },
+                )
+            val request =
+                YMediaTransportRequest(
+                    uri = "https://media.example.test/movie.mp4",
+                    protocol = YSourceProtocol.Https,
+                    range = YByteRange(0L, 3L),
+                )
+
+            assertEquals(206, transport.open(request).statusCode)
+            assertEquals(1, cronet.openCalls)
+            assertEquals(1, fallback.openCalls)
+            assertTrue(cronet.closeCalls >= 1)
+        }
+
+    @Test
+    fun cronet_mismatched_range_falls_back_before_binding() =
+        runBlocking {
+            val cronet = FakeTransport(acceptedRangeStartOffset = 1L)
+            val fallback = FakeTransport()
+            val transport =
+                AndroidAdaptiveHttpMediaTransport(
+                    createCronet = { cronet },
+                    createOkHttp = { fallback },
+                )
+            val request =
+                YMediaTransportRequest(
+                    uri = "https://media.example.test/movie.mp4",
+                    protocol = YSourceProtocol.Https,
+                    range = YByteRange(100L, 103L),
+                )
+
+            assertEquals(206, transport.open(request).statusCode)
+            assertEquals(1, fallback.openCalls)
+            assertTrue(cronet.closeCalls >= 1)
+        }
+
+    @Test
     fun cronet_read_failure_resumes_the_exact_remaining_range_with_okhttp() =
         runBlocking {
             val cronet =
@@ -136,6 +181,8 @@ private sealed interface FakeRead {
 private class FakeTransport(
     private val failOpen: Boolean = false,
     private val reads: ArrayDeque<FakeRead> = ArrayDeque(),
+    private val statusCode: Int = 206,
+    private val acceptedRangeStartOffset: Long = 0L,
 ) : YMediaTransport {
     override val supportedProtocols = setOf(YSourceProtocol.Http, YSourceProtocol.Https)
     override val features = setOf(YTransportFeature.ByteRange)
@@ -147,9 +194,16 @@ private class FakeTransport(
         openCalls++
         requests += request
         if (failOpen) error("unavailable")
+        val acceptedRange =
+            request.range?.let { range ->
+                YByteRange(
+                    startInclusive = range.startInclusive + acceptedRangeStartOffset,
+                    endInclusive = range.endInclusive,
+                )
+            }
         return YMediaTransportResponse(
-            statusCode = 206,
-            acceptedRange = request.range,
+            statusCode = statusCode,
+            acceptedRange = acceptedRange,
         )
     }
 
