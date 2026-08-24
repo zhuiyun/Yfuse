@@ -48,6 +48,7 @@ class YCorePlaybackSessionTest {
         val waiting =
             observation(now = 15_000L, droppedFrames = 0).copy(
                 positionMs = 0L,
+                playing = false,
                 videoReady = false,
                 videoExpected = true,
             )
@@ -71,6 +72,7 @@ class YCorePlaybackSessionTest {
                 observation(now = 20_000L, droppedFrames = 0).copy(
                     positionMs = 1_000L,
                     buffering = true,
+                    playing = false,
                 ),
             )
 
@@ -84,9 +86,18 @@ class YCorePlaybackSessionTest {
             probe().copy(
                 container = "mov",
                 sourceSizeBytes = 195_738_044_172L,
+                localSource = false,
             )
 
         assertEquals(60_000L, playbackStartupTimeoutMs(probe))
+    }
+
+    @Test
+    fun ordinary_remote_media_gets_time_for_transport_fallback() {
+        assertEquals(
+            30_000L,
+            playbackStartupTimeoutMs(probe().copy(localSource = false)),
+        )
     }
 
     private fun session(memory: PlaybackFailureMemory): YCorePlaybackSession =
@@ -116,6 +127,7 @@ class YCorePlaybackSessionTest {
         positionMs = now,
         playbackRequested = true,
         buffering = false,
+        playing = true,
         videoReady = true,
         errorPresent = false,
         ended = false,
@@ -129,6 +141,7 @@ class YCorePlaybackSessionTest {
             discSource = false,
             source = PlaybackSourceRequirements(false, false, null),
             hasServerTranscode = true,
+            localSource = true,
         )
 
     private companion object {
