@@ -402,5 +402,4 @@ object EmbyStream {
             withQueryParameter(name, encodedValue)
         }
     }
-
 }

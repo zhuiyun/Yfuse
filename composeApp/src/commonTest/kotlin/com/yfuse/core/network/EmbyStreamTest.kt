@@ -207,5 +207,4 @@ class EmbyStreamTest {
         assertTrue("VideoBitrate=24000000" in urls.transcode, urls.transcode)
         assertTrue("MaxWidth=3840" in urls.progressiveTranscode, urls.progressiveTranscode)
     }
-
 }

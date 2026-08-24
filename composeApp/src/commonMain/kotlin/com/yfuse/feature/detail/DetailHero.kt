@@ -517,7 +517,11 @@ internal fun actionKeyBrush(accent: Color): Brush {
 }
 
 internal fun primaryActionColor(accent: Color): Color =
-    lerp(Brand.Primary, accent.copy(alpha = 1f), PRIMARY_ACTION_ARTWORK_INFLUENCE).forWhiteInk() // design-system: brand-identity
+    lerp(
+        Brand.Primary, // design-system: brand-identity
+        accent.copy(alpha = 1f),
+        PRIMARY_ACTION_ARTWORK_INFLUENCE,
+    ).forWhiteInk()
 
 private fun Color.forWhiteInk(): Color {
     val luminance = luminance()

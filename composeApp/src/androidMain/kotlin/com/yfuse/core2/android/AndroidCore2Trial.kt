@@ -90,9 +90,7 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     }
 }
 
-internal fun List<PlayerMediaItem>.toCore2MediaItems(
-    customUserAgent: String,
-): List<YMediaItem> {
+internal fun List<PlayerMediaItem>.toCore2MediaItems(customUserAgent: String): List<YMediaItem> {
     val headers =
         customUserAgent
             .trim()
@@ -102,9 +100,7 @@ internal fun List<PlayerMediaItem>.toCore2MediaItems(
     return map { item -> item.toCore2MediaItem(headers) }
 }
 
-private fun PlayerMediaItem.toCore2MediaItem(
-    headers: Map<String, String>,
-): YMediaItem {
+private fun PlayerMediaItem.toCore2MediaItem(headers: Map<String, String>): YMediaItem {
     val usingServerTranscode = startsWithServerTranscode()
     val version = activeVersion
     return YMediaItem(
