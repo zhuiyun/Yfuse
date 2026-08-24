@@ -14,7 +14,10 @@ class SingleFlightNavigationGuardTest {
         assertFalse(guard.tryBegin(target = "player-b", active = null))
 
         guard.complete("player-a")
-        assertFalse(guard.tryBegin(target = "player-a", active = "player-a"))
+        assertFalse(
+            guard.tryBegin(target = "player-b", active = "player-a"),
+            "an already active Player route blocks every second Player configuration",
+        )
         assertTrue(guard.tryBegin(target = "player-a", active = null))
     }
 }
