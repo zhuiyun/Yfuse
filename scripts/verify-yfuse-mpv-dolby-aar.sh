@@ -25,7 +25,10 @@ need strings
 need javap
 need readelf
 
-"$ROOT/scripts/verify-yfuse-mpv-bluray-aar.sh" "$AAR" "$SHA_FILE" "$SOURCES"
+# Repository checkouts do not require executable bits on helper scripts. Invoke the baseline
+# verifier through Bash so the Dolby release gate behaves the same on GitHub-hosted runners and
+# local archives; executing a 0644 checkout directly exits with 126 after an otherwise good build.
+bash "$ROOT/scripts/verify-yfuse-mpv-bluray-aar.sh" "$AAR" "$SHA_FILE" "$SOURCES"
 
 [[ "$(manifest_value mpv-core)" == "$EXPECTED_MPV_CORE" ]] || fail "unexpected mpv core revision"
 [[ "$(manifest_value ffmpeg)" == "$EXPECTED_FFMPEG" ]] || fail "unexpected FFmpeg revision"
