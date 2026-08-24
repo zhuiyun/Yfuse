@@ -103,7 +103,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
         preferredFailure: Throwable,
     ): Int {
         val request = checkNotNull(activeRequest) { "HTTP transport request is unavailable" }
-        val remainingRequest = request.remainingAfter(bytesReadForRequest) ?: return -1
+        val remainingRequest = request.remainingAfter(bytesReadForRequest) ?: throw preferredFailure
         runCatching { failed.close() }
         if (preferred === failed) preferred = null
         active = null
