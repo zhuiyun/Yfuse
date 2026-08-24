@@ -75,6 +75,7 @@ class AndroidAdaptiveHttpMediaTransportTest {
             assertEquals(YByteRange(103L, 199L), fallback.openedRequests.single().range)
             assertTrue(cronet.closeCalls >= 1)
 
+            transport.close()
             transport.open(request)
             assertEquals(1, cronet.openCalls)
             assertEquals(2, fallback.openCalls)
