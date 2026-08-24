@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.network.YByteRange
 import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
@@ -25,12 +26,16 @@ internal class AndroidAdaptiveHttpMediaTransport(
 
     private var active: YMediaTransport? = null
     private var preferred: YMediaTransport? = null
+    private var activeRequest: YMediaTransportRequest? = null
+    private var bytesReadForRequest = 0L
     private var cronetUnavailable = false
 
     override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
         require(request.protocol in supportedProtocols)
         active?.close()
         active = null
+        activeRequest = request
+        bytesReadForRequest = 0L
         if (!cronetUnavailable) {
             val cronet = preferred ?: runCatching(createCronet).getOrNull()
             if (cronet != null) {
@@ -48,19 +53,101 @@ internal class AndroidAdaptiveHttpMediaTransport(
                 cronetUnavailable = true
             }
         }
-        return createOkHttp().let { transport ->
-            transport.open(request).also { active = transport }
-        }
+        return openFallback(request)
     }
 
     override suspend fun read(
         destination: ByteArray,
         offset: Int,
         length: Int,
-    ): Int = checkNotNull(active) { "HTTP transport is not open" }.read(destination, offset, length)
+    ): Int {
+        val transport = checkNotNull(active) { "HTTP transport is not open" }
+        return try {
+            transport.read(destination, offset, length).also(::recordRead)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            if (transport !== preferred || cronetUnavailable) throw failure
+            recoverReadWithFallback(
+                failed = transport,
+                destination = destination,
+                offset = offset,
+                length = length,
+                preferredFailure = failure,
+            )
+        }
+    }
 
     override suspend fun close() {
         active?.close()
         active = null
+        activeRequest = null
+        bytesReadForRequest = 0L
+    }
+
+    private suspend fun openFallback(request: YMediaTransportRequest): YMediaTransportResponse {
+        val transport = createOkHttp()
+        return try {
+            transport.open(request).also { active = transport }
+        } catch (failure: Throwable) {
+            runCatching { transport.close() }
+            throw failure
+        }
+    }
+
+    private suspend fun recoverReadWithFallback(
+        failed: YMediaTransport,
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+        preferredFailure: Throwable,
+    ): Int {
+        val request = checkNotNull(activeRequest) { "HTTP transport request is unavailable" }
+        val remainingRequest = request.remainingAfter(bytesReadForRequest) ?: return -1
+        runCatching { failed.close() }
+        if (preferred === failed) preferred = null
+        active = null
+        cronetUnavailable = true
+
+        val fallback = createOkHttp()
+        try {
+            val response = fallback.open(remainingRequest)
+            response.requireMatchingRange(remainingRequest)
+            active = fallback
+            activeRequest = remainingRequest
+            bytesReadForRequest = 0L
+            return fallback.read(destination, offset, length).also(::recordRead)
+        } catch (fallbackFailure: Throwable) {
+            runCatching { fallback.close() }
+            fallbackFailure.addSuppressed(preferredFailure)
+            throw fallbackFailure
+        }
+    }
+
+    private fun recordRead(count: Int) {
+        if (count <= 0) return
+        bytesReadForRequest =
+            if (bytesReadForRequest > Long.MAX_VALUE - count.toLong()) {
+                Long.MAX_VALUE
+            } else {
+                bytesReadForRequest + count
+            }
+    }
+}
+
+private fun YMediaTransportRequest.remainingAfter(bytesRead: Long): YMediaTransportRequest? {
+    if (bytesRead <= 0L) return this
+    val originalRange = range ?: return null
+    if (bytesRead > Long.MAX_VALUE - originalRange.startInclusive) return null
+    val nextStart = originalRange.startInclusive + bytesRead
+    if (originalRange.endInclusive != null && nextStart > originalRange.endInclusive) return null
+    return copy(range = YByteRange(nextStart, originalRange.endInclusive))
+}
+
+private fun YMediaTransportResponse.requireMatchingRange(request: YMediaTransportRequest) {
+    val expected = request.range ?: return
+    require(statusCode == 206) { "Fallback transport did not accept byte range" }
+    require(acceptedRange?.startInclusive == expected.startInclusive) {
+        "Fallback transport returned mismatched range metadata"
     }
 }
