@@ -7,7 +7,6 @@ import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFeature
 import kotlinx.coroutines.runBlocking
-import java.util.ArrayDeque
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -96,7 +95,7 @@ private class FakeTransport(
 ) : YMediaTransport {
     override val supportedProtocols = setOf(YSourceProtocol.Http, YSourceProtocol.Https)
     override val features = setOf(YTransportFeature.ByteRange)
-    private val reads = ArrayDeque(readResults)
+    private val reads = readResults.toMutableList()
     val openedRequests = mutableListOf<YMediaTransportRequest>()
     var openCalls = 0
     var closeCalls = 0
@@ -116,7 +115,7 @@ private class FakeTransport(
         offset: Int,
         length: Int,
     ): Int =
-        when (val result = reads.pollFirst() ?: FakeRead.End) {
+        when (val result = if (reads.isEmpty()) FakeRead.End else reads.removeAt(0)) {
             is FakeRead.Data -> {
                 val count = minOf(length, result.bytes.size)
                 result.bytes.copyInto(destination, offset, 0, count)
