@@ -22,6 +22,7 @@ class PlaybackRuntimeFaultDetector(
 ) {
     private var lastPositionMs = initialPositionMs
     private var lastProgressAtEpochMs = startedAtEpochMs
+    private var playbackHasAdvanced = false
     private var firstFrameWaitSinceEpochMs: Long? = startedAtEpochMs
     private var missingVideoSinceEpochMs: Long? = null
     private var missingAudioSinceEpochMs: Long? = null
@@ -40,16 +41,14 @@ class PlaybackRuntimeFaultDetector(
         } else if (observation.positionMs > lastPositionMs + MIN_PROGRESS_STEP_MS) {
             lastPositionMs = observation.positionMs
             lastProgressAtEpochMs = now
+            playbackHasAdvanced = true
         }
         if (
             !observation.playbackRequested ||
             observation.errorPresent ||
             observation.ended
         ) {
-            lastProgressAtEpochMs = now
-            firstFrameWaitSinceEpochMs = null
-            missingVideoSinceEpochMs = null
-            missingAudioSinceEpochMs = null
+            resetClocks(now)
             return null
         }
 
@@ -64,13 +63,29 @@ class PlaybackRuntimeFaultDetector(
                                 !observation.audioReady
                         )
                 )
+        val verifiedOutputPresent =
+            (observation.videoExpected && observation.videoReady) ||
+                (observation.audioExpected && observation.audioReady)
+
+        // playbackRequested is user intent, not proof that the backend is currently advancing.
+        // During an audio-focus pause some adapters can briefly keep that intent true while
+        // PlaybackState.playing is already false. Once this binding has produced output or moved
+        // its clock, that state is an intentional/externally imposed pause — not a renderer stall.
+        // Keep the startup watchdog alive only for a binding that has never produced anything.
+        if (!observation.playing && (playbackHasAdvanced || verifiedOutputPresent)) {
+            resetClocks(now)
+            return null
+        }
+
         val videoMissing =
-            observation.videoExpected &&
+            observation.playing &&
+                observation.videoExpected &&
                 observation.videoOutputVerifiable &&
                 !observation.videoReady &&
                 renderedProgressMs >= MISSING_OUTPUT_PROGRESS_MS
         val audioMissing =
-            observation.audioExpected &&
+            observation.playing &&
+                observation.audioExpected &&
                 observation.audioOutputVerifiable &&
                 !observation.audioReady &&
                 renderedProgressMs >= MISSING_OUTPUT_PROGRESS_MS
@@ -123,7 +138,8 @@ class PlaybackRuntimeFaultDetector(
                         PlaybackRuntimeFaultKind.AudioOutputMissing,
                         "播放进度前进但没有可验证的音频输出",
                     )
-                !awaitingFirstOutput &&
+                observation.playing &&
+                    !awaitingFirstOutput &&
                     (observation.videoExpected || observation.audioExpected) &&
                     now - lastProgressAtEpochMs >= POSITION_STALL_TIMEOUT_MS ->
                     PlaybackRuntimeFault(
@@ -134,6 +150,13 @@ class PlaybackRuntimeFaultDetector(
             }
         if (fault != null) reported = true
         return fault
+    }
+
+    private fun resetClocks(nowEpochMs: Long) {
+        lastProgressAtEpochMs = nowEpochMs
+        firstFrameWaitSinceEpochMs = null
+        missingVideoSinceEpochMs = null
+        missingAudioSinceEpochMs = null
     }
 }
 
