@@ -88,12 +88,26 @@ enum class LibraryStatus {
     /** On the server, not yet watched. */
     Available,
 
+    /** On the server with a non-zero resume position. */
+    InProgress,
+
     /** On the server and watched. */
     Watched,
 
     /** No server to ask, or the lookup failed. The row still shows the broadcast. */
     Unknown,
 }
+
+/** One server's concrete copy of a scheduled title. External schedules never create this. */
+data class CalendarSource(
+    val serverId: String,
+    val serverName: String,
+    val itemId: String? = null,
+    val seriesItemId: String? = null,
+    val status: LibraryStatus,
+    val playedPercentage: Double? = null,
+    val qualityTags: List<String> = emptyList(),
+)
 
 /** One episode as the calendar shows it: the broadcast, plus what this library has. */
 data class CalendarEntry(
@@ -111,12 +125,23 @@ data class CalendarEntry(
      * the only thing this field can distinguish them by.
      */
     val seriesItemId: String? = null,
+    /** All matching servers, merged into this one schedule row. */
+    val sources: List<CalendarSource> = emptyList(),
 ) {
     /** True for a show this library follows, whether or not it has tonight's episode. */
-    val inLibrary: Boolean get() = seriesItemId != null
+    val inLibrary: Boolean get() = seriesItemId != null || sources.any { it.seriesItemId != null }
 
     /** What tapping the row opens: the episode when there is one, else the show. */
     val openItemId: String? get() = itemId ?: seriesItemId
+
+    val serverNames: List<String>
+        get() = sources.map { it.serverName }.filter(String::isNotBlank).distinct()
+
+    val qualityTags: List<String>
+        get() = sources.flatMap { it.qualityTags }.distinct()
+
+    val playedPercentage: Double?
+        get() = sources.mapNotNull { it.playedPercentage }.maxOrNull()
 }
 
 /** A day's broadcasts, which is the unit the calendar is laid out in. */

@@ -95,6 +95,7 @@ import com.yfuse.core.designsystem.SplashPreview
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.WindowWidthTier
+import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.defaultAnimation
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.liquidGlass
@@ -154,6 +155,29 @@ private enum class ProfilePage {
     Splash,
 }
 
+private data class SettingsSearchDestination(
+    val title: String,
+    val summary: String,
+    val keywords: String,
+    val page: ProfilePage? = null,
+    val opensServers: Boolean = false,
+    val icon: ImageVector,
+    val tint: Color,
+)
+
+private val SettingsSearchDestinations =
+    listOf(
+        SettingsSearchDestination("账号与同步", "登录、会话与加密同步", "账号 登录 会话 同步", ProfilePage.Account, icon = AppIcons.User, tint = SettingTint.account),
+        SettingsSearchDestination("服务器", "连接与切换媒体服务器", "服务器 emby jellyfin plex", opensServers = true, icon = AppIcons.Server, tint = SettingTint.servers),
+        SettingsSearchDestination("外观与主题", "主题、背景、动效与辅助功能", "外观 主题 背景 玻璃 字体 动效", ProfilePage.Appearance, icon = AppIcons.Grid, tint = SettingTint.appearance),
+        SettingsSearchDestination("播放", "画质、引擎、续播与跳过片头", "播放 画质 解码 引擎 续播", ProfilePage.Playback, icon = AppIcons.Play, tint = SettingTint.playback),
+        SettingsSearchDestination("字幕与弹幕", "来源、关键词屏蔽与显示", "字幕 弹幕 api 简繁 画中画", ProfilePage.Danmaku, icon = AppIcons.Danmaku, tint = SettingTint.danmaku),
+        SettingsSearchDestination("下载", "下载任务与离线媒体库", "下载 离线 缓存", ProfilePage.Downloads, icon = AppIcons.Download, tint = SettingTint.downloads),
+        SettingsSearchDestination("播放恢复与同步", "断点恢复、冲突与立即同步", "恢复 进度 同步 冲突", ProfilePage.Recovery, icon = AppIcons.Refresh, tint = SettingTint.sync),
+        SettingsSearchDestination("影视发现与追剧日历", "榜单、日历与转存", "发现 榜单 日历 追剧 123", ProfilePage.MediaDiscovery, icon = AppIcons.Cloud, tint = SettingTint.sync),
+        SettingsSearchDestination("高级设置", "网络兼容、备份、缓存与诊断", "高级 网络 备份 缓存 诊断", ProfilePage.DataAndDiagnostics, icon = AppIcons.Info, tint = SettingTint.advanced),
+    )
+
 @Composable
 fun ProfileScreen(component: ProfileComponent) {
     val state by component.store.states.collectAsState(component.store.state)
@@ -204,6 +228,7 @@ fun ProfileScreen(component: ProfileComponent) {
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    var settingsQuery by rememberSaveable { mutableStateOf("") }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
     var recoveryToPlay by remember {
         mutableStateOf<Pair<PlayerMediaItem, PlaybackRecoverySnapshot>?>(null)
@@ -421,8 +446,25 @@ fun ProfileScreen(component: ProfileComponent) {
                         contentPadding = PaddingValues(top = Dimens.contentTop, bottom = rootBottomContentInset),
                         verticalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
+                        item(key = "settings-search") {
+                            YfFormField(
+                                value = settingsQuery,
+                                onValueChange = { settingsQuery = it.take(60) },
+                                label = "搜索设置",
+                                modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                            )
+                        }
+                        if (settingsQuery.isNotBlank()) {
+                            item(key = "settings-search-results") {
+                                SettingsSearchResults(
+                                    query = settingsQuery,
+                                    onOpen = ::openPage,
+                                    onOpenServers = component.onOpenServers,
+                                )
+                            }
+                        }
                         item {
-                            Section(title = "Yfuse 账号") {
+                            Section(title = "服务器与账号") {
                                 SettingsCard {
                                     SettingRow(
                                         icon = AppIcons.User,
@@ -433,18 +475,12 @@ fun ProfileScreen(component: ProfileComponent) {
                                                 AccountState.Restoring -> "正在恢复 ›"
                                                 is AccountState.RestoreFailed -> "连接失败 · 点此重试 ›"
                                                 AccountState.SignedOut -> "未登录 ›"
-                                                is AccountState.SignedIn -> "${account.session.user.nickname} · 手动加密同步 ›"
+                                                is AccountState.SignedIn -> "${account.session.user.nickname} · 加密同步 ›"
                                             },
                                         embedded = true,
                                         onClick = { openPage(ProfilePage.Account) },
                                     )
-                                }
-                            }
-                        }
-
-                        item {
-                            Section(title = "我的服务器") {
-                                SettingsCard {
+                                    SettingsDivider()
                                     SettingRow(
                                         icon = AppIcons.Server,
                                         iconTint = SettingTint.servers,
@@ -464,7 +500,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         }
 
                         item {
-                            Section(title = "外观") {
+                            Section(title = "外观与主题") {
                                 SettingsCard {
                                     SettingSegmentRow(
                                         title = "主题",
@@ -497,37 +533,15 @@ fun ProfileScreen(component: ProfileComponent) {
                         }
 
                         item {
-                            Section(title = "设置") {
+                            Section(title = "播放") {
                                 SettingsCard {
                                     SettingRow(
-                                        "播放",
+                                        "播放设置",
                                         "${playbackSettingsSummary(optimizationMode, decoder)} ›",
                                         embedded = true,
                                         onClick = { openPage(ProfilePage.Playback) },
                                         icon = AppIcons.Play,
                                         iconTint = SettingTint.playback,
-                                    )
-                                    SettingsDivider()
-                                    SettingRow(
-                                        "影视发现",
-                                        "榜单 · 追剧日历 · 123 转存 ›",
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.MediaDiscovery) },
-                                        icon = AppIcons.Cloud,
-                                        iconTint = SettingTint.sync,
-                                    )
-                                    SettingsDivider()
-                                    SettingRow(
-                                        "弹幕",
-                                        when (danmakuSources.size) {
-                                            0 -> "未配置 ›"
-                                            1 -> "1 个来源 ›"
-                                            else -> "${danmakuSources.size} 个来源 ›"
-                                        },
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.Danmaku) },
-                                        icon = AppIcons.Danmaku,
-                                        iconTint = SettingTint.danmaku,
                                     )
                                     SettingsDivider()
                                     SettingRow(
@@ -556,14 +570,39 @@ fun ProfileScreen(component: ProfileComponent) {
                         }
 
                         item {
-                            Section(title = "我的内容") {
+                            Section(title = "字幕与弹幕") {
+                                SettingsCard {
+                                    SettingRow(
+                                        "弹幕设置",
+                                        when (danmakuSources.size) {
+                                            0 -> "来源 · 关键词屏蔽 · 显示 ›"
+                                            1 -> "1 个来源 · 关键词屏蔽 ›"
+                                            else -> "${danmakuSources.size} 个来源 · 关键词屏蔽 ›"
+                                        },
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.Danmaku) },
+                                        icon = AppIcons.Danmaku,
+                                        iconTint = SettingTint.danmaku,
+                                    )
+                                }
+                            }
+                        }
+
+                        item {
+                            Section(title = "下载") {
                                 SettingsCard {
                                     DownloadRow(
                                         value = "${offlineItems.size} 项 ›",
                                         embedded = true,
                                         onClick = { openPage(ProfilePage.Downloads) },
                                     )
-                                    SettingsDivider()
+                                }
+                            }
+                        }
+
+                        item {
+                            Section(title = "同步与数据") {
+                                SettingsCard {
                                     SettingRow(
                                         icon = AppIcons.Refresh,
                                         iconTint = SettingTint.sync,
@@ -580,6 +619,15 @@ fun ProfileScreen(component: ProfileComponent) {
                                     )
                                     SettingsDivider()
                                     SettingRow(
+                                        "影视发现",
+                                        "榜单 · 追剧日历 · 123 转存 ›",
+                                        embedded = true,
+                                        onClick = { openPage(ProfilePage.MediaDiscovery) },
+                                        icon = AppIcons.Cloud,
+                                        iconTint = SettingTint.sync,
+                                    )
+                                    SettingsDivider()
+                                    SettingRow(
                                         "高级设置",
                                         "网络兼容 · 备份 · 缓存 · 诊断 ›",
                                         embedded = true,
@@ -591,8 +639,12 @@ fun ProfileScreen(component: ProfileComponent) {
                             }
                         }
 
-                        item { AppUpdateTools() }
-                        item { AppVersionFooter() }
+                        item {
+                            Section(title = "关于") {
+                                AppUpdateTools()
+                                AppVersionFooter()
+                            }
+                        }
                     }
             }
         }
@@ -1018,6 +1070,51 @@ internal fun Section(
             }
         }
         content()
+    }
+}
+
+@Composable
+private fun SettingsSearchResults(
+    query: String,
+    onOpen: (ProfilePage) -> Unit,
+    onOpenServers: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val needle = query.trim().lowercase()
+    val results =
+        SettingsSearchDestinations.filter { destination ->
+            listOf(destination.title, destination.summary, destination.keywords)
+                .any { needle in it.lowercase() }
+        }
+    Section(title = "搜索结果") {
+        SettingsCard {
+            if (results.isEmpty()) {
+                Text(
+                    "没有匹配的设置项",
+                    style = AppTypography.body.regular,
+                    color = palette.sub2,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+                )
+            } else {
+                results.forEachIndexed { index, destination ->
+                    SettingRow(
+                        title = destination.title,
+                        value = "${destination.summary} ›",
+                        embedded = true,
+                        onClick = {
+                            if (destination.opensServers) {
+                                onOpenServers()
+                            } else {
+                                destination.page?.let(onOpen)
+                            }
+                        },
+                        icon = destination.icon,
+                        iconTint = destination.tint,
+                    )
+                    if (index < results.lastIndex) SettingsDivider()
+                }
+            }
+        }
     }
 }
 

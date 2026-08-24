@@ -105,6 +105,24 @@ internal sealed interface DetailMsg {
         val value: Boolean,
     ) : DetailMsg
 
+    data object ProgressManagerOpened : DetailMsg
+
+    data object ProgressManagerClosed : DetailMsg
+
+    data class ProgressSelectionChanged(
+        val episodeIds: Set<String>,
+    ) : DetailMsg
+
+    data class ProgressSaving(
+        val value: Boolean,
+    ) : DetailMsg
+
+    data class EpisodesProgressChanged(
+        val episodeIds: Set<String>,
+        val played: Boolean,
+        val message: String,
+    ) : DetailMsg
+
     data class WatchLaterChanged(
         val serverId: String,
         val itemId: String,

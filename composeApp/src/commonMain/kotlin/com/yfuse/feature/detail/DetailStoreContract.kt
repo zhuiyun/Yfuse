@@ -52,6 +52,9 @@ data class DetailState(
     val selectedSeasonId: String? = null,
     val episodes: List<Episode> = emptyList(),
     val episodesLoading: Boolean = false,
+    val progressManagerOpen: Boolean = false,
+    val progressSelection: Set<String> = emptySet(),
+    val progressSaving: Boolean = false,
     /** 跨服务器片源对比. */
     val sources: List<ServerSource> = emptyList(),
     val related: List<MediaItem> = emptyList(),
@@ -80,6 +83,22 @@ sealed interface DetailIntent {
     data object ToggleFavorite : DetailIntent
 
     data object TogglePlayed : DetailIntent
+
+    data object OpenProgressManager : DetailIntent
+
+    data object CloseProgressManager : DetailIntent
+
+    data class ToggleProgressEpisode(
+        val episodeId: String,
+    ) : DetailIntent
+
+    data class SelectProgressEpisodes(
+        val preset: EpisodeSelectionPreset,
+    ) : DetailIntent
+
+    data class ApplyEpisodeProgress(
+        val action: EpisodeProgressAction,
+    ) : DetailIntent
 
     data object ToggleWatchLater : DetailIntent
 
@@ -128,6 +147,10 @@ sealed interface DetailIntent {
         val versionId: String?,
     ) : DetailIntent
 }
+
+enum class EpisodeSelectionPreset { All, Watched, Unwatched, Invert }
+
+enum class EpisodeProgressAction { MarkWatched, MarkUnwatched, Reset }
 
 sealed interface DetailLabel {
     /** Resolved playable target; the component turns this into navigation. */

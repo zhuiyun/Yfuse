@@ -210,13 +210,7 @@ private fun EpisodeRow(
             .pressable(onClick = onPlay)
             .clip(GlassShapes.card)
             .background(if (current) stateColors.surface else Color.Transparent)
-            .then(
-                if (current) {
-                    Modifier.border(1.75.dp, stateColors.border, GlassShapes.card)
-                } else {
-                    Modifier
-                },
-            ).padding(7.dp),
+            .padding(7.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(Modifier.width(148.dp).height(84.dp)) {
@@ -268,6 +262,12 @@ private fun EpisodeRow(
                         )
                     }
                 }
+            }
+            if (current) {
+                EpisodeSelectionBadge(
+                    accent = accent,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
+                )
             }
         }
         Column(Modifier.weight(1f)) {
@@ -344,6 +344,28 @@ internal fun EpisodeWatchedBadge(modifier: Modifier = Modifier) {
             contentDescription = "已看完",
             tint = palette.sub,
             modifier = Modifier.size(9.dp),
+        )
+    }
+}
+
+/** Current selection uses a filled theme state plus a check; never a border-only cue. */
+@Composable
+internal fun EpisodeSelectionBadge(
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .background(accent),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            AppIcons.Check,
+            contentDescription = "当前剧集",
+            tint = Color.White,
+            modifier = Modifier.size(11.dp),
         )
     }
 }

@@ -84,6 +84,35 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
                 } else {
                     this
                 }
+            DetailMsg.ProgressManagerOpened ->
+                copy(
+                    progressManagerOpen = true,
+                    progressSelection = emptySet(),
+                    progressSaving = false,
+                )
+            DetailMsg.ProgressManagerClosed ->
+                if (progressSaving) this else copy(progressManagerOpen = false, progressSelection = emptySet())
+            is DetailMsg.ProgressSelectionChanged -> copy(progressSelection = msg.episodeIds)
+            is DetailMsg.ProgressSaving -> copy(progressSaving = msg.value)
+            is DetailMsg.EpisodesProgressChanged ->
+                copy(
+                    episodes =
+                        episodes.map { episode ->
+                            if (episode.id in msg.episodeIds) {
+                                episode.copy(
+                                    played = msg.played,
+                                    playedPercentage = null,
+                                    resumePositionTicks = null,
+                                )
+                            } else {
+                                episode
+                            }
+                        },
+                    progressManagerOpen = false,
+                    progressSelection = emptySet(),
+                    progressSaving = false,
+                    actionMessage = msg.message,
+                )
             is DetailMsg.WatchLaterChanged ->
                 if (
                     server?.id == msg.serverId && detail?.id == msg.itemId

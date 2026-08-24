@@ -68,6 +68,11 @@ internal class DetailExecutor(
             DetailIntent.PlayFromStart -> play(fromStart = true)
             DetailIntent.ToggleFavorite -> toggleFavorite()
             DetailIntent.TogglePlayed -> togglePlayed()
+            DetailIntent.OpenProgressManager -> dispatch(DetailMsg.ProgressManagerOpened)
+            DetailIntent.CloseProgressManager -> dispatch(DetailMsg.ProgressManagerClosed)
+            is DetailIntent.ToggleProgressEpisode -> toggleProgressEpisode(intent.episodeId)
+            is DetailIntent.SelectProgressEpisodes -> selectProgressEpisodes(intent.preset)
+            is DetailIntent.ApplyEpisodeProgress -> applyEpisodeProgress(intent.action)
             DetailIntent.ToggleWatchLater -> toggleWatchLater()
             DetailIntent.LoadOrganizationContainers -> loadOrganizationContainers()
             is DetailIntent.AddToOrganizationContainer ->
@@ -987,6 +992,71 @@ internal class DetailExecutor(
                         dispatch(DetailMsg.ActionMessage("服务器暂不可用，已看状态已排队同步"))
                     }
                 }
+        }
+    }
+
+    private fun toggleProgressEpisode(episodeId: String) {
+        val current = state()
+        if (current.progressSaving || current.episodes.none { it.id == episodeId }) return
+        val selected = current.progressSelection
+        dispatch(
+            DetailMsg.ProgressSelectionChanged(
+                if (episodeId in selected) selected - episodeId else selected + episodeId,
+            ),
+        )
+    }
+
+    private fun selectProgressEpisodes(preset: EpisodeSelectionPreset) {
+        val current = state()
+        if (current.progressSaving) return
+        val all = current.episodes.mapTo(linkedSetOf()) { it.id }
+        val selected =
+            when (preset) {
+                EpisodeSelectionPreset.All -> all
+                EpisodeSelectionPreset.Watched ->
+                    current.episodes.filter { it.played }.mapTo(linkedSetOf()) { it.id }
+                EpisodeSelectionPreset.Unwatched ->
+                    current.episodes.filter { !it.played }.mapTo(linkedSetOf()) { it.id }
+                EpisodeSelectionPreset.Invert -> all - current.progressSelection
+            }
+        dispatch(DetailMsg.ProgressSelectionChanged(selected))
+    }
+
+    private fun applyEpisodeProgress(action: EpisodeProgressAction) {
+        val current = state()
+        val server = current.playServer ?: current.server ?: return
+        val selected = current.progressSelection
+        if (current.progressSaving || selected.isEmpty()) return
+        val targets = current.episodes.filter { it.id in selected }
+        if (targets.isEmpty()) return
+        val played = action == EpisodeProgressAction.MarkWatched
+        dispatch(DetailMsg.ProgressSaving(true))
+        scope.launch {
+            var queued = 0
+            targets.forEach { episode ->
+                syncManager
+                    .setPlayed(server, episode.id, episode.name, played)
+                    .onFailure { queued++ }
+            }
+            val actionLabel =
+                when (action) {
+                    EpisodeProgressAction.MarkWatched -> "标记已看"
+                    EpisodeProgressAction.MarkUnwatched -> "标记未看"
+                    EpisodeProgressAction.Reset -> "重置进度"
+                }
+            val message =
+                if (queued == 0) {
+                    "已为 ${targets.size} 集$actionLabel"
+                } else {
+                    "已更新 ${targets.size} 集，$queued 项将在服务器恢复后同步"
+                }
+            dispatch(
+                DetailMsg.EpisodesProgressChanged(
+                    episodeIds = targets.mapTo(linkedSetOf()) { it.id },
+                    played = played,
+                    message = message,
+                ),
+            )
         }
     }
 

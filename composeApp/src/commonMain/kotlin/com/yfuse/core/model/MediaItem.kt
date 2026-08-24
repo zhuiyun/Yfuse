@@ -22,6 +22,10 @@ data class MediaItem(
     val backdropTag: String?,
     /** Resume progress 0..100, when the item is in "continue watching". */
     val playedPercentage: Double?,
+    /** Exact Emby resume position; defaults keep older cached home payloads readable. */
+    val resumePositionTicks: Long? = null,
+    /** Account-wide ISO timestamp returned by Emby's UserData. */
+    val lastPlayedDate: String? = null,
     /** Synopsis, when the endpoint was asked for it (search results). */
     val overview: String? = null,
     /** Production year shown below poster cards. */

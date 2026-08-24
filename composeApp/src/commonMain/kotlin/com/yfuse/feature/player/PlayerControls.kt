@@ -5,12 +5,17 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -77,15 +82,16 @@ internal fun shouldShowManualSkipPill(
  * the picture keeps playing and the finger has to stay down to keep it there, so
  * skipping a minute of credits meant holding for thirty seconds and watching them. A
  * held press now runs along the timeline instead, at [HOLD_SEEK_STEP_MS] per
- * [HOLD_SEEK_TICK_MS] — 20× to start, [HOLD_SEEK_FAST_STEP_MS] (60×) once the press has
- * lasted [HOLD_SEEK_RAMP_MS], so a short hold nudges and a long one crosses an episode.
+ * [HOLD_SEEK_TICK_MS] — 10× to start, [HOLD_SEEK_FAST_STEP_MS] (30×) once the press has
+ * lasted [HOLD_SEEK_RAMP_MS]. This keeps short holds precise while still allowing a long
+ * hold to cross an episode.
  *
  * The engine is now sought every 300ms while held, so the decoded picture visibly follows
  * the HUD without hammering a remote direct-play stream with frame-rate-frequency seeks.
  */
 private const val HOLD_SEEK_TICK_MS = 300L
-private const val HOLD_SEEK_STEP_MS = 6_000L
-private const val HOLD_SEEK_FAST_STEP_MS = 18_000L
+private const val HOLD_SEEK_STEP_MS = 3_000L
+private const val HOLD_SEEK_FAST_STEP_MS = 9_000L
 private const val HOLD_SEEK_RAMP_MS = 3_000L
 
 /**
@@ -484,6 +490,9 @@ internal fun PlayerControls(
     Box(
         modifier
             .fillMaxSize()
+            // Fullscreen video may extend under a cutout or rounded edge; interactive chrome
+            // and the gesture detector stay inside the actual safe landscape width.
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
             .onFocusChanged { controlsHaveFocus = it.hasFocus }
             .focusGroup(),
     ) {
@@ -1145,7 +1154,7 @@ internal fun PlayerControls(
         gestureHud?.takeIf { !showPausedKey }?.let { value ->
             Text(
                 value,
-                style = AppTypography.section.strong,
+                style = AppTypography.body.strong,
                 color = Color.White,
                 modifier =
                     Modifier
@@ -1155,7 +1164,7 @@ internal fun PlayerControls(
                             shape = AppShapes.pill,
                             fill = Color.Black.copy(alpha = 0.56f),
                             border = Color.White.copy(alpha = 0.24f),
-                        ).padding(horizontal = 22.dp, vertical = 13.dp),
+                        ).padding(horizontal = 16.dp, vertical = 9.dp),
             )
         }
 

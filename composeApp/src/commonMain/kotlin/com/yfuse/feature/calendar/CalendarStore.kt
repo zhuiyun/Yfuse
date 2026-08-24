@@ -47,6 +47,7 @@ enum class CalendarFilter(
                     entry.status in
                     setOf(
                         com.yfuse.core.model.LibraryStatus.Available,
+                        com.yfuse.core.model.LibraryStatus.InProgress,
                         com.yfuse.core.model.LibraryStatus.Missing,
                     )
             Mine -> entry.inLibrary

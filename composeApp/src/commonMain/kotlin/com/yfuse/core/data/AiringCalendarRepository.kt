@@ -4,10 +4,14 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
+import com.yfuse.core.model.CalendarSource
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.LibraryStatus
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.shiftIsoDate
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 /**
  * 追剧日历 — what is broadcasting, and what this library can do about it.
@@ -58,7 +62,7 @@ class AiringCalendarRepository(
     }
 
     /**
-     * Marks each broadcast against the default server's library.
+     * Marks each broadcast against every saved server and merges identical media keys.
      *
      * One request fetches every series the library holds, keyed by provider id; only the
      * shows that actually matched then cost an episode request. Most of a popularity chart
@@ -70,9 +74,30 @@ class AiringCalendarRepository(
     ): List<CalendarEntry> {
         fun unresolved(status: (AiringEpisode) -> LibraryStatus) = episodes.map { CalendarEntry(it, status(it)) }
 
-        val server =
-            registry.defaultServer
-                ?: return unresolved { if (it.airDate > today) LibraryStatus.Unaired else LibraryStatus.Unknown }
+        val servers = registry.data.value.servers
+        if (servers.isEmpty()) {
+            return unresolved { if (it.airDate > today) LibraryStatus.Unaired else LibraryStatus.Unknown }
+        }
+
+        val perServer =
+            coroutineScope {
+                servers.map { server -> async { resolveServerStatus(episodes, today, server) } }.map { it.await() }
+            }
+        return episodes.indices.map { index ->
+            mergeCalendarEntries(
+                episode = episodes[index],
+                candidates = perServer.map { it[index] },
+                today = today,
+            )
+        }
+    }
+
+    private suspend fun resolveServerStatus(
+        episodes: List<AiringEpisode>,
+        today: String,
+        server: SavedServer,
+    ): List<CalendarEntry> {
+        fun unresolved(status: (AiringEpisode) -> LibraryStatus) = episodes.map { CalendarEntry(it, status(it)) }
 
         val index =
             emby.seriesProviderIndex(server).getOrElse { error ->
@@ -122,6 +147,18 @@ class AiringCalendarRepository(
                     // A film is its own entry; there is no series above it to fall back to,
                     // so 未入库 stays a row you cannot open — there is nothing to open.
                     seriesItemId = hit?.itemId,
+                    sources =
+                        hit?.let {
+                            listOf(
+                                CalendarSource(
+                                    serverId = server.id,
+                                    serverName = server.serverName,
+                                    itemId = it.itemId,
+                                    seriesItemId = it.itemId,
+                                    status = if (it.played) LibraryStatus.Watched else LibraryStatus.Available,
+                                ),
+                            )
+                        }.orEmpty(),
                 )
             }
             val seriesId = index["tmdb:${episode.showTmdbId}"]
@@ -134,7 +171,7 @@ class AiringCalendarRepository(
             }
             val known =
                 episodesBySeries.getOrPut(seriesId) {
-                    emby.episodes(server, seriesId, seasonId = null).getOrElse { error ->
+                    emby.episodes(server, seriesId, seasonId = null, includeMediaSources = true).getOrElse { error ->
                         AppLog.warning(
                             category = "feature.calendar",
                             event = "series_episodes_failed",
@@ -158,8 +195,59 @@ class AiringCalendarRepository(
                 // server id travels with either — a 未入库 row still opens the series.
                 serverId = server.id,
                 seriesItemId = seriesId,
+                sources =
+                    listOf(
+                        CalendarSource(
+                            serverId = server.id,
+                            serverName = server.serverName,
+                            itemId = match?.id,
+                            seriesItemId = seriesId,
+                            status = classifyAiring(match, episode.airDate, today),
+                            playedPercentage = match?.playedPercentage,
+                            qualityTags = match?.calendarQualityTags().orEmpty(),
+                        ),
+                    ),
             )
         }
+    }
+}
+
+private fun mergeCalendarEntries(
+    episode: AiringEpisode,
+    candidates: List<CalendarEntry>,
+    today: String,
+): CalendarEntry {
+    val sources = candidates.flatMap { it.sources }.distinctBy { it.serverId to (it.itemId ?: it.seriesItemId) }
+    val best =
+        candidates.maxByOrNull { candidate ->
+            val statusRank = when (candidate.status) {
+                LibraryStatus.Watched -> 5
+                LibraryStatus.InProgress -> 4
+                LibraryStatus.Available -> 3
+                LibraryStatus.Missing -> 2
+                LibraryStatus.Unknown -> 1
+                LibraryStatus.Unaired -> 0
+            }
+            statusRank * 10 + if (candidate.inLibrary) 1 else 0
+        }
+    val fallbackStatus = if (episode.airDate > today) LibraryStatus.Unaired else LibraryStatus.Missing
+    return CalendarEntry(
+        episode = episode,
+        status = best?.status ?: fallbackStatus,
+        itemId = best?.itemId,
+        serverId = best?.serverId,
+        seriesItemId = best?.seriesItemId,
+        sources = sources,
+    )
+}
+
+private fun Episode.calendarQualityTags(): List<String> {
+    val mediaVersions = versions
+    return buildList {
+        mediaVersions.mapNotNull { it.resolutionLabel }.firstOrNull()?.let(::add)
+        if (mediaVersions.any { it.videoCodec.equals("hevc", ignoreCase = true) }) add("HEVC")
+        if (mediaVersions.any { it.isDolbyVision }) add("Dolby Vision")
+        if (mediaVersions.any { it.hasDolbyAtmos }) add("Atmos")
     }
 }
 
@@ -178,6 +266,8 @@ internal fun classifyAiring(
 ): LibraryStatus =
     when {
         match != null && match.played -> LibraryStatus.Watched
+        match != null && ((match.resumePositionTicks ?: 0L) > 0L || (match.playedPercentage ?: 0.0) > 0.0) ->
+            LibraryStatus.InProgress
         match != null -> LibraryStatus.Available
         airDate > today -> LibraryStatus.Unaired
         else -> LibraryStatus.Missing

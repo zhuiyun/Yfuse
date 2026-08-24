@@ -73,6 +73,7 @@ data class ViewItemDto(
 data class UserDataDto(
     val PlayedPercentage: Double? = null,
     val PlaybackPositionTicks: Long? = null,
+    val LastPlayedDate: String? = null,
     val Played: Boolean? = null,
     val IsFavorite: Boolean? = null,
 )
@@ -370,6 +371,8 @@ fun BaseItemDto.toMediaItem(): MediaItem {
         backdropItemId = if (ownBackdrop != null) Id else ParentBackdropItemId ?: SeriesId ?: Id,
         backdropTag = ownBackdrop ?: inheritedBackdrop,
         playedPercentage = UserData?.PlayedPercentage,
+        resumePositionTicks = UserData?.PlaybackPositionTicks,
+        lastPlayedDate = UserData?.LastPlayedDate,
         overview = Overview,
         year = ProductionYear,
         runtimeMinutes = RunTimeTicks?.let { (it / 600_000_000L).toInt() }?.takeIf { it > 0 },

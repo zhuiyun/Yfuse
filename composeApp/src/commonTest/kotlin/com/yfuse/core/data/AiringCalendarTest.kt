@@ -10,7 +10,10 @@ import kotlin.test.assertEquals
 class AiringCalendarTest {
     private val today = "2026-07-31"
 
-    private fun episode(played: Boolean) =
+    private fun episode(
+        played: Boolean,
+        resumePositionTicks: Long? = null,
+    ) =
         Episode(
             id = "ep1",
             name = "第 5 集",
@@ -22,7 +25,7 @@ class AiringCalendarTest {
             primaryTag = null,
             playedPercentage = null,
             played = played,
-            resumePositionTicks = null,
+            resumePositionTicks = resumePositionTicks,
         )
 
     @Test
@@ -34,6 +37,18 @@ class AiringCalendarTest {
         assertEquals(
             LibraryStatus.Watched,
             classifyAiring(episode(played = true), airDate = "2026-07-30", today = today),
+        )
+    }
+
+    @Test
+    fun a_partially_watched_episode_is_in_progress() {
+        assertEquals(
+            LibraryStatus.InProgress,
+            classifyAiring(
+                episode(played = false, resumePositionTicks = 60_000_000L),
+                airDate = "2026-07-30",
+                today = today,
+            ),
         )
     }
 
