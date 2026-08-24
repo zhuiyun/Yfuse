@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"id":"mp4-h264-aac-sdr","container":"mp4","video":"h264","audio":"aac","range":"SDR","subtitle":"none","expected":"system-direct"},
+    {"id":"mkv-hevc10-hdr10-eac3","container":"mkv","video":"hevc-main10","audio":"eac3","range":"HDR10","subtitle":"srt","expected":"system-direct-or-server-transcode"},
+    {"id":"mp4-hevc-hlg-aac","container":"mp4","video":"hevc-main10","audio":"aac","range":"HLG","subtitle":"webvtt","expected":"system-direct-or-server-transcode"},
+    {"id":"mkv-dv-profile5-eac3","container":"mkv","video":"dolby-vision-profile5","audio":"eac3","range":"DolbyVision","subtitle":"none","expected":"physical-evidence-required","gate":"player.dolbyVision"},
+    {"id":"mkv-dv-profile7-truehd","container":"mkv","video":"dolby-vision-profile7","audio":"truehd-atmos","range":"DolbyVision","subtitle":"pgs","expected":"physical-evidence-required","gate":"player.dolbyVision"},
+    {"id":"mp4-dv-profile8-aac","container":"mp4","video":"dolby-vision-profile8.1","audio":"aac","range":"DolbyVision","subtitle":"none","expected":"physical-evidence-required","gate":"player.dolbyVision"},
+    {"id":"mkv-av1-opus","container":"mkv","video":"av1","audio":"opus","range":"SDR","subtitle":"ass","expected":"capability-routed"},
+    {"id":"mkv-h264-dts-hd","container":"mkv","video":"h264","audio":"dts-hd-ma","range":"SDR","subtitle":"pgs","expected":"physical-evidence-required","gate":"player.encodedAudio"},
+    {"id":"hls-aes-headers","container":"hls","video":"h264","audio":"aac","range":"SDR","subtitle":"webvtt","expected":"credential-preserving-route"},
+    {"id":"remote-range-seek","container":"mkv","video":"hevc","audio":"flac","range":"SDR","subtitle":"external-srt","expected":"resume-and-seek"},
+    {"id":"expired-token","container":"mp4","video":"h264","audio":"aac","range":"SDR","subtitle":"none","expected":"auth-error-no-engine-handover"},
+    {"id":"local-iso-main-feature","container":"iso","video":"hevc","audio":"truehd-atmos","range":"HDR10","subtitle":"pgs","expected":"capability-gated","gate":"player.opticalDisc"},
+    {"id":"remote-bdmv-range","container":"bdmv","video":"h264","audio":"dts-hd-ma","range":"SDR","subtitle":"pgs","expected":"capability-gated","gate":"player.opticalDisc"}
+  ],
+  "durability": [
+    {"id":"continuous-playback","hours":8},
+    {"id":"seek-stress","operations":500},
+    {"id":"engine-handover","operations":100},
+    {"id":"background-foreground","operations":100},
+    {"id":"network-roaming","operations":50}
+  ],
+  "releaseThresholds": {
+    "fatalCrashes": 0,
+    "anr": 0,
+    "avSyncAbsoluteMsMax": 80,
+    "droppedFramePercentMax": 1.0,
+    "unexplainedRebufferCountMax": 0
+  }
+}

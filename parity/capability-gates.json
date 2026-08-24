@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "sdkBaseline": {
+    "harmonyApi": 20,
+    "cangjie": "0.53.18",
+    "architectures": ["arm64-v8a", "x86_64"]
+  },
+  "gates": [
+    {
+      "id": "build.cangjie",
+      "status": "requiresSdk",
+      "evidence": "A Release HAP built by the pinned DevEco Cangjie SDK"
+    },
+    {
+      "id": "player.systemVideo",
+      "status": "physicalDeviceEvidenceRequired",
+      "evidence": "Video and audio render on a physical HarmonyOS device with progress and track callbacks"
+    },
+    {
+      "id": "player.nativeSurface",
+      "status": "blockedByPublicApi",
+      "evidence": "A supported Cangjie surface host or verified C++ ArkUI native-node bridge supplies NativeWindow",
+      "blocker": "The public Cangjie ArkUI wrapper documents XComponent and custom render nodes as unsupported"
+    },
+    {
+      "id": "player.dolbyVision",
+      "status": "physicalDeviceEvidenceRequired",
+      "evidence": "Active output profile, decoder, renderer and sink capability captured from a physical device"
+    },
+    {
+      "id": "player.encodedAudio",
+      "status": "physicalDeviceEvidenceRequired",
+      "evidence": "Active encoded output and receiver-reported format captured from a physical device"
+    },
+    {
+      "id": "player.opticalDisc",
+      "status": "nativeSurfaceRequired",
+      "evidence": "ISO and BDMV random-access, playlist, angle and menu navigation tests pass"
+    },
+    {
+      "id": "security.assetStore",
+      "status": "requiresSdk",
+      "evidence": "Token add/query/update/remove passes with encrypted Asset Store on a signed physical-device build; release has no plaintext fallback"
+    }
+  ]
+}

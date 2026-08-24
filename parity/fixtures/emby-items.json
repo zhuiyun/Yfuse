@@ -1,0 +1,17 @@
+{
+  "Items": [
+    {
+      "Id": "movie-a",
+      "Name": "Fixture Movie",
+      "Type": "Movie",
+      "ProductionYear": 2026,
+      "RunTimeTicks": 72000000000,
+      "Overview": "Provider decoder fixture",
+      "ImageTags": {"Primary": "poster-tag"},
+      "BackdropImageTags": ["backdrop-tag"],
+      "ProviderIds": {"Tmdb": "123"},
+      "UserData": {"PlayedPercentage": 41.5, "IsFavorite": true, "Played": false}
+    }
+  ],
+  "TotalRecordCount": 1
+}

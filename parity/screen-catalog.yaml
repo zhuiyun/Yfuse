@@ -1,0 +1,94 @@
+schemaVersion: 1
+sourceOfTruth:
+  platform: android
+  commit: 45d39439
+  rule: HarmonyOS must match the observable Android behavior; platform-only implementation details may differ.
+
+rootNavigation:
+  - id: home
+    label: 首页
+    android: feature/home/HomeTabScreen.kt
+  - id: library
+    label: 库
+    android: feature/library/LibraryScreen.kt
+  - id: servers
+    label: 服务器
+    android: feature/servers/ServersTabScreen.kt
+  - id: search
+    label: 搜索
+    android: feature/search/SearchScreen.kt
+  - id: profile
+    label: 我的
+    android: feature/profile/ProfileTabScreen.kt
+
+screens:
+  - id: splash
+    states: [coldStart, restoringSession, firstRun, failed]
+  - id: home
+    states: [loading, content, empty, offline, partialFailure]
+    invariants: [livingPoster, artworkBottomDissolve, retainedDynamicColor, floatingNavigation, miniPlayer]
+  - id: tmdbInfo
+    states: [loading, content, failed]
+  - id: calendar
+    states: [loading, content, empty, failed]
+  - id: libraryHome
+    states: [loading, content, empty, failed]
+    invariants: [livingPoster, artworkBottomDissolve, retainedDynamicColor]
+  - id: libraryGrid
+    states: [loading, content, empty, failed, filtering, sorting]
+  - id: detail
+    states: [loading, content, failed, selectingSource, selectingSeason]
+    invariants: [retainedDynamicColor, continueTimeBeforeArrow, noBackgroundSeam]
+  - id: seasonEpisodes
+    states: [loading, content, empty, failed]
+  - id: servers
+    states: [loading, content, empty, probing]
+  - id: serverEditor
+    states: [add, edit, validating, failed]
+  - id: search
+    states: [idle, typing, loading, content, empty, failed]
+    invariants: [allServerAggregation, debouncedQuery, retainedHistory]
+  - id: profile
+    states: [signedOut, signedIn, syncing, failed]
+  - id: downloads
+    states: [empty, queued, downloading, paused, completed, failed]
+  - id: accountSettings
+    states: [signedOut, signedIn, exporting, deleting]
+  - id: accountSessions
+    states: [loading, content, failed, revoking]
+  - id: mediaDiscoverySettings
+    states: [content, scanning, permissionDenied]
+  - id: player
+    states: [preparing, playing, paused, buffering, ended, failed, locked, controlsHidden]
+    variants: [portrait, landscape, pictureInPicture, backgroundAudio, watchTogether, opticalDisc]
+
+playerPanels:
+  - qualityAndSource
+  - audioTracks
+  - subtitleTracks
+  - subtitleStyleAndOffset
+  - episodes
+  - playbackSpeed
+  - displayMode
+  - engineAndDiagnostics
+  - danmaku
+  - watchTogether
+  - skipMarkers
+  - sleepTimer
+  - discNavigation
+
+goldenProfiles:
+  - phoneLight
+  - phoneDark
+  - phoneLandscape
+  - tabletLight
+  - tabletDark
+  - largeFont
+  - reducedMotion
+
+acceptance:
+  geometryToleranceVp: 2
+  fixedColorDeltaEMax: 3
+  behaviorContractPassRate: 1.0
+  accessibilityCriticalFailures: 0
+  unapprovedMissingFeatures: 0
