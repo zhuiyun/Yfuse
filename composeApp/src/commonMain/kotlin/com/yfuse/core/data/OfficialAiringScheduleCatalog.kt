@@ -74,7 +74,7 @@ class OfficialAiringScheduleCatalog(
             val payload = json.decodeFromString<OfficialSchedulePayload>(envelope.payload)
             val verified = validate(payload).associateBy(OfficialSeriesSchedule::tmdbId)
             val existingRevision = settings.getString(KEY_REVISION, "")
-            require(existingRevision.isBlank() || envelope.revision >= existingRevision) {
+            require(existingRevision.isBlank() || calendarRevisionIsAtLeast(envelope.revision, existingRevision)) {
                 "Calendar revision rollback rejected"
             }
             schedules = FALLBACK_SCHEDULES + verified
@@ -240,6 +240,28 @@ class OfficialAiringScheduleCatalog(
         ) {
             episodeNumbers.forEach { add(OfficialEpisodeSlot(it, date)) }
         }
+    }
+}
+
+/**
+ * Compares date-based revisions such as 2026-08-23-r10 numerically.
+ *
+ * Plain string comparison considers r10 older than r2 and permanently rejects a legitimate
+ * tenth correction. Unknown formats retain conservative lexical ordering for compatibility.
+ */
+internal fun calendarRevisionIsAtLeast(candidate: String, existing: String): Boolean {
+    fun parse(value: String): Pair<String, Int>? {
+        val marker = value.lastIndexOf("-r")
+        if (marker <= 0) return null
+        val sequence = value.substring(marker + 2).toIntOrNull() ?: return null
+        return value.substring(0, marker) to sequence
+    }
+    val next = parse(candidate)
+    val current = parse(existing)
+    return if (next != null && current != null) {
+        next.first > current.first || next.first == current.first && next.second >= current.second
+    } else {
+        candidate >= existing
     }
 }
 
