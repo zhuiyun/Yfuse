@@ -9,10 +9,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -20,6 +18,7 @@ import com.russhwolf.settings.Settings
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.util.currentEpochMillis
 import com.yfuse.core.util.scheduledEpochMillis
@@ -34,9 +33,9 @@ fun scheduleCalendarReminderWork(context: Context) {
     val request =
         PeriodicWorkRequest
             .Builder(CalendarReminderWorker::class.java, 15, TimeUnit.MINUTES)
-            .setConstraints(
-                Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
-            ).build()
+            // Broadcast reminders can be evaluated from the verified on-device schedule
+            // cache. Requiring a network hid notifications whenever the device was offline.
+            .build()
     WorkManager.getInstance(context).enqueueUniquePeriodicWork(
         WORK_NAME,
         ExistingPeriodicWorkPolicy.UPDATE,
@@ -99,6 +98,7 @@ class CalendarReminderWorker(
                             key = "available.${followed.tmdbId}.${coordinates.hashCode()}",
                             title = "${followed.title} 已入库",
                             text = newlyAvailable.joinToString("、") { it.episode.episodeLabel },
+                            followed = followed,
                         )
                         newlyAvailable.forEach { entry ->
                             settings.putBoolean(availableSeenKey(followed.tmdbId, entry), true)
@@ -126,6 +126,7 @@ class CalendarReminderWorker(
                                 },
                             "${followed.title} 即将更新",
                             "${sameSlot.joinToString("、") { it.episode.episodeLabel }} · $time",
+                            followed = followed,
                         )
                     }
                     if (delta in -BROADCAST_LATE_WINDOW_MS..0L) {
@@ -137,6 +138,7 @@ class CalendarReminderWorker(
                                 },
                             "${followed.title} 已更新",
                             sameSlot.joinToString("、") { it.episode.episodeLabel },
+                            followed = followed,
                         )
                     }
                 }
@@ -155,6 +157,7 @@ class CalendarReminderWorker(
         key: String,
         title: String,
         text: String,
+        followed: FollowedSeries? = null,
     ) {
         val settingKey = "calendar.reminder.sent.$key"
         if (settings.getBoolean(settingKey, false)) return
@@ -164,7 +167,15 @@ class CalendarReminderWorker(
                 NotificationChannel(CHANNEL_ID, "追剧更新", NotificationManager.IMPORTANCE_DEFAULT),
             )
         }
-        val launch = applicationContext.packageManager.getLaunchIntentForPackage(applicationContext.packageName)
+        val launch =
+            applicationContext.packageManager
+                .getLaunchIntentForPackage(applicationContext.packageName)
+                ?.apply {
+                    followed?.seriesItemId?.let {
+                        putExtra("calendar_series_item_id", it)
+                        putExtra("calendar_server_id", followed.serverId)
+                    }
+                }
         val pending =
             launch?.let {
                 PendingIntent.getActivity(
