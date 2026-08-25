@@ -36,7 +36,16 @@ class CalendarFollowStore(private val settings: Settings) {
         update((_followed.value.filterNot { it.tmdbId == series.tmdbId } + series).sortedBy { it.title })
     }
 
-    fun unfollow(tmdbId: Int) = update(_followed.value.filterNot { it.tmdbId == tmdbId })
+    fun unfollow(tmdbId: Int) {
+        update(_followed.value.filterNot { it.tmdbId == tmdbId })
+        val marker = ".$tmdbId."
+        settings.keys
+            .filter { key ->
+                key == "calendar.reminder.available.baseline.$tmdbId" ||
+                    key.startsWith("calendar.reminder.available.seen.$tmdbId.") ||
+                    (key.startsWith("calendar.reminder.sent.") && marker in key)
+            }.forEach(settings::remove)
+    }
 
     fun setReminder(
         tmdbId: Int,
