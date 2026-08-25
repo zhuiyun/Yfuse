@@ -12,7 +12,29 @@ import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.util.currentIsoDate
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+
+internal const val CALENDAR_LOAD_TIMEOUT_MS = 45_000L
+
+internal class CalendarLoadTimeoutException : Exception("日历加载超时，请检查网络后重试")
+
+/**
+ * Bounds the whole fan-out, not just each individual TMDB or Emby request.
+ *
+ * A cold calendar load can issue several waves of requests. Per-request HTTP timeouts do not
+ * prevent those waves from keeping the screen in its initial loading state for minutes.
+ */
+internal suspend fun loadCalendarWithDeadline(
+    timeoutMillis: Long = CALENDAR_LOAD_TIMEOUT_MS,
+    loader: suspend () -> Result<List<CalendarDay>>,
+): Result<List<CalendarDay>> =
+    try {
+        withTimeout(timeoutMillis) { loader() }
+    } catch (_: TimeoutCancellationException) {
+        Result.failure(CalendarLoadTimeoutException())
+    }
 
 /**
  * Which slice of the calendar is on screen.
@@ -156,8 +178,7 @@ class CalendarStoreFactory(
         private fun load() {
             dispatch(Msg.Loading)
             scope.launch {
-                repository
-                    .calendar()
+                loadCalendarWithDeadline { repository.calendar() }
                     .onSuccess { dispatch(Msg.Loaded(it)) }
                     .onFailure {
                         AppLog.warning(
