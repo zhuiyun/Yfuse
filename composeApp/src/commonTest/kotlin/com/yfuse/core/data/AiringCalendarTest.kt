@@ -2,6 +2,7 @@ package com.yfuse.core.data
 
 import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.CalendarDataIssue
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.LibraryStatus
@@ -201,6 +202,75 @@ class AiringCalendarTest {
 
         assertEquals(0, CalendarDay(today, listOf(discovery)).missingCount)
         assertEquals(1, CalendarDay(today, listOf(followed)).missingCount)
+    }
+
+
+    @Test
+    fun in_progress_source_wins_over_an_already_watched_copy() {
+        val scheduled =
+            AiringEpisode(
+                showTmdbId = 7,
+                showTitle = "多服务器剧集",
+                posterPath = null,
+                seasonNumber = 1,
+                episodeNumber = 2,
+                episodeTitle = null,
+                airDate = today,
+                origin = ShowOrigin.Foreign,
+            )
+        val merged =
+            mergeCalendarEntries(
+                episode = scheduled,
+                candidates =
+                    listOf(
+                        CalendarEntry(scheduled, LibraryStatus.Watched, itemId = "watched", serverId = "a", seriesItemId = "sa"),
+                        CalendarEntry(scheduled, LibraryStatus.InProgress, itemId = "resume", serverId = "b", seriesItemId = "sb"),
+                    ),
+                today = today,
+            )
+
+        assertEquals(LibraryStatus.InProgress, merged.status)
+        assertEquals("resume", merged.itemId)
+        assertEquals("b", merged.serverId)
+    }
+
+    @Test
+    fun a_known_series_lookup_failure_beats_an_unrelated_server_miss() {
+        val scheduled =
+            AiringEpisode(
+                showTmdbId = 8,
+                showTitle = "已识别剧集",
+                posterPath = null,
+                seasonNumber = 1,
+                episodeNumber = 3,
+                episodeTitle = null,
+                airDate = today,
+                origin = ShowOrigin.Foreign,
+            )
+        val merged =
+            mergeCalendarEntries(
+                episode = scheduled,
+                candidates =
+                    listOf(
+                        CalendarEntry(
+                            scheduled,
+                            LibraryStatus.Unknown,
+                            serverId = "a",
+                            seriesItemId = "series",
+                            dataIssue = CalendarDataIssue.LibraryLookupFailed,
+                        ),
+                        CalendarEntry(
+                            scheduled,
+                            LibraryStatus.Missing,
+                            discoveryOnly = true,
+                        ),
+                    ),
+                today = today,
+            )
+
+        assertEquals(LibraryStatus.Unknown, merged.status)
+        assertEquals("series", merged.seriesItemId)
+        assertEquals(CalendarDataIssue.LibraryLookupFailed, merged.dataIssue)
     }
 
 }
