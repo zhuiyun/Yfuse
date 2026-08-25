@@ -71,9 +71,13 @@ class CalendarFollowStore(private val settings: Settings) {
                 series
                     .distinctBy(FollowedSeries::tmdbId)
                     .sortedBy(FollowedSeries::title)
-            val removedIds = _followed.value.map(FollowedSeries::tmdbId).toSet() - normalized.map(FollowedSeries::tmdbId).toSet()
-            update(normalized)
+            val restoredIds = normalized.map(FollowedSeries::tmdbId).toSet()
+            val removedIds =
+                _followed.value
+                    .map(FollowedSeries::tmdbId)
+                    .filterNot(restoredIds::contains)
             removedIds.forEach(::clearReminderState)
+            update(normalized)
         }
 
     fun setReminder(
@@ -82,18 +86,23 @@ class CalendarFollowStore(private val settings: Settings) {
         beforeMinutes: Int = 30,
     ) {
         val previous = _followed.value.firstOrNull { it.tmdbId == tmdbId } ?: return
+        if (mode == CalendarReminderMode.Off || previous.reminderMode != mode) {
+            // Clear before publishing the new flow value: the Android observer can enqueue an
+            // immediate worker as soon as update() emits.
+            clearReminderState(tmdbId)
+        }
         update(
             _followed.value.map {
                 if (it.tmdbId == tmdbId) {
-                    it.copy(reminderMode = mode, remindBeforeMinutes = beforeMinutes.coerceIn(0, 24 * 60))
+                    it.copy(
+                        reminderMode = mode,
+                        remindBeforeMinutes = beforeMinutes.coerceIn(0, 24 * 60),
+                    )
                 } else {
                     it
                 }
             },
         )
-        if (mode == CalendarReminderMode.Off || previous.reminderMode != mode) {
-            clearReminderState(tmdbId)
-        }
     }
 
     private fun clearReminderState(tmdbId: Int) {
