@@ -701,7 +701,11 @@ private fun mergeCalendarEntries(
                     LibraryStatus.Unknown -> 1
                     LibraryStatus.Unaired -> 0
                 }
-            statusRank * 10 + if (candidate.inLibrary) 1 else 0
+            if (candidate.discoveryOnly && !candidate.followed) {
+                -1
+            } else {
+                statusRank * 10 + if (candidate.inLibrary) 1 else 0
+            }
         }
     val fallbackStatus = if (!airingHasStarted(episode, today)) LibraryStatus.Unaired else LibraryStatus.Missing
     return CalendarEntry(
@@ -713,9 +717,12 @@ private fun mergeCalendarEntries(
         sources = sources,
         discoveryOnly = candidates.isNotEmpty() && candidates.all(CalendarEntry::discoveryOnly),
         dataIssue =
-            candidates
-                .firstNotNullOfOrNull(CalendarEntry::dataIssue)
-                ?.takeIf { candidates.all { it.dataIssue != null } },
+            best
+                ?.dataIssue
+                ?.takeIf { best.status == LibraryStatus.Unknown }
+                ?: candidates
+                    .firstNotNullOfOrNull(CalendarEntry::dataIssue)
+                    ?.takeIf { candidates.all { it.dataIssue != null } },
     )
 }
 
