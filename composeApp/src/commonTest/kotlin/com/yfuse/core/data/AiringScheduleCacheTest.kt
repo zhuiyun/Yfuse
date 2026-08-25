@@ -50,13 +50,13 @@ class AiringScheduleCacheTest {
     }
 
     @Test
-    fun writing_nothing_clears_rather_than_storing_an_empty_schedule() {
+    fun writing_nothing_preserves_the_last_successful_schedule() {
         val cache = AiringScheduleCache(MapSettings())
         cache.write("2026-07-31", window, listOf(episode(1)))
 
         cache.write("2026-07-31", window, emptyList())
 
-        assertNull(cache.read("2026-07-31", window))
+        assertEquals(listOf(episode(1)), cache.read("2026-07-31", window))
     }
 
     @Test
