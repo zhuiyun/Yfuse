@@ -169,7 +169,11 @@ data class CalendarState(
 }
 
 sealed interface CalendarIntent {
+    /** User-requested refresh: bypasses both schedule and library identity caches. */
     data object Refresh : CalendarIntent
+
+    /** Lifecycle/data invalidation refresh: reuses valid caches and only reloads stale data. */
+    data object Reload : CalendarIntent
 
     data class SelectSection(
         val section: CalendarSection,
@@ -257,6 +261,7 @@ class CalendarStoreFactory(
         override fun executeIntent(intent: CalendarIntent) {
             when (intent) {
                 CalendarIntent.Refresh -> load(forceRefresh = true)
+                CalendarIntent.Reload -> load(forceRefresh = false)
                 is CalendarIntent.SelectSection -> dispatch(Msg.SectionChanged(intent.section))
                 is CalendarIntent.SelectPlatform -> {
                     preferences?.savePlatformFilter(intent.platform)
