@@ -64,6 +64,11 @@ class AiringCalendarRepository(
     private val resourceDetailsCacheMutex = Mutex()
     private val resourceDetailsCache = mutableMapOf<Pair<String, String>, ResourceDetailsSnapshot>()
     private var calendarRuntimeSnapshot: CalendarRuntimeSnapshot? = null
+    private var calendarLoadCount = 0L
+    private var calendarRuntimeCacheHitCount = 0L
+    private var lastCalendarLoadDurationMs = 0L
+    private var lastScheduleCacheHit = false
+
     private suspend fun identityCatalog(
         server: SavedServer,
         forceRefresh: Boolean,
@@ -147,6 +152,11 @@ class AiringCalendarRepository(
             appendLine("官方排期变更: ${officialSchedules.recentChanges().size} 条")
             appendLine("排期缓存: ${cache.fetchedOn ?: "无"} / ${cache.window ?: "无"} / ${cache.entryCount} 条")
             appendLine("追剧订阅: ${followStore.followed.value.size} 部")
+            appendLine("最近加载耗时: ${lastCalendarLoadDurationMs}ms")
+            appendLine(
+                "运行缓存命中: ${calendarRuntimeCacheHitCount}/${calendarLoadCount}" +
+                    " · 排期缓存: ${if (lastScheduleCacheHit) "命中" else "未命中"}",
+            )
             appendLine("当前结果: ${days.size} 天 / ${entries.size} 条")
             LibraryStatus.entries.forEach { status ->
                 appendLine("- $status: ${entries.count { it.status == status }}")
@@ -189,6 +199,8 @@ class AiringCalendarRepository(
                     .joinToString(",") { "${it.tmdbId}:${it.serverId}:${it.seriesItemId}" }
             val key = "$today:$pastDays:$futureDays:$serverFingerprint:$followFingerprint"
             val now = currentEpochMillis()
+            val startedAt = now
+            calendarLoadCount += 1
             val snapshot = calendarRuntimeSnapshot
             if (
                 !forceRefresh &&
@@ -196,12 +208,17 @@ class AiringCalendarRepository(
                 snapshot.key == key &&
                 now - snapshot.fetchedAtEpochMs in 0 until CALENDAR_RUNTIME_TTL_MS
             ) {
+                calendarRuntimeCacheHitCount += 1
+                lastCalendarLoadDurationMs = 0L
                 onPreview(snapshot.days)
                 return@withLock Result.success(snapshot.days)
             }
-            loadCalendar(pastDays, futureDays, today, forceRefresh, onPreview).onSuccess { days ->
-                calendarRuntimeSnapshot = CalendarRuntimeSnapshot(key, currentEpochMillis(), days)
-            }
+            val result =
+                loadCalendar(pastDays, futureDays, today, forceRefresh, onPreview).onSuccess { days ->
+                    calendarRuntimeSnapshot = CalendarRuntimeSnapshot(key, currentEpochMillis(), days)
+                }
+            lastCalendarLoadDurationMs = currentEpochMillis() - startedAt
+            result
         }
 
     private suspend fun loadCalendar(
@@ -224,6 +241,7 @@ class AiringCalendarRepository(
         // Schedule from cache when it was fetched today; status is always resolved fresh
         // below, because 未入库 → 可播放 is exactly what the user is watching for.
         val cached = if (forceRefresh) null else scheduleCache.read(today, window)
+        lastScheduleCacheHit = cached != null
         val lastSuccessful =
             scheduleCache
                 .readLastSuccessful()
