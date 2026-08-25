@@ -430,6 +430,7 @@ class AiringCalendarRepository(
                 }
             }
         val titleIndex = catalog.groupBy { normalizeIdentityTitle(it.title) }
+        val catalogItemIds = catalog.map(LibrarySeriesIdentity::itemId).toSet()
         // Films are indexed separately and carry their own watched flag: a film *is* the
         // row, so there is no episode below it to read 已看 from. A failure here costs the
         // film rows their status and leaves the episode rows alone.
@@ -453,11 +454,19 @@ class AiringCalendarRepository(
                 titleIndex[normalizeIdentityTitle(episode.showTitle)]
                     ?.singleOrNull()
                     ?.itemId
+            val mappedId =
+                identityResolver
+                    .mappedSeriesItemId(server.id, episode.showTmdbId)
+                    ?.takeIf { libraryHint == null }
+            val validMappedId = mappedId?.takeIf { it in catalogItemIds }
+            if (mappedId != null && validMappedId == null) {
+                identityResolver.forget(server.id, mappedId, episode.showTmdbId)
+            }
             return libraryHint
                 ?.takeIf { it.showTmdbId == episode.showTmdbId }
                 ?.seriesItemId
                 ?: index["tmdb:${episode.showTmdbId}"]
-                ?: identityResolver.mappedSeriesItemId(server.id, episode.showTmdbId)
+                ?: validMappedId
                 ?: titleMatchedId?.also {
                     identityResolver.remember(server.id, it, episode.showTmdbId)
                 }
