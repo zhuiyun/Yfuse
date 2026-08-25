@@ -1,5 +1,7 @@
 package com.yfuse.feature.detail
 
+import com.yfuse.core.data.CalendarReminderMode
+
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -21,4 +23,25 @@ class SeriesAiringCalendarTest {
         assertEquals("明天", seriesCalendarDayLabel("2026-08-26", "2026-08-25"))
         assertEquals("5 天后", seriesCalendarDayLabel("2026-08-30", "2026-08-25"))
     }
+
+    @Test
+    fun reminder_mode_cycles_through_every_supported_choice() {
+        assertEquals(
+            CalendarReminderMode.BeforeAndAtBroadcast,
+            nextReminderMode(CalendarReminderMode.Off),
+        )
+        assertEquals(
+            CalendarReminderMode.AtBroadcast,
+            nextReminderMode(CalendarReminderMode.BeforeAndAtBroadcast),
+        )
+        assertEquals(
+            CalendarReminderMode.WhenAvailable,
+            nextReminderMode(CalendarReminderMode.AtBroadcast),
+        )
+        assertEquals(
+            CalendarReminderMode.Off,
+            nextReminderMode(CalendarReminderMode.WhenAvailable),
+        )
+    }
+
 }
