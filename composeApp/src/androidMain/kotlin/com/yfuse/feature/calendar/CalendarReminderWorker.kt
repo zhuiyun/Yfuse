@@ -193,7 +193,7 @@ class CalendarReminderWorker(
                     }
                     if (
                         followed.reminderMode == CalendarReminderMode.BeforeAndAtBroadcast &&
-                        delta in 0..beforeWindow
+                        delta in 1L..beforeWindow
                     ) {
                         notifyOnce(
                             settings,
