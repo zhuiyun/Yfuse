@@ -73,6 +73,7 @@ import com.yfuse.core.network.TmdbImages
 @Composable
 fun TmdbInfoScreen(component: TmdbInfoComponent) {
     val state by component.state.collectAsState()
+    val following by component.following.collectAsState()
     val detail = state.detail
     val item = detail.item
     val inheritedPalette = LocalPalette.current
@@ -253,6 +254,47 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             accent = themeAccent,
                             onPlay = component::play,
                         )
+
+                        if (item.mediaType == "tv") {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .pressable(
+                                        onClickLabel = if (following) "取消追剧" else "加入追剧",
+                                        onClick = component::toggleFollow,
+                                    ).touchTarget()
+                                    .solidGlass(
+                                        shape = GlassShapes.card,
+                                        fill = palette.card2,
+                                        border = palette.border,
+                                    ).padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        if (following) "已加入追剧" else "加入追剧",
+                                        style = AppTypography.body.strong,
+                                        color = palette.text,
+                                    )
+                                    Text(
+                                        if (following) {
+                                            "会出现在追剧中心，可继续设置提醒"
+                                        } else {
+                                            "无需先加入媒体库，也能跟踪播出排期"
+                                        },
+                                        style = AppTypography.caption.regular,
+                                        color = palette.sub2,
+                                    )
+                                }
+                                Icon(
+                                    if (following) AppIcons.Check else AppIcons.Add,
+                                    contentDescription = null,
+                                    tint = themeAccent,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
 
                         if (state.sources.any {
                                 it.reachable && it.source != null && it.itemId != null
