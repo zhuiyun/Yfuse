@@ -736,7 +736,7 @@ private fun HeroHeader(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    AppIcons.Bookmark,
+                    AppIcons.WatchCalendar,
                     "追剧日历",
                     tint = Color.White,
                     modifier = Modifier.size(17.dp),
