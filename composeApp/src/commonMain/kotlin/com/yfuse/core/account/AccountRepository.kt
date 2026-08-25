@@ -1,5 +1,6 @@
 package com.yfuse.core.account
 
+import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
@@ -50,6 +51,7 @@ class AccountRepository(
     private val danmaku: DanmakuPreferences,
     private val skip: SkipSegmentPreferences,
     private val serverSync: ServerSyncManager,
+    private val calendarFollows: CalendarFollowStore? = null,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
     /** Production supplies Main.immediate, the same serial dispatcher used by settings UI. */
     private val mutationDispatcher: CoroutineDispatcher = Dispatchers.Default,
@@ -671,6 +673,7 @@ class AccountRepository(
                     danmaku,
                     skip,
                     serverSync,
+                    calendarFollows,
                 ).getOrThrow()
             }
             _state.value =
@@ -864,7 +867,7 @@ class AccountRepository(
         // too would block the main thread for the whole encode, which janks the sync screen.
         val snapshot =
             withContext(mutationDispatcher) {
-                captureCloudSyncSnapshot(registry, theme, watch, danmaku, skip, serverSync)
+                captureCloudSyncSnapshot(registry, theme, watch, danmaku, skip, serverSync, calendarFollows)
             }
         return withContext(cryptoDispatcher) { json.encodeToString(snapshot) }
     }
