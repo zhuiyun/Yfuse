@@ -11,6 +11,8 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackFailoverPlan
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.smartFailoverServerIds
+import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.OfflineDownloadSelection
 import com.yfuse.core.offline.buildOfflineDownloadRequests
@@ -18,6 +20,7 @@ import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.componentScope
+import com.yfuse.feature.calendar.loadCalendarWithDeadline
 import com.yfuse.feature.player.PlaybackPreloadKey
 import com.yfuse.feature.player.PlayerStoreFactory
 import com.yfuse.feature.player.PreparedPlaybackRegistry
@@ -103,6 +106,18 @@ class DetailComponent(
             currentSeriesId = detail.seriesId,
             currentSeasonId = state.episodes.firstOrNull { it.id == detail.id }?.seasonId,
         ).forEach(dependencies.offlineMediaManager::enqueue)
+    }
+
+    suspend fun loadSeriesAiringCalendar(detail: MediaDetail): Result<List<CalendarDay>> {
+        val tmdbId =
+            detail.airingCalendarTmdbId()
+                ?: return Result.failure(IllegalArgumentException("当前剧集缺少 TMDB 标识，无法查询播出日历"))
+        return loadCalendarWithDeadline {
+            dependencies.calendarRepository.seriesCalendar(
+                showTmdbId = tmdbId,
+                fallbackTitle = detail.title,
+            )
+        }
     }
 
     init {
@@ -332,3 +347,16 @@ class DetailComponent(
         const val TICKS_PER_MILLISECOND = 10_000L
     }
 }
+
+internal fun MediaDetail.airingCalendarTmdbId(): Int? = airingCalendarTmdbId(type, providerIds)
+
+internal fun airingCalendarTmdbId(
+    type: String,
+    providerIds: Map<String, String>,
+): Int? =
+    providerIds
+        .takeIf { type.equals("Series", ignoreCase = true) }
+        ?.entries
+        ?.firstOrNull { (provider, _) -> provider.equals("tmdb", ignoreCase = true) }
+        ?.value
+        ?.toIntOrNull()

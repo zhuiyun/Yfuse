@@ -318,4 +318,50 @@ class TmdbRepositoryTest {
             assertEquals("tmdb-movie:50", films.first().mediaKey)
             assertEquals("电影上映", films.first().episodeLabel)
         }
+
+    @Test
+    fun a_series_detail_calendar_queries_the_exact_show_and_expands_its_current_season() =
+        runTest {
+            val paths = mutableListOf<String>()
+            val client =
+                HttpClient(
+                    MockEngine { request ->
+                        val path = request.url.encodedPath
+                        paths += path
+                        when {
+                            path.endsWith("/tv/88") ->
+                                json(
+                                    """{"id":88,"name":"精确查询的剧","poster_path":"/series.jpg",""" +
+                                        """"origin_country":["CN"],"original_language":"zh","number_of_seasons":2,""" +
+                                        """"last_episode_to_air":{"air_date":"2026-08-24","season_number":2,""" +
+                                        """"episode_number":2,"name":"第二集"},"next_episode_to_air":{""" +
+                                        """"air_date":"2026-08-26",""" +
+                                        """"season_number":2,"episode_number":3,"name":"第三集"}}""",
+                                )
+                            path.endsWith("/tv/88/season/2") ->
+                                json(
+                                    """{"season_number":2,"episodes":[""" +
+                                        """{"air_date":"2026-08-22","episode_number":1,"name":"第一集"},""" +
+                                        """{"air_date":"2026-08-24","episode_number":2,"name":"第二集"},""" +
+                                        """{"air_date":"2026-08-26","episode_number":3,"name":"第三集"}]}""",
+                                )
+                            else -> error("Unexpected TMDB path: $path")
+                        }
+                    },
+                ) {
+                    install(ContentNegotiation) {
+                        json(Json { ignoreUnknownKeys = true })
+                    }
+                }
+
+            val result = TmdbRepository(client).seriesAiringCalendar(88, fallbackTitle = "后备标题")
+
+            assertTrue(result.isSuccess, result.toString())
+            val episodes = result.getOrThrow()
+            assertEquals(listOf(1, 2, 3), episodes.map { it.episodeNumber })
+            assertTrue(episodes.all { it.seasonNumber == 2 })
+            assertTrue(episodes.all { it.showTitle == "精确查询的剧" })
+            assertTrue(episodes.all { it.origin == ShowOrigin.Domestic })
+            assertEquals(listOf("/3/tv/88", "/3/tv/88/season/2"), paths)
+        }
 }

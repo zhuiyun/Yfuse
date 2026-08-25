@@ -1,8 +1,10 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,13 +22,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
+import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.Episode
+import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaDetail
@@ -34,7 +41,131 @@ import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.offline.OfflineDownloadQuality
 import com.yfuse.core.offline.OfflineDownloadSelection
 import com.yfuse.core.offline.estimateOfflineDownloadBytes
+import com.yfuse.core.util.currentIsoDate
+import com.yfuse.core.util.daysBetweenIso
+import com.yfuse.core.util.isoWeekdayLabel
 import com.yfuse.feature.profile.formatDownloadBytes
+
+@Composable
+internal fun SeriesAiringCalendarDialog(
+    title: String,
+    days: List<CalendarDay>,
+    loading: Boolean,
+    error: String?,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val today = currentIsoDate()
+    val episodeCount = days.sumOf { it.entries.size }
+    GlassDialog(liquidButtons = false, onDismiss = onDismiss, scrollable = false) {
+        OverlayHeader(
+            title = "$title · 播出日历",
+            subtitle = if (episodeCount > 0) "$episodeCount 集 · 按原产地播出日期" else "按原产地播出日期",
+            onClose = onDismiss,
+        )
+        when {
+            loading && days.isEmpty() ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(Modifier.size(22.dp))
+                    Text("正在读取该剧播出安排…", style = AppTypography.body.regular, color = palette.sub)
+                }
+
+            error != null && days.isEmpty() -> {
+                Text(
+                    error,
+                    style = AppTypography.body.regular,
+                    color = palette.sub,
+                    modifier = Modifier.padding(vertical = 12.dp),
+                )
+                OverlayOptionRow(label = "重新加载", selected = false, onClick = onRetry)
+            }
+
+            days.isEmpty() ->
+                Text(
+                    "TMDB 暂未提供该剧当前播出季的集数日期。",
+                    style = AppTypography.body.regular,
+                    color = palette.sub,
+                    modifier = Modifier.padding(vertical = 20.dp),
+                )
+
+            else ->
+                LazyColumn(
+                    Modifier.fillMaxWidth().heightIn(max = 520.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(days, key = { it.date }) { day ->
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    seriesCalendarDayLabel(day.date, today),
+                                    style = AppTypography.body.strong,
+                                    color = palette.text,
+                                )
+                                Text(
+                                    "${day.date} · ${isoWeekdayLabel(day.date)}",
+                                    style = AppTypography.caption.regular,
+                                    color = palette.sub2,
+                                )
+                            }
+                            day.entries.forEach { entry ->
+                                val (status, tint) = seriesCalendarStatus(entry.status, palette.error, palette.sub2)
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .flatGlass(GlassShapes.chip, palette.card2, palette.border)
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        entry.episode.episodeLabel,
+                                        style = AppTypography.body.medium,
+                                        color = palette.text,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(status, style = AppTypography.caption.strong, color = tint)
+                                }
+                            }
+                        }
+                    }
+                }
+        }
+    }
+}
+
+internal fun seriesCalendarDayLabel(
+    date: String,
+    today: String,
+): String =
+    when (val delta = daysBetweenIso(today, date)) {
+        0 -> "今天"
+        1 -> "明天"
+        -1 -> "昨天"
+        else -> if (delta > 0) "$delta 天后" else "${-delta} 天前"
+    }
+
+private fun seriesCalendarStatus(
+    status: LibraryStatus,
+    errorColor: androidx.compose.ui.graphics.Color,
+    mutedColor: androidx.compose.ui.graphics.Color,
+): Pair<String, androidx.compose.ui.graphics.Color> =
+    when (status) {
+        LibraryStatus.Unaired -> "未播出" to mutedColor
+        LibraryStatus.Missing -> "未入库" to errorColor
+        LibraryStatus.Available -> "可播放" to Brand.Online
+        LibraryStatus.InProgress -> "观看中" to Brand.Online
+        LibraryStatus.Watched -> "已看" to mutedColor
+        LibraryStatus.Unknown -> "仅供参考" to mutedColor
+    }
 
 @Composable
 internal fun OfflineDownloadDialog(

@@ -52,6 +52,26 @@ class AiringCalendarRepository(
                     .airingCalendar(fromDate = from, toDate = to)
                     .onSuccess { scheduleCache.write(today, window, it) }
                     .getOrElse { return Result.failure(it) }
+        return calendarDays(episodes, today)
+    }
+
+    /** Exact schedule for a series selected on its detail page, including upcoming episodes. */
+    suspend fun seriesCalendar(
+        showTmdbId: Int,
+        fallbackTitle: String,
+        today: String = currentIsoDate(),
+    ): Result<List<CalendarDay>> {
+        val episodes =
+            tmdb
+                .seriesAiringCalendar(showTmdbId, fallbackTitle)
+                .getOrElse { return Result.failure(it) }
+        return calendarDays(episodes, today)
+    }
+
+    private suspend fun calendarDays(
+        episodes: List<AiringEpisode>,
+        today: String,
+    ): Result<List<CalendarDay>> {
         val entries = resolveStatus(episodes, today)
         return Result.success(
             entries

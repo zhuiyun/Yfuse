@@ -67,6 +67,9 @@ internal data class TmdbShowScheduleDto(
     val id: Int,
     val name: String? = null,
     @SerialName("poster_path") val posterPath: String? = null,
+    @SerialName("origin_country") val originCountries: List<String> = emptyList(),
+    @SerialName("original_language") val originalLanguage: String? = null,
+    @SerialName("number_of_seasons") val numberOfSeasons: Int? = null,
     @SerialName("next_episode_to_air") val nextEpisode: TmdbEpisodeStubDto? = null,
     @SerialName("last_episode_to_air") val lastEpisode: TmdbEpisodeStubDto? = null,
 )
@@ -759,6 +762,91 @@ class TmdbRepository(
                 event = "calendar_request_failed",
                 message = "TMDB airing calendar request failed",
                 throwable = e,
+            )
+            Result.failure(EmbyErrorException(e.toError()))
+        }
+
+    /**
+     * Exact broadcast calendar for one series opened from its detail page.
+     *
+     * The global calendar starts from discovery charts and deliberately caps them, so filtering
+     * that result would make a valid but less popular library series appear to have no schedule.
+     * This route asks for the series itself and expands only its current/adjacent airing season.
+     */
+    suspend fun seriesAiringCalendar(
+        showId: Int,
+        fallbackTitle: String,
+        language: String = "zh-CN",
+    ): Result<List<AiringEpisode>> =
+        try {
+            val show =
+                client
+                    .get("$TMDB_BASE/tv/$showId") { parameter("language", language) }
+                    .body<TmdbShowScheduleDto>()
+            val title = show.name?.takeIf(String::isNotBlank) ?: fallbackTitle.takeIf(String::isNotBlank)
+            requireNotNull(title) { "TMDB series title is missing" }
+            val origin =
+                if (
+                    "CN" in show.originCountries ||
+                    show.originalLanguage.equals("zh", ignoreCase = true) ||
+                    show.originalLanguage.equals("yue", ignoreCase = true)
+                ) {
+                    ShowOrigin.Domestic
+                } else {
+                    ShowOrigin.Foreign
+                }
+            val seasonNumbers =
+                listOfNotNull(
+                    show.lastEpisode?.seasonNumber,
+                    show.nextEpisode?.seasonNumber,
+                    show.numberOfSeasons,
+                ).filter { it > 0 }
+                    .distinct()
+            val seasonEpisodes =
+                coroutineScope {
+                    seasonNumbers
+                        .map { seasonNumber ->
+                            async {
+                                calendarRequests.withPermit {
+                                    season(showId, seasonNumber, language)
+                                        ?.episodes
+                                        .orEmpty()
+                                        .map { seasonNumber to it }
+                                }
+                            }
+                        }.awaitAll()
+                        .flatten()
+                }
+
+            fun datedEpisodes(stubs: List<Pair<Int?, TmdbEpisodeStubDto>>): List<AiringEpisode> =
+                stubs.mapNotNull { (seasonNumber, stub) ->
+                    stub.toAiringEpisode(
+                        showTmdbId = show.id,
+                        showTitle = title,
+                        posterPath = show.posterPath,
+                        origin = origin,
+                        fallbackSeason = seasonNumber,
+                    )
+                }
+
+            Result.success(
+                datedEpisodes(seasonEpisodes)
+                    .ifEmpty {
+                        datedEpisodes(
+                            listOfNotNull(show.lastEpisode, show.nextEpisode).map { it.seasonNumber to it },
+                        )
+                    }.distinctBy { it.seasonNumber to it.episodeNumber }
+                    .sortedWith(compareBy({ it.airDate }, { it.seasonNumber }, { it.episodeNumber })),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            AppLog.warning(
+                category = "tmdb",
+                event = "series_calendar_request_failed",
+                message = "TMDB series calendar request failed",
+                throwable = e,
+                attributes = mapOf("showId" to showId.toString()),
             )
             Result.failure(EmbyErrorException(e.toError()))
         }

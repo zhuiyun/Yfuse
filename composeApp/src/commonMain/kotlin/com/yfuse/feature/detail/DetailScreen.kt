@@ -55,9 +55,11 @@ import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.windowWidthTier
+import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
+import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.util.rememberShareHandler
@@ -250,6 +252,23 @@ fun DetailScreen(component: DetailComponent) {
     var organizationSheetOpen by remember { mutableStateOf(false) }
     var sourceListOpen by remember { mutableStateOf(false) }
     var allEpisodesOpen by remember { mutableStateOf(false) }
+    var airingCalendarOpen by remember { mutableStateOf(false) }
+    var airingCalendarReload by remember { mutableStateOf(0) }
+    var airingCalendarLoading by remember(detail?.id) { mutableStateOf(false) }
+    var airingCalendarDays by remember(detail?.id) { mutableStateOf<List<CalendarDay>>(emptyList()) }
+    var airingCalendarError by remember(detail?.id) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(airingCalendarOpen, airingCalendarReload, detail?.id) {
+        val target = detail ?: return@LaunchedEffect
+        if (!airingCalendarOpen || target.airingCalendarTmdbId() == null) return@LaunchedEffect
+        airingCalendarLoading = true
+        airingCalendarError = null
+        component
+            .loadSeriesAiringCalendar(target)
+            .onSuccess { airingCalendarDays = it }
+            .onFailure { airingCalendarError = it.toUserMessage("播出日历加载失败，请重试") }
+        airingCalendarLoading = false
+    }
 
     // Mirroring the player's selection is a one-shot per *new* selection, not a standing
     // rule. The value already present when this page is created belongs to an older player
@@ -661,6 +680,17 @@ fun DetailScreen(component: DetailComponent) {
                                     downloadSheetOpen = true
                                 },
                             )
+                            if (detail.airingCalendarTmdbId() != null) {
+                                OverlayOptionRow(
+                                    label = "查看播出日历",
+                                    description = "当前剧集的已播与待播集数",
+                                    selected = false,
+                                    onClick = {
+                                        moreSheetOpen = false
+                                        airingCalendarOpen = true
+                                    },
+                                )
+                            }
                             OverlayOptionRow(
                                 label = if (detail.played) "标记未看" else "标记已看",
                                 selected = detail.played,
@@ -732,6 +762,17 @@ fun DetailScreen(component: DetailComponent) {
                             component.store.accept(DetailIntent.AddToOrganizationContainer(it))
                         },
                         onDismiss = { organizationSheetOpen = false },
+                    )
+                }
+
+                if (airingCalendarOpen && detail != null) {
+                    SeriesAiringCalendarDialog(
+                        title = detail.title,
+                        days = airingCalendarDays,
+                        loading = airingCalendarLoading,
+                        error = airingCalendarError,
+                        onRetry = { airingCalendarReload += 1 },
+                        onDismiss = { airingCalendarOpen = false },
                     )
                 }
 
