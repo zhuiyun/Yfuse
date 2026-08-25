@@ -323,6 +323,246 @@ fun CalendarScreen(component: CalendarComponent) {
 }
 
 @Composable
+private fun AdaptiveCalendarResults(
+    days: List<CalendarDay>,
+    today: String,
+    todayIndex: Int,
+    filter: CalendarFilter,
+    loading: Boolean,
+    weeklyStats: Map<Int, CalendarWeekStats>,
+    reduceMotion: Boolean,
+    bottomContentInset: androidx.compose.ui.unit.Dp,
+    onOpen: (CalendarEntry) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (maxWidth >= 900.dp) {
+            TabletWeekCalendar(
+                days = days,
+                today = today,
+                bottomContentInset = bottomContentInset,
+                onOpen = onOpen,
+            )
+        } else {
+            CalendarListResults(
+                days = days,
+                today = today,
+                todayIndex = todayIndex,
+                filter = filter,
+                loading = loading,
+                weeklyStats = weeklyStats,
+                reduceMotion = reduceMotion,
+                bottomContentInset = bottomContentInset,
+                onOpen = onOpen,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CalendarListResults(
+    days: List<CalendarDay>,
+    today: String,
+    todayIndex: Int,
+    filter: CalendarFilter,
+    loading: Boolean,
+    weeklyStats: Map<Int, CalendarWeekStats>,
+    reduceMotion: Boolean,
+    bottomContentInset: androidx.compose.ui.unit.Dp,
+    onOpen: (CalendarEntry) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(filter, today, loading) {
+        runCatching { listState.scrollToItem(todayIndex) }
+    }
+    val awayFromToday by remember(todayIndex) {
+        derivedStateOf {
+            val layout = listState.layoutInfo
+            layout.totalItemsCount > 0 &&
+                layout.visibleItemsInfo.isNotEmpty() &&
+                layout.visibleItemsInfo.none { it.index == todayIndex }
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        DayStrip(
+            days = days,
+            today = today,
+            onSelect = { index ->
+                scope.launch {
+                    if (reduceMotion) {
+                        listState.scrollToItem(index)
+                    } else {
+                        listState.animateScrollToItem(index)
+                    }
+                }
+            },
+        )
+        Spacer(Modifier.height(12.dp))
+
+        Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(bottom = bottomContentInset),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                items(days, key = { it.date }) { day ->
+                    DaySection(
+                        day = day,
+                        today = today,
+                        weeklyStats = weeklyStats,
+                        onOpen = onOpen,
+                    )
+                }
+            }
+            if (awayFromToday) {
+                Text(
+                    "回到今天",
+                    style = AppTypography.caption.strong,
+                    color = accent.onAccent,
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = bottomContentInset)
+                            .pressable {
+                                scope.launch {
+                                    if (reduceMotion) {
+                                        listState.scrollToItem(todayIndex)
+                                    } else {
+                                        listState.animateScrollToItem(todayIndex)
+                                    }
+                                }
+                            }.touchTarget()
+                            .clip(GlassShapes.chip)
+                            .background(accent.accent)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TabletWeekCalendar(
+    days: List<CalendarDay>,
+    today: String,
+    bottomContentInset: androidx.compose.ui.unit.Dp,
+    onOpen: (CalendarEntry) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val weekdayIndex =
+        listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+            .indexOf(isoWeekdayLabel(today))
+            .coerceAtLeast(0)
+    val weekStart = shiftIsoDate(today, -weekdayIndex)
+    val byDate = remember(days) { days.associateBy(CalendarDay::date) }
+    val week =
+        remember(days, today) {
+            (0..6).map { offset ->
+                val date = shiftIsoDate(weekStart, offset)
+                byDate[date] ?: CalendarDay(date = date, entries = emptyList())
+            }
+        }
+
+    Row(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = Dimens.pageHorizontal),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        week.forEach { day ->
+            val isToday = day.date == today
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .glass(GlassShapes.card, palette.card2, palette.border)
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    if (isToday) "今天" else isoWeekdayLabel(day.date),
+                    style = AppTypography.caption.strong,
+                    color = if (isToday) LocalAccentColors.current.accent else palette.text,
+                )
+                Text(
+                    isoShortDate(day.date),
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                )
+                if (day.missingCount > 0) {
+                    Text(
+                        "${day.missingCount} 集待入库",
+                        style = AppTypography.caption.strong,
+                        color = palette.error,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                if (day.entries.isEmpty()) {
+                    Text("无更新", style = AppTypography.caption.regular, color = palette.sub2)
+                } else {
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = bottomContentInset),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        items(
+                            coalesceCalendarEntries(day.entries),
+                            key = { it.entry.episode.mediaKey },
+                        ) { display ->
+                            TabletWeekEntryCard(display, onOpen)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TabletWeekEntryCard(
+    display: CalendarDisplayEntry,
+    onOpen: (CalendarEntry) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val entry = display.entry
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(GlassShapes.chip)
+            .background(palette.card)
+            .then(
+                if (entry.openItemId != null) {
+                    Modifier.pressable { onOpen(entry) }
+                } else {
+                    Modifier
+                },
+            ).padding(8.dp),
+    ) {
+        Text(
+            entry.episode.showTitle,
+            style = AppTypography.caption.strong,
+            color = palette.text,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            display.episodeLabel,
+            style = AppTypography.caption.regular,
+            color = palette.sub2,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(5.dp))
+        StatusBadge(entry)
+    }
+}
+
+@Composable
 private fun CalendarSectionBar(
     selected: CalendarSection,
     onSelect: (CalendarSection) -> Unit,
