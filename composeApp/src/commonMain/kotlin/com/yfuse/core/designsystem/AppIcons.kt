@@ -487,6 +487,29 @@ object AppIcons {
         }.build()
 
     /**
+     * 追剧中心 — calendar structure plus the set's small solid playback anchor.
+     *
+     * The frame and binding tabs carry the shared rounded outline; the play mark stays
+     * solid so the glyph remains legible in the home's 17dp glass action.
+     */
+    val WatchCalendar =
+        strokeVector("watch-calendar") {
+            roundRect(3.2f, 5.2f, 17.6f, 15.3f, 2.6f)
+            moveTo(3.2f, 9.4f)
+            horizontalLineTo(20.8f)
+        }.andPath {
+            moveTo(8f, 3.5f)
+            verticalLineTo(6.8f)
+            moveTo(16f, 3.5f)
+            verticalLineTo(6.8f)
+        }.andSolidPath {
+            moveTo(9.8f, 12.1f)
+            lineTo(15.7f, 15.45f)
+            lineTo(9.8f, 18.8f)
+            close()
+        }.build()
+
+    /**
      * ↻ — 追剧日历's manual re-check.
      *
      * Three quarters of a circle with an arrowhead on the open end, which is the shape
