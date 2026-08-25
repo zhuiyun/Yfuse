@@ -151,6 +151,14 @@ data class CalendarEntry(
     val sources: List<CalendarSource> = emptyList(),
     /** Explicit user subscription, independent of whether a server currently holds the show. */
     val followed: Boolean = false,
+    /**
+     * A discovery row with no matching series in any connected library.
+     *
+     * This is not a missing download. Keeping it explicit prevents unrelated popular titles
+     * from inflating the user's “未入库” count while still allowing the discovery calendar
+     * to show their broadcast dates.
+     */
+    val discoveryOnly: Boolean = false,
     /** Why a row is Unknown; kept separate so transport failures never masquerade as “未入库”. */
     val dataIssue: CalendarDataIssue? = null,
 ) {
