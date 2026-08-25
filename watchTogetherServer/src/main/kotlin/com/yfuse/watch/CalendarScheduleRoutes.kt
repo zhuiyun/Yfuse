@@ -17,6 +17,11 @@ import java.security.KeyFactory
 import java.security.PrivateKey
 import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.util.Base64
 
 private val calendarJson = Json { encodeDefaults = true }
@@ -198,20 +203,32 @@ private fun loadCalendarPublication(): CalendarPublication {
 private fun validateCalendarPublication(publication: CalendarPublication) {
     require(publication.revision.matches(Regex("\\d{4}-\\d{2}-\\d{2}-r\\d+")))
     require(publication.generatedAt.length in 10..64)
+    require(runCatching { Instant.parse(publication.generatedAt) }.isSuccess)
     require(publication.schedules.size <= 1_000)
     publication.schedules.forEach { schedule ->
         require(schedule.tmdbId > 0)
+        require(schedule.seasonNumber > 0)
         require(schedule.title.isNotBlank() && schedule.title.length <= 120)
         require(schedule.episodes.isNotEmpty() && schedule.episodes.size <= 500)
         require(schedule.airTime.matches(Regex("(?:[01]\\d|2[0-3]):[0-5]\\d")))
-        require(schedule.timeZoneId.matches(Regex("[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)+")))
+        require(runCatching { LocalTime.parse(schedule.airTime) }.isSuccess)
+        require(runCatching { ZoneId.of(schedule.timeZoneId) }.isSuccess)
+        require(schedule.platforms.isNotEmpty() && schedule.platforms.size <= 10)
+        require(schedule.platforms.all { it.isNotBlank() && it.length <= 40 })
+        require(schedule.accessTier in setOf("Unknown", "Free", "Member", "SviP"))
         require(schedule.sourceUrl.startsWith("https://"))
         require(schedule.revision == publication.revision)
+        require(runCatching { OffsetDateTime.parse(schedule.updatedAt) }.isSuccess)
         require(
             schedule.episodes.all {
                 it.episodeNumber > 0 &&
-                    it.airDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))
+                    it.airDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) &&
+                    runCatching { LocalDate.parse(it.airDate) }.isSuccess
             },
+        )
+        require(
+            schedule.episodes.distinctBy(CalendarEpisode::episodeNumber).size ==
+                schedule.episodes.size,
         )
     }
     require(publication.schedules.distinctBy(CalendarSeries::tmdbId).size == publication.schedules.size)
