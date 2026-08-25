@@ -2,6 +2,7 @@ package com.yfuse.feature.calendar
 
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
+import com.arkivanov.essenty.lifecycle.doOnResume
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.CalendarFollowStore
@@ -52,6 +53,14 @@ class CalendarComponent(
     }
 
     init {
+        var firstResume = true
+        lifecycle.doOnResume {
+            if (firstResume) {
+                firstResume = false
+            } else {
+                store.accept(CalendarIntent.Refresh)
+            }
+        }
         // Detail remains a separate route. When a follow or reminder is changed there,
         // refresh the still-alive calendar immediately instead of requiring a reopen.
         scope.launch {
