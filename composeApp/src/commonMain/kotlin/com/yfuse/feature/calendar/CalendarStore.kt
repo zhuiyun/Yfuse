@@ -153,7 +153,7 @@ data class CalendarState(
         get() =
             days
                 .flatMap { day -> day.entries.flatMap { it.episode.platforms } }
-                .map(String::trim)
+                .map { it.trim() }
                 .filter(String::isNotBlank)
                 .distinct()
                 .sorted()
