@@ -23,6 +23,7 @@ import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.util.currentEpochMillis
 import com.yfuse.core.util.scheduledEpochMillis
+import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import java.util.concurrent.TimeUnit
 
@@ -44,6 +45,7 @@ fun scheduleCalendarReminderWork(context: Context) {
 }
 
 private const val BROADCAST_LATE_WINDOW_MS = 90 * 60_000L
+private const val REMINDER_WORK_DEADLINE_MS = 30_000L
 
 private fun availableSeenKey(
     tmdbId: Int,
@@ -60,10 +62,12 @@ class CalendarReminderWorker(
         val koin = runCatching { GlobalContext.get() }.getOrElse { return Result.retry() }
         val follows = koin.get<CalendarFollowStore>().followed.value
         if (follows.isEmpty() || !notificationsAllowed()) return Result.success()
-        val days =
-            koin.get<AiringCalendarRepository>()
-                .followedCalendar(pastDays = 1, futureDays = 2)
-                .getOrElse { return Result.retry() }
+        val calendarResult =
+            withTimeoutOrNull(REMINDER_WORK_DEADLINE_MS) {
+                koin.get<AiringCalendarRepository>()
+                    .followedCalendar(pastDays = 1, futureDays = 2)
+            } ?: return Result.retry()
+        val days = calendarResult.getOrElse { return Result.retry() }
         val settings = koin.get<Settings>()
         val now = currentEpochMillis()
         follows.forEach { followed ->
