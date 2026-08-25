@@ -435,8 +435,8 @@ class AiringCalendarRepository(
             days.map { day ->
                 day.copy(
                     entries =
-                        day.entries.map { entry ->
-                            if (entry.episode.isMovie) return@map entry
+                        day.entries.map entryMap@{ entry ->
+                            if (entry.episode.isMovie) return@entryMap entry
                             entry.copy(
                                 sources =
                                     entry.sources.map { source ->
