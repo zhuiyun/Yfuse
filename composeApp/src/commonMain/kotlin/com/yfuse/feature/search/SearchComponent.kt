@@ -17,6 +17,7 @@ import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.navigation.SingleFlightNavigationGuard
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.serialization.Serializable
@@ -33,6 +34,7 @@ class SearchComponent(
     private val onOpenServerSettings: () -> Unit,
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
+    private val playerNavigation = SingleFlightNavigationGuard<Config.Player>()
     private val _focusRequest = MutableValue(0)
     val focusRequest: Value<Int> = _focusRequest
     private var consumedFocusRequest = 0
@@ -108,6 +110,17 @@ class SearchComponent(
         navigation.popTo(index = 0)
     }
 
+    private fun openPlayer(config: Config.Player) {
+        val active = stack.value.active.configuration as? Config.Player
+        if (!playerNavigation.tryBegin(config, active)) return
+        try {
+            navigation.push(config)
+        } catch (failure: Throwable) {
+            playerNavigation.complete(config)
+            throw failure
+        }
+    }
+
     private fun child(
         config: Config,
         context: ComponentContext,
@@ -143,11 +156,12 @@ class SearchComponent(
                             navigation.push(Config.Detail(serverId, itemId))
                         },
                         onPlay = { serverId, itemId, ticks, mediaSourceId ->
-                            navigation.push(Config.Player(serverId, itemId, ticks, mediaSourceId))
+                            openPlayer(Config.Player(serverId, itemId, ticks, mediaSourceId))
                         },
                     ),
                 )
-            is Config.Player ->
+            is Config.Player -> {
+                playerNavigation.complete(config)
                 Child.Player(
                     PlayerComponent(
                         componentContext = context,
@@ -162,6 +176,7 @@ class SearchComponent(
                         onBack = { navigation.pop() },
                     ),
                 )
+            }
         }
 }
 

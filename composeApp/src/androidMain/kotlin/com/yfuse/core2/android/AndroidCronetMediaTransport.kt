@@ -124,8 +124,9 @@ internal class AndroidCronetMediaTransport(
             val opened = builder.build()
             this@AndroidCronetMediaTransport.request = opened
             opened.start()
-            check(responseReady.await(CRONET_OPEN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                "Cronet response timed out"
+            if (!responseReady.await(CRONET_OPEN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                closeRequest()
+                error("Cronet response timed out")
             }
             callbackFailure?.let { throw IllegalStateException("Cronet request failed", it) }
             val info = checkNotNull(responseInfo) { "Cronet response metadata is unavailable" }
@@ -172,7 +173,12 @@ internal class AndroidCronetMediaTransport(
                     }
                     continue
                 }
-                when (val next = chunks.take()) {
+                val next = chunks.poll(CRONET_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                if (next == null) {
+                    closeRequest()
+                    error("Cronet streaming read timed out")
+                }
+                when (next) {
                     is CronetChunk.Data -> {
                         activeChunk = next.bytes
                         activeOffset = 0
@@ -213,4 +219,5 @@ private fun UrlResponseInfo.headerValue(name: String): String? =
 private fun String.isSafeCronetHeader(): Boolean = isNotBlank() && '\r' !in this && '\n' !in this
 
 private const val CRONET_READ_BYTES = 256 * 1024
-private const val CRONET_OPEN_TIMEOUT_SECONDS = 20L
+private const val CRONET_OPEN_TIMEOUT_SECONDS = 10L
+private const val CRONET_READ_TIMEOUT_SECONDS = 10L

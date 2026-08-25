@@ -13,6 +13,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.navigation.SingleFlightNavigationGuard
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.serialization.Serializable
@@ -29,6 +30,7 @@ class LibraryComponent(
     private val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
+    private val playerNavigation = SingleFlightNavigationGuard<Config.Player>()
 
     val stack: Value<ChildStack<Config, Child>> =
         childStack(
@@ -112,6 +114,17 @@ class LibraryComponent(
         navigation.pushToFront(Config.Detail(serverId, itemId, autoPlay))
     }
 
+    private fun openPlayer(config: Config.Player) {
+        val active = stack.value.active.configuration as? Config.Player
+        if (!playerNavigation.tryBegin(config, active)) return
+        try {
+            navigation.pushToFront(config)
+        } catch (failure: Throwable) {
+            playerNavigation.complete(config)
+            throw failure
+        }
+    }
+
     private fun child(
         config: Config,
         context: ComponentContext,
@@ -189,11 +202,12 @@ class LibraryComponent(
                             navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
                         onPlay = { serverId, itemId, ticks, mediaSourceId ->
-                            navigation.pushToFront(Config.Player(serverId, itemId, ticks, mediaSourceId))
+                            openPlayer(Config.Player(serverId, itemId, ticks, mediaSourceId))
                         },
                     ),
                 )
-            is Config.Player ->
+            is Config.Player -> {
+                playerNavigation.complete(config)
                 Child.Player(
                     PlayerComponent(
                         componentContext = context,
@@ -208,5 +222,6 @@ class LibraryComponent(
                         onBack = { navigation.pop() },
                     ),
                 )
+            }
         }
 }

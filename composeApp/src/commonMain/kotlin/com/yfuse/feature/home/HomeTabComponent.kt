@@ -18,6 +18,7 @@ import com.yfuse.core.data.TgtoMediaItem
 import com.yfuse.core.data.TgtoMediaPreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.navigation.SingleFlightNavigationGuard
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.CalendarComponent
 import com.yfuse.feature.detail.DetailComponent
@@ -46,6 +47,7 @@ class HomeTabComponent(
     private val onOpenProfile: () -> Unit,
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
+    private val playerNavigation = SingleFlightNavigationGuard<Config.Player>()
 
     val stack: Value<ChildStack<Config, Child>> =
         childStack(
@@ -127,6 +129,17 @@ class HomeTabComponent(
         navigation.popTo(index = 0)
     }
 
+    private fun openPlayer(config: Config.Player) {
+        val active = stack.value.active.configuration as? Config.Player
+        if (!playerNavigation.tryBegin(config, active)) return
+        try {
+            navigation.push(config)
+        } catch (failure: Throwable) {
+            playerNavigation.complete(config)
+            throw failure
+        }
+    }
+
     private fun child(
         config: Config,
         context: ComponentContext,
@@ -150,7 +163,7 @@ class HomeTabComponent(
                                     navigation.push(Config.Detail(serverId, itemId))
                                 },
                                 onPlayEmbyItem = { serverId, itemId ->
-                                    navigation.push(Config.Player(serverId, itemId, 0L))
+                                    openPlayer(Config.Player(serverId, itemId, 0L))
                                 },
                                 onOpenTmdbItem = { item, embyItemId ->
                                     navigation.push(Config.Info(item, embyItemId))
@@ -188,11 +201,12 @@ class HomeTabComponent(
                             navigation.push(Config.Detail(serverId, itemId))
                         },
                         onPlay = { serverId, id, ticks, mediaSourceId ->
-                            navigation.push(Config.Player(serverId, id, ticks, mediaSourceId))
+                            openPlayer(Config.Player(serverId, id, ticks, mediaSourceId))
                         },
                     ),
                 )
-            is Config.Player ->
+            is Config.Player -> {
+                playerNavigation.complete(config)
                 Child.Player(
                     PlayerComponent(
                         componentContext = context,
@@ -207,6 +221,7 @@ class HomeTabComponent(
                         onBack = { navigation.pop() },
                     ),
                 )
+            }
             Config.Calendar ->
                 Child.Calendar(
                     CalendarComponent(
@@ -230,9 +245,7 @@ class HomeTabComponent(
                         embyItemId = config.embyItemId,
                         onBack = { navigation.pop() },
                         onPlayTarget = { serverId, id, ticks ->
-                            navigation.push(
-                                Config.Player(serverId, id, ticks),
-                            )
+                            openPlayer(Config.Player(serverId, id, ticks))
                         },
                     ),
                 )
@@ -249,7 +262,7 @@ class HomeTabComponent(
                             navigation.push(Config.Detail(serverId, itemId))
                         },
                         onPlayEmbyItem = { serverId, itemId ->
-                            navigation.push(Config.Player(serverId, itemId, 0L))
+                            openPlayer(Config.Player(serverId, itemId, 0L))
                         },
                         onOpenTmdbItem = { item, embyItemId ->
                             navigation.push(Config.Info(item, embyItemId))

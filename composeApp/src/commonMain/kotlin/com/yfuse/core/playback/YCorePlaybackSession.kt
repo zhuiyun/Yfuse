@@ -18,6 +18,8 @@ data class YCoreRuntimeObservation(
     val bufferEvents: Int,
     val droppedFrames: Int,
     val measuredPowerMilliwatts: Int? = null,
+    /** Actual output progression. False for an explicit pause even if a backend kept its intent. */
+    val playing: Boolean = true,
 )
 
 data class YCoreRuntimeAssessment(
@@ -88,7 +90,7 @@ class YCorePlaybackSession(
                 nowEpochMs = observation.nowEpochMs,
                 positionMs = observation.positionMs,
                 activelyRendering =
-                    observation.playbackRequested &&
+                    observation.playing &&
                         !observation.buffering &&
                         !observation.errorPresent &&
                         !observation.ended,
@@ -117,6 +119,7 @@ class YCorePlaybackSession(
                 runtimeFault == null &&
                 health.evaluationReady &&
                 !health.enginePenaltyRecommended &&
+                observation.playing &&
                 !observation.buffering &&
                 !observation.errorPresent
         if (confirmCapability) {
@@ -139,11 +142,12 @@ class YCorePlaybackSession(
     }
 }
 
-/** Large MOV/optical sources receive enough probe time while still having a finite escape hatch. */
+/** Large or remote sources receive enough probe time while still having a finite escape hatch. */
 internal fun playbackStartupTimeoutMs(probe: PlaybackMediaProbe): Long =
     when {
         probe.discSource || probe.discKind != PlaybackDiscKind.None -> 180_000L
         probe.normalizedContainer == "MOV" ||
             probe.source.videoRequirements.codec == PlaybackVideoCodec.ProRes -> 60_000L
+        !probe.localSource && !probe.usingServerTranscode -> 30_000L
         else -> 15_000L
     }
