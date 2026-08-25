@@ -134,6 +134,30 @@ class CalendarStateTest {
         assertFalse(entry("没跟的剧", "2026-08-01").inLibrary)
     }
     @Test
+    fun single_series_refresh_replaces_only_that_series() {
+        val target = entry("刷新剧", "2026-08-01")
+        val untouched = entry("保留剧", "2026-08-01")
+        val refreshed =
+            target.copy(
+                episode = target.episode.copy(airDate = "2026-08-02", episodeNumber = 2),
+                status = LibraryStatus.Available,
+            )
+
+        val merged =
+            mergeTrackedSeriesCalendar(
+                current = listOf(CalendarDay("2026-08-01", listOf(target, untouched))),
+                refreshed = listOf(CalendarDay("2026-08-02", listOf(refreshed))),
+                tmdbId = target.episode.showTmdbId,
+            )
+
+        assertEquals(listOf("2026-08-01", "2026-08-02"), merged.map(CalendarDay::date))
+        assertEquals(
+            listOf("保留剧", "刷新剧"),
+            merged.flatMap(CalendarDay::entries).map { it.episode.showTitle },
+        )
+    }
+
+    @Test
     fun platform_and_content_filters_are_applied_together() {
         fun scheduled(
             id: Int,
