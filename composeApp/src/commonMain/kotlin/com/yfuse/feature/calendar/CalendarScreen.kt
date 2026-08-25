@@ -681,6 +681,7 @@ private fun CalendarTrackingPane(
     val scope = rememberCoroutineScope()
     var refreshingTmdbId by remember { mutableStateOf<Int?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
+    var confirmUnfollowAll by remember { mutableStateOf(false) }
 
     if (followedSeries.isEmpty()) {
         PageHint(
@@ -700,6 +701,60 @@ private fun CalendarTrackingPane(
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        item {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(GlassShapes.card, palette.card2, palette.border)
+                    .padding(horizontal = 13.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "全部开启提醒",
+                    style = AppTypography.caption.strong,
+                    color = accent.accent,
+                    modifier =
+                        Modifier
+                            .pressable {
+                                confirmUnfollowAll = false
+                                component.setReminderForAll(
+                                    CalendarReminderMode.BeforeAndAtBroadcast,
+                                    beforeMinutes = 30,
+                                )
+                            }.touchTarget(),
+                )
+                Text(
+                    "全部关闭提醒",
+                    style = AppTypography.caption.strong,
+                    color = palette.sub,
+                    modifier =
+                        Modifier
+                            .pressable {
+                                confirmUnfollowAll = false
+                                component.setReminderForAll(
+                                    CalendarReminderMode.Off,
+                                    beforeMinutes = 30,
+                                )
+                            }.touchTarget(),
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    if (confirmUnfollowAll) "确认取消全部" else "取消全部",
+                    style = AppTypography.caption.strong,
+                    color = palette.error,
+                    modifier =
+                        Modifier
+                            .pressable {
+                                if (confirmUnfollowAll) {
+                                    component.unfollowAll()
+                                } else {
+                                    confirmUnfollowAll = true
+                                }
+                            }.touchTarget(),
+                )
+            }
+        }
         actionMessage?.let { message ->
             item {
                 Text(
