@@ -1,16 +1,21 @@
 package com.yfuse.feature.calendar
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequest
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -27,6 +32,9 @@ import org.koin.core.context.GlobalContext
 import java.util.concurrent.TimeUnit
 
 private const val WORK_NAME = "yfuse.calendar.reminders.v1"
+private const val IMMEDIATE_WORK_NAME = "yfuse.calendar.reminders.immediate.v1"
+private const val NEXT_ALARM_ACTION = "com.yfuse.calendar.NEXT_REMINDER"
+private const val NEXT_ALARM_REQUEST_CODE = 4104
 private const val CHANNEL_ID = "airing_calendar"
 
 fun scheduleCalendarReminderWork(context: Context) {
@@ -36,11 +44,61 @@ fun scheduleCalendarReminderWork(context: Context) {
             // Broadcast reminders can be evaluated from the verified on-device schedule
             // cache. Requiring a network hid notifications whenever the device was offline.
             .build()
-    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+    val workManager = WorkManager.getInstance(context)
+    workManager.enqueueUniquePeriodicWork(
         WORK_NAME,
         ExistingPeriodicWorkPolicy.UPDATE,
         request,
     )
+    // Populate caches and arm the nearest exact alarm immediately after app/process start.
+    workManager.enqueueUniqueWork(
+        IMMEDIATE_WORK_NAME,
+        ExistingWorkPolicy.KEEP,
+        OneTimeWorkRequest.Builder(CalendarReminderWorker::class.java).build(),
+    )
+}
+
+class CalendarReminderAlarmReceiver : BroadcastReceiver() {
+    override fun onReceive(
+        context: Context,
+        intent: Intent,
+    ) {
+        if (intent.action != NEXT_ALARM_ACTION) return
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            IMMEDIATE_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequest.Builder(CalendarReminderWorker::class.java).build(),
+        )
+    }
+}
+
+private fun scheduleNextCalendarAlarm(
+    context: Context,
+    triggerAtEpochMs: Long?,
+) {
+    val manager = context.getSystemService(AlarmManager::class.java)
+    val intent = Intent(context, CalendarReminderAlarmReceiver::class.java).setAction(NEXT_ALARM_ACTION)
+    val pending =
+        PendingIntent.getBroadcast(
+            context,
+            NEXT_ALARM_REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    if (triggerAtEpochMs == null) {
+        manager.cancel(pending)
+        return
+    }
+    when {
+        Build.VERSION.SDK_INT >= 31 && manager.canScheduleExactAlarms() ->
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
+        Build.VERSION.SDK_INT >= 31 ->
+            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
+        Build.VERSION.SDK_INT >= 23 ->
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
+        else ->
+            manager.setExact(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
+    }
 }
 
 private const val BROADCAST_LATE_WINDOW_MS = 90 * 60_000L
@@ -69,6 +127,7 @@ class CalendarReminderWorker(
         val days = calendarResult.getOrElse { return Result.retry() }
         val settings = koin.get<Settings>()
         val now = currentEpochMillis()
+        val nextWakeCandidates = mutableListOf<Long>()
         follows.forEach { followed ->
             val entries = days.flatMap { it.entries }.filter { it.episode.showTmdbId == followed.tmdbId }
             val available = entries.filter { it.status in setOf(LibraryStatus.Available, LibraryStatus.InProgress) }
@@ -114,6 +173,13 @@ class CalendarReminderWorker(
                     val at = scheduledEpochMillis(sample.airDate, time, zone) ?: return@forEach
                     val delta = at - now
                     val beforeWindow = followed.remindBeforeMinutes * 60_000L
+                    if (at > now + 5_000L) nextWakeCandidates += at
+                    if (
+                        followed.reminderMode == CalendarReminderMode.BeforeAndAtBroadcast &&
+                        at - beforeWindow > now + 5_000L
+                    ) {
+                        nextWakeCandidates += at - beforeWindow
+                    }
                     if (
                         followed.reminderMode == CalendarReminderMode.BeforeAndAtBroadcast &&
                         delta in 0..beforeWindow
@@ -144,6 +210,7 @@ class CalendarReminderWorker(
                 }
             }
         }
+        scheduleNextCalendarAlarm(applicationContext, nextWakeCandidates.minOrNull())
         return Result.success()
     }
 
