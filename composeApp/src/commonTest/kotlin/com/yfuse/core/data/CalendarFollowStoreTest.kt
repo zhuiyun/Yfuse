@@ -4,6 +4,7 @@ import com.russhwolf.settings.MapSettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CalendarFollowStoreTest {
@@ -22,4 +23,36 @@ class CalendarFollowStoreTest {
         restored.unfollow(272938)
         assertFalse(restored.isFollowing(272938))
     }
+    @Test
+    fun cloud_restore_validates_and_replaces_followed_series() {
+        val store = CalendarFollowStore(MapSettings())
+        val synced =
+            FollowedSeries(
+                tmdbId = 1399,
+                title = "测试剧",
+                reminderMode = CalendarReminderMode.BeforeAndAtBroadcast,
+                remindBeforeMinutes = 120,
+            )
+
+        store.replaceFromSync(listOf(synced, synced)).getOrThrow()
+
+        assertEquals(listOf(synced), store.followed.value)
+    }
+
+    @Test
+    fun unfollow_removes_delivery_and_baseline_keys() {
+        val settings = MapSettings()
+        val store = CalendarFollowStore(settings)
+        store.follow(FollowedSeries(tmdbId = 1399, title = "测试剧"))
+        settings.putBoolean("calendar.reminder.available.baseline.1399", true)
+        settings.putBoolean("calendar.reminder.available.seen.1399.1.2", true)
+        settings.putBoolean("calendar.reminder.sent.air.1399.2026-08-25", true)
+
+        store.unfollow(1399)
+
+        assertNull(settings.getBooleanOrNull("calendar.reminder.available.baseline.1399"))
+        assertNull(settings.getBooleanOrNull("calendar.reminder.available.seen.1399.1.2"))
+        assertNull(settings.getBooleanOrNull("calendar.reminder.sent.air.1399.2026-08-25"))
+    }
+
 }
