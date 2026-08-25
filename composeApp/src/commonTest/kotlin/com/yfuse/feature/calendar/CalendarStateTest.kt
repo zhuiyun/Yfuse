@@ -1,6 +1,7 @@
 package com.yfuse.feature.calendar
 
 import com.yfuse.core.model.AiringEpisode
+import com.yfuse.core.model.AiringKind
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
@@ -132,4 +133,50 @@ class CalendarStateTest {
         assertTrue(missing.inLibrary)
         assertFalse(entry("没跟的剧", "2026-08-01").inLibrary)
     }
+    @Test
+    fun platform_and_content_filters_are_applied_together() {
+        fun scheduled(
+            id: Int,
+            platform: String,
+            kind: AiringKind,
+        ) = CalendarEntry(
+            episode =
+                AiringEpisode(
+                    showTmdbId = id,
+                    showTitle = "条目$id",
+                    posterPath = null,
+                    seasonNumber = 1,
+                    episodeNumber = 1,
+                    episodeTitle = null,
+                    airDate = "2026-08-25",
+                    origin = ShowOrigin.Domestic,
+                    kind = kind,
+                    platforms = listOf(platform),
+                ),
+            status = LibraryStatus.Available,
+        )
+        val subject =
+            CalendarState(
+                loading = false,
+                days =
+                    listOf(
+                        CalendarDay(
+                            "2026-08-25",
+                            listOf(
+                                scheduled(1, "平台A", AiringKind.Episode),
+                                scheduled(2, "平台A", AiringKind.Movie),
+                                scheduled(3, "平台B", AiringKind.Episode),
+                            ),
+                        ),
+                    ),
+                filter = CalendarFilter.All,
+                platform = "平台A",
+                contentFilter = CalendarContentFilter.Series,
+                today = "2026-08-25",
+            )
+
+        assertEquals(listOf(1), subject.visibleDays.single().entries.map { it.episode.showTmdbId })
+        assertEquals(listOf("平台A", "平台B"), subject.availablePlatforms)
+    }
+
 }
