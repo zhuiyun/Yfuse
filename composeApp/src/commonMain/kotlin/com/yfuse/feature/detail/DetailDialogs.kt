@@ -62,6 +62,7 @@ internal fun SeriesAiringCalendarDialog(
     onSelectIdentity: (TmdbSeriesIdentityCandidate) -> Unit = {},
     onToggleFollow: () -> Unit = {},
     onSetReminder: (CalendarReminderMode, Int) -> Unit = { _, _ -> },
+    onRebindIdentity: () -> Unit = {},
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -154,6 +155,12 @@ internal fun SeriesAiringCalendarDialog(
                         }
                     }
                 }
+                OverlayOptionRow(
+                    label = "重新匹配剧集",
+                    description = "排期不对时，重新选择 TMDB 条目",
+                    selected = false,
+                    onClick = onRebindIdentity,
+                )
             }
         }
         when {
