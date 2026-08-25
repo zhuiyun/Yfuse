@@ -29,6 +29,21 @@ class CalendarFollowStore(private val settings: Settings) {
     private val _followed = MutableStateFlow(read())
     val followed: StateFlow<List<FollowedSeries>> = _followed.asStateFlow()
 
+    fun savedPlatformFilter(): String? =
+        settings.getStringOrNull(KEY_PLATFORM_FILTER)?.takeIf(String::isNotBlank)
+
+    fun savedContentFilter(): String? =
+        settings.getStringOrNull(KEY_CONTENT_FILTER)?.takeIf(String::isNotBlank)
+
+    fun savePlatformFilter(value: String?) {
+        if (value.isNullOrBlank()) settings.remove(KEY_PLATFORM_FILTER)
+        else settings.putString(KEY_PLATFORM_FILTER, value)
+    }
+
+    fun saveContentFilter(value: String) {
+        settings.putString(KEY_CONTENT_FILTER, value)
+    }
+
     fun isFollowing(tmdbId: Int): Boolean = _followed.value.any { it.tmdbId == tmdbId }
 
     fun follow(series: FollowedSeries) {
@@ -94,5 +109,7 @@ class CalendarFollowStore(private val settings: Settings) {
     private companion object {
         const val KEY = "calendar.followed.series.v1"
         const val MAX_FOLLOWED_SERIES = 500
+        const val KEY_PLATFORM_FILTER = "calendar.filter.platform.v1"
+        const val KEY_CONTENT_FILTER = "calendar.filter.content.v1"
     }
 }
