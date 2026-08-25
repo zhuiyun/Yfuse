@@ -1,7 +1,9 @@
 package com.yfuse.feature.home
 
 import com.arkivanov.decompose.ComponentContext
+import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.logging.AppLog
@@ -13,6 +15,7 @@ import com.yfuse.core.util.componentScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -34,7 +37,8 @@ class TmdbInfoComponent(
     private val tmdb: TmdbRepository,
     private val emby: EmbyRepository,
     private val registry: ServerRegistry,
-    item: TmdbItem,
+    private val item: TmdbItem,
+    private val followStore: CalendarFollowStore,
     private val embyItemId: String?,
     val onBack: () -> Unit,
     private val onPlayTarget: (
@@ -52,8 +56,15 @@ class TmdbInfoComponent(
             ),
         )
     val state: StateFlow<TmdbInfoState> = _state.asStateFlow()
+    private val _following = MutableStateFlow(followStore.isFollowing(item.id))
+    val following: StateFlow<Boolean> = _following.asStateFlow()
 
     init {
+        scope.launch {
+            followStore.followed.collect { followed ->
+                _following.value = followed.any { it.tmdbId == item.id }
+            }
+        }
         scope.launch {
             tmdb
                 .detail(item)
@@ -88,6 +99,22 @@ class TmdbInfoComponent(
                         },
                 )
             }
+        }
+    }
+
+    fun toggleFollow() {
+        if (item.mediaType != "tv") return
+        if (followStore.isFollowing(item.id)) {
+            followStore.unfollow(item.id)
+        } else {
+            followStore.follow(
+                FollowedSeries(
+                    tmdbId = item.id,
+                    title = item.title,
+                    year = item.year?.toIntOrNull(),
+                    posterPath = item.posterPath,
+                ),
+            )
         }
     }
 
