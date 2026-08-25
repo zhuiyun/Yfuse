@@ -86,10 +86,14 @@ class CalendarFollowStore(private val settings: Settings) {
         beforeMinutes: Int = 30,
     ) {
         val previous = _followed.value.firstOrNull { it.tmdbId == tmdbId } ?: return
-        if (mode == CalendarReminderMode.Off || previous.reminderMode != mode) {
+        if (
+            previous.reminderMode == CalendarReminderMode.WhenAvailable ||
+            mode == CalendarReminderMode.WhenAvailable
+        ) {
             // Clear before publishing the new flow value: the Android observer can enqueue an
-            // immediate worker as soon as update() emits.
-            clearReminderState(tmdbId)
+            // immediate worker as soon as update() emits. Broadcast dedup keys remain intact,
+            // so changing reminder modes cannot re-notify an episode that just aired.
+            clearAvailabilityState(tmdbId)
         }
         update(
             _followed.value.map {
@@ -105,13 +109,20 @@ class CalendarFollowStore(private val settings: Settings) {
         )
     }
 
-    private fun clearReminderState(tmdbId: Int) {
-        val marker = ".$tmdbId."
+    private fun clearAvailabilityState(tmdbId: Int) {
         settings.keys
             .filter { key ->
                 key == "calendar.reminder.available.baseline.$tmdbId" ||
-                    key.startsWith("calendar.reminder.available.seen.$tmdbId.") ||
-                    (key.startsWith("calendar.reminder.sent.") && marker in key)
+                    key.startsWith("calendar.reminder.available.seen.$tmdbId.")
+            }.forEach(settings::remove)
+    }
+
+    private fun clearReminderState(tmdbId: Int) {
+        clearAvailabilityState(tmdbId)
+        val marker = ".$tmdbId."
+        settings.keys
+            .filter { key ->
+                key.startsWith("calendar.reminder.sent.") && marker in key
             }.forEach(settings::remove)
     }
 
