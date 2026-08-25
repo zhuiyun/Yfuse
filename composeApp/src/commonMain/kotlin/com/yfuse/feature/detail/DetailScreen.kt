@@ -821,6 +821,7 @@ fun DetailScreen(component: DetailComponent) {
                         identityCandidates = airingCalendarCandidates,
                         followed = detailIsFollowed,
                         reminderMode = detailFollow?.reminderMode ?: CalendarReminderMode.Off,
+                        remindBeforeMinutes = detailFollow?.remindBeforeMinutes ?: 30,
                         onToggleFollow = {
                             detailScope.launch {
                                 component.toggleSeriesFollow(detail).onFailure { error ->
@@ -834,9 +835,9 @@ fun DetailScreen(component: DetailComponent) {
                                 }
                             }
                         },
-                        onSetReminder = { mode ->
+                        onSetReminder = { mode, beforeMinutes ->
                             detailScope.launch {
-                                component.setSeriesReminder(detail, mode).onFailure { error ->
+                                component.setSeriesReminder(detail, mode, beforeMinutes).onFailure { error ->
                                     airingCalendarError = error.toUserMessage("提醒设置失败，请重试")
                                 }
                             }
