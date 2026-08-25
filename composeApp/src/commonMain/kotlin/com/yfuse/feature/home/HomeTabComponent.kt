@@ -251,6 +251,7 @@ class HomeTabComponent(
                         emby = repo,
                         registry = registry,
                         item = config.item,
+                        followStore = dependencies.calendarFollowStore,
                         embyItemId = config.embyItemId,
                         onBack = { navigation.pop() },
                         onPlayTarget = { serverId, id, ticks ->
