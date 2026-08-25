@@ -9,6 +9,7 @@ import com.yfuse.core.model.AiringScheduleAuthority
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.security.verifyEd25519Signature
 import com.yfuse.core.util.currentEpochMillis
+import com.yfuse.core.util.scheduledEpochMillis
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -98,7 +99,9 @@ class OfficialAiringScheduleCatalog(
                 ),
             ) { "Calendar signature verification failed" }
             val payload = json.decodeFromString<OfficialSchedulePayload>(envelope.payload)
-            val verified = validate(payload).associateBy(OfficialSeriesSchedule::tmdbId)
+            val verified =
+                validate(payload, expectedRevision = envelope.revision)
+                    .associateBy(OfficialSeriesSchedule::tmdbId)
             val existingRevision = settings.getString(KEY_REVISION, "")
             require(existingRevision.isBlank() || calendarRevisionIsAtLeast(envelope.revision, existingRevision)) {
                 "Calendar revision rollback rejected"
@@ -194,24 +197,49 @@ class OfficialAiringScheduleCatalog(
                     envelope.signature,
                 ),
             )
-            (FALLBACK_SCHEDULES.values + validate(json.decodeFromString<OfficialSchedulePayload>(envelope.payload)))
-                .associateBy(OfficialSeriesSchedule::tmdbId)
+            (
+                FALLBACK_SCHEDULES.values +
+                    validate(
+                        json.decodeFromString<OfficialSchedulePayload>(envelope.payload),
+                        expectedRevision = envelope.revision,
+                    )
+            ).associateBy(OfficialSeriesSchedule::tmdbId)
         }.onFailure {
             settings.remove(KEY_ENVELOPE)
             settings.remove(KEY_REVISION)
         }.getOrNull()
     }
 
-    private fun validate(payload: OfficialSchedulePayload): List<OfficialSeriesSchedule> {
+    private fun validate(
+        payload: OfficialSchedulePayload,
+        expectedRevision: String,
+    ): List<OfficialSeriesSchedule> {
         require(payload.schedules.size <= MAX_SERIES)
+        require(payload.schedules.distinctBy(OfficialSeriesSchedule::tmdbId).size == payload.schedules.size)
         payload.schedules.forEach { schedule ->
             require(schedule.tmdbId > 0)
+            require(schedule.seasonNumber > 0)
             require(schedule.title.isNotBlank() && schedule.title.length <= 120)
             require(schedule.episodes.isNotEmpty() && schedule.episodes.size <= MAX_EPISODES_PER_SERIES)
-            require(schedule.sourceUrl.startsWith("https://"))
+            require(schedule.sourceUrl.startsWith("https://") && schedule.sourceUrl.length <= 2_048)
             require(schedule.airTime.matches(TIME_PATTERN))
             require(schedule.timeZoneId.matches(ZONE_PATTERN))
-            require(schedule.episodes.all { it.airDate.matches(DATE_PATTERN) && it.episodeNumber > 0 })
+            require(schedule.platforms.isNotEmpty() && schedule.platforms.size <= 10)
+            require(schedule.platforms.all { it.isNotBlank() && it.length <= 40 })
+            require(schedule.revision == expectedRevision)
+            require(schedule.updatedAt.length in 10..64)
+            require(schedule.episodes.distinctBy(OfficialEpisodeSlot::episodeNumber).size == schedule.episodes.size)
+            require(
+                schedule.episodes.all {
+                    it.airDate.matches(DATE_PATTERN) &&
+                        it.episodeNumber > 0 &&
+                        scheduledEpochMillis(
+                            date = it.airDate,
+                            time = schedule.airTime,
+                            zoneId = schedule.timeZoneId,
+                        ) != null
+                },
+            )
         }
         return payload.schedules
     }
