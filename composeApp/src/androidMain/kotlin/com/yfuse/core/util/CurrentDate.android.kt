@@ -3,10 +3,27 @@ package com.yfuse.core.util
 import android.content.Context
 import android.text.format.DateFormat
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 actual fun currentIsoDate(): String = LocalDate.now().toString()
+
+actual fun currentEpochMillis(): Long = System.currentTimeMillis()
+
+actual fun scheduledEpochMillis(
+    date: String,
+    time: String,
+    timeZoneId: String,
+): Long? =
+    runCatching {
+        LocalDateTime
+            .of(LocalDate.parse(date), LocalTime.parse(time, DateTimeFormatter.ofPattern("HH:mm")))
+            .atZone(ZoneId.of(timeZoneId))
+            .toInstant()
+            .toEpochMilli()
+    }.getOrNull()
 
 actual fun isoDateDaysBefore(
     date: String,

@@ -13,10 +13,11 @@ import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.util.currentIsoDate
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
-internal const val CALENDAR_LOAD_TIMEOUT_MS = 45_000L
+internal const val CALENDAR_LOAD_TIMEOUT_MS = 15_000L
 
 internal class CalendarLoadTimeoutException : Exception("日历加载超时，请检查网络后重试")
 
@@ -72,7 +73,7 @@ enum class CalendarFilter(
                         com.yfuse.core.model.LibraryStatus.InProgress,
                         com.yfuse.core.model.LibraryStatus.Missing,
                     )
-            Mine -> entry.inLibrary
+            Mine -> entry.followed || entry.inLibrary
             Domestic -> entry.episode.origin == ShowOrigin.Domestic
             Foreign -> entry.episode.origin == ShowOrigin.Foreign
         }
@@ -138,6 +139,10 @@ private sealed interface Msg {
         val days: List<CalendarDay>,
     ) : Msg
 
+    data class PreviewLoaded(
+        val days: List<CalendarDay>,
+    ) : Msg
+
     data class Failed(
         val message: String,
     ) : Msg
@@ -162,6 +167,7 @@ class CalendarStoreFactory(
 
     private inner class ExecutorImpl :
         CoroutineExecutor<CalendarIntent, Action, CalendarState, Msg, Nothing>() {
+        private var loadJob: Job? = null
         override fun executeAction(action: Action) {
             when (action) {
                 Action.Load -> load()
@@ -176,9 +182,12 @@ class CalendarStoreFactory(
         }
 
         private fun load() {
+            loadJob?.cancel()
             dispatch(Msg.Loading)
-            scope.launch {
-                loadCalendarWithDeadline { repository.calendar() }
+            loadJob = scope.launch {
+                loadCalendarWithDeadline {
+                    repository.calendar { preview -> dispatch(Msg.PreviewLoaded(preview)) }
+                }
                     .onSuccess { dispatch(Msg.Loaded(it)) }
                     .onFailure {
                         AppLog.warning(
@@ -197,6 +206,16 @@ class CalendarStoreFactory(
         override fun CalendarState.reduce(msg: Msg): CalendarState =
             when (msg) {
                 Msg.Loading -> copy(loading = true, error = null)
+                is Msg.PreviewLoaded ->
+                    copy(
+                        // Keep the compact refresh spinner active and refresh disabled while
+                        // library statuses are still being resolved. The rows are usable now,
+                        // but this load has not finished yet.
+                        loading = true,
+                        days = msg.days,
+                        error = null,
+                        today = currentIsoDate(),
+                    )
                 is Msg.Loaded ->
                     copy(
                         loading = false,

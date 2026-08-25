@@ -42,7 +42,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
-import com.yfuse.app.TabBarInset
+import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.data.isPast
 import com.yfuse.core.data.isToday
 import com.yfuse.core.data.missingCount
@@ -60,14 +60,19 @@ import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
+import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
+import com.yfuse.core.model.CalendarDataIssue
+import com.yfuse.core.model.AiringAccessTier
+import com.yfuse.core.model.AiringScheduleAuthority
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.daysBetweenIso
 import com.yfuse.core.util.isoShortDate
 import com.yfuse.core.util.isoWeekdayLabel
+import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.flatGlass as glass
 
@@ -86,6 +91,13 @@ fun CalendarScreen(component: CalendarComponent) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val days = state.visibleDays
     val weeklyStats = remember(state.days, state.today) { calendarWeeklyStats(state.days, state.today) }
+    val bottomContentInset = systemNavigationContentInset()
+    val share = rememberShareHandler()
+
+    // Unlike the artwork-heavy home hero this route always has a quiet page background.
+    // Re-assert the icon contrast when navigating here; otherwise the light icons selected
+    // for the hero remain white on this light full-screen page.
+    StatusBarIconStyle(darkIcons = !palette.isDark)
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -118,6 +130,19 @@ fun CalendarScreen(component: CalendarComponent) {
                         color = palette.sub2,
                     )
                 }
+                Icon(
+                    AppIcons.Info,
+                    contentDescription = "导出日历诊断",
+                    tint = palette.text,
+                    modifier =
+                        Modifier
+                            .pressable(onClickLabel = "导出日历诊断") {
+                                share.shareText(component.diagnosticReport(state.days))
+                            }.touchTarget()
+                            .size(36.dp)
+                            .solidGlass(CircleShape, palette.card2, palette.border)
+                            .padding(10.dp),
+                )
                 // The schedule is cached for the day, so nothing else re-reads it; a new
                 // download landing is exactly when someone wants 未入库 → 可播放 checked
                 // again, and only they know it happened.
@@ -252,7 +277,7 @@ fun CalendarScreen(component: CalendarComponent) {
                         LazyColumn(
                             Modifier.fillMaxSize(),
                             state = listState,
-                            contentPadding = PaddingValues(bottom = TabBarInset),
+                            contentPadding = PaddingValues(bottom = bottomContentInset),
                             verticalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
                             items(days, key = { it.date }) { day ->
@@ -279,7 +304,7 @@ fun CalendarScreen(component: CalendarComponent) {
                                 modifier =
                                     Modifier
                                         .align(Alignment.BottomCenter)
-                                        .padding(bottom = TabBarInset + 12.dp)
+                                        .padding(bottom = bottomContentInset)
                                         .pressable {
                                             scope.launch {
                                                 if (reduceMotion) {
@@ -379,6 +404,7 @@ private fun DaySection(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val isToday = day.isToday(today)
+    val displayEntries = remember(day.entries) { coalesceCalendarEntries(day.entries) }
     Column {
         Row(
             Modifier
@@ -415,16 +441,16 @@ private fun DaySection(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (twoColumns) {
-                    day.entries.chunked(2).forEach { pair ->
+                    displayEntries.chunked(2).forEach { pair ->
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            pair.forEach { entry ->
+                            pair.forEach { display ->
                                 EntryCard(
-                                    entry = entry,
-                                    weekStats = weeklyStats[entry.episode.showTmdbId],
-                                    onOpen = { onOpen(entry) },
+                                    display = display,
+                                    weekStats = weeklyStats[display.entry.episode.showTmdbId],
+                                    onOpen = { onOpen(display.entry) },
                                     modifier = Modifier.weight(1f),
                                 )
                             }
@@ -432,11 +458,11 @@ private fun DaySection(
                         }
                     }
                 } else {
-                    day.entries.forEach { entry ->
+                    displayEntries.forEach { display ->
                         EntryCard(
-                            entry = entry,
-                            weekStats = weeklyStats[entry.episode.showTmdbId],
-                            onOpen = { onOpen(entry) },
+                            display = display,
+                            weekStats = weeklyStats[display.entry.episode.showTmdbId],
+                            onOpen = { onOpen(display.entry) },
                         )
                     }
                 }
@@ -460,11 +486,12 @@ private fun dayLabel(
 
 @Composable
 private fun EntryCard(
-    entry: CalendarEntry,
+    display: CalendarDisplayEntry,
     weekStats: CalendarWeekStats?,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val entry = display.entry
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     // Tappable for anything the library holds — the episode if it has it, the show if not.
@@ -483,7 +510,7 @@ private fun EntryCard(
                 listOf(
                     TmdbImages.poster(entry.episode.posterPath, width = "w185"),
                     TmdbImages.media(entry.episode.posterPath, width = "w185"),
-                ),
+                ) + entry.posterUrls,
             contentDescription = null,
             modifier =
                 Modifier
@@ -502,7 +529,7 @@ private fun EntryCard(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                entry.episode.episodeLabel,
+                display.episodeLabel,
                 style = AppTypography.caption.regular,
                 color = palette.sub,
                 maxLines = 1,
@@ -524,7 +551,7 @@ private fun EntryCard(
             ) {
                 StatusBadge(entry.status)
                 Text(
-                    broadcastStateLabel(entry.status),
+                    display.statusLine ?: broadcastStateLabel(entry),
                     style = AppTypography.caption.regular,
                     color = palette.sub2,
                     maxLines = 1,
@@ -574,6 +601,61 @@ private fun EntryCard(
     }
 }
 
+private data class CalendarDisplayEntry(
+    val entry: CalendarEntry,
+    val episodeLabel: String,
+    val statusLine: String? = null,
+)
+
+/** Collapses a same-day multi-episode drop into one card without losing per-episode counts. */
+private fun coalesceCalendarEntries(entries: List<CalendarEntry>): List<CalendarDisplayEntry> =
+    entries
+        .groupBy { entry ->
+            listOf(
+                entry.episode.kind.name,
+                entry.episode.showTmdbId.toString(),
+                entry.episode.seasonNumber.toString(),
+                entry.episode.airTime.orEmpty(),
+                entry.episode.platforms.joinToString("|"),
+            ).joinToString(":")
+        }.values
+        .map { group ->
+            if (group.size == 1 || group.first().episode.isMovie) {
+                val entry = group.first()
+                return@map CalendarDisplayEntry(entry, entry.episode.episodeLabel)
+            }
+            val sorted = group.sortedBy { it.episode.episodeNumber }
+            val numbers = sorted.map { it.episode.episodeNumber }
+            val label =
+                if (numbers.zipWithNext().all { (a, b) -> b == a + 1 }) {
+                    "第 ${numbers.first()}～${numbers.last()} 集"
+                } else {
+                    numbers.joinToString("、", prefix = "第 ", postfix = " 集")
+                }
+            val representative =
+                sorted.maxBy { entry ->
+                    val open = if (entry.openItemId != null) 10 else 0
+                    open +
+                        when (entry.status) {
+                            LibraryStatus.InProgress -> 6
+                            LibraryStatus.Available -> 5
+                            LibraryStatus.Watched -> 4
+                            LibraryStatus.Missing -> 3
+                            LibraryStatus.Unaired -> 2
+                            LibraryStatus.Unknown -> 1
+                        }
+                }
+            val available =
+                sorted.count {
+                    it.status in setOf(LibraryStatus.Available, LibraryStatus.InProgress, LibraryStatus.Watched)
+                }
+            CalendarDisplayEntry(
+                entry = representative,
+                episodeLabel = label,
+                statusLine = "$available/${sorted.size} 集已入库 · ${broadcastStateLabel(representative)}",
+            )
+        }.sortedBy { it.entry.episode.showTitle }
+
 @Composable
 private fun StatusBadge(status: LibraryStatus) {
     val palette = LocalPalette.current
@@ -598,15 +680,39 @@ private fun StatusBadge(status: LibraryStatus) {
     )
 }
 
-private fun broadcastStateLabel(status: LibraryStatus): String =
-    when (status) {
-        LibraryStatus.Unaired -> "预计播出 · 时间待定"
-        LibraryStatus.Missing -> "已播出 · 等待入库"
-        LibraryStatus.Available -> "已入库未观看"
-        LibraryStatus.InProgress -> "已入库"
-        LibraryStatus.Watched -> "已完成"
-        LibraryStatus.Unknown -> "仅供播出参考"
+private fun broadcastStateLabel(entry: CalendarEntry): String {
+    when (entry.dataIssue) {
+        CalendarDataIssue.NoServer -> return "未连接媒体库，仅显示排期"
+        CalendarDataIssue.LibraryLookupFailed -> return "媒体库查询失败，请刷新"
+        CalendarDataIssue.IdentityUnmatched -> return "剧集身份待确认"
+        null -> Unit
     }
+    val episode = entry.episode
+    val state =
+        when (entry.status) {
+            LibraryStatus.Unaired -> "等待播出"
+            LibraryStatus.Missing -> "已播出，等待入库"
+            LibraryStatus.Available -> "已入库未观看"
+            LibraryStatus.InProgress -> "已入库"
+            LibraryStatus.Watched -> "已完成"
+            LibraryStatus.Unknown -> "仅供播出参考"
+        }
+    if (episode.scheduleAuthority != AiringScheduleAuthority.Official) return state
+    val tier =
+        when (episode.accessTier) {
+            AiringAccessTier.Member -> "会员"
+            AiringAccessTier.SviP -> "SVIP"
+            AiringAccessTier.Free -> "免费"
+            AiringAccessTier.Unknown -> null
+        }
+    return buildList {
+        add("官方排期")
+        episode.airTime?.let(::add)
+        addAll(episode.platforms.take(2))
+        tier?.let(::add)
+        add(state)
+    }.distinct().joinToString(" · ")
+}
 
 private data class CalendarWeekStats(
     val scheduled: Int,

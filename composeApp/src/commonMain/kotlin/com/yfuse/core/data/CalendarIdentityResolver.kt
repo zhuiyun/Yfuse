@@ -1,0 +1,93 @@
+package com.yfuse.core.data
+
+import com.russhwolf.settings.Settings
+import com.yfuse.core.model.MediaDetail
+
+data class TmdbSeriesIdentityCandidate(
+    val tmdbId: Int,
+    val title: String,
+    val year: Int?,
+    val posterPath: String?,
+    val popularity: Double = 0.0,
+)
+
+class CalendarIdentityAmbiguousException(
+    val candidates: List<TmdbSeriesIdentityCandidate>,
+) : Exception("找到多个可能的剧集，请选择正确条目")
+
+class CalendarIdentityResolver(
+    private val tmdb: TmdbRepository,
+    private val settings: Settings,
+) {
+    suspend fun resolve(
+        detail: MediaDetail,
+        serverId: String?,
+    ): Result<Int> {
+        require(detail.type.equals("Series", ignoreCase = true)) { "只有剧集支持播出日历" }
+        val itemKey = itemKey(serverId, detail.id)
+        settings.getIntOrNull(itemKey)?.takeIf { it > 0 }?.let { return Result.success(it) }
+
+        detail.providerIds.tmdbId()?.let { tmdbId ->
+            remember(serverId, detail.id, tmdbId)
+            return Result.success(tmdbId)
+        }
+
+        externalIdentity(detail.providerIds)?.let { (id, source) ->
+            tmdb.findSeriesByExternalId(id, source).getOrNull()?.let { candidate ->
+                remember(serverId, detail.id, candidate.tmdbId)
+                return Result.success(candidate.tmdbId)
+            }
+        }
+
+        val candidates =
+            tmdb.searchSeriesIdentityCandidates(detail.title, detail.year)
+                .getOrElse { return Result.failure(it) }
+        val normalizedTitle = normalizeIdentityTitle(detail.title)
+        val exact =
+            candidates.filter { candidate ->
+                normalizeIdentityTitle(candidate.title) == normalizedTitle &&
+                    (detail.year == null || candidate.year == null || kotlin.math.abs(detail.year - candidate.year) <= 1)
+            }
+        if (exact.size == 1) {
+            val tmdbId = exact.single().tmdbId
+            remember(serverId, detail.id, tmdbId)
+            return Result.success(tmdbId)
+        }
+        return Result.failure(CalendarIdentityAmbiguousException((exact.ifEmpty { candidates }).take(5)))
+    }
+
+    fun remember(
+        serverId: String?,
+        itemId: String,
+        tmdbId: Int,
+    ) {
+        require(tmdbId > 0)
+        settings.putInt(itemKey(serverId, itemId), tmdbId)
+        settings.putString(reverseKey(serverId, tmdbId), itemId)
+    }
+
+    fun mappedSeriesItemId(serverId: String, tmdbId: Int): String? =
+        settings.getStringOrNull(reverseKey(serverId, tmdbId))?.takeIf(String::isNotBlank)
+
+    private fun externalIdentity(providerIds: Map<String, String>): Pair<String, String>? {
+        val imdb = providerIds.entries.firstOrNull { it.key.equals("imdb", true) }?.value
+        if (!imdb.isNullOrBlank()) return imdb to "imdb_id"
+        val tvdb = providerIds.entries.firstOrNull { it.key.equals("tvdb", true) }?.value
+        if (!tvdb.isNullOrBlank()) return tvdb to "tvdb_id"
+        return null
+    }
+
+    private fun Map<String, String>.tmdbId(): Int? =
+        entries.firstOrNull { it.key.equals("tmdb", true) }?.value?.toIntOrNull()
+
+    private fun itemKey(serverId: String?, itemId: String) =
+        "calendar.identity.item.${serverId.orEmpty().safeKey()}.$itemId"
+
+    private fun reverseKey(serverId: String?, tmdbId: Int) =
+        "calendar.identity.tmdb.${serverId.orEmpty().safeKey()}.$tmdbId"
+}
+
+internal fun normalizeIdentityTitle(value: String): String =
+    value.lowercase().filter { it.isLetterOrDigit() }
+
+private fun String.safeKey(): String = filter { it.isLetterOrDigit() || it == '-' || it == '_' }

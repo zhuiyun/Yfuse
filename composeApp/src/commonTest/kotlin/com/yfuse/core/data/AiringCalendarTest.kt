@@ -3,9 +3,13 @@ package com.yfuse.core.data
 import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.LibraryStatus
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ShowOrigin
 import kotlin.test.Test
+import com.yfuse.core.model.AiringScheduleAuthority
+import com.yfuse.core.util.scheduledEpochMillis
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class AiringCalendarTest {
     private val today = "2026-07-31"
@@ -13,12 +17,14 @@ class AiringCalendarTest {
     private fun episode(
         played: Boolean,
         resumePositionTicks: Long? = null,
+        indexNumber: Int = 5,
+        seasonNumber: Int = 2,
     ) = Episode(
-        id = "ep1",
-        name = "第 5 集",
-        indexNumber = 5,
-        seasonNumber = 2,
-        seasonId = "s2",
+        id = "ep$indexNumber",
+        name = "第 $indexNumber 集",
+        indexNumber = indexNumber,
+        seasonNumber = seasonNumber,
+        seasonId = "s$seasonNumber",
         overview = null,
         runtimeMinutes = 45,
         primaryTag = null,
@@ -97,5 +103,71 @@ class AiringCalendarTest {
                 origin = ShowOrigin.Foreign,
             )
         assertEquals("tmdb:1399/s2e5", airing.mediaKey)
+    }
+
+    @Test
+    fun detail_preview_uses_the_known_series_and_episode_without_provider_lookup() {
+        val scheduled =
+            AiringEpisode(
+                showTmdbId = 272938,
+                showTitle = "师兄太稳健",
+                posterPath = "/poster.jpg",
+                seasonNumber = 1,
+                episodeNumber = 13,
+                episodeTitle = null,
+                airDate = "2026-08-25",
+                origin = ShowOrigin.Domestic,
+            )
+        val hint =
+            SeriesCalendarLibraryHint(
+                showTmdbId = 272938,
+                server =
+                    SavedServer(
+                        id = "server",
+                        baseUrl = "https://example.invalid",
+                        serverName = "家庭影院",
+                        userId = "user",
+                        userName = "用户",
+                        accessToken = "token",
+                    ),
+                seriesItemId = "series-item",
+                episodes = listOf(episode(played = false, indexNumber = 13, seasonNumber = 1)),
+            )
+
+        val entry = calendarPreviewDays(listOf(scheduled), today = "2026-08-25", libraryHint = hint).single().entries.single()
+
+        assertEquals(LibraryStatus.Available, entry.status)
+        assertEquals("ep13", entry.itemId)
+        assertEquals("series-item", entry.seriesItemId)
+        assertEquals(listOf("家庭影院"), entry.serverNames)
+        assertTrue(entry.posterUrls.single().contains("/Items/series-item/Images/Primary"))
+    }
+
+    @Test
+    fun official_noon_release_does_not_turn_missing_at_midnight() {
+        val scheduled =
+            AiringEpisode(
+                showTmdbId = 272938,
+                showTitle = "师兄太稳健",
+                posterPath = null,
+                seasonNumber = 1,
+                episodeNumber = 13,
+                episodeTitle = null,
+                airDate = "2026-08-25",
+                origin = ShowOrigin.Domestic,
+                scheduleAuthority = AiringScheduleAuthority.Official,
+                airTime = "12:00",
+                timeZoneId = "Asia/Shanghai",
+            )
+        val noon = checkNotNull(scheduledEpochMillis("2026-08-25", "12:00", "Asia/Shanghai"))
+
+        assertEquals(
+            LibraryStatus.Unaired,
+            classifyAiring(null, scheduled, today = "2026-08-25", nowEpochMs = noon - 1),
+        )
+        assertEquals(
+            LibraryStatus.Missing,
+            classifyAiring(null, scheduled, today = "2026-08-25", nowEpochMs = noon),
+        )
     }
 }

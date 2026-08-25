@@ -35,6 +35,11 @@ internal data class TmdbListDto(
 )
 
 @Serializable
+internal data class TmdbFindDto(
+    @SerialName("tv_results") val tvResults: List<TmdbItemDto> = emptyList(),
+)
+
+@Serializable
 internal data class TmdbItemDto(
     val id: Int,
     val title: String? = null,
@@ -79,6 +84,15 @@ internal data class TmdbShowScheduleDto(
 internal data class TmdbSeasonDto(
     @SerialName("season_number") val seasonNumber: Int? = null,
     val episodes: List<TmdbEpisodeStubDto> = emptyList(),
+)
+
+private data class CalendarScheduleSeed(
+    val showId: Int,
+    val dto: TmdbShowScheduleDto,
+    val showTitle: String,
+    val posterPath: String?,
+    val origin: ShowOrigin,
+    val currentSeason: Int?,
 )
 
 @Serializable
@@ -461,6 +475,63 @@ class TmdbRepository(
             Result.failure(EmbyErrorException(e.toError()))
         }
 
+    /** Candidate identities for a library series whose provider ids are missing or stale. */
+    suspend fun searchSeriesIdentityCandidates(
+        title: String,
+        year: Int? = null,
+        language: String = "zh-CN",
+    ): Result<List<TmdbSeriesIdentityCandidate>> =
+        runCatching {
+            client
+                .get("$TMDB_BASE/search/tv") {
+                    parameter("language", language)
+                    parameter("query", title.trim())
+                    year?.let { parameter("first_air_date_year", it) }
+                }.body<TmdbListDto>()
+                .results
+                .map { item ->
+                    TmdbSeriesIdentityCandidate(
+                        tmdbId = item.id,
+                        title = item.name ?: item.title.orEmpty(),
+                        year = item.firstAirDate?.take(4)?.toIntOrNull(),
+                        posterPath = item.posterPath,
+                        popularity = item.popularity,
+                    )
+                }.filter { it.title.isNotBlank() }
+                .sortedWith(
+                    compareByDescending<TmdbSeriesIdentityCandidate> {
+                        normalizeIdentityTitle(it.title) == normalizeIdentityTitle(title)
+                    }.thenBy { candidate ->
+                        if (year == null || candidate.year == null) 0 else kotlin.math.abs(candidate.year - year)
+                    }.thenByDescending(TmdbSeriesIdentityCandidate::popularity),
+                ).take(8)
+        }
+
+    /** Resolves IMDb/TVDB ids through TMDB's `/find` endpoint before title matching. */
+    suspend fun findSeriesByExternalId(
+        externalId: String,
+        externalSource: String,
+        language: String = "zh-CN",
+    ): Result<TmdbSeriesIdentityCandidate?> =
+        runCatching {
+            client
+                .get("$TMDB_BASE/find/$externalId") {
+                    parameter("language", language)
+                    parameter("external_source", externalSource)
+                }.body<TmdbFindDto>()
+                .tvResults
+                .firstOrNull()
+                ?.let { item ->
+                    TmdbSeriesIdentityCandidate(
+                        tmdbId = item.id,
+                        title = item.name ?: item.title.orEmpty(),
+                        year = item.firstAirDate?.take(4)?.toIntOrNull(),
+                        posterPath = item.posterPath,
+                        popularity = item.popularity,
+                    )
+                }
+        }
+
     suspend fun detail(
         item: TmdbItem,
         language: String = "zh-CN",
@@ -589,10 +660,29 @@ class TmdbRepository(
      * per show, which is not worth quadrupling the request count until the calendar has
      * proved itself.
      */
+    private fun CalendarScheduleSeed.toAiringEpisodes(
+        source: List<TmdbEpisodeStubDto>,
+        fromDate: String,
+        toDate: String,
+    ): List<AiringEpisode> =
+        source
+            .mapNotNull { stub ->
+                stub.toAiringEpisode(
+                    showTmdbId = dto.id,
+                    showTitle = showTitle,
+                    posterPath = posterPath,
+                    origin = origin,
+                    // A season payload omits the season number on its episodes; it is the
+                    // season that was requested.
+                    fallbackSeason = currentSeason,
+                )
+            }.filter { it.airDate in fromDate..toDate }
+
     suspend fun airingCalendar(
         fromDate: String,
         toDate: String,
         language: String = "zh-CN",
+        onPreview: (List<AiringEpisode>) -> Unit = {},
     ): Result<List<AiringEpisode>> =
         try {
             coroutineScope {
@@ -672,70 +762,11 @@ class TmdbRepository(
                         foreign.await().filterNot { it.id in domesticIds },
                     ).take(CALENDAR_MAX_SHOWS)
 
-                val episodes =
-                    shows
-                        .map { show ->
-                            async {
-                                calendarRequests.withPermit {
-                                    val dto = schedule(show.id, language) ?: return@withPermit emptyList()
-                                    val origin =
-                                        if (show.id in domesticIds) {
-                                            ShowOrigin.Domestic
-                                        } else {
-                                            ShowOrigin.Foreign
-                                        }
-                                    val showTitle = dto.name ?: show.title
-                                    val poster = dto.posterPath ?: show.posterPath
-                                    // The season the show is currently in. Its whole episode list is
-                                    // what a 日更 drama needs — last and next alone would leave every
-                                    // day between them blank on a show that posts one a day. The extra
-                                    // request per show is affordable because the schedule is fetched
-                                    // once a day and cached, not on every open.
-                                    val currentSeason = (dto.nextEpisode ?: dto.lastEpisode)?.seasonNumber
-                                    val seasonEpisodes =
-                                        currentSeason
-                                            ?.let { season(show.id, it, language) }
-                                            ?.episodes
-                                            .orEmpty()
-
-                                    fun stubsOf(source: List<TmdbEpisodeStubDto>) =
-                                        source
-                                            .mapNotNull { stub ->
-                                                stub.toAiringEpisode(
-                                                    showTmdbId = dto.id,
-                                                    showTitle = showTitle,
-                                                    posterPath = poster,
-                                                    origin = origin,
-                                                    // A season payload omits the season number on its episodes;
-                                                    // it is the season that was asked for.
-                                                    fallbackSeason = currentSeason,
-                                                )
-                                            }.filter { it.airDate in fromDate..toDate }
-
-                                    // Fall back on what the *season* yielded, not on whether the season
-                                    // list was empty.
-                                    //
-                                    // This is where 国产剧 were disappearing. A Chinese web drama's TMDB
-                                    // season is routinely listed with every episode named and none of
-                                    // them dated — the only dates on the record are the show-level
-                                    // `next_episode_to_air` / `last_episode_to_air`. The season list was
-                                    // therefore non-empty, `ifEmpty` never fired, every undated stub was
-                                    // dropped for having no air date, and the show contributed nothing
-                                    // at all. Asking whether anything usable came back covers both that
-                                    // case and the empty one it was written for.
-                                    stubsOf(seasonEpisodes).ifEmpty {
-                                        stubsOf(listOfNotNull(dto.lastEpisode, dto.nextEpisode))
-                                    }
-                                }
-                            }
-                        }.awaitAll()
-                        .flatten()
-                        .distinctBy { it.mediaKey }
-
-                val domesticFilmIds = domesticFilms.await().map { it.id }.toSet()
+                val domesticFilmResults = domesticFilms.await()
+                val domesticFilmIds = domesticFilmResults.map { it.id }.toSet()
                 val films =
                     interleave(
-                        domesticFilms.await(),
+                        domesticFilmResults,
                         foreignFilms.await().filterNot { it.id in domesticFilmIds },
                     ).take(CALENDAR_MAX_FILMS)
                         .mapNotNull { film ->
@@ -748,6 +779,77 @@ class TmdbRepository(
                                     },
                             )
                         }.filter { it.airDate in fromDate..toDate }
+                        .distinctBy { it.mediaKey }
+
+                // Fetch the cheap show-level schedule for every title first. It already carries
+                // last/next episode and gives the UI a useful first paint; season expansion is a
+                // second wave so daily dramas still become complete without blocking the page.
+                val scheduledShows =
+                    shows
+                        .map { show ->
+                            async {
+                                calendarRequests.withPermit {
+                                    val dto = schedule(show.id, language) ?: return@withPermit null
+                                    val origin =
+                                        if (show.id in domesticIds) {
+                                            ShowOrigin.Domestic
+                                        } else {
+                                            ShowOrigin.Foreign
+                                        }
+                                    val showTitle = dto.name ?: show.title
+                                    val poster = dto.posterPath ?: show.posterPath
+                                    val currentSeason = (dto.nextEpisode ?: dto.lastEpisode)?.seasonNumber
+                                    CalendarScheduleSeed(
+                                        showId = show.id,
+                                        dto = dto,
+                                        showTitle = showTitle,
+                                        posterPath = poster,
+                                        origin = origin,
+                                        currentSeason = currentSeason,
+                                    )
+                                }
+                            }
+                        }.awaitAll()
+                        .filterNotNull()
+
+                val lightweightEpisodes =
+                    scheduledShows
+                        .flatMap { seed ->
+                            seed.toAiringEpisodes(
+                                listOfNotNull(seed.dto.lastEpisode, seed.dto.nextEpisode),
+                                fromDate,
+                                toDate,
+                            )
+                        }.distinctBy { it.mediaKey }
+                onPreview(
+                    (lightweightEpisodes + films).sortedWith(compareBy({ it.airDate }, { it.showTitle })),
+                )
+
+                val episodes =
+                    scheduledShows
+                        .map { seed ->
+                            async {
+                                calendarRequests.withPermit {
+                                    // A whole season is what a 日更 drama needs: last/next alone leaves
+                                    // the days between them blank. This is deliberately the second wave.
+                                    val seasonEpisodes =
+                                        seed.currentSeason
+                                            ?.let { season(seed.showId, it, language) }
+                                            ?.episodes
+                                            .orEmpty()
+                                    // Some TMDB seasons contain named but undated episodes. Fall back to
+                                    // the show record unless the season produced usable dated rows.
+                                    seed.toAiringEpisodes(seasonEpisodes, fromDate, toDate).ifEmpty {
+                                        seed.toAiringEpisodes(
+                                            listOfNotNull(seed.dto.lastEpisode, seed.dto.nextEpisode),
+                                            fromDate,
+                                            toDate,
+                                        )
+                                    }
+                                }
+                            }
+                        }.awaitAll()
+                        .flatten()
                         .distinctBy { it.mediaKey }
 
                 Result.success(

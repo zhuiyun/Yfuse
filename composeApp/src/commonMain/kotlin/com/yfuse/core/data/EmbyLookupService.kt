@@ -27,6 +27,30 @@ internal class EmbyLookupService(
     suspend fun seriesProviderIndex(server: SavedServer): Result<Map<String, String>> =
         providerIndex(server, "Series").map { index -> index.mapValues { it.value.itemId } }
 
+    /** One-pass series identity catalog for provider-id and conservative title fallback matching. */
+    suspend fun seriesIdentityCatalog(server: SavedServer): Result<List<LibrarySeriesIdentity>> =
+        embyApiCall("series_identity_catalog") {
+            val dto: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("IncludeItemTypes", "Series")
+                        parameter("Recursive", "true")
+                        parameter("Fields", "ProductionYear,ProviderIds")
+                        parameter("EnableImages", "false")
+                    }.body()
+            dto.Items.mapNotNull { item ->
+                item.Name?.takeIf(String::isNotBlank)?.let { title ->
+                    LibrarySeriesIdentity(
+                        itemId = item.Id,
+                        title = title,
+                        year = item.ProductionYear,
+                        providerIds = item.ProviderIds.orEmpty(),
+                    )
+                }
+            }
+        }
+
     /**
      * Every film in the library, keyed by provider id and carrying whether it was watched.
      *
@@ -157,3 +181,10 @@ internal class EmbyLookupService(
             dto.Items.firstOrNull()?.toMediaItem()
         }
 }
+
+data class LibrarySeriesIdentity(
+    val itemId: String,
+    val title: String,
+    val year: Int?,
+    val providerIds: Map<String, String>,
+)

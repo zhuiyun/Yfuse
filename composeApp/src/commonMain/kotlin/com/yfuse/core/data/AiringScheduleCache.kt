@@ -46,6 +46,19 @@ class AiringScheduleCache(
     ): List<AiringEpisode>? {
         if (settings.getStringOrNull(KEY_FETCHED_ON) != today) return null
         if (settings.getStringOrNull(KEY_WINDOW) != window) return null
+        return readStored()
+    }
+
+    /**
+     * The most recently completed schedule, regardless of the day/window it was fetched for.
+     *
+     * This is only a paint cache: callers must filter it to their current window and still
+     * refresh in the background. Keeping it available prevents a new day (or a transient TMDB
+     * outage) from turning a calendar that was useful yesterday into a full-screen spinner.
+     */
+    fun readLastSuccessful(): List<AiringEpisode>? = readStored()
+
+    private fun readStored(): List<AiringEpisode>? {
         val raw = settings.getStringOrNull(KEY_EPISODES) ?: return null
         return runCatching { json.decodeFromString(serializer, raw) }
             .onFailure {
@@ -83,9 +96,47 @@ class AiringScheduleCache(
         }
     }
 
+    fun readSeries(
+        tmdbId: Int,
+        today: String,
+    ): List<AiringEpisode>? {
+        if (settings.getStringOrNull(seriesDateKey(tmdbId)) != today) return null
+        val raw = settings.getStringOrNull(seriesDataKey(tmdbId)) ?: return null
+        return runCatching { json.decodeFromString(serializer, raw) }.getOrNull()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun writeSeries(
+        tmdbId: Int,
+        today: String,
+        episodes: List<AiringEpisode>,
+    ) {
+        if (tmdbId <= 0 || episodes.isEmpty()) return
+        runCatching {
+            settings.putString(seriesDataKey(tmdbId), json.encodeToString(serializer, episodes))
+            settings.putString(seriesDateKey(tmdbId), today)
+        }
+    }
+
+    private fun seriesDataKey(tmdbId: Int) = "calendar.series.$tmdbId.episodes"
+
+    private fun seriesDateKey(tmdbId: Int) = "calendar.series.$tmdbId.fetchedOn"
+
     fun clear() {
         settings.remove(KEY_EPISODES)
         settings.remove(KEY_FETCHED_ON)
         settings.remove(KEY_WINDOW)
     }
+
+    fun diagnostics(): AiringScheduleCacheDiagnostics =
+        AiringScheduleCacheDiagnostics(
+            fetchedOn = settings.getStringOrNull(KEY_FETCHED_ON),
+            window = settings.getStringOrNull(KEY_WINDOW),
+            entryCount = readStored()?.size ?: 0,
+        )
 }
+
+data class AiringScheduleCacheDiagnostics(
+    val fetchedOn: String?,
+    val window: String?,
+    val entryCount: Int,
+)

@@ -1,13 +1,17 @@
 package com.yfuse
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.toArgb
+import androidx.lifecycle.lifecycleScope
 import com.arkivanov.decompose.retainedComponent
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AnimatedSplashApp
@@ -17,6 +21,7 @@ import com.yfuse.app.isNightMode
 import com.yfuse.app.launchWindowDarkMode
 import com.yfuse.app.splashBackground
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
@@ -34,6 +39,9 @@ import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager
 import org.koin.core.context.GlobalContext
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private lateinit var updateManager: AppUpdateManager
@@ -41,6 +49,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var serverSyncManager: ServerSyncManager
     private var rootComponent: RootComponent? = null
     private var jankMonitor: AppJankMonitor? = null
+    private var calendarNotificationPermissionRequested = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,6 +88,8 @@ class MainActivity : ComponentActivity() {
                     dependencies =
                         AppDependencies(
                             calendarRepository = koin.get(),
+                            calendarIdentityResolver = koin.get(),
+                            calendarFollowStore = koin.get(),
                             tmdbHomeCache = koin.get(),
                             tgtoMedia = koin.get(),
                             tgtoMediaPreferences = koin.get(),
@@ -108,6 +119,7 @@ class MainActivity : ComponentActivity() {
             }
 
         rootComponent = root
+        observeCalendarNotificationPermission(koin.get())
 
         // Application-scoped: a download started here has to survive this activity, so the
         // update check that starts one is triggered from the UI (see AppUpdateOverlay) rather
@@ -135,6 +147,25 @@ class MainActivity : ComponentActivity() {
         consumeInviteIntent(intent)
     }
 
+    private fun observeCalendarNotificationPermission(follows: CalendarFollowStore) {
+        if (Build.VERSION.SDK_INT < 33) return
+        lifecycleScope.launch {
+            follows.followed
+                .map { it.isNotEmpty() }
+                .distinctUntilChanged()
+                .collect { hasFollows ->
+                    if (
+                        hasFollows &&
+                        !calendarNotificationPermissionRequested &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        calendarNotificationPermissionRequested = true
+                        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), CALENDAR_NOTIFICATION_PERMISSION_REQUEST)
+                    }
+                }
+        }
+    }
+
     /**
      * The activity is `singleTask`, so a link tapped while Yfuse is already running is
      * delivered here instead of creating a second instance — including while the player is
@@ -144,6 +175,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         consumeInviteIntent(intent)
+    }
+
+    private companion object {
+        const val CALENDAR_NOTIFICATION_PERMISSION_REQUEST = 4103
     }
 
     private fun consumeInviteIntent(intent: Intent?) {

@@ -13,11 +13,14 @@ import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.createCastManager
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.AiringScheduleCache
+import com.yfuse.core.data.CalendarIdentityResolver
+import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
+import com.yfuse.core.data.OfficialAiringScheduleCatalog
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackFailoverRequest
@@ -149,12 +152,17 @@ fun appModule(
     single { PlaybackReportingCoordinator(get(), get(), get(), get()) }
     single { ServerHealthMonitor(get(), get()) }
     single { AiringScheduleCache(get()) }
+    single { CalendarFollowStore(get()) }
+    single { OfficialAiringScheduleCatalog(createAccountClient(), get()) }
     single {
         AiringCalendarRepository(
             tmdb = get(),
             emby = get(),
             registry = get(),
             scheduleCache = get(),
+            officialSchedules = get(),
+            identityResolver = get(),
+            followStore = get(),
         )
     }
     single { DanmakuRepository(createDanmakuClient()) }
@@ -194,5 +202,6 @@ fun appModule(
     // Own client (different host + bearer auth), built inline so Koin keeps a
     // single HttpClient binding.
     single { TmdbRepository(createTmdbClient()) }
+    single { CalendarIdentityResolver(get(), get()) }
     single<StoreFactory> { DefaultStoreFactory() }
 }

@@ -10,6 +10,9 @@ import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackFailoverPlan
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.SeriesCalendarLibraryHint
+import com.yfuse.core.data.TmdbSeriesIdentityCandidate
+import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
@@ -108,17 +111,70 @@ class DetailComponent(
         ).forEach(dependencies.offlineMediaManager::enqueue)
     }
 
-    suspend fun loadSeriesAiringCalendar(detail: MediaDetail): Result<List<CalendarDay>> {
+    suspend fun loadSeriesAiringCalendar(
+        detail: MediaDetail,
+        onPreview: (List<CalendarDay>) -> Unit = {},
+    ): Result<List<CalendarDay>> {
         val tmdbId =
-            detail.airingCalendarTmdbId()
-                ?: return Result.failure(IllegalArgumentException("当前剧集缺少 TMDB 标识，无法查询播出日历"))
+            dependencies.calendarIdentityResolver
+                .resolve(detail, store.state.server?.id ?: serverId)
+                .getOrElse { return Result.failure(it) }
+        val state = store.state
+        val libraryHint =
+            (state.playServer ?: state.server)?.let { server ->
+                SeriesCalendarLibraryHint(
+                    showTmdbId = tmdbId,
+                    server = server,
+                    // The episode list belongs to playSourceDetail/playServer. Cross-server
+                    // source selection can differ from the route's original detail server;
+                    // pairing those episodes with detail.id made every coordinate miss and
+                    // produced “已入库 0 集” even when the files were present.
+                    seriesItemId = state.playSourceDetail?.id ?: detail.id,
+                    episodes = state.episodes,
+                )
+            }
         return loadCalendarWithDeadline {
             dependencies.calendarRepository.seriesCalendar(
                 showTmdbId = tmdbId,
                 fallbackTitle = detail.title,
+                onPreview = onPreview,
+                libraryHint = libraryHint,
             )
         }
     }
+
+    fun rememberSeriesCalendarIdentity(
+        detail: MediaDetail,
+        candidate: TmdbSeriesIdentityCandidate,
+    ) {
+        dependencies.calendarIdentityResolver.remember(
+            serverId = store.state.server?.id ?: serverId,
+            itemId = detail.id,
+            tmdbId = candidate.tmdbId,
+        )
+    }
+
+    suspend fun toggleSeriesFollow(detail: MediaDetail): Result<Boolean> =
+        dependencies.calendarIdentityResolver
+            .resolve(detail, store.state.server?.id ?: serverId)
+            .map { tmdbId ->
+                val follows = dependencies.calendarFollowStore
+                if (follows.isFollowing(tmdbId)) {
+                    follows.unfollow(tmdbId)
+                    false
+                } else {
+                    follows.follow(
+                        FollowedSeries(
+                            tmdbId = tmdbId,
+                            title = detail.title,
+                            year = detail.year,
+                            serverId = store.state.server?.id ?: serverId,
+                            seriesItemId = detail.id,
+                        ),
+                    )
+                    true
+                }
+            }
 
     init {
         val scope = componentScope(lifecycle)

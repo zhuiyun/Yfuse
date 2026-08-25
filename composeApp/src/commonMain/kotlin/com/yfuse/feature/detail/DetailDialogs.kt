@@ -32,11 +32,13 @@ import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.AiringScheduleAuthority
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.offline.OfflineDownloadQuality
 import com.yfuse.core.offline.OfflineDownloadSelection
@@ -52,19 +54,55 @@ internal fun SeriesAiringCalendarDialog(
     days: List<CalendarDay>,
     loading: Boolean,
     error: String?,
+    identityCandidates: List<TmdbSeriesIdentityCandidate> = emptyList(),
+    onSelectIdentity: (TmdbSeriesIdentityCandidate) -> Unit = {},
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val today = currentIsoDate()
     val episodeCount = days.sumOf { it.entries.size }
+    val officialSchedule =
+        days.asSequence()
+            .flatMap { it.entries.asSequence() }
+            .map { it.episode }
+            .firstOrNull { it.scheduleAuthority == AiringScheduleAuthority.Official }
+    val scheduleSubtitle =
+        when {
+            officialSchedule != null ->
+                buildList {
+                    add("$episodeCount 集")
+                    add("官方会员日历")
+                    officialSchedule.airTime?.let { add("北京时间 $it") }
+                    officialSchedule.platforms.takeIf { it.isNotEmpty() }?.joinToString("/")?.let(::add)
+                }.joinToString(" · ")
+            episodeCount > 0 -> "$episodeCount 集 · 按原产地播出日期"
+            else -> "按原产地播出日期"
+        }
     GlassDialog(liquidButtons = false, onDismiss = onDismiss, scrollable = false) {
         OverlayHeader(
             title = "$title · 播出日历",
-            subtitle = if (episodeCount > 0) "$episodeCount 集 · 按原产地播出日期" else "按原产地播出日期",
+            subtitle = scheduleSubtitle,
             onClose = onDismiss,
         )
         when {
+            identityCandidates.isNotEmpty() -> {
+                Text(
+                    "媒体库缺少可靠的 TMDB 标识，请选择一次；选择结果会保存到本机。",
+                    style = AppTypography.body.regular,
+                    color = palette.sub,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+                identityCandidates.forEach { candidate ->
+                    OverlayOptionRow(
+                        label = candidate.title,
+                        description = listOfNotNull(candidate.year?.toString(), "TMDB ${candidate.tmdbId}").joinToString(" · "),
+                        selected = false,
+                        onClick = { onSelectIdentity(candidate) },
+                    )
+                }
+            }
+
             loading && days.isEmpty() ->
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = 28.dp),

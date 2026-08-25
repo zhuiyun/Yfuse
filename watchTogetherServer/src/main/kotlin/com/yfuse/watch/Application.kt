@@ -407,6 +407,8 @@ internal fun Application.watchTogetherModule(
     watchAuthRetryDelayMs: (Int) -> Long = ::watchAuthTransientRetryDelayMs,
     /** Test seam shared by expiry checks; production uses the wall clock encoded in tokens. */
     watchAuthClock: () -> Long = System::currentTimeMillis,
+    /** Signed official schedule feed; null keeps the public endpoint safely unavailable. */
+    calendarScheduleSigner: CalendarScheduleSigner? = CalendarScheduleSigner.fromEnvironment(),
 ) {
     require(roomGraceMs >= 0L) { "roomGraceMs must not be negative" }
     require(maxActiveRoomsPerIp in 1..MAX_ROOMS) {
@@ -442,6 +444,7 @@ internal fun Application.watchTogetherModule(
         masking = false
     }
     routing {
+        calendarScheduleRoutes(calendarScheduleSigner)
         accountRoutes(accountBackend, accountRateLimiter)
         migrationRelayRoutes(
             backend = migrationRelayBackend,

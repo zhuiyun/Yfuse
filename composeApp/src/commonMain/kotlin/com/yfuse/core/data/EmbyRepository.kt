@@ -537,6 +537,9 @@ class EmbyRepository(
     suspend fun seriesProviderIndex(server: SavedServer): Result<Map<String, String>> =
         lookupService.seriesProviderIndex(server)
 
+    suspend fun seriesIdentityCatalog(server: SavedServer): Result<List<LibrarySeriesIdentity>> =
+        lookupService.seriesIdentityCatalog(server)
+
     suspend fun movieProviderIndex(server: SavedServer): Result<Map<String, ProviderHit>> =
         lookupService.movieProviderIndex(server)
 

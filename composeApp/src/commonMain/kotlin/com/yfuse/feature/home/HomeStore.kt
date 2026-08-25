@@ -111,6 +111,16 @@ data class HomeState(
                 .sortedByDescending { it.item.communityRating ?: Double.NEGATIVE_INFINITY }
                 .take(16)
 
+    val favorites: List<HomeResumeEntry>
+        get() =
+            libraryContent
+                .flatMap { source ->
+                    source.content.rows
+                        .filter { it.title == "我的收藏" }
+                        .flatMap { row -> row.items.map { HomeResumeEntry(it, source.server) } }
+                }.distinctBy { it.server.id to it.item.id }
+                .take(16)
+
     val collections: List<HomeContainerEntry>
         get() =
             libraryContent

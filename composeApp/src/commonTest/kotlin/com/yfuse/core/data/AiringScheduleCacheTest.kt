@@ -38,6 +38,7 @@ class AiringScheduleCacheTest {
         cache.write("2026-07-31", window, listOf(episode(1)))
 
         assertNull(cache.read("2026-08-01", window))
+        assertEquals(listOf(episode(1)), cache.readLastSuccessful())
     }
 
     @Test

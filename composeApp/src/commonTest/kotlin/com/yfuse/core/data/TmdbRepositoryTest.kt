@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TmdbRepositoryTest {
@@ -225,6 +226,8 @@ class TmdbRepositoryTest {
     @Test
     fun a_season_whose_episodes_carry_no_dates_falls_back_to_the_show_record() =
         runTest {
+            var seasonRequested = false
+            var previewEpisodeNumbers = emptyList<Int>()
             val client =
                 HttpClient(
                     MockEngine { request ->
@@ -249,12 +252,14 @@ class TmdbRepositoryTest {
                                         """"episode_number":13,"name":"第 13 集"}}""",
                                 )
                             // Named episodes, not one of them dated — which is the whole point.
-                            path.contains("/season/") ->
+                            path.contains("/season/") -> {
+                                seasonRequested = true
                                 json(
                                     """{"season_number":1,"episodes":[""" +
                                         """{"episode_number":1,"name":"第 1 集"},""" +
                                         """{"episode_number":2,"name":"第 2 集"}]}""",
                                 )
+                            }
                             else -> json("""{"results":[]}""")
                         }
                     },
@@ -266,11 +271,19 @@ class TmdbRepositoryTest {
 
             val result =
                 TmdbRepository(client)
-                    .airingCalendar(fromDate = "2026-07-28", toDate = "2026-08-05")
+                    .airingCalendar(
+                        fromDate = "2026-07-28",
+                        toDate = "2026-08-05",
+                        onPreview = { preview ->
+                            assertFalse(seasonRequested)
+                            previewEpisodeNumbers = preview.map { it.episodeNumber }
+                        },
+                    )
 
             assertTrue(result.isSuccess, result.toString())
             val episodes = result.getOrThrow()
             assertEquals(listOf(12, 13), episodes.map { it.episodeNumber })
+            assertEquals(listOf(12, 13), previewEpisodeNumbers)
             assertTrue(episodes.all { it.showTitle == "国产日更剧" })
         }
 

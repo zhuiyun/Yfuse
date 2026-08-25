@@ -100,6 +100,8 @@ import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
+import com.yfuse.core.model.CalendarEntry
+import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import kotlinx.coroutines.delay
@@ -173,6 +175,7 @@ private fun HomeContent(
     onOpenDiscovery: (() -> Unit)?,
 ) {
     val state by component.store.states.collectAsState(component.store.state)
+    val calendarState by component.calendar.collectAsState()
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current.accent
     val listState = component.listState
@@ -188,6 +191,9 @@ private fun HomeContent(
         if (routeVisible && hiddenSinceLastRefresh) {
             hiddenSinceLastRefresh = false
             component.store.accept(HomeIntent.RefreshLibrary)
+            // Episodes can arrive while detail/player covers the tab. Refresh the compact
+            // calendar too so its 入库/下一集 state is correct on the first frame back home.
+            component.refreshCalendar()
         } else if (!routeVisible) {
             hiddenSinceLastRefresh = true
         }
@@ -216,7 +222,10 @@ private fun HomeContent(
         // home tab. Both read the shared token now.
         PullToRefreshBox(
             isRefreshing = state.refreshing,
-            onRefresh = { component.store.accept(HomeIntent.Refresh) },
+            onRefresh = {
+                component.store.accept(HomeIntent.Refresh)
+                component.refreshCalendar()
+            },
             state = pullState,
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -307,6 +316,17 @@ private fun HomeContent(
                     }
                 }
 
+                if (state.favorites.isNotEmpty()) {
+                    item(key = "favorites") {
+                        LibraryMediaShelf(
+                            title = "我的收藏",
+                            items = state.favorites,
+                            onSeeAll = component.onOpenLibrary,
+                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
+                        )
+                    }
+                }
+
                 if (state.nextUp.isNotEmpty()) {
                     item(key = "next-up") {
                         NextUpShelf(
@@ -345,6 +365,18 @@ private fun HomeContent(
                         CollectionShelf(
                             items = state.collections,
                             onSeeAll = component.onOpenLibrary,
+                        )
+                    }
+                }
+
+
+                val calendarItems = homeCalendarPreviews(calendarState.days, state)
+                if (calendarItems.isNotEmpty()) {
+                    item(key = "airing-calendar-preview") {
+                        HomeCalendarShelf(
+                            items = calendarItems,
+                            onSeeAll = component.onOpenCalendar,
+                            onClick = { component.openCalendarEntry(it.entry) },
                         )
                     }
                 }
@@ -1226,6 +1258,142 @@ private fun HomeShelfHeader(
                     .touchTarget()
                     .padding(horizontal = 10.dp, vertical = 8.dp),
         )
+    }
+}
+
+private data class HomeCalendarPreview(
+    val entry: CalendarEntry,
+    val episodeLabel: String,
+    val priorityLabel: String,
+)
+
+/** User-owned calendar rows, ordered ahead of discovery: watching, favourites, then next-up. */
+private fun homeCalendarPreviews(
+    days: List<com.yfuse.core.model.CalendarDay>,
+    home: HomeState,
+): List<HomeCalendarPreview> {
+    fun tmdbIds(entries: List<HomeResumeEntry>): Set<Int> =
+        entries.mapNotNull { entry ->
+            entry.item.providerIds.entries
+                .firstOrNull { it.key.equals("tmdb", ignoreCase = true) }
+                ?.value
+                ?.toIntOrNull()
+        }.toSet()
+    val favoriteIds = tmdbIds(home.favorites)
+    val nextIds = tmdbIds(home.nextUp)
+    val resumeIds = tmdbIds(home.resume)
+    return days
+        .flatMap { it.entries }
+        .filter { it.inLibrary || it.followed }
+        .groupBy { it.episode.showTmdbId }
+        .mapNotNull { (tmdbId, showEntries) ->
+            val ranked =
+                showEntries.sortedWith(
+                    compareBy<CalendarEntry> { entry ->
+                        when {
+                            entry.status == LibraryStatus.InProgress || tmdbId in resumeIds -> 0
+                            tmdbId in favoriteIds -> 1
+                            tmdbId in nextIds -> 2
+                            entry.status == LibraryStatus.Available -> 3
+                            entry.status == LibraryStatus.Missing -> 4
+                            entry.status == LibraryStatus.Unaired -> 5
+                            else -> 6
+                        }
+                    }.thenBy { entry ->
+                        kotlin.math.abs(com.yfuse.core.util.daysBetweenIso(home.today, entry.episode.airDate))
+                    },
+                )
+            val representative = ranked.firstOrNull() ?: return@mapNotNull null
+            val sameDrop =
+                showEntries
+                    .filter { it.episode.airDate == representative.episode.airDate }
+                    .sortedBy { it.episode.episodeNumber }
+            val numbers = sameDrop.map { it.episode.episodeNumber }
+            val episodeLabel =
+                when {
+                    representative.episode.isMovie -> "电影上映"
+                    numbers.size <= 1 -> representative.episode.episodeLabel
+                    numbers.zipWithNext().all { (a, b) -> b == a + 1 } -> "第 ${numbers.first()}～${numbers.last()} 集"
+                    else -> numbers.joinToString("、", prefix = "第 ", postfix = " 集")
+                }
+            val reason =
+                when {
+                    representative.status == LibraryStatus.InProgress || tmdbId in resumeIds -> "正在观看"
+                    tmdbId in favoriteIds -> "我的收藏"
+                    tmdbId in nextIds -> "下一集"
+                    representative.status == LibraryStatus.Available -> "可播放"
+                    representative.status == LibraryStatus.Missing -> "等待入库"
+                    representative.status == LibraryStatus.Unaired -> "即将更新"
+                    else -> "正在追"
+                }
+            HomeCalendarPreview(representative, episodeLabel, reason)
+        }.sortedWith(
+            compareBy<HomeCalendarPreview> {
+                when (it.priorityLabel) {
+                    "正在观看" -> 0
+                    "我的收藏" -> 1
+                    "下一集" -> 2
+                    "可播放" -> 3
+                    "等待入库" -> 4
+                    else -> 5
+                }
+            }.thenBy { it.entry.episode.airDate },
+        ).take(12)
+}
+
+/** Same card geometry and spacing as 热门; only the data/status line comes from the calendar. */
+@Composable
+private fun HomeCalendarShelf(
+    items: List<HomeCalendarPreview>,
+    onSeeAll: () -> Unit,
+    onClick: (HomeCalendarPreview) -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).padding(bottom = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("追剧日历", style = AppTypography.section.strong, color = palette.text)
+                HomeSourceBadge("日历")
+            }
+            Text(
+                "全部 ›",
+                style = AppTypography.caption.medium,
+                color = palette.sub2,
+                modifier =
+                    Modifier
+                        .pressable(onClickLabel = "打开追剧中心", onClick = onSeeAll)
+                        .touchTarget()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(items, key = { "calendar:${it.entry.episode.showTmdbId}" }) { preview ->
+                val entry = preview.entry
+                CaptionedPoster(
+                    url = TmdbImages.poster(entry.episode.posterPath),
+                    fallbackUrls =
+                        listOfNotNull(
+                            TmdbImages.media(entry.episode.posterPath),
+                            TmdbImages.poster(entry.episode.posterPath, "original"),
+                        ) + entry.posterUrls,
+                    title = entry.episode.showTitle,
+                    year = "${preview.priorityLabel} · ${preview.episodeLabel}",
+                    onClick = { onClick(preview) },
+                    modifier = Modifier.width(MediaSizing.posterRailWidth),
+                    posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+                )
+            }
+        }
     }
 }
 

@@ -20,6 +20,12 @@ enum class ShowOrigin { Domestic, Foreign }
  */
 enum class AiringKind { Episode, Movie }
 
+/** Authority behind a date, kept explicit so the UI never labels a TMDB guess as official. */
+enum class AiringScheduleAuthority { Tmdb, Official }
+
+/** Access tier named by the publishing platform. */
+enum class AiringAccessTier { Unknown, Free, Member, SviP }
+
 /**
  * One episode with a broadcast date, and what this library has to say about it.
  *
@@ -41,6 +47,18 @@ data class AiringEpisode(
     val origin: ShowOrigin,
     /** Defaulted so the stored schedule of an older build still decodes as episodes. */
     val kind: AiringKind = AiringKind.Episode,
+    /** Defaulted fields keep schedules cached by older builds readable. */
+    val scheduleAuthority: AiringScheduleAuthority = AiringScheduleAuthority.Tmdb,
+    /** Local wall-clock time published by the platform, `HH:mm`; null when unknown. */
+    val airTime: String? = null,
+    /** IANA zone for [airTime], never inferred from the phone's current zone. */
+    val timeZoneId: String? = null,
+    val platforms: List<String> = emptyList(),
+    val accessTier: AiringAccessTier = AiringAccessTier.Unknown,
+    /** Human-verifiable provenance for official corrections. */
+    val sourceUrl: String? = null,
+    val scheduleRevision: String? = null,
+    val scheduleUpdatedAt: String? = null,
 ) {
     val isMovie: Boolean get() = kind == AiringKind.Movie
 
@@ -98,6 +116,8 @@ enum class LibraryStatus {
     Unknown,
 }
 
+enum class CalendarDataIssue { NoServer, LibraryLookupFailed, IdentityUnmatched }
+
 /** One server's concrete copy of a scheduled title. External schedules never create this. */
 data class CalendarSource(
     val serverId: String,
@@ -107,6 +127,8 @@ data class CalendarSource(
     val status: LibraryStatus,
     val playedPercentage: Double? = null,
     val qualityTags: List<String> = emptyList(),
+    /** Authenticated Emby fallback when the external schedule has no poster. */
+    val posterUrl: String? = null,
 )
 
 /** One episode as the calendar shows it: the broadcast, plus what this library has. */
@@ -127,6 +149,10 @@ data class CalendarEntry(
     val seriesItemId: String? = null,
     /** All matching servers, merged into this one schedule row. */
     val sources: List<CalendarSource> = emptyList(),
+    /** Explicit user subscription, independent of whether a server currently holds the show. */
+    val followed: Boolean = false,
+    /** Why a row is Unknown; kept separate so transport failures never masquerade as “未入库”. */
+    val dataIssue: CalendarDataIssue? = null,
 ) {
     /** True for a show this library follows, whether or not it has tonight's episode. */
     val inLibrary: Boolean get() = seriesItemId != null || sources.any { it.seriesItemId != null }
@@ -139,6 +165,9 @@ data class CalendarEntry(
 
     val qualityTags: List<String>
         get() = sources.flatMap { it.qualityTags }.distinct()
+
+    val posterUrls: List<String>
+        get() = sources.mapNotNull { it.posterUrl }.distinct()
 
     val playedPercentage: Double?
         get() = sources.mapNotNull { it.playedPercentage }.maxOrNull()

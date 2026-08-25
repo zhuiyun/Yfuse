@@ -159,6 +159,7 @@ class HomeTabComponent(
                                 registry = registry,
                                 cache = dependencies.tmdbHomeCache,
                                 syncManager = dependencies.serverSyncManager,
+                                calendarRepository = calendarRepository,
                                 onOpenEmbyItem = { serverId, itemId ->
                                     navigation.push(Config.Detail(serverId, itemId))
                                 },

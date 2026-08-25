@@ -22,6 +22,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +57,8 @@ import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.data.CalendarIdentityAmbiguousException
+import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
@@ -66,6 +69,7 @@ import com.yfuse.core.util.rememberShareHandler
 import com.yfuse.feature.player.PlaybackSelection
 import com.yfuse.feature.player.PlaybackSelectionState
 import com.yfuse.feature.watch.WatchInviteShareSheet
+import kotlinx.coroutines.launch
 
 /** Height of the collapsing top bar's content row, above the status bar inset. */
 internal val TopBarHeight = 52.dp
@@ -239,6 +243,8 @@ fun DetailScreen(component: DetailComponent) {
         }
 
     val watchTogether = component.dependencies.watchTogether
+    val detailScope = rememberCoroutineScope()
+    val followedSeries by component.dependencies.calendarFollowStore.followed.collectAsState()
     val watchPreferences = component.dependencies.watchTogetherPreferences
     val accountState by component.dependencies.account.state
         .collectAsState()
@@ -257,16 +263,35 @@ fun DetailScreen(component: DetailComponent) {
     var airingCalendarLoading by remember(detail?.id) { mutableStateOf(false) }
     var airingCalendarDays by remember(detail?.id) { mutableStateOf<List<CalendarDay>>(emptyList()) }
     var airingCalendarError by remember(detail?.id) { mutableStateOf<String?>(null) }
+    var airingCalendarCandidates by remember(detail?.id) {
+        mutableStateOf<List<TmdbSeriesIdentityCandidate>>(emptyList())
+    }
+    var followAfterIdentitySelection by remember(detail?.id) { mutableStateOf(false) }
+    val detailIsFollowed =
+        detail?.let { item ->
+            val directTmdb = item.airingCalendarTmdbId()
+            followedSeries.any { followed ->
+                (directTmdb != null && followed.tmdbId == directTmdb) ||
+                    (followed.seriesItemId == item.id && followed.serverId == (state.server?.id ?: component.serverId))
+            }
+        } == true
 
     LaunchedEffect(airingCalendarOpen, airingCalendarReload, detail?.id) {
         val target = detail ?: return@LaunchedEffect
-        if (!airingCalendarOpen || target.airingCalendarTmdbId() == null) return@LaunchedEffect
+        if (!airingCalendarOpen || !target.type.equals("Series", ignoreCase = true)) return@LaunchedEffect
         airingCalendarLoading = true
         airingCalendarError = null
         component
-            .loadSeriesAiringCalendar(target)
+            .loadSeriesAiringCalendar(target) { preview -> airingCalendarDays = preview }
             .onSuccess { airingCalendarDays = it }
-            .onFailure { airingCalendarError = it.toUserMessage("播出日历加载失败，请重试") }
+            .onFailure { error ->
+                if (error is CalendarIdentityAmbiguousException) {
+                    airingCalendarCandidates = error.candidates
+                    airingCalendarError = error.message
+                } else {
+                    airingCalendarError = error.toUserMessage("播出日历加载失败，请重试")
+                }
+            }
         airingCalendarLoading = false
     }
 
@@ -680,7 +705,7 @@ fun DetailScreen(component: DetailComponent) {
                                     downloadSheetOpen = true
                                 },
                             )
-                            if (detail.airingCalendarTmdbId() != null) {
+                            if (detail.type.equals("Series", ignoreCase = true)) {
                                 OverlayOptionRow(
                                     label = "查看播出日历",
                                     description = "当前剧集的已播与待播集数",
@@ -688,6 +713,26 @@ fun DetailScreen(component: DetailComponent) {
                                     onClick = {
                                         moreSheetOpen = false
                                         airingCalendarOpen = true
+                                    },
+                                )
+                                OverlayOptionRow(
+                                    label = if (detailIsFollowed) "取消追剧" else "追剧并提醒",
+                                    description = if (detailIsFollowed) "停止出现在正在追和更新提醒中" else "优先查询排期并在更新时提醒",
+                                    selected = detailIsFollowed,
+                                    onClick = {
+                                        moreSheetOpen = false
+                                        detailScope.launch {
+                                            component.toggleSeriesFollow(detail).onFailure { error ->
+                                                if (error is CalendarIdentityAmbiguousException) {
+                                                    followAfterIdentitySelection = true
+                                                    airingCalendarCandidates = error.candidates
+                                                    airingCalendarError = error.message
+                                                    airingCalendarOpen = true
+                                                } else {
+                                                    airingCalendarError = error.toUserMessage("追剧设置失败，请重试")
+                                                }
+                                            }
+                                        }
                                     },
                                 )
                             }
@@ -771,6 +816,21 @@ fun DetailScreen(component: DetailComponent) {
                         days = airingCalendarDays,
                         loading = airingCalendarLoading,
                         error = airingCalendarError,
+                        identityCandidates = airingCalendarCandidates,
+                        onSelectIdentity = { candidate ->
+                            component.rememberSeriesCalendarIdentity(detail, candidate)
+                            airingCalendarCandidates = emptyList()
+                            airingCalendarError = null
+                            airingCalendarReload += 1
+                            if (followAfterIdentitySelection) {
+                                followAfterIdentitySelection = false
+                                detailScope.launch {
+                                    component.toggleSeriesFollow(detail).onFailure { error ->
+                                        airingCalendarError = error.toUserMessage("追剧设置失败，请重试")
+                                    }
+                                }
+                            }
+                        },
                         onRetry = { airingCalendarReload += 1 },
                         onDismiss = { airingCalendarOpen = false },
                     )

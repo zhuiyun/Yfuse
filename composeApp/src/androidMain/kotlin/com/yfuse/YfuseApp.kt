@@ -30,6 +30,7 @@ import com.yfuse.feature.player.PlaybackDiagnosticReportRegistry
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.player.notifyPlaybackAppBackground
+import com.yfuse.feature.calendar.scheduleCalendarReminderWork
 import com.yfuse.update.AppUpdateManager
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
@@ -101,6 +102,7 @@ class YfuseApp :
         // Each server lane also keeps its foreground fast-path while WorkManager waits for a
         // connected network and survives this process being stopped again.
         koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
+        scheduleCalendarReminderWork(this)
         // Built eagerly: it restores an interrupted download and starts watching the
         // foreground, both of which have to happen before the first screen appears.
         koinApplication.koin.get<AppUpdateManager>()
