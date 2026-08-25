@@ -337,39 +337,6 @@ private fun HomeContent(
                     }
                 }
 
-                if (state.recentAdded.isNotEmpty()) {
-                    item(key = "recent-added") {
-                        LibraryMediaShelf(
-                            title = "最近添加",
-                            items = state.recentAdded,
-                            onSeeAll = component.onOpenLibrary,
-                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
-                        )
-                    }
-                }
-
-                if (state.highRated.isNotEmpty()) {
-                    item(key = "high-rated") {
-                        LibraryMediaShelf(
-                            title = "高分内容",
-                            items = state.highRated,
-                            showRating = true,
-                            onSeeAll = component.onOpenLibrary,
-                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
-                        )
-                    }
-                }
-
-                if (state.collections.isNotEmpty()) {
-                    item(key = "collections") {
-                        CollectionShelf(
-                            items = state.collections,
-                            onSeeAll = component.onOpenLibrary,
-                        )
-                    }
-                }
-
-
                 val calendarItems = homeCalendarPreviews(calendarState.days, state)
                 if (calendarItems.isNotEmpty()) {
                     item(key = "airing-calendar-preview") {
