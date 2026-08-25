@@ -167,6 +167,8 @@ class HomeTabComponent(
                                 cache = dependencies.tmdbHomeCache,
                                 syncManager = dependencies.serverSyncManager,
                                 calendarRepository = calendarRepository,
+                                initialCalendarLoad =
+                                    !dependencies.tgtoMediaPreferences.connection.value.hasPassword,
                                 onOpenEmbyItem = { serverId, itemId ->
                                     navigation.push(Config.Detail(serverId, itemId))
                                 },
@@ -312,6 +314,9 @@ class HomeRootComponent(
         scope.launch {
             preferences.connection.collectLatest { connection ->
                 _state.update { current ->
+                    if (current.configured && !connection.hasPassword) {
+                        classic.refreshCalendar()
+                    }
                     current.copy(
                         configured = connection.hasPassword,
                         mode = if (connection.hasPassword) current.mode else HomeRootMode.Classic,
@@ -322,6 +327,7 @@ class HomeRootComponent(
     }
 
     fun showClassic() {
+        if (_state.value.mode != HomeRootMode.Classic) classic.refreshCalendar()
         _state.update { it.copy(mode = HomeRootMode.Classic) }
     }
 
