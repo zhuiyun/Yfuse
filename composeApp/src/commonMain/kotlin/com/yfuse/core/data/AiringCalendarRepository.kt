@@ -121,6 +121,12 @@ class AiringCalendarRepository(
                 .distinctBy(FollowedSeries::tmdbId)
         }
 
+    fun scheduleChanges(): List<OfficialScheduleChange> = officialSchedules.recentChanges()
+
+    fun acknowledgeScheduleChanges() {
+        officialSchedules.acknowledgeChanges()
+    }
+
     fun diagnosticReport(days: List<CalendarDay>): String {
         val official = officialSchedules.diagnostics()
         val cache = scheduleCache.diagnostics()
@@ -131,6 +137,7 @@ class AiringCalendarRepository(
             appendLine("官方排期版本: ${official.revision}")
             appendLine("官方排期剧集数: ${official.seriesCount}")
             appendLine("官方排期最近在线更新: ${official.lastSuccessfulRefreshEpochMs}")
+            appendLine("官方排期变更: ${officialSchedules.recentChanges().size} 条")
             appendLine("排期缓存: ${cache.fetchedOn ?: "无"} / ${cache.window ?: "无"} / ${cache.entryCount} 条")
             appendLine("追剧订阅: ${followStore.followed.value.size} 部")
             appendLine("当前结果: ${days.size} 天 / ${entries.size} 条")
