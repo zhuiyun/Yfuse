@@ -13,6 +13,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SeriesCalendarLibraryHint
 import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.data.FollowedSeries
+import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
@@ -402,6 +403,22 @@ class DetailComponent(
     private companion object {
         const val TICKS_PER_MILLISECOND = 10_000L
     }
+
+    fun setSeriesReminder(
+        detail: MediaDetail,
+        mode: CalendarReminderMode,
+        beforeMinutes: Int = 30,
+    ): Result<Unit> =
+        dependencies.calendarIdentityResolver
+            .resolve(detail, store.state.server?.id ?: serverId)
+            .map { tmdbId ->
+                check(dependencies.calendarFollowStore.isFollowing(tmdbId)) {
+                    "请先将该剧加入追剧"
+                }
+                dependencies.calendarFollowStore.setReminder(tmdbId, mode, beforeMinutes)
+            }
+
+
 }
 
 internal fun MediaDetail.airingCalendarTmdbId(): Int? = airingCalendarTmdbId(type, providerIds)
