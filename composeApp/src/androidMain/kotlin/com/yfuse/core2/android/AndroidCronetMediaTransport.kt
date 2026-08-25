@@ -13,6 +13,7 @@ import org.chromium.net.CronetEngine
 import org.chromium.net.CronetException
 import org.chromium.net.UrlRequest
 import org.chromium.net.UrlResponseInfo
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
@@ -48,6 +49,7 @@ internal class AndroidCronetMediaTransport(
     private var request: UrlRequest? = null
     private var activeChunk: ByteArray? = null
     private var activeOffset = 0
+    private var endOfStream = false
 
     @Volatile private var callbackFailure: Throwable? = null
 
@@ -59,6 +61,7 @@ internal class AndroidCronetMediaTransport(
             callbackFailure = null
             activeChunk = null
             activeOffset = 0
+            endOfStream = false
             val responseReady = CountDownLatch(1)
             var responseInfo: UrlResponseInfo? = null
             val callback =
@@ -126,10 +129,17 @@ internal class AndroidCronetMediaTransport(
             opened.start()
             if (!responseReady.await(CRONET_OPEN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 closeRequest()
-                error("Cronet response timed out")
+                throw IOException("Cronet response timed out")
             }
-            callbackFailure?.let { throw IllegalStateException("Cronet request failed", it) }
-            val info = checkNotNull(responseInfo) { "Cronet response metadata is unavailable" }
+            callbackFailure?.let { failure ->
+                closeRequest()
+                throw IOException("Cronet request failed", failure)
+            }
+            val info =
+                responseInfo ?: run {
+                    closeRequest()
+                    throw IOException("Cronet response metadata is unavailable")
+                }
             val contentRange = info.headerValue("Content-Range")?.let(::parseContentRange)
             val protocol = info.negotiatedProtocol.lowercase()
             YMediaTransportResponse(
@@ -157,6 +167,7 @@ internal class AndroidCronetMediaTransport(
         withContext(Dispatchers.IO) {
             require(offset >= 0 && length >= 0 && offset + length <= destination.size)
             if (length == 0) return@withContext 0
+            if (endOfStream) return@withContext -1
             var outputOffset = offset
             var remaining = length
             while (remaining > 0) {
@@ -176,15 +187,22 @@ internal class AndroidCronetMediaTransport(
                 val next = chunks.poll(CRONET_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 if (next == null) {
                     closeRequest()
-                    error("Cronet streaming read timed out")
+                    throw IOException("Cronet streaming read timed out")
                 }
                 when (next) {
                     is CronetChunk.Data -> {
                         activeChunk = next.bytes
                         activeOffset = 0
                     }
-                    CronetChunk.End -> return@withContext if (outputOffset == offset) -1 else outputOffset - offset
-                    CronetChunk.Failed -> throw IllegalStateException("Cronet streaming read failed", callbackFailure)
+                    CronetChunk.End -> {
+                        endOfStream = true
+                        return@withContext if (outputOffset == offset) -1 else outputOffset - offset
+                    }
+                    CronetChunk.Failed -> {
+                        val failure = callbackFailure
+                        closeRequest()
+                        throw IOException("Cronet streaming read failed", failure)
+                    }
                 }
             }
             outputOffset - offset
@@ -200,6 +218,7 @@ internal class AndroidCronetMediaTransport(
         chunks.clear()
         activeChunk = null
         activeOffset = 0
+        endOfStream = false
     }
 }
 
@@ -219,5 +238,5 @@ private fun UrlResponseInfo.headerValue(name: String): String? =
 private fun String.isSafeCronetHeader(): Boolean = isNotBlank() && '\r' !in this && '\n' !in this
 
 private const val CRONET_READ_BYTES = 256 * 1024
-private const val CRONET_OPEN_TIMEOUT_SECONDS = 10L
-private const val CRONET_READ_TIMEOUT_SECONDS = 10L
+private const val CRONET_OPEN_TIMEOUT_SECONDS = 8L
+private const val CRONET_READ_TIMEOUT_SECONDS = 8L

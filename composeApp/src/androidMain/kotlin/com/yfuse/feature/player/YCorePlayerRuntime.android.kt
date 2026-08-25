@@ -201,8 +201,8 @@ internal fun PlaybackState.runtimeObservation(
         nowEpochMs = nowEpochMs,
         positionMs = positionMs,
         playbackRequested = playbackRequested,
-        playing = playing,
         buffering = buffering,
+        playing = playing,
         // Read from the backend's own report rather than from the wording of its diagnostic
         // label. Deciding this by substring meant MDK — whose label says, accurately, that it
         // cannot verify its output — was read as *ready* because that sentence happens not to

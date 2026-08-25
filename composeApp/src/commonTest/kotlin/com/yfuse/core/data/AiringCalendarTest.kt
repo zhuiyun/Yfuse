@@ -13,20 +13,19 @@ class AiringCalendarTest {
     private fun episode(
         played: Boolean,
         resumePositionTicks: Long? = null,
-    ) =
-        Episode(
-            id = "ep1",
-            name = "第 5 集",
-            indexNumber = 5,
-            seasonNumber = 2,
-            seasonId = "s2",
-            overview = null,
-            runtimeMinutes = 45,
-            primaryTag = null,
-            playedPercentage = null,
-            played = played,
-            resumePositionTicks = resumePositionTicks,
-        )
+    ) = Episode(
+        id = "ep1",
+        name = "第 5 集",
+        indexNumber = 5,
+        seasonNumber = 2,
+        seasonId = "s2",
+        overview = null,
+        runtimeMinutes = 45,
+        primaryTag = null,
+        playedPercentage = null,
+        played = played,
+        resumePositionTicks = resumePositionTicks,
+    )
 
     @Test
     fun an_episode_on_the_server_is_available_or_watched() {

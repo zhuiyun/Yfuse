@@ -1002,6 +1002,7 @@ private fun ContinueWatching(
     onSeeAll: () -> Unit,
     onClick: (HomeResumeEntry) -> Unit,
 ) {
+    val palette = LocalPalette.current
     Column {
         Row(
             Modifier

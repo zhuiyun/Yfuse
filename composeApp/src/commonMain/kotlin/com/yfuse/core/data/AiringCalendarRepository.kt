@@ -148,17 +148,18 @@ class AiringCalendarRepository(
                     // so 未入库 stays a row you cannot open — there is nothing to open.
                     seriesItemId = hit?.itemId,
                     sources =
-                        hit?.let {
-                            listOf(
-                                CalendarSource(
-                                    serverId = server.id,
-                                    serverName = server.serverName,
-                                    itemId = it.itemId,
-                                    seriesItemId = it.itemId,
-                                    status = if (it.played) LibraryStatus.Watched else LibraryStatus.Available,
-                                ),
-                            )
-                        }.orEmpty(),
+                        hit
+                            ?.let {
+                                listOf(
+                                    CalendarSource(
+                                        serverId = server.id,
+                                        serverName = server.serverName,
+                                        itemId = it.itemId,
+                                        seriesItemId = it.itemId,
+                                        status = if (it.played) LibraryStatus.Watched else LibraryStatus.Available,
+                                    ),
+                                )
+                            }.orEmpty(),
                 )
             }
             val seriesId = index["tmdb:${episode.showTmdbId}"]
@@ -220,14 +221,15 @@ private fun mergeCalendarEntries(
     val sources = candidates.flatMap { it.sources }.distinctBy { it.serverId to (it.itemId ?: it.seriesItemId) }
     val best =
         candidates.maxByOrNull { candidate ->
-            val statusRank = when (candidate.status) {
-                LibraryStatus.Watched -> 5
-                LibraryStatus.InProgress -> 4
-                LibraryStatus.Available -> 3
-                LibraryStatus.Missing -> 2
-                LibraryStatus.Unknown -> 1
-                LibraryStatus.Unaired -> 0
-            }
+            val statusRank =
+                when (candidate.status) {
+                    LibraryStatus.Watched -> 5
+                    LibraryStatus.InProgress -> 4
+                    LibraryStatus.Available -> 3
+                    LibraryStatus.Missing -> 2
+                    LibraryStatus.Unknown -> 1
+                    LibraryStatus.Unaired -> 0
+                }
             statusRank * 10 + if (candidate.inLibrary) 1 else 0
         }
     val fallbackStatus = if (episode.airDate > today) LibraryStatus.Unaired else LibraryStatus.Missing

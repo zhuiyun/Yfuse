@@ -19,7 +19,7 @@ data class YCoreRuntimeObservation(
     val droppedFrames: Int,
     val measuredPowerMilliwatts: Int? = null,
     /** Actual output progression. False for an explicit pause even if a backend kept its intent. */
-    val playing: Boolean = true,
+    val playing: Boolean = playbackRequested && !buffering,
 )
 
 data class YCoreRuntimeAssessment(
@@ -148,6 +148,6 @@ internal fun playbackStartupTimeoutMs(probe: PlaybackMediaProbe): Long =
         probe.discSource || probe.discKind != PlaybackDiscKind.None -> 180_000L
         probe.normalizedContainer == "MOV" ||
             probe.source.videoRequirements.codec == PlaybackVideoCodec.ProRes -> 60_000L
-        !probe.localSource && !probe.usingServerTranscode -> 30_000L
+        !probe.localSource -> 30_000L
         else -> 15_000L
     }

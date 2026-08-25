@@ -224,8 +224,7 @@ private fun ProgressEpisodeRow(
             ).semantics {
                 this.selected = selected
                 stateDescription = if (selected) "已选择" else "未选择"
-            }
-            .clip(GlassShapes.card)
+            }.clip(GlassShapes.card)
             .background(if (selected) accent.copy(alpha = if (palette.isDark) 0.24f else 0.16f) else palette.card2)
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),

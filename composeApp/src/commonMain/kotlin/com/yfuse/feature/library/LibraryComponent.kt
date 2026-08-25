@@ -13,9 +13,9 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.navigation.SingleFlightNavigationGuard
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.Serializable
 
 /**
@@ -30,13 +30,17 @@ class LibraryComponent(
     private val dependencies: AppDependencies,
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
-    private val playerNavigation = SingleFlightNavigationGuard<Config.Player>()
+    private val playerRouteLaunchGate = PlayerRouteLaunchGate()
 
     val stack: Value<ChildStack<Config, Child>> =
         childStack(
             source = navigation,
             serializer = Config.serializer(),
             initialConfiguration = Config.Home,
+            // A new state key deliberately drops a duplicate Player stack persisted by older
+            // builds. Such a stack is invalid in Decompose and otherwise crashes during restore
+            // before the launch gate below can run.
+            key = LIBRARY_STACK_STATE_KEY,
             // The Compose shell owns system back so only the visible tab can pop.
             handleBackButton = false,
             childFactory = ::child,
@@ -88,6 +92,7 @@ class LibraryComponent(
     }
 
     fun navigateBack() {
+        playerRouteLaunchGate.release()
         navigation.pop()
     }
 
@@ -98,6 +103,7 @@ class LibraryComponent(
      * stack they were trying to leave.
      */
     fun popToRoot() {
+        playerRouteLaunchGate.release()
         navigation.popTo(index = 0)
     }
 
@@ -114,13 +120,18 @@ class LibraryComponent(
         navigation.pushToFront(Config.Detail(serverId, itemId, autoPlay))
     }
 
+    /**
+     * The Player route is only a short-lived launcher for PlayerActivity. Auto-play completion and
+     * a human tap can emit the same request before the first navigation transform is committed;
+     * Decompose then sees two equal Config.Player values and rejects the whole stack. Claiming the
+     * launch before navigation makes that operation idempotent across both producers.
+     */
     private fun openPlayer(config: Config.Player) {
-        val active = stack.value.active.configuration as? Config.Player
-        if (!playerNavigation.tryBegin(config, active)) return
+        if (!playerRouteLaunchGate.tryAcquire()) return
         try {
             navigation.pushToFront(config)
         } catch (failure: Throwable) {
-            playerNavigation.complete(config)
+            playerRouteLaunchGate.release()
             throw failure
         }
     }
@@ -202,12 +213,21 @@ class LibraryComponent(
                             navigation.pushToFront(Config.Detail(serverId, itemId))
                         },
                         onPlay = { serverId, itemId, ticks, mediaSourceId ->
-                            openPlayer(Config.Player(serverId, itemId, ticks, mediaSourceId))
+                            openPlayer(
+                                Config.Player(
+                                    serverId = serverId,
+                                    itemId = itemId,
+                                    startPositionTicks = ticks,
+                                    mediaSourceId = mediaSourceId,
+                                ),
+                            )
                         },
                     ),
                 )
             is Config.Player -> {
-                playerNavigation.complete(config)
+                // Covers state restoration and any future entry point that constructs a Player
+                // configuration without going through openPlayer.
+                playerRouteLaunchGate.hold()
                 Child.Player(
                     PlayerComponent(
                         componentContext = context,
@@ -219,9 +239,26 @@ class LibraryComponent(
                         serverId = config.serverId,
                         mediaSourceId = config.mediaSourceId,
                         dependencies = dependencies,
-                        onBack = { navigation.pop() },
+                        onBack = ::navigateBack,
                     ),
                 )
             }
         }
 }
+
+/** Thread-safe one-shot gate for the transient Player navigation transaction. */
+internal class PlayerRouteLaunchGate {
+    private val held = MutableStateFlow(false)
+
+    fun tryAcquire(): Boolean = held.compareAndSet(false, true)
+
+    fun hold() {
+        held.value = true
+    }
+
+    fun release() {
+        held.value = false
+    }
+}
+
+private const val LIBRARY_STACK_STATE_KEY = "library-stack-v2"
