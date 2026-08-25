@@ -287,7 +287,7 @@ internal class EmbyHomeService(
                     // Overview feeds the carousel synopsis.
                     parameter(
                         "Fields",
-                        "BackdropImageTags,ProductionYear,Overview,ParentBackdropItemId," +
+                        "BackdropImageTags,ProductionYear,Overview,CommunityRating,UserData,ParentBackdropItemId," +
                             "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")

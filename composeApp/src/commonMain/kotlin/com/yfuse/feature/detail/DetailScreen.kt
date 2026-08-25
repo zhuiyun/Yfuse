@@ -312,9 +312,9 @@ fun DetailScreen(component: DetailComponent) {
             // decision on compact phones. The old 60% crop hid too much of the useful page.
             val heroHeight =
                 when (windowWidthTier(maxWidth)) {
-                    WindowWidthTier.Compact -> (maxHeight * 0.55f).coerceIn(360.dp, 520.dp)
-                    WindowWidthTier.Medium -> (maxHeight * 0.52f).coerceIn(420.dp, 600.dp)
-                    WindowWidthTier.Expanded -> (maxHeight * 0.50f).coerceIn(460.dp, 640.dp)
+                    WindowWidthTier.Compact -> (maxHeight * 0.48f).coerceAtMost(520.dp)
+                    WindowWidthTier.Medium -> (maxHeight * 0.48f).coerceAtMost(580.dp)
+                    WindowWidthTier.Expanded -> (maxHeight * 0.46f).coerceAtMost(620.dp)
                 }
             val heroHeightPx = with(density) { heroHeight.toPx() }
 
@@ -485,6 +485,9 @@ fun DetailScreen(component: DetailComponent) {
                                         onSelectSeason = {
                                             seasonPickerOpen = false
                                             component.store.accept(DetailIntent.SelectSeason(it))
+                                        },
+                                        onManageProgress = {
+                                            component.store.accept(DetailIntent.OpenProgressManager)
                                         },
                                         onPlayEpisode = { episode ->
                                             component.store.accept(
@@ -776,6 +779,30 @@ fun DetailScreen(component: DetailComponent) {
                             )
                         },
                         onDismiss = { allEpisodesOpen = false },
+                    )
+                }
+
+                if (state.progressManagerOpen) {
+                    EpisodeProgressManager(
+                        episodes = state.episodes,
+                        baseUrl = playBaseUrl,
+                        accessToken = playAccessToken,
+                        seriesPosterUrl = heroUrls.getOrNull(1),
+                        selectedIds = state.progressSelection,
+                        saving = state.progressSaving,
+                        accent = detailAccent,
+                        onToggle = {
+                            component.store.accept(DetailIntent.ToggleProgressEpisode(it))
+                        },
+                        onPreset = {
+                            component.store.accept(DetailIntent.SelectProgressEpisodes(it))
+                        },
+                        onApply = {
+                            component.store.accept(DetailIntent.ApplyEpisodeProgress(it))
+                        },
+                        onDismiss = {
+                            component.store.accept(DetailIntent.CloseProgressManager)
+                        },
                     )
                 }
 

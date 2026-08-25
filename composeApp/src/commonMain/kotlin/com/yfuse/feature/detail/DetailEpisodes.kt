@@ -3,7 +3,6 @@ package com.yfuse.feature.detail
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -64,6 +63,7 @@ private fun EpisodeHeader(
     pickerOpen: Boolean,
     onTogglePicker: () -> Unit,
     onSelectSeason: (String) -> Unit,
+    onManageProgress: () -> Unit,
     onSeeAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -100,6 +100,22 @@ private fun EpisodeHeader(
                         tint = palette.sub2,
                         modifier = Modifier.size(12.dp),
                     )
+                }
+                Row(
+                    Modifier
+                        .pressable(onClickLabel = "管理观看进度", onClick = onManageProgress)
+                        .heightIn(min = 44.dp)
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        AppIcons.Check,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(11.dp),
+                    )
+                    Text("管理进度", style = AppTypography.caption.strong, color = accent)
                 }
                 if (seasons.size > 1) {
                     Row(
@@ -187,6 +203,7 @@ internal fun EpisodeSection(
     pickerOpen: Boolean,
     onTogglePicker: () -> Unit,
     onSelectSeason: (String) -> Unit,
+    onManageProgress: () -> Unit,
     onPlayEpisode: (Episode) -> Unit,
     onSeeAll: () -> Unit,
 ) {
@@ -210,13 +227,14 @@ internal fun EpisodeSection(
             pickerOpen = pickerOpen,
             onTogglePicker = onTogglePicker,
             onSelectSeason = onSelectSeason,
+            onManageProgress = onManageProgress,
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
         )
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val density = LocalDensity.current
             val centeredOffset =
                 with(density) {
-                    -((maxWidth - 172.dp) / 2f).coerceAtLeast(0.dp).roundToPx()
+                    -((maxWidth - 210.dp) / 2f).coerceAtLeast(0.dp).roundToPx()
                 }
             LaunchedEffect(
                 selectedEpisodeId,
@@ -272,7 +290,7 @@ private fun EpisodeCard(
     val watching = (episode.playedPercentage ?: 0.0) > 0.0
     Column(
         Modifier
-            .width(172.dp)
+            .width(210.dp)
             .pressable(onClick = onPlay)
             .solidGlass(
                 shape = GlassShapes.card,
@@ -283,16 +301,10 @@ private fun EpisodeCard(
                         else -> Color.White.copy(alpha = 0.24f)
                     },
                 border = Color.Transparent,
-            ).then(
-                if (selected) {
-                    Modifier.border(1.75.dp, stateColors.border, GlassShapes.card)
-                } else {
-                    Modifier
-                },
             ).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Box(Modifier.fillMaxWidth().height(86.dp)) {
+        Box(Modifier.fillMaxWidth().height(108.dp)) {
             Poster(
                 url =
                     EmbyImages.primary(
@@ -312,6 +324,12 @@ private fun EpisodeCard(
                     Modifier
                         .align(Alignment.TopEnd)
                         .padding(6.dp),
+                )
+            }
+            if (selected) {
+                EpisodeSelectionBadge(
+                    accent = accent,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
                 )
             }
         }
@@ -338,7 +356,7 @@ private fun EpisodeCard(
             Text(
                 buildString {
                     if (selected) {
-                        append("已选中 · 再次点击播放")
+                        append("当前剧集 · 点击播放")
                     } else if (watching) {
                         append("正在观看")
                     }

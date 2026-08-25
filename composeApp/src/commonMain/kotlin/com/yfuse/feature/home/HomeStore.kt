@@ -10,6 +10,8 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.HomeContent
+import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbHome
@@ -62,6 +64,8 @@ data class HomeState(
     /** 继续观看 — aggregated from every signed-in server. */
     val resume: List<HomeResumeEntry> = emptyList(),
     val nextUp: List<HomeResumeEntry> = emptyList(),
+    /** Server-owned shelves loaded alongside continue-watching, never confused with TMDB rows. */
+    val libraryContent: List<HomeLibraryContent> = emptyList(),
     val resolving: Boolean = false,
     val error: String? = null,
     /** A live refresh failed, but the last bounded cache is still usable. */
@@ -89,10 +93,44 @@ data class HomeState(
             val first = featuredToday ?: return emptyList()
             return listOf(first) + content.featured.filterNot { it.id == first.id }
         }
+
+    val recentAdded: List<HomeResumeEntry>
+        get() =
+            libraryContent
+                .flatMap { source ->
+                    source.content.rows
+                        .filterNot { it.title == "我的收藏" || it.title == "稍后观看" }
+                        .flatMap { row -> row.items.map { HomeResumeEntry(it, source.server) } }
+                }.distinctBy { it.server.id to it.item.id }
+                .take(16)
+
+    val highRated: List<HomeResumeEntry>
+        get() =
+            recentAdded
+                .filter { it.item.communityRating != null }
+                .sortedByDescending { it.item.communityRating ?: Double.NEGATIVE_INFINITY }
+                .take(16)
+
+    val collections: List<HomeContainerEntry>
+        get() =
+            libraryContent
+                .flatMap { source ->
+                    source.content.collections.map { HomeContainerEntry(it, source.server) }
+                }.distinctBy { it.server.id to it.container.id }
 }
 
 data class HomeResumeEntry(
     val item: MediaItem,
+    val server: SavedServer,
+)
+
+data class HomeLibraryContent(
+    val content: HomeContent,
+    val server: SavedServer,
+)
+
+data class HomeContainerEntry(
+    val container: MediaContainer,
     val server: SavedServer,
 )
 
@@ -101,6 +139,9 @@ sealed interface HomeIntent {
 
     /** The same reload as [Retry], reported as a pull rather than as a first load. */
     data object Refresh : HomeIntent
+
+    /** Returning from detail may have changed watched state without changing recommendations. */
+    data object RefreshLibrary : HomeIntent
 
     /** The one-shot 提示 has been on screen long enough — see [ActionToast]. */
     data object DismissMessage : HomeIntent
@@ -172,6 +213,10 @@ private sealed interface Msg {
 
     data class NextUpLoaded(
         val items: List<HomeResumeEntry>,
+    ) : Msg
+
+    data class LibraryLoaded(
+        val content: List<HomeLibraryContent>,
     ) : Msg
 
     data class Server(
@@ -293,6 +338,10 @@ class HomeStoreFactory(
                     loadResume(registry.data.value.servers, force = true)
                     loadNextUp(registry.data.value.servers)
                 }
+                HomeIntent.RefreshLibrary -> {
+                    loadResume(registry.data.value.servers, force = true)
+                    loadNextUp(registry.data.value.servers)
+                }
                 HomeIntent.DismissMessage -> dispatch(Msg.ActionMessage(null))
                 is HomeIntent.Open -> resolve(intent.item, play = false)
                 is HomeIntent.Play -> resolve(intent.item, play = true)
@@ -356,12 +405,13 @@ class HomeStoreFactory(
             if (availableServers.isEmpty()) {
                 resumeJob = null
                 dispatch(Msg.ResumeLoaded(emptyList()))
+                dispatch(Msg.LibraryLoaded(emptyList()))
                 return
             }
             resumeJob =
                 scope.launch {
                     try {
-                        val entries =
+                        val snapshots =
                             coroutineScope {
                                 availableServers
                                     .map { server ->
@@ -377,15 +427,20 @@ class HomeStoreFactory(
                                                         attributes = mapOf("serverId" to server.id),
                                                     )
                                                 }.getOrNull()
-                                                ?.resume
-                                                .orEmpty()
-                                                .map { HomeResumeEntry(it, server) }
+                                                ?.let { HomeLibraryContent(it, server) }
                                         }
                                     }.awaitAll()
-                                    .flatten()
+                                    .filterNotNull()
                             }
                         if (ownsResumeLoad(generation, connection)) {
-                            dispatch(Msg.ResumeLoaded(entries))
+                            dispatch(
+                                Msg.ResumeLoaded(
+                                    snapshots.flatMap { snapshot ->
+                                        snapshot.content.resume.map { HomeResumeEntry(it, snapshot.server) }
+                                    },
+                                ),
+                            )
+                            dispatch(Msg.LibraryLoaded(snapshots))
                         }
                     } finally {
                         if (generation == resumeGeneration) resumeJob = null
@@ -550,6 +605,7 @@ class HomeStoreFactory(
                     )
                 is Msg.ResumeLoaded -> copy(resume = msg.items)
                 is Msg.NextUpLoaded -> copy(nextUp = msg.items)
+                is Msg.LibraryLoaded -> copy(libraryContent = msg.content)
                 // Resume entries carry their own server, so changing the default only changes
                 // recommendation resolution and the server opened from the library tab.
                 is Msg.Server -> copy(server = msg.value)

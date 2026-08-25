@@ -67,6 +67,15 @@ class HomeStoreTest {
     }
 
     @Test
+    fun continue_watching_copy_formats_resume_position_and_date() {
+        assertEquals("6:29", resumePositionLabel(3_890_000_000L))
+        assertEquals("1:06:29", resumePositionLabel(39_890_000_000L))
+        assertEquals(null, resumePositionLabel(0L))
+        assertEquals("08/24", compactLastPlayedDate("2026-08-24T12:00:00.000Z"))
+        assertEquals(null, compactLastPlayedDate(null))
+    }
+
+    @Test
     fun unavailable_recommendations_do_not_claim_the_emby_server_is_offline() =
         runTest(scheduler) {
             val store =
@@ -126,7 +135,13 @@ class HomeStoreTest {
                         testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
                             if (request.url.parameters["AnyProviderIdEquals"] == "tmdb.42") {
                                 json(
-                                    """{"Items":[{"Id":"emby-42","Name":"缓存推荐","Type":"Movie","ProductionYear":2026}]}""",
+                                    """
+                                    {
+                                      "Items": [
+                                        {"Id":"emby-42","Name":"缓存推荐","Type":"Movie","ProductionYear":2026}
+                                      ]
+                                    }
+                                    """.trimIndent(),
                                 )
                             } else {
                                 homeRoutes(request)

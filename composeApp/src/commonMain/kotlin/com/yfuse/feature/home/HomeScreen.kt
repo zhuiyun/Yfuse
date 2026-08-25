@@ -104,6 +104,7 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * The hero artwork changes every few seconds, while the status-bar ink stays white.
@@ -180,6 +181,17 @@ private fun HomeContent(
     // The shelf opened out into a grid, or null. Held here rather than in the store: it is
     // which page is on screen, not anything about the data.
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
+    val routeVisible = LocalRouteVisible.current
+    var hiddenSinceLastRefresh by remember { mutableStateOf(false) }
+
+    LaunchedEffect(routeVisible) {
+        if (routeVisible && hiddenSinceLastRefresh) {
+            hiddenSinceLastRefresh = false
+            component.store.accept(HomeIntent.RefreshLibrary)
+        } else if (!routeVisible) {
+            hiddenSinceLastRefresh = true
+        }
+    }
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
@@ -285,6 +297,16 @@ private fun HomeContent(
                     }
                 }
 
+                if (state.resume.isNotEmpty()) {
+                    item(key = "continue-watching") {
+                        ContinueWatching(
+                            items = state.resume,
+                            onSeeAll = component.onOpenLibrary,
+                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
+                        )
+                    }
+                }
+
                 if (state.nextUp.isNotEmpty()) {
                     item(key = "next-up") {
                         NextUpShelf(
@@ -295,12 +317,34 @@ private fun HomeContent(
                     }
                 }
 
-                if (state.resume.isNotEmpty()) {
-                    item {
-                        ContinueWatching(
-                            items = state.resume,
+                if (state.recentAdded.isNotEmpty()) {
+                    item(key = "recent-added") {
+                        LibraryMediaShelf(
+                            title = "最近添加",
+                            items = state.recentAdded,
                             onSeeAll = component.onOpenLibrary,
                             onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
+                        )
+                    }
+                }
+
+                if (state.highRated.isNotEmpty()) {
+                    item(key = "high-rated") {
+                        LibraryMediaShelf(
+                            title = "高分内容",
+                            items = state.highRated,
+                            showRating = true,
+                            onSeeAll = component.onOpenLibrary,
+                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
+                        )
+                    }
+                }
+
+                if (state.collections.isNotEmpty()) {
+                    item(key = "collections") {
+                        CollectionShelf(
+                            items = state.collections,
+                            onSeeAll = component.onOpenLibrary,
                         )
                     }
                 }
@@ -951,14 +995,13 @@ private fun NextUpShelf(
     }
 }
 
-/** 继续观看 — 150×90 artwork with title/year below and a 3px progress bar. */
+/** 继续观看 — Forward-style still, exact resume position and progress at first glance. */
 @Composable
 private fun ContinueWatching(
     items: List<HomeResumeEntry>,
     onSeeAll: () -> Unit,
     onClick: (HomeResumeEntry) -> Unit,
 ) {
-    val palette = LocalPalette.current
     Column {
         Row(
             Modifier
@@ -991,16 +1034,112 @@ private fun ContinueWatching(
             horizontalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             items(items, key = { "${it.server.id}:${it.item.id}" }) { entry ->
+                ContinueWatchingCard(entry = entry, onClick = { onClick(entry) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueWatchingCard(
+    entry: HomeResumeEntry,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val item = entry.item
+    Column(modifier = Modifier.width(MediaSizing.landscapeCardWidth)) {
+        Poster(
+            url =
+                EmbyImages.backdrop(
+                    entry.server.baseUrl,
+                    item,
+                    maxWidth = 480,
+                    accessToken = entry.server.accessToken,
+                ),
+            fallbackUrl =
+                EmbyImages.poster(
+                    entry.server.baseUrl,
+                    item,
+                    accessToken = entry.server.accessToken,
+                ),
+            progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
+            contentDescription = "继续观看 ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
+            onClick = onClick,
+            sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
+            modifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
+        ) {
+            resumePositionLabel(item.resumePositionTicks)?.let { position ->
+                Text(
+                    text = "看到 $position",
+                    style = AppTypography.caption.strong.copy(shadow = HeroTextShadow),
+                    color = Color.White,
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 9.dp, bottom = 9.dp)
+                            .background(Color.Black.copy(alpha = 0.48f), GlassShapes.chip)
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(7.dp))
+        Text(
+            text = item.title,
+            style = AppTypography.body.strong,
+            color = palette.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text =
+                listOfNotNull(
+                    item.subtitle,
+                    compactLastPlayedDate(item.lastPlayedDate),
+                    entry.server.serverName.takeIf(String::isNotBlank),
+                ).joinToString(" · ").ifBlank { "Emby" },
+            style = AppTypography.caption.regular,
+            color = palette.sub2,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+internal fun resumePositionLabel(positionTicks: Long?): String? {
+    val totalSeconds = positionTicks?.takeIf { it > 0L }?.div(10_000_000L) ?: return null
+    val hours = totalSeconds / 3600L
+    val minutes = (totalSeconds % 3600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        "$hours:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+    } else {
+        "$minutes:${seconds.toString().padStart(2, '0')}"
+    }
+}
+
+internal fun compactLastPlayedDate(value: String?): String? {
+    val date = value?.takeIf { it.length >= 10 }?.substring(0, 10) ?: return null
+    return date.substring(5).replace('-', '/')
+}
+
+@Composable
+private fun LibraryMediaShelf(
+    title: String,
+    items: List<HomeResumeEntry>,
+    showRating: Boolean = false,
+    onSeeAll: () -> Unit,
+    onClick: (HomeResumeEntry) -> Unit,
+) {
+    Column {
+        HomeShelfHeader(title = title, source = "媒体库", onSeeAll = onSeeAll)
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(items.take(12), key = { "library-${it.server.id}-${it.item.id}" }) { entry ->
                 val item = entry.item
                 CaptionedPoster(
                     url =
-                        EmbyImages.backdrop(
-                            entry.server.baseUrl,
-                            item,
-                            maxWidth = 480,
-                            accessToken = entry.server.accessToken,
-                        ),
-                    fallbackUrl =
                         EmbyImages.poster(
                             entry.server.baseUrl,
                             item,
@@ -1009,20 +1148,83 @@ private fun ContinueWatching(
                     title = item.title,
                     year =
                         listOfNotNull(
-                            "Emby",
-                            entry.server.serverName.takeIf(String::isNotBlank),
                             item.year?.toString(),
+                            item.communityRating
+                                ?.takeIf { showRating }
+                                ?.let { "评分 ${((it * 10.0).roundToInt() / 10.0)}" },
+                            entry.server.serverName.takeIf(String::isNotBlank),
                         ).joinToString(" · "),
-                    progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
-                    // Keep the home content continuously rendered on pop. A shared-media
-                    // overlay can briefly outlive the disposed detail image and flash blank.
                     onClick = { onClick(entry) },
-                    sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
-                    modifier = Modifier.width(MediaSizing.landscapeCardWidth),
-                    posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
+                    modifier = Modifier.width(MediaSizing.posterRailWidth),
+                    posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CollectionShelf(
+    items: List<HomeContainerEntry>,
+    onSeeAll: () -> Unit,
+) {
+    Column {
+        HomeShelfHeader(title = "合集", source = "媒体库", onSeeAll = onSeeAll)
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(items.take(12), key = { "collection-${it.server.id}-${it.container.id}" }) { entry ->
+                CaptionedPoster(
+                    url =
+                        EmbyImages.primary(
+                            baseUrl = entry.server.baseUrl,
+                            itemId = entry.container.id,
+                            tag = entry.container.posterTag,
+                            maxHeight = 450,
+                            accessToken = entry.server.accessToken,
+                        ),
+                    title = entry.container.title,
+                    year =
+                        listOfNotNull(
+                            entry.container.itemCount?.let { "$it 项" },
+                            entry.server.serverName.takeIf(String::isNotBlank),
+                        ).joinToString(" · "),
+                    onClick = onSeeAll,
+                    modifier = Modifier.width(MediaSizing.posterRailWidth),
+                    posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeShelfHeader(
+    title: String,
+    source: String,
+    onSeeAll: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).padding(bottom = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = AppTypography.section.strong, color = palette.text)
+            HomeSourceBadge(source)
+        }
+        Text(
+            "全部 ›",
+            style = AppTypography.caption.medium,
+            color = palette.sub2,
+            modifier =
+                Modifier
+                    .pressable(onClick = onSeeAll)
+                    .touchTarget()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+        )
     }
 }
 

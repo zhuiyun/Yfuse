@@ -3,6 +3,7 @@ package com.yfuse.feature.calendar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -84,6 +85,7 @@ fun CalendarScreen(component: CalendarComponent) {
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val days = state.visibleDays
+    val weeklyStats = remember(state.days, state.today) { calendarWeeklyStats(state.days, state.today) }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -257,6 +259,7 @@ fun CalendarScreen(component: CalendarComponent) {
                                 DaySection(
                                     day = day,
                                     today = state.today,
+                                    weeklyStats = weeklyStats,
                                     onOpen = { entry ->
                                         // The episode when the library has it, else the
                                         // show — a 未入库 row knows perfectly well which
@@ -370,6 +373,7 @@ private fun DayStrip(
 private fun DaySection(
     day: CalendarDay,
     today: String,
+    weeklyStats: Map<Int, CalendarWeekStats>,
     onOpen: (CalendarEntry) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -404,12 +408,38 @@ private fun DaySection(
                 )
             }
         }
-        Column(
-            Modifier.padding(horizontal = Dimens.pageHorizontal),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            day.entries.forEach { entry ->
-                EntryRow(entry = entry, onOpen = { onOpen(entry) })
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val twoColumns = maxWidth >= 720.dp
+            Column(
+                Modifier.padding(horizontal = Dimens.pageHorizontal),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (twoColumns) {
+                    day.entries.chunked(2).forEach { pair ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            pair.forEach { entry ->
+                                EntryCard(
+                                    entry = entry,
+                                    weekStats = weeklyStats[entry.episode.showTmdbId],
+                                    onOpen = { onOpen(entry) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                } else {
+                    day.entries.forEach { entry ->
+                        EntryCard(
+                            entry = entry,
+                            weekStats = weeklyStats[entry.episode.showTmdbId],
+                            onOpen = { onOpen(entry) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -429,21 +459,24 @@ private fun dayLabel(
     }
 
 @Composable
-private fun EntryRow(
+private fun EntryCard(
     entry: CalendarEntry,
+    weekStats: CalendarWeekStats?,
     onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
     // Tappable for anything the library holds — the episode if it has it, the show if not.
     val openable = entry.openItemId != null
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .glass(GlassShapes.card, palette.card2, palette.border)
             .then(if (openable) Modifier.pressable(onClick = onOpen) else Modifier)
-            .padding(10.dp),
-        horizontalArrangement = Arrangement.spacedBy(11.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(11.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
     ) {
         FallbackImage(
             urls =
@@ -454,8 +487,8 @@ private fun EntryRow(
             contentDescription = null,
             modifier =
                 Modifier
-                    .width(42.dp)
-                    .height(60.dp)
+                    .width(68.dp)
+                    .height(96.dp)
                     .clip(GlassShapes.thumb)
                     .background(palette.card2),
         )
@@ -467,7 +500,7 @@ private fun EntryRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(3.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 entry.episode.episodeLabel,
                 style = AppTypography.caption.regular,
@@ -475,8 +508,60 @@ private fun EntryRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(6.dp))
-            StatusBadge(entry.status)
+            if (!entry.episode.isMovie && weekStats != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "本周预计 ${weekStats.scheduled} 集 · 已入库 ${weekStats.available} 集",
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                )
+            }
+            Spacer(Modifier.height(7.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StatusBadge(entry.status)
+                Text(
+                    broadcastStateLabel(entry.status),
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val sourceFacts =
+                (entry.serverNames.take(2) + entry.qualityTags.take(3))
+                    .distinct()
+                    .joinToString(" · ")
+            if (sourceFacts.isNotBlank()) {
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    sourceFacts,
+                    style = AppTypography.caption.medium,
+                    color = palette.sub,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            entry.playedPercentage?.takeIf { it > 0.0 }?.let { percentage ->
+                Spacer(Modifier.height(7.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(palette.border),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth((percentage / 100.0).toFloat().coerceIn(0f, 1f))
+                            .height(3.dp)
+                            .background(accent.accent),
+                    )
+                }
+            }
         }
         if (openable) {
             Icon(
@@ -497,6 +582,7 @@ private fun StatusBadge(status: LibraryStatus) {
             LibraryStatus.Unaired -> "未播出" to palette.sub2
             LibraryStatus.Missing -> "未入库" to palette.error
             LibraryStatus.Available -> "可播放" to Brand.Online
+            LibraryStatus.InProgress -> "观看中" to Brand.Online
             LibraryStatus.Watched -> "已看" to palette.sub2
             LibraryStatus.Unknown -> "未知" to palette.sub2
         }
@@ -510,4 +596,46 @@ private fun StatusBadge(status: LibraryStatus) {
                 .background(tint.copy(alpha = 0.12f))
                 .padding(horizontal = 7.dp, vertical = 2.dp),
     )
+}
+
+private fun broadcastStateLabel(status: LibraryStatus): String =
+    when (status) {
+        LibraryStatus.Unaired -> "预计播出 · 时间待定"
+        LibraryStatus.Missing -> "已播出 · 等待入库"
+        LibraryStatus.Available -> "已入库未观看"
+        LibraryStatus.InProgress -> "已入库"
+        LibraryStatus.Watched -> "已完成"
+        LibraryStatus.Unknown -> "仅供播出参考"
+    }
+
+private data class CalendarWeekStats(
+    val scheduled: Int,
+    val available: Int,
+)
+
+private fun calendarWeeklyStats(
+    days: List<CalendarDay>,
+    today: String,
+): Map<Int, CalendarWeekStats> {
+    val weekdayIndex =
+        listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+            .indexOf(isoWeekdayLabel(today))
+            .coerceAtLeast(0)
+    return days
+        .flatMap(CalendarDay::entries)
+        .filter { entry ->
+            val delta = daysBetweenIso(today, entry.episode.airDate)
+            delta in -weekdayIndex..(6 - weekdayIndex)
+        }.groupBy { it.episode.showTmdbId }
+        .mapValues { (_, entries) ->
+            CalendarWeekStats(
+                scheduled = entries.size,
+                available =
+                    entries.count {
+                        it.status == LibraryStatus.Available ||
+                            it.status == LibraryStatus.InProgress ||
+                            it.status == LibraryStatus.Watched
+                    },
+            )
+        }
 }
