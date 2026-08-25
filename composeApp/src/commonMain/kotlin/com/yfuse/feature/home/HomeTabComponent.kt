@@ -119,6 +119,13 @@ class HomeTabComponent(
         navigation.pop()
     }
 
+    fun openCalendarItem(
+        serverId: String?,
+        itemId: String,
+    ) {
+        navigation.push(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
+    }
+
     /**
      * Back to this tab's own root in one step — what tapping the current tab means.
      *
