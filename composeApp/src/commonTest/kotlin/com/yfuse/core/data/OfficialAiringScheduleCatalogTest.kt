@@ -8,6 +8,8 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.test.assertNull
 
 class OfficialAiringScheduleCatalogTest {
@@ -80,4 +82,12 @@ class OfficialAiringScheduleCatalogTest {
         airDate = date,
         origin = ShowOrigin.Domestic,
     )
+
+    @Test
+    fun double_digit_revisions_are_newer_than_single_digit_revisions() {
+        assertTrue(calendarRevisionIsAtLeast("2026-08-23-r10", "2026-08-23-r2"))
+        assertTrue(calendarRevisionIsAtLeast("2026-08-24-r1", "2026-08-23-r99"))
+        assertFalse(calendarRevisionIsAtLeast("2026-08-23-r1", "2026-08-23-r2"))
+    }
+
 }
