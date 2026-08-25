@@ -118,7 +118,11 @@ class CalendarReminderWorker(
     override suspend fun doWork(): Result {
         val koin = runCatching { GlobalContext.get() }.getOrElse { return Result.retry() }
         val follows = koin.get<CalendarFollowStore>().followed.value
-        if (follows.isEmpty() || !notificationsAllowed()) return Result.success()
+        if (follows.isEmpty()) {
+            scheduleNextCalendarAlarm(applicationContext, null)
+            return Result.success()
+        }
+        if (!notificationsAllowed()) return Result.success()
         val repository = koin.get<AiringCalendarRepository>()
         val calendarResult =
             withTimeoutOrNull(REMINDER_WORK_DEADLINE_MS) {
