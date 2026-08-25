@@ -56,6 +56,12 @@ class CalendarFollowStore(private val settings: Settings) {
         clearReminderState(tmdbId)
     }
 
+    fun unfollowAll() {
+        val ids = _followed.value.map(FollowedSeries::tmdbId)
+        ids.forEach(::clearReminderState)
+        update(emptyList())
+    }
+
     fun replaceFromSync(series: List<FollowedSeries>): Result<Unit> =
         runCatching {
             require(series.size <= MAX_FOLLOWED_SERIES) { "追剧同步数据过多" }
@@ -105,6 +111,26 @@ class CalendarFollowStore(private val settings: Settings) {
                 } else {
                     it
                 }
+            },
+        )
+    }
+
+    fun setReminderForAll(
+        mode: CalendarReminderMode,
+        beforeMinutes: Int = 30,
+    ) {
+        val normalizedBefore = beforeMinutes.coerceIn(0, 24 * 60)
+        _followed.value.forEach { previous ->
+            if (
+                previous.reminderMode == CalendarReminderMode.WhenAvailable ||
+                mode == CalendarReminderMode.WhenAvailable
+            ) {
+                clearAvailabilityState(previous.tmdbId)
+            }
+        }
+        update(
+            _followed.value.map {
+                it.copy(reminderMode = mode, remindBeforeMinutes = normalizedBefore)
             },
         )
     }
