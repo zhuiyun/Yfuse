@@ -78,10 +78,10 @@ class AiringScheduleCache(
         window: String,
         episodes: List<AiringEpisode>,
     ) {
-        if (episodes.isEmpty()) {
-            clear()
-            return
-        }
+        // An empty remote success is not evidence that yesterday's verified schedule became
+        // invalid. Keep the last successful paint cache and let the caller surface the empty
+        // refresh separately.
+        if (episodes.isEmpty()) return
         runCatching {
             settings.putString(KEY_EPISODES, json.encodeToString(serializer, episodes))
             settings.putString(KEY_FETCHED_ON, today)
@@ -102,7 +102,18 @@ class AiringScheduleCache(
     ): List<AiringEpisode>? {
         if (settings.getStringOrNull(seriesDateKey(tmdbId)) != today) return null
         val raw = settings.getStringOrNull(seriesDataKey(tmdbId)) ?: return null
-        return runCatching { json.decodeFromString(serializer, raw) }.getOrNull()?.takeIf { it.isNotEmpty() }
+        return runCatching { json.decodeFromString(serializer, raw) }
+            .onFailure { error ->
+                clearSeries(tmdbId)
+                AppLog.warning(
+                    category = "feature.calendar",
+                    event = "series_schedule_cache_unreadable",
+                    message = "A cached series schedule was discarded",
+                    throwable = error,
+                    attributes = mapOf("tmdbId" to tmdbId.toString()),
+                )
+            }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }
     }
 
     fun writeSeries(
@@ -114,7 +125,20 @@ class AiringScheduleCache(
         runCatching {
             settings.putString(seriesDataKey(tmdbId), json.encodeToString(serializer, episodes))
             settings.putString(seriesDateKey(tmdbId), today)
+        }.onFailure { error ->
+            AppLog.warning(
+                category = "feature.calendar",
+                event = "series_schedule_cache_write_failed",
+                message = "A series schedule could not be cached",
+                throwable = error,
+                attributes = mapOf("tmdbId" to tmdbId.toString()),
+            )
         }
+    }
+
+    fun clearSeries(tmdbId: Int) {
+        settings.remove(seriesDataKey(tmdbId))
+        settings.remove(seriesDateKey(tmdbId))
     }
 
     private fun seriesDataKey(tmdbId: Int) = "calendar.series.$tmdbId.episodes"
