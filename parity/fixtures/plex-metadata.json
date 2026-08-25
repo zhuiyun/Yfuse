@@ -1,0 +1,19 @@
+{
+  "MediaContainer": {
+    "totalSize": 1,
+    "Metadata": [
+      {
+        "ratingKey": "plex-a",
+        "title": "Fixture Episode",
+        "type": "episode",
+        "grandparentTitle": "Fixture Series",
+        "duration": 2700000,
+        "thumb": "/library/metadata/plex-a/thumb",
+        "art": "/library/metadata/plex-a/art",
+        "Media": [
+          {"videoCodec": "h264", "audioCodec": "aac", "width": 1920, "height": 1080, "bitrate": 8000, "Part": [{"id": "part-a", "key": "/library/parts/part-a/file.mp4", "container": "mp4"}]}
+        ]
+      }
+    ]
+  }
+}
