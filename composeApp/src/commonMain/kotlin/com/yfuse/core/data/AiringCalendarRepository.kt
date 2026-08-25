@@ -427,7 +427,7 @@ class AiringCalendarRepository(
         // Films are indexed separately and carry their own watched flag: a film *is* the
         // row, so there is no episode below it to read 已看 from. A failure here costs the
         // film rows their status and leaves the episode rows alone.
-        val filmIndexResult =
+        val filmIndexResult: Result<Map<String, ProviderHit>> =
             if (episodes.none { it.isMovie }) {
                 Result.success(emptyMap())
             } else {
