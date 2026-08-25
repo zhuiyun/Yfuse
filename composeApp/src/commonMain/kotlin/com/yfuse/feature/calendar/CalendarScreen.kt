@@ -91,10 +91,13 @@ fun CalendarScreen(component: CalendarComponent) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val days = state.visibleDays
     val weeklyStats =
-        remember(state.days, state.today, state.loading) {
-            // Preview rows have no library status yet. Hiding the statistic until resolution
-            // finishes avoids presenting "已入库 0 集" as if it were a real server result.
-            if (state.loading) emptyMap() else calendarWeeklyStats(state.days, state.today)
+        remember(state.confirmedDays, state.days, state.today) {
+            // Refreshes retain the last confirmed statistic. Only a first-load preview has no
+            // trustworthy library count yet, so it deliberately shows no aggregate number.
+            state.confirmedDays
+                .takeIf { it.isNotEmpty() }
+                ?.let { calendarWeeklyStats(it, state.today) }
+                ?: emptyMap()
         }
     val bottomContentInset = systemNavigationContentInset()
     val share = rememberShareHandler()
@@ -211,6 +214,18 @@ fun CalendarScreen(component: CalendarComponent) {
 
             Spacer(Modifier.height(14.dp))
 
+            if (state.error != null && days.isNotEmpty()) {
+                Text(
+                    "状态更新失败，正在显示上一次成功结果 · 点击刷新重试",
+                    style = AppTypography.caption.medium,
+                    color = palette.error,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
+                )
+            }
+
             when {
                 state.loading && days.isEmpty() ->
                     Box(
@@ -245,7 +260,7 @@ fun CalendarScreen(component: CalendarComponent) {
                     // Today, not the top. The list runs oldest-first over a week of
                     // history, so opening at index 0 lands on last Tuesday. Re-run when
                     // the filter changes, because that changes which index today is.
-                    LaunchedEffect(state.filter, days.size, state.today) {
+                    LaunchedEffect(state.filter, state.today, state.loading) {
                         runCatching { listState.scrollToItem(state.todayIndex) }
                     }
                     // Offered only once today has left the screen entirely. Keyed on the
@@ -431,7 +446,7 @@ private fun DaySection(
             )
             // Only stated when there is something to act on; a zero would be noise on
             // every other row.
-            if (day.missingCount > 0 && day.isPast(today) || day.missingCount > 0 && isToday) {
+            if (day.missingCount > 0 && (day.isPast(today) || isToday)) {
                 Text(
                     "${day.missingCount} 集未入库",
                     style = AppTypography.caption.strong,
@@ -554,7 +569,7 @@ private fun EntryCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                StatusBadge(entry.status)
+                StatusBadge(entry)
                 Text(
                     display.statusLine ?: broadcastStateLabel(entry),
                     style = AppTypography.caption.regular,
@@ -659,19 +674,27 @@ private fun coalesceCalendarEntries(entries: List<CalendarEntry>): List<Calendar
                 episodeLabel = label,
                 statusLine = "$available/${sorted.size} 集已入库 · ${broadcastStateLabel(representative)}",
             )
-        }.sortedBy { it.entry.episode.showTitle }
+        }.sortedWith(
+            compareBy<CalendarDisplayEntry> { it.entry.episode.airTime ?: "99:99" }
+                .thenBy { it.entry.episode.showTitle },
+        )
 
 @Composable
-private fun StatusBadge(status: LibraryStatus) {
+private fun StatusBadge(entry: CalendarEntry) {
     val palette = LocalPalette.current
+    val status = entry.status
     val (label, tint) =
-        when (status) {
+        if (entry.discoveryOnly && !entry.followed) {
+            "未收录" to palette.sub2
+        } else {
+            when (status) {
             LibraryStatus.Unaired -> "未播出" to palette.sub2
             LibraryStatus.Missing -> "未入库" to palette.error
             LibraryStatus.Available -> "可播放" to Brand.Online
             LibraryStatus.InProgress -> "观看中" to Brand.Online
             LibraryStatus.Watched -> "已看" to palette.sub2
-            LibraryStatus.Unknown -> "未知" to palette.sub2
+                LibraryStatus.Unknown -> "未知" to palette.sub2
+            }
         }
     Text(
         label,
@@ -686,6 +709,7 @@ private fun StatusBadge(status: LibraryStatus) {
 }
 
 private fun broadcastStateLabel(entry: CalendarEntry): String {
+    if (entry.discoveryOnly && !entry.followed) return "播出参考 · 不在媒体库"
     when (entry.dataIssue) {
         CalendarDataIssue.NoServer -> return "未连接媒体库，仅显示排期"
         CalendarDataIssue.LibraryLookupFailed -> return "媒体库查询失败，请刷新"
