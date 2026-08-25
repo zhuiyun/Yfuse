@@ -20,6 +20,7 @@ import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.russhwolf.settings.Settings
+import com.yfuse.R
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarReminderMode
@@ -63,12 +64,19 @@ class CalendarReminderAlarmReceiver : BroadcastReceiver() {
         context: Context,
         intent: Intent,
     ) {
-        if (intent.action != NEXT_ALARM_ACTION) return
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            IMMEDIATE_WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
-            OneTimeWorkRequest.Builder(CalendarReminderWorker::class.java).build(),
-        )
+        when (intent.action) {
+            NEXT_ALARM_ACTION ->
+                WorkManager.getInstance(context).enqueueUniqueWork(
+                    IMMEDIATE_WORK_NAME,
+                    ExistingWorkPolicy.REPLACE,
+                    OneTimeWorkRequest.Builder(CalendarReminderWorker::class.java).build(),
+                )
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_TIME_CHANGED,
+            Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            -> scheduleCalendarReminderWork(context)
+        }
     }
 }
 
@@ -103,6 +111,7 @@ private fun scheduleNextCalendarAlarm(
 
 private const val BROADCAST_LATE_WINDOW_MS = 90 * 60_000L
 private const val REMINDER_WORK_DEADLINE_MS = 30_000L
+private const val MAX_REMINDER_DEDUP_KEYS = 1_000
 
 private fun availableSeenKey(
     tmdbId: Int,
@@ -122,7 +131,10 @@ class CalendarReminderWorker(
             scheduleNextCalendarAlarm(applicationContext, null)
             return Result.success()
         }
-        if (!notificationsAllowed()) return Result.success()
+        if (!notificationsAllowed()) {
+            scheduleNextCalendarAlarm(applicationContext, null)
+            return Result.success()
+        }
         val repository = koin.get<AiringCalendarRepository>()
         val calendarResult =
             withTimeoutOrNull(REMINDER_WORK_DEADLINE_MS) {
@@ -130,6 +142,7 @@ class CalendarReminderWorker(
             } ?: return Result.retry()
         val days = calendarResult.getOrElse { return Result.retry() }
         val settings = koin.get<Settings>()
+        pruneReminderDedupKeys(settings)
         val now = currentEpochMillis()
         val nextWakeCandidates = mutableListOf<Long>()
         val followedByTmdb = follows.associateBy { it.tmdbId }
@@ -217,7 +230,7 @@ class CalendarReminderWorker(
                                 sameSlot.joinToString("-") {
                                     "${it.episode.seasonNumber}e${it.episode.episodeNumber}"
                                 },
-                            "${followed.title} 已更新",
+                            "${followed.title} 已播出",
                             sameSlot.joinToString("、") { it.episode.episodeLabel },
                             followed = followed,
                         )
@@ -227,6 +240,11 @@ class CalendarReminderWorker(
         }
         scheduleNextCalendarAlarm(applicationContext, nextWakeCandidates.minOrNull())
         return Result.success()
+    }
+
+    private fun pruneReminderDedupKeys(settings: Settings) {
+        val keys = settings.keys.filter { it.startsWith("calendar.reminder.sent.") }.sorted()
+        keys.take((keys.size - MAX_REMINDER_DEDUP_KEYS).coerceAtLeast(0)).forEach(settings::remove)
     }
 
     private fun notificationsAllowed(): Boolean =
@@ -271,7 +289,7 @@ class CalendarReminderWorker(
             key.hashCode(),
             NotificationCompat
                 .Builder(applicationContext, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                .setSmallIcon(R.drawable.ic_notification_calendar)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
