@@ -119,15 +119,26 @@ class CalendarReminderWorker(
         val koin = runCatching { GlobalContext.get() }.getOrElse { return Result.retry() }
         val follows = koin.get<CalendarFollowStore>().followed.value
         if (follows.isEmpty() || !notificationsAllowed()) return Result.success()
+        val repository = koin.get<AiringCalendarRepository>()
         val calendarResult =
             withTimeoutOrNull(REMINDER_WORK_DEADLINE_MS) {
-                koin.get<AiringCalendarRepository>()
-                    .followedCalendar(pastDays = 1, futureDays = 2)
+                repository.followedCalendar(pastDays = 1, futureDays = 2)
             } ?: return Result.retry()
         val days = calendarResult.getOrElse { return Result.retry() }
         val settings = koin.get<Settings>()
         val now = currentEpochMillis()
         val nextWakeCandidates = mutableListOf<Long>()
+        val followedByTmdb = follows.associateBy { it.tmdbId }
+        repository.scheduleChanges().forEach { change ->
+            val followed = followedByTmdb[change.tmdbId] ?: return@forEach
+            notifyOnce(
+                settings = settings,
+                key = "schedule-change.${change.tmdbId}.${change.revision}.${change.message.hashCode()}",
+                title = "${change.title} 排期有调整",
+                text = change.message,
+                followed = followed,
+            )
+        }
         follows.forEach { followed ->
             val entries = days.flatMap { it.entries }.filter { it.episode.showTmdbId == followed.tmdbId }
             val available = entries.filter { it.status in setOf(LibraryStatus.Available, LibraryStatus.InProgress) }
