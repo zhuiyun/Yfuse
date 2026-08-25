@@ -76,6 +76,7 @@ import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.daysBetweenIso
 import com.yfuse.core.util.isoShortDate
 import com.yfuse.core.util.isoWeekdayLabel
+import com.yfuse.core.util.shiftIsoDate
 import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.flatGlass as glass
@@ -288,93 +289,22 @@ fun CalendarScreen(component: CalendarComponent) {
                         Modifier.align(Alignment.CenterHorizontally),
                     )
 
-                else -> {
-                    val listState = rememberLazyListState()
-                    val scope = rememberCoroutineScope()
-                    // Today, not the top. The list runs oldest-first over a week of
-                    // history, so opening at index 0 lands on last Tuesday. Re-run when
-                    // the filter changes, because that changes which index today is.
-                    LaunchedEffect(state.filter, state.today, state.loading) {
-                        runCatching { listState.scrollToItem(state.todayIndex) }
-                    }
-                    // Offered only once today has left the screen entirely. Keyed on the
-                    // index rather than the scroll position so it doesn't appear after a
-                    // single row of drift, which would make it a permanent fixture.
-                    val awayFromToday by remember(state.todayIndex) {
-                        derivedStateOf {
-                            val layout = listState.layoutInfo
-                            // Before the first layout pass nothing is visible, which would
-                            // otherwise read as "today is off screen" and flash the chip
-                            // for a frame on every open.
-                            layout.totalItemsCount > 0 &&
-                                layout.visibleItemsInfo.isNotEmpty() &&
-                                layout.visibleItemsInfo.none { it.index == state.todayIndex }
-                        }
-                    }
-
-                    DayStrip(
+                else ->
+                    AdaptiveCalendarResults(
                         days = days,
                         today = state.today,
-                        onSelect = { index ->
-                            scope.launch {
-                                if (reduceMotion) {
-                                    listState.scrollToItem(index)
-                                } else {
-                                    listState.animateScrollToItem(index)
-                                }
+                        todayIndex = state.todayIndex,
+                        filter = state.filter,
+                        loading = state.loading,
+                        weeklyStats = weeklyStats,
+                        reduceMotion = reduceMotion,
+                        bottomContentInset = bottomContentInset,
+                        onOpen = { entry ->
+                            entry.openItemId?.let {
+                                component.onOpenItem(entry.serverId, it)
                             }
                         },
                     )
-                    Spacer(Modifier.height(12.dp))
-
-                    Box(Modifier.fillMaxSize()) {
-                        LazyColumn(
-                            Modifier.fillMaxSize(),
-                            state = listState,
-                            contentPadding = PaddingValues(bottom = bottomContentInset),
-                            verticalArrangement = Arrangement.spacedBy(18.dp),
-                        ) {
-                            items(days, key = { it.date }) { day ->
-                                DaySection(
-                                    day = day,
-                                    today = state.today,
-                                    weeklyStats = weeklyStats,
-                                    onOpen = { entry ->
-                                        // The episode when the library has it, else the
-                                        // show — a 未入库 row knows perfectly well which
-                                        // series it belongs to.
-                                        entry.openItemId?.let {
-                                            component.onOpenItem(entry.serverId, it)
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                        if (awayFromToday) {
-                            Text(
-                                "回到今天",
-                                style = AppTypography.caption.strong,
-                                color = accent.onAccent,
-                                modifier =
-                                    Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .padding(bottom = bottomContentInset)
-                                        .pressable {
-                                            scope.launch {
-                                                if (reduceMotion) {
-                                                    listState.scrollToItem(state.todayIndex)
-                                                } else {
-                                                    listState.animateScrollToItem(state.todayIndex)
-                                                }
-                                            }
-                                        }.touchTarget()
-                                        .clip(GlassShapes.chip)
-                                        .background(accent.accent)
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                            )
-                        }
-                    }
-                }
             }
             } else {
                 CalendarAuxiliaryPane(
