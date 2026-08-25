@@ -90,7 +90,12 @@ fun CalendarScreen(component: CalendarComponent) {
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val days = state.visibleDays
-    val weeklyStats = remember(state.days, state.today) { calendarWeeklyStats(state.days, state.today) }
+    val weeklyStats =
+        remember(state.days, state.today, state.loading) {
+            // Preview rows have no library status yet. Hiding the statistic until resolution
+            // finishes avoids presenting "已入库 0 集" as if it were a real server result.
+            if (state.loading) emptyMap() else calendarWeeklyStats(state.days, state.today)
+        }
     val bottomContentInset = systemNavigationContentInset()
     val share = rememberShareHandler()
 
