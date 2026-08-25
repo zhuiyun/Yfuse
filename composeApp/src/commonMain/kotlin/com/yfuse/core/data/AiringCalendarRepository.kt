@@ -62,7 +62,7 @@ class AiringCalendarRepository(
     private val followedScheduleRequests = Semaphore(FOLLOWED_SCHEDULE_REQUEST_CONCURRENCY)
     private val calendarLoadMutex = Mutex()
     private val resourceDetailsCacheMutex = Mutex()
-    private val resourceDetailsCache = mutableMapOf<Pair<String, String>, ResourceDetailsSnapshot>()
+    private val resourceDetailsCache = mutableMapOf<Triple<String, String, Int?>, ResourceDetailsSnapshot>()
     private var calendarRuntimeSnapshot: CalendarRuntimeSnapshot? = null
     private var calendarLoadCount = 0L
     private var calendarRuntimeCacheHitCount = 0L
@@ -448,23 +448,30 @@ class AiringCalendarRepository(
      */
     suspend fun enrichResourceDetails(days: List<CalendarDay>): Result<List<CalendarDay>> =
         runCatching {
-            val targets =
+            val targetSeasons =
                 days
                     .flatMap(CalendarDay::entries)
-                    .flatMap(CalendarEntry::sources)
-                    .mapNotNull { source ->
-                        source.seriesItemId?.let { source.serverId to it }
-                    }.distinct()
+                    .flatMap { entry ->
+                        entry.sources.mapNotNull { source ->
+                            source.seriesItemId?.let {
+                                (source.serverId to it) to entry.episode.seasonNumber
+                            }
+                        }
+                    }.groupBy(
+                        keySelector = { it.first },
+                        valueTransform = { it.second },
+                    ).mapValues { (_, seasons) -> seasons.toSet() }
             val episodesByTarget =
                 coroutineScope {
-                    targets.mapNotNull { (serverId, seriesItemId) ->
+                    targetSeasons.keys.mapNotNull { (serverId, seriesItemId) ->
                         val server = registry.serverById(serverId) ?: return@mapNotNull null
                         async {
-                            val key = serverId to seriesItemId
+                            val targetSeason = targetSeasons[serverId to seriesItemId]?.singleOrNull()
+                            val cacheKey = Triple(serverId, seriesItemId, targetSeason)
                             val now = currentEpochMillis()
                             val cached =
                                 resourceDetailsCacheMutex.withLock {
-                                    resourceDetailsCache[key]
+                                    resourceDetailsCache[cacheKey]
                                         ?.takeIf {
                                             now - it.fetchedAtEpochMs in 0 until RESOURCE_DETAILS_TTL_MS
                                         }?.episodes
@@ -478,9 +485,10 @@ class AiringCalendarRepository(
                                                 seriesId = seriesItemId,
                                                 seasonId = null,
                                                 includeMediaSources = true,
+                                                seasonNumber = targetSeason,
                                             ).onSuccess { loaded ->
                                                 resourceDetailsCacheMutex.withLock {
-                                                    resourceDetailsCache[key] =
+                                                    resourceDetailsCache[cacheKey] =
                                                         ResourceDetailsSnapshot(currentEpochMillis(), loaded)
                                                 }
                                             }.getOrElse { error ->
@@ -498,7 +506,7 @@ class AiringCalendarRepository(
                                                 emptyList()
                                             }
                                     }
-                            key to episodes
+                            (serverId to seriesItemId) to episodes
                         }
                     }.awaitAll().toMap()
                 }
@@ -745,6 +753,16 @@ class AiringCalendarRepository(
                 .filterNot(AiringEpisode::isMovie)
                 .distinctBy(AiringEpisode::showTmdbId)
                 .associate { it.showTmdbId to seriesIdFor(it) }
+        val seasonNumbersBySeriesId =
+            episodes
+                .asSequence()
+                .filterNot(AiringEpisode::isMovie)
+                .groupBy(AiringEpisode::showTmdbId)
+                .mapNotNull { (tmdbId, scheduled) ->
+                    seriesIdsByTmdbId[tmdbId]?.let { seriesId ->
+                        seriesId to scheduled.map(AiringEpisode::seasonNumber).toSet()
+                    }
+                }.toMap()
         val episodesBySeries =
             coroutineScope {
                 seriesIdsByTmdbId.values
@@ -763,6 +781,7 @@ class AiringCalendarRepository(
                                             seriesId = seriesId,
                                             seasonId = null,
                                             includeMediaSources = false,
+                                            seasonNumber = seasonNumbersBySeriesId[seriesId]?.singleOrNull(),
                                         ).onFailure { error ->
                                             AppLog.warning(
                                                 category = "feature.calendar",
