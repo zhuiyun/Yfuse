@@ -155,13 +155,13 @@ internal fun SeriesAiringCalendarDialog(
                         }
                     }
                 }
-                OverlayOptionRow(
-                    label = "重新匹配剧集",
-                    description = "排期不对时，重新选择 TMDB 条目",
-                    selected = false,
-                    onClick = onRebindIdentity,
-                )
             }
+            OverlayOptionRow(
+                label = "重新匹配剧集",
+                description = "排期不对时，重新选择 TMDB 条目",
+                selected = false,
+                onClick = onRebindIdentity,
+            )
         }
         when {
             identityCandidates.isNotEmpty() -> {
