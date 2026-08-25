@@ -55,6 +55,7 @@ enum class CalendarFilter(
 ) {
     Today("今天"),
     Upcoming("即将更新"),
+    Missing("待入库"),
     Unwatched("待观看"),
     Mine("正在追"),
     All("全部"),
@@ -64,14 +65,17 @@ enum class CalendarFilter(
 
     fun accepts(entry: CalendarEntry): Boolean =
         when (this) {
-            Today, Upcoming, All -> true
+            Today, All -> true
+            Upcoming -> entry.status == com.yfuse.core.model.LibraryStatus.Unaired
+            Missing ->
+                entry.status == com.yfuse.core.model.LibraryStatus.Missing &&
+                    (entry.followed || entry.inLibrary)
             Unwatched ->
                 entry.inLibrary &&
                     entry.status in
                     setOf(
                         com.yfuse.core.model.LibraryStatus.Available,
                         com.yfuse.core.model.LibraryStatus.InProgress,
-                        com.yfuse.core.model.LibraryStatus.Missing,
                     )
             Mine -> entry.followed || entry.inLibrary
             Domestic -> entry.episode.origin == ShowOrigin.Domestic
@@ -82,6 +86,8 @@ enum class CalendarFilter(
 data class CalendarState(
     val loading: Boolean = true,
     val days: List<CalendarDay> = emptyList(),
+    /** Last fully resolved server result, retained while a refresh is in flight. */
+    val confirmedDays: List<CalendarDay> = emptyList(),
     val filter: CalendarFilter = CalendarFilter.Today,
     val today: String = currentIsoDate(),
     val error: String? = null,
@@ -170,23 +176,26 @@ class CalendarStoreFactory(
         private var loadJob: Job? = null
         override fun executeAction(action: Action) {
             when (action) {
-                Action.Load -> load()
+                Action.Load -> load(forceRefresh = false)
             }
         }
 
         override fun executeIntent(intent: CalendarIntent) {
             when (intent) {
-                CalendarIntent.Refresh -> load()
+                CalendarIntent.Refresh -> load(forceRefresh = true)
                 is CalendarIntent.SelectFilter -> dispatch(Msg.FilterChanged(intent.filter))
             }
         }
 
-        private fun load() {
+        private fun load(forceRefresh: Boolean) {
             loadJob?.cancel()
             dispatch(Msg.Loading)
             loadJob = scope.launch {
                 loadCalendarWithDeadline {
-                    repository.calendar { preview -> dispatch(Msg.PreviewLoaded(preview)) }
+                    repository.calendar(
+                        forceRefresh = forceRefresh,
+                        onPreview = { preview -> dispatch(Msg.PreviewLoaded(preview)) },
+                    )
                 }
                     .onSuccess { dispatch(Msg.Loaded(it)) }
                     .onFailure {
@@ -208,11 +217,10 @@ class CalendarStoreFactory(
                 Msg.Loading -> copy(loading = true, error = null)
                 is Msg.PreviewLoaded ->
                     copy(
-                        // Keep the compact refresh spinner active and refresh disabled while
-                        // library statuses are still being resolved. The rows are usable now,
-                        // but this load has not finished yet.
+                        // Keep a fully resolved result stable during refresh. A preview is used
+                        // only for the first load, before any confirmed library status exists.
                         loading = true,
-                        days = msg.days,
+                        days = if (confirmedDays.isEmpty()) msg.days else confirmedDays,
                         error = null,
                         today = currentIsoDate(),
                     )
@@ -220,12 +228,18 @@ class CalendarStoreFactory(
                     copy(
                         loading = false,
                         days = msg.days,
+                        confirmedDays = msg.days,
                         error = null,
                         // Recomputed on every load: the app can outlive midnight, and a stale
                         // "today" would mark the wrong row and misjudge what has aired.
                         today = currentIsoDate(),
                     )
-                is Msg.Failed -> copy(loading = false, error = msg.message)
+                is Msg.Failed ->
+                    copy(
+                        loading = false,
+                        days = confirmedDays.ifEmpty { days },
+                        error = msg.message,
+                    )
                 is Msg.FilterChanged -> copy(filter = msg.filter)
             }
     }
