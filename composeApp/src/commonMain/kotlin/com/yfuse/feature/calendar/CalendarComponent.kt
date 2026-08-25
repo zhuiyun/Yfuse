@@ -44,6 +44,9 @@ class CalendarComponent(
     suspend fun refreshSeries(series: FollowedSeries): Result<List<CalendarDay>> =
         repository.refreshTrackedSeries(series)
 
+    suspend fun enrichResourceDetails(days: List<CalendarDay>): Result<List<CalendarDay>> =
+        repository.enrichResourceDetails(days)
+
     fun exportCalendar(days: List<CalendarDay>): String = buildCalendarIcs(days)
 
     fun scheduleChanges(): List<OfficialScheduleChange> = repository.scheduleChanges()
