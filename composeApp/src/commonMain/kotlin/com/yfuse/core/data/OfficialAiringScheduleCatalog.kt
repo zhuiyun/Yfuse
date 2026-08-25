@@ -12,6 +12,9 @@ import com.yfuse.core.util.currentEpochMillis
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -71,7 +74,21 @@ class OfficialAiringScheduleCatalog(
         if (!force && now - lastAttempt in 0 until retryInterval) return Result.success(false)
         settings.putLong(KEY_LAST_ATTEMPT_EPOCH_MS, now)
         return runCatching {
-            val envelope = withTimeout(REMOTE_DEADLINE_MS) { client.get(endpoint).body<OfficialScheduleEnvelope>() }
+            val response =
+                withTimeout(REMOTE_DEADLINE_MS) {
+                    client.get(endpoint) {
+                        settings.getString(KEY_REVISION, "")
+                            .takeIf(String::isNotBlank)
+                            ?.let { revision ->
+                                header(HttpHeaders.IfNoneMatch, "\"calendar-$revision\"")
+                            }
+                    }
+                }
+            if (response.status == HttpStatusCode.NotModified) {
+                settings.putLong(KEY_LAST_SUCCESS_EPOCH_MS, now)
+                return@runCatching false
+            }
+            val envelope = response.body<OfficialScheduleEnvelope>()
             require(envelope.schemaVersion == SCHEMA_VERSION) { "Unsupported calendar schema" }
             require(
                 verifyEd25519Signature(
