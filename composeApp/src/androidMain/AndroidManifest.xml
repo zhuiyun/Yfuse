@@ -4,6 +4,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
@@ -128,6 +129,10 @@
             android:name="com.yfuse.feature.profile.QrScannerActivity"
             android:exported="false"
             android:theme="@style/Theme.Yfuse.Player" />
+
+        <receiver
+            android:name="com.yfuse.feature.calendar.CalendarReminderAlarmReceiver"
+            android:exported="false" />
 
         <service
             android:name="com.yfuse.core.offline.OfflineDownloadService"
