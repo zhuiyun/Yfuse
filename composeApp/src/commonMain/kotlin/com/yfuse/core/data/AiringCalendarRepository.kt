@@ -363,6 +363,21 @@ class AiringCalendarRepository(
         return calendarDays(episodes, today, forceRefresh = forceRefresh)
     }
 
+    /** Force-refreshes one tracked series without reopening global discovery. */
+    suspend fun refreshTrackedSeries(
+        series: FollowedSeries,
+        pastDays: Int = 7,
+        futureDays: Int = 60,
+        today: String = currentIsoDate(),
+    ): Result<List<CalendarDay>> =
+        calendarForSeries(
+            series = listOf(series),
+            pastDays = pastDays,
+            futureDays = futureDays,
+            today = today,
+            forceRefresh = true,
+        )
+
     /** Exact schedule for a series selected on its detail page, including upcoming episodes. */
     suspend fun seriesCalendar(
         showTmdbId: Int,
