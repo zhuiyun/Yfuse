@@ -144,6 +144,14 @@ class DetailComponent(
         }
     }
 
+    suspend fun findSeriesCalendarIdentityCandidates(
+        detail: MediaDetail,
+    ): Result<List<TmdbSeriesIdentityCandidate>> =
+        dependencies.calendarIdentityResolver.candidates(detail).mapCatching { candidates ->
+            check(candidates.isNotEmpty()) { "没有找到可用于重新匹配的 TMDB 剧集" }
+            candidates
+        }
+
     fun rememberSeriesCalendarIdentity(
         detail: MediaDetail,
         candidate: TmdbSeriesIdentityCandidate,
