@@ -1,6 +1,8 @@
 package com.yfuse.core.data
 
 import com.yfuse.core.model.AiringEpisode
+import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.SavedServer
@@ -170,4 +172,35 @@ class AiringCalendarTest {
             classifyAiring(null, scheduled, today = "2026-08-25", nowEpochMs = noon),
         )
     }
+
+    @Test
+    fun unrelated_discovery_rows_do_not_inflate_the_missing_count() {
+        val scheduled =
+            AiringEpisode(
+                showTmdbId = 42,
+                showTitle = "发现内容",
+                posterPath = null,
+                seasonNumber = 1,
+                episodeNumber = 1,
+                episodeTitle = null,
+                airDate = today,
+                origin = ShowOrigin.Foreign,
+            )
+
+        val discovery =
+            CalendarEntry(
+                episode = scheduled,
+                status = LibraryStatus.Missing,
+                discoveryOnly = true,
+            )
+        val followed =
+            discovery.copy(
+                followed = true,
+                discoveryOnly = false,
+            )
+
+        assertEquals(0, CalendarDay(today, listOf(discovery)).missingCount)
+        assertEquals(1, CalendarDay(today, listOf(followed)).missingCount)
+    }
+
 }
