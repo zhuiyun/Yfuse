@@ -7,6 +7,7 @@ import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.FollowedSeries
+import com.yfuse.core.data.OfficialScheduleChange
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.util.componentScope
 import kotlinx.coroutines.flow.collect
@@ -43,6 +44,12 @@ class CalendarComponent(
         repository.refreshTrackedSeries(series)
 
     fun exportCalendar(days: List<CalendarDay>): String = buildCalendarIcs(days)
+
+    fun scheduleChanges(): List<OfficialScheduleChange> = repository.scheduleChanges()
+
+    fun acknowledgeScheduleChanges() {
+        repository.acknowledgeScheduleChanges()
+    }
 
     init {
         // Detail remains a separate route. When a follow or reminder is changed there,
