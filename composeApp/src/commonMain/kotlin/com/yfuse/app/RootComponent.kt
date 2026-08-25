@@ -188,6 +188,15 @@ class RootComponent(
         search.requestFocus()
     }
 
+    /** Opens the followed series named by a calendar notification without starting playback. */
+    fun openCalendarTarget(
+        serverId: String?,
+        itemId: String,
+    ) {
+        selectTab(Tab.Home)
+        home.openCalendarItem(serverId, itemId)
+    }
+
     /**
      * An invite waiting to be confirmed, or null. Held here rather than routed straight to a
      * screen because it can arrive at any moment — a cold start from a chat app, or
