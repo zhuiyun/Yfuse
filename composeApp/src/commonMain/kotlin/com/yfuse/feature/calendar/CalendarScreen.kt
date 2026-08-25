@@ -215,13 +215,22 @@ fun CalendarScreen(component: CalendarComponent) {
             Spacer(Modifier.height(14.dp))
 
             if (state.error != null && days.isNotEmpty()) {
+                val fallbackMessage =
+                    if (state.confirmedDays.isNotEmpty()) {
+                        "状态更新失败，正在显示上一次成功结果 · 点击重试"
+                    } else {
+                        "媒体库状态未确认，当前显示排期预览 · 点击重试"
+                    }
                 Text(
-                    "状态更新失败，正在显示上一次成功结果 · 点击刷新重试",
+                    fallbackMessage,
                     style = AppTypography.caption.medium,
                     color = palette.error,
                     modifier =
                         Modifier
                             .fillMaxWidth()
+                            .pressable(onClickLabel = "重新加载追剧日历") {
+                                component.store.accept(CalendarIntent.Refresh)
+                            }.touchTarget()
                             .padding(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
                 )
             }
