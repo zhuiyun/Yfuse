@@ -84,7 +84,14 @@ class OfficialAiringScheduleCatalog(
             require(existingRevision.isBlank() || calendarRevisionIsAtLeast(envelope.revision, existingRevision)) {
                 "Calendar revision rollback rejected"
             }
-            schedules = FALLBACK_SCHEDULES + verified
+            val updatedSchedules = FALLBACK_SCHEDULES + verified
+            if (existingRevision.isNotBlank() && envelope.revision != existingRevision) {
+                val changes = detectScheduleChanges(schedules, updatedSchedules, now)
+                if (changes.isNotEmpty()) {
+                    settings.putString(KEY_CHANGES, json.encodeToString(changes))
+                }
+            }
+            schedules = updatedSchedules
             settings.putString(KEY_ENVELOPE, json.encodeToString(OfficialScheduleEnvelope.serializer(), envelope))
             settings.putString(KEY_REVISION, envelope.revision)
             settings.putLong(KEY_LAST_SUCCESS_EPOCH_MS, now)
@@ -98,6 +105,55 @@ class OfficialAiringScheduleCatalog(
             )
         }
     }
+
+    fun recentChanges(): List<OfficialScheduleChange> =
+        settings.getStringOrNull(KEY_CHANGES)
+            ?.let { raw ->
+                runCatching { json.decodeFromString<List<OfficialScheduleChange>>(raw) }.getOrNull()
+            }.orEmpty()
+
+    fun acknowledgeChanges() {
+        settings.remove(KEY_CHANGES)
+    }
+
+    private fun detectScheduleChanges(
+        previous: Map<Int, OfficialSeriesSchedule>,
+        updated: Map<Int, OfficialSeriesSchedule>,
+        detectedAtEpochMs: Long,
+    ): List<OfficialScheduleChange> =
+        updated.values
+            .flatMap { next ->
+                val old = previous[next.tmdbId] ?: return@flatMap emptyList()
+                val oldSlots = old.episodes.associateBy(OfficialEpisodeSlot::episodeNumber)
+                val nextSlots = next.episodes.associateBy(OfficialEpisodeSlot::episodeNumber)
+                buildList {
+                    nextSlots.forEach { (episodeNumber, slot) ->
+                        val previousSlot = oldSlots[episodeNumber]
+                        when {
+                            previousSlot == null ->
+                                add("新增第 ${episodeNumber} 集：${slot.airDate}")
+                            previousSlot.airDate != slot.airDate ->
+                                add(
+                                    "第 ${episodeNumber} 集由 ${previousSlot.airDate} 调整为 ${slot.airDate}",
+                                )
+                        }
+                    }
+                    oldSlots.keys.filterNot(nextSlots::containsKey).forEach { episodeNumber ->
+                        add("第 ${episodeNumber} 集已从官方排期移除")
+                    }
+                    if (old.airTime != next.airTime || old.timeZoneId != next.timeZoneId) {
+                        add("播出时间由 ${old.airTime} 调整为 ${next.airTime}")
+                    }
+                }.map { message ->
+                    OfficialScheduleChange(
+                        tmdbId = next.tmdbId,
+                        title = next.title,
+                        message = message,
+                        revision = next.revision,
+                        detectedAtEpochMs = detectedAtEpochMs,
+                    )
+                }
+            }.take(MAX_RECORDED_CHANGES)
 
     fun diagnostics(): OfficialScheduleDiagnostics =
         OfficialScheduleDiagnostics(
@@ -192,11 +248,13 @@ class OfficialAiringScheduleCatalog(
         const val KEY_REVISION = "calendar.official.revision"
         const val KEY_LAST_ATTEMPT_EPOCH_MS = "calendar.official.lastAttemptEpochMs"
         const val KEY_LAST_SUCCESS_EPOCH_MS = "calendar.official.lastSuccessEpochMs"
+        const val KEY_CHANGES = "calendar.official.changes.v1"
         const val REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000L
         const val FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000L
         const val REMOTE_DEADLINE_MS = 1_500L
         const val MAX_SERIES = 1_000
         const val MAX_EPISODES_PER_SERIES = 500
+        const val MAX_RECORDED_CHANGES = 50
         val DATE_PATTERN = Regex("\\d{4}-\\d{2}-\\d{2}")
         val TIME_PATTERN = Regex("(?:[01]\\d|2[0-3]):[0-5]\\d")
         val ZONE_PATTERN = Regex("[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)+")
@@ -286,6 +344,15 @@ internal data class OfficialScheduleEnvelope(
 @Serializable
 internal data class OfficialSchedulePayload(
     val schedules: List<OfficialAiringScheduleCatalog.OfficialSeriesSchedule>,
+)
+
+@Serializable
+data class OfficialScheduleChange(
+    val tmdbId: Int,
+    val title: String,
+    val message: String,
+    val revision: String,
+    val detectedAtEpochMs: Long,
 )
 
 data class OfficialScheduleDiagnostics(
