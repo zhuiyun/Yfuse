@@ -193,7 +193,7 @@ private fun HomeContent(
             component.store.accept(HomeIntent.RefreshLibrary)
             // Episodes can arrive while detail/player covers the tab. Refresh the compact
             // calendar too so its 入库/下一集 state is correct on the first frame back home.
-            component.refreshCalendar()
+            component.refreshCalendar(forceRefresh = true)
         } else if (!routeVisible) {
             hiddenSinceLastRefresh = true
         }
@@ -224,7 +224,7 @@ private fun HomeContent(
             isRefreshing = state.refreshing,
             onRefresh = {
                 component.store.accept(HomeIntent.Refresh)
-                component.refreshCalendar()
+                component.refreshCalendar(forceRefresh = true)
             },
             state = pullState,
             modifier = Modifier.fillMaxSize(),
