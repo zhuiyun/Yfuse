@@ -107,6 +107,9 @@ fun CalendarScreen(component: CalendarComponent) {
         }
     val bottomContentInset = systemNavigationContentInset()
     val share = rememberShareHandler()
+    var scheduleChanges by remember(state.days) {
+        mutableStateOf(component.scheduleChanges())
+    }
 
     // Unlike the artwork-heavy home hero this route always has a quiet page background.
     // Re-assert the icon contrast when navigating here; otherwise the light icons selected
@@ -206,6 +209,43 @@ fun CalendarScreen(component: CalendarComponent) {
                 onSelect = { component.store.accept(CalendarIntent.SelectSection(it)) },
             )
             Spacer(Modifier.height(12.dp))
+
+            if (scheduleChanges.isNotEmpty()) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Dimens.pageHorizontal)
+                        .glass(GlassShapes.card, palette.card2, palette.border)
+                        .padding(horizontal = 13.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        "官方排期有调整",
+                        style = AppTypography.body.strong,
+                        color = palette.text,
+                    )
+                    scheduleChanges.take(3).forEach { change ->
+                        Text(
+                            "${change.title} · ${change.message}",
+                            style = AppTypography.caption.regular,
+                            color = palette.sub,
+                        )
+                    }
+                    Text(
+                        "知道了",
+                        style = AppTypography.caption.strong,
+                        color = accent.accent,
+                        modifier =
+                            Modifier
+                                .align(Alignment.End)
+                                .pressable {
+                                    component.acknowledgeScheduleChanges()
+                                    scheduleChanges = emptyList()
+                                }.touchTarget(),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+            }
 
             if (state.section == CalendarSection.Schedule) {
                 LazyRow(
