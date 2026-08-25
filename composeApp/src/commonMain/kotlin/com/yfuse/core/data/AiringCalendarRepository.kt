@@ -325,7 +325,6 @@ class AiringCalendarRepository(
                     episode = episode,
                     status = if (!airingHasStarted(episode, today)) LibraryStatus.Unaired else LibraryStatus.Unknown,
                     followed = followStore.isFollowing(episode.showTmdbId),
-                    discoveryOnly = !followStore.isFollowing(episode.showTmdbId),
                 )
             }.groupBy { it.episode.airDate }
             .toSortedMap()
