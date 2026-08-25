@@ -684,7 +684,7 @@ internal fun mergeAiringSchedules(
     return merged.values.sortedWith(compareBy({ it.airDate }, { it.showTitle }, { it.episodeNumber }))
 }
 
-private fun mergeCalendarEntries(
+internal fun mergeCalendarEntries(
     episode: AiringEpisode,
     candidates: List<CalendarEntry>,
     today: String,
