@@ -1,6 +1,8 @@
 package com.yfuse.core.sync
 
+import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.DanmakuPreferences
+import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.DanmakuSyncSnapshot
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipMode
@@ -24,6 +26,7 @@ data class CloudSyncSnapshotV1(
     val serverSync: CloudServerSyncSettings = CloudServerSyncSettings(),
     val skipMode: String = SkipMode.Button.name,
     val skipTimesBySeries: Map<String, SkipTimes> = emptyMap(),
+    val calendarFollows: List<FollowedSeries> = emptyList(),
 ) {
     companion object {
         const val CURRENT_SCHEMA_VERSION: Int = 1
@@ -64,6 +67,7 @@ fun captureCloudSyncSnapshot(
     danmaku: DanmakuPreferences,
     skip: SkipSegmentPreferences,
     serverSync: ServerSyncManager,
+    calendarFollows: CalendarFollowStore? = null,
 ): CloudSyncSnapshotV1 =
     CloudSyncSnapshotV1(
         servers = registry.data.value,
@@ -93,6 +97,7 @@ fun captureCloudSyncSnapshot(
             ),
         skipMode = skip.skipMode.value.name,
         skipTimesBySeries = skip.bySeries.value,
+        calendarFollows = calendarFollows?.followed?.value.orEmpty(),
     )
 
 /** Applies a successfully authenticated and decrypted snapshot through typed preference APIs. */
@@ -104,12 +109,14 @@ fun applyCloudSyncSnapshot(
     danmaku: DanmakuPreferences,
     skip: SkipSegmentPreferences,
     serverSync: ServerSyncManager,
+    calendarFollows: CalendarFollowStore? = null,
 ): Result<Unit> =
     runCatching {
         require(snapshot.schemaVersion == CloudSyncSnapshotV1.CURRENT_SCHEMA_VERSION) {
             "暂不支持这个同步数据版本"
         }
         require(snapshot.skipTimesBySeries.size <= 500) { "片头片尾同步数据过多" }
+        require(snapshot.calendarFollows.size <= 500) { "追剧同步数据过多" }
         require(snapshot.skipTimesBySeries.keys.all { it.isNotBlank() && it.length <= 512 }) {
             "片头片尾同步数据无效"
         }
@@ -143,6 +150,7 @@ fun applyCloudSyncSnapshot(
         (skip.bySeries.value.keys - snapshot.skipTimesBySeries.keys).forEach(skip::clear)
         snapshot.skipTimesBySeries.forEach(skip::set)
         skip.setSkipMode(skipMode)
+        calendarFollows?.replaceFromSync(snapshot.calendarFollows)?.getOrThrow()
     }
 
 private fun <T : Enum<T>> List<T>.named(
