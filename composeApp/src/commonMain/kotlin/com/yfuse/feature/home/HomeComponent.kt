@@ -15,6 +15,7 @@ import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.util.componentScope
+import com.yfuse.feature.calendar.loadCalendarWithDeadline
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,14 +74,25 @@ class HomeComponent(
         lifecycle.doOnDestroy(store::dispose)
     }
 
-    fun refreshCalendar() {
+    fun refreshCalendar(forceRefresh: Boolean = false) {
         calendarJob?.cancel()
         _calendar.update { it.copy(loading = true, error = null) }
         calendarJob =
             scope.launch {
-                calendarRepository
-                    .calendar { preview -> _calendar.value = HomeCalendarState(days = preview, loading = true) }
-                    .onSuccess { _calendar.value = HomeCalendarState(days = it, loading = false) }
+                loadCalendarWithDeadline {
+                    calendarRepository.calendar(
+                        forceRefresh = forceRefresh,
+                        onPreview = { preview ->
+                            _calendar.update { current ->
+                                if (current.days.isEmpty()) {
+                                    HomeCalendarState(days = preview, loading = true)
+                                } else {
+                                    current.copy(loading = true, error = null)
+                                }
+                            }
+                        },
+                    )
+                }.onSuccess { _calendar.value = HomeCalendarState(days = it, loading = false) }
                     .onFailure { error ->
                         _calendar.update { it.copy(loading = false, error = error.message ?: "追剧日历加载失败") }
                     }
