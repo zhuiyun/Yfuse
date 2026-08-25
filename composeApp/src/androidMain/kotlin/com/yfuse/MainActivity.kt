@@ -22,6 +22,7 @@ import com.yfuse.app.launchWindowDarkMode
 import com.yfuse.app.splashBackground
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.CalendarFollowStore
+import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
@@ -151,7 +152,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT < 33) return
         lifecycleScope.launch {
             follows.followed
-                .map { it.isNotEmpty() }
+                .map { followed -> followed.any { it.reminderMode != CalendarReminderMode.Off } }
                 .distinctUntilChanged()
                 .collect { hasFollows ->
                     if (
