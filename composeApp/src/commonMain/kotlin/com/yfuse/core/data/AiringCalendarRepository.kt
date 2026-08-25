@@ -174,7 +174,13 @@ class AiringCalendarRepository(
         onPreview: (List<CalendarDay>) -> Unit = {},
     ): Result<List<CalendarDay>> =
         calendarLoadMutex.withLock {
-            val key = "$today:$pastDays:$futureDays"
+            val serverFingerprint =
+                registry.data.value.servers
+                    .joinToString(",") { it.id }
+            val followFingerprint =
+                followStore.followed.value
+                    .joinToString(",") { "${it.tmdbId}:${it.serverId}:${it.seriesItemId}" }
+            val key = "$today:$pastDays:$futureDays:$serverFingerprint:$followFingerprint"
             val now = currentEpochMillis()
             val snapshot = calendarRuntimeSnapshot
             if (
@@ -205,12 +211,12 @@ class AiringCalendarRepository(
         if (officialEpisodes.isNotEmpty()) {
             onPreview(unresolvedCalendarDays(officialEpisodes, today))
         }
-        officialSchedules.refreshIfDue()
+        officialSchedules.refreshIfDue(force = forceRefresh)
         officialEpisodes = officialSchedules.between(from, to)
         fun withOfficial(episodes: List<AiringEpisode>) = mergeAiringSchedules(episodes, officialEpisodes)
         // Schedule from cache when it was fetched today; status is always resolved fresh
         // below, because 未入库 → 可播放 is exactly what the user is watching for.
-        val cached = scheduleCache.read(today, window)
+        val cached = if (forceRefresh) null else scheduleCache.read(today, window)
         val lastSuccessful =
             scheduleCache
                 .readLastSuccessful()
@@ -265,8 +271,30 @@ class AiringCalendarRepository(
                     .map { followed ->
                         async {
                             followedScheduleRequests.withPermit {
-                                tmdb.seriesAiringCalendar(followed.tmdbId, followed.title).getOrDefault(emptyList())
-                                    .filter { it.airDate in from..to }
+                                val cachedSeries =
+                                    if (forceRefresh) {
+                                        null
+                                    } else {
+                                        scheduleCache.readSeries(followed.tmdbId, today)
+                                    }
+                                val lastSuccessful = scheduleCache.readSeriesLastSuccessful(followed.tmdbId)
+                                val discovered =
+                                    cachedSeries
+                                        ?: tmdb
+                                            .seriesAiringCalendar(followed.tmdbId, followed.title)
+                                            .onSuccess {
+                                                scheduleCache.writeSeries(followed.tmdbId, today, it)
+                                            }.getOrElse { error ->
+                                                AppLog.warning(
+                                                    category = "feature.calendar",
+                                                    event = "followed_schedule_failed",
+                                                    message = "A followed series schedule could not be refreshed",
+                                                    throwable = error,
+                                                    attributes = mapOf("tmdbId" to followed.tmdbId.toString()),
+                                                )
+                                                lastSuccessful.orEmpty()
+                                            }.ifEmpty { lastSuccessful.orEmpty() }
+                                discovered.filter { it.airDate in from..to }
                             }
                         }
                     }.awaitAll()
@@ -342,6 +370,7 @@ class AiringCalendarRepository(
                                     } else {
                                         scheduleCache.readSeries(tracked.tmdbId, today)
                                     }
+                                val lastSuccessful = scheduleCache.readSeriesLastSuccessful(tracked.tmdbId)
                                 val discovered =
                                     cached
                                         ?: tmdb
@@ -355,8 +384,8 @@ class AiringCalendarRepository(
                                                     throwable = error,
                                                     attributes = mapOf("tmdbId" to tracked.tmdbId.toString()),
                                                 )
-                                                emptyList()
-                                            }
+                                                lastSuccessful.orEmpty()
+                                            }.ifEmpty { lastSuccessful.orEmpty() }
                                 mergeAiringSchedules(
                                     discovered.filter { it.airDate in from..to },
                                     official,
@@ -1037,7 +1066,7 @@ fun CalendarDay.isPast(today: String = currentIsoDate()): Boolean = date < today
 val CalendarDay.missingCount: Int
     get() = entries.count { it.status == LibraryStatus.Missing && (it.inLibrary || it.followed) }
 
-private const val IDENTITY_CATALOG_TTL_MS = 2 * 60_000L
+private const val IDENTITY_CATALOG_TTL_MS = 15 * 60_000L
 private const val ACTIVE_LIBRARY_SERIES_LIMIT_PER_SERVER = 40
 private const val LIBRARY_EPISODE_REQUEST_CONCURRENCY = 3
 private const val FOLLOWED_SCHEDULE_REQUEST_CONCURRENCY = 4
