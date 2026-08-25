@@ -3,6 +3,7 @@ package com.yfuse.core.data
 import com.russhwolf.settings.Settings
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.AiringEpisode
+import com.yfuse.core.util.shiftIsoDate
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
@@ -26,6 +27,7 @@ class AiringScheduleCache(
         const val KEY_EPISODES = "calendar.schedule.episodes"
         const val KEY_FETCHED_ON = "calendar.schedule.fetchedOn"
         const val KEY_WINDOW = "calendar.schedule.window"
+        const val SERIES_FALLBACK_RETENTION_DAYS = 7
     }
 
     private val json =
@@ -102,7 +104,20 @@ class AiringScheduleCache(
         tmdbId: Int,
         today: String,
     ): List<AiringEpisode>? {
+        pruneExpiredSeries(today)
         if (settings.getStringOrNull(seriesDateKey(tmdbId)) != today) return null
+        return readSeriesStored(tmdbId)
+    }
+
+    /**
+     * Last non-empty schedule for one series, even when it was fetched on an earlier day.
+     *
+     * Used only as a degraded fallback after the current refresh fails. The caller still
+     * filters it to the requested date window, so stale rows cannot escape that window.
+     */
+    fun readSeriesLastSuccessful(tmdbId: Int): List<AiringEpisode>? = readSeriesStored(tmdbId)
+
+    private fun readSeriesStored(tmdbId: Int): List<AiringEpisode>? {
         val raw = settings.getStringOrNull(seriesDataKey(tmdbId)) ?: return null
         return runCatching { json.decodeFromString(serializer, raw) }
             .onFailure { error ->
@@ -141,10 +156,12 @@ class AiringScheduleCache(
     private fun pruneExpiredSeries(today: String) {
         if (lastPrunedOn == today) return
         lastPrunedOn = today
+        val oldestRetainedDate = shiftIsoDate(today, -SERIES_FALLBACK_RETENTION_DAYS)
         settings.keys
             .filter { it.startsWith("calendar.series.") && it.endsWith(".fetchedOn") }
             .forEach { dateKey ->
-                if (settings.getStringOrNull(dateKey) == today) return@forEach
+                val fetchedOn = settings.getStringOrNull(dateKey) ?: return@forEach
+                if (fetchedOn >= oldestRetainedDate) return@forEach
                 val tmdbId =
                     dateKey
                         .removePrefix("calendar.series.")
