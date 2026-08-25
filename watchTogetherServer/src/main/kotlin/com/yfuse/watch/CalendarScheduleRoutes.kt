@@ -1,20 +1,22 @@
 package com.yfuse.watch
 
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
+import io.ktor.server.request.header
+import io.ktor.server.response.header
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.security.KeyFactory
 import java.security.PrivateKey
 import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
-import java.time.OffsetDateTime
-import java.time.ZoneOffset
 import java.util.Base64
 
 private val calendarJson = Json { encodeDefaults = true }
@@ -30,6 +32,13 @@ private data class CalendarEnvelope(
 
 @Serializable
 private data class CalendarPayload(
+    val schedules: List<CalendarSeries>,
+)
+
+@Serializable
+private data class CalendarPublication(
+    val revision: String,
+    val generatedAt: String,
     val schedules: List<CalendarSeries>,
 )
 
@@ -93,11 +102,27 @@ internal fun Route.calendarScheduleRoutes(signer: CalendarScheduleSigner?) {
             )
             return@get
         }
-        val payload = calendarJson.encodeToString(CalendarPayload(SCHEDULES))
+        val publication =
+            runCatching(::loadCalendarPublication).getOrElse {
+                call.respondText(
+                    text = "{\"error\":\"calendar_publication_invalid\"}",
+                    contentType = ContentType.Application.Json,
+                    status = HttpStatusCode.ServiceUnavailable,
+                )
+                return@get
+            }
+        val etag = "\"calendar-${publication.revision}\""
+        call.response.header(HttpHeaders.ETag, etag)
+        call.response.header(HttpHeaders.CacheControl, "public, max-age=300, must-revalidate")
+        if (call.request.header(HttpHeaders.IfNoneMatch) == etag) {
+            call.respondText("", status = HttpStatusCode.NotModified)
+            return@get
+        }
+        val payload = calendarJson.encodeToString(CalendarPayload(publication.schedules))
         val envelope =
             CalendarEnvelope(
-                revision = CALENDAR_REVISION,
-                generatedAt = OffsetDateTime.now(ZoneOffset.UTC).toString(),
+                revision = publication.revision,
+                generatedAt = publication.generatedAt,
                 payload = payload,
                 signature = signer.sign(payload.encodeToByteArray()),
             )
@@ -109,6 +134,43 @@ internal fun Route.calendarScheduleRoutes(signer: CalendarScheduleSigner?) {
 }
 
 private const val CALENDAR_REVISION = "2026-08-23-r2"
+
+private fun loadCalendarPublication(): CalendarPublication {
+    val inline = System.getenv("YFUSE_CALENDAR_SCHEDULES_JSON")?.takeIf(String::isNotBlank)
+    val file =
+        System.getenv("YFUSE_CALENDAR_SCHEDULES_PATH")
+            ?.takeIf(String::isNotBlank)
+            ?.let(::File)
+    val raw =
+        inline
+            ?: file?.takeIf(File::isFile)?.readText()
+            ?: return CalendarPublication(
+                revision = CALENDAR_REVISION,
+                generatedAt = "2026-08-23T04:00:00Z",
+                schedules = SCHEDULES,
+            )
+    val publication = calendarJson.decodeFromString(CalendarPublication.serializer(), raw)
+    require(publication.revision.matches(Regex("\\d{4}-\\d{2}-\\d{2}-r\\d+")))
+    require(publication.generatedAt.length in 10..64)
+    require(publication.schedules.size <= 1_000)
+    publication.schedules.forEach { schedule ->
+        require(schedule.tmdbId > 0)
+        require(schedule.title.isNotBlank() && schedule.title.length <= 120)
+        require(schedule.episodes.isNotEmpty() && schedule.episodes.size <= 500)
+        require(schedule.airTime.matches(Regex("(?:[01]\\d|2[0-3]):[0-5]\\d")))
+        require(schedule.timeZoneId.matches(Regex("[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)+")))
+        require(schedule.sourceUrl.startsWith("https://"))
+        require(schedule.revision == publication.revision)
+        require(
+            schedule.episodes.all {
+                it.episodeNumber > 0 &&
+                    it.airDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))
+            },
+        )
+    }
+    require(publication.schedules.distinctBy(CalendarSeries::tmdbId).size == publication.schedules.size)
+    return publication
+}
 
 private val SCHEDULES =
     listOf(
