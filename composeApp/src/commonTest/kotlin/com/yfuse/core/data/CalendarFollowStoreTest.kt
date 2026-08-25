@@ -40,6 +40,39 @@ class CalendarFollowStoreTest {
     }
 
     @Test
+    fun cloud_restore_cleans_reminder_state_for_removed_series() {
+        val settings = MapSettings()
+        val store = CalendarFollowStore(settings)
+        store.follow(FollowedSeries(tmdbId = 1399, title = "旧剧"))
+        store.follow(FollowedSeries(tmdbId = 1400, title = "保留剧"))
+        settings.putBoolean("calendar.reminder.available.baseline.1399", true)
+        settings.putBoolean("calendar.reminder.sent.air.1399.2026-08-25", true)
+
+        store.replaceFromSync(listOf(FollowedSeries(tmdbId = 1400, title = "保留剧"))).getOrThrow()
+
+        assertNull(settings.getBooleanOrNull("calendar.reminder.available.baseline.1399"))
+        assertNull(settings.getBooleanOrNull("calendar.reminder.sent.air.1399.2026-08-25"))
+    }
+
+    @Test
+    fun changing_reminder_mode_resets_availability_baseline() {
+        val settings = MapSettings()
+        val store = CalendarFollowStore(settings)
+        store.follow(
+            FollowedSeries(
+                tmdbId = 1399,
+                title = "测试剧",
+                reminderMode = CalendarReminderMode.WhenAvailable,
+            ),
+        )
+        settings.putBoolean("calendar.reminder.available.baseline.1399", true)
+
+        store.setReminder(1399, CalendarReminderMode.AtBroadcast)
+
+        assertNull(settings.getBooleanOrNull("calendar.reminder.available.baseline.1399"))
+    }
+
+    @Test
     fun unfollow_removes_delivery_and_baseline_keys() {
         val settings = MapSettings()
         val store = CalendarFollowStore(settings)
