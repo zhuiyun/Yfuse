@@ -25,7 +25,7 @@ class CalendarComponent(
     val onOpenItem: (serverId: String?, itemId: String) -> Unit,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
-    val store = CalendarStoreFactory(storeFactory, repository).create()
+    val store = CalendarStoreFactory(storeFactory, repository, followStore).create()
 
     fun diagnosticReport(days: List<CalendarDay>): String = repository.diagnosticReport(days)
 
