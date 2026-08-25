@@ -34,7 +34,6 @@ class HomeComponent(
     cache: TmdbHomeCache,
     syncManager: ServerSyncManager,
     private val calendarRepository: AiringCalendarRepository,
-    private val initialCalendarLoad: Boolean = true,
     private val onOpenEmbyItem: (String, String) -> Unit,
     private val onPlayEmbyItem: (String, String) -> Unit,
     private val onOpenTmdbItem: (TmdbItem, String?) -> Unit,
@@ -42,6 +41,7 @@ class HomeComponent(
     val onOpenLibrary: () -> Unit,
     val onOpenProfile: () -> Unit,
     val onOpenCalendar: () -> Unit,
+    private val initialCalendarLoad: Boolean = true,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
     private var calendarJob: Job? = null
