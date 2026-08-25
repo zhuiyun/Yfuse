@@ -73,6 +73,29 @@ class CalendarFollowStoreTest {
     }
 
     @Test
+    fun bulk_actions_update_reminders_and_clean_all_follow_state() {
+        val settings = MapSettings()
+        val store = CalendarFollowStore(settings)
+        store.follow(FollowedSeries(tmdbId = 1, title = "剧一"))
+        store.follow(FollowedSeries(tmdbId = 2, title = "剧二"))
+        settings.putBoolean("calendar.reminder.sent.air.1.2026-08-25", true)
+
+        store.setReminderForAll(CalendarReminderMode.BeforeAndAtBroadcast, beforeMinutes = 120)
+
+        assertTrue(
+            store.followed.value.all {
+                it.reminderMode == CalendarReminderMode.BeforeAndAtBroadcast &&
+                    it.remindBeforeMinutes == 120
+            },
+        )
+
+        store.unfollowAll()
+
+        assertTrue(store.followed.value.isEmpty())
+        assertNull(settings.getBooleanOrNull("calendar.reminder.sent.air.1.2026-08-25"))
+    }
+
+    @Test
     fun unfollow_removes_delivery_and_baseline_keys() {
         val settings = MapSettings()
         val store = CalendarFollowStore(settings)
