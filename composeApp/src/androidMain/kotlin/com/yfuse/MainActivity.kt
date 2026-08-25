@@ -146,6 +146,7 @@ class MainActivity : ComponentActivity() {
 
         // A cold start from a shared link arrives here rather than in onNewIntent.
         consumeInviteIntent(intent)
+        consumeCalendarIntent(intent)
     }
 
     private fun observeCalendarNotificationPermission(follows: CalendarFollowStore) {
@@ -176,10 +177,26 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         consumeInviteIntent(intent)
+        consumeCalendarIntent(intent)
     }
 
     private companion object {
+        const val EXTRA_CALENDAR_SERVER_ID = "calendar_server_id"
+        const val EXTRA_CALENDAR_SERIES_ITEM_ID = "calendar_series_item_id"
         const val CALENDAR_NOTIFICATION_PERMISSION_REQUEST = 4103
+    }
+
+    private fun consumeCalendarIntent(intent: Intent?) {
+        val itemId =
+            intent?.getStringExtra(EXTRA_CALENDAR_SERIES_ITEM_ID)
+                ?.takeIf(String::isNotBlank)
+                ?: return
+        rootComponent?.openCalendarTarget(
+            serverId = intent.getStringExtra(EXTRA_CALENDAR_SERVER_ID),
+            itemId = itemId,
+        )
+        intent.removeExtra(EXTRA_CALENDAR_SERVER_ID)
+        intent.removeExtra(EXTRA_CALENDAR_SERIES_ITEM_ID)
     }
 
     private fun consumeInviteIntent(intent: Intent?) {
