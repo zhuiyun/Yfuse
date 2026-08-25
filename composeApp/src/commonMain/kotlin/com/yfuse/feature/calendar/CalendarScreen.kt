@@ -107,7 +107,7 @@ fun CalendarScreen(component: CalendarComponent) {
         }
     val bottomContentInset = systemNavigationContentInset()
     val share = rememberShareHandler()
-    var scheduleChanges by remember(state.days) {
+    var scheduleChanges by remember(state.loading, state.days) {
         mutableStateOf(component.scheduleChanges())
     }
 
