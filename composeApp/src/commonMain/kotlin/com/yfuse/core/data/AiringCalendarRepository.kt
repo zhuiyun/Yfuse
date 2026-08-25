@@ -448,6 +448,7 @@ class AiringCalendarRepository(
      */
     suspend fun enrichResourceDetails(days: List<CalendarDay>): Result<List<CalendarDay>> =
         runCatching {
+            pruneResourceDetailsCache()
             val targetSeasons =
                 days
                     .flatMap(CalendarDay::entries)
@@ -538,6 +539,22 @@ class AiringCalendarRepository(
                 )
             }
         }
+
+    private suspend fun pruneResourceDetailsCache() {
+        val now = currentEpochMillis()
+        resourceDetailsCacheMutex.withLock {
+            resourceDetailsCache
+                .filterValues { now - it.fetchedAtEpochMs !in 0 until RESOURCE_DETAILS_TTL_MS }
+                .keys
+                .forEach(resourceDetailsCache::remove)
+            if (resourceDetailsCache.size > MAX_RESOURCE_DETAILS_CACHE_ENTRIES) {
+                resourceDetailsCache.entries
+                    .sortedBy { it.value.fetchedAtEpochMs }
+                    .take(resourceDetailsCache.size - MAX_RESOURCE_DETAILS_CACHE_ENTRIES)
+                    .forEach { resourceDetailsCache.remove(it.key) }
+            }
+        }
+    }
 
     /** Exact schedule for a series selected on its detail page, including upcoming episodes. */
     suspend fun seriesCalendar(
@@ -1132,3 +1149,4 @@ private const val LIBRARY_EPISODE_REQUEST_CONCURRENCY = 3
 private const val FOLLOWED_SCHEDULE_REQUEST_CONCURRENCY = 4
 private const val CALENDAR_RUNTIME_TTL_MS = 30_000L
 private const val RESOURCE_DETAILS_TTL_MS = 5 * 60_000L
+private const val MAX_RESOURCE_DETAILS_CACHE_ENTRIES = 128
