@@ -229,6 +229,7 @@ class HomeTabComponent(
                         componentContext = context,
                         storeFactory = storeFactory,
                         repository = calendarRepository,
+                        followStore = dependencies.calendarFollowStore,
                         onBack = { navigation.pop() },
                         onOpenItem = { serverId, itemId ->
                             navigation.push(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
