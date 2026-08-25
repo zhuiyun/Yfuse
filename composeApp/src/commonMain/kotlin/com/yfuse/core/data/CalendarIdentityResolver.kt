@@ -62,8 +62,32 @@ class CalendarIdentityResolver(
         tmdbId: Int,
     ) {
         require(tmdbId > 0)
+        val oldTmdbId = settings.getIntOrNull(itemKey(serverId, itemId))
+        if (oldTmdbId != null && oldTmdbId != tmdbId) {
+            settings.getStringOrNull(reverseKey(serverId, oldTmdbId))
+                ?.takeIf { it == itemId }
+                ?.let { settings.remove(reverseKey(serverId, oldTmdbId)) }
+        }
+        val oldItemId = settings.getStringOrNull(reverseKey(serverId, tmdbId))
+        if (!oldItemId.isNullOrBlank() && oldItemId != itemId) {
+            settings.remove(itemKey(serverId, oldItemId))
+        }
         settings.putInt(itemKey(serverId, itemId), tmdbId)
         settings.putString(reverseKey(serverId, tmdbId), itemId)
+    }
+
+    fun forget(
+        serverId: String?,
+        itemId: String,
+        tmdbId: Int? = null,
+    ) {
+        val resolvedTmdbId = tmdbId ?: settings.getIntOrNull(itemKey(serverId, itemId))
+        settings.remove(itemKey(serverId, itemId))
+        resolvedTmdbId?.let { id ->
+            settings.getStringOrNull(reverseKey(serverId, id))
+                ?.takeIf { it == itemId }
+                ?.let { settings.remove(reverseKey(serverId, id)) }
+        }
     }
 
     fun mappedSeriesItemId(serverId: String, tmdbId: Int): String? =
