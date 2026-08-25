@@ -51,13 +51,13 @@ class AccountRepository(
     private val danmaku: DanmakuPreferences,
     private val skip: SkipSegmentPreferences,
     private val serverSync: ServerSyncManager,
-    private val calendarFollows: CalendarFollowStore? = null,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
     /** Production supplies Main.immediate, the same serial dispatcher used by settings UI. */
     private val mutationDispatcher: CoroutineDispatcher = Dispatchers.Default,
     /** PBKDF2 and AES work must never block the Compose main thread. */
     private val cryptoDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val accessTokenSource: AccountAccessTokenSource = AccountAccessTokenSource(),
+    private val calendarFollows: CalendarFollowStore? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
