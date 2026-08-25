@@ -34,6 +34,7 @@ class AiringScheduleCache(
             encodeDefaults = false
         }
     private val serializer = ListSerializer(AiringEpisode.serializer())
+    private var lastPrunedOn: String? = null
 
     /**
      * The stored schedule, or null when there is none, it was fetched on another day, or it
@@ -44,6 +45,7 @@ class AiringScheduleCache(
         today: String,
         window: String,
     ): List<AiringEpisode>? {
+        pruneExpiredSeries(today)
         if (settings.getStringOrNull(KEY_FETCHED_ON) != today) return null
         if (settings.getStringOrNull(KEY_WINDOW) != window) return null
         return readStored()
@@ -134,6 +136,23 @@ class AiringScheduleCache(
                 attributes = mapOf("tmdbId" to tmdbId.toString()),
             )
         }
+    }
+
+    private fun pruneExpiredSeries(today: String) {
+        if (lastPrunedOn == today) return
+        lastPrunedOn = today
+        settings.keys
+            .filter { it.startsWith("calendar.series.") && it.endsWith(".fetchedOn") }
+            .forEach { dateKey ->
+                if (settings.getStringOrNull(dateKey) == today) return@forEach
+                val tmdbId =
+                    dateKey
+                        .removePrefix("calendar.series.")
+                        .removeSuffix(".fetchedOn")
+                        .toIntOrNull()
+                        ?: return@forEach
+                clearSeries(tmdbId)
+            }
     }
 
     fun clearSeries(tmdbId: Int) {
