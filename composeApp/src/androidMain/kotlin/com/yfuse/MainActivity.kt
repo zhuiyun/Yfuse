@@ -34,6 +34,7 @@ import com.yfuse.core.performance.AppJankMonitor
 import com.yfuse.core.performance.preferHighRefreshRateForUi
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.feature.calendar.scheduleCalendarReminderWork
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.profile.applyPendingAppIconVariant
 import com.yfuse.update.AppUpdateManager
@@ -153,11 +154,15 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT < 33) return
         lifecycleScope.launch {
             follows.followed
-                .map { followed -> followed.any { it.reminderMode != CalendarReminderMode.Off } }
-                .distinctUntilChanged()
-                .collect { hasFollows ->
+                .map { followed ->
+                    followed
+                        .filter { it.reminderMode != CalendarReminderMode.Off }
+                        .map { listOf(it.tmdbId.toString(), it.reminderMode.name, it.remindBeforeMinutes.toString()) }
+                }.distinctUntilChanged()
+                .collect { reminderConfiguration ->
+                    scheduleCalendarReminderWork(this@MainActivity)
                     if (
-                        hasFollows &&
+                        reminderConfiguration.isNotEmpty() &&
                         !calendarNotificationPermissionRequested &&
                         checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                     ) {
