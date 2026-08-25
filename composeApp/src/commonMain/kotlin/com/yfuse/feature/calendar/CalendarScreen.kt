@@ -850,9 +850,19 @@ private fun CalendarResourcesPane(
     bottomContentInset: androidx.compose.ui.unit.Dp,
 ) {
     val palette = LocalPalette.current
+    var enrichedDays by remember(days) { mutableStateOf(days) }
+    var enriching by remember(days) { mutableStateOf(days.isNotEmpty()) }
+    var enrichmentError by remember(days) { mutableStateOf<String?>(null) }
+    LaunchedEffect(days) {
+        if (days.isEmpty()) return@LaunchedEffect
+        component.enrichResourceDetails(days)
+            .onSuccess { enrichedDays = it }
+            .onFailure { enrichmentError = it.message ?: "资源画质读取失败" }
+        enriching = false
+    }
     val summaries =
-        remember(days) {
-            days
+        remember(enrichedDays) {
+            enrichedDays
                 .flatMap(CalendarDay::entries)
                 .groupBy { it.episode.showTmdbId }
                 .values
@@ -898,6 +908,16 @@ private fun CalendarResourcesPane(
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        if (enriching || enrichmentError != null) {
+            item {
+                Text(
+                    if (enriching) "正在读取片源画质…" else enrichmentError.orEmpty(),
+                    style = AppTypography.caption.medium,
+                    color = if (enrichmentError == null) palette.sub2 else palette.error,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+        }
         items(summaries, key = { it.entry.episode.showTmdbId }) { summary ->
             Row(
                 Modifier
