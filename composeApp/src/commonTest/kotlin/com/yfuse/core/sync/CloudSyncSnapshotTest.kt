@@ -1,7 +1,10 @@
 package com.yfuse.core.sync
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.data.CalendarFollowStore
+import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.DanmakuPreferences
+import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
@@ -76,6 +79,26 @@ class CloudSyncSnapshotTest {
     }
 
     @Test
+    fun calendar_follows_and_reminders_round_trip_in_encrypted_snapshot() {
+        val source = Fixture()
+        source.follows.follow(
+            FollowedSeries(
+                tmdbId = 1399,
+                title = "测试剧",
+                reminderMode = CalendarReminderMode.BeforeAndAtBroadcast,
+                remindBeforeMinutes = 60,
+            ),
+        )
+
+        val snapshot = source.capture()
+        val target = Fixture()
+        target.apply(snapshot).getOrThrow()
+
+        assertEquals(snapshot.calendarFollows, target.follows.followed.value)
+        assertEquals(60, target.follows.followed.value.single().remindBeforeMinutes)
+    }
+
+    @Test
     fun v1_snapshot_without_server_sync_settings_keeps_legacy_true_defaults() {
         val decoded =
             json.decodeFromString(
@@ -116,6 +139,7 @@ private class Fixture(
     val watch = WatchTogetherPreferences(MapSettings())
     val danmaku = DanmakuPreferences(MapSettings())
     val skip = SkipSegmentPreferences(MapSettings())
+    val follows = CalendarFollowStore(MapSettings())
     val serverSync =
         ServerSyncManager(
             repo = testRepo { json("{}") },
@@ -131,6 +155,7 @@ private class Fixture(
             danmaku = danmaku,
             skip = skip,
             serverSync = serverSync,
+            calendarFollows = follows,
         )
 
     fun apply(snapshot: CloudSyncSnapshotV1): Result<Unit> =
