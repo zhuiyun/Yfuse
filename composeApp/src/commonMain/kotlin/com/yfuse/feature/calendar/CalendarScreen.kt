@@ -32,6 +32,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +45,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.systemNavigationContentInset
+import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.isPast
 import com.yfuse.core.data.isToday
 import com.yfuse.core.data.missingCount
@@ -86,6 +90,7 @@ import com.yfuse.core.designsystem.flatGlass as glass
 @Composable
 fun CalendarScreen(component: CalendarComponent) {
     val state by component.store.states.collectAsState(component.store.state)
+    val followedSeries by component.followStore.followed.collectAsState()
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -139,6 +144,19 @@ fun CalendarScreen(component: CalendarComponent) {
                     )
                 }
                 Icon(
+                    AppIcons.Download,
+                    contentDescription = "导出 ICS 日历",
+                    tint = palette.text,
+                    modifier =
+                        Modifier
+                            .pressable(onClickLabel = "导出 ICS 日历") {
+                                share.shareText(component.exportCalendar(state.days))
+                            }.touchTarget()
+                            .size(36.dp)
+                            .solidGlass(CircleShape, palette.card2, palette.border)
+                            .padding(10.dp),
+                )
+                Icon(
                     AppIcons.Info,
                     contentDescription = "导出日历诊断",
                     tint = palette.text,
@@ -182,12 +200,19 @@ fun CalendarScreen(component: CalendarComponent) {
                 }
             }
 
-            LazyRow(
-                modifier = Modifier.selectableGroup(),
-                contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(CalendarFilter.entries) { filter ->
+            CalendarSectionBar(
+                selected = state.section,
+                onSelect = { component.store.accept(CalendarIntent.SelectSection(it)) },
+            )
+            Spacer(Modifier.height(12.dp))
+
+            if (state.section == CalendarSection.Schedule) {
+                LazyRow(
+                    modifier = Modifier.selectableGroup(),
+                    contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(CalendarFilter.entries) { filter ->
                     val active = filter == state.filter
                     Text(
                         filter.label,
@@ -350,6 +375,18 @@ fun CalendarScreen(component: CalendarComponent) {
                         }
                     }
                 }
+            }
+            } else {
+                CalendarAuxiliaryPane(
+                    state = state,
+                    followedSeries = followedSeries,
+                    component = component,
+                    bottomContentInset = bottomContentInset,
+                    onExportCalendar = { share.shareText(component.exportCalendar(state.days)) },
+                    onExportDiagnostics = {
+                        share.shareText(component.diagnosticReport(state.days))
+                    },
+                )
             }
         }
     }
