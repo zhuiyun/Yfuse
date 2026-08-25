@@ -273,8 +273,10 @@ class CalendarStoreFactory(
             when (intent) {
                 CalendarIntent.Refresh -> load(forceRefresh = true)
                 CalendarIntent.Reload -> load(forceRefresh = false)
-                is CalendarIntent.ApplySeriesRefresh ->
+                is CalendarIntent.ApplySeriesRefresh -> {
+                    loadJob?.cancel()
                     dispatch(Msg.SeriesRefreshed(intent.tmdbId, intent.days))
+                }
                 is CalendarIntent.SelectSection -> dispatch(Msg.SectionChanged(intent.section))
                 is CalendarIntent.SelectPlatform -> {
                     preferences?.savePlatformFilter(intent.platform)
