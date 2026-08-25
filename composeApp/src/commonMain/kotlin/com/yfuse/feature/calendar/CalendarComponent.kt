@@ -36,12 +36,23 @@ class CalendarComponent(
         followStore.unfollow(tmdbId)
     }
 
+    fun unfollowAll() {
+        followStore.unfollowAll()
+    }
+
     fun setReminder(
         tmdbId: Int,
         mode: CalendarReminderMode,
         beforeMinutes: Int,
     ) {
         followStore.setReminder(tmdbId, mode, beforeMinutes)
+    }
+
+    fun setReminderForAll(
+        mode: CalendarReminderMode,
+        beforeMinutes: Int,
+    ) {
+        followStore.setReminderForAll(mode, beforeMinutes)
     }
 
     suspend fun refreshSeries(series: FollowedSeries): Result<List<CalendarDay>> =
