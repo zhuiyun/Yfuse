@@ -11,6 +11,11 @@ import androidx.compose.runtime.Composable
 interface ShareHandler {
     fun shareText(text: String)
 
+    /** Shares a standards-compliant .ics attachment when the platform supports files. */
+    fun shareCalendar(content: String) {
+        shareText(content)
+    }
+
     fun copyText(text: String)
 
     fun copySensitiveText(text: String)
