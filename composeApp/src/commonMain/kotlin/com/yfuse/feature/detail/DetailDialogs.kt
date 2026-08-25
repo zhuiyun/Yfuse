@@ -39,6 +39,7 @@ import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.data.TmdbSeriesIdentityCandidate
+import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.offline.OfflineDownloadQuality
 import com.yfuse.core.offline.OfflineDownloadSelection
@@ -55,7 +56,11 @@ internal fun SeriesAiringCalendarDialog(
     loading: Boolean,
     error: String?,
     identityCandidates: List<TmdbSeriesIdentityCandidate> = emptyList(),
+    followed: Boolean = false,
+    reminderMode: CalendarReminderMode = CalendarReminderMode.Off,
     onSelectIdentity: (TmdbSeriesIdentityCandidate) -> Unit = {},
+    onToggleFollow: () -> Unit = {},
+    onSetReminder: (CalendarReminderMode) -> Unit = {},
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -73,7 +78,15 @@ internal fun SeriesAiringCalendarDialog(
                 buildList {
                     add("$episodeCount 集")
                     add("官方会员日历")
-                    officialSchedule.airTime?.let { add("北京时间 $it") }
+                    officialSchedule.airTime?.let { time ->
+                        add(
+                            if (officialSchedule.timeZoneId == "Asia/Shanghai") {
+                                "北京时间 $time"
+                            } else {
+                                "$time (${officialSchedule.timeZoneId ?: "原播时区"})"
+                            },
+                        )
+                    }
                     officialSchedule.platforms.takeIf { it.isNotEmpty() }?.joinToString("/")?.let(::add)
                 }.joinToString(" · ")
             episodeCount > 0 -> "$episodeCount 集 · 按原产地播出日期"
@@ -85,6 +98,22 @@ internal fun SeriesAiringCalendarDialog(
             subtitle = scheduleSubtitle,
             onClose = onDismiss,
         )
+        if (identityCandidates.isEmpty()) {
+            OverlayOptionRow(
+                label = if (followed) "已加入追剧" else "加入追剧",
+                description = if (followed) "在追剧中心优先显示该剧" else "关注排期和入库状态",
+                selected = followed,
+                onClick = onToggleFollow,
+            )
+            if (followed) {
+                OverlayOptionRow(
+                    label = "更新提醒",
+                    description = reminderModeLabel(reminderMode),
+                    selected = reminderMode != CalendarReminderMode.Off,
+                    onClick = { onSetReminder(nextReminderMode(reminderMode)) },
+                )
+            }
+        }
         when {
             identityCandidates.isNotEmpty() -> {
                 Text(
@@ -179,6 +208,22 @@ internal fun SeriesAiringCalendarDialog(
         }
     }
 }
+
+internal fun reminderModeLabel(mode: CalendarReminderMode): String =
+    when (mode) {
+        CalendarReminderMode.Off -> "关闭 · 点击开启"
+        CalendarReminderMode.BeforeAndAtBroadcast -> "提前 30 分钟和播出时"
+        CalendarReminderMode.AtBroadcast -> "播出时"
+        CalendarReminderMode.WhenAvailable -> "检测到新入库时"
+    }
+
+internal fun nextReminderMode(mode: CalendarReminderMode): CalendarReminderMode =
+    when (mode) {
+        CalendarReminderMode.Off -> CalendarReminderMode.BeforeAndAtBroadcast
+        CalendarReminderMode.BeforeAndAtBroadcast -> CalendarReminderMode.AtBroadcast
+        CalendarReminderMode.AtBroadcast -> CalendarReminderMode.WhenAvailable
+        CalendarReminderMode.WhenAvailable -> CalendarReminderMode.Off
+    }
 
 internal fun seriesCalendarDayLabel(
     date: String,
