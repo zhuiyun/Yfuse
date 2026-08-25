@@ -47,6 +47,24 @@ class CalendarFollowStore(private val settings: Settings) {
             }.forEach(settings::remove)
     }
 
+    fun replaceFromSync(series: List<FollowedSeries>): Result<Unit> =
+        runCatching {
+            require(series.size <= MAX_FOLLOWED_SERIES) { "追剧同步数据过多" }
+            require(
+                series.all {
+                    it.tmdbId > 0 &&
+                        it.title.isNotBlank() &&
+                        it.title.length <= 120 &&
+                        it.remindBeforeMinutes in 0..24 * 60
+                },
+            ) { "追剧同步数据无效" }
+            update(
+                series
+                    .distinctBy(FollowedSeries::tmdbId)
+                    .sortedBy(FollowedSeries::title),
+            )
+        }
+
     fun setReminder(
         tmdbId: Int,
         mode: CalendarReminderMode,
@@ -75,5 +93,6 @@ class CalendarFollowStore(private val settings: Settings) {
 
     private companion object {
         const val KEY = "calendar.followed.series.v1"
+        const val MAX_FOLLOWED_SERIES = 500
     }
 }
