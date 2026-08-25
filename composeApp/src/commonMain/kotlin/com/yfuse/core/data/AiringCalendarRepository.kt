@@ -52,10 +52,17 @@ class AiringCalendarRepository(
         val days: List<CalendarDay>,
     )
 
+    private data class ResourceDetailsSnapshot(
+        val fetchedAtEpochMs: Long,
+        val episodes: List<Episode>,
+    )
+
     private val identityCatalogCache = mutableMapOf<String, IdentityCatalogSnapshot>()
     private val libraryEpisodeRequests = Semaphore(LIBRARY_EPISODE_REQUEST_CONCURRENCY)
     private val followedScheduleRequests = Semaphore(FOLLOWED_SCHEDULE_REQUEST_CONCURRENCY)
     private val calendarLoadMutex = Mutex()
+    private val resourceDetailsCacheMutex = Mutex()
+    private val resourceDetailsCache = mutableMapOf<Pair<String, String>, ResourceDetailsSnapshot>()
     private var calendarRuntimeSnapshot: CalendarRuntimeSnapshot? = null
     private suspend fun identityCatalog(
         server: SavedServer,
@@ -435,29 +442,45 @@ class AiringCalendarRepository(
                     targets.mapNotNull { (serverId, seriesItemId) ->
                         val server = registry.serverById(serverId) ?: return@mapNotNull null
                         async {
-                            val episodes =
-                                libraryEpisodeRequests.withPermit {
-                                    emby.episodes(
-                                        server = server,
-                                        seriesId = seriesItemId,
-                                        seasonId = null,
-                                        includeMediaSources = true,
-                                    ).getOrElse { error ->
-                                        AppLog.warning(
-                                            category = "feature.calendar",
-                                            event = "resource_details_failed",
-                                            message = "Calendar resource quality could not be read",
-                                            throwable = error,
-                                            attributes =
-                                                mapOf(
-                                                    "serverId" to serverId,
-                                                    "seriesId" to seriesItemId,
-                                                ),
-                                        )
-                                        emptyList()
-                                    }
+                            val key = serverId to seriesItemId
+                            val now = currentEpochMillis()
+                            val cached =
+                                resourceDetailsCacheMutex.withLock {
+                                    resourceDetailsCache[key]
+                                        ?.takeIf {
+                                            now - it.fetchedAtEpochMs in 0 until RESOURCE_DETAILS_TTL_MS
+                                        }?.episodes
                                 }
-                            (serverId to seriesItemId) to episodes
+                            val episodes =
+                                cached
+                                    ?: libraryEpisodeRequests.withPermit {
+                                        emby
+                                            .episodes(
+                                                server = server,
+                                                seriesId = seriesItemId,
+                                                seasonId = null,
+                                                includeMediaSources = true,
+                                            ).onSuccess { loaded ->
+                                                resourceDetailsCacheMutex.withLock {
+                                                    resourceDetailsCache[key] =
+                                                        ResourceDetailsSnapshot(currentEpochMillis(), loaded)
+                                                }
+                                            }.getOrElse { error ->
+                                                AppLog.warning(
+                                                    category = "feature.calendar",
+                                                    event = "resource_details_failed",
+                                                    message = "Calendar resource quality could not be read",
+                                                    throwable = error,
+                                                    attributes =
+                                                        mapOf(
+                                                            "serverId" to serverId,
+                                                            "seriesId" to seriesItemId,
+                                                        ),
+                                                )
+                                                emptyList()
+                                            }
+                                    }
+                            key to episodes
                         }
                     }.awaitAll().toMap()
                 }
@@ -1071,3 +1094,4 @@ private const val ACTIVE_LIBRARY_SERIES_LIMIT_PER_SERVER = 40
 private const val LIBRARY_EPISODE_REQUEST_CONCURRENCY = 3
 private const val FOLLOWED_SCHEDULE_REQUEST_CONCURRENCY = 4
 private const val CALENDAR_RUNTIME_TTL_MS = 30_000L
+private const val RESOURCE_DETAILS_TTL_MS = 5 * 60_000L
