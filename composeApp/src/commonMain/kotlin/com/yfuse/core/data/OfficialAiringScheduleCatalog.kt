@@ -59,7 +59,14 @@ class OfficialAiringScheduleCatalog(
     suspend fun refreshIfDue(force: Boolean = false): Result<Boolean> {
         val now = nowEpochMs()
         val lastAttempt = settings.getLong(KEY_LAST_ATTEMPT_EPOCH_MS, 0L)
-        if (!force && now - lastAttempt in 0 until REFRESH_INTERVAL_MS) return Result.success(false)
+        val lastSuccess = settings.getLong(KEY_LAST_SUCCESS_EPOCH_MS, 0L)
+        val retryInterval =
+            if (lastAttempt > lastSuccess) {
+                FAILURE_RETRY_INTERVAL_MS
+            } else {
+                REFRESH_INTERVAL_MS
+            }
+        if (!force && now - lastAttempt in 0 until retryInterval) return Result.success(false)
         settings.putLong(KEY_LAST_ATTEMPT_EPOCH_MS, now)
         return runCatching {
             val envelope = withTimeout(REMOTE_DEADLINE_MS) { client.get(endpoint).body<OfficialScheduleEnvelope>() }
@@ -186,6 +193,7 @@ class OfficialAiringScheduleCatalog(
         const val KEY_LAST_ATTEMPT_EPOCH_MS = "calendar.official.lastAttemptEpochMs"
         const val KEY_LAST_SUCCESS_EPOCH_MS = "calendar.official.lastSuccessEpochMs"
         const val REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000L
+        const val FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000L
         const val REMOTE_DEADLINE_MS = 1_500L
         const val MAX_SERIES = 1_000
         const val MAX_EPISODES_PER_SERIES = 500
