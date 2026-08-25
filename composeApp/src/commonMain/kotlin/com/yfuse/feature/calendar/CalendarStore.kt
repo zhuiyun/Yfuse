@@ -175,6 +175,12 @@ sealed interface CalendarIntent {
     /** Lifecycle/data invalidation refresh: reuses valid caches and only reloads stale data. */
     data object Reload : CalendarIntent
 
+    /** Applies a single-series refresh without reopening global discovery and every server. */
+    data class ApplySeriesRefresh(
+        val tmdbId: Int,
+        val days: List<CalendarDay>,
+    ) : CalendarIntent
+
     data class SelectSection(
         val section: CalendarSection,
     ) : CalendarIntent
@@ -226,6 +232,11 @@ private sealed interface Msg {
     data class ContentChanged(
         val content: CalendarContentFilter,
     ) : Msg
+
+    data class SeriesRefreshed(
+        val tmdbId: Int,
+        val days: List<CalendarDay>,
+    ) : Msg
 }
 
 class CalendarStoreFactory(
@@ -262,6 +273,8 @@ class CalendarStoreFactory(
             when (intent) {
                 CalendarIntent.Refresh -> load(forceRefresh = true)
                 CalendarIntent.Reload -> load(forceRefresh = false)
+                is CalendarIntent.ApplySeriesRefresh ->
+                    dispatch(Msg.SeriesRefreshed(intent.tmdbId, intent.days))
                 is CalendarIntent.SelectSection -> dispatch(Msg.SectionChanged(intent.section))
                 is CalendarIntent.SelectPlatform -> {
                     preferences?.savePlatformFilter(intent.platform)
@@ -332,6 +345,31 @@ class CalendarStoreFactory(
                 is Msg.SectionChanged -> copy(section = msg.section)
                 is Msg.PlatformChanged -> copy(platform = msg.platform)
                 is Msg.ContentChanged -> copy(contentFilter = msg.content)
+                is Msg.SeriesRefreshed -> {
+                    val merged = mergeTrackedSeriesCalendar(days, msg.days, msg.tmdbId)
+                    copy(
+                        loading = false,
+                        days = merged,
+                        confirmedDays = mergeTrackedSeriesCalendar(confirmedDays, msg.days, msg.tmdbId),
+                        error = null,
+                    )
+                }
             }
     }
 }
+
+internal fun mergeTrackedSeriesCalendar(
+    current: List<CalendarDay>,
+    refreshed: List<CalendarDay>,
+    tmdbId: Int,
+): List<CalendarDay> =
+    (
+        current
+            .flatMap(CalendarDay::entries)
+            .filterNot { it.episode.showTmdbId == tmdbId } +
+            refreshed
+                .flatMap(CalendarDay::entries)
+                .filter { it.episode.showTmdbId == tmdbId }
+    ).groupBy { it.episode.airDate }
+        .toSortedMap()
+        .map { (date, entries) -> CalendarDay(date, entries) }
