@@ -11,8 +11,11 @@ import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.OfficialScheduleChange
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.util.componentScope
+import com.yfuse.core.util.currentEpochMillis
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class CalendarComponent(
@@ -56,22 +59,42 @@ class CalendarComponent(
     }
 
     init {
-        var firstResume = true
+        var lastResumeRefreshEpochMs = 0L
         lifecycle.doOnResume {
-            if (firstResume) {
-                firstResume = false
-            } else {
-                store.accept(CalendarIntent.Refresh)
+            val now = currentEpochMillis()
+            if (lastResumeRefreshEpochMs == 0L) {
+                lastResumeRefreshEpochMs = now
+            } else if (now - lastResumeRefreshEpochMs >= RESUME_REFRESH_INTERVAL_MS) {
+                lastResumeRefreshEpochMs = now
+                store.accept(CalendarIntent.Reload)
             }
         }
-        // Detail remains a separate route. When a follow or reminder is changed there,
-        // refresh the still-alive calendar immediately instead of requiring a reopen.
+        // Reminder-only edits do not change rows or library status. Observe only the fields
+        // that affect which titles are tracked so changing "提前 30 分钟" cannot fan out into
+        // a full TMDB + Emby refresh.
         scope.launch {
-            followStore.followed.drop(1).collect {
-                store.accept(CalendarIntent.Refresh)
-            }
+            followStore.followed
+                .map { followed ->
+                    followed.map {
+                        listOf(
+                            it.tmdbId.toString(),
+                            it.title,
+                            it.year?.toString().orEmpty(),
+                            it.serverId.orEmpty(),
+                            it.seriesItemId.orEmpty(),
+                        )
+                    }
+                }.distinctUntilChanged()
+                .drop(1)
+                .collect {
+                    store.accept(CalendarIntent.Reload)
+                }
         }
         lifecycle.doOnDestroy(store::dispose)
+    }
+
+    private companion object {
+        const val RESUME_REFRESH_INTERVAL_MS = 2 * 60_000L
     }
 }
 
