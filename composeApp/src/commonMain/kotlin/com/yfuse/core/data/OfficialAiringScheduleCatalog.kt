@@ -234,9 +234,9 @@ class OfficialAiringScheduleCatalog(
                     it.airDate.matches(DATE_PATTERN) &&
                         it.episodeNumber > 0 &&
                         scheduledEpochMillis(
-                            date = it.airDate,
-                            time = schedule.airTime,
-                            zoneId = schedule.timeZoneId,
+                            it.airDate,
+                            schedule.airTime,
+                            schedule.timeZoneId,
                         ) != null
                 },
             )
