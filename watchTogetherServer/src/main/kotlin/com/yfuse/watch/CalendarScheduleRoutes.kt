@@ -20,6 +20,12 @@ import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
 
 private val calendarJson = Json { encodeDefaults = true }
+private val calendarPublicationLock = Any()
+private var cachedPublicationSourceKey: String? = null
+private var cachedPublicationModifiedAt: Long = Long.MIN_VALUE
+private var cachedPublication: CalendarPublication? = null
+private var cachedSignedPublication: CalendarPublication? = null
+private var cachedSignedEnvelopeJson: String? = null
 
 @Serializable
 private data class CalendarEnvelope(
@@ -118,16 +124,8 @@ internal fun Route.calendarScheduleRoutes(signer: CalendarScheduleSigner?) {
             call.respondText("", status = HttpStatusCode.NotModified)
             return@get
         }
-        val payload = calendarJson.encodeToString(CalendarPayload(publication.schedules))
-        val envelope =
-            CalendarEnvelope(
-                revision = publication.revision,
-                generatedAt = publication.generatedAt,
-                payload = payload,
-                signature = signer.sign(payload.encodeToByteArray()),
-            )
         call.respondText(
-            text = calendarJson.encodeToString(envelope),
+            text = signedCalendarEnvelopeJson(publication, signer),
             contentType = ContentType.Application.Json,
         )
     }
@@ -135,21 +133,69 @@ internal fun Route.calendarScheduleRoutes(signer: CalendarScheduleSigner?) {
 
 private const val CALENDAR_REVISION = "2026-08-23-r2"
 
+private fun signedCalendarEnvelopeJson(
+    publication: CalendarPublication,
+    signer: CalendarScheduleSigner,
+): String =
+    synchronized(calendarPublicationLock) {
+        if (cachedSignedPublication == publication) {
+            cachedSignedEnvelopeJson?.let { return@synchronized it }
+        }
+        val payload = calendarJson.encodeToString(CalendarPayload(publication.schedules))
+        calendarJson
+            .encodeToString(
+                CalendarEnvelope(
+                    revision = publication.revision,
+                    generatedAt = publication.generatedAt,
+                    payload = payload,
+                    signature = signer.sign(payload.encodeToByteArray()),
+                ),
+            ).also { encoded ->
+                cachedSignedPublication = publication
+                cachedSignedEnvelopeJson = encoded
+            }
+    }
+
 private fun loadCalendarPublication(): CalendarPublication {
     val inline = System.getenv("YFUSE_CALENDAR_SCHEDULES_JSON")?.takeIf(String::isNotBlank)
     val file =
         System.getenv("YFUSE_CALENDAR_SCHEDULES_PATH")
             ?.takeIf(String::isNotBlank)
             ?.let(::File)
-    val raw =
-        inline
-            ?: file?.takeIf(File::isFile)?.readText()
-            ?: return CalendarPublication(
+    val sourceKey =
+        when {
+            inline != null -> "inline:" + inline.length + ":" + inline.hashCode()
+            file != null -> "file:" + file.absolutePath
+            else -> "bundled"
+        }
+    val modifiedAt = file?.takeIf(File::isFile)?.lastModified() ?: 0L
+
+    return synchronized(calendarPublicationLock) {
+        if (cachedPublicationSourceKey == sourceKey && cachedPublicationModifiedAt == modifiedAt) {
+            cachedPublication?.let { return@synchronized it }
+        }
+        val raw = inline ?: file?.takeIf(File::isFile)?.readText()
+        val publication =
+            raw?.let {
+                calendarJson.decodeFromString(CalendarPublication.serializer(), it)
+            } ?: CalendarPublication(
                 revision = CALENDAR_REVISION,
                 generatedAt = "2026-08-23T04:00:00Z",
                 schedules = SCHEDULES,
             )
-    val publication = calendarJson.decodeFromString(CalendarPublication.serializer(), raw)
+        validateCalendarPublication(publication)
+        cachedPublicationSourceKey = sourceKey
+        cachedPublicationModifiedAt = modifiedAt
+        cachedPublication = publication
+        if (cachedSignedPublication != publication) {
+            cachedSignedPublication = null
+            cachedSignedEnvelopeJson = null
+        }
+        publication
+    }
+}
+
+private fun validateCalendarPublication(publication: CalendarPublication) {
     require(publication.revision.matches(Regex("\\d{4}-\\d{2}-\\d{2}-r\\d+")))
     require(publication.generatedAt.length in 10..64)
     require(publication.schedules.size <= 1_000)
@@ -169,7 +215,6 @@ private fun loadCalendarPublication(): CalendarPublication {
         )
     }
     require(publication.schedules.distinctBy(CalendarSeries::tmdbId).size == publication.schedules.size)
-    return publication
 }
 
 private val SCHEDULES =
