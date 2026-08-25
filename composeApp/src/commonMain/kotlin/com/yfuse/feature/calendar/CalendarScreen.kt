@@ -770,8 +770,13 @@ private fun CalendarTrackingPane(
                                     actionMessage = null
                                     scope.launch {
                                         component.refreshSeries(series)
-                                            .onSuccess {
-                                                component.store.accept(CalendarIntent.Refresh)
+                                            .onSuccess { refreshed ->
+                                                component.store.accept(
+                                                    CalendarIntent.ApplySeriesRefresh(
+                                                        tmdbId = series.tmdbId,
+                                                        days = refreshed,
+                                                    ),
+                                                )
                                             }.onFailure {
                                                 actionMessage = "${series.title}刷新失败：${it.message ?: "未知错误"}"
                                             }
