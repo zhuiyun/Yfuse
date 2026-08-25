@@ -167,5 +167,6 @@ private class Fixture(
             danmaku = danmaku,
             skip = skip,
             serverSync = serverSync,
+            calendarFollows = follows,
         )
 }
