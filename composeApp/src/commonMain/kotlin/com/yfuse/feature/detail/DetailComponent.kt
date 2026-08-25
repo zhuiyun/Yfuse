@@ -411,7 +411,7 @@ class DetailComponent(
     ): Result<Unit> =
         dependencies.calendarIdentityResolver
             .resolve(detail, store.state.server?.id ?: serverId)
-            .map { tmdbId ->
+            .mapCatching { tmdbId ->
                 check(dependencies.calendarFollowStore.isFollowing(tmdbId)) {
                     "请先将该剧加入追剧"
                 }
