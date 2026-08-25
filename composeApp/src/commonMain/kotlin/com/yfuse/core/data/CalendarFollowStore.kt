@@ -19,7 +19,7 @@ data class FollowedSeries(
     val posterPath: String? = null,
     val serverId: String? = null,
     val seriesItemId: String? = null,
-    val reminderMode: CalendarReminderMode = CalendarReminderMode.AtBroadcast,
+    val reminderMode: CalendarReminderMode = CalendarReminderMode.Off,
     val remindBeforeMinutes: Int = 30,
 )
 
