@@ -874,7 +874,15 @@ class AccountRepository(
 
     private fun capturePlaintextOnMutationDispatcher(): String =
         json.encodeToString(
-            captureCloudSyncSnapshot(registry, theme, watch, danmaku, skip, serverSync),
+            captureCloudSyncSnapshot(
+                registry,
+                theme,
+                watch,
+                danmaku,
+                skip,
+                serverSync,
+                calendarFollows,
+            ),
         )
 
     private fun EncryptedSyncPayload.toRecoveryEnvelope(): RecoveryKeyEnvelope {
