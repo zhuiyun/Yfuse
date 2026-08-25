@@ -6,6 +6,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.AiringCalendarRepository
+import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
@@ -226,11 +227,19 @@ private sealed interface Msg {
 class CalendarStoreFactory(
     private val storeFactory: StoreFactory,
     private val repository: AiringCalendarRepository,
+    private val preferences: CalendarFollowStore,
 ) {
     fun create(): Store<CalendarIntent, CalendarState, Nothing> =
         storeFactory.create(
             name = "CalendarStore",
-            initialState = CalendarState(),
+            initialState =
+                CalendarState(
+                    platform = preferences.savedPlatformFilter(),
+                    contentFilter =
+                        CalendarContentFilter.entries.firstOrNull {
+                            it.name == preferences.savedContentFilter()
+                        } ?: CalendarContentFilter.All,
+                ),
             bootstrapper = coroutineBootstrapper<Action> { dispatch(Action.Load) },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
@@ -249,8 +258,14 @@ class CalendarStoreFactory(
             when (intent) {
                 CalendarIntent.Refresh -> load(forceRefresh = true)
                 is CalendarIntent.SelectSection -> dispatch(Msg.SectionChanged(intent.section))
-                is CalendarIntent.SelectPlatform -> dispatch(Msg.PlatformChanged(intent.platform))
-                is CalendarIntent.SelectContent -> dispatch(Msg.ContentChanged(intent.content))
+                is CalendarIntent.SelectPlatform -> {
+                    preferences.savePlatformFilter(intent.platform)
+                    dispatch(Msg.PlatformChanged(intent.platform))
+                }
+                is CalendarIntent.SelectContent -> {
+                    preferences.saveContentFilter(intent.content.name)
+                    dispatch(Msg.ContentChanged(intent.content))
+                }
                 is CalendarIntent.SelectFilter -> dispatch(Msg.FilterChanged(intent.filter))
             }
         }
