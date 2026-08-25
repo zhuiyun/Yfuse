@@ -14,6 +14,8 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
