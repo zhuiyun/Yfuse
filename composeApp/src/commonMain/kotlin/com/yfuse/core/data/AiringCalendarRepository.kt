@@ -385,6 +385,82 @@ class AiringCalendarRepository(
             forceRefresh = true,
         )
 
+    /**
+     * Adds media-source quality facts only when the resource pane asks for them.
+     *
+     * The normal calendar deliberately keeps IncludeMediaSources off because large series can
+     * carry hundreds of heavy source objects. This path reuses the resolved series ids and
+     * runs only for series that are actually visible in the current calendar.
+     */
+    suspend fun enrichResourceDetails(days: List<CalendarDay>): Result<List<CalendarDay>> =
+        runCatching {
+            val targets =
+                days
+                    .flatMap(CalendarDay::entries)
+                    .flatMap(CalendarEntry::sources)
+                    .mapNotNull { source ->
+                        source.seriesItemId?.let { source.serverId to it }
+                    }.distinct()
+            val episodesByTarget =
+                coroutineScope {
+                    targets.mapNotNull { (serverId, seriesItemId) ->
+                        val server = registry.serverById(serverId) ?: return@mapNotNull null
+                        async {
+                            val episodes =
+                                libraryEpisodeRequests.withPermit {
+                                    emby.episodes(
+                                        server = server,
+                                        seriesId = seriesItemId,
+                                        seasonId = null,
+                                        includeMediaSources = true,
+                                    ).getOrElse { error ->
+                                        AppLog.warning(
+                                            category = "feature.calendar",
+                                            event = "resource_details_failed",
+                                            message = "Calendar resource quality could not be read",
+                                            throwable = error,
+                                            attributes =
+                                                mapOf(
+                                                    "serverId" to serverId,
+                                                    "seriesId" to seriesItemId,
+                                                ),
+                                        )
+                                        emptyList()
+                                    }
+                                }
+                            (serverId to seriesItemId) to episodes
+                        }
+                    }.awaitAll().toMap()
+                }
+            days.map { day ->
+                day.copy(
+                    entries =
+                        day.entries.map { entry ->
+                            if (entry.episode.isMovie) return@map entry
+                            entry.copy(
+                                sources =
+                                    entry.sources.map { source ->
+                                        val known =
+                                            source.seriesItemId?.let {
+                                                episodesByTarget[source.serverId to it]
+                                            }.orEmpty()
+                                        val match =
+                                            known.firstOrNull {
+                                                it.indexNumber == entry.episode.episodeNumber &&
+                                                    (it.seasonNumber ?: 1) == entry.episode.seasonNumber
+                                            }
+                                        if (match == null) {
+                                            source
+                                        } else {
+                                            source.copy(qualityTags = match.calendarQualityTags())
+                                        }
+                                    },
+                            )
+                        },
+                )
+            }
+        }
+
     /** Exact schedule for a series selected on its detail page, including upcoming episodes. */
     suspend fun seriesCalendar(
         showTmdbId: Int,
