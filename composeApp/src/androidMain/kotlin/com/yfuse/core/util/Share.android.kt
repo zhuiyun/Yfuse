@@ -11,6 +11,8 @@ import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
+import java.io.File
 
 @Composable
 actual fun rememberShareHandler(): ShareHandler {
@@ -33,6 +35,31 @@ private class AndroidShareHandler(
         context.startActivity(
             Intent.createChooser(send, "邀请一起看").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
+    }
+
+    override fun shareCalendar(content: String) {
+        runCatching {
+            val directory = File(context.cacheDir, "updates/calendar").apply { mkdirs() }
+            val file = File(directory, "yfuse-calendar.ics").apply { writeText(content) }
+            val uri =
+                FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.updates",
+                    file,
+                )
+            val send =
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "text/calendar"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            context.startActivity(
+                Intent.createChooser(send, "导出追剧日历")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }.onFailure {
+            shareText(content)
+        }
     }
 
     override fun copyText(text: String) {
