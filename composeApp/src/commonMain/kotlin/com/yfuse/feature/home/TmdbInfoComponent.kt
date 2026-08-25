@@ -38,7 +38,6 @@ class TmdbInfoComponent(
     private val emby: EmbyRepository,
     private val registry: ServerRegistry,
     private val item: TmdbItem,
-    private val followStore: CalendarFollowStore,
     private val embyItemId: String?,
     val onBack: () -> Unit,
     private val onPlayTarget: (
@@ -46,6 +45,7 @@ class TmdbInfoComponent(
         itemId: String,
         startPositionTicks: Long,
     ) -> Unit,
+    private val followStore: CalendarFollowStore? = null,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
     private val _state =
@@ -56,13 +56,15 @@ class TmdbInfoComponent(
             ),
         )
     val state: StateFlow<TmdbInfoState> = _state.asStateFlow()
-    private val _following = MutableStateFlow(followStore.isFollowing(item.id))
+    private val _following = MutableStateFlow(followStore?.isFollowing(item.id) == true)
     val following: StateFlow<Boolean> = _following.asStateFlow()
 
     init {
-        scope.launch {
-            followStore.followed.collect { followed ->
-                _following.value = followed.any { it.tmdbId == item.id }
+        followStore?.let { follows ->
+            scope.launch {
+                follows.followed.collect { followed ->
+                    _following.value = followed.any { it.tmdbId == item.id }
+                }
             }
         }
         scope.launch {
@@ -104,10 +106,11 @@ class TmdbInfoComponent(
 
     fun toggleFollow() {
         if (item.mediaType != "tv") return
-        if (followStore.isFollowing(item.id)) {
-            followStore.unfollow(item.id)
+        val follows = followStore ?: return
+        if (follows.isFollowing(item.id)) {
+            follows.unfollow(item.id)
         } else {
-            followStore.follow(
+            follows.follow(
                 FollowedSeries(
                     tmdbId = item.id,
                     title = item.title,
