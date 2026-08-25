@@ -249,8 +249,11 @@ internal class AndroidAdaptiveCore2YPlayer(
         var allowTunnel = true
         var forceSoftwareFallback = false
         var pendingFailureKey: YCore2FailureKey? = null
+        var finalizeChildLearning: (() -> Unit)? = null
 
         fun stopChild() {
+            finalizeChildLearning?.invoke()
+            finalizeChildLearning = null
             childCollector?.cancel()
             childCollector = null
             child?.release()
@@ -395,25 +398,41 @@ internal class AndroidAdaptiveCore2YPlayer(
             val learningStartBatteryPermille = currentBatteryPermille()
             val learningStartThermalStatus = currentThermalStatus()
 
-            fun recordLearning(childState: YPlayerState) {
+            fun recordLearning(
+                childState: YPlayerState,
+                terminal: Boolean,
+            ) {
                 val key = childFailureKey?.toLearningKey() ?: return
                 if (learningRecorded) return
-                learningRecorded = true
+                val playedDurationMs =
+                    (childState.positionMs - learningStartPositionMs).coerceAtLeast(0L)
+                // A normal handover after only a few frames is not a useful quality sample.
+                // Failures and naturally-ended short clips remain terminal evidence.
+                if (!terminal && playedDurationMs < MIN_LEARNING_PLAYBACK_MS) return
                 val endBatteryPermille = currentBatteryPermille()
                 learningEngine.record(
                     key = key,
                     observation =
                         YPlaybackObservation(
                             rendered = childState.diagnostics.videoOutputVerified,
-                            playedDurationMs =
-                                (childState.positionMs - learningStartPositionMs).coerceAtLeast(0L),
+                            playedDurationMs = playedDurationMs,
                             droppedFrames = childState.diagnostics.droppedFrames.coerceAtLeast(0),
                             codecResets =
-                                if (childState.errorCategory == YPlaybackFailureCategory.Decoder) 1 else 0,
+                                maxOf(
+                                    childState.diagnostics.codecResetCount,
+                                    if (childState.errorCategory == YPlaybackFailureCategory.Decoder) 1 else 0,
+                                ),
                             audioUnderruns =
-                                if (childState.errorCategory == YPlaybackFailureCategory.AudioSink) 1 else 0,
+                                maxOf(
+                                    childState.diagnostics.audioUnderrunCount,
+                                    if (childState.errorCategory == YPlaybackFailureCategory.AudioSink) 1 else 0,
+                                ),
                             maximumAbsoluteAvDriftMs =
-                                kotlin.math.abs(childState.diagnostics.avSyncOffsetMs ?: 0L),
+                                if (childState.diagnostics.avSyncMeasured) {
+                                    kotlin.math.abs(childState.diagnostics.avSyncOffsetMs ?: 0L)
+                                } else {
+                                    0L
+                                },
                             maximumThermalStatus =
                                 maxOf(learningStartThermalStatus, currentThermalStatus()),
                             batteryDeltaPermille =
@@ -424,6 +443,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 },
                         ),
                 )
+                learningRecorded = true
+            }
+
+            finalizeChildLearning = {
+                recordLearning(next.state.value, terminal = false)
             }
 
             next.setSpeed(speed)
@@ -437,7 +461,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             if (childFailureKey != null && category != null) {
                                 failureLedger.recordFailure(childFailureKey, category)
                             }
-                            recordLearning(childState)
+                            recordLearning(childState, terminal = true)
                         }
                         if (
                             !successRecorded &&
@@ -475,7 +499,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             childState.phase == YPlaybackPhase.Ended &&
                             !learningRecorded
                         ) {
-                            recordLearning(childState)
+                            recordLearning(childState, terminal = true)
                         }
                         if (
                             childState.phase == YPlaybackPhase.Ended &&
@@ -701,6 +725,7 @@ private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlaye
 }
 
 private const val TUNNEL_SPEED_EPSILON = 0.001f
+private const val MIN_LEARNING_PLAYBACK_MS = 30_000L
 
 private fun YCore2FailureKey.toLearningKey(): YPlaybackLearningKey =
     YPlaybackLearningKey(

@@ -59,29 +59,22 @@ internal fun Long.asClock(): String {
  */
 internal fun PlaybackState.dolbyVisionReadoutLabel(): String? {
     val mpvEvidence = diagnostics.mpvDolbyRuntimeEvidence()
-    val rpuRendered = diagnostics.dolbyVisionRpuApplied || mpvEvidence.rpuRendered
-    val felComposed = diagnostics.dolbyVisionEnhancementLayerComposed || mpvEvidence.felComposed
-    val sourceLooksDolby =
-        diagnostics.dynamicRange.contains("dolby", ignoreCase = true) ||
-            diagnostics.dynamicRange.contains("dovi", ignoreCase = true) ||
-            diagnostics.planningReason?.contains("Dolby Vision", ignoreCase = true) == true
-    val hasDolbyOutputEvidence = diagnostics.dolbyVisionOutput || rpuRendered || felComposed
-    if (!sourceLooksDolby && !hasDolbyOutputEvidence) return null
+    val evidence = diagnostics.outputEvidence
+    val outputRendering = diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
+    if (!outputRendering) return null
+    val rpuRendered = evidence.dolbyVisionRpuRendered || mpvEvidence.rpuRendered
+    val felComposed = evidence.dolbyVisionFelComposed || mpvEvidence.felComposed
 
     return when {
-        felComposed -> "DV FEL"
-        rpuRendered -> "DV RPU"
-        diagnostics.dolbyVisionOutput -> "DV 原生"
-        transcoding -> "DV→转码"
-        diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering &&
-            diagnostics.videoOutput.contains("→ SDR", ignoreCase = true) -> "DV→SDR"
-        diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering &&
-            diagnostics.planningReason?.contains("HDR10 基础层", ignoreCase = true) == true ->
-            "DV→HDR10"
-        diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering &&
-            diagnostics.videoOutput.contains("色调映射") -> "DV Tone Map"
-        diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering -> "DV 兼容输出"
-        else -> "DV"
+        felComposed -> "P7 FEL 已合成"
+        rpuRendered -> "P7 RPU 已处理"
+        evidence.dynamicRangeOutputMode == PlaybackDynamicRangeOutputMode.DolbyVisionMediaCodec ->
+            "Dolby Vision MediaCodec 原生输出"
+        evidence.dynamicRangeOutputMode == PlaybackDynamicRangeOutputMode.Hdr10BaseLayer ->
+            "HDR10 基础层输出"
+        evidence.dynamicRangeOutputMode == PlaybackDynamicRangeOutputMode.HdrToSdrToneMapped ->
+            "HDR→SDR 色调映射"
+        else -> null
     }
 }
 

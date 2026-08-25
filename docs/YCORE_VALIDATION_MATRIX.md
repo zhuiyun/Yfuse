@@ -162,6 +162,28 @@ native remote ISO is release-enabled, the following must pass:
 | Power | no regression above 5% versus the same Media3 hardware path; power mode target is 10% lower |
 | Soak | 8-hour queue and 24-hour single-item runs without leak, ANR or thermal runaway |
 
+The instrumented soak lane is opt-in and never pretends that CI/emulator time is device evidence.
+Push a legally usable sample to the device, then run the same test once for each required duration:
+
+```bash
+# 24-hour single-item lane
+./gradlew :composeApp:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#configured_long_running_soak_keeps_output_and_health_stable \
+  -Pandroid.testInstrumentationRunnerArguments.ycoreSoakMedia=/sdcard/Download/ycore-soak.mkv \
+  -Pandroid.testInstrumentationRunnerArguments.ycoreSoakDurationMinutes=1440
+
+# 8-hour queue/handover lane
+./gradlew :composeApp:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#configured_long_running_soak_keeps_output_and_health_stable \
+  -Pandroid.testInstrumentationRunnerArguments.ycoreSoakMedia=/sdcard/Download/ycore-soak.mkv \
+  -Pandroid.testInstrumentationRunnerArguments.ycoreSoakDurationMinutes=480 \
+  -Pandroid.testInstrumentationRunnerArguments.ycoreSoakQueue=true
+```
+
+The runner samples PSS, thermal status, battery delta, dropped frames, decoder failures and A/V drift,
+and streams a redacted JSON observation through instrumentation status output. Archive that output
+with the device/build label; do not commit the media path or credentials.
+
 Startup, rebuffer, dropped-frame, thermal and device-wide power results must include P50/P95 and the
 exact device/build. Route-based estimates in diagnostics are labels, not proof of energy savings.
 

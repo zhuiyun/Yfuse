@@ -212,6 +212,29 @@ internal fun playbackOutputDiagnosticLabel(
         is PlaybackOutputStatus.Unsupported -> "当前平台不支持"
     }
 
+/** Adds the concrete decoder only to decoded PCM output; passthrough has no decoder to claim. */
+@OptIn(UnstableApi::class)
+internal fun exoAudioOutputDiagnosticLabel(
+    status: PlaybackOutputStatus,
+    encoding: Int,
+    decoderName: String,
+): String {
+    val base =
+        playbackOutputDiagnosticLabel(
+            status = status,
+            activeLabel = "源码输出 · ${exoAudioEncodingLabel(encoding)}",
+        )
+    return if (
+        status !is PlaybackOutputStatus.Active &&
+        decoderName.isNotBlank() &&
+        Util.isEncodingLinearPcm(encoding)
+    ) {
+        "$base · $decoderName"
+    } else {
+        base
+    }
+}
+
 @OptIn(UnstableApi::class)
 internal fun exoAudioEncodingLabel(encoding: Int): String =
     when (encoding) {

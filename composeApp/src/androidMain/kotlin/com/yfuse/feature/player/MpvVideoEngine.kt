@@ -73,6 +73,19 @@ internal fun mpvDecoderDiagnostic(hwdecCurrent: String?): String =
         ?.let { "硬件解码 · $it" }
         ?: "FFmpeg 软件解码"
 
+internal fun String.mpvPixelFormatBitDepth(): Int =
+    lowercase().let { format ->
+        when {
+            format.isBlank() -> 0
+            format.startsWith("p016") || "p16" in format || format in setOf("rgb48", "rgba64") -> 16
+            format.startsWith("p014") || "p14" in format -> 14
+            format.startsWith("p012") || "p12" in format -> 12
+            format.startsWith("p010") || "p10" in format -> 10
+            format.startsWith("p009") || "p9" in format -> 9
+            else -> 8
+        }
+    }
+
 internal fun mpvDolbyVisionVideoFilter(stripToBaseLayer: Boolean): String =
     if (stripToBaseLayer) {
         "format=dolbyvision=no:enhancement-layer=no"
@@ -118,12 +131,9 @@ class MpvVideoEngine(
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
 ) : VideoEngine {
     private val items = items
-    private val audioPassthroughMode =
-        GlobalContext
-            .get()
-            .get<PlaybackPreferences>()
-            .audioPassthrough.value
-            .toPlayerMode()
+    private val outputPreferences = GlobalContext.get().get<PlaybackPreferences>()
+    private val audioPassthroughMode = outputPreferences.audioPassthrough.value.toPlayerMode()
+    private val frameRateMatchMode = outputPreferences.frameRateMatch.value.toPlayerMode()
     private val capabilityProvider =
         runCatching { GlobalContext.get().get<PlaybackDeviceCapabilitiesProvider>() }.getOrNull()
 
@@ -156,6 +166,16 @@ class MpvVideoEngine(
     private val surfaceGeneration = AtomicLong(0L)
     private val surfaceRecoveryAttempts = AtomicLong(0L)
     private val surfaceRecoveryInProgress = AtomicBoolean(false)
+    private var decoderDroppedFrames = 0
+    private var rendererDroppedFrames = 0
+
+    @Volatile
+    private var activeDolbyVisionPath = PlaybackDolbyVisionPath.None
+
+    private fun resetFrameEvidence() {
+        decoderDroppedFrames = 0
+        rendererDroppedFrames = 0
+    }
 
     @Volatile
     private var pauseAtEndOfCurrentItem = false
@@ -179,6 +199,14 @@ class MpvVideoEngine(
                         engine = "libmpv",
                         decoder = decoderMode.label,
                         item = items.getOrNull(startIndex),
+                    ).copy(
+                        outputEvidence =
+                            PlaybackOutputEvidence(
+                                sessionRevision = 1L,
+                                videoConfidence = PlaybackEvidenceConfidence.Requested,
+                                audioConfidence = PlaybackEvidenceConfidence.Requested,
+                                renderApi = PlaybackVideoRenderApi.OpenGl,
+                            ),
                     ),
             ),
         )
@@ -293,12 +321,34 @@ class MpvVideoEngine(
                                     ),
                             )
                         }
-                    "decoder-frame-drop-count" ->
+                    "decoder-frame-drop-count", "vo-drop-frame-count" ->
+                        _state.update {
+                            if (property == "decoder-frame-drop-count") {
+                                decoderDroppedFrames = value.toInt().coerceAtLeast(0)
+                            } else {
+                                rendererDroppedFrames = value.toInt().coerceAtLeast(0)
+                            }
+                            val total = decoderDroppedFrames + rendererDroppedFrames
+                            it.copy(
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        droppedFrames = total,
+                                        outputEvidence =
+                                            it.diagnostics.outputEvidence.copy(
+                                                droppedFramesMeasured = true,
+                                            ),
+                                    ),
+                            )
+                        }
+                    "mistimed-frame-count" ->
                         _state.update {
                             it.copy(
                                 diagnostics =
                                     it.diagnostics.copy(
-                                        droppedFrames = value.toInt().coerceAtLeast(0),
+                                        outputEvidence =
+                                            it.diagnostics.outputEvidence.copy(
+                                                mistimedFrameCount = value.toInt().coerceAtLeast(0),
+                                            ),
                                     ),
                             )
                         }
@@ -336,7 +386,23 @@ class MpvVideoEngine(
                     "speed" -> _state.update { it.copy(speed = value.toFloat()) }
                     "estimated-vf-fps" ->
                         _state.update {
-                            it.copy(diagnostics = it.diagnostics.copy(frameRate = value.toFloat()))
+                            val rate = value.toFloat()
+                            attachedSurface?.let { surface ->
+                                requestSurfaceFrameRate(surface, frameRateMatchMode, rate)
+                            }
+                            it.copy(diagnostics = it.diagnostics.copy(frameRate = rate))
+                        }
+                    "display-fps", "estimated-display-fps" ->
+                        _state.update {
+                            it.copy(
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        outputEvidence =
+                                            it.diagnostics.outputEvidence.copy(
+                                                displayRefreshRate = value.toFloat().coerceAtLeast(0f),
+                                            ),
+                                    ),
+                            )
                         }
                     "video-bitrate" ->
                         _state.update {
@@ -390,6 +456,10 @@ class MpvVideoEngine(
                                                         MAX_MPV_REPORTED_AV_SYNC_OFFSET_MS,
                                                     ),
                                             avSyncMeasurement = "mpv 音视频时钟",
+                                            outputEvidence =
+                                                it.diagnostics.outputEvidence.copy(
+                                                    avSyncMeasured = true,
+                                                ),
                                         ),
                                 )
                             }
@@ -459,7 +529,16 @@ class MpvVideoEngine(
                     "aid", "sid" -> readTracks()
                     "video-codec" ->
                         _state.update {
-                            it.copy(diagnostics = it.diagnostics.copy(videoCodec = value))
+                            it.copy(
+                                diagnostics =
+                                    it.diagnostics.copy(
+                                        videoCodec = value,
+                                        outputEvidence =
+                                            it.diagnostics.outputEvidence.copy(
+                                                videoCodecProfile = value,
+                                            ),
+                                    ),
+                            )
                         }
                     "hwdec-current" ->
                         _state.update {
@@ -467,6 +546,10 @@ class MpvVideoEngine(
                                 diagnostics =
                                     it.diagnostics.copy(
                                         decoder = mpvDecoderDiagnostic(value),
+                                        outputEvidence =
+                                            it.diagnostics.outputEvidence.copy(
+                                                videoDecoder = mpvDecoderDiagnostic(value),
+                                            ),
                                     ),
                             )
                         }
@@ -484,9 +567,14 @@ class MpvVideoEngine(
                                 diagnostics =
                                     it.diagnostics.copy(
                                         audioFormat = listOfNotNull(value.uppercase(), channels).joinToString(" · "),
+                                        outputEvidence =
+                                            it.diagnostics.outputEvidence.copy(audioDecoder = value),
                                     ),
                             )
                         }
+                    "current-vo", "current-gpu-context", "video-out-params/gamma",
+                    "video-out-params/pixelformat",
+                    -> readVideoOutput()
                 }
             }
 
@@ -749,16 +837,24 @@ class MpvVideoEngine(
             instance.observeProperty("video-params/h", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("video-params/w", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("video-params/gamma", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("video-out-params/gamma", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("video-out-params/pixelformat", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("current-vo", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+            instance.observeProperty("current-gpu-context", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("video-codec", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("hwdec-current", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("audio-codec-name", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("audio-params/channel-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("estimated-vf-fps", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
+            instance.observeProperty("display-fps", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
+            instance.observeProperty("estimated-display-fps", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("video-bitrate", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("cache-speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("demuxer-cache-duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("avsync", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
             instance.observeProperty("decoder-frame-drop-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+            instance.observeProperty("vo-drop-frame-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+            instance.observeProperty("mistimed-frame-count", MPVLib.MpvFormat.MPV_FORMAT_INT64)
             instance.observeProperty("aid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
             instance.observeProperty("secondary-sid", MPVLib.MpvFormat.MPV_FORMAT_STRING)
@@ -806,6 +902,7 @@ class MpvVideoEngine(
     }
 
     fun detach() {
+        attachedSurface?.let { surface -> clearSurfaceFrameRate(surface) }
         withMpv {
             // Stop the VO before releasing the Android Surface. Detaching a
             // Surface that the GPU context is still using can race/crash.
@@ -821,6 +918,12 @@ class MpvVideoEngine(
                         videoOutput = "视频 Surface 已释放",
                         videoReadiness = PlaybackOutputReadiness.Released,
                         dolbyVisionOutput = false,
+                        outputEvidence =
+                            it.diagnostics.outputEvidence.copy(
+                                videoReadiness = PlaybackOutputReadiness.Released,
+                                videoConfidence = PlaybackEvidenceConfidence.Confirmed,
+                                outputDynamicRange = "",
+                            ),
                     ),
             )
         }
@@ -858,6 +961,14 @@ class MpvVideoEngine(
     override fun pause() {
         playRequested = false
         withMpv { it.setPropertyBoolean("pause", true) }
+    }
+
+    override fun prepareForHandover() {
+        withMpv { instance ->
+            instance.setPropertyBoolean("pause", true)
+            instance.setPropertyBoolean("mute", true)
+            instance.setPropertyString("vo", "null")
+        }
     }
 
     override fun seekTo(positionMs: Long) {
@@ -950,6 +1061,7 @@ class MpvVideoEngine(
 
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
+        resetFrameEvidence()
         playRequested = true
         pendingSeekMs = 0L
         lastPositionMs = -PLAYBACK_PROGRESS_STEP_MS
@@ -978,6 +1090,13 @@ class MpvVideoEngine(
                         decoder = it.diagnostics.decoder,
                         item = nextItem,
                         transcoding = transcoding,
+                    ).copy(
+                        outputEvidence =
+                            it.diagnostics.outputEvidence.nextSession().copy(
+                                videoConfidence = PlaybackEvidenceConfidence.Requested,
+                                audioConfidence = PlaybackEvidenceConfidence.Requested,
+                                renderApi = PlaybackVideoRenderApi.OpenGl,
+                            ),
                     ),
             )
         }
@@ -987,6 +1106,7 @@ class MpvVideoEngine(
     override fun currentPositionMs(): Long = _state.value.positionMs
 
     override fun retry() {
+        resetFrameEvidence()
         val position = _state.value.positionMs
         playRequested = true
         pendingSeekMs = position.coerceAtLeast(0L)
@@ -998,6 +1118,21 @@ class MpvVideoEngine(
                 ended = false,
                 fallbacksExhausted = false,
                 automaticFallbackBlocked = false,
+                diagnostics =
+                    it.diagnostics.copy(
+                        videoOutput = "等待 mpv 视频输出",
+                        audioOutput = "等待音频输出",
+                        videoReadiness = PlaybackOutputReadiness.Waiting,
+                        audioReadiness = PlaybackOutputReadiness.Waiting,
+                        dolbyVisionOutput = false,
+                        dolbyAtmosOutput = false,
+                        outputEvidence =
+                            it.diagnostics.outputEvidence.nextSession().copy(
+                                videoConfidence = PlaybackEvidenceConfidence.Requested,
+                                audioConfidence = PlaybackEvidenceConfidence.Requested,
+                                renderApi = PlaybackVideoRenderApi.OpenGl,
+                            ),
+                    ),
             )
         }
         if (mpv == null) {
@@ -1057,6 +1192,7 @@ class MpvVideoEngine(
      */
     override fun switchToTranscode(reason: String?): Boolean {
         val index = _state.value.currentIndex
+        resetFrameEvidence()
         val item = items.getOrNull(index) ?: return false
         if (index !in transcodedIndices && !item.allowsServerTranscodeFallback(reason)) return false
         val next =
@@ -1111,6 +1247,12 @@ class MpvVideoEngine(
                                 Step.Progressive -> "HLS 转码不可用，已改用 MP4 转码"
                             },
                         bufferedDurationMs = 0L,
+                        outputEvidence =
+                            it.diagnostics.outputEvidence.nextSession().copy(
+                                videoConfidence = PlaybackEvidenceConfidence.Requested,
+                                audioConfidence = PlaybackEvidenceConfidence.Requested,
+                                renderApi = PlaybackVideoRenderApi.OpenGl,
+                            ),
                     ),
             )
         }
@@ -1276,6 +1418,16 @@ class MpvVideoEngine(
                                 videoOutput = "等待 mpv 视频输出",
                                 videoReadiness = PlaybackOutputReadiness.Waiting,
                                 dolbyVisionOutput = false,
+                                outputEvidence =
+                                    state.diagnostics.outputEvidence.copy(
+                                        videoReadiness = PlaybackOutputReadiness.Waiting,
+                                        videoConfidence = PlaybackEvidenceConfidence.Requested,
+                                        outputDynamicRange = "",
+                                        dynamicRangeOutputMode =
+                                            PlaybackDynamicRangeOutputMode.Unknown,
+                                        dolbyVisionRpuRendered = false,
+                                        dolbyVisionFelComposed = false,
+                                    ),
                             ),
                     )
                 }
@@ -1291,6 +1443,39 @@ class MpvVideoEngine(
                     .getPropertyString("video-out-params/gamma")
                     ?.let(::mpvDynamicRange)
                     .orEmpty()
+            val pixelFormat = instance.getPropertyString("video-out-params/pixelformat").orEmpty()
+            val currentVo = instance.getPropertyString("current-vo").orEmpty()
+            val gpuContext = instance.getPropertyString("current-gpu-context").orEmpty()
+            val rendererDetail =
+                listOfNotNull(
+                    currentVo.takeIf(String::isNotBlank),
+                    gpuContext.takeIf(String::isNotBlank),
+                    pixelFormat.takeIf(String::isNotBlank),
+                ).joinToString(" · ")
+            val renderApi =
+                if (
+                    currentVo.contains("vulkan", ignoreCase = true) ||
+                    gpuContext.contains("vulkan", ignoreCase = true)
+                ) {
+                    PlaybackVideoRenderApi.Vulkan
+                } else {
+                    PlaybackVideoRenderApi.OpenGl
+                }
+            val dolbyEvidence = MpvDolbyRuntimeEvidenceRegistry.current()
+            val dynamicRangeOutputMode =
+                when (activeDolbyVisionPath) {
+                    PlaybackDolbyVisionPath.Hdr10BaseLayer ->
+                        PlaybackDynamicRangeOutputMode.Hdr10BaseLayer
+                    PlaybackDolbyVisionPath.SdrToneMap ->
+                        PlaybackDynamicRangeOutputMode.HdrToSdrToneMapped
+                    PlaybackDolbyVisionPath.MpvGpuNext ->
+                        if (output.equals("SDR", ignoreCase = true)) {
+                            PlaybackDynamicRangeOutputMode.HdrToSdrToneMapped
+                        } else {
+                            PlaybackDynamicRangeOutputMode.Unknown
+                        }
+                    else -> PlaybackDynamicRangeOutputMode.Unknown
+                }
             val label =
                 when {
                     input.isNotBlank() && output.isNotBlank() && input != output ->
@@ -1305,6 +1490,21 @@ class MpvVideoEngine(
                         state.diagnostics.copy(
                             videoOutput = label,
                             videoReadiness = PlaybackOutputReadiness.Rendering,
+                            dolbyVisionRpuApplied = dolbyEvidence.rpuRendered,
+                            dolbyVisionEnhancementLayerComposed = dolbyEvidence.felComposed,
+                            outputEvidence =
+                                state.diagnostics.outputEvidence.copy(
+                                    videoReadiness = PlaybackOutputReadiness.Rendering,
+                                    videoConfidence = PlaybackEvidenceConfidence.Confirmed,
+                                    inputDynamicRange = input,
+                                    outputDynamicRange = output,
+                                    dynamicRangeOutputMode = dynamicRangeOutputMode,
+                                    dolbyVisionRpuRendered = dolbyEvidence.rpuRendered,
+                                    dolbyVisionFelComposed = dolbyEvidence.felComposed,
+                                    renderApi = renderApi,
+                                    bitDepth = pixelFormat.mpvPixelFormatBitDepth(),
+                                    rendererDetail = rendererDetail,
+                                ),
                         ),
                 )
             }
@@ -1352,6 +1552,25 @@ class MpvVideoEngine(
                                 readiness == PlaybackOutputReadiness.Rendering &&
                                     passthroughStatus is PlaybackOutputStatus.Active &&
                                     isDolbyObjectAudioCodec(decoder ?: outputFormat),
+                            outputEvidence =
+                                state.diagnostics.outputEvidence.copy(
+                                    audioReadiness = readiness,
+                                    audioConfidence =
+                                        if (readiness == PlaybackOutputReadiness.Rendering) {
+                                            PlaybackEvidenceConfidence.Confirmed
+                                        } else {
+                                            PlaybackEvidenceConfidence.Requested
+                                        },
+                                    audioDecoder = decoder.orEmpty(),
+                                    audioMode =
+                                        if (passthroughStatus is PlaybackOutputStatus.Active) {
+                                            PlaybackAudioOutputMode.Passthrough
+                                        } else if (readiness == PlaybackOutputReadiness.Rendering) {
+                                            PlaybackAudioOutputMode.Pcm
+                                        } else {
+                                            PlaybackAudioOutputMode.Unknown
+                                        },
+                                ),
                         ),
                 )
             }
@@ -1484,6 +1703,7 @@ class MpvVideoEngine(
         val item = items.getOrNull(_state.value.currentIndex) ?: return
         val probe = item.playbackMediaProbe(usingServerTranscode = _state.value.transcoding)
         if (!probe.source.dolbyVision) {
+            activeDolbyVisionPath = PlaybackDolbyVisionPath.None
             setPropertyString("vf", "")
             return
         }
@@ -1499,6 +1719,7 @@ class MpvVideoEngine(
                 requiresNativeDemuxer = probe.requiresNativeDemuxer,
             )
         val videoFilter = mpvDolbyVisionVideoFilter(route.stripDolbyVisionToBaseLayer)
+        activeDolbyVisionPath = route.path
         setPropertyString("vf", videoFilter)
         AppLog.info(
             category = "player.dolby",
@@ -1549,6 +1770,11 @@ class MpvVideoEngine(
                         videoOutput = "正在恢复 mpv 视频输出",
                         videoReadiness = PlaybackOutputReadiness.Waiting,
                         dolbyVisionOutput = false,
+                        outputEvidence =
+                            it.diagnostics.outputEvidence.copy(
+                                videoReadiness = PlaybackOutputReadiness.Waiting,
+                                surfaceRebuildCount = attempt.toInt(),
+                            ),
                     ),
             )
         }

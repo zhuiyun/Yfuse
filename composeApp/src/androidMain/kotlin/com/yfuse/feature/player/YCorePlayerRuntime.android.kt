@@ -210,15 +210,17 @@ internal fun PlaybackState.runtimeObservation(
         // `contains` versus `startsWith`. Media presence and output verifiability are separate:
         // Unknown withholds a missing-output judgement, while the shared position-stall clock
         // still detects a backend that goes completely silent.
-        videoReady = videoHeight > 0 || diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering,
+        videoReady =
+            videoHeight > 0 ||
+                diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
         videoExpected = probe.source.videoCodec != null,
-        videoOutputVerifiable = diagnostics.videoReadiness.verifiable,
+        videoOutputVerifiable = diagnostics.effectiveVideoReadiness.verifiable,
         // A selected track proves only demux/selection, not that an AudioTrack or native output
         // device was established. Treating selection as output masked real video-without-sound
         // failures from the runtime detector.
-        audioReady = diagnostics.audioReadiness == PlaybackOutputReadiness.Rendering,
+        audioReady = diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering,
         audioExpected = probe.audioCodec != null || audioTracks.isNotEmpty(),
-        audioOutputVerifiable = diagnostics.audioReadiness.verifiable,
+        audioOutputVerifiable = diagnostics.effectiveAudioReadiness.verifiable,
         errorPresent = error != null,
         ended = ended,
         bufferEvents = diagnostics.bufferEvents,

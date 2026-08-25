@@ -45,12 +45,14 @@ class PlaybackOutputCapabilitiesTest {
     }
 
     @Test
-    fun mdk_never_claims_an_unverified_backend_feature() {
+    fun mdk_exposes_surface_frame_rate_but_not_unverified_audio_passthrough() {
         val capabilities = PlaybackOutputCapabilities.forEngine(PlayerEngine.Mdk, androidApiLevel = 36)
 
         assertEquals(
-            PlaybackOutputUnsupportedReason.BackendApiNotVerified,
-            assertIs<PlaybackFeatureCapability.Unsupported>(capabilities.frameRateMatching).reason,
+            setOf(FrameRateMatchMode.SeamlessOnly, FrameRateMatchMode.Always),
+            assertIs<PlaybackFeatureCapability.Available<FrameRateMatchMode>>(
+                capabilities.frameRateMatching,
+            ).modes,
         )
         assertEquals(
             PlaybackOutputUnsupportedReason.BackendApiNotVerified,

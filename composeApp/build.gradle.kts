@@ -1,3 +1,4 @@
+import groovy.json.JsonSlurper
 import org.gradle.api.GradleException
 import org.gradle.api.tasks.options.Option
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -15,6 +16,15 @@ plugins {
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.serialization)
 }
+
+val includeMdk =
+    providers.gradleProperty("yfuseIncludeMdk").orNull?.let { raw ->
+        when (raw.trim().lowercase()) {
+            "", "true" -> true
+            "false" -> false
+            else -> error("yfuseIncludeMdk must be omitted, true, or false")
+        }
+    } ?: true
 
 /**
  * Keeps feature code on the semantic design-system surface. These are deliberately simple
@@ -179,6 +189,112 @@ val verifyCustomMpvArtifact by tasks.registering {
     }
 }
 
+val verifyMdkArtifact by tasks.registering {
+    group = "verification"
+    description = "Rejects a missing, unpinned, or incomplete MDK SDK before packaging."
+    val archive = layout.projectDirectory.file("libs/mdk-sdk-android.7z")
+    val sdk = layout.projectDirectory.dir("libs/mdk-sdk")
+    val pinnedChecksum = layout.projectDirectory.file("../scripts/engine-checksums.sha256")
+    inputs.files(archive, sdk, pinnedChecksum)
+
+    doLast {
+        val archiveFile = archive.asFile
+        require(archiveFile.isFile) { "Missing MDK archive; run scripts/fetch-engines.sh" }
+        val expected =
+            pinnedChecksum.asFile
+                .readLines()
+                .map(String::trim)
+                .firstOrNull { it.endsWith("  mdk-sdk-android.7z") }
+                ?.substringBefore(' ')
+                ?.lowercase()
+                ?: throw GradleException("Pinned MDK checksum is missing")
+        val digest = MessageDigest.getInstance("SHA-256")
+        archiveFile.inputStream().use { input ->
+            val buffer = ByteArray(128 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        require(actual == expected) { "Unverified MDK SDK: expected=$expected actual=$actual" }
+        listOf(
+            "README.md",
+            "include/mdk/Player.h",
+            "lib/cmake/FindMDK.cmake",
+            "lib/arm64-v8a/libmdk.so",
+        ).forEach { relative ->
+            require(sdk.file(relative).asFile.isFile) { "MDK SDK is incomplete: missing $relative" }
+        }
+    }
+}
+
+val verifyMediaTestManifest by tasks.registering {
+    group = "verification"
+    description = "Validates the committed redacted device-media matrix before packaging."
+    val manifest = layout.projectDirectory.file("../media-tests/ycore-suite.example.json")
+    inputs.file(manifest)
+
+    doLast {
+        val root =
+            JsonSlurper().parse(manifest.asFile) as? Map<*, *>
+                ?: throw GradleException("YCore media manifest root must be an object")
+        require((root["version"] as? Number)?.toInt() == 1) { "YCore media manifest version must be 1" }
+        val operations = (root["operations"] as? List<*>)?.mapTo(mutableSetOf()) { it.toString() }.orEmpty()
+        val requiredOperations =
+            setOf(
+                "open",
+                "play",
+                "seek",
+                "pause",
+                "resume",
+                "track_switch",
+                "subtitle_switch",
+                "surface_recreate",
+                "background",
+                "foreground",
+                "finish",
+                "next_episode",
+            )
+        require(operations.containsAll(requiredOperations)) {
+            "YCore media manifest is missing operations: ${(requiredOperations - operations).sorted()}"
+        }
+        val cases =
+            root["cases"] as? List<*>
+                ?: throw GradleException("YCore media manifest cases must be an array")
+        require(cases.isNotEmpty()) { "YCore media manifest contains no cases" }
+        val rows = cases.map { it as? Map<*, *> ?: error("YCore media case must be an object") }
+        val ids = rows.map { it["id"]?.toString().orEmpty() }
+        require(ids.none(String::isBlank) && ids.distinct().size == ids.size) {
+            "YCore media case ids must be non-blank and unique"
+        }
+        val unsafePath =
+            rows.firstOrNull { row ->
+                val value = row["relativePath"]?.toString().orEmpty().replace('\\', '/')
+                value.isBlank() ||
+                    value.startsWith('/') ||
+                    value.substringBefore('/').contains(':') ||
+                    value.split('/').any { it.isBlank() || it == "." || it == ".." }
+            }
+        require(unsafePath == null) { "YCore media manifest contains an unsafe relativePath" }
+
+        fun values(name: String) = rows.mapNotNull { it[name]?.toString()?.lowercase() }.toSet()
+        require(values("videoCodec").containsAll(setOf("h264", "hevc", "av1"))) {
+            "YCore media manifest must cover H.264, HEVC and AV1"
+        }
+        require(values("hdr").containsAll(setOf("hdr10", "hdr10+", "hlg", "dolbyvision"))) {
+            "YCore media manifest is missing an HDR family"
+        }
+        require(values("dolbyVisionProfile").containsAll(setOf("p5", "p7_mel", "p7_fel", "p8.1", "p8.4"))) {
+            "YCore media manifest is missing a Dolby Vision profile"
+        }
+        require(values("container").containsAll(setOf("mp4", "mkv", "ts", "m2ts", "iso"))) {
+            "YCore media manifest is missing a required container"
+        }
+    }
+}
+
 val verifyBehavioralTestBoundaries by tasks.registering {
     group = "verification"
     description = "Rejects tests that assert production source text instead of behavior."
@@ -264,7 +380,12 @@ kotlin {
         }
 
         androidMain.dependencies {
-            implementation(project(":mdkAndroid"))
+            if (includeMdk) {
+                implementation(project(":mdkAndroid"))
+            } else {
+                // Compile the adapter but omit its Java facade and native runtime from compact APKs.
+                compileOnly(project(":mdkAndroid"))
+            }
             implementation(libs.ktor.okhttp)
             implementation(libs.okhttp)
             implementation(libs.jcifs.ng)
@@ -349,6 +470,14 @@ val allowDebugSigning =
             "", "true" -> true
             "false" -> false
             else -> error("allowDebugSigning must be omitted, true, or false")
+        }
+    } ?: false
+val confirmMdkDistributionRights =
+    providers.gradleProperty("confirmMdkDistributionRights").orNull?.let { raw ->
+        when (raw.trim().lowercase()) {
+            "", "true" -> true
+            "false" -> false
+            else -> error("confirmMdkDistributionRights must be omitted, true, or false")
         }
     } ?: false
 val signDeviceTestsWithReleaseKey =
@@ -447,6 +576,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
+        buildConfigField("boolean", "YFUSE_MDK_INCLUDED", includeMdk.toString())
+        buildConfigField(
+            "String",
+            "YFUSE_PACKAGE_PROFILE",
+            "\"${if (includeMdk) "full" else "compact"}\"",
+        )
 
         // Physical ARM64 devices only. Emulator and all 32-bit ABIs are excluded.
         ndk {
@@ -539,6 +674,22 @@ val verifyReleaseSigning by tasks.registering {
             throw GradleException(
                 "Release signing is not fully configured. Provide keystore.properties or " +
                     "use -PallowDebugSigning only for a non-distributable local build.",
+            )
+        }
+    }
+}
+
+val verifyProductionMdkRights by tasks.registering {
+    group = "verification"
+    description = "Requires an explicit MDK distribution-rights confirmation for production signing."
+    doLast {
+        // Debug-signed release builds are local/CI verification artifacts and are explicitly
+        // non-distributable. A production-signed artifact may not be assembled by accident without
+        // the release owner confirming the independent MDK SDK terms for that distribution.
+        if (includeMdk && releaseSigningReady && !allowDebugSigning && !confirmMdkDistributionRights) {
+            throw GradleException(
+                "Production MDK distribution rights were not confirmed. Complete the native-license " +
+                    "checklist, then pass -PconfirmMdkDistributionRights=true for this release.",
             )
         }
     }
@@ -638,11 +789,14 @@ tasks.register<BumpVersionTask>("bumpVersion") {
 tasks.configureEach {
     if (name == "preBuild") {
         dependsOn(verifyCustomMpvArtifact)
+        if (includeMdk) dependsOn(verifyMdkArtifact)
+        dependsOn(verifyMediaTestManifest)
     }
     val releasePackagingTask =
         name.contains("Release", ignoreCase = true) &&
             listOf("assemble", "bundle", "package").any { name.startsWith(it, ignoreCase = true) }
     if (releasePackagingTask) {
         dependsOn(verifyReleaseSigning)
+        dependsOn(verifyProductionMdkRights)
     }
 }

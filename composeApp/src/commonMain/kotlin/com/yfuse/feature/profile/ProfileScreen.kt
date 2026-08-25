@@ -679,12 +679,12 @@ fun ProfileScreen(component: ProfileComponent) {
                     title = "高级内核选择",
                     subtitle = "普通使用建议保持自动选择，仅在兼容问题时锁定",
                     options =
-                        PlaybackEngineSelection.entries.map {
+                        PlaybackEngineSelection.selectable.map {
                             it.playbackOptionCopy().label to (it == engineSelection)
                         },
-                    descriptions = PlaybackEngineSelection.entries.map { it.playbackOptionCopy().description },
+                    descriptions = PlaybackEngineSelection.selectable.map { it.playbackOptionCopy().description },
                     onSelect = { index ->
-                        val selection = PlaybackEngineSelection.entries[index]
+                        val selection = PlaybackEngineSelection.selectable[index]
                         component.playbackPreferences.setEngineSelection(selection)
                         selection.lockedEngine?.let(prefs::setEngine)
                         sheet = null

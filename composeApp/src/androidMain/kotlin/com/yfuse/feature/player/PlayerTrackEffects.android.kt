@@ -22,6 +22,7 @@ internal fun PlayerTrackEffects(
     restoreSubtitlesOff: Boolean,
     subtitleControls: SubtitleControlState,
     audioControls: AudioControlState,
+    handoverSnapshot: PlaybackHandoverSnapshot,
     scaleMode: VideoScaleMode,
     pendingSubtitleLanguage: String?,
     automaticEngineSelection: Boolean,
@@ -119,6 +120,35 @@ internal fun PlayerTrackEffects(
     }
     LaunchedEffect(backendExtensions, scaleMode) {
         backendExtensions.setVideoScaleMode(scaleMode)
+    }
+    LaunchedEffect(
+        backendExtensions,
+        currentItemId,
+        state.discNavigation.kind,
+        state.discNavigation.effectiveTitleCount,
+        handoverSnapshot.discTitleIndex,
+    ) {
+        val title = handoverSnapshot.discTitleIndex ?: return@LaunchedEffect
+        val navigation = state.discNavigation
+        if (navigation.effectiveTitleCount > title && navigation.selectedTitleIndex != title) {
+            backendExtensions.selectDiscTitle(title)
+        }
+    }
+    LaunchedEffect(
+        backendExtensions,
+        currentItemId,
+        state.discNavigation.selectedTitleIndex,
+        state.discNavigation.effectiveChapterCount,
+        handoverSnapshot.discTitleIndex,
+        handoverSnapshot.discChapterIndex,
+    ) {
+        val title = handoverSnapshot.discTitleIndex
+        val chapter = handoverSnapshot.discChapterIndex ?: return@LaunchedEffect
+        val navigation = state.discNavigation
+        if (title != null && navigation.selectedTitleIndex != title) return@LaunchedEffect
+        if (navigation.effectiveChapterCount > chapter && navigation.selectedChapterIndex != chapter) {
+            backendExtensions.selectDiscChapter(chapter)
+        }
     }
     LaunchedEffect(player, state.subtitleTracks, pendingSubtitleLanguage) {
         val language = pendingSubtitleLanguage ?: return@LaunchedEffect

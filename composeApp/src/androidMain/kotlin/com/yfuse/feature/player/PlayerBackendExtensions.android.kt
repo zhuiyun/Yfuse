@@ -32,6 +32,8 @@ internal class PlayerBackendExtensions(
         engine.setPauseAtEndOfCurrentItem(enabled)
     }
 
+    fun prepareForHandover() = engine.prepareForHandover()
+
     fun switchToTranscode(reason: String? = null): Boolean = engine.switchToTranscode(reason)
 
     fun appendItems(items: List<PlayerMediaItem>): Boolean = engine.appendItems(items)

@@ -54,3 +54,4 @@
 -keep class dev.yfuse.mpv.YfuseMpvCapabilities { *; }
 -keep class dev.yfuse.mpv.YfuseBluRayRegistry { *; }
 -keep class dev.yfuse.mpv.YfuseBdmvRegistry { *; }
+-dontwarn com.mediadevkit.sdk.**

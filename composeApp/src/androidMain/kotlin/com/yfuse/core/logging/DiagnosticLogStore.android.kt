@@ -20,6 +20,7 @@ import java.util.LinkedHashMap
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -54,7 +55,7 @@ internal const val DiagnosticMaxAttributeChars = 1_000
 internal const val DiagnosticMaxStackTraceChars = 16_000
 internal const val DiagnosticMaxThrowableTypeChars = 256
 internal const val DiagnosticMaxThreadNameChars = 80
-internal const val DiagnosticMaxFingerprints = 256
+internal const val DIAGNOSTIC_MAX_FINGERPRINTS = 256
 
 internal data class PreparedDiagnosticException(
     val type: String,
@@ -135,7 +136,7 @@ internal fun prepareDiagnosticLog(
 
 /** Fixed-capacity insertion-ordered history used by duplicate suppression. */
 internal class BoundedDiagnosticFingerprintHistory(
-    private val maxEntries: Int = DiagnosticMaxFingerprints,
+    private val maxEntries: Int = DIAGNOSTIC_MAX_FINGERPRINTS,
 ) {
     private val entries = LinkedHashMap<String, Long>(maxEntries)
 
@@ -204,10 +205,10 @@ internal object DiagnosticLogStore {
     private const val MaxFileBytes = 1024L * 1024L
     private const val MaxTotalBytes = 5L * 1024L * 1024L
     private const val MaxFiles = 8
-    private const val DuplicateWindowMs = 5_000L
+    private const val DUPLICATE_WINDOW_MS = 5_000L
 
     /** Hard cap on already-bounded payloads awaiting disk persistence. */
-    private const val MaxQueuedWrites = 64
+    private const val MAX_QUEUED_WRITES = 64
 
     private val json = Json { encodeDefaults = false }
     private val lock = Any()
@@ -217,7 +218,7 @@ internal object DiagnosticLogStore {
             1,
             0L,
             TimeUnit.MILLISECONDS,
-            ArrayBlockingQueue(MaxQueuedWrites),
+            ArrayBlockingQueue(MAX_QUEUED_WRITES),
             { task -> Thread(task, "yfuse-diagnostics").apply { isDaemon = true } },
             ThreadPoolExecutor.AbortPolicy(),
         )
@@ -226,6 +227,7 @@ internal object DiagnosticLogStore {
     private val writeFailureCount = AtomicInteger(0)
     private val lastWriteFailure = AtomicReference<String?>(null)
     private val droppedEntryCount = AtomicLong(0L)
+    private val exportArtifacts = ConcurrentHashMap<String, () -> String>()
 
     @Volatile
     private var initialized = false
@@ -320,6 +322,21 @@ internal object DiagnosticLogStore {
         }
     }
 
+    /** Adds a bounded, generated-at-export artifact such as the latest playback snapshot. */
+    fun registerExportArtifact(
+        name: String,
+        provider: () -> String,
+    ) {
+        val safeName =
+            name
+                .lowercase()
+                .replace(Regex("[^a-z0-9_.-]+"), "-")
+                .trim('-')
+                .take(80)
+        require(safeName.isNotBlank() && !safeName.contains(".."))
+        exportArtifacts[safeName] = provider
+    }
+
     fun export(output: OutputStream) {
         check(initialized) { "诊断日志尚未初始化" }
         flushQueued()
@@ -339,6 +356,16 @@ internal object DiagnosticLogStore {
                 zip.putNextEntry(ZipEntry("device-info.txt"))
                 zip.write(exportMetadataLocked().encodeToByteArray())
                 zip.closeEntry()
+                exportArtifacts.toSortedMap().forEach { (name, provider) ->
+                    val content =
+                        runCatching(provider)
+                            .getOrElse { error -> "artifact unavailable: ${error.javaClass.simpleName}" }
+                            .let(::redactDiagnosticText)
+                            .take(256 * 1024)
+                    zip.putNextEntry(ZipEntry("reports/$name"))
+                    zip.write(content.encodeToByteArray())
+                    zip.closeEntry()
+                }
                 logFilesLocked().forEach { file ->
                     zip.putNextEntry(ZipEntry("logs/${file.name}"))
                     // Re-sanitize at the export boundary as well as at write time. This protects
@@ -407,7 +434,7 @@ internal object DiagnosticLogStore {
                 fingerprints.record(
                     fingerprint = fingerprint,
                     nowElapsedMs = SystemClock.elapsedRealtime(),
-                    duplicateWindowMs = DuplicateWindowMs,
+                    duplicateWindowMs = DUPLICATE_WINDOW_MS,
                     suppressDuplicates = suppressDuplicates,
                 )
             ) {

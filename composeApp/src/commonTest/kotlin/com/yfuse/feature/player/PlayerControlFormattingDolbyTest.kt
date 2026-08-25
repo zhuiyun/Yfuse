@@ -14,10 +14,18 @@ class PlayerControlFormattingDolbyTest {
                     PlaybackDiagnostics(
                         dynamicRange = "Dolby Vision Profile 8",
                         dolbyVisionOutput = true,
+                        videoReadiness = PlaybackOutputReadiness.Rendering,
+                        outputEvidence =
+                            PlaybackOutputEvidence(
+                                sessionRevision = 1,
+                                videoReadiness = PlaybackOutputReadiness.Rendering,
+                                dynamicRangeOutputMode =
+                                    PlaybackDynamicRangeOutputMode.DolbyVisionMediaCodec,
+                            ),
                     ),
             )
 
-        assertEquals("DV 原生", state.dolbyVisionReadoutLabel())
+        assertEquals("Dolby Vision MediaCodec 原生输出", state.dolbyVisionReadoutLabel())
     }
 
     @Test
@@ -28,13 +36,18 @@ class PlayerControlFormattingDolbyTest {
                     PlaybackDiagnostics(
                         engine = "libmpv",
                         dynamicRange = "Dolby Vision Profile 5",
-                        videoOutput = "Dolby Vision → SDR · mpv 色调映射",
                         videoReadiness = PlaybackOutputReadiness.Rendering,
-                        planningReason = "设备没有完整 Dolby Vision 输出链，使用客户端 Dolby 解码和色调映射",
+                        outputEvidence =
+                            PlaybackOutputEvidence(
+                                sessionRevision = 1,
+                                videoReadiness = PlaybackOutputReadiness.Rendering,
+                                dynamicRangeOutputMode =
+                                    PlaybackDynamicRangeOutputMode.HdrToSdrToneMapped,
+                            ),
                     ),
             )
 
-        assertEquals("DV→SDR", state.dolbyVisionReadoutLabel())
+        assertEquals("HDR→SDR 色调映射", state.dolbyVisionReadoutLabel())
     }
 
     @Test
@@ -45,13 +58,18 @@ class PlayerControlFormattingDolbyTest {
                     PlaybackDiagnostics(
                         engine = "libmpv",
                         dynamicRange = "HDR10",
-                        videoOutput = "HDR10 · mpv 视频输出已建立",
                         videoReadiness = PlaybackOutputReadiness.Rendering,
-                        planningReason = "Dolby Vision 使用客户端 HDR10 基础层和色调映射，不依赖服务器转码",
+                        outputEvidence =
+                            PlaybackOutputEvidence(
+                                sessionRevision = 1,
+                                videoReadiness = PlaybackOutputReadiness.Rendering,
+                                dynamicRangeOutputMode =
+                                    PlaybackDynamicRangeOutputMode.Hdr10BaseLayer,
+                            ),
                     ),
             )
 
-        assertEquals("DV→HDR10", state.dolbyVisionReadoutLabel())
+        assertEquals("HDR10 基础层输出", state.dolbyVisionReadoutLabel())
     }
 
     @Test
@@ -62,12 +80,17 @@ class PlayerControlFormattingDolbyTest {
                     PlaybackDiagnostics(
                         dynamicRange = "Dolby Vision Profile 7",
                         videoReadiness = PlaybackOutputReadiness.Rendering,
-                        dolbyVisionRpuApplied = true,
-                        dolbyVisionEnhancementLayerComposed = true,
+                        outputEvidence =
+                            PlaybackOutputEvidence(
+                                sessionRevision = 1,
+                                videoReadiness = PlaybackOutputReadiness.Rendering,
+                                dolbyVisionRpuRendered = true,
+                                dolbyVisionFelComposed = true,
+                            ),
                     ),
             )
 
-        assertEquals("DV FEL", state.dolbyVisionReadoutLabel())
+        assertEquals("P7 FEL 已合成", state.dolbyVisionReadoutLabel())
     }
 
     @Test
@@ -90,7 +113,7 @@ class PlayerControlFormattingDolbyTest {
                         ),
                 )
 
-            assertEquals("DV FEL", state.dolbyVisionReadoutLabel())
+            assertEquals("P7 FEL 已合成", state.dolbyVisionReadoutLabel())
         } finally {
             MpvDolbyRuntimeEvidenceRegistry.clearProvider()
         }
@@ -116,7 +139,7 @@ class PlayerControlFormattingDolbyTest {
                         ),
                 )
 
-            assertEquals("DV", state.dolbyVisionReadoutLabel())
+            assertEquals(null, state.dolbyVisionReadoutLabel())
         } finally {
             MpvDolbyRuntimeEvidenceRegistry.clearProvider()
         }

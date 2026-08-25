@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import android.graphics.Rect
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -358,9 +359,16 @@ internal fun PlayerRoot(
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateMatch = frameRateMatch,
                 dolbyVisionRuntime = dolbyVisionRuntime,
+                capabilitySignature =
+                    preflightItems
+                        .getOrNull(resume.itemIndex)
+                        ?.playbackMediaProbe()
+                        ?.capabilitySignature
+                        .orEmpty(),
             )
         }
     val player = remember(engine) { engine.asYPlayer() }
+    val engineCreatedAtElapsedMs = remember(engine) { SystemClock.elapsedRealtime() }
     val backendExtensions = remember(engine) { PlayerBackendExtensions(engine) }
     val presentationState = remember(player) { player.asPlaybackStateFlow() }
     val latestQueueAppender =
@@ -396,6 +404,11 @@ internal fun PlayerRoot(
         onPlayerAttached(player) { appended -> latestQueueAppender.value(appended) }
         onDispose {
             onPlayerDetached(player)
+            AndroidNativeCrashMonitor.disarm(
+                successful =
+                    engine.state.value.diagnostics.effectiveVideoReadiness ==
+                        PlaybackOutputReadiness.Rendering,
+            )
             engine.release()
             AppLog.info(
                 category = "player",
@@ -812,7 +825,6 @@ internal fun PlayerRoot(
                     networkRecoverySuccesses = networkRecoverySuccesses,
                 ),
         )
-
     val latestPlayerForSleep by rememberUpdatedState(player)
     val latestCastStateForSleep by rememberUpdatedState(castState)
 
@@ -1265,6 +1277,9 @@ internal fun PlayerRoot(
                 currentPositionMs = player.currentPositionMs(),
                 playbackRequested = player.playbackRequested,
                 requestedSpeed = requestedPlaybackSpeed,
+                secondarySubtitle = secondarySubtitleRestore,
+                subtitleDelayMs = subtitleControls.offsetMs,
+                audioDelayMs = audioControls.delayMs,
             )
         val itemId = latestActiveItems.getOrNull(snapshot.currentIndex)?.id ?: return
         val sameItem = handoverItemId == itemId
@@ -1282,6 +1297,8 @@ internal fun PlayerRoot(
             subtitleRestore = null
             restoreSubtitlesOff = false
         }
+        resume.secondarySubtitle?.let { secondarySubtitleRestore = it }
+        backendExtensions.prepareForHandover()
     }
     // A refreshed queue is one deliberate handover. It must not turn a user pause into autoplay.
     LaunchedEffect(queueRevision) {
@@ -1372,6 +1389,13 @@ internal fun PlayerRoot(
     }
     var enginesTried by remember(state.currentIndex, currentItem?.serverId, currentItem?.versionId) {
         mutableStateOf(setOf(kind))
+    }
+    SideEffect {
+        PlaybackDiagnosticReportRegistry.update(
+            state = state,
+            selectedEngine = kind,
+            fallbackChain = (enginesTried + kind).toList(),
+        )
     }
     var serversTried by remember(state.currentIndex) {
         mutableStateOf(setOfNotNull(currentItem?.serverId))
@@ -1724,6 +1748,7 @@ internal fun PlayerRoot(
         restoreSubtitlesOff = restoreSubtitlesOff,
         subtitleControls = subtitleControls,
         audioControls = audioControls,
+        handoverSnapshot = resume,
         scaleMode = scaleMode,
         pendingSubtitleLanguage = pendingSubtitleLanguage,
         automaticEngineSelection = sessionEngineSelection == PlaybackEngineSelection.Auto,
@@ -1731,6 +1756,39 @@ internal fun PlayerRoot(
         onPendingSubtitleLanguageApplied = { pendingSubtitleLanguage = null },
         onRequestMpv = { switchEngine(PlayerEngine.Mpv) },
     )
+
+    // Validate one replacement clock sample. A correction is issued only outside the allowed
+    // 250 ms window, so this cannot become a recurring seek loop on imprecise TS keyframes.
+    LaunchedEffect(engine, state.diagnostics.effectiveVideoReadiness) {
+        if (state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering) {
+            return@LaunchedEffect
+        }
+        val elapsed = SystemClock.elapsedRealtime() - engineCreatedAtElapsedMs
+        val actual = player.currentPositionMs().coerceAtLeast(0L)
+        val error = handoverPositionErrorMs(actual, resume, elapsed)
+        if (error > 0L) {
+            val correction =
+                if (resume.playbackRequested) {
+                    resume.positionMs + (elapsed.coerceAtLeast(0L) * resume.speed).toLong()
+                } else {
+                    resume.positionMs
+                }
+            player.seekTo(correction.coerceAtLeast(0L))
+        }
+        AppLog.info(
+            category = "player.handover",
+            event = if (error == 0L) "position_verified" else "position_corrected",
+            message = "Playback handover position was checked against the 250 ms budget",
+            attributes =
+                mapOf(
+                    "engine" to kind.name,
+                    "targetMs" to resume.positionMs.toString(),
+                    "actualMs" to actual.toString(),
+                    "errorMs" to error.toString(),
+                    "toleranceMs" to PLAYBACK_HANDOVER_POSITION_TOLERANCE_MS.toString(),
+                ),
+        )
+    }
 
     LaunchedEffect(
         engine,
@@ -2313,14 +2371,14 @@ internal fun PlayerRoot(
                 brightness = brightness,
                 onBrightness = { setBrightness(it) },
                 engineOptions =
-                    PlaybackEngineSelection.entries.map { selection ->
+                    PlaybackEngineSelection.selectable.map { selection ->
                         val label =
                             selection.lockedEngine?.let { "锁定 ${it.label}" }
                                 ?: "YCore 智能自动"
                         label to (selection == sessionEngineSelection)
                     },
                 onSelectEngine = { index ->
-                    PlaybackEngineSelection.entries.getOrNull(index)?.let(::selectEngineStrategy)
+                    PlaybackEngineSelection.selectable.getOrNull(index)?.let(::selectEngineStrategy)
                 },
                 // Manual escape hatch when the picture is black but audio plays. Offered on
                 // every engine now — it used to be ExoPlayer-only, which left the native

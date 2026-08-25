@@ -243,6 +243,30 @@ dependency submission workflow archives an SPDX SBOM; retain it with each produc
 release and complete the native-license checklist in
 `docs/third-party-licenses/README.md`.
 
+Production packaging also requires the release owner to acknowledge the exact MDK distribution
+rights for the intended release:
+
+```bash
+./gradlew :composeApp:assembleRelease -PconfirmMdkDistributionRights=true
+```
+
+This property is an auditable acknowledgement, not a license key and not a substitute for the
+underlying agreement. Debug-signed `-PallowDebugSigning` release builds remain non-distributable
+verification artifacts and do not satisfy the production gate.
+
+Two production profiles are available. The default/full profile contains Exo, MPV, and MDK; the
+compact profile contains Exo and MPV only. Build both signed APKs with:
+
+```powershell
+.\scripts\build-release-packages.ps1 -ConfirmMdkDistributionRights
+```
+
+The script writes versioned artifacts to `composeApp/build/outputs/distribution`. To build only the
+compact profile, pass `-PyfuseIncludeMdk=false` to Gradle. MDK is then a compile-only adapter API:
+its Java facade and native libraries are not packaged, it is removed from engine selection, and any
+persisted MDK lock fails closed to automatic routing. The full profile remains the default so an
+ordinary release command preserves the existing three-engine product.
+
 ## APK size
 
 The build is already configured for a small package: R8 with resource
@@ -265,13 +289,9 @@ carries after deflate:
 
 MDK is a second, independent stack of the same kind — its own FFmpeg, linked
 into `libmdk.so` — on top of ExoPlayer/media3, which is Java and comparatively
-small. Three playback engines ship in every APK and a device uses one at a
-time.
-
-So the only change that materially moves the number is dropping a native
-engine. Either one is worth roughly the table above; the choice is about which
-formats and containers the app must still play without transcoding, not about
-build configuration.
+small. It ships only in the full profile. The compact profile removes MDK while
+retaining Exo and MPV, which materially lowers its download size without
+duplicating ISO/BDMV/P7 responsibilities in Exo.
 
 To see the real breakdown of a build rather than an estimate:
 

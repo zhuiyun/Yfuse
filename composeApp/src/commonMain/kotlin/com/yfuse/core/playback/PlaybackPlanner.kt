@@ -29,6 +29,9 @@ enum class PlaybackEngineSelection {
             }
 
     companion object {
+        val selectable: List<PlaybackEngineSelection>
+            get() = entries.filter { it.lockedEngine == null || it.lockedEngine in PlayerEngine.selectable }
+
         fun locked(engine: PlayerEngine): PlaybackEngineSelection =
             when (engine) {
                 PlayerEngine.Exo -> LockExo
@@ -167,7 +170,7 @@ fun planPlayback(
     dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
 ): PlaybackPlan {
-    val lockedEngine = engineSelection.lockedEngine
+    val lockedEngine = engineSelection.lockedEngine?.takeIf(PlayerEngine.selectable::contains)
     val discDecision = planDiscPlayback(probe)
     val directlyPlayableAudio =
         if (allowAudioPassthrough) {

@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioSink
+import com.yfuse.core.model.DecoderMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -11,6 +12,28 @@ import kotlin.test.assertTrue
 
 @UnstableApi
 class AndroidPlaybackOutputTest {
+    @Test
+    fun explicit_exo_decoder_modes_are_deterministic_but_retain_a_safe_fallback() {
+        val decoders = listOf("hardware", "software")
+
+        assertEquals(
+            listOf("hardware"),
+            preferExoDecoderMode(decoders, DecoderMode.Hardware) { it == "software" },
+        )
+        assertEquals(
+            listOf("software"),
+            preferExoDecoderMode(decoders, DecoderMode.Software) { it == "software" },
+        )
+        assertEquals(
+            decoders,
+            preferExoDecoderMode(decoders, DecoderMode.Auto) { it == "software" },
+        )
+        assertEquals(
+            listOf("software"),
+            preferExoDecoderMode(listOf("software"), DecoderMode.Hardware) { true },
+        )
+    }
+
     @Test
     fun exo_delegates_seamless_mode_but_reserves_always_for_the_surface_api() {
         assertEquals(
@@ -59,6 +82,36 @@ class AndroidPlaybackOutputTest {
         assertEquals(
             "源码输出 · Dolby Atmos / E-AC-3 JOC",
             playbackOutputDiagnosticLabel(status, "源码输出 · ${exoAudioEncodingLabel(config.encoding)}"),
+        )
+    }
+
+    @Test
+    fun decoded_pcm_output_includes_the_actual_audio_decoder() {
+        val config = audioTrackConfig(encoding = C.ENCODING_PCM_16BIT)
+        val status = exoAudioPassthroughStatus(AudioPassthroughMode.Compatible, config)
+
+        assertEquals(
+            "PCM 解码输出 · c2.android.eac3.decoder",
+            exoAudioOutputDiagnosticLabel(
+                status = status,
+                encoding = config.encoding,
+                decoderName = "c2.android.eac3.decoder",
+            ),
+        )
+    }
+
+    @Test
+    fun passthrough_output_does_not_claim_an_audio_decoder() {
+        val config = audioTrackConfig(encoding = C.ENCODING_E_AC3_JOC)
+        val status = exoAudioPassthroughStatus(AudioPassthroughMode.Compatible, config)
+
+        assertEquals(
+            "源码输出 · Dolby Atmos / E-AC-3 JOC",
+            exoAudioOutputDiagnosticLabel(
+                status = status,
+                encoding = config.encoding,
+                decoderName = "stale.decoder.name",
+            ),
         )
     }
 

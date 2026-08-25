@@ -7,6 +7,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -18,8 +19,10 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
@@ -28,6 +31,8 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
@@ -59,6 +64,7 @@ private val exoRuntimeCadence =
     )
 private const val TRANSIENT_RETRY_LIMIT = 2
 private const val FAILURE_HISTORY_LIMIT = 4
+private const val MPEG_TS_TIMESTAMP_SEARCH_BYTES = 5 * 1024 * 1024
 
 /**
  * ExoPlayer behind the engine-agnostic [VideoEngine] contract.
@@ -76,7 +82,7 @@ class ExoVideoEngine(
     startPlaybackRequested: Boolean,
     startSpeed: Float,
     private val scope: CoroutineScope,
-    decoderMode: DecoderMode,
+    private val decoderMode: DecoderMode,
     optimizationMode: PlaybackOptimizationMode,
     private val autoNext: Boolean,
     customUserAgent: String,
@@ -115,6 +121,14 @@ class ExoVideoEngine(
                         engine = "Media3 / ExoPlayer",
                         decoder = decoderMode.label,
                         item = this.items.getOrNull(startIndex),
+                    ).copy(
+                        outputEvidence =
+                            PlaybackOutputEvidence(
+                                sessionRevision = 1L,
+                                videoConfidence = PlaybackEvidenceConfidence.Requested,
+                                audioConfidence = PlaybackEvidenceConfidence.Requested,
+                                renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
+                            ),
                     ),
             ),
         )
@@ -151,18 +165,14 @@ class ExoVideoEngine(
                     }
 
             val selector =
-                if (decoderMode == DecoderMode.Software) {
-                    MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-                        val decoders =
-                            MediaCodecUtil.getDecoderInfos(
-                                mimeType,
-                                requiresSecureDecoder,
-                                requiresTunnelingDecoder,
-                            )
-                        decoders.filter { it.softwareOnly }.ifEmpty { decoders }
-                    }
-                } else {
-                    MediaCodecSelector.DEFAULT
+                MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                    val decoders =
+                        MediaCodecUtil.getDecoderInfos(
+                            mimeType,
+                            requiresSecureDecoder,
+                            requiresTunnelingDecoder,
+                        )
+                    preferExoDecoderMode(decoders, decoderMode) { it.softwareOnly }
                 }
             val renderersFactory =
                 ExoOutputRenderersFactory(
@@ -185,6 +195,12 @@ class ExoVideoEngine(
             // Validate the bytes after the optional cache as well as after HTTP. A stale cached HTML
             // error page must not masquerade as an HLS manifest any more than a fresh one may.
             val dataSourceFactory = HlsManifestGuardDataSourceFactory(cachedDataSourceFactory)
+            val extractorsFactory =
+                DefaultExtractorsFactory()
+                    .setTsExtractorFlags(
+                        DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS or
+                            DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
+                    ).setTsExtractorTimestampSearchBytes(MPEG_TS_TIMESTAMP_SEARCH_BYTES)
             val loadControl =
                 playbackBufferProfile(optimizationMode).let { profile ->
                     DefaultLoadControl
@@ -204,8 +220,9 @@ class ExoVideoEngine(
                 .Builder(context, renderersFactory)
                 .setLoadControl(loadControl)
                 .setTrackSelector(trackSelector)
-                .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
-                .setVideoChangeFrameRateStrategy(exoVideoChangeFrameRateStrategy(frameRateMatchMode))
+                .setMediaSourceFactory(
+                    DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory),
+                ).setVideoChangeFrameRateStrategy(exoVideoChangeFrameRateStrategy(frameRateMatchMode))
                 .setAudioAttributes(
                     AudioAttributes
                         .Builder()
@@ -226,8 +243,12 @@ class ExoVideoEngine(
     private var wasBuffering = true
     private var droppedFrames = 0
     private var currentVideoDecoder = decoderMode.label
+    private var currentAudioDecoder = ""
     private var currentVideoFormat: Format? = null
+    private var currentAudioFormat: Format? = null
+    private var currentAudioTrackConfig: AudioSink.AudioTrackConfig? = null
     private var renderedFirstFrame = false
+    private var audioUnderrunCount = 0
     private var lastAvSyncSampleAtNs = 0L
     private val videoFrameMetadataListener =
         VideoFrameMetadataListener { presentationTimeUs, releaseTimeNs, _, _ ->
@@ -258,12 +279,107 @@ class ExoVideoEngine(
             }
         }
 
+    private fun clearActiveOutputEvidence() {
+        currentVideoDecoder = decoderMode.label
+        currentAudioDecoder = ""
+        currentVideoFormat = null
+        currentAudioFormat = null
+        currentAudioTrackConfig = null
+        renderedFirstFrame = false
+        droppedFrames = 0
+        audioUnderrunCount = 0
+        lastAvSyncSampleAtNs = 0L
+    }
+
+    private fun resetOutputDiagnostics(diagnostics: PlaybackDiagnostics): PlaybackDiagnostics =
+        diagnostics.copy(
+            decoder = decoderMode.label,
+            videoOutput = "等待首帧",
+            audioOutput = "等待音频输出",
+            videoReadiness = PlaybackOutputReadiness.Waiting,
+            audioReadiness = PlaybackOutputReadiness.Waiting,
+            dolbyVisionOutput = false,
+            dolbyAtmosOutput = false,
+            droppedFrames = 0,
+            avSyncOffsetMs = null,
+            avSyncMeasurement = "等待 Media3 呈现时钟",
+            outputEvidence =
+                diagnostics.outputEvidence.nextSession().copy(
+                    videoConfidence = PlaybackEvidenceConfidence.Requested,
+                    audioConfidence = PlaybackEvidenceConfidence.Requested,
+                    renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
+                ),
+        )
+
+    private fun updateAudioOutput() {
+        val config = currentAudioTrackConfig
+        if (config == null) {
+            _state.update {
+                it.copy(
+                    diagnostics =
+                        it.diagnostics.copy(
+                            audioOutput =
+                                currentAudioDecoder.takeIf(String::isNotBlank)?.let { decoder ->
+                                    "$decoder · 等待 AudioTrack"
+                                } ?: "等待音频输出",
+                            audioReadiness = PlaybackOutputReadiness.Waiting,
+                            dolbyAtmosOutput = false,
+                            outputEvidence =
+                                it.diagnostics.outputEvidence.copy(
+                                    audioReadiness = PlaybackOutputReadiness.Waiting,
+                                    audioConfidence = PlaybackEvidenceConfidence.Requested,
+                                    audioDecoder = currentAudioDecoder,
+                                    audioMode = PlaybackAudioOutputMode.Unknown,
+                                ),
+                        ),
+                )
+            }
+            return
+        }
+        val status = exoAudioPassthroughStatus(audioPassthroughMode, config)
+        _state.update {
+            it.copy(
+                diagnostics =
+                    it.diagnostics.copy(
+                        audioOutput =
+                            exoAudioOutputDiagnosticLabel(
+                                status = status,
+                                encoding = config.encoding,
+                                decoderName = currentAudioDecoder,
+                            ),
+                        audioReadiness = PlaybackOutputReadiness.Rendering,
+                        dolbyAtmosOutput =
+                            status is PlaybackOutputStatus.Active &&
+                                config.encoding in DOLBY_OBJECT_ENCODINGS,
+                        outputEvidence =
+                            it.diagnostics.outputEvidence.copy(
+                                audioReadiness = PlaybackOutputReadiness.Rendering,
+                                audioConfidence = PlaybackEvidenceConfidence.Confirmed,
+                                audioDecoder = currentAudioDecoder,
+                                audioMode =
+                                    when {
+                                        status is PlaybackOutputStatus.Active ->
+                                            PlaybackAudioOutputMode.Passthrough
+                                        config.offload -> PlaybackAudioOutputMode.Offload
+                                        else -> PlaybackAudioOutputMode.Pcm
+                                    },
+                            ),
+                    ),
+            )
+        }
+    }
+
     private fun updateVideoOutput() {
         val format = currentVideoFormat
         if (format == null) return
         val sourceDolbyProfile =
             items.getOrNull(player.currentMediaItemIndex)?.activeVersion?.dolbyProfile
-        val detectedRange = format.dynamicRangeLabel().ifBlank { "未知动态范围" }
+        val sourceRange =
+            items
+                .getOrNull(player.currentMediaItemIndex)
+                ?.activeVersion
+                ?.sourceDynamicRange
+        val detectedRange = format.dynamicRangeLabel(sourceRange).ifBlank { "未知动态范围" }
         val range =
             if (detectedRange.contains("Dolby Vision", ignoreCase = true) && sourceDolbyProfile != null) {
                 "Dolby Vision Profile $sourceDolbyProfile"
@@ -277,12 +393,19 @@ class ExoVideoEngine(
         val hdrFormat =
             when {
                 range.contains("Dolby Vision", ignoreCase = true) -> PlaybackHdrFormat.DolbyVision
+                range.contains("HDR10+", ignoreCase = true) -> PlaybackHdrFormat.Hdr10Plus
                 range.contains("HLG", ignoreCase = true) -> PlaybackHdrFormat.Hlg
                 range.contains("HDR", ignoreCase = true) || range.contains("PQ", ignoreCase = true) ->
                     PlaybackHdrFormat.Hdr10
                 else -> null
             }
         val displayReady = hdrFormat == null || hdrFormat in capabilities.hdrFormats
+        val nativeDolbyVisionOutput =
+            renderedFirstFrame &&
+                format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION &&
+                hdrFormat == PlaybackHdrFormat.DolbyVision &&
+                displayReady
+        val secureDecoder = format.exoSecureDecoderActive(currentVideoDecoder)
         val decoderKind =
             if (currentVideoDecoder.isSoftwareVideoDecoder()) "软件解码" else "硬件解码"
         val label =
@@ -306,10 +429,41 @@ class ExoVideoEngine(
                         // The same three facts the label was spelling out: a frame is on
                         // screen, its range is Dolby Vision, and the display chain declared
                         // that format.
-                        dolbyVisionOutput =
-                            renderedFirstFrame &&
-                                hdrFormat == PlaybackHdrFormat.DolbyVision &&
-                                displayReady,
+                        dolbyVisionOutput = nativeDolbyVisionOutput,
+                        outputEvidence =
+                            state.diagnostics.outputEvidence.copy(
+                                videoReadiness =
+                                    if (renderedFirstFrame) {
+                                        PlaybackOutputReadiness.Rendering
+                                    } else {
+                                        PlaybackOutputReadiness.Waiting
+                                    },
+                                videoConfidence =
+                                    if (renderedFirstFrame) {
+                                        PlaybackEvidenceConfidence.Confirmed
+                                    } else {
+                                        PlaybackEvidenceConfidence.Requested
+                                    },
+                                videoDecoder = currentVideoDecoder,
+                                inputDynamicRange = range,
+                                outputDynamicRange =
+                                    range.takeIf { renderedFirstFrame && displayReady }.orEmpty(),
+                                dynamicRangeOutputMode =
+                                    if (nativeDolbyVisionOutput) {
+                                        PlaybackDynamicRangeOutputMode.DolbyVisionMediaCodec
+                                    } else {
+                                        PlaybackDynamicRangeOutputMode.Unknown
+                                    },
+                                renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
+                                secureDecoder = secureDecoder,
+                                tunneledPlayback = false,
+                                bitDepth =
+                                    items
+                                        .getOrNull(player.currentMediaItemIndex)
+                                        ?.activeVersion
+                                        ?.sourceBitDepth
+                                        ?.coerceAtLeast(0) ?: 0,
+                            ),
                     ),
             )
         }
@@ -325,9 +479,145 @@ class ExoVideoEngine(
             ) {
                 currentVideoDecoder = decoderName
                 _state.update {
-                    it.copy(diagnostics = it.diagnostics.copy(decoder = decoderName))
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                decoder = decoderName,
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(videoDecoder = decoderName),
+                            ),
+                    )
                 }
                 updateVideoOutput()
+            }
+
+            override fun onAudioDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                currentAudioDecoder = decoderName
+                AppLog.info(
+                    category = "player.exo",
+                    event = "audio_decoder_initialized",
+                    message = "ExoPlayer initialized the audio decoder",
+                    attributes = mapOf("decoder" to decoderName),
+                )
+                updateAudioOutput()
+            }
+
+            override fun onVideoDecoderReleased(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+            ) {
+                if (decoderName != currentVideoDecoder) return
+                renderedFirstFrame = false
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                videoOutput = "$decoderName · 视频输出已释放",
+                                videoReadiness = PlaybackOutputReadiness.Released,
+                                dolbyVisionOutput = false,
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(
+                                        videoReadiness = PlaybackOutputReadiness.Released,
+                                        videoConfidence = PlaybackEvidenceConfidence.Confirmed,
+                                        outputDynamicRange = "",
+                                    ),
+                            ),
+                    )
+                }
+            }
+
+            override fun onAudioDecoderReleased(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+            ) {
+                if (decoderName != currentAudioDecoder) return
+                currentAudioDecoder = ""
+                if (currentAudioTrackConfig == null) {
+                    _state.update {
+                        it.copy(
+                            diagnostics =
+                                it.diagnostics.copy(
+                                    audioOutput = "音频解码器已释放",
+                                    audioReadiness = PlaybackOutputReadiness.Released,
+                                    dolbyAtmosOutput = false,
+                                    outputEvidence =
+                                        it.diagnostics.outputEvidence.copy(
+                                            audioReadiness = PlaybackOutputReadiness.Released,
+                                            audioMode = PlaybackAudioOutputMode.Unknown,
+                                        ),
+                                ),
+                        )
+                    }
+                }
+            }
+
+            override fun onVideoCodecError(
+                eventTime: AnalyticsListener.EventTime,
+                videoCodecError: Exception,
+            ) {
+                safeLogcat(Log.ERROR, TAG, "video codec failed: $currentVideoDecoder", videoCodecError)
+                AppLog.error(
+                    category = "player.exo",
+                    event = "video_codec_failed",
+                    message = "ExoPlayer video codec failed",
+                    throwable = videoCodecError,
+                    attributes = mapOf("decoder" to currentVideoDecoder),
+                )
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                videoOutput = "$currentVideoDecoder · 视频解码失败",
+                                videoReadiness = PlaybackOutputReadiness.Waiting,
+                                dolbyVisionOutput = false,
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(
+                                        videoReadiness = PlaybackOutputReadiness.Waiting,
+                                        videoConfidence = PlaybackEvidenceConfidence.Failed,
+                                        codecResetCount =
+                                            it.diagnostics.outputEvidence.codecResetCount + 1,
+                                    ),
+                            ),
+                    )
+                }
+            }
+
+            override fun onAudioCodecError(
+                eventTime: AnalyticsListener.EventTime,
+                audioCodecError: Exception,
+            ) {
+                safeLogcat(Log.ERROR, TAG, "audio codec failed: $currentAudioDecoder", audioCodecError)
+                AppLog.error(
+                    category = "player.exo",
+                    event = "audio_codec_failed",
+                    message = "ExoPlayer audio codec failed",
+                    throwable = audioCodecError,
+                    attributes = mapOf("decoder" to currentAudioDecoder.ifBlank { "pending" }),
+                )
+                currentAudioTrackConfig = null
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                audioOutput =
+                                    "${currentAudioDecoder.ifBlank { "Media3" }} · 音频解码失败",
+                                audioReadiness = PlaybackOutputReadiness.Waiting,
+                                dolbyAtmosOutput = false,
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(
+                                        audioReadiness = PlaybackOutputReadiness.Waiting,
+                                        audioConfidence = PlaybackEvidenceConfidence.Failed,
+                                        codecResetCount =
+                                            it.diagnostics.outputEvidence.codecResetCount + 1,
+                                    ),
+                            ),
+                    )
+                }
             }
 
             override fun onVideoInputFormatChanged(
@@ -362,7 +652,7 @@ class ExoVideoEngine(
                                         ?: it.diagnostics.videoWidth,
                                 dynamicRange =
                                     format
-                                        .dynamicRangeLabel()
+                                        .dynamicRangeLabel(source?.sourceDynamicRange)
                                         .ifBlank { it.diagnostics.dynamicRange },
                                 bitrateBitsPerSecond =
                                     format.bitrate
@@ -371,6 +661,13 @@ class ExoVideoEngine(
                                 frameRate =
                                     format.frameRate.takeIf { value -> value > 0f }
                                         ?: it.diagnostics.frameRate,
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(
+                                        videoCodecProfile =
+                                            format.codecs ?: format.sampleMimeType.orEmpty(),
+                                        inputDynamicRange =
+                                            format.dynamicRangeLabel(source?.sourceDynamicRange),
+                                    ),
                             ),
                     )
                 }
@@ -392,6 +689,7 @@ class ExoVideoEngine(
                 decoderReuseEvaluation: DecoderReuseEvaluation?,
             ) {
                 val source = items.getOrNull(player.currentMediaItemIndex)?.activeVersion
+                currentAudioFormat = format
                 AppLog.info(
                     category = "player.exo",
                     event = "audio_format_selected",
@@ -421,32 +719,17 @@ class ExoVideoEngine(
                 eventTime: AnalyticsListener.EventTime,
                 audioTrackConfig: AudioSink.AudioTrackConfig,
             ) {
-                val status = exoAudioPassthroughStatus(audioPassthroughMode, audioTrackConfig)
-                _state.update {
-                    it.copy(
-                        diagnostics =
-                            it.diagnostics.copy(
-                                audioOutput =
-                                    playbackOutputDiagnosticLabel(
-                                        status = status,
-                                        activeLabel =
-                                            "源码输出 · ${exoAudioEncodingLabel(audioTrackConfig.encoding)}",
-                                    ),
-                                audioReadiness = PlaybackOutputReadiness.Rendering,
-                                // Active is the only status that proves a bitstream left the
-                                // device; the encoding says whether it carried Dolby objects.
-                                dolbyAtmosOutput =
-                                    status is PlaybackOutputStatus.Active &&
-                                        audioTrackConfig.encoding in DOLBY_OBJECT_ENCODINGS,
-                            ),
-                    )
-                }
+                currentAudioTrackConfig = audioTrackConfig
+                updateAudioOutput()
             }
 
             override fun onAudioTrackReleased(
                 eventTime: AnalyticsListener.EventTime,
                 audioTrackConfig: AudioSink.AudioTrackConfig,
             ) {
+                if (currentAudioTrackConfig == audioTrackConfig) {
+                    currentAudioTrackConfig = null
+                }
                 _state.update {
                     it.copy(
                         diagnostics =
@@ -456,6 +739,11 @@ class ExoVideoEngine(
                                 // The label rule cleared this implicitly, because the released
                                 // sentence no longer said 源码输出. A flag has to be told.
                                 dolbyAtmosOutput = false,
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(
+                                        audioReadiness = PlaybackOutputReadiness.Released,
+                                        audioMode = PlaybackAudioOutputMode.Unknown,
+                                    ),
                             ),
                     )
                 }
@@ -472,6 +760,113 @@ class ExoVideoEngine(
                         diagnostics =
                             it.diagnostics.copy(
                                 droppedFrames = this@ExoVideoEngine.droppedFrames,
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(
+                                        droppedFramesMeasured = true,
+                                    ),
+                            ),
+                    )
+                }
+            }
+
+            override fun onAudioUnderrun(
+                eventTime: AnalyticsListener.EventTime,
+                bufferSize: Int,
+                bufferSizeMs: Long,
+                elapsedSinceLastFeedMs: Long,
+            ) {
+                audioUnderrunCount++
+                AppLog.warning(
+                    category = "player.exo",
+                    event = "audio_underrun",
+                    message = "Media3 AudioTrack underrun",
+                    attributes =
+                        mapOf(
+                            "count" to audioUnderrunCount.toString(),
+                            "bufferSize" to bufferSize.toString(),
+                            "bufferSizeMs" to bufferSizeMs.toString(),
+                            "elapsedSinceLastFeedMs" to elapsedSinceLastFeedMs.toString(),
+                        ),
+                )
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(
+                                        audioUnderrunCount = audioUnderrunCount,
+                                    ),
+                            ),
+                    )
+                }
+            }
+
+            override fun onVideoDisabled(
+                eventTime: AnalyticsListener.EventTime,
+                decoderCounters: DecoderCounters,
+            ) {
+                decoderCounters.ensureUpdated()
+                val countedDrops = decoderCounters.droppedBufferCount.coerceAtLeast(0)
+                droppedFrames = maxOf(droppedFrames, countedDrops)
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                droppedFrames = droppedFrames,
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(
+                                        droppedFramesMeasured = true,
+                                        codecResetCount =
+                                            maxOf(
+                                                it.diagnostics.outputEvidence.codecResetCount,
+                                                decoderCounters.decoderReleaseCount,
+                                            ),
+                                        rendererDetail =
+                                            "rendered=${decoderCounters.renderedOutputBufferCount}, " +
+                                                "maxDrop=${decoderCounters.maxConsecutiveDroppedBufferCount}",
+                                    ),
+                            ),
+                    )
+                }
+            }
+
+            override fun onAudioDisabled(
+                eventTime: AnalyticsListener.EventTime,
+                decoderCounters: DecoderCounters,
+            ) {
+                decoderCounters.ensureUpdated()
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(
+                                        codecResetCount =
+                                            maxOf(
+                                                it.diagnostics.outputEvidence.codecResetCount,
+                                                decoderCounters.decoderReleaseCount,
+                                            ),
+                                    ),
+                            ),
+                    )
+                }
+            }
+
+            override fun onVideoFrameProcessingOffset(
+                eventTime: AnalyticsListener.EventTime,
+                totalProcessingOffsetUs: Long,
+                frameCount: Int,
+            ) {
+                if (frameCount <= 0) return
+                val averageOffsetUs = totalProcessingOffsetUs / frameCount
+                _state.update {
+                    it.copy(
+                        diagnostics =
+                            it.diagnostics.copy(
+                                outputEvidence =
+                                    it.diagnostics.outputEvidence.copy(
+                                        rendererDetail = "MediaCodec avgOffset=${averageOffsetUs}us",
+                                    ),
                             ),
                     )
                 }
@@ -529,8 +924,7 @@ class ExoVideoEngine(
                 mediaItem: MediaItem?,
                 reason: Int,
             ) {
-                currentVideoFormat = null
-                renderedFirstFrame = false
+                clearActiveOutputEvidence()
                 val previousState = _state.value
                 val index = player.currentMediaItemIndex
                 val item = items.getOrNull(index)
@@ -565,7 +959,15 @@ class ExoVideoEngine(
                                 decoder = it.diagnostics.decoder,
                                 item = item,
                                 transcoding = transcoding,
-                            ).copy(fallbackReason = preservedFallbackReason),
+                            ).copy(
+                                fallbackReason = preservedFallbackReason,
+                                outputEvidence =
+                                    previousState.diagnostics.outputEvidence.nextSession().copy(
+                                        videoConfidence = PlaybackEvidenceConfidence.Requested,
+                                        audioConfidence = PlaybackEvidenceConfidence.Requested,
+                                        renderApi = PlaybackVideoRenderApi.MediaCodecSurface,
+                                    ),
+                            ),
                     )
                 }
             }
@@ -600,6 +1002,9 @@ class ExoVideoEngine(
                     causes
                         .filterIsInstance<InvalidHlsManifestResponseException>()
                         .firstOrNull()
+                val failedRendererMime =
+                    (error as? ExoPlaybackException)?.rendererFormat?.sampleMimeType
+                        ?: currentAudioFormat?.sampleMimeType
                 rememberPlaybackFailure(index, error, httpCause, invalidHlsCause)
                 val failedUrl = httpCause?.dataSpec?.uri?.toString()
                 AppLog.error(
@@ -672,7 +1077,12 @@ class ExoVideoEngine(
                     PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
                     PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
                     ->
-                        if (!switchToTranscode()) {
+                        if (failedRendererMime.requiresExoDolbyAudioSafetyFallback()) {
+                            failPlayback(
+                                "Exo 的 ${failedRendererMime.orEmpty()} 音频路径失败，交给本地兼容内核安全解码",
+                                kind = PlaybackFailureKind.AudioSink,
+                            )
+                        } else if (!switchToTranscode()) {
                             failPlayback(
                                 "当前视频无法解码，且服务器未提供可用转码流",
                                 kind = PlaybackFailureKind.Decoder,
@@ -732,6 +1142,8 @@ class ExoVideoEngine(
                 mapOf(
                     "frameRateMatch" to frameRateMatchMode.toString(),
                     "audioPassthrough" to audioPassthroughMode.toString(),
+                    "mpegTsHdmvDts" to "true",
+                    "mpegTsTimestampSearchBytes" to MPEG_TS_TIMESTAMP_SEARCH_BYTES.toString(),
                 ),
         )
         player.addListener(listener)
@@ -791,6 +1203,14 @@ class ExoVideoEngine(
         player.pause()
     }
 
+    override fun prepareForHandover() {
+        player.pause()
+        // Prevent the outgoing AudioTrack and Surface from overlapping their replacements during
+        // the short interval between Compose creating the new engine and disposing this one.
+        player.volume = 0f
+        player.clearVideoSurface()
+    }
+
     override fun seekTo(positionMs: Long) {
         player.seekTo(positionMs)
         _state.update {
@@ -841,6 +1261,7 @@ class ExoVideoEngine(
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
         failureHistory.remove(index)
+        clearActiveOutputEvidence()
         _state.update {
             it.copy(
                 error = null,
@@ -849,6 +1270,7 @@ class ExoVideoEngine(
                 ended = false,
                 transcoding = index in transcodedIndices,
                 fallbacksExhausted = false,
+                diagnostics = resetOutputDiagnostics(it.diagnostics),
             )
         }
         player.seekToDefaultPosition(index)
@@ -858,6 +1280,7 @@ class ExoVideoEngine(
     override fun currentPositionMs(): Long = player.currentPosition
 
     override fun retry() {
+        clearActiveOutputEvidence()
         _state.update {
             it.copy(
                 error = null,
@@ -865,6 +1288,7 @@ class ExoVideoEngine(
                 bufferedPositionMs = it.positionMs,
                 ended = false,
                 automaticFallbackBlocked = false,
+                diagnostics = resetOutputDiagnostics(it.diagnostics),
             )
         }
         player.prepare()
@@ -1072,6 +1496,7 @@ class ExoVideoEngine(
         transcodedIndices += index
         val position = player.currentPosition
         val fallbackReason = failureChainReason(index, reason ?: "直放失败，已切换服务器转码")
+        clearActiveOutputEvidence()
         _state.update {
             it.copy(
                 error = null,
@@ -1150,6 +1575,7 @@ class ExoVideoEngine(
         progressiveTransitionIndices += index
         val position = player.currentPosition
         val fallbackReason = failureChainReason(index, "HLS 转码不可用，已改用 MP4 转码")
+        clearActiveOutputEvidence()
         _state.update {
             it.copy(
                 error = null,
@@ -1237,7 +1663,14 @@ class ExoVideoEngine(
         val nextAttempt = attempted + 1
         retryCounts[key] = nextAttempt
         retryJob?.cancel()
-        _state.update { it.copy(error = null, buffering = true) }
+        clearActiveOutputEvidence()
+        _state.update {
+            it.copy(
+                error = null,
+                buffering = true,
+                diagnostics = resetOutputDiagnostics(it.diagnostics),
+            )
+        }
         AppLog.info(
             category = "player.exo",
             event = "playback_retry_scheduled",
@@ -1337,4 +1770,34 @@ private fun String.isSoftwareVideoDecoder(): Boolean {
         normalized.startsWith("c2.android.") ||
         normalized.contains("ffmpeg") ||
         normalized.contains("software")
+}
+
+/**
+ * Keeps explicit decoder choices deterministic without making a device-specific codec list stale.
+ * MediaCodecUtil has already applied Android's secure/tunnel and platform compatibility filters;
+ * this final pass only honours the user's requested implementation class.
+ */
+internal fun <T> preferExoDecoderMode(
+    decoders: List<T>,
+    decoderMode: DecoderMode,
+    isSoftwareOnly: (T) -> Boolean,
+): List<T> =
+    when (decoderMode) {
+        DecoderMode.Software -> decoders.filter(isSoftwareOnly).ifEmpty { decoders }
+        DecoderMode.Hardware -> decoders.filterNot(isSoftwareOnly).ifEmpty { decoders }
+        DecoderMode.Auto -> decoders
+    }
+
+@UnstableApi
+private fun Format.exoSecureDecoderActive(decoderName: String): Boolean {
+    val mimeType = sampleMimeType ?: return false
+    if (drmInitData == null) return false
+    val secureDecoderNames =
+        runCatching {
+            MediaCodecUtil
+                .getDecoderInfos(mimeType, true, false)
+                .mapTo(hashSetOf()) { it.name.lowercase() }
+        }.getOrDefault(emptySet())
+    return decoderName.lowercase() in secureDecoderNames ||
+        decoderName.contains("secure", ignoreCase = true)
 }

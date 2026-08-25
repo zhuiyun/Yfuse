@@ -16,6 +16,10 @@ enum class PlayerEngine(
     ;
 
     companion object {
-        val selectable: List<PlayerEngine> get() = entries.filter { it.available }
+        val selectable: List<PlayerEngine>
+            get() = entries.filter { it.available && it in bundledPlayerEngines() }
     }
 }
+
+/** Package-profile boundary: compact Android packages deliberately omit MDK. */
+expect fun bundledPlayerEngines(): Set<PlayerEngine>

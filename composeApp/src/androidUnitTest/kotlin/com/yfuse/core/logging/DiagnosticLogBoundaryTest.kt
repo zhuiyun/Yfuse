@@ -70,7 +70,7 @@ class DiagnosticLogBoundaryTest {
     fun fingerprint_history_never_exceeds_capacity_and_evicts_oldest() {
         val history = BoundedDiagnosticFingerprintHistory()
 
-        repeat(DiagnosticMaxFingerprints + 1) { index ->
+        repeat(DIAGNOSTIC_MAX_FINGERPRINTS + 1) { index ->
             assertFalse(
                 history.record(
                     fingerprint = "fingerprint-$index",
@@ -81,10 +81,10 @@ class DiagnosticLogBoundaryTest {
             )
         }
 
-        assertEquals(DiagnosticMaxFingerprints, history.size)
+        assertEquals(DIAGNOSTIC_MAX_FINGERPRINTS, history.size)
         assertFalse(history.contains("fingerprint-0"))
         assertTrue(history.contains("fingerprint-1"))
-        assertTrue(history.contains("fingerprint-$DiagnosticMaxFingerprints"))
+        assertTrue(history.contains("fingerprint-$DIAGNOSTIC_MAX_FINGERPRINTS"))
     }
 
     @Test

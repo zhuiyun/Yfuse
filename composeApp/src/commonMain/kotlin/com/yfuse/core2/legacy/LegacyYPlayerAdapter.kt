@@ -14,6 +14,8 @@ import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.PlaybackOutputReadiness
 import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.VideoEngine
+import com.yfuse.feature.player.effectiveAudioReadiness
+import com.yfuse.feature.player.effectiveVideoReadiness
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
@@ -118,11 +120,18 @@ private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerSta
                 dynamicRange = diagnostics.dynamicRange,
                 videoOutput = diagnostics.videoOutput,
                 audioOutput = diagnostics.audioOutput,
-                videoOutputVerified = diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering,
-                audioOutputVerified = diagnostics.audioReadiness == PlaybackOutputReadiness.Rendering,
+                videoOutputVerified =
+                    diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
+                audioOutputVerified =
+                    diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering,
                 dolbyVisionOutput = diagnostics.dolbyVisionOutput,
                 dolbyAtmosOutput = diagnostics.dolbyAtmosOutput,
+                droppedFrames = diagnostics.droppedFrames,
+                droppedFramesMeasured = diagnostics.outputEvidence.droppedFramesMeasured,
+                codecResetCount = diagnostics.outputEvidence.codecResetCount,
+                audioUnderrunCount = diagnostics.outputEvidence.audioUnderrunCount,
                 avSyncOffsetMs = diagnostics.avSyncOffsetMs,
+                avSyncMeasured = diagnostics.outputEvidence.avSyncMeasured,
                 avSyncMeasurement = diagnostics.avSyncMeasurement,
                 reason = diagnostics.planningReason ?: diagnostics.fallbackReason,
             ),

@@ -24,7 +24,9 @@ import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.di.appModule
+import com.yfuse.feature.player.AndroidNativeCrashMonitor
 import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
+import com.yfuse.feature.player.PlaybackDiagnosticReportRegistry
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.player.notifyPlaybackAppBackground
@@ -61,6 +63,10 @@ class YfuseApp :
         val diagnosticPreferences = DiagnosticPreferences(settings)
         SafeLogcatOutputGate.initialize(diagnosticPreferences)
         DiagnosticLogStore.initialize(this)
+        // Native tombstones are available only after the dead process restarts. Consume the
+        // previous exit before constructing any new playback backend.
+        AndroidNativeCrashMonitor.initialize(this)
+        PlaybackDiagnosticReportRegistry.initialize(this)
         AppLog.info("app", "initializing", "Initializing application dependencies")
         val koinApplication =
             startKoin {

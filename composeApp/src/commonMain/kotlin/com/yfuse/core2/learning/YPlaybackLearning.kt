@@ -131,6 +131,20 @@ class YPlaybackLearningEngine(
             } else {
                 0.0
             }
+        if (
+            record.attempts >= QUALITY_ATTEMPTS_TO_AVOID &&
+            (
+                record.codecResets >= CODEC_RESETS_TO_AVOID ||
+                    record.audioUnderruns >= UNDERRUNS_TO_AVOID ||
+                    record.maximumAbsoluteAvDriftMs >= AV_DRIFT_TO_AVOID_MS ||
+                    (
+                        record.playedDurationMs >= QUALITY_DURATION_TO_AVOID_MS &&
+                            dropRate >= DROPPED_FRAMES_PER_SECOND_TO_AVOID
+                    )
+            )
+        ) {
+            return YLearnedRouteAdvice.Avoid
+        }
         return if (
             record.codecResets > 0L ||
             record.audioUnderruns >= UNDERRUNS_TO_PENALIZE ||
@@ -150,6 +164,12 @@ private fun Long.saturatedAdd(value: Long): Long =
     if (value > 0L && this > Long.MAX_VALUE - value) Long.MAX_VALUE else this + value
 
 private const val FAILURES_TO_AVOID = 3
+private const val QUALITY_ATTEMPTS_TO_AVOID = 3
 private const val UNDERRUNS_TO_PENALIZE = 3L
+private const val UNDERRUNS_TO_AVOID = 12L
+private const val CODEC_RESETS_TO_AVOID = 3L
 private const val AV_DRIFT_TO_PENALIZE_MS = 250L
+private const val AV_DRIFT_TO_AVOID_MS = 1_000L
 private const val DROPPED_FRAMES_PER_SECOND_TO_PENALIZE = 1.0
+private const val DROPPED_FRAMES_PER_SECOND_TO_AVOID = 3.0
+private const val QUALITY_DURATION_TO_AVOID_MS = 180_000L

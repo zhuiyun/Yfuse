@@ -53,6 +53,84 @@ enum class PlaybackOutputReadiness {
     val verifiable: Boolean get() = this != Unknown
 }
 
+/** Strength of a backend claim. Policy may trust [Confirmed], but never promote metadata alone. */
+enum class PlaybackEvidenceConfidence {
+    Unknown,
+    Requested,
+    Compatible,
+    Confirmed,
+    Failed,
+}
+
+enum class PlaybackVideoRenderApi {
+    Unknown,
+    AndroidSurface,
+    MediaCodecSurface,
+    OpenGl,
+    Vulkan,
+}
+
+/**
+ * Verified dynamic-range result of the active video output.
+ *
+ * This deliberately does not contain a generic "Dolby compatible" value. A backend reports only
+ * the output path it can prove; source metadata and the route requested by the planner are not
+ * output evidence.
+ */
+enum class PlaybackDynamicRangeOutputMode {
+    Unknown,
+    DolbyVisionMediaCodec,
+    Hdr10BaseLayer,
+    HdrToSdrToneMapped,
+}
+
+enum class PlaybackAudioOutputMode {
+    Unknown,
+    Pcm,
+    Passthrough,
+    Offload,
+    Tunnel,
+}
+
+/**
+ * Backend-neutral machine evidence. Human labels remain in [PlaybackDiagnostics], while routing,
+ * badges and failure detection consume this structure. A positive [sessionRevision] identifies one
+ * load attempt; callbacks from an older revision must not be merged into a newer attempt.
+ */
+data class PlaybackOutputEvidence(
+    val sessionRevision: Long = 0L,
+    val videoReadiness: PlaybackOutputReadiness = PlaybackOutputReadiness.Waiting,
+    val audioReadiness: PlaybackOutputReadiness = PlaybackOutputReadiness.Waiting,
+    val videoConfidence: PlaybackEvidenceConfidence = PlaybackEvidenceConfidence.Unknown,
+    val audioConfidence: PlaybackEvidenceConfidence = PlaybackEvidenceConfidence.Unknown,
+    val videoDecoder: String = "",
+    val audioDecoder: String = "",
+    val videoCodecProfile: String = "",
+    val bitDepth: Int = 0,
+    val inputDynamicRange: String = "",
+    val outputDynamicRange: String = "",
+    val dynamicRangeOutputMode: PlaybackDynamicRangeOutputMode =
+        PlaybackDynamicRangeOutputMode.Unknown,
+    /** MPV/libplacebo facts emitted only after the corresponding frame completed rendering. */
+    val dolbyVisionRpuRendered: Boolean = false,
+    val dolbyVisionFelComposed: Boolean = false,
+    val renderApi: PlaybackVideoRenderApi = PlaybackVideoRenderApi.Unknown,
+    val audioMode: PlaybackAudioOutputMode = PlaybackAudioOutputMode.Unknown,
+    val secureDecoder: Boolean = false,
+    val tunneledPlayback: Boolean = false,
+    val codecResetCount: Int = 0,
+    val surfaceRebuildCount: Int = 0,
+    val audioUnderrunCount: Int = 0,
+    val droppedFramesMeasured: Boolean = false,
+    val avSyncMeasured: Boolean = false,
+    val displayRefreshRate: Float = 0f,
+    val mistimedFrameCount: Int = 0,
+    val rendererDetail: String = "",
+)
+
+internal fun PlaybackOutputEvidence.nextSession(): PlaybackOutputEvidence =
+    PlaybackOutputEvidence(sessionRevision = sessionRevision + 1L)
+
 data class PlaybackDiagnostics(
     val engine: String = "",
     val decoder: String = "等待视频轨道",
@@ -111,7 +189,19 @@ data class PlaybackDiagnostics(
     val bufferedDurationMs: Long = 0L,
     val bufferEvents: Int = 0,
     val networkBitsPerSecond: Long = 0L,
+    /** Machine-readable evidence for the current load attempt. */
+    val outputEvidence: PlaybackOutputEvidence = PlaybackOutputEvidence(),
 )
+
+internal val PlaybackDiagnostics.effectiveVideoReadiness: PlaybackOutputReadiness
+    get() =
+        outputEvidence.videoReadiness.takeIf { outputEvidence.sessionRevision > 0L }
+            ?: videoReadiness
+
+internal val PlaybackDiagnostics.effectiveAudioReadiness: PlaybackOutputReadiness
+    get() =
+        outputEvidence.audioReadiness.takeIf { outputEvidence.sessionRevision > 0L }
+            ?: audioReadiness
 
 enum class VideoScaleMode(
     val label: String,
@@ -218,6 +308,11 @@ interface VideoEngine {
     fun play()
 
     fun pause()
+
+    /** Quiets the outgoing backend before Compose constructs its replacement. */
+    fun prepareForHandover() {
+        pause()
+    }
 
     fun seekTo(positionMs: Long)
 

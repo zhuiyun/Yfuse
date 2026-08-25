@@ -65,21 +65,34 @@ data class PlaybackOutputCapabilities(
          * Backend/API support matrix, independent from the currently attached display/audio route.
          *
          * Android 11 can only request the effectively-seamless two-argument Surface API. Android
-         * 12 added the explicit non-seamless strategy used by [FrameRateMatchMode.Always]. MDK is
-         * intentionally unsupported until its bundled API exposes a verifiable equivalent.
+         * 12 added the explicit non-seamless strategy used by [FrameRateMatchMode.Always]. MDK
+         * uses the same Android Surface API; its audio sink remains unverifiable.
          */
         fun forEngine(
             engine: PlayerEngine,
             androidApiLevel: Int,
         ): PlaybackOutputCapabilities {
             if (engine == PlayerEngine.Mdk) {
-                val unsupported =
+                val audioUnsupported =
                     PlaybackFeatureCapability.Unsupported(
                         PlaybackOutputUnsupportedReason.BackendApiNotVerified,
                     )
+                val frameRateMatching =
+                    when {
+                        androidApiLevel < ANDROID_FRAME_RATE_API ->
+                            PlaybackFeatureCapability.Unsupported(
+                                PlaybackOutputUnsupportedReason.PlatformApiTooOld,
+                            )
+                        androidApiLevel == ANDROID_FRAME_RATE_API ->
+                            PlaybackFeatureCapability.Available(setOf(FrameRateMatchMode.SeamlessOnly))
+                        else ->
+                            PlaybackFeatureCapability.Available(
+                                setOf(FrameRateMatchMode.SeamlessOnly, FrameRateMatchMode.Always),
+                            )
+                    }
                 return PlaybackOutputCapabilities(
-                    frameRateMatching = unsupported,
-                    audioPassthrough = unsupported,
+                    frameRateMatching = frameRateMatching,
+                    audioPassthrough = audioUnsupported,
                 )
             }
 

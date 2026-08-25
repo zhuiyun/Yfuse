@@ -62,6 +62,30 @@ class YPlaybackLearningTest {
         assertEquals(YLearnedRouteAdvice.Penalize, engine.advice(key()))
     }
 
+    @Test
+    fun `repeated severe measured degradation avoids only the exact route`() {
+        repeat(3) {
+            now++
+            engine.record(
+                key(),
+                YPlaybackObservation(
+                    rendered = true,
+                    playedDurationMs = 60_000L,
+                    droppedFrames = 240,
+                    codecResets = 1,
+                    audioUnderruns = 4,
+                    maximumAbsoluteAvDriftMs = 1_200L,
+                ),
+            )
+        }
+
+        assertEquals(YLearnedRouteAdvice.Avoid, engine.advice(key()))
+        assertEquals(
+            YLearnedRouteAdvice.Allow,
+            engine.advice(key().copy(decoderName = "c2.other.hevc")),
+        )
+    }
+
     private fun key() =
         YPlaybackLearningKey(
             route = YPlaybackRoute.NativeTunnel,

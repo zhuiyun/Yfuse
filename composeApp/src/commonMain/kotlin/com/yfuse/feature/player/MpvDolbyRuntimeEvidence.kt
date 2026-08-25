@@ -46,6 +46,8 @@ internal object MpvDolbyRuntimeEvidenceRegistry {
 /** Native evidence is meaningful only after mpv has actually established video output. */
 internal fun PlaybackDiagnostics.mpvDolbyRuntimeEvidence(): MpvDolbyRuntimeEvidence {
     if (!engine.contains("mpv", ignoreCase = true)) return MpvDolbyRuntimeEvidence.None
-    if (videoReadiness != PlaybackOutputReadiness.Rendering) return MpvDolbyRuntimeEvidence.None
+    if (effectiveVideoReadiness != PlaybackOutputReadiness.Rendering) {
+        return MpvDolbyRuntimeEvidence.None
+    }
     return MpvDolbyRuntimeEvidenceRegistry.current()
 }

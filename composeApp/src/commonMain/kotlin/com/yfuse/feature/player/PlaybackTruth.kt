@@ -35,7 +35,8 @@ internal fun PlayerMediaVersion.dolbyVisionP7Output(diagnostics: PlaybackDiagnos
             sourceRpuPresent = sourceDolbyRpuPresent,
             sourceEnhancementLayerPresent = sourceDolbyEnhancementLayerPresent,
             sourceBaseLayerPresent = sourceDolbyBaseLayerPresent,
-            outputBaseLayerDecoded = diagnostics.videoReadiness == PlaybackOutputReadiness.Rendering,
+            outputBaseLayerDecoded =
+                diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
             outputRpuApplied = diagnostics.dolbyVisionRpuApplied || mpvEvidence.rpuRendered,
             outputEnhancementLayerComposed =
                 diagnostics.dolbyVisionEnhancementLayerComposed || mpvEvidence.felComposed,

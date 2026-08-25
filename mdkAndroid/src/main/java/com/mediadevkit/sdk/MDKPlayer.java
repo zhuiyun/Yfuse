@@ -12,6 +12,11 @@ import android.view.SurfaceView;
  * preference, track selection, media status and aspect-ratio mode.
  */
 public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
+    /** Called from an MDK worker thread; consumers must hand off UI work to their own dispatcher. */
+    public interface Listener {
+        void onNativeEvent(long revision);
+    }
+
     public static final int STATE_STOPPED = 0;
     public static final int STATE_PLAYING = 1;
     public static final int STATE_PAUSED = 2;
@@ -72,6 +77,25 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
 
     public synchronized int videoHeight() {
         return nativePtr == 0 ? 0 : nativeVideoHeight(nativePtr);
+    }
+
+    /**
+     * Runtime facts reported by MDK itself. The array is intentionally kept as a stable JNI wire
+     * format so the app can evolve its diagnostics without coupling the SDK facade to Kotlin.
+     * A rendered-first-frame event is output evidence; codec/color fields are source facts only.
+     */
+    public synchronized String[] playbackEvidence() {
+        return nativePtr == 0 ? new String[0] : nativePlaybackEvidence(nativePtr);
+    }
+
+    /** Runtime libmdk version encoded as 0x00MMmmpp by MDK_version(). */
+    public static int runtimeVersion() {
+        return nativeVersion();
+    }
+
+    /** Installs one conflatable runtime-event listener. Passing null removes it. */
+    public synchronized void setListener(Listener listener) {
+        if (nativePtr != 0) nativeSetListener(nativePtr, listener);
     }
 
     public synchronized void seek(long positionMs) {
@@ -172,6 +196,7 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
             surfaceHolder = null;
         }
         nativeSetSurface(nativePtr, null, 0, 0);
+        nativeSetListener(nativePtr, null);
         nativeDestroy(nativePtr);
         nativePtr = 0;
     }
@@ -187,6 +212,9 @@ public final class MDKPlayer implements SurfaceHolder.Callback, AutoCloseable {
     private static native int nativeMediaStatus(long ptr);
     private static native String nativeLastError(long ptr);
     private static native int nativeVideoHeight(long ptr);
+    private static native String[] nativePlaybackEvidence(long ptr);
+    private static native int nativeVersion();
+    private static native void nativeSetListener(long ptr, Listener listener);
     private static native void nativeSeek(long ptr, long positionMs);
     private static native void nativeSetPlaybackRate(long ptr, float rate);
     private static native float nativePlaybackRate(long ptr);

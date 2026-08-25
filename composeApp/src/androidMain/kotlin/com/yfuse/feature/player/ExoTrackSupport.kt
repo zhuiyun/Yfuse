@@ -179,15 +179,26 @@ internal fun Format.trackQualifier(type: Int): String? {
 }
 
 @UnstableApi
-internal fun Format.dynamicRangeLabel(): String =
+internal fun Format.dynamicRangeLabel(sourceHint: String? = null): String =
     when {
         sampleMimeType.equals("video/dolby-vision", ignoreCase = true) -> "Dolby Vision"
         codecs.orEmpty().contains("dvhe", ignoreCase = true) ||
             codecs.orEmpty().contains("dvh1", ignoreCase = true) -> "Dolby Vision"
+        colorInfo?.colorTransfer == C.COLOR_TRANSFER_ST2084 &&
+            sourceHint.orEmpty().contains("HDR10+", ignoreCase = true) -> "HDR10+ / PQ"
         colorInfo?.colorTransfer == C.COLOR_TRANSFER_ST2084 -> "HDR10 / PQ"
         colorInfo?.colorTransfer == C.COLOR_TRANSFER_HLG -> "HLG"
         colorInfo != null -> "SDR"
         else -> ""
+    }
+
+internal fun String?.requiresExoDolbyAudioSafetyFallback(): Boolean =
+    when (this?.lowercase()) {
+        "audio/true-hd",
+        "audio/eac3",
+        "audio/eac3-joc",
+        -> true
+        else -> false
     }
 
 internal fun Format.audioFormatLabel(): String {

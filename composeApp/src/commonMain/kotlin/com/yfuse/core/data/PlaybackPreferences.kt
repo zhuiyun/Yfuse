@@ -162,13 +162,18 @@ class PlaybackPreferences(
 
     private val _engineSelection =
         MutableStateFlow(
-            enumSetting(KEY_ENGINE_SELECTION, PlaybackEngineSelection.Auto),
+            enumSetting(KEY_ENGINE_SELECTION, PlaybackEngineSelection.Auto)
+                .takeIf { it in PlaybackEngineSelection.selectable }
+                ?: PlaybackEngineSelection.Auto,
         )
     val engineSelection: StateFlow<PlaybackEngineSelection> = _engineSelection.asStateFlow()
 
     fun setEngineSelection(selection: PlaybackEngineSelection) {
-        _engineSelection.value = selection
-        settings.putString(KEY_ENGINE_SELECTION, selection.name)
+        val available =
+            selection.takeIf { it in PlaybackEngineSelection.selectable }
+                ?: PlaybackEngineSelection.Auto
+        _engineSelection.value = available
+        settings.putString(KEY_ENGINE_SELECTION, available.name)
     }
 
     private val _core2TrialEnabled =

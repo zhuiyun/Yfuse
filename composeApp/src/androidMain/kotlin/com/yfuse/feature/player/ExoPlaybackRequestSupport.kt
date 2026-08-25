@@ -59,10 +59,31 @@ internal fun exoMediaItem(
             .Builder()
             .setUri(playbackUrl)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
+    exoContainerMimeType(
+        declaredContainer = item.activeVersion?.container,
+        playbackUrl = playbackUrl,
+        originalStream = playbackUrl == item.url,
+    )?.let(builder::setMimeType)
     playbackDrmConfiguration(item, playbackUrl)
         ?.let { builder.setDrmConfiguration(it.toMedia3Configuration()) }
     offlineSubtitleConfiguration(item)?.let { builder.setSubtitleConfigurations(listOf(it)) }
     return builder.build()
+}
+
+/** Forces the progressive TS extractor when a resolved server URL has no useful extension. */
+internal fun exoContainerMimeType(
+    declaredContainer: String?,
+    playbackUrl: String,
+    originalStream: Boolean,
+): String? {
+    val path = playbackUrl.substringBefore('?').substringBefore('#').lowercase()
+    if (path.endsWith(".m3u8") || path.endsWith(".mpd")) return null
+    val urlIsTs = path.endsWith(".ts") || path.endsWith(".m2ts") || path.endsWith(".mts")
+    val declaredIsTs =
+        declaredContainer
+            ?.trim()
+            ?.lowercase() in setOf("ts", "m2ts", "mts", "mpegts", "mpeg-ts")
+    return MimeTypes.VIDEO_MP2T.takeIf { urlIsTs || (originalStream && declaredIsTs) }
 }
 
 /** Original-stream keys must never be forwarded to an independently encrypted server transcode. */

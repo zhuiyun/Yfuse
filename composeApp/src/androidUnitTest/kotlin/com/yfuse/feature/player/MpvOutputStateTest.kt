@@ -46,4 +46,12 @@ class MpvOutputStateTest {
         assertEquals("FFmpeg 软件解码", mpvDecoderDiagnostic("no"))
         assertEquals("FFmpeg 软件解码", mpvDecoderDiagnostic(null))
     }
+
+    @Test
+    fun mpv_pixel_formats_report_output_bit_depth_without_claiming_unknown_formats() {
+        assertEquals(10, "p010".mpvPixelFormatBitDepth())
+        assertEquals(12, "yuv420p12le".mpvPixelFormatBitDepth())
+        assertEquals(8, "nv12".mpvPixelFormatBitDepth())
+        assertEquals(0, "".mpvPixelFormatBitDepth())
+    }
 }

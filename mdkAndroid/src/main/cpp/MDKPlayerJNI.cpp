@@ -15,11 +15,19 @@ using namespace MDK_NS;
 
 namespace {
 
-struct ErrorState {
-    std::mutex eventMutex;
+JavaVM* gJavaVm = nullptr;
+
+struct RuntimeState {
+    std::mutex mutex;
     int lastError = 0;
     std::string lastErrorCategory;
     std::string lastErrorDetail;
+    bool firstVideoFrameRendered = false;
+    std::string videoDecoder;
+    std::string audioDecoder;
+    jobject listener = nullptr;
+    bool closed = false;
+    int64_t eventRevision = 0;
 };
 
 struct PlayerRef {
@@ -27,7 +35,7 @@ struct PlayerRef {
     jobject surface = nullptr;
     int selectedAudio = -1;
     int selectedSubtitle = 0;
-    std::shared_ptr<ErrorState> errors = std::make_shared<ErrorState>();
+    std::shared_ptr<RuntimeState> runtime = std::make_shared<RuntimeState>();
 };
 
 PlayerRef* ref(jlong ptr) {
@@ -63,6 +71,32 @@ std::string metadataValue(
 std::string cleanField(std::string value) {
     std::replace(value.begin(), value.end(), '\x1f', ' ');
     return value;
+}
+
+std::string safeString(const char* value) {
+    return value == nullptr ? std::string() : std::string(value);
+}
+
+std::string colorSpaceName(ColorSpace value) {
+    switch (value) {
+        case ColorSpaceBT709:
+            return "BT.709";
+        case ColorSpaceBT2100_PQ:
+            return "BT.2100 PQ";
+        case ColorSpaceSCRGB:
+            return "scRGB";
+        case ColorSpaceExtendedLinearDisplayP3:
+            return "Extended Linear Display P3";
+        case ColorSpaceExtendedSRGB:
+            return "Extended sRGB";
+        case ColorSpaceExtendedLinearSRGB:
+            return "Extended Linear sRGB";
+        case ColorSpaceBT2100_HLG:
+            return "BT.2100 HLG";
+        case ColorSpaceUnknown:
+        default:
+            return "Unknown";
+    }
 }
 
 template <typename Stream>
@@ -101,11 +135,52 @@ void clearSurface(JNIEnv* env, PlayerRef* value) {
     value->surface = nullptr;
 }
 
+void notifyRuntimeEvent(const std::shared_ptr<RuntimeState>& runtime) {
+    if (gJavaVm == nullptr) return;
+    JNIEnv* env = nullptr;
+    bool attached = false;
+    const auto status = gJavaVm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (status == JNI_EDETACHED) {
+        if (gJavaVm->AttachCurrentThread(&env, nullptr) != JNI_OK) return;
+        attached = true;
+    } else if (status != JNI_OK) {
+        return;
+    }
+
+    jobject listener = nullptr;
+    int64_t revision = 0;
+    {
+        std::lock_guard<std::mutex> lock(runtime->mutex);
+        if (!runtime->closed && runtime->listener != nullptr) {
+            listener = env->NewLocalRef(runtime->listener);
+            revision = runtime->eventRevision;
+        }
+    }
+    if (listener != nullptr) {
+        auto listenerClass = env->GetObjectClass(listener);
+        auto callback = env->GetMethodID(listenerClass, "onNativeEvent", "(J)V");
+        if (callback != nullptr) {
+            env->CallVoidMethod(listener, callback, static_cast<jlong>(revision));
+        }
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+        env->DeleteLocalRef(listenerClass);
+        env->DeleteLocalRef(listener);
+    }
+    if (attached) gJavaVm->DetachCurrentThread();
+}
+
 } // namespace
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
+    gJavaVm = vm;
     SetGlobalOption("JavaVM", reinterpret_cast<void*>(vm));
     SetGlobalOption("log", LogLevel::Warning);
+    // Ask MDK's Android renderer to negotiate the matching EGL colorspace and forward HDR
+    // metadata when the display chain supports it. Runtime diagnostics still distinguish this
+    // request from proof that Dolby Vision actually reached the display.
+    SetGlobalOption("videoout.hdr", 1);
     return JNI_VERSION_1_6;
 }
 
@@ -114,15 +189,30 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeCreate(JNIEnv*, jclass) {
     auto* value = new PlayerRef();
     value->player->setTimeout(20'000);
     value->player->setProperty("subtitle", "1");
-    const auto errors = value->errors;
-    value->player->onEvent([errors](const MediaEvent& event) {
-        if (event.error == 0 || event.category == "reader.buffering") {
-            return false;
+    const auto runtime = value->runtime;
+    value->player->onEvent([runtime](const MediaEvent& event) {
+        {
+            std::lock_guard<std::mutex> lock(runtime->mutex);
+            if (runtime->closed) return false;
+            if (event.category == "render.video" && event.detail == "1st_frame") {
+                runtime->firstVideoFrameRendered = true;
+            } else if (event.category == "decoder.video" && event.error == 0 &&
+                       event.detail != "open" && event.detail != "size") {
+                runtime->videoDecoder = event.detail;
+            } else if (event.category == "decoder.audio" && event.error == 0 &&
+                       event.detail != "open") {
+                runtime->audioDecoder = event.detail;
+            }
+            // Positive values carry event data (for example the first-frame timestamp or a thread
+            // state), while only negative values are failures in MDK's event contract.
+            if (event.error < 0 && event.category != "reader.buffering") {
+                runtime->lastError = static_cast<int>(event.error);
+                runtime->lastErrorCategory = event.category;
+                runtime->lastErrorDetail = event.detail;
+            }
+            ++runtime->eventRevision;
         }
-        std::lock_guard<std::mutex> lock(errors->eventMutex);
-        errors->lastError = event.error;
-        errors->lastErrorCategory.assign(event.category.data(), event.category.size());
-        errors->lastErrorDetail.assign(event.detail.data(), event.detail.size());
+        notifyRuntimeEvent(runtime);
         return false;
     });
     return reinterpret_cast<jlong>(value);
@@ -135,6 +225,14 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeDestroy(JNIEnv* env, jclass, jlong ptr)
         return;
     }
     clearSurface(env, value);
+    {
+        std::lock_guard<std::mutex> lock(value->runtime->mutex);
+        value->runtime->closed = true;
+        if (value->runtime->listener != nullptr) {
+            env->DeleteGlobalRef(value->runtime->listener);
+            value->runtime->listener = nullptr;
+        }
+    }
     value->player->set(State::Stopped);
     delete value;
 }
@@ -153,10 +251,14 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeSetMedia(
     value->selectedAudio = -1;
     value->selectedSubtitle = 0;
     {
-        std::lock_guard<std::mutex> lock(value->errors->eventMutex);
-        value->errors->lastError = 0;
-        value->errors->lastErrorCategory.clear();
-        value->errors->lastErrorDetail.clear();
+        std::lock_guard<std::mutex> lock(value->runtime->mutex);
+        value->runtime->lastError = 0;
+        value->runtime->lastErrorCategory.clear();
+        value->runtime->lastErrorDetail.clear();
+        value->runtime->firstVideoFrameRendered = false;
+        value->runtime->videoDecoder.clear();
+        value->runtime->audioDecoder.clear();
+        ++value->runtime->eventRevision;
     }
     if (url == nullptr) {
         value->player->setMedia(nullptr);
@@ -235,16 +337,17 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeLastError(JNIEnv* env, jclass, jlong pt
     if (value == nullptr) {
         return env->NewStringUTF("");
     }
-    std::lock_guard<std::mutex> lock(value->errors->eventMutex);
-    if (value->errors->lastError == 0 && value->errors->lastErrorCategory.empty() &&
-        value->errors->lastErrorDetail.empty()) {
+    std::lock_guard<std::mutex> lock(value->runtime->mutex);
+    if (value->runtime->lastError == 0 && value->runtime->lastErrorCategory.empty() &&
+        value->runtime->lastErrorDetail.empty()) {
         return env->NewStringUTF("");
     }
-    const auto details = std::to_string(value->errors->lastError) + " " +
-                         value->errors->lastErrorCategory + " " + value->errors->lastErrorDetail;
-    value->errors->lastError = 0;
-    value->errors->lastErrorCategory.clear();
-    value->errors->lastErrorDetail.clear();
+    const auto details = std::to_string(value->runtime->lastError) + " " +
+                         value->runtime->lastErrorCategory + " " +
+                         value->runtime->lastErrorDetail;
+    value->runtime->lastError = 0;
+    value->runtime->lastErrorCategory.clear();
+    value->runtime->lastErrorDetail.clear();
     return env->NewStringUTF(details.c_str());
 }
 
@@ -256,6 +359,77 @@ Java_com_mediadevkit_sdk_MDKPlayer_nativeVideoHeight(JNIEnv*, jclass, jlong ptr)
     }
     const auto& videos = value->mediaInfo().video;
     return videos.empty() ? 0 : videos.front().codec.height;
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_mediadevkit_sdk_MDKPlayer_nativePlaybackEvidence(JNIEnv* env, jclass, jlong ptr) {
+    auto* value = ref(ptr);
+    if (value == nullptr) {
+        return stringArray(env, {});
+    }
+
+    bool firstFrame = false;
+    std::string videoDecoder;
+    std::string audioDecoder;
+    int64_t eventRevision = 0;
+    {
+        std::lock_guard<std::mutex> lock(value->runtime->mutex);
+        firstFrame = value->runtime->firstVideoFrameRendered;
+        videoDecoder = value->runtime->videoDecoder;
+        audioDecoder = value->runtime->audioDecoder;
+        eventRevision = value->runtime->eventRevision;
+    }
+
+    const auto& info = value->player->mediaInfo();
+    const VideoCodecParameters* video =
+            info.video.empty() ? nullptr : &info.video.front().codec;
+    const AudioCodecParameters* audio =
+            info.audio.empty() ? nullptr : &info.audio.front().codec;
+    return stringArray(env, {
+            firstFrame ? "1" : "0",
+            videoDecoder,
+            audioDecoder,
+            video == nullptr ? "" : safeString(video->codec),
+            video == nullptr ? "" : safeString(video->format_name),
+            video == nullptr ? "0" : std::to_string(video->width),
+            video == nullptr ? "0" : std::to_string(video->height),
+            video == nullptr ? "0" : std::to_string(video->bit_rate),
+            video == nullptr ? "0" : std::to_string(video->frame_rate),
+            video == nullptr ? "Unknown" : colorSpaceName(video->color_space),
+            video == nullptr ? "0" : std::to_string(video->dovi_profile),
+            video == nullptr ? "-99" : std::to_string(video->profile),
+            audio == nullptr ? "" : safeString(audio->codec),
+            audio == nullptr ? "0" : std::to_string(audio->channels),
+            audio == nullptr ? "0" : std::to_string(audio->sample_rate),
+            audio == nullptr ? "0" : std::to_string(audio->bit_rate),
+            std::to_string(info.bit_rate),
+            std::to_string(eventRevision),
+            std::to_string(MDK_NS::version()),
+    });
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_mediadevkit_sdk_MDKPlayer_nativeVersion(JNIEnv*, jclass) {
+    return static_cast<jint>(MDK_NS::version());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_mediadevkit_sdk_MDKPlayer_nativeSetListener(
+        JNIEnv* env,
+        jclass,
+        jlong ptr,
+        jobject listener
+) {
+    auto* value = ref(ptr);
+    if (value == nullptr) return;
+    std::lock_guard<std::mutex> lock(value->runtime->mutex);
+    if (value->runtime->listener != nullptr) {
+        env->DeleteGlobalRef(value->runtime->listener);
+        value->runtime->listener = nullptr;
+    }
+    if (!value->runtime->closed && listener != nullptr) {
+        value->runtime->listener = env->NewGlobalRef(listener);
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL

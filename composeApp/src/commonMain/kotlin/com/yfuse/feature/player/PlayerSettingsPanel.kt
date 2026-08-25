@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -119,6 +120,7 @@ internal fun SettingsPanel(
     modifier: Modifier = Modifier,
 ) {
     var advancedPage by remember(kind) { mutableStateOf(AdvancedPage.Root) }
+    val discNavigationRevision by ActiveDiscNavigation.revision.collectAsState()
 
     PlayerPopupPanel(onDismiss = onDismiss, modifier = modifier) {
         // The list takes whatever height the drawer has left instead of the old fixed
@@ -511,7 +513,19 @@ internal fun SettingsPanel(
 
                         AdvancedPage.Playback -> {
                             PopupBackLabel("播放设置") { advancedPage = AdvancedPage.Root }
-                            val disc = state.discNavigation
+                            // Native HDMV state is richer than mpv's edition/chapter properties:
+                            // it owns menu/angle state and is pushed from libbluray callbacks.
+                            // Observing the revision above makes menu availability and activation
+                            // visible immediately without polling the native session.
+                            @Suppress("UNUSED_VARIABLE")
+                            val observedDiscNavigationRevision = discNavigationRevision
+                            val activeDisc = ActiveDiscNavigation.navigation
+                            val disc =
+                                if (ActiveDiscNavigation.isBound && activeDisc.available) {
+                                    activeDisc
+                                } else {
+                                    state.discNavigation
+                                }
                             if (disc.available) {
                                 GroupLabel("${disc.kind.label}导航")
                                 if (disc.effectiveTitleCount > 1) {

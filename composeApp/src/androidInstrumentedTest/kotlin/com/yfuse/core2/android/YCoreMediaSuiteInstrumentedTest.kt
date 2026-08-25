@@ -141,6 +141,51 @@ class YCoreMediaSuiteInstrumentedTest {
             }
         }
 
+    @Test
+    fun configured_long_running_soak_keeps_output_and_health_stable() =
+        runBlocking {
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            val arguments = InstrumentationRegistry.getArguments()
+            val mediaPath = arguments.getString(SOAK_MEDIA_ARGUMENT)
+            val durationMinutes = arguments.longArgument(SOAK_DURATION_MINUTES_ARGUMENT, 0L)
+            assumeTrue(
+                "Pass -e $SOAK_MEDIA_ARGUMENT <absolute-device-path> and " +
+                    "-e $SOAK_DURATION_MINUTES_ARGUMENT <minutes>",
+                !mediaPath.isNullOrBlank() && durationMinutes > 0L,
+            )
+            val mediaFile = File(requireNotNull(mediaPath)).canonicalFile
+            assertTrue("YCore soak media is missing", mediaFile.isFile)
+            val queueSoak = arguments.booleanArgument(SOAK_QUEUE_ARGUMENT, false)
+            val item =
+                YMediaItem(
+                    id = "configured-soak",
+                    uri = Uri.fromFile(mediaFile).toString(),
+                    title = "configured-soak",
+                )
+            exerciseCase(
+                context = instrumentation.targetContext,
+                testCase =
+                    YMediaTestCase(
+                        id = if (queueSoak) "soak-queue" else "soak-single-item",
+                        relativePath = mediaFile.name,
+                        videoCodec = "unknown",
+                        bitDepth = 8,
+                        frameRate = 1.0,
+                        container = mediaFile.extension,
+                        audioCodec = "unknown",
+                        height = 1,
+                        bitrateBitsPerSecond = 1L,
+                    ),
+                item = item,
+                verifyNextEpisode = queueSoak,
+                seekStartIteration = arguments.intArgument(SEEK_START_ARGUMENT, 0),
+                seekIterations = arguments.intArgument(SEEK_ITERATIONS_ARGUMENT, 0),
+                surfaceRecreationIterations = arguments.intArgument(SURFACE_ITERATIONS_ARGUMENT, 0),
+                soakDurationMs = durationMinutes * 60_000L,
+                soakQueue = queueSoak,
+            )
+        }
+
     private suspend fun exerciseCase(
         context: android.content.Context,
         testCase: YMediaTestCase,
@@ -149,6 +194,8 @@ class YCoreMediaSuiteInstrumentedTest {
         seekStartIteration: Int,
         seekIterations: Int,
         surfaceRecreationIterations: Int,
+        soakDurationMs: Long = 0L,
+        soakQueue: Boolean = false,
     ) {
         val request =
             YPlayerOpenRequest(
@@ -248,6 +295,41 @@ class YCoreMediaSuiteInstrumentedTest {
             }
             health.sample(player.state.value)
             reportProgress("${testCase.id}: completed background/foreground cycle")
+
+            if (soakDurationMs > 0L) {
+                val soakStartedAtMs = SystemClock.elapsedRealtime()
+                var nextProgressAtMs = SOAK_PROGRESS_INTERVAL_MS
+                while (SystemClock.elapsedRealtime() - soakStartedAtMs < soakDurationMs) {
+                    val soakState = player.state.value
+                    assertFalse(
+                        failureMessage("${testCase.id}:soak", soakState),
+                        soakState.phase == YPlaybackPhase.Failed,
+                    )
+                    if (soakState.phase == YPlaybackPhase.Ended) {
+                        awaitFreshVideoOutput(player, "${testCase.id}:soak-loop") {
+                            if (soakQueue && soakState.itemCount > 1) {
+                                player.selectItem(if (soakState.currentIndex == 0) 1 else 0)
+                            } else {
+                                player.seekTo(0L)
+                            }
+                            player.play()
+                        }
+                    } else {
+                        val remainingMs =
+                            (soakDurationMs - (SystemClock.elapsedRealtime() - soakStartedAtMs))
+                                .coerceAtLeast(0L)
+                        delay(minOf(SOAK_SAMPLE_INTERVAL_MS, remainingMs))
+                    }
+                    health.sample(player.state.value)
+                    val elapsedMs = SystemClock.elapsedRealtime() - soakStartedAtMs
+                    if (elapsedMs >= nextProgressAtMs || elapsedMs >= soakDurationMs) {
+                        reportProgress(
+                            "${testCase.id}: soak ${elapsedMs / 60_000L}/${soakDurationMs / 60_000L} minutes",
+                        )
+                        nextProgressAtMs += SOAK_PROGRESS_INTERVAL_MS
+                    }
+                }
+            }
 
             if (verifyNextEpisode) {
                 awaitFreshVideoOutput(player, "${testCase.id}:next-episode") {
@@ -616,6 +698,9 @@ private fun File.isInside(root: File): Boolean = path == root.path || path.start
 
 private const val MANIFEST_ARGUMENT = "ycoreMediaManifest"
 private const val SMOKE_MEDIA_ARGUMENT = "ycoreSmokeMedia"
+private const val SOAK_MEDIA_ARGUMENT = "ycoreSoakMedia"
+private const val SOAK_DURATION_MINUTES_ARGUMENT = "ycoreSoakDurationMinutes"
+private const val SOAK_QUEUE_ARGUMENT = "ycoreSoakQueue"
 private const val SEEK_START_ARGUMENT = "ycoreSeekStart"
 private const val SEEK_ITERATIONS_ARGUMENT = "ycoreSeekIterations"
 private const val SURFACE_ITERATIONS_ARGUMENT = "ycoreSurfaceIterations"
@@ -636,8 +721,27 @@ private const val PROGRESS_INTERVAL = 5
 private const val PROGRESS_STATUS_CODE = 2
 private const val RESULT_STATUS_CODE = 3
 private const val RESULT_BUNDLE_KEY = "ycoreResult"
+private const val SOAK_SAMPLE_INTERVAL_MS = 30_000L
+private const val SOAK_PROGRESS_INTERVAL_MS = 5L * 60_000L
 
 private fun Bundle.intArgument(
     key: String,
     defaultValue: Int,
 ): Int = getString(key)?.toIntOrNull()?.coerceAtLeast(0) ?: defaultValue
+
+private fun Bundle.longArgument(
+    key: String,
+    defaultValue: Long,
+): Long = getString(key)?.toLongOrNull()?.coerceIn(0L, MAX_SOAK_MINUTES) ?: defaultValue
+
+private fun Bundle.booleanArgument(
+    key: String,
+    defaultValue: Boolean,
+): Boolean =
+    when (getString(key)?.trim()?.lowercase()) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> defaultValue
+    }
+
+private const val MAX_SOAK_MINUTES = 48L * 60L

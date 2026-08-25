@@ -3,9 +3,11 @@ package com.yfuse.feature.player
 import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
+import com.yfuse.BuildConfig
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.playback.NativePlaybackComponent
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
 import com.yfuse.core.playback.PlaybackOptimizationMode
@@ -36,8 +38,31 @@ internal fun createVideoEngine(
     frameRateMatch: PlaybackFrameRateMatch = PlaybackFrameRateMatch.Disabled,
     dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
+    capabilitySignature: String = "unknown",
 ): VideoEngine {
-    if (core2TrialEnabled) {
+    val resolvedDecoderMode =
+        AndroidNativeCrashMonitor.safeDecoderMode(kind, decoderMode, capabilitySignature)
+    val yCoreAllowed =
+        core2TrialEnabled &&
+            !AndroidNativeCrashMonitor.isYCoreDemuxBlocked(decoderMode, capabilitySignature)
+    val component =
+        if (yCoreAllowed) {
+            NativePlaybackComponent.YCoreDemux
+        } else {
+            when (kind) {
+                PlayerEngine.Mpv -> NativePlaybackComponent.Mpv
+                PlayerEngine.Mdk -> NativePlaybackComponent.Mdk
+                PlayerEngine.Exo -> NativePlaybackComponent.Unknown
+            }
+        }
+    AndroidNativeCrashMonitor.arm(
+        component = component,
+        engine = kind,
+        decoderMode = resolvedDecoderMode,
+        capabilitySignature = capabilitySignature,
+        media = items.getOrNull(startIndex),
+    )
+    if (yCoreAllowed) {
         AndroidCore2TrialFactory
             .create(
                 context = context,
@@ -55,18 +80,36 @@ internal fun createVideoEngine(
 
     return when (kind) {
         PlayerEngine.Mdk ->
-            MdkVideoEngine(
-                items = items,
-                startIndex = startIndex,
-                startPositionMs = startPositionMs,
-                startPlaybackRequested = startPlaybackRequested,
-                startSpeed = startSpeed,
-                decoderMode = decoderMode,
-                autoNext = autoNext,
-                customUserAgent = customUserAgent,
-                scope = scope,
-                stopEncoding = stopEncoding,
-            )
+            if (BuildConfig.YFUSE_MDK_INCLUDED) {
+                MdkVideoEngine(
+                    items = items,
+                    startIndex = startIndex,
+                    startPositionMs = startPositionMs,
+                    startPlaybackRequested = startPlaybackRequested,
+                    startSpeed = startSpeed,
+                    decoderMode = resolvedDecoderMode,
+                    autoNext = autoNext,
+                    customUserAgent = customUserAgent,
+                    scope = scope,
+                    stopEncoding = stopEncoding,
+                )
+            } else {
+                ExoVideoEngine(
+                    context = context,
+                    items = items,
+                    startIndex = startIndex,
+                    startPositionMs = startPositionMs,
+                    startPlaybackRequested = startPlaybackRequested,
+                    startSpeed = startSpeed,
+                    scope = scope,
+                    decoderMode = resolvedDecoderMode,
+                    optimizationMode = optimizationMode,
+                    autoNext = autoNext,
+                    customUserAgent = customUserAgent,
+                    videoCacheBytes = videoCacheBytes,
+                    stopEncoding = stopEncoding,
+                )
+            }
 
         PlayerEngine.Mpv -> {
             val missingDiscCapability = missingNativeBluRayCapability(items, startIndex)
@@ -85,7 +128,7 @@ internal fun createVideoEngine(
                     startPositionMs = startPositionMs,
                     startPlaybackRequested = startPlaybackRequested,
                     startSpeed = startSpeed,
-                    decoderMode = decoderMode,
+                    decoderMode = resolvedDecoderMode,
                     autoNext = autoNext,
                     customUserAgent = customUserAgent,
                     scope = scope,
@@ -104,7 +147,7 @@ internal fun createVideoEngine(
                 startPlaybackRequested = startPlaybackRequested,
                 startSpeed = startSpeed,
                 scope = scope,
-                decoderMode = decoderMode,
+                decoderMode = resolvedDecoderMode,
                 optimizationMode = optimizationMode,
                 autoNext = autoNext,
                 customUserAgent = customUserAgent,

@@ -202,6 +202,10 @@ data class YPlayerDiagnostics(
     val audioCodec: String = "",
     val bitrateBitsPerSecond: Long = 0L,
     val droppedFrames: Int = 0,
+    /** True only when the active backend exposes a real renderer counter. */
+    val droppedFramesMeasured: Boolean = false,
+    val codecResetCount: Int = 0,
+    val audioUnderrunCount: Int = 0,
     /** Source/track metadata. Never use this field alone as proof of active HDR/DV output. */
     val dynamicRange: String = "",
     val videoOutput: String = "",
@@ -214,6 +218,7 @@ data class YPlayerDiagnostics(
     val dolbyAtmosOutput: Boolean = false,
     /** Video presentation timestamp minus the active audio/master clock. */
     val avSyncOffsetMs: Long? = null,
+    val avSyncMeasured: Boolean = avSyncOffsetMs != null,
     val avSyncMeasurement: String = "当前内核不可测",
     val reason: String? = null,
 )
