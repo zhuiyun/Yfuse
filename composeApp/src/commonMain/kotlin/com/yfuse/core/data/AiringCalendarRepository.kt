@@ -17,6 +17,8 @@ import com.yfuse.core.util.shiftIsoDate
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /**
  * 追剧日历 — what is broadcasting, and what this library can do about it.
@@ -42,6 +44,7 @@ class AiringCalendarRepository(
     )
 
     private val identityCatalogCache = mutableMapOf<String, IdentityCatalogSnapshot>()
+    private val libraryEpisodeRequests = Semaphore(LIBRARY_EPISODE_REQUEST_CONCURRENCY)
     fun diagnosticReport(days: List<CalendarDay>): String {
         val official = officialSchedules.diagnostics()
         val cache = scheduleCache.diagnostics()
@@ -325,9 +328,63 @@ class AiringCalendarRepository(
                 }
             }
 
-        // Episode lists are fetched once per series, not once per broadcast: a show
-        // contributes its last and next episode, which are usually the same season.
-        val episodesBySeries = mutableMapOf<String, Result<List<Episode>>>()
+        fun seriesIdFor(episode: AiringEpisode): String? {
+            val titleMatchedId =
+                titleIndex[normalizeIdentityTitle(episode.showTitle)]
+                    ?.singleOrNull()
+                    ?.itemId
+            return libraryHint
+                ?.takeIf { it.showTmdbId == episode.showTmdbId }
+                ?.seriesItemId
+                ?: index["tmdb:${episode.showTmdbId}"]
+                ?: identityResolver.mappedSeriesItemId(server.id, episode.showTmdbId)
+                ?: titleMatchedId?.also {
+                    identityResolver.remember(server.id, it, episode.showTmdbId)
+                }
+        }
+
+        // Fetch every matched series once with bounded concurrency. This used to happen
+        // inside episodes.map, which made remote Emby servers pay one full round trip after
+        // another and routinely exhausted the screen's 15-second deadline.
+        val seriesIdsByTmdbId =
+            episodes
+                .asSequence()
+                .filterNot(AiringEpisode::isMovie)
+                .distinctBy(AiringEpisode::showTmdbId)
+                .associate { it.showTmdbId to seriesIdFor(it) }
+        val episodesBySeries =
+            coroutineScope {
+                seriesIdsByTmdbId.values
+                    .filterNotNull()
+                    .distinct()
+                    .map { seriesId ->
+                        async {
+                            val result =
+                                libraryEpisodeRequests.withPermit {
+                                    libraryHint
+                                        ?.episodes
+                                        ?.takeIf { libraryHint.seriesItemId == seriesId && it.isNotEmpty() }
+                                        ?.let { Result.success(it) }
+                                        ?: emby.episodes(
+                                            server = server,
+                                            seriesId = seriesId,
+                                            seasonId = null,
+                                            includeMediaSources = false,
+                                        ).onFailure { error ->
+                                            AppLog.warning(
+                                                category = "feature.calendar",
+                                                event = "series_episodes_failed",
+                                                message = "Episode list failed for a series on the calendar",
+                                                throwable = error,
+                                                attributes = mapOf("seriesId" to seriesId),
+                                            )
+                                        }
+                                }
+                            seriesId to result
+                        }
+                    }.awaitAll()
+                    .toMap()
+            }
         return episodes.map { episode ->
             if (episode.isMovie) {
                 val hit = filmIndex["tmdb:${episode.showTmdbId}"]
@@ -368,19 +425,7 @@ class AiringCalendarRepository(
                             }.orEmpty(),
                 )
             }
-            val titleMatchedId =
-                titleIndex[normalizeIdentityTitle(episode.showTitle)]
-                    ?.singleOrNull()
-                    ?.itemId
-            val seriesId =
-                libraryHint
-                    ?.takeIf { it.showTmdbId == episode.showTmdbId }
-                    ?.seriesItemId
-                    ?: index["tmdb:${episode.showTmdbId}"]
-                    ?: identityResolver.mappedSeriesItemId(server.id, episode.showTmdbId)
-                    ?: titleMatchedId?.also {
-                        identityResolver.remember(server.id, it, episode.showTmdbId)
-                    }
+            val seriesId = seriesIdsByTmdbId[episode.showTmdbId]
             if (seriesId == null) {
                 // The show is not in the library at all, so no episode of it can be either.
                 return@map CalendarEntry(
@@ -388,22 +433,7 @@ class AiringCalendarRepository(
                     status = classifyAiring(match = null, episode = episode, today = today),
                 )
             }
-            val knownResult =
-                episodesBySeries.getOrPut(seriesId) {
-                    libraryHint
-                        ?.episodes
-                        ?.takeIf { it.isNotEmpty() }
-                        ?.let { Result.success(it) }
-                        ?: emby.episodes(server, seriesId, seasonId = null, includeMediaSources = true).onFailure { error ->
-                            AppLog.warning(
-                                category = "feature.calendar",
-                                event = "series_episodes_failed",
-                                message = "Episode list failed for a series on the calendar",
-                                throwable = error,
-                                attributes = mapOf("seriesId" to seriesId),
-                            )
-                        }
-                }
+            val knownResult = episodesBySeries[seriesId] ?: Result.success(emptyList())
             val known = knownResult.getOrNull()
             if (known == null) {
                 return@map CalendarEntry(
@@ -643,3 +673,4 @@ val CalendarDay.missingCount: Int
     get() = entries.count { it.status == LibraryStatus.Missing }
 
 private const val IDENTITY_CATALOG_TTL_MS = 2 * 60_000L
+private const val LIBRARY_EPISODE_REQUEST_CONCURRENCY = 3
