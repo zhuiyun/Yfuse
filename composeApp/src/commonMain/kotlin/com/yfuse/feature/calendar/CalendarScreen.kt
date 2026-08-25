@@ -154,7 +154,7 @@ fun CalendarScreen(component: CalendarComponent) {
                     modifier =
                         Modifier
                             .pressable(onClickLabel = "导出 ICS 日历") {
-                                share.shareText(component.exportCalendar(state.days))
+                                share.shareCalendar(component.exportCalendar(state.days))
                             }.touchTarget()
                             .size(36.dp)
                             .solidGlass(CircleShape, palette.card2, palette.border)
