@@ -58,6 +58,7 @@ import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.data.CalendarIdentityAmbiguousException
+import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyImages
@@ -267,14 +268,15 @@ fun DetailScreen(component: DetailComponent) {
         mutableStateOf<List<TmdbSeriesIdentityCandidate>>(emptyList())
     }
     var followAfterIdentitySelection by remember(detail?.id) { mutableStateOf(false) }
-    val detailIsFollowed =
+    val detailFollow =
         detail?.let { item ->
             val directTmdb = item.airingCalendarTmdbId()
-            followedSeries.any { followed ->
+            followedSeries.firstOrNull { followed ->
                 (directTmdb != null && followed.tmdbId == directTmdb) ||
                     (followed.seriesItemId == item.id && followed.serverId == (state.server?.id ?: component.serverId))
             }
-        } == true
+        }
+    val detailIsFollowed = detailFollow != null
 
     LaunchedEffect(airingCalendarOpen, airingCalendarReload, detail?.id) {
         val target = detail ?: return@LaunchedEffect
@@ -817,6 +819,28 @@ fun DetailScreen(component: DetailComponent) {
                         loading = airingCalendarLoading,
                         error = airingCalendarError,
                         identityCandidates = airingCalendarCandidates,
+                        followed = detailIsFollowed,
+                        reminderMode = detailFollow?.reminderMode ?: CalendarReminderMode.Off,
+                        onToggleFollow = {
+                            detailScope.launch {
+                                component.toggleSeriesFollow(detail).onFailure { error ->
+                                    if (error is CalendarIdentityAmbiguousException) {
+                                        followAfterIdentitySelection = true
+                                        airingCalendarCandidates = error.candidates
+                                        airingCalendarError = error.message
+                                    } else {
+                                        airingCalendarError = error.toUserMessage("追剧设置失败，请重试")
+                                    }
+                                }
+                            }
+                        },
+                        onSetReminder = { mode ->
+                            detailScope.launch {
+                                component.setSeriesReminder(detail, mode).onFailure { error ->
+                                    airingCalendarError = error.toUserMessage("提醒设置失败，请重试")
+                                }
+                            }
+                        },
                         onSelectIdentity = { candidate ->
                             component.rememberSeriesCalendarIdentity(detail, candidate)
                             airingCalendarCandidates = emptyList()
