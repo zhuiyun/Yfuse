@@ -34,6 +34,7 @@ class HomeComponent(
     cache: TmdbHomeCache,
     syncManager: ServerSyncManager,
     private val calendarRepository: AiringCalendarRepository,
+    private val initialCalendarLoad: Boolean = true,
     private val onOpenEmbyItem: (String, String) -> Unit,
     private val onPlayEmbyItem: (String, String) -> Unit,
     private val onOpenTmdbItem: (TmdbItem, String?) -> Unit,
@@ -62,7 +63,7 @@ class HomeComponent(
         ).create()
 
     init {
-        refreshCalendar()
+        if (initialCalendarLoad) refreshCalendar()
         store.labels
             .onEach { label ->
                 when (label) {
