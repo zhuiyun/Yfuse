@@ -50,6 +50,23 @@ internal suspend fun loadCalendarWithDeadline(
  * daily and a foreign one weekly — and because a combined list ordered by popularity buries
  * whichever of the two the user came for.
  */
+enum class CalendarSection(
+    val label: String,
+) {
+    Schedule("日历"),
+    Tracking("追剧"),
+    Resources("资源"),
+    Settings("设置"),
+}
+
+enum class CalendarContentFilter(
+    val label: String,
+) {
+    All("全部内容"),
+    Series("剧集"),
+    Movies("电影"),
+}
+
 enum class CalendarFilter(
     val label: String,
 ) {
@@ -88,7 +105,10 @@ data class CalendarState(
     val days: List<CalendarDay> = emptyList(),
     /** Last fully resolved server result, retained while a refresh is in flight. */
     val confirmedDays: List<CalendarDay> = emptyList(),
+    val section: CalendarSection = CalendarSection.Schedule,
     val filter: CalendarFilter = CalendarFilter.Today,
+    val platform: String? = null,
+    val contentFilter: CalendarContentFilter = CalendarContentFilter.All,
     val today: String = currentIsoDate(),
     val error: String? = null,
 ) {
@@ -104,7 +124,19 @@ data class CalendarState(
                     }
                 if (!dateAccepted) return@mapNotNull null
                 day.entries
+                    .asSequence()
                     .filter(filter::accepts)
+                    .filter { entry ->
+                        platform == null || entry.episode.platforms.any {
+                            it.equals(platform, ignoreCase = true)
+                        }
+                    }.filter { entry ->
+                        when (contentFilter) {
+                            CalendarContentFilter.All -> true
+                            CalendarContentFilter.Series -> !entry.episode.isMovie
+                            CalendarContentFilter.Movies -> entry.episode.isMovie
+                        }
+                    }.toList()
                     .takeIf { it.isNotEmpty() }
                     ?.let { day.copy(entries = it) }
             }
@@ -117,6 +149,15 @@ data class CalendarState(
      * Tuesday. Landing on today and letting the reader scroll *up* into the past keeps
      * "what have I missed" one gesture away while answering "what's on now" immediately.
      */
+    val availablePlatforms: List<String>
+        get() =
+            days
+                .flatMap { day -> day.entries.flatMap { it.episode.platforms } }
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .distinct()
+                .sorted()
+
     val todayIndex: Int
         get() =
             visibleDays.indexOfFirst { it.date >= today }.takeIf { it >= 0 }
@@ -128,6 +169,18 @@ data class CalendarState(
 
 sealed interface CalendarIntent {
     data object Refresh : CalendarIntent
+
+    data class SelectSection(
+        val section: CalendarSection,
+    ) : CalendarIntent
+
+    data class SelectPlatform(
+        val platform: String?,
+    ) : CalendarIntent
+
+    data class SelectContent(
+        val content: CalendarContentFilter,
+    ) : CalendarIntent
 
     data class SelectFilter(
         val filter: CalendarFilter,
@@ -156,6 +209,18 @@ private sealed interface Msg {
     data class FilterChanged(
         val filter: CalendarFilter,
     ) : Msg
+
+    data class SectionChanged(
+        val section: CalendarSection,
+    ) : Msg
+
+    data class PlatformChanged(
+        val platform: String?,
+    ) : Msg
+
+    data class ContentChanged(
+        val content: CalendarContentFilter,
+    ) : Msg
 }
 
 class CalendarStoreFactory(
@@ -183,6 +248,9 @@ class CalendarStoreFactory(
         override fun executeIntent(intent: CalendarIntent) {
             when (intent) {
                 CalendarIntent.Refresh -> load(forceRefresh = true)
+                is CalendarIntent.SelectSection -> dispatch(Msg.SectionChanged(intent.section))
+                is CalendarIntent.SelectPlatform -> dispatch(Msg.PlatformChanged(intent.platform))
+                is CalendarIntent.SelectContent -> dispatch(Msg.ContentChanged(intent.content))
                 is CalendarIntent.SelectFilter -> dispatch(Msg.FilterChanged(intent.filter))
             }
         }
@@ -241,6 +309,9 @@ class CalendarStoreFactory(
                         error = msg.message,
                     )
                 is Msg.FilterChanged -> copy(filter = msg.filter)
+                is Msg.SectionChanged -> copy(section = msg.section)
+                is Msg.PlatformChanged -> copy(platform = msg.platform)
+                is Msg.ContentChanged -> copy(contentFilter = msg.content)
             }
     }
 }
