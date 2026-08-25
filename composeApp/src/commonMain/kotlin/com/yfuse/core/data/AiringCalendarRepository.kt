@@ -114,7 +114,7 @@ class AiringCalendarRepository(
                 onPreview(snapshot.days)
                 return@withLock Result.success(snapshot.days)
             }
-            loadCalendar(pastDays, futureDays, today, onPreview).onSuccess { days ->
+            loadCalendar(pastDays, futureDays, today, forceRefresh, onPreview).onSuccess { days ->
                 calendarRuntimeSnapshot = CalendarRuntimeSnapshot(key, currentEpochMillis(), days)
             }
         }
@@ -123,6 +123,7 @@ class AiringCalendarRepository(
         pastDays: Int,
         futureDays: Int,
         today: String,
+        forceRefresh: Boolean,
         onPreview: (List<CalendarDay>) -> Unit,
     ): Result<List<CalendarDay>> {
         val from = shiftIsoDate(today, -pastDays)
@@ -190,14 +191,16 @@ class AiringCalendarRepository(
                     .filterNot { it.tmdbId in alreadyDiscovered }
                     .map { followed ->
                         async {
-                            tmdb.seriesAiringCalendar(followed.tmdbId, followed.title).getOrDefault(emptyList())
-                                .filter { it.airDate in from..to }
+                            followedScheduleRequests.withPermit {
+                                tmdb.seriesAiringCalendar(followed.tmdbId, followed.title).getOrDefault(emptyList())
+                                    .filter { it.airDate in from..to }
+                            }
                         }
                     }.awaitAll()
                     .flatten()
             }
         val episodes = withOfficial(discoveredEpisodes + followedEpisodes)
-        return calendarDays(episodes, today)
+        return calendarDays(episodes, today, forceRefresh = forceRefresh)
     }
 
     /**
@@ -302,9 +305,10 @@ class AiringCalendarRepository(
         episodes: List<AiringEpisode>,
         today: String,
         libraryHint: SeriesCalendarLibraryHint? = null,
+        forceRefresh: Boolean = false,
     ): Result<List<CalendarDay>> {
         val entries =
-            resolveStatus(episodes, today, libraryHint).map { entry ->
+            resolveStatus(episodes, today, libraryHint, forceRefresh).map { entry ->
                 entry.copy(followed = followStore.isFollowing(entry.episode.showTmdbId))
             }
         return Result.success(
@@ -341,6 +345,7 @@ class AiringCalendarRepository(
         episodes: List<AiringEpisode>,
         today: String,
         libraryHint: SeriesCalendarLibraryHint? = null,
+        forceRefresh: Boolean = false,
     ): List<CalendarEntry> {
         fun unresolved(status: (AiringEpisode) -> LibraryStatus) = episodes.map { CalendarEntry(it, status(it)) }
 
@@ -365,6 +370,7 @@ class AiringCalendarRepository(
                                 today = today,
                                 server = server,
                                 libraryHint = libraryHint?.takeIf { it.server.id == server.id },
+                                forceRefresh = forceRefresh,
                             )
                         }
                     }.map { it.await() }
@@ -383,6 +389,7 @@ class AiringCalendarRepository(
         today: String,
         server: SavedServer,
         libraryHint: SeriesCalendarLibraryHint? = null,
+        forceRefresh: Boolean = false,
     ): List<CalendarEntry> {
         fun unresolved(status: (AiringEpisode) -> LibraryStatus) = episodes.map { CalendarEntry(it, status(it)) }
 
@@ -392,7 +399,7 @@ class AiringCalendarRepository(
             } else {
                 val cached = identityCatalogCache[server.id]
                 val now = currentEpochMillis()
-                if (cached != null && now - cached.fetchedAtEpochMs in 0 until IDENTITY_CATALOG_TTL_MS) {
+                if (!forceRefresh && cached != null && now - cached.fetchedAtEpochMs in 0 until IDENTITY_CATALOG_TTL_MS) {
                     cached.items
                 } else {
                     emby.seriesIdentityCatalog(server).getOrElse { error ->
@@ -690,23 +697,44 @@ internal fun mergeCalendarEntries(
     today: String,
 ): CalendarEntry {
     val sources = candidates.flatMap { it.sources }.distinctBy { it.serverId to (it.itemId ?: it.seriesItemId) }
-    val best =
-        candidates.maxByOrNull { candidate ->
-            val statusRank =
+    // Discovery-only misses cannot overrule a server that actually identified the series.
+    val relevant = candidates.filterNot { it.discoveryOnly && !it.followed }
+    val pool = relevant.ifEmpty { candidates }
+    val playable =
+        pool
+            .filter {
+                it.status in
+                    setOf(
+                        LibraryStatus.InProgress,
+                        LibraryStatus.Available,
+                        LibraryStatus.Watched,
+                    )
+            }.maxByOrNull { candidate ->
                 when (candidate.status) {
-                    LibraryStatus.InProgress -> 5
-                    LibraryStatus.Available -> 4
-                    LibraryStatus.Watched -> 3
-                    LibraryStatus.Missing -> 2
-                    LibraryStatus.Unknown -> 1
-                    LibraryStatus.Unaired -> 0
+                    LibraryStatus.InProgress -> 3
+                    LibraryStatus.Available -> 2
+                    LibraryStatus.Watched -> 1
+                    else -> 0
                 }
-            if (candidate.discoveryOnly && !candidate.followed) {
-                -1
-            } else {
-                statusRank * 10 + if (candidate.inLibrary) 1 else 0
             }
+    // If a relevant server failed, absence is not proven across all servers. Unknown must
+    // beat Missing until every identified source has answered successfully.
+    val unresolved =
+        pool.firstOrNull { candidate ->
+            candidate.status == LibraryStatus.Unknown &&
+                (candidate.seriesItemId != null || candidate.itemId != null || candidate.dataIssue != null)
         }
+    val best =
+        playable
+            ?: unresolved
+            ?: pool.maxByOrNull { candidate ->
+                when (candidate.status) {
+                    LibraryStatus.Missing -> 3
+                    LibraryStatus.Unaired -> 2
+                    LibraryStatus.Unknown -> 1
+                    else -> 0
+                }
+            }
     val fallbackStatus = if (!airingHasStarted(episode, today)) LibraryStatus.Unaired else LibraryStatus.Missing
     return CalendarEntry(
         episode = episode,
