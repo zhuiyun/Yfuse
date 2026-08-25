@@ -634,7 +634,12 @@ class AiringCalendarRepository(
             }
         return episodes.map { episode ->
             if (episode.isMovie) {
-                val hit = filmIndex["tmdb:${episode.showTmdbId}"]
+                val hit =
+                    filmIndex["tmdb:${episode.showTmdbId}"]
+                        ?: filmIndex[
+                            "title:${normalizeIdentityTitle(episode.showTitle)}:" +
+                                episode.airDate.take(4)
+                        ]
                 val lookupFailed = filmIndexResult.isFailure
                 return@map CalendarEntry(
                     episode = episode,
