@@ -842,6 +842,19 @@ fun DetailScreen(component: DetailComponent) {
                                 }
                             }
                         },
+                        onRebindIdentity = {
+                            detailScope.launch {
+                                airingCalendarError = null
+                                component.findSeriesCalendarIdentityCandidates(detail)
+                                    .onSuccess { candidates ->
+                                        followAfterIdentitySelection = false
+                                        airingCalendarCandidates = candidates
+                                    }.onFailure { error ->
+                                        airingCalendarError =
+                                            error.toUserMessage("重新匹配失败，请重试")
+                                    }
+                            }
+                        },
                         onSelectIdentity = { candidate ->
                             component.rememberSeriesCalendarIdentity(detail, candidate)
                             airingCalendarCandidates = emptyList()
