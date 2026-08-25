@@ -227,17 +227,17 @@ private sealed interface Msg {
 class CalendarStoreFactory(
     private val storeFactory: StoreFactory,
     private val repository: AiringCalendarRepository,
-    private val preferences: CalendarFollowStore,
+    private val preferences: CalendarFollowStore? = null,
 ) {
     fun create(): Store<CalendarIntent, CalendarState, Nothing> =
         storeFactory.create(
             name = "CalendarStore",
             initialState =
                 CalendarState(
-                    platform = preferences.savedPlatformFilter(),
+                    platform = preferences?.savedPlatformFilter(),
                     contentFilter =
                         CalendarContentFilter.entries.firstOrNull {
-                            it.name == preferences.savedContentFilter()
+                            it.name == preferences?.savedContentFilter()
                         } ?: CalendarContentFilter.All,
                 ),
             bootstrapper = coroutineBootstrapper<Action> { dispatch(Action.Load) },
@@ -259,11 +259,11 @@ class CalendarStoreFactory(
                 CalendarIntent.Refresh -> load(forceRefresh = true)
                 is CalendarIntent.SelectSection -> dispatch(Msg.SectionChanged(intent.section))
                 is CalendarIntent.SelectPlatform -> {
-                    preferences.savePlatformFilter(intent.platform)
+                    preferences?.savePlatformFilter(intent.platform)
                     dispatch(Msg.PlatformChanged(intent.platform))
                 }
                 is CalendarIntent.SelectContent -> {
-                    preferences.saveContentFilter(intent.content.name)
+                    preferences?.saveContentFilter(intent.content.name)
                     dispatch(Msg.ContentChanged(intent.content))
                 }
                 is CalendarIntent.SelectFilter -> dispatch(Msg.FilterChanged(intent.filter))
