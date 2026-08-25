@@ -53,13 +53,7 @@ class CalendarFollowStore(private val settings: Settings) {
 
     fun unfollow(tmdbId: Int) {
         update(_followed.value.filterNot { it.tmdbId == tmdbId })
-        val marker = ".$tmdbId."
-        settings.keys
-            .filter { key ->
-                key == "calendar.reminder.available.baseline.$tmdbId" ||
-                    key.startsWith("calendar.reminder.available.seen.$tmdbId.") ||
-                    (key.startsWith("calendar.reminder.sent.") && marker in key)
-            }.forEach(settings::remove)
+        clearReminderState(tmdbId)
     }
 
     fun replaceFromSync(series: List<FollowedSeries>): Result<Unit> =
@@ -73,26 +67,44 @@ class CalendarFollowStore(private val settings: Settings) {
                         it.remindBeforeMinutes in 0..24 * 60
                 },
             ) { "追剧同步数据无效" }
-            update(
+            val normalized =
                 series
                     .distinctBy(FollowedSeries::tmdbId)
-                    .sortedBy(FollowedSeries::title),
-            )
+                    .sortedBy(FollowedSeries::title)
+            val removedIds = _followed.value.map(FollowedSeries::tmdbId).toSet() - normalized.map(FollowedSeries::tmdbId).toSet()
+            update(normalized)
+            removedIds.forEach(::clearReminderState)
         }
 
     fun setReminder(
         tmdbId: Int,
         mode: CalendarReminderMode,
         beforeMinutes: Int = 30,
-    ) = update(
-        _followed.value.map {
-            if (it.tmdbId == tmdbId) {
-                it.copy(reminderMode = mode, remindBeforeMinutes = beforeMinutes.coerceIn(0, 24 * 60))
-            } else {
-                it
-            }
-        },
-    )
+    ) {
+        val previous = _followed.value.firstOrNull { it.tmdbId == tmdbId } ?: return
+        update(
+            _followed.value.map {
+                if (it.tmdbId == tmdbId) {
+                    it.copy(reminderMode = mode, remindBeforeMinutes = beforeMinutes.coerceIn(0, 24 * 60))
+                } else {
+                    it
+                }
+            },
+        )
+        if (mode == CalendarReminderMode.Off || previous.reminderMode != mode) {
+            clearReminderState(tmdbId)
+        }
+    }
+
+    private fun clearReminderState(tmdbId: Int) {
+        val marker = ".$tmdbId."
+        settings.keys
+            .filter { key ->
+                key == "calendar.reminder.available.baseline.$tmdbId" ||
+                    key.startsWith("calendar.reminder.available.seen.$tmdbId.") ||
+                    (key.startsWith("calendar.reminder.sent.") && marker in key)
+            }.forEach(settings::remove)
+    }
 
     private fun update(value: List<FollowedSeries>) {
         _followed.value = value
