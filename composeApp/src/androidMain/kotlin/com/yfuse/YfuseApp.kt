@@ -13,6 +13,7 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.cast.initializeCastApplicationContext
+import com.yfuse.core.data.AndroidCalendarLocalStore
 import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.logging.AppLog
@@ -25,6 +26,7 @@ import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.di.appModule
 import com.yfuse.feature.calendar.scheduleCalendarReminderWork
+import com.yfuse.feature.calendar.scheduleCalendarSyncWork
 import com.yfuse.feature.player.AndroidNativeCrashMonitor
 import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
 import com.yfuse.feature.player.PlaybackDiagnosticReportRegistry
@@ -76,6 +78,7 @@ class YfuseApp :
                         settings = settings,
                         appVersion = BuildConfig.VERSION_NAME,
                         diagnosticPreferences = diagnosticPreferences,
+                        calendarLocalStore = AndroidCalendarLocalStore(this@YfuseApp),
                     ),
                     module {
                         // Application-scoped so an update download survives the activity that
@@ -103,6 +106,7 @@ class YfuseApp :
         // connected network and survives this process being stopped again.
         koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
         scheduleCalendarReminderWork(this)
+        scheduleCalendarSyncWork(this)
         // Built eagerly: it restores an interrupted download and starts watching the
         // foreground, both of which have to happen before the first screen appears.
         koinApplication.koin.get<AppUpdateManager>()
