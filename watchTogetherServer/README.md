@@ -150,6 +150,8 @@ curl --fail https://47.112.219.60/yfuse/update-v2.json
 - `WATCH_TRUST_PROXY_HEADERS`：设为 `true` 后，使用 `X-Forwarded-For`（其次 RFC
   `Forwarded`）识别来源 IP；默认 `false`，防止直连客户端伪造转发头绕过限制。
 - `ACCOUNT_DB_PATH`：账号 SQLite 路径，生产模板为 `/var/lib/yfuse/account.db`。
+- `CALENDAR_DB_PATH`：公共播出日历 SQLite 路径，默认
+  `/var/lib/yfuse/calendar.db`；不存储任何用户媒体库凭据。
 - 文件数据库启用 SQLite WAL 与 `synchronous=FULL`；在线备份必须使用 SQLite
   `.backup`/backup API，不能只复制主数据库文件。完整备份与回滚步骤见
   `docs/watch-server-deploy.md`。
@@ -210,9 +212,16 @@ docker run -d --restart unless-stopped `
 ## 官方追剧日历采集
 
 服务端可以在不信任客户端、也不把 OCR 密钥打进 APK 的前提下自动生成排期快照。配置
-`YFUSE_CALENDAR_INGEST_CONFIG` 指向采集清单，配置 `YFUSE_CALENDAR_SCHEDULES_PATH` 指向
-生成文件，并保留现有 `YFUSE_CALENDAR_PRIVATE_KEY_PKCS8`。示例见
-`calendar-ingestion.example.json`。
+`YFUSE_CALENDAR_INGEST_CONFIG` 指向采集清单，并保留
+`YFUSE_CALENDAR_PRIVATE_KEY_PKCS8`。生产环境会把每次通过证据门控的完整 revision 事务写入
+`CALENDAR_DB_PATH`（默认 `/var/lib/yfuse/calendar.db`），再切换 current 指针；接口只会读到
+上一版或完整新版本，不会读到半次采集。示例见 `calendar-ingestion.example.json`。
+
+`GET /api/v1/calendar/schedules` 从 SQLite 读取 current revision，继续返回 Ed25519 签名载荷并
+支持 ETag/304。App 每小时检查一次 revision，只有变化时下载并验签，随后写入已有的本地日历
+缓存；用户自己的 Emby/Jellyfin 凭据、库存和观看状态仍只在客户端处理。首次升级若数据库为空，
+服务会从原有 `YFUSE_CALENDAR_SCHEDULES_JSON` / `YFUSE_CALENDAR_SCHEDULES_PATH` 或内置
+快照导入一次。文件路径仍可选配为额外的运维快照，但不再是线上接口的主数据源。
 
 采集器只接受四类平台官方域名（爱奇艺、优酷、腾讯视频、芒果TV）和清单中明确白名单化的
 微博认证账号。页面正文可以直接解析；图片必须经过两个独立 OCR 服务的逐集置信度门控后才
