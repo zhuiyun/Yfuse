@@ -44,11 +44,13 @@ internal fun buildCalendarIcs(days: List<CalendarDay>): String {
                 }
                 appendLine("SUMMARY:${escape(episode.showTitle + " " + episode.episodeLabel)}")
                 appendLine(
-                    "DESCRIPTION:${escape(buildList {
+                    "DESCRIPTION:${escape(
+                        buildList {
                             add(entry.status.name)
                             addAll(episode.platforms)
                             episode.scheduleRevision?.let { add("排期版本 $it") }
-                        }.joinToString(" · "))}",
+                        }.joinToString(" · "),
+                    )}",
                 )
                 episode.sourceUrl?.let { appendLine("URL:${escape(it)}") }
                 appendLine("END:VEVENT")

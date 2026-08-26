@@ -1,21 +1,56 @@
 package com.yfuse.core.data
 
 import com.yfuse.core.model.AiringEpisode
-import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.AiringScheduleAuthority
 import com.yfuse.core.model.CalendarDataIssue
+import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ShowOrigin
-import kotlin.test.Test
-import com.yfuse.core.model.AiringScheduleAuthority
 import com.yfuse.core.util.scheduledEpochMillis
+import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class AiringCalendarTest {
     private val today = "2026-07-31"
+
+    @Test
+    fun active_library_selection_includes_next_up_favourites_and_recent_series() {
+        fun identity(
+            id: String,
+            created: String,
+            favorite: Boolean = false,
+        ) = LibrarySeriesIdentity(
+            itemId = id,
+            title = "剧集 $id",
+            year = 2026,
+            providerIds = mapOf("Tmdb" to id.filter(Char::isDigit).ifBlank { "1" }),
+            dateCreated = created,
+            isFavorite = favorite,
+        )
+
+        val selected =
+            selectActiveLibrarySeries(
+                catalog =
+                    listOf(
+                        identity("next-1", "2026-01-01"),
+                        identity("favorite-2", "2026-01-02", favorite = true),
+                        identity("recent-3", "2026-08-03"),
+                        identity("recent-4", "2026-08-04"),
+                        identity("old-5", "2025-01-01"),
+                    ),
+                nextUpSeriesIds = setOf("next-1"),
+                recentLimit = 2,
+            )
+
+        assertEquals(
+            listOf("next-1", "favorite-2", "recent-4", "recent-3"),
+            selected.map(LibrarySeriesIdentity::itemId),
+        )
+    }
 
     private fun episode(
         played: Boolean,
@@ -137,7 +172,12 @@ class AiringCalendarTest {
                 episodes = listOf(episode(played = false, indexNumber = 13, seasonNumber = 1)),
             )
 
-        val entry = calendarPreviewDays(listOf(scheduled), today = "2026-08-25", libraryHint = hint).single().entries.single()
+        val entry =
+            calendarPreviewDays(
+                listOf(scheduled),
+                today = "2026-08-25",
+                libraryHint = hint,
+            ).single().entries.single()
 
         assertEquals(LibraryStatus.Available, entry.status)
         assertEquals("ep13", entry.itemId)
@@ -204,7 +244,6 @@ class AiringCalendarTest {
         assertEquals(1, CalendarDay(today, listOf(followed)).missingCount)
     }
 
-
     @Test
     fun in_progress_source_wins_over_an_already_watched_copy() {
         val scheduled =
@@ -223,8 +262,20 @@ class AiringCalendarTest {
                 episode = scheduled,
                 candidates =
                     listOf(
-                        CalendarEntry(scheduled, LibraryStatus.Watched, itemId = "watched", serverId = "a", seriesItemId = "sa"),
-                        CalendarEntry(scheduled, LibraryStatus.InProgress, itemId = "resume", serverId = "b", seriesItemId = "sb"),
+                        CalendarEntry(
+                            scheduled,
+                            LibraryStatus.Watched,
+                            itemId = "watched",
+                            serverId = "a",
+                            seriesItemId = "sa",
+                        ),
+                        CalendarEntry(
+                            scheduled,
+                            LibraryStatus.InProgress,
+                            itemId = "resume",
+                            serverId = "b",
+                            seriesItemId = "sb",
+                        ),
                     ),
                 today = today,
             )
@@ -272,5 +323,4 @@ class AiringCalendarTest {
         assertEquals("series", merged.seriesItemId)
         assertEquals(CalendarDataIssue.LibraryLookupFailed, merged.dataIssue)
     }
-
 }

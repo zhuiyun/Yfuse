@@ -95,7 +95,12 @@ class CloudSyncSnapshotTest {
         target.apply(snapshot).getOrThrow()
 
         assertEquals(snapshot.calendarFollows, target.follows.followed.value)
-        assertEquals(60, target.follows.followed.value.single().remindBeforeMinutes)
+        assertEquals(
+            60,
+            target.follows.followed.value
+                .single()
+                .remindBeforeMinutes,
+        )
     }
 
     @Test

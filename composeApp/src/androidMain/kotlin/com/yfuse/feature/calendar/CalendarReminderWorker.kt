@@ -193,7 +193,9 @@ class CalendarReminderWorker(
                     }
                 }
             }
-            if (followed.reminderMode in setOf(CalendarReminderMode.AtBroadcast, CalendarReminderMode.BeforeAndAtBroadcast)) {
+            if (followed.reminderMode in
+                setOf(CalendarReminderMode.AtBroadcast, CalendarReminderMode.BeforeAndAtBroadcast)
+            ) {
                 entries.groupBy { it.episode.airDate to it.episode.airTime }.forEach { (_, sameSlot) ->
                     val sample = sameSlot.first().episode
                     val time = sample.airTime ?: return@forEach

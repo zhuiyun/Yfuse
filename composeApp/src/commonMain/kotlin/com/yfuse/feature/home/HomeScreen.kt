@@ -98,10 +98,10 @@ import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.model.TmdbItem
-import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
+import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import kotlinx.coroutines.delay
@@ -1240,12 +1240,13 @@ private fun homeCalendarPreviews(
     home: HomeState,
 ): List<HomeCalendarPreview> {
     fun tmdbIds(entries: List<HomeResumeEntry>): Set<Int> =
-        entries.mapNotNull { entry ->
-            entry.item.providerIds.entries
-                .firstOrNull { it.key.equals("tmdb", ignoreCase = true) }
-                ?.value
-                ?.toIntOrNull()
-        }.toSet()
+        entries
+            .mapNotNull { entry ->
+                entry.item.providerIds.entries
+                    .firstOrNull { it.key.equals("tmdb", ignoreCase = true) }
+                    ?.value
+                    ?.toIntOrNull()
+            }.toSet()
     val favoriteIds = tmdbIds(home.favorites)
     val nextIds = tmdbIds(home.nextUp)
     val resumeIds = tmdbIds(home.resume)
@@ -1267,7 +1268,10 @@ private fun homeCalendarPreviews(
                             else -> 6
                         }
                     }.thenBy { entry ->
-                        kotlin.math.abs(com.yfuse.core.util.daysBetweenIso(home.today, entry.episode.airDate))
+                        kotlin.math.abs(
+                            com.yfuse.core.util
+                                .daysBetweenIso(home.today, entry.episode.airDate),
+                        )
                     },
                 )
             val representative = ranked.firstOrNull() ?: return@mapNotNull null

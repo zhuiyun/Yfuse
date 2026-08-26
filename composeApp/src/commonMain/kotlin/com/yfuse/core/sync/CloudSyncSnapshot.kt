@@ -2,8 +2,8 @@ package com.yfuse.core.sync
 
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.DanmakuPreferences
-import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.DanmakuSyncSnapshot
+import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipMode
 import com.yfuse.core.data.SkipSegmentPreferences

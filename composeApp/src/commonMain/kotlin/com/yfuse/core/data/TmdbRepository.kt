@@ -700,6 +700,24 @@ class TmdbRepository(
                                 "sort_by" to "popularity.desc",
                                 "without_genres" to BLOCKED_GENRES_PARAMETER,
                             ),
+                            requireArtwork = false,
+                        )
+                    }
+                val newestDomestic =
+                    async {
+                        fetch(
+                            "/discover/tv",
+                            language,
+                            "tv",
+                            mapOf(
+                                "with_origin_country" to "CN",
+                                "with_original_language" to "zh",
+                                "first_air_date.gte" to fromDate,
+                                "first_air_date.lte" to toDate,
+                                "sort_by" to "first_air_date.desc",
+                                "without_genres" to BLOCKED_GENRES_PARAMETER,
+                            ),
+                            requireArtwork = false,
                         )
                     }
                 val foreign =
@@ -715,6 +733,7 @@ class TmdbRepository(
                                 "vote_count.gte" to GLOBAL_UPCOMING_MIN_VOTES.toString(),
                                 "without_genres" to BLOCKED_GENRES_PARAMETER,
                             ),
+                            requireArtwork = false,
                         )
                     }
                 // Films, which the calendar had none of. A release date is the same kind of
@@ -735,6 +754,7 @@ class TmdbRepository(
                                 "sort_by" to "popularity.desc",
                                 "without_genres" to BLOCKED_GENRES_PARAMETER,
                             ),
+                            requireArtwork = false,
                         )
                     }
                 val foreignFilms =
@@ -750,17 +770,23 @@ class TmdbRepository(
                                 "vote_count.gte" to GLOBAL_UPCOMING_MIN_VOTES.toString(),
                                 "without_genres" to BLOCKED_GENRES_PARAMETER,
                             ),
+                            requireArtwork = false,
                         )
                     }
-                val domesticShows = domestic.await()
+                // A popularity-only page can bury a brand-new drama before it has votes.
+                // Premiere order gets first claim, while the currently-airing query keeps
+                // established daily/weekly shows in the same discovery pool.
+                val domesticShows =
+                    interleave(newestDomestic.await(), domestic.await())
                 // A Chinese show popular enough to chart globally comes back from both queries;
                 // it is domestic, and the foreign list must not claim it a second time.
                 val domesticIds = domesticShows.map { it.id }.toSet()
                 val shows =
-                    interleave(
+                    prioritizeCalendarShows(
                         domesticShows,
                         foreign.await().filterNot { it.id in domesticIds },
-                    ).take(CALENDAR_MAX_SHOWS)
+                        CALENDAR_MAX_SHOWS,
+                    )
 
                 val domesticFilmResults = domesticFilms.await()
                 val domesticFilmIds = domesticFilmResults.map { it.id }.toSet()
@@ -1047,6 +1073,7 @@ class TmdbRepository(
         language: String,
         fallbackType: String,
         parameters: Map<String, String> = emptyMap(),
+        requireArtwork: Boolean = true,
     ): List<TmdbItem> =
         try {
             client
@@ -1057,7 +1084,7 @@ class TmdbRepository(
                 .results
                 .map { it.toItem(fallbackType) }
                 .filter { it.title.isNotBlank() }
-                .filter { it.posterPath != null || it.backdropPath != null }
+                .filter { !requireArtwork || it.posterPath != null || it.backdropPath != null }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -1096,6 +1123,21 @@ class TmdbRepository(
                 second.getOrNull(index)?.let(::add)
             }
         }.distinctBy { "${it.mediaType}:${it.id}" }
+
+    /** Keep the Chinese calendar useful without allowing the global popularity page to evict it. */
+    private fun prioritizeCalendarShows(
+        domestic: List<TmdbItem>,
+        foreign: List<TmdbItem>,
+        limit: Int,
+    ): List<TmdbItem> {
+        if (limit <= 0) return emptyList()
+        val domesticBudget = (limit * 2 / 3).coerceAtLeast(1)
+        val selectedDomestic = domestic.take(domesticBudget)
+        val selectedForeign = foreign.take(limit - selectedDomestic.size)
+        return (selectedDomestic + selectedForeign + domestic.drop(selectedDomestic.size))
+            .distinctBy { "${it.mediaType}:${it.id}" }
+            .take(limit)
+    }
 
     private fun List<TmdbItem>.eligibleCatalogItems(): List<TmdbItem> =
         filter { item -> item.genreIds.none(BLOCKED_GENRE_IDS::contains) }

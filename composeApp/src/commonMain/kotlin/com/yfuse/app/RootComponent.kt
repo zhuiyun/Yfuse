@@ -201,9 +201,9 @@ class RootComponent(
      * An invite waiting to be confirmed, or null. Held here rather than routed straight to a
      * screen because it can arrive at any moment — a cold start from a chat app, or
      * `onNewIntent` while the player is already open — and the confirmation sheet has to be
-     * able to appear over whatever is on screen at the time.
+     * able to appear over whatever is on screen at the time. This is a StateFlow rather than
+     * Decompose's Value, which requires a non-null type argument.
      */
-    // A StateFlow rather than Decompose's Value, which requires a non-null type argument.
     private val _pendingInvite = MutableStateFlow<WatchInvite?>(null)
     val pendingInvite: StateFlow<WatchInvite?> = _pendingInvite.asStateFlow()
 

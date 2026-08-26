@@ -17,12 +17,23 @@ class CalendarFollowStoreTest {
 
         val restored = CalendarFollowStore(settings)
         assertTrue(restored.isFollowing(272938))
-        assertEquals(CalendarReminderMode.BeforeAndAtBroadcast, restored.followed.value.single().reminderMode)
-        assertEquals(24 * 60, restored.followed.value.single().remindBeforeMinutes)
+        assertEquals(
+            CalendarReminderMode.BeforeAndAtBroadcast,
+            restored.followed.value
+                .single()
+                .reminderMode,
+        )
+        assertEquals(
+            24 * 60,
+            restored.followed.value
+                .single()
+                .remindBeforeMinutes,
+        )
 
         restored.unfollow(272938)
         assertFalse(restored.isFollowing(272938))
     }
+
     @Test
     fun cloud_restore_validates_and_replaces_followed_series() {
         val store = CalendarFollowStore(MapSettings())
@@ -110,5 +121,4 @@ class CalendarFollowStoreTest {
         assertNull(settings.getBooleanOrNull("calendar.reminder.available.seen.1399.1.2"))
         assertNull(settings.getBooleanOrNull("calendar.reminder.sent.air.1399.2026-08-25"))
     }
-
 }

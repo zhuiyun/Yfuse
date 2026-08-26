@@ -1202,7 +1202,11 @@ class EmbyRepositoryTest {
             val repo =
                 testRepo { request ->
                     assertEquals("7", request.url.parameters["Season"])
-                    assertFalse(request.url.parameters["Fields"].orEmpty().contains("MediaSources"))
+                    assertFalse(
+                        request.url.parameters["Fields"]
+                            .orEmpty()
+                            .contains("MediaSources"),
+                    )
                     json("""{"Items":[]}""")
                 }
 

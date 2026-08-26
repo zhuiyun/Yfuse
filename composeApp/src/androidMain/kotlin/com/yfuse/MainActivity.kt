@@ -20,9 +20,9 @@ import com.yfuse.app.RootComponent
 import com.yfuse.app.isNightMode
 import com.yfuse.app.launchWindowDarkMode
 import com.yfuse.app.splashBackground
-import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
@@ -40,10 +40,10 @@ import com.yfuse.feature.profile.applyPendingAppIconVariant
 import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager
-import org.koin.core.context.GlobalContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 
 class MainActivity : ComponentActivity() {
     private lateinit var updateManager: AppUpdateManager
@@ -167,7 +167,10 @@ class MainActivity : ComponentActivity() {
                         checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                     ) {
                         calendarNotificationPermissionRequested = true
-                        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), CALENDAR_NOTIFICATION_PERMISSION_REQUEST)
+                        requestPermissions(
+                            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                            CALENDAR_NOTIFICATION_PERMISSION_REQUEST,
+                        )
                     }
                 }
         }
@@ -193,7 +196,8 @@ class MainActivity : ComponentActivity() {
 
     private fun consumeCalendarIntent(intent: Intent?) {
         val itemId =
-            intent?.getStringExtra(EXTRA_CALENDAR_SERIES_ITEM_ID)
+            intent
+                ?.getStringExtra(EXTRA_CALENDAR_SERIES_ITEM_ID)
                 ?.takeIf(String::isNotBlank)
                 ?: return
         rootComponent?.openCalendarTarget(

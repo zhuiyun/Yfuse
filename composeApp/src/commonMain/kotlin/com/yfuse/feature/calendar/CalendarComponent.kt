@@ -108,4 +108,3 @@ class CalendarComponent(
         const val RESUME_REFRESH_INTERVAL_MS = 2 * 60_000L
     }
 }
-

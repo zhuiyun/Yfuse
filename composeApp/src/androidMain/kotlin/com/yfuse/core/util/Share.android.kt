@@ -54,7 +54,8 @@ private class AndroidShareHandler(
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
             context.startActivity(
-                Intent.createChooser(send, "导出追剧日历")
+                Intent
+                    .createChooser(send, "导出追剧日历")
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
         }.onFailure {

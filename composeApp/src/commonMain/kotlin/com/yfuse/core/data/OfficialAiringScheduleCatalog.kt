@@ -3,8 +3,8 @@ package com.yfuse.core.data
 import com.russhwolf.settings.Settings
 import com.yfuse.core.account.ACCOUNT_BASE_URL
 import com.yfuse.core.logging.AppLog
-import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.AiringAccessTier
+import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.AiringScheduleAuthority
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.security.verifyEd25519Signature
@@ -37,7 +37,11 @@ class OfficialAiringScheduleCatalog(
     private val endpoint: String = "$ACCOUNT_BASE_URL/api/v1/calendar/schedules",
     private val nowEpochMs: () -> Long = ::currentEpochMillis,
 ) {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     private var schedules: Map<Int, OfficialSeriesSchedule> = loadCachedSchedules() ?: FALLBACK_SCHEDULES
 
     fun series(
@@ -78,7 +82,8 @@ class OfficialAiringScheduleCatalog(
             val response =
                 withTimeout(REMOTE_DEADLINE_MS) {
                     client.get(endpoint) {
-                        settings.getString(KEY_REVISION, "")
+                        settings
+                            .getString(KEY_REVISION, "")
                             .takeIf(String::isNotBlank)
                             ?.let { revision ->
                                 header(HttpHeaders.IfNoneMatch, "\"calendar-$revision\"")
@@ -129,7 +134,8 @@ class OfficialAiringScheduleCatalog(
     }
 
     fun recentChanges(): List<OfficialScheduleChange> =
-        settings.getStringOrNull(KEY_CHANGES)
+        settings
+            .getStringOrNull(KEY_CHANGES)
             ?.let { raw ->
                 runCatching { json.decodeFromString<List<OfficialScheduleChange>>(raw) }.getOrNull()
             }.orEmpty()
@@ -153,15 +159,15 @@ class OfficialAiringScheduleCatalog(
                         val previousSlot = oldSlots[episodeNumber]
                         when {
                             previousSlot == null ->
-                                add("新增第 ${episodeNumber} 集：${slot.airDate}")
+                                add("新增第 $episodeNumber 集：${slot.airDate}")
                             previousSlot.airDate != slot.airDate ->
                                 add(
-                                    "第 ${episodeNumber} 集由 ${previousSlot.airDate} 调整为 ${slot.airDate}",
+                                    "第 $episodeNumber 集由 ${previousSlot.airDate} 调整为 ${slot.airDate}",
                                 )
                         }
                     }
                     oldSlots.keys.filterNot(nextSlots::containsKey).forEach { episodeNumber ->
-                        add("第 ${episodeNumber} 集已从官方排期移除")
+                        add("第 $episodeNumber 集已从官方排期移除")
                     }
                     if (old.airTime != next.airTime || old.timeZoneId != next.timeZoneId) {
                         add("播出时间由 ${old.airTime} 调整为 ${next.airTime}")
@@ -362,7 +368,10 @@ class OfficialAiringScheduleCatalog(
  * Plain string comparison considers r10 older than r2 and permanently rejects a legitimate
  * tenth correction. Unknown formats retain conservative lexical ordering for compatibility.
  */
-internal fun calendarRevisionIsAtLeast(candidate: String, existing: String): Boolean {
+internal fun calendarRevisionIsAtLeast(
+    candidate: String,
+    existing: String,
+): Boolean {
     fun parse(value: String): Pair<String, Int>? {
         val marker = value.lastIndexOf("-r")
         if (marker <= 0) return null

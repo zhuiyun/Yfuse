@@ -13,8 +13,8 @@ import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.util.currentIsoDate
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
@@ -128,9 +128,10 @@ data class CalendarState(
                     .asSequence()
                     .filter(filter::accepts)
                     .filter { entry ->
-                        platform == null || entry.episode.platforms.any {
-                            it.equals(platform, ignoreCase = true)
-                        }
+                        platform == null ||
+                            entry.episode.platforms.any {
+                                it.equals(platform, ignoreCase = true)
+                            }
                     }.filter { entry ->
                         when (contentFilter) {
                             CalendarContentFilter.All -> true
@@ -263,6 +264,7 @@ class CalendarStoreFactory(
     private inner class ExecutorImpl :
         CoroutineExecutor<CalendarIntent, Action, CalendarState, Msg, Nothing>() {
         private var loadJob: Job? = null
+
         override fun executeAction(action: Action) {
             when (action) {
                 Action.Load -> load(forceRefresh = false)
@@ -293,24 +295,24 @@ class CalendarStoreFactory(
         private fun load(forceRefresh: Boolean) {
             loadJob?.cancel()
             dispatch(Msg.Loading)
-            loadJob = scope.launch {
-                loadCalendarWithDeadline {
-                    repository.calendar(
-                        forceRefresh = forceRefresh,
-                        onPreview = { preview -> dispatch(Msg.PreviewLoaded(preview)) },
-                    )
-                }
-                    .onSuccess { dispatch(Msg.Loaded(it)) }
-                    .onFailure {
-                        AppLog.warning(
-                            category = "feature.calendar",
-                            event = "load_failed",
-                            message = "Airing calendar failed to load",
-                            throwable = it,
+            loadJob =
+                scope.launch {
+                    loadCalendarWithDeadline {
+                        repository.calendar(
+                            forceRefresh = forceRefresh,
+                            onPreview = { preview -> dispatch(Msg.PreviewLoaded(preview)) },
                         )
-                        dispatch(Msg.Failed(it.toUserMessage("日历加载失败")))
-                    }
-            }
+                    }.onSuccess { dispatch(Msg.Loaded(it)) }
+                        .onFailure {
+                            AppLog.warning(
+                                category = "feature.calendar",
+                                event = "load_failed",
+                                message = "Airing calendar failed to load",
+                                throwable = it,
+                            )
+                            dispatch(Msg.Failed(it.toUserMessage("日历加载失败")))
+                        }
+                }
         }
     }
 

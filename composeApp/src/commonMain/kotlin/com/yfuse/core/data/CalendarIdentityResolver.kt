@@ -24,33 +24,63 @@ class CalendarIdentityResolver(
         serverId: String?,
     ): Result<Int> {
         require(detail.type.equals("Series", ignoreCase = true)) { "只有剧集支持播出日历" }
-        val itemKey = itemKey(serverId, detail.id)
+        return resolveIdentity(
+            itemId = detail.id,
+            title = detail.title,
+            year = detail.year,
+            providerIds = detail.providerIds,
+            serverId = serverId,
+        )
+    }
+
+    /** Exact automatic identity lookup for recently added/favourite library series. */
+    suspend fun resolve(
+        identity: LibrarySeriesIdentity,
+        serverId: String?,
+    ): Result<Int> =
+        resolveIdentity(
+            itemId = identity.itemId,
+            title = identity.title,
+            year = identity.year,
+            providerIds = identity.providerIds,
+            serverId = serverId,
+        )
+
+    private suspend fun resolveIdentity(
+        itemId: String,
+        title: String,
+        year: Int?,
+        providerIds: Map<String, String>,
+        serverId: String?,
+    ): Result<Int> {
+        val itemKey = itemKey(serverId, itemId)
         settings.getIntOrNull(itemKey)?.takeIf { it > 0 }?.let { return Result.success(it) }
 
-        detail.providerIds.tmdbId()?.let { tmdbId ->
-            remember(serverId, detail.id, tmdbId)
+        providerIds.tmdbId()?.let { tmdbId ->
+            remember(serverId, itemId, tmdbId)
             return Result.success(tmdbId)
         }
 
-        externalIdentity(detail.providerIds)?.let { (id, source) ->
+        externalIdentity(providerIds)?.let { (id, source) ->
             tmdb.findSeriesByExternalId(id, source).getOrNull()?.let { candidate ->
-                remember(serverId, detail.id, candidate.tmdbId)
+                remember(serverId, itemId, candidate.tmdbId)
                 return Result.success(candidate.tmdbId)
             }
         }
 
         val candidates =
-            tmdb.searchSeriesIdentityCandidates(detail.title, detail.year)
+            tmdb
+                .searchSeriesIdentityCandidates(title, year)
                 .getOrElse { return Result.failure(it) }
-        val normalizedTitle = normalizeIdentityTitle(detail.title)
+        val normalizedTitle = normalizeIdentityTitle(title)
         val exact =
             candidates.filter { candidate ->
                 normalizeIdentityTitle(candidate.title) == normalizedTitle &&
-                    (detail.year == null || candidate.year == null || kotlin.math.abs(detail.year - candidate.year) <= 1)
+                    (year == null || candidate.year == null || kotlin.math.abs(year - candidate.year) <= 1)
             }
         if (exact.size == 1) {
             val tmdbId = exact.single().tmdbId
-            remember(serverId, detail.id, tmdbId)
+            remember(serverId, itemId, tmdbId)
             return Result.success(tmdbId)
         }
         return Result.failure(CalendarIdentityAmbiguousException((exact.ifEmpty { candidates }).take(5)))
@@ -59,7 +89,8 @@ class CalendarIdentityResolver(
     /** Returns candidates even when an automatic or saved mapping already exists. */
     suspend fun candidates(detail: MediaDetail): Result<List<TmdbSeriesIdentityCandidate>> {
         require(detail.type.equals("Series", ignoreCase = true)) { "只有剧集支持播出日历" }
-        return tmdb.searchSeriesIdentityCandidates(detail.title, detail.year)
+        return tmdb
+            .searchSeriesIdentityCandidates(detail.title, detail.year)
             .map { candidates ->
                 val normalizedTitle = normalizeIdentityTitle(detail.title)
                 candidates
@@ -71,8 +102,7 @@ class CalendarIdentityResolver(
                                 candidate.year != null &&
                                 kotlin.math.abs(detail.year - candidate.year) <= 1
                         }.thenByDescending(TmdbSeriesIdentityCandidate::popularity),
-                    )
-                    .distinctBy(TmdbSeriesIdentityCandidate::tmdbId)
+                    ).distinctBy(TmdbSeriesIdentityCandidate::tmdbId)
                     .take(8)
             }
     }
@@ -85,7 +115,8 @@ class CalendarIdentityResolver(
         require(tmdbId > 0)
         val oldTmdbId = settings.getIntOrNull(itemKey(serverId, itemId))
         if (oldTmdbId != null && oldTmdbId != tmdbId) {
-            settings.getStringOrNull(reverseKey(serverId, oldTmdbId))
+            settings
+                .getStringOrNull(reverseKey(serverId, oldTmdbId))
                 ?.takeIf { it == itemId }
                 ?.let { settings.remove(reverseKey(serverId, oldTmdbId)) }
         }
@@ -105,14 +136,17 @@ class CalendarIdentityResolver(
         val resolvedTmdbId = tmdbId ?: settings.getIntOrNull(itemKey(serverId, itemId))
         settings.remove(itemKey(serverId, itemId))
         resolvedTmdbId?.let { id ->
-            settings.getStringOrNull(reverseKey(serverId, id))
+            settings
+                .getStringOrNull(reverseKey(serverId, id))
                 ?.takeIf { it == itemId }
                 ?.let { settings.remove(reverseKey(serverId, id)) }
         }
     }
 
-    fun mappedSeriesItemId(serverId: String, tmdbId: Int): String? =
-        settings.getStringOrNull(reverseKey(serverId, tmdbId))?.takeIf(String::isNotBlank)
+    fun mappedSeriesItemId(
+        serverId: String,
+        tmdbId: Int,
+    ): String? = settings.getStringOrNull(reverseKey(serverId, tmdbId))?.takeIf(String::isNotBlank)
 
     private fun externalIdentity(providerIds: Map<String, String>): Pair<String, String>? {
         val imdb = providerIds.entries.firstOrNull { it.key.equals("imdb", true) }?.value
@@ -125,14 +159,17 @@ class CalendarIdentityResolver(
     private fun Map<String, String>.tmdbId(): Int? =
         entries.firstOrNull { it.key.equals("tmdb", true) }?.value?.toIntOrNull()
 
-    private fun itemKey(serverId: String?, itemId: String) =
-        "calendar.identity.item.${serverId.orEmpty().safeKey()}.$itemId"
+    private fun itemKey(
+        serverId: String?,
+        itemId: String,
+    ) = "calendar.identity.item.${serverId.orEmpty().safeKey()}.$itemId"
 
-    private fun reverseKey(serverId: String?, tmdbId: Int) =
-        "calendar.identity.tmdb.${serverId.orEmpty().safeKey()}.$tmdbId"
+    private fun reverseKey(
+        serverId: String?,
+        tmdbId: Int,
+    ) = "calendar.identity.tmdb.${serverId.orEmpty().safeKey()}.$tmdbId"
 }
 
-internal fun normalizeIdentityTitle(value: String): String =
-    value.lowercase().filter { it.isLetterOrDigit() }
+internal fun normalizeIdentityTitle(value: String): String = value.lowercase().filter { it.isLetterOrDigit() }
 
 private fun String.safeKey(): String = filter { it.isLetterOrDigit() || it == '-' || it == '_' }

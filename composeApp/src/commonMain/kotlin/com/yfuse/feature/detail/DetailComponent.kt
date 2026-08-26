@@ -7,13 +7,13 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.AppDependencies
-import com.yfuse.core.data.EmbyRepository
-import com.yfuse.core.data.PlaybackFailoverPlan
-import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.data.SeriesCalendarLibraryHint
-import com.yfuse.core.data.TmdbSeriesIdentityCandidate
-import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.FollowedSeries
+import com.yfuse.core.data.PlaybackFailoverPlan
+import com.yfuse.core.data.SeriesCalendarLibraryHint
+import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
@@ -144,9 +144,7 @@ class DetailComponent(
         }
     }
 
-    suspend fun findSeriesCalendarIdentityCandidates(
-        detail: MediaDetail,
-    ): Result<List<TmdbSeriesIdentityCandidate>> =
+    suspend fun findSeriesCalendarIdentityCandidates(detail: MediaDetail): Result<List<TmdbSeriesIdentityCandidate>> =
         dependencies.calendarIdentityResolver.candidates(detail).mapCatching { candidates ->
             check(candidates.isNotEmpty()) { "没有找到可用于重新匹配的 TMDB 剧集" }
             candidates
@@ -412,7 +410,7 @@ class DetailComponent(
         const val TICKS_PER_MILLISECOND = 10_000L
     }
 
-    fun setSeriesReminder(
+    suspend fun setSeriesReminder(
         detail: MediaDetail,
         mode: CalendarReminderMode,
         beforeMinutes: Int = 30,
@@ -425,8 +423,6 @@ class DetailComponent(
                 }
                 dependencies.calendarFollowStore.setReminder(tmdbId, mode, beforeMinutes)
             }
-
-
 }
 
 internal fun MediaDetail.airingCalendarTmdbId(): Int? = airingCalendarTmdbId(type, providerIds)

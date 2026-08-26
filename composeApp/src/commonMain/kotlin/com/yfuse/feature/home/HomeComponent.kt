@@ -5,25 +5,25 @@ import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
-import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.AiringCalendarRepository
+import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
-import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
+import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.loadCalendarWithDeadline
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 class HomeComponent(
     componentContext: ComponentContext,
@@ -47,6 +47,7 @@ class HomeComponent(
     private var calendarJob: Job? = null
     private val _calendar = MutableStateFlow(HomeCalendarState())
     val calendar: StateFlow<HomeCalendarState> = _calendar.asStateFlow()
+
     // The component remains on the Decompose back stack while detail covers it. Keep the
     // actual state object alive so the first frame on return is already at the old viewport;
     // restoring an index after recomposition briefly painted the hero and caused a flash.

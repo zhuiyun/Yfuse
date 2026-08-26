@@ -13,8 +13,8 @@ import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.createCastManager
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.AiringScheduleCache
-import com.yfuse.core.data.CalendarIdentityResolver
 import com.yfuse.core.data.CalendarFollowStore
+import com.yfuse.core.data.CalendarIdentityResolver
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DiagnosticPreferences

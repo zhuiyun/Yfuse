@@ -9,8 +9,8 @@ import io.ktor.client.engine.mock.MockEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class OfficialAiringScheduleCatalogTest {
     private val catalog =
@@ -89,5 +89,4 @@ class OfficialAiringScheduleCatalogTest {
         assertTrue(calendarRevisionIsAtLeast("2026-08-24-r1", "2026-08-23-r99"))
         assertFalse(calendarRevisionIsAtLeast("2026-08-23-r1", "2026-08-23-r2"))
     }
-
 }

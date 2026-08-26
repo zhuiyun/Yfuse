@@ -23,21 +23,28 @@ data class FollowedSeries(
     val remindBeforeMinutes: Int = 30,
 )
 
-class CalendarFollowStore(private val settings: Settings) {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+class CalendarFollowStore(
+    private val settings: Settings,
+) {
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     private val serializer = ListSerializer(FollowedSeries.serializer())
     private val _followed = MutableStateFlow(read())
     val followed: StateFlow<List<FollowedSeries>> = _followed.asStateFlow()
 
-    fun savedPlatformFilter(): String? =
-        settings.getStringOrNull(KEY_PLATFORM_FILTER)?.takeIf(String::isNotBlank)
+    fun savedPlatformFilter(): String? = settings.getStringOrNull(KEY_PLATFORM_FILTER)?.takeIf(String::isNotBlank)
 
-    fun savedContentFilter(): String? =
-        settings.getStringOrNull(KEY_CONTENT_FILTER)?.takeIf(String::isNotBlank)
+    fun savedContentFilter(): String? = settings.getStringOrNull(KEY_CONTENT_FILTER)?.takeIf(String::isNotBlank)
 
     fun savePlatformFilter(value: String?) {
-        if (value.isNullOrBlank()) settings.remove(KEY_PLATFORM_FILTER)
-        else settings.putString(KEY_PLATFORM_FILTER, value)
+        if (value.isNullOrBlank()) {
+            settings.remove(KEY_PLATFORM_FILTER)
+        } else {
+            settings.putString(KEY_PLATFORM_FILTER, value)
+        }
     }
 
     fun saveContentFilter(value: String) {
@@ -158,7 +165,8 @@ class CalendarFollowStore(private val settings: Settings) {
     }
 
     private fun read(): List<FollowedSeries> =
-        settings.getStringOrNull(KEY)
+        settings
+            .getStringOrNull(KEY)
             ?.let { raw -> runCatching { json.decodeFromString(serializer, raw) }.getOrNull() }
             ?.filter { it.tmdbId > 0 }
             ?.distinctBy(FollowedSeries::tmdbId)

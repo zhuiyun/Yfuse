@@ -32,6 +32,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.account.canUseWatchTogether
+import com.yfuse.core.data.CalendarIdentityAmbiguousException
+import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.ArtworkAccent
@@ -57,9 +60,6 @@ import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.CalendarDay
-import com.yfuse.core.data.CalendarIdentityAmbiguousException
-import com.yfuse.core.data.CalendarReminderMode
-import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
@@ -245,7 +245,8 @@ fun DetailScreen(component: DetailComponent) {
 
     val watchTogether = component.dependencies.watchTogether
     val detailScope = rememberCoroutineScope()
-    val followedSeries by component.dependencies.calendarFollowStore.followed.collectAsState()
+    val followedSeries by component.dependencies.calendarFollowStore.followed
+        .collectAsState()
     val watchPreferences = component.dependencies.watchTogetherPreferences
     val accountState by component.dependencies.account.state
         .collectAsState()
@@ -845,7 +846,8 @@ fun DetailScreen(component: DetailComponent) {
                         onRebindIdentity = {
                             detailScope.launch {
                                 airingCalendarError = null
-                                component.findSeriesCalendarIdentityCandidates(detail)
+                                component
+                                    .findSeriesCalendarIdentityCandidates(detail)
                                     .onSuccess { candidates ->
                                         followAfterIdentitySelection = false
                                         airingCalendarCandidates = candidates

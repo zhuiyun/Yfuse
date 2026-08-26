@@ -36,7 +36,7 @@ internal class EmbyLookupService(
                         header("X-Emby-Token", server.accessToken)
                         parameter("IncludeItemTypes", "Series")
                         parameter("Recursive", "true")
-                        parameter("Fields", "ProductionYear,ProviderIds")
+                        parameter("Fields", "ProductionYear,ProviderIds,DateCreated,UserData")
                         parameter("EnableImages", "false")
                     }.body()
             dto.Items.mapNotNull { item ->
@@ -46,6 +46,8 @@ internal class EmbyLookupService(
                         title = title,
                         year = item.ProductionYear,
                         providerIds = item.ProviderIds.orEmpty(),
+                        dateCreated = item.DateCreated,
+                        isFavorite = item.UserData?.IsFavorite == true,
                     )
                 }
             }
@@ -201,4 +203,6 @@ data class LibrarySeriesIdentity(
     val title: String,
     val year: Int?,
     val providerIds: Map<String, String>,
+    val dateCreated: String? = null,
+    val isFavorite: Boolean = false,
 )

@@ -1231,8 +1231,7 @@ class PlayerActivity : ComponentActivity() {
                     isInPictureInPictureMode
             )
 
-    private fun isScreenInteractive(): Boolean =
-        getSystemService(PowerManager::class.java).isInteractive
+    private fun isScreenInteractive(): Boolean = getSystemService(PowerManager::class.java).isInteractive
 
     private fun pausePlaybackForLifecycle(reason: String) {
         if (stopRequested || lifecyclePauseRequested) return

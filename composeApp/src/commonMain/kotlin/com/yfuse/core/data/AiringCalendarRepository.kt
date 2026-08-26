@@ -2,17 +2,17 @@ package com.yfuse.core.data
 
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.AiringEpisode
+import com.yfuse.core.model.CalendarDataIssue
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
-import com.yfuse.core.model.CalendarDataIssue
 import com.yfuse.core.model.CalendarSource
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.LibraryStatus
-import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyImages
-import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.currentEpochMillis
+import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.scheduledEpochMillis
 import com.yfuse.core.util.shiftIsoDate
 import kotlinx.coroutines.async
@@ -60,6 +60,7 @@ class AiringCalendarRepository(
     private val identityCatalogCache = mutableMapOf<String, IdentityCatalogSnapshot>()
     private val libraryEpisodeRequests = Semaphore(LIBRARY_EPISODE_REQUEST_CONCURRENCY)
     private val followedScheduleRequests = Semaphore(FOLLOWED_SCHEDULE_REQUEST_CONCURRENCY)
+    private val calendarIdentityRequests = Semaphore(CALENDAR_IDENTITY_REQUEST_CONCURRENCY)
     private val calendarLoadMutex = Mutex()
     private val resourceDetailsCacheMutex = Mutex()
     private val resourceDetailsCache = mutableMapOf<Triple<String, String, Int?>, ResourceDetailsSnapshot>()
@@ -84,17 +85,18 @@ class AiringCalendarRepository(
     }
 
     /**
-     * Series that Emby currently considers next-up are active library tracking candidates.
+     * User-relevant and newly added library series are exact calendar candidates.
      *
-     * This closes the discovery blind spot for less-popular shows without expanding every
-     * historical series in a large library into two TMDB requests on every calendar refresh.
+     * Global TMDB discovery is deliberately capped, so popularity alone can never guarantee
+     * that a new or niche library title is included. Next-up, favourites and the newest library
+     * series bypass that cap and are queried by their exact TMDB id.
      */
     private suspend fun activeLibrarySeries(forceRefresh: Boolean): List<FollowedSeries> =
         coroutineScope {
             registry.data.value.servers
                 .map { server ->
                     async {
-                        val activeSeriesIds =
+                        val nextUpSeriesIds =
                             emby
                                 .nextUpEpisodes(server, ACTIVE_LIBRARY_SERIES_LIMIT_PER_SERVER)
                                 .getOrElse { error ->
@@ -108,25 +110,26 @@ class AiringCalendarRepository(
                                     emptyList()
                                 }.map(MediaItem::posterItemId)
                                 .toSet()
-                        if (activeSeriesIds.isEmpty()) return@async emptyList()
-                        identityCatalog(server, forceRefresh)
-                            .getOrDefault(emptyList())
-                            .filter { it.itemId in activeSeriesIds }
-                            .mapNotNull { identity ->
-                                val tmdbId =
-                                    identity.providerIds.entries
-                                        .firstOrNull { it.key.equals("tmdb", ignoreCase = true) }
-                                        ?.value
-                                        ?.toIntOrNull()
-                                        ?: return@mapNotNull null
-                                FollowedSeries(
-                                    tmdbId = tmdbId,
-                                    title = identity.title,
-                                    year = identity.year,
-                                    serverId = server.id,
-                                    seriesItemId = identity.itemId,
-                                )
+                        selectActiveLibrarySeries(
+                            catalog = identityCatalog(server, forceRefresh).getOrDefault(emptyList()),
+                            nextUpSeriesIds = nextUpSeriesIds,
+                        ).map { identity ->
+                            async {
+                                calendarIdentityRequests.withPermit {
+                                    val tmdbId =
+                                        identityResolver.resolve(identity, server.id).getOrNull()
+                                            ?: return@withPermit null
+                                    FollowedSeries(
+                                        tmdbId = tmdbId,
+                                        title = identity.title,
+                                        year = identity.year,
+                                        serverId = server.id,
+                                        seriesItemId = identity.itemId,
+                                    )
+                                }
                             }
+                        }.awaitAll()
+                            .filterNotNull()
                     }
                 }.awaitAll()
                 .flatten()
@@ -154,7 +157,7 @@ class AiringCalendarRepository(
             appendLine("追剧订阅: ${followStore.followed.value.size} 部")
             appendLine("最近加载耗时: ${lastCalendarLoadDurationMs}ms")
             appendLine(
-                "运行缓存命中: ${calendarRuntimeCacheHitCount}/${calendarLoadCount}" +
+                "运行缓存命中: $calendarRuntimeCacheHitCount/$calendarLoadCount" +
                     " · 排期缓存: ${if (lastScheduleCacheHit) "命中" else "未命中"}",
             )
             appendLine("当前结果: ${days.size} 天 / ${entries.size} 条")
@@ -162,7 +165,9 @@ class AiringCalendarRepository(
                 appendLine("- $status: ${entries.count { it.status == status }}")
             }
             val issues = entries.mapNotNull(CalendarEntry::dataIssue).groupingBy { it }.eachCount()
-            appendLine("数据问题: ${if (issues.isEmpty()) "无" else issues.entries.joinToString { "${it.key}=${it.value}" }}")
+            appendLine(
+                "数据问题: ${if (issues.isEmpty()) "无" else issues.entries.joinToString { "${it.key}=${it.value}" }}",
+            )
             entries.take(80).forEach { entry ->
                 appendLine(
                     "${entry.episode.airDate} ${entry.episode.showTitle} ${entry.episode.episodeLabel}" +
@@ -237,6 +242,7 @@ class AiringCalendarRepository(
         }
         officialSchedules.refreshIfDue(force = forceRefresh)
         officialEpisodes = officialSchedules.between(from, to)
+
         fun withOfficial(episodes: List<AiringEpisode>) = mergeAiringSchedules(episodes, officialEpisodes)
         // Schedule from cache when it was fetched today; status is always resolved fresh
         // below, because 未入库 → 可播放 is exactly what the user is watching for.
@@ -464,52 +470,54 @@ class AiringCalendarRepository(
                     ).mapValues { (_, seasons) -> seasons.toSet() }
             val episodesByTarget =
                 coroutineScope {
-                    targetSeasons.keys.mapNotNull { (serverId, seriesItemId) ->
-                        val server = registry.serverById(serverId) ?: return@mapNotNull null
-                        async {
-                            val targetSeason = targetSeasons[serverId to seriesItemId]?.singleOrNull()
-                            val cacheKey = Triple(serverId, seriesItemId, targetSeason)
-                            val now = currentEpochMillis()
-                            val cached =
-                                resourceDetailsCacheMutex.withLock {
-                                    resourceDetailsCache[cacheKey]
-                                        ?.takeIf {
-                                            now - it.fetchedAtEpochMs in 0 until RESOURCE_DETAILS_TTL_MS
-                                        }?.episodes
-                                }
-                            val episodes =
-                                cached
-                                    ?: libraryEpisodeRequests.withPermit {
-                                        emby
-                                            .episodes(
-                                                server = server,
-                                                seriesId = seriesItemId,
-                                                seasonId = null,
-                                                includeMediaSources = true,
-                                                seasonNumber = targetSeason,
-                                            ).onSuccess { loaded ->
-                                                resourceDetailsCacheMutex.withLock {
-                                                    resourceDetailsCache[cacheKey] =
-                                                        ResourceDetailsSnapshot(currentEpochMillis(), loaded)
-                                                }
-                                            }.getOrElse { error ->
-                                                AppLog.warning(
-                                                    category = "feature.calendar",
-                                                    event = "resource_details_failed",
-                                                    message = "Calendar resource quality could not be read",
-                                                    throwable = error,
-                                                    attributes =
-                                                        mapOf(
-                                                            "serverId" to serverId,
-                                                            "seriesId" to seriesItemId,
-                                                        ),
-                                                )
-                                                emptyList()
-                                            }
+                    targetSeasons.keys
+                        .mapNotNull { (serverId, seriesItemId) ->
+                            val server = registry.serverById(serverId) ?: return@mapNotNull null
+                            async {
+                                val targetSeason = targetSeasons[serverId to seriesItemId]?.singleOrNull()
+                                val cacheKey = Triple(serverId, seriesItemId, targetSeason)
+                                val now = currentEpochMillis()
+                                val cached =
+                                    resourceDetailsCacheMutex.withLock {
+                                        resourceDetailsCache[cacheKey]
+                                            ?.takeIf {
+                                                now - it.fetchedAtEpochMs in 0 until RESOURCE_DETAILS_TTL_MS
+                                            }?.episodes
                                     }
-                            (serverId to seriesItemId) to episodes
-                        }
-                    }.awaitAll().toMap()
+                                val episodes =
+                                    cached
+                                        ?: libraryEpisodeRequests.withPermit {
+                                            emby
+                                                .episodes(
+                                                    server = server,
+                                                    seriesId = seriesItemId,
+                                                    seasonId = null,
+                                                    includeMediaSources = true,
+                                                    seasonNumber = targetSeason,
+                                                ).onSuccess { loaded ->
+                                                    resourceDetailsCacheMutex.withLock {
+                                                        resourceDetailsCache[cacheKey] =
+                                                            ResourceDetailsSnapshot(currentEpochMillis(), loaded)
+                                                    }
+                                                }.getOrElse { error ->
+                                                    AppLog.warning(
+                                                        category = "feature.calendar",
+                                                        event = "resource_details_failed",
+                                                        message = "Calendar resource quality could not be read",
+                                                        throwable = error,
+                                                        attributes =
+                                                            mapOf(
+                                                                "serverId" to serverId,
+                                                                "seriesId" to seriesItemId,
+                                                            ),
+                                                    )
+                                                    emptyList()
+                                                }
+                                        }
+                                (serverId to seriesItemId) to episodes
+                            }
+                        }.awaitAll()
+                        .toMap()
                 }
             days.map { day ->
                 day.copy(
@@ -520,9 +528,10 @@ class AiringCalendarRepository(
                                 sources =
                                     entry.sources.map { source ->
                                         val known =
-                                            source.seriesItemId?.let {
-                                                episodesByTarget[source.serverId to it]
-                                            }.orEmpty()
+                                            source.seriesItemId
+                                                ?.let {
+                                                    episodesByTarget[source.serverId to it]
+                                                }.orEmpty()
                                         val match =
                                             known.firstOrNull {
                                                 it.indexNumber == entry.episode.episodeNumber &&
@@ -793,21 +802,22 @@ class AiringCalendarRepository(
                                         ?.episodes
                                         ?.takeIf { libraryHint.seriesItemId == seriesId && it.isNotEmpty() }
                                         ?.let { Result.success(it) }
-                                        ?: emby.episodes(
-                                            server = server,
-                                            seriesId = seriesId,
-                                            seasonId = null,
-                                            includeMediaSources = false,
-                                            seasonNumber = seasonNumbersBySeriesId[seriesId]?.singleOrNull(),
-                                        ).onFailure { error ->
-                                            AppLog.warning(
-                                                category = "feature.calendar",
-                                                event = "series_episodes_failed",
-                                                message = "Episode list failed for a series on the calendar",
-                                                throwable = error,
-                                                attributes = mapOf("seriesId" to seriesId),
-                                            )
-                                        }
+                                        ?: emby
+                                            .episodes(
+                                                server = server,
+                                                seriesId = seriesId,
+                                                seasonId = null,
+                                                includeMediaSources = false,
+                                                seasonNumber = seasonNumbersBySeriesId[seriesId]?.singleOrNull(),
+                                            ).onFailure { error ->
+                                                AppLog.warning(
+                                                    category = "feature.calendar",
+                                                    event = "series_episodes_failed",
+                                                    message = "Episode list failed for a series on the calendar",
+                                                    throwable = error,
+                                                    attributes = mapOf("seriesId" to seriesId),
+                                                )
+                                            }
                                 }
                             seriesId to result
                         }
@@ -820,7 +830,7 @@ class AiringCalendarRepository(
                     filmIndex["tmdb:${episode.showTmdbId}"]
                         ?: filmIndex[
                             "title:${normalizeIdentityTitle(episode.showTitle)}:" +
-                                episode.airDate.take(4)
+                                episode.airDate.take(4),
                         ]
                 val lookupFailed = filmIndexResult.isFailure
                 return@map CalendarEntry(
@@ -921,7 +931,6 @@ class AiringCalendarRepository(
     }
 }
 
-/** Official rows replace the same TMDB coordinate while keeping useful artwork/title metadata. */
 /** Exact library identity already known by a series detail page. */
 data class SeriesCalendarLibraryHint(
     val showTmdbId: Int,
@@ -1147,6 +1156,29 @@ private const val IDENTITY_CATALOG_TTL_MS = 15 * 60_000L
 private const val ACTIVE_LIBRARY_SERIES_LIMIT_PER_SERVER = 40
 private const val LIBRARY_EPISODE_REQUEST_CONCURRENCY = 3
 private const val FOLLOWED_SCHEDULE_REQUEST_CONCURRENCY = 4
+private const val CALENDAR_IDENTITY_REQUEST_CONCURRENCY = 4
 private const val CALENDAR_RUNTIME_TTL_MS = 30_000L
+private const val RECENT_LIBRARY_SERIES_LIMIT_PER_SERVER = 30
+
+/**
+ * Stable priority order for automatic tracking: continue-watching first, then favourites,
+ * then recently added series. The final distinct keeps one exact request per library series.
+ */
+internal fun selectActiveLibrarySeries(
+    catalog: List<LibrarySeriesIdentity>,
+    nextUpSeriesIds: Set<String>,
+    recentLimit: Int = RECENT_LIBRARY_SERIES_LIMIT_PER_SERVER,
+): List<LibrarySeriesIdentity> {
+    val byId = catalog.associateBy(LibrarySeriesIdentity::itemId)
+    return buildList {
+        nextUpSeriesIds.mapNotNullTo(this, byId::get)
+        catalog.filterTo(this, LibrarySeriesIdentity::isFavorite)
+        catalog
+            .sortedByDescending { it.dateCreated.orEmpty() }
+            .take(recentLimit.coerceAtLeast(0))
+            .let(::addAll)
+    }.distinctBy(LibrarySeriesIdentity::itemId)
+}
+
 private const val RESOURCE_DETAILS_TTL_MS = 5 * 60_000L
 private const val MAX_RESOURCE_DETAILS_CACHE_ENTRIES = 128

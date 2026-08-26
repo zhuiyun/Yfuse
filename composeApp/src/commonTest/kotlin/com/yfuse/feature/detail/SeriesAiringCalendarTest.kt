@@ -1,7 +1,6 @@
 package com.yfuse.feature.detail
 
 import com.yfuse.core.data.CalendarReminderMode
-
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -43,5 +42,4 @@ class SeriesAiringCalendarTest {
             nextReminderMode(CalendarReminderMode.WhenAvailable),
         )
     }
-
 }

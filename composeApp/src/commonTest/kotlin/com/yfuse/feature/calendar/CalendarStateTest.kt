@@ -133,6 +133,7 @@ class CalendarStateTest {
         assertTrue(missing.inLibrary)
         assertFalse(entry("没跟的剧", "2026-08-01").inLibrary)
     }
+
     @Test
     fun single_series_refresh_replaces_only_that_series() {
         val target = entry("刷新剧", "2026-08-01")
@@ -199,8 +200,13 @@ class CalendarStateTest {
                 today = "2026-08-25",
             )
 
-        assertEquals(listOf(1), subject.visibleDays.single().entries.map { it.episode.showTmdbId })
+        assertEquals(
+            listOf(1),
+            subject.visibleDays
+                .single()
+                .entries
+                .map { it.episode.showTmdbId },
+        )
         assertEquals(listOf("平台A", "平台B"), subject.availablePlatforms)
     }
-
 }

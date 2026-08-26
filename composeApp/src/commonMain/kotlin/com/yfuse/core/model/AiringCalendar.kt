@@ -176,8 +176,11 @@ data class CalendarEntry(
             sources.firstOrNull { source ->
                 source.serverId == serverId &&
                     (
-                        itemId != null && source.itemId == itemId ||
-                            itemId == null && seriesItemId != null && source.seriesItemId == seriesItemId
+                        itemId != null &&
+                            source.itemId == itemId ||
+                            itemId == null &&
+                            seriesItemId != null &&
+                            source.seriesItemId == seriesItemId
                     )
             }
 

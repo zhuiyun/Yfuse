@@ -30,9 +30,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,23 +61,23 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
-import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.model.CalendarDay
-import com.yfuse.core.model.CalendarEntry
-import com.yfuse.core.model.CalendarDataIssue
 import com.yfuse.core.model.AiringAccessTier
 import com.yfuse.core.model.AiringScheduleAuthority
+import com.yfuse.core.model.CalendarDataIssue
+import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.network.TmdbImages
 import com.yfuse.core.util.daysBetweenIso
 import com.yfuse.core.util.isoShortDate
 import com.yfuse.core.util.isoWeekdayLabel
-import com.yfuse.core.util.shiftIsoDate
 import com.yfuse.core.util.rememberShareHandler
+import com.yfuse.core.util.shiftIsoDate
 import kotlinx.coroutines.launch
 import com.yfuse.core.designsystem.flatGlass as glass
 
@@ -254,98 +254,98 @@ fun CalendarScreen(component: CalendarComponent) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(CalendarFilter.entries) { filter ->
-                    val active = filter == state.filter
+                        val active = filter == state.filter
+                        Text(
+                            filter.label,
+                            style = AppTypography.caption.strong,
+                            color = if (active) accent.onAccent else palette.body,
+                            modifier =
+                                Modifier
+                                    .pressable(role = Role.RadioButton) {
+                                        component.store.accept(CalendarIntent.SelectFilter(filter))
+                                    }.semantics { this.selected = active }
+                                    .touchTarget()
+                                    .clip(GlassShapes.chip)
+                                    .background(if (active) accent.accent else Color.Transparent)
+                                    .then(
+                                        if (active) {
+                                            Modifier
+                                        } else {
+                                            Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                                        },
+                                    ).padding(horizontal = 14.dp, vertical = 7.dp),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+
+                if (state.error != null && days.isNotEmpty()) {
+                    val fallbackMessage =
+                        if (state.confirmedDays.isNotEmpty()) {
+                            "状态更新失败，正在显示上一次成功结果 · 点击重试"
+                        } else {
+                            "媒体库状态未确认，当前显示排期预览 · 点击重试"
+                        }
                     Text(
-                        filter.label,
-                        style = AppTypography.caption.strong,
-                        color = if (active) accent.onAccent else palette.body,
+                        fallbackMessage,
+                        style = AppTypography.caption.medium,
+                        color = palette.error,
                         modifier =
                             Modifier
-                                .pressable(role = Role.RadioButton) {
-                                    component.store.accept(CalendarIntent.SelectFilter(filter))
-                                }.semantics { this.selected = active }
-                                .touchTarget()
-                                .clip(GlassShapes.chip)
-                                .background(if (active) accent.accent else Color.Transparent)
-                                .then(
-                                    if (active) {
-                                        Modifier
-                                    } else {
-                                        Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
-                                    },
-                                ).padding(horizontal = 14.dp, vertical = 7.dp),
+                                .fillMaxWidth()
+                                .pressable(onClickLabel = "重新加载追剧日历") {
+                                    component.store.accept(CalendarIntent.Refresh)
+                                }.touchTarget()
+                                .padding(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
                     )
                 }
-            }
 
-            Spacer(Modifier.height(14.dp))
+                when {
+                    state.loading && days.isEmpty() ->
+                        Box(
+                            Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = accent.accent)
+                        }
 
-            if (state.error != null && days.isNotEmpty()) {
-                val fallbackMessage =
-                    if (state.confirmedDays.isNotEmpty()) {
-                        "状态更新失败，正在显示上一次成功结果 · 点击重试"
-                    } else {
-                        "媒体库状态未确认，当前显示排期预览 · 点击重试"
-                    }
-                Text(
-                    fallbackMessage,
-                    style = AppTypography.caption.medium,
-                    color = palette.error,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .pressable(onClickLabel = "重新加载追剧日历") {
-                                component.store.accept(CalendarIntent.Refresh)
-                            }.touchTarget()
-                            .padding(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
-                )
-            }
+                    state.error != null && days.isEmpty() ->
+                        ErrorState(
+                            message = state.error!!,
+                            onRetry = { component.store.accept(CalendarIntent.Refresh) },
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        )
 
-            when {
-                state.loading && days.isEmpty() ->
-                    Box(
-                        Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(color = accent.accent)
-                    }
+                    state.filteredToNothing ->
+                        PageHint(
+                            "这段时间「${state.filter.label}」没有更新",
+                            Modifier.align(Alignment.CenterHorizontally),
+                        )
 
-                state.error != null && days.isEmpty() ->
-                    ErrorState(
-                        message = state.error!!,
-                        onRetry = { component.store.accept(CalendarIntent.Refresh) },
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
-                    )
+                    days.isEmpty() ->
+                        PageHint(
+                            "这段时间没有查到在播剧集",
+                            Modifier.align(Alignment.CenterHorizontally),
+                        )
 
-                state.filteredToNothing ->
-                    PageHint(
-                        "这段时间「${state.filter.label}」没有更新",
-                        Modifier.align(Alignment.CenterHorizontally),
-                    )
-
-                days.isEmpty() ->
-                    PageHint(
-                        "这段时间没有查到在播剧集",
-                        Modifier.align(Alignment.CenterHorizontally),
-                    )
-
-                else ->
-                    AdaptiveCalendarResults(
-                        days = days,
-                        today = state.today,
-                        todayIndex = state.todayIndex,
-                        filter = state.filter,
-                        loading = state.loading,
-                        weeklyStats = weeklyStats,
-                        reduceMotion = reduceMotion,
-                        bottomContentInset = bottomContentInset,
-                        onOpen = { entry ->
-                            entry.openItemId?.let {
-                                component.onOpenItem(entry.serverId, it)
-                            }
-                        },
-                    )
-            }
+                    else ->
+                        AdaptiveCalendarResults(
+                            days = days,
+                            today = state.today,
+                            todayIndex = state.todayIndex,
+                            filter = state.filter,
+                            loading = state.loading,
+                            weeklyStats = weeklyStats,
+                            reduceMotion = reduceMotion,
+                            bottomContentInset = bottomContentInset,
+                            onOpen = { entry ->
+                                entry.openItemId?.let {
+                                    component.onOpenItem(entry.serverId, it)
+                                }
+                            },
+                        )
+                }
             } else {
                 CalendarAuxiliaryPane(
                     state = state,
@@ -628,8 +628,11 @@ private fun CalendarSectionBar(
                         .clip(GlassShapes.chip)
                         .background(if (active) accent.accent else Color.Transparent)
                         .then(
-                            if (active) Modifier else
-                                Modifier.glass(GlassShapes.chip, palette.card2, palette.border),
+                            if (active) {
+                                Modifier
+                            } else {
+                                Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                            },
                         ).padding(horizontal = 18.dp, vertical = 8.dp),
             )
         }
@@ -817,49 +820,53 @@ private fun CalendarTrackingPane(
                             style = AppTypography.caption.strong,
                             color = accent.accent,
                             modifier =
-                                Modifier.pressable(
-                                    enabled = refreshingTmdbId == null,
-                                    onClickLabel = "刷新${series.title}排期",
-                                ) {
-                                    refreshingTmdbId = series.tmdbId
-                                    actionMessage = null
-                                    scope.launch {
-                                        component.refreshSeries(series)
-                                            .onSuccess { refreshed ->
-                                                component.store.accept(
-                                                    CalendarIntent.ApplySeriesRefresh(
-                                                        tmdbId = series.tmdbId,
-                                                        days = refreshed,
-                                                    ),
-                                                )
-                                            }.onFailure {
-                                                actionMessage = "${series.title}刷新失败：${it.message ?: "未知错误"}"
-                                            }
-                                        refreshingTmdbId = null
-                                    }
-                                }.touchTarget(),
+                                Modifier
+                                    .pressable(
+                                        enabled = refreshingTmdbId == null,
+                                        onClickLabel = "刷新${series.title}排期",
+                                    ) {
+                                        refreshingTmdbId = series.tmdbId
+                                        actionMessage = null
+                                        scope.launch {
+                                            component
+                                                .refreshSeries(series)
+                                                .onSuccess { refreshed ->
+                                                    component.store.accept(
+                                                        CalendarIntent.ApplySeriesRefresh(
+                                                            tmdbId = series.tmdbId,
+                                                            days = refreshed,
+                                                        ),
+                                                    )
+                                                }.onFailure {
+                                                    actionMessage = "${series.title}刷新失败：${it.message ?: "未知错误"}"
+                                                }
+                                            refreshingTmdbId = null
+                                        }
+                                    }.touchTarget(),
                         )
                         Text(
                             "切换提醒",
                             style = AppTypography.caption.strong,
                             color = palette.sub,
                             modifier =
-                                Modifier.pressable {
-                                    component.setReminder(
-                                        series.tmdbId,
-                                        nextTrackingReminder(series.reminderMode),
-                                        series.remindBeforeMinutes,
-                                    )
-                                }.touchTarget(),
+                                Modifier
+                                    .pressable {
+                                        component.setReminder(
+                                            series.tmdbId,
+                                            nextTrackingReminder(series.reminderMode),
+                                            series.remindBeforeMinutes,
+                                        )
+                                    }.touchTarget(),
                         )
                         Text(
                             "取消追剧",
                             style = AppTypography.caption.strong,
                             color = palette.error,
                             modifier =
-                                Modifier.pressable {
-                                    component.unfollow(series.tmdbId)
-                                }.touchTarget(),
+                                Modifier
+                                    .pressable {
+                                        component.unfollow(series.tmdbId)
+                                    }.touchTarget(),
                         )
                     }
                 }
@@ -915,7 +922,8 @@ private fun CalendarResourcesPane(
     var enrichmentError by remember(days) { mutableStateOf<String?>(null) }
     LaunchedEffect(days) {
         if (days.isEmpty()) return@LaunchedEffect
-        component.enrichResourceDetails(days)
+        component
+            .enrichResourceDetails(days)
             .onSuccess { enrichedDays = it }
             .onFailure { enrichmentError = it.message ?: "资源画质读取失败" }
         enriching = false
@@ -930,8 +938,12 @@ private fun CalendarResourcesPane(
                     val representative =
                         entries.maxBy { entry ->
                             entry.sources.size * 10 +
-                                if (entry.openItemId != null) 5 else 0 +
-                                if (entry.inLibrary) 1 else 0
+                                if (entry.openItemId != null) {
+                                    5
+                                } else {
+                                    0 +
+                                        if (entry.inLibrary) 1 else 0
+                                }
                         }
                     CalendarResourceSummary(
                         title = representative.episode.showTitle,
@@ -1071,8 +1083,11 @@ private fun CalendarSettingsPane(
                                 .clip(GlassShapes.chip)
                                 .background(if (active) accent.accent else Color.Transparent)
                                 .then(
-                                    if (active) Modifier else
-                                        Modifier.glass(GlassShapes.chip, palette.card2, palette.border),
+                                    if (active) {
+                                        Modifier
+                                    } else {
+                                        Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                                    },
                                 ).padding(horizontal = 13.dp, vertical = 7.dp),
                     )
                 }
@@ -1096,8 +1111,11 @@ private fun CalendarSettingsPane(
                                 .clip(GlassShapes.chip)
                                 .background(if (active) accent.accent else Color.Transparent)
                                 .then(
-                                    if (active) Modifier else
-                                        Modifier.glass(GlassShapes.chip, palette.card2, palette.border),
+                                    if (active) {
+                                        Modifier
+                                    } else {
+                                        Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                                    },
                                 ).padding(horizontal = 13.dp, vertical = 7.dp),
                     )
                 }
@@ -1115,8 +1133,11 @@ private fun CalendarSettingsPane(
                                 .clip(GlassShapes.chip)
                                 .background(if (active) accent.accent else Color.Transparent)
                                 .then(
-                                    if (active) Modifier else
-                                        Modifier.glass(GlassShapes.chip, palette.card2, palette.border),
+                                    if (active) {
+                                        Modifier
+                                    } else {
+                                        Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                                    },
                                 ).padding(horizontal = 13.dp, vertical = 7.dp),
                     )
                 }
@@ -1527,11 +1548,11 @@ private fun StatusBadge(entry: CalendarEntry) {
             "未收录" to palette.sub2
         } else {
             when (status) {
-            LibraryStatus.Unaired -> "未播出" to palette.sub2
-            LibraryStatus.Missing -> "未入库" to palette.error
-            LibraryStatus.Available -> "可播放" to Brand.Online
-            LibraryStatus.InProgress -> "观看中" to Brand.Online
-            LibraryStatus.Watched -> "已看" to palette.sub2
+                LibraryStatus.Unaired -> "未播出" to palette.sub2
+                LibraryStatus.Missing -> "未入库" to palette.error
+                LibraryStatus.Available -> "可播放" to Brand.Online
+                LibraryStatus.InProgress -> "观看中" to Brand.Online
+                LibraryStatus.Watched -> "已看" to palette.sub2
                 LibraryStatus.Unknown -> "未知" to palette.sub2
             }
         }

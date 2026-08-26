@@ -237,7 +237,9 @@ class TmdbRepositoryTest {
                                 val domestic = request.url.parameters["with_origin_country"] == "CN"
                                 if (!domestic) return@MockEngine json("""{"results":[]}""")
                                 json(
-                                    """{"results":[{"id":7,"name":"国产日更剧","poster_path":"/p.jpg",""" +
+                                    // Brand-new TMDB entries often receive episode dates before artwork.
+                                    // Calendar discovery must not discard the schedule for that reason.
+                                    """{"results":[{"id":7,"name":"国产日更剧",""" +
                                         """"first_air_date":"2026-07-01","vote_count":40,""" +
                                         """"original_language":"zh","popularity":90.0}]}""",
                                 )

@@ -24,13 +24,13 @@ import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
 import com.yfuse.di.appModule
+import com.yfuse.feature.calendar.scheduleCalendarReminderWork
 import com.yfuse.feature.player.AndroidNativeCrashMonitor
 import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
 import com.yfuse.feature.player.PlaybackDiagnosticReportRegistry
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.player.notifyPlaybackAppBackground
-import com.yfuse.feature.calendar.scheduleCalendarReminderWork
 import com.yfuse.update.AppUpdateManager
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout

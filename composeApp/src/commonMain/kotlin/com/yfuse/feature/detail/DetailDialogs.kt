@@ -21,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
@@ -31,15 +33,13 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.flatGlass
-import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.AiringScheduleAuthority
+import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaDetail
-import com.yfuse.core.data.TmdbSeriesIdentityCandidate
-import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.offline.OfflineDownloadQuality
 import com.yfuse.core.offline.OfflineDownloadSelection
@@ -70,7 +70,8 @@ internal fun SeriesAiringCalendarDialog(
     val today = currentIsoDate()
     val episodeCount = days.sumOf { it.entries.size }
     val officialSchedule =
-        days.asSequence()
+        days
+            .asSequence()
             .flatMap { it.entries.asSequence() }
             .map { it.episode }
             .firstOrNull { it.scheduleAuthority == AiringScheduleAuthority.Official }
@@ -89,7 +90,10 @@ internal fun SeriesAiringCalendarDialog(
                             },
                         )
                     }
-                    officialSchedule.platforms.takeIf { it.isNotEmpty() }?.joinToString("/")?.let(::add)
+                    officialSchedule.platforms
+                        .takeIf { it.isNotEmpty() }
+                        ?.joinToString("/")
+                        ?.let(::add)
                 }.joinToString(" · ")
             episodeCount > 0 -> "$episodeCount 集 · 按原产地播出日期"
             else -> "按原产地播出日期"
@@ -174,7 +178,11 @@ internal fun SeriesAiringCalendarDialog(
                 identityCandidates.forEach { candidate ->
                     OverlayOptionRow(
                         label = candidate.title,
-                        description = listOfNotNull(candidate.year?.toString(), "TMDB ${candidate.tmdbId}").joinToString(" · "),
+                        description =
+                            listOfNotNull(
+                                candidate.year?.toString(),
+                                "TMDB ${candidate.tmdbId}",
+                            ).joinToString(" · "),
                         selected = false,
                         onClick = { onSelectIdentity(candidate) },
                     )

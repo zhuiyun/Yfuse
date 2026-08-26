@@ -2,8 +2,8 @@ package com.yfuse.app
 
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.data.AiringCalendarRepository
-import com.yfuse.core.data.CalendarIdentityResolver
 import com.yfuse.core.data.CalendarFollowStore
+import com.yfuse.core.data.CalendarIdentityResolver
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.PlaybackFailoverRequest
