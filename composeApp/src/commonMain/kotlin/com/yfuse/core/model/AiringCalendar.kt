@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
  * shows separately and merging is the only way a 国产剧 appears at all — the same split
  * `TmdbRepository.home()` already makes for the home tab.
  */
+@Serializable
 enum class ShowOrigin { Domestic, Foreign }
 
 /**
@@ -18,9 +19,11 @@ enum class ShowOrigin { Domestic, Foreign }
  * for. A film has one date and no coordinate, so it needs a row shape of its own rather
  * than being forced into 第 0 季第 0 集.
  */
+@Serializable
 enum class AiringKind { Episode, Movie }
 
 /** Authority behind a date, kept explicit so the UI never labels an estimate as official. */
+@Serializable
 enum class AiringScheduleAuthority { Tmdb, Estimated, Official }
 
 /** A compact, user-verifiable record of why an official/estimated date was accepted. */
@@ -35,6 +38,7 @@ data class AiringScheduleEvidence(
 )
 
 /** Access tier named by the publishing platform. */
+@Serializable
 enum class AiringAccessTier { Unknown, Free, Member, SviP }
 
 /**
@@ -111,6 +115,7 @@ data class AiringEpisode(
  * have it yet. Nothing else in the app can say that — Emby only knows about files that
  * exist, so to it a missing episode is indistinguishable from one that was never made.
  */
+@Serializable
 enum class LibraryStatus {
     /** Its broadcast or release date has not arrived. */
     Unaired,
@@ -131,9 +136,11 @@ enum class LibraryStatus {
     Unknown,
 }
 
+@Serializable
 enum class CalendarDataIssue { NoServer, LibraryLookupFailed, IdentityUnmatched }
 
 /** One server's concrete copy of a scheduled title. External schedules never create this. */
+@Serializable
 data class CalendarSource(
     val serverId: String,
     val serverName: String,
@@ -151,6 +158,7 @@ data class CalendarSource(
 )
 
 /** One episode as the calendar shows it: the broadcast, plus what this library has. */
+@Serializable
 data class CalendarEntry(
     val episode: AiringEpisode,
     val status: LibraryStatus,
@@ -180,6 +188,10 @@ data class CalendarEntry(
     val discoveryOnly: Boolean = false,
     /** Why a row is Unknown; kept separate so transport failures never masquerade as “未入库”. */
     val dataIssue: CalendarDataIssue? = null,
+    /** Last time every currently selected server fact on this row was checked. */
+    val availabilityCheckedAtEpochMs: Long? = null,
+    /** True when a persisted result is shown immediately while a background refresh runs. */
+    val availabilityStale: Boolean = false,
 ) {
     /** True for a show this library follows, whether or not it has tonight's episode. */
     val inLibrary: Boolean get() = seriesItemId != null || sources.any { it.seriesItemId != null }
@@ -222,6 +234,7 @@ data class CalendarEntry(
 }
 
 /** A day's broadcasts, which is the unit the calendar is laid out in. */
+@Serializable
 data class CalendarDay(
     /** ISO-8601 `YYYY-MM-DD`. */
     val date: String,
