@@ -324,7 +324,7 @@ fun CalendarScreen(component: CalendarComponent) {
                     followedSeries = followedSeries,
                     component = component,
                     bottomContentInset = bottomContentInset,
-                    onExportCalendar = { share.shareText(component.exportCalendar(state.days)) },
+                    onExportCalendar = { share.shareCalendar(component.exportCalendar(state.days)) },
                     onExportDiagnostics = {
                         share.shareText(component.diagnosticReport(state.days))
                     },
