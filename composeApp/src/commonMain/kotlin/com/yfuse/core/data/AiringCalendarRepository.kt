@@ -169,12 +169,15 @@ class AiringCalendarRepository(
                 "数据问题: ${if (issues.isEmpty()) "无" else issues.entries.joinToString { "${it.key}=${it.value}" }}",
             )
             entries.take(80).forEach { entry ->
+                val hasPoster = entry.episode.posterPath != null || entry.posterUrls.isNotEmpty()
                 appendLine(
                     "${entry.episode.airDate} ${entry.episode.showTitle} ${entry.episode.episodeLabel}" +
                         " | ${entry.status} | tmdb=${entry.episode.showTmdbId}" +
                         " | authority=${entry.episode.scheduleAuthority}" +
+                        " | confidence=${entry.episode.scheduleConfidence ?: "unknown"}" +
+                        " | evidence=${entry.episode.scheduleEvidence.size}" +
                         " | servers=${entry.serverNames.joinToString("/").ifBlank { "none" }}" +
-                        " | poster=${if (entry.episode.posterPath != null || entry.posterUrls.isNotEmpty()) "yes" else "no"}",
+                        " | poster=${if (hasPoster) "yes" else "no"}",
                 )
             }
         }
@@ -373,6 +376,16 @@ class AiringCalendarRepository(
         return calendarForSeries(tracked, pastDays, futureDays, today, forceRefresh)
     }
 
+    /** Loads the complete useful window for one title without opening global discovery. */
+    suspend fun seriesCalendar(
+        series: FollowedSeries,
+        pastDays: Int = 7,
+        futureDays: Int = 60,
+        today: String = currentIsoDate(),
+        forceRefresh: Boolean = false,
+    ): Result<List<CalendarDay>> =
+        calendarForSeries(listOf(series), pastDays, futureDays, today, forceRefresh)
+
     private suspend fun calendarForSeries(
         series: List<FollowedSeries>,
         pastDays: Int,
@@ -538,9 +551,16 @@ class AiringCalendarRepository(
                                                     (it.seasonNumber ?: 1) == entry.episode.seasonNumber
                                             }
                                         if (match == null) {
-                                            source
+                                            source.copy(
+                                                libraryEpisodeCount = known.libraryEpisodeCount(),
+                                                highestEpisodeNumber = known.highestEpisodeNumber(),
+                                            )
                                         } else {
-                                            source.copy(qualityTags = match.calendarQualityTags())
+                                            source.copy(
+                                                qualityTags = match.calendarQualityTags(),
+                                                libraryEpisodeCount = known.libraryEpisodeCount(),
+                                                highestEpisodeNumber = known.highestEpisodeNumber(),
+                                            )
                                         }
                                     },
                             )
@@ -916,6 +936,8 @@ class AiringCalendarRepository(
                             status = classifyAiring(match, episode, today),
                             playedPercentage = match?.playedPercentage,
                             qualityTags = match?.calendarQualityTags().orEmpty(),
+                            libraryEpisodeCount = known.libraryEpisodeCount(),
+                            highestEpisodeNumber = known.highestEpisodeNumber(),
                             posterUrl =
                                 EmbyImages.primary(
                                     baseUrl = server.baseUrl,
@@ -978,6 +1000,8 @@ internal fun calendarPreviewDays(
                             status = status,
                             playedPercentage = match?.playedPercentage,
                             qualityTags = match?.calendarQualityTags().orEmpty(),
+                            libraryEpisodeCount = libraryHint.episodes.libraryEpisodeCount(),
+                            highestEpisodeNumber = libraryHint.episodes.highestEpisodeNumber(),
                             posterUrl =
                                 EmbyImages.primary(
                                     baseUrl = libraryHint.server.baseUrl,
@@ -1086,6 +1110,18 @@ private fun Episode.calendarQualityTags(): List<String> {
         if (mediaVersions.any { it.hasDolbyAtmos }) add("Atmos")
     }
 }
+
+private fun List<Episode>.libraryEpisodeCount(): Int =
+    asSequence()
+        .mapNotNull { episode ->
+            episode.indexNumber
+                ?.takeIf { it > 0 }
+                ?.let { number -> (episode.seasonNumber ?: 1) to number }
+        }.distinct()
+        .count()
+
+private fun List<Episode>.highestEpisodeNumber(): Int? =
+    mapNotNull(Episode::indexNumber).filter { it > 0 }.maxOrNull()
 
 /**
  * What a broadcast means for this library, given whether a copy was found.

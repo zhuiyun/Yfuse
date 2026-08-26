@@ -52,5 +52,7 @@ class CalendarScheduleRoutesTest {
             assertTrue(verified)
             assertTrue(payload.contains("师兄太稳健"))
             assertTrue(payload.contains("2026-08-30"))
+            assertTrue(payload.contains("\"confidence\":100"))
+            assertTrue(payload.contains("\"type\":\"VerifiedAccount\""))
         }
 }

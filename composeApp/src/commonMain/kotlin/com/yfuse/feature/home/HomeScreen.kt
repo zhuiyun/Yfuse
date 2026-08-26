@@ -338,13 +338,34 @@ private fun HomeContent(
                 }
 
                 val calendarItems = homeCalendarPreviews(calendarState.days, state)
-                if (calendarItems.isNotEmpty()) {
-                    item(key = "airing-calendar-preview") {
-                        HomeCalendarShelf(
-                            items = calendarItems,
-                            onSeeAll = component.onOpenCalendar,
-                            onClick = { component.openCalendarEntry(it.entry) },
-                        )
+                when {
+                    calendarItems.isNotEmpty() -> {
+                        item(key = "airing-calendar-preview") {
+                            HomeCalendarShelf(
+                                items = calendarItems,
+                                onSeeAll = component.onOpenCalendar,
+                                onClick = { component.openCalendarEntry(it.entry) },
+                            )
+                        }
+                    }
+
+                    calendarState.loading -> {
+                        item(key = "airing-calendar-loading") {
+                            SkeletonRail(
+                                modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                                count = 3,
+                            )
+                        }
+                    }
+
+                    calendarState.error != null -> {
+                        item(key = "airing-calendar-error") {
+                            ErrorState(
+                                message = calendarState.error!!,
+                                onRetry = { component.refreshCalendar(forceRefresh = true) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
 

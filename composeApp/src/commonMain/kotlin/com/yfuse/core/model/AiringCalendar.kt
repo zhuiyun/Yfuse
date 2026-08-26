@@ -20,8 +20,19 @@ enum class ShowOrigin { Domestic, Foreign }
  */
 enum class AiringKind { Episode, Movie }
 
-/** Authority behind a date, kept explicit so the UI never labels a TMDB guess as official. */
-enum class AiringScheduleAuthority { Tmdb, Official }
+/** Authority behind a date, kept explicit so the UI never labels an estimate as official. */
+enum class AiringScheduleAuthority { Tmdb, Estimated, Official }
+
+/** A compact, user-verifiable record of why an official/estimated date was accepted. */
+@Serializable
+data class AiringScheduleEvidence(
+    val type: String,
+    val publisher: String,
+    val sourceUrl: String,
+    val capturedAt: String,
+    val contentHash: String,
+    val extractionMethod: String,
+)
 
 /** Access tier named by the publishing platform. */
 enum class AiringAccessTier { Unknown, Free, Member, SviP }
@@ -59,6 +70,10 @@ data class AiringEpisode(
     val sourceUrl: String? = null,
     val scheduleRevision: String? = null,
     val scheduleUpdatedAt: String? = null,
+    /** 0..100 confidence assigned by the server-side evidence gate. */
+    val scheduleConfidence: Int? = null,
+    /** Raw source material remains server-side; this is the auditable summary. */
+    val scheduleEvidence: List<AiringScheduleEvidence> = emptyList(),
 ) {
     val isMovie: Boolean get() = kind == AiringKind.Movie
 
@@ -129,6 +144,10 @@ data class CalendarSource(
     val qualityTags: List<String> = emptyList(),
     /** Authenticated Emby fallback when the external schedule has no poster. */
     val posterUrl: String? = null,
+    /** Actual files returned by Emby, independent of the visible schedule window. */
+    val libraryEpisodeCount: Int? = null,
+    /** Highest positive episode coordinate currently present in Emby. */
+    val highestEpisodeNumber: Int? = null,
 )
 
 /** One episode as the calendar shows it: the broadcast, plus what this library has. */
@@ -189,6 +208,12 @@ data class CalendarEntry(
 
     val posterUrls: List<String>
         get() = sources.mapNotNull { it.posterUrl }.distinct()
+
+    val libraryEpisodeCount: Int?
+        get() = sources.mapNotNull { it.libraryEpisodeCount }.maxOrNull()
+
+    val highestLibraryEpisodeNumber: Int?
+        get() = sources.mapNotNull { it.highestEpisodeNumber }.maxOrNull()
 
     /** Progress follows the same source chosen for opening; another server's 100% must not
      * turn an in-progress source into a contradictory full progress bar. */

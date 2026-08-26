@@ -33,6 +33,8 @@ class OfficialAiringScheduleCatalogTest {
         assertEquals(setOf(AiringScheduleAuthority.Official), episodes.map { it.scheduleAuthority }.toSet())
         assertEquals(setOf("12:00"), episodes.mapNotNull { it.airTime }.toSet())
         assertEquals(listOf("优酷", "爱奇艺"), episodes.first().platforms)
+        assertEquals(setOf(100), episodes.mapNotNull { it.scheduleConfidence }.toSet())
+        assertEquals(setOf("师兄太稳健官微"), episodes.flatMap { it.scheduleEvidence }.map { it.publisher }.toSet())
         assertEquals(setOf("/pV38dHjE2fPWmd0ltJQpBdbpz7g.jpg"), episodes.mapNotNull { it.posterPath }.toSet())
     }
 

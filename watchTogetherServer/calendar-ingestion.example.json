@@ -1,0 +1,52 @@
+{
+  "refreshMinutes": 30,
+  "verifiedAccounts": [
+    {
+      "publisherId": "7758737065",
+      "publisher": "师兄太稳健官微",
+      "profileUrl": "https://weibo.com/7758737065"
+    }
+  ],
+  "ocrProviders": [
+    {
+      "id": "paddleocr-vl",
+      "protocol": "PaddleOcrJobs",
+      "endpoint": "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs",
+      "model": "PP-StructureV3",
+      "apiKeyEnvironment": "YFUSE_CALENDAR_PADDLEOCR_TOKEN",
+      "pollIntervalMillis": 2000,
+      "pollTimeoutSeconds": 120
+    },
+    {
+      "id": "ocr-space-engine-3",
+      "protocol": "OcrSpace",
+      "endpoint": "https://api.ocr.space/parse/image",
+      "engine": 3,
+      "language": "auto",
+      "apiKeyEnvironment": "YFUSE_CALENDAR_OCR_SPACE_KEY",
+      "pollTimeoutSeconds": 120
+    }
+  ],
+  "shows": [
+    {
+      "title": "师兄太稳健",
+      "year": 2026,
+      "tmdbId": 272938,
+      "seasonNumber": 1,
+      "posterPath": "/pV38dHjE2fPWmd0ltJQpBdbpz7g.jpg",
+      "airTime": "12:00",
+      "timeZoneId": "Asia/Shanghai",
+      "platforms": ["优酷", "爱奇艺"],
+      "accessTier": "Member",
+      "sources": [
+        {
+          "type": "VerifiedAccount",
+          "publisherId": "7758737065",
+          "publisher": "师兄太稳健官微",
+          "url": "https://weibo.com/7758737065",
+          "imageUrls": []
+        }
+      ]
+    }
+  ]
+}

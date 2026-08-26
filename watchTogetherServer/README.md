@@ -207,6 +207,43 @@ docker run -d --restart unless-stopped `
 
 房间仅驻留内存；最后一名成员退出后保留 5 分钟供重连，随后回收。
 
+## 官方追剧日历采集
+
+服务端可以在不信任客户端、也不把 OCR 密钥打进 APK 的前提下自动生成排期快照。配置
+`YFUSE_CALENDAR_INGEST_CONFIG` 指向采集清单，配置 `YFUSE_CALENDAR_SCHEDULES_PATH` 指向
+生成文件，并保留现有 `YFUSE_CALENDAR_PRIVATE_KEY_PKCS8`。示例见
+`calendar-ingestion.example.json`。
+
+采集器只接受四类平台官方域名（爱奇艺、优酷、腾讯视频、芒果TV）和清单中明确白名单化的
+微博认证账号。页面正文可以直接解析；图片必须经过两个独立 OCR 服务的逐集置信度门控后才
+参与判定。通用 OCR bridge 接收 `POST {"imageUrl":"https://..."}`，返回
+`{"text":"..."}`；也可将 provider 的 `protocol` 设为 `PaddleOcrJobs`，直接调用
+PaddleOCR 官方异步任务接口并读取其 JSONL Markdown 结果。PaddleOCR Token 仅通过
+`apiKeyEnvironment` 指定的环境变量注入，且实现会拒绝把该凭据发送到非官方域名。
+
+第二路可将 `protocol` 设为 `OcrSpace`，调用 OCR.space 的 `/parse/image` POST 接口。
+追剧日历默认使用 Engine 3、自动语言检测、方向检测、放大和表格模式；API Key 同样只从
+环境变量读取，并且只允许发送到 `api.ocr.space`。免费端点存在每日次数和共享资源限制，
+失败时采集器保留上一份签名快照，不会降级为单 OCR 发布。
+
+允许先配置一个 OCR provider 进行接入验证，但单 OCR 结果不会进入发布数据。双 OCR 门控
+支持四种可审计共识：完全一致；至少 3 个坐标一致且一方是另一方的子集；至少 3 个相同坐标
+的交集；以及双方都识别出相同的“全集上线”或“首更 N 集、随后每日 M 集”语义且一方提供
+完整坐标。任何相同集数对应不同日期的结果都会立即拒绝，不能靠置信度分数覆盖冲突。
+生产环境推荐使用 `PP-StructureV3` 保留日历表格布局，并以 OCR.space 作为不同厂商的第二路
+OCR；`PaddleOCR-VL-1.6` 和 `PP-OCRv6` 仍可在配置中选用或用于回归对比。
+
+置信度门控固定在服务端：平台官方页、认证官微、明确分集坐标、双 OCR 共识、TMDB 严格身份
+和第二官方来源分别贡献证据。OCR 完全一致加 20 分、子集或语义互证加 15 分、坐标交集加
+10 分。80 分及以上发布为 `Official`，60–79 分发布为 `Estimated`，
+低于 60 分、同一集出现冲突日期、TMDB 身份不唯一或只有一个 OCR 结果时均不发布。每条下发
+记录保留来源 URL、采集时间、内容 SHA-256 和提取方式；上游暂时失败时继续使用最后一份已
+签名快照，不会生成猜测日期。
+
+TMDB ID 已在清单中给出时不会请求 TMDB；否则需要通过 `TMDB_TOKEN` 注入令牌，且只有标题
+标准化后完全一致、首播年份相差不超过一年并且候选唯一时才自动绑定。Emby 凭据和库存不进入
+该服务：客户端仍直接查询用户自己的 Emby，并独立计算真实剧集文件数。
+
 仓库内的 `deploy/yfuse-watch.service` 是 Caddy 后端模板：Ktor 使用 8080，运行目录采用
 `/opt/yfuse-watch/current`，静态文件继续放在 `/srv/yfuse-update/yfuse`。旧的
 `scripts/yfuse-update.service` 仅供仍将静态更新服务拆开的安装使用，现已限制为

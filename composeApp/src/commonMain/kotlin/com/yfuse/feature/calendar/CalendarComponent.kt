@@ -10,6 +10,7 @@ import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.OfficialScheduleChange
 import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.util.componentScope
 import com.yfuse.core.util.currentEpochMillis
 import kotlinx.coroutines.flow.collect
@@ -36,6 +37,15 @@ class CalendarComponent(
         followStore.unfollow(tmdbId)
     }
 
+    fun toggleFollow(entry: CalendarEntry) {
+        val current = followStore.followed.value.firstOrNull { it.tmdbId == entry.episode.showTmdbId }
+        if (current == null) {
+            followStore.follow(entry.toFollowedSeries())
+        } else {
+            followStore.unfollow(current.tmdbId)
+        }
+    }
+
     fun unfollowAll() {
         followStore.unfollowAll()
     }
@@ -57,6 +67,14 @@ class CalendarComponent(
 
     suspend fun refreshSeries(series: FollowedSeries): Result<List<CalendarDay>> =
         repository.refreshTrackedSeries(series)
+
+    suspend fun seriesCalendar(
+        entry: CalendarEntry,
+        forceRefresh: Boolean = false,
+    ): Result<List<CalendarDay>> {
+        val current = followStore.followed.value.firstOrNull { it.tmdbId == entry.episode.showTmdbId }
+        return repository.seriesCalendar(entry.toFollowedSeries(current), forceRefresh = forceRefresh)
+    }
 
     suspend fun enrichResourceDetails(days: List<CalendarDay>): Result<List<CalendarDay>> =
         repository.enrichResourceDetails(days)
@@ -108,3 +126,15 @@ class CalendarComponent(
         const val RESUME_REFRESH_INTERVAL_MS = 2 * 60_000L
     }
 }
+
+internal fun CalendarEntry.toFollowedSeries(existing: FollowedSeries? = null): FollowedSeries =
+    FollowedSeries(
+        tmdbId = episode.showTmdbId,
+        title = episode.showTitle,
+        year = existing?.year,
+        posterPath = episode.posterPath ?: existing?.posterPath,
+        serverId = serverId ?: sources.firstOrNull()?.serverId ?: existing?.serverId,
+        seriesItemId = seriesItemId ?: sources.firstNotNullOfOrNull { it.seriesItemId } ?: existing?.seriesItemId,
+        reminderMode = existing?.reminderMode ?: CalendarReminderMode.Off,
+        remindBeforeMinutes = existing?.remindBeforeMinutes ?: 30,
+    )

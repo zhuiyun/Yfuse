@@ -111,6 +111,19 @@ fun CalendarScreen(component: CalendarComponent) {
         mutableStateOf(component.scheduleChanges())
     }
     var dialogEntry by remember { mutableStateOf<CalendarEntry?>(null) }
+    var dialogSeriesDays by remember { mutableStateOf<List<CalendarDay>?>(null) }
+    var dialogRefreshing by remember { mutableStateOf(false) }
+    val dialogScope = rememberCoroutineScope()
+
+    LaunchedEffect(dialogEntry?.episode?.showTmdbId) {
+        val entry = dialogEntry ?: return@LaunchedEffect
+        dialogSeriesDays = null
+        dialogRefreshing = true
+        component.seriesCalendar(entry).onSuccess { loaded ->
+            if (loaded.isNotEmpty()) dialogSeriesDays = loaded
+        }
+        dialogRefreshing = false
+    }
 
     // Unlike the artwork-heavy home hero this route always has a quiet page background.
     // Re-assert the icon contrast when navigating here; otherwise the light icons selected
@@ -357,19 +370,36 @@ fun CalendarScreen(component: CalendarComponent) {
             }
         }
         dialogEntry?.let { entry ->
+            val followed = followedSeries.firstOrNull { it.tmdbId == entry.episode.showTmdbId }
             AiringShowCalendarDialog(
                 initialEntry = entry,
-                days = state.days,
+                days = dialogSeriesDays ?: state.days,
                 today = state.today,
-                refreshing = state.loading,
+                followedSeries = followed,
+                refreshing = dialogRefreshing,
                 onOpen = { target ->
                     target.openItemId?.let { itemId ->
                         component.onOpenItem(target.serverId, itemId)
                         dialogEntry = null
                     }
                 },
-                onRefresh = { component.store.accept(CalendarIntent.Refresh) },
-                onDismiss = { dialogEntry = null },
+                onToggleFollow = { component.toggleFollow(entry) },
+                onReminderChanged = { mode, minutes ->
+                    component.setReminder(entry.episode.showTmdbId, mode, minutes)
+                },
+                onRefresh = {
+                    dialogScope.launch {
+                        dialogRefreshing = true
+                        component.seriesCalendar(entry, forceRefresh = true).onSuccess { loaded ->
+                            if (loaded.isNotEmpty()) dialogSeriesDays = loaded
+                        }
+                        dialogRefreshing = false
+                    }
+                },
+                onDismiss = {
+                    dialogEntry = null
+                    dialogSeriesDays = null
+                },
             )
         }
     }
@@ -958,14 +988,15 @@ private fun CalendarResourcesPane(
                         entry = representative,
                         episodeCount = entries.size,
                         availableCount =
-                            entries.count {
-                                it.status in
-                                    setOf(
-                                        LibraryStatus.Available,
-                                        LibraryStatus.InProgress,
-                                        LibraryStatus.Watched,
-                                    )
-                            },
+                            entries.mapNotNull(CalendarEntry::libraryEpisodeCount).maxOrNull()
+                                ?: entries.count {
+                                    it.status in
+                                        setOf(
+                                            LibraryStatus.Available,
+                                            LibraryStatus.InProgress,
+                                            LibraryStatus.Watched,
+                                        )
+                                },
                         missingCount = entries.count { it.status == LibraryStatus.Missing },
                         servers = entries.flatMap(CalendarEntry::serverNames).distinct(),
                         qualities = entries.flatMap(CalendarEntry::qualityTags).distinct(),
@@ -1023,7 +1054,7 @@ private fun CalendarResourcesPane(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "${summary.episodeCount} 集排期 · ${summary.availableCount} 集可用" +
+                        "${summary.episodeCount} 集排期 · Emby 已入库 ${summary.availableCount} 集" +
                             if (summary.missingCount > 0) " · ${summary.missingCount} 集待入库" else "",
                         style = AppTypography.caption.regular,
                         color = if (summary.missingCount > 0) palette.error else palette.sub2,
@@ -1590,7 +1621,7 @@ private fun broadcastStateLabel(entry: CalendarEntry): String {
             LibraryStatus.Watched -> "已完成"
             LibraryStatus.Unknown -> "仅供播出参考"
         }
-    if (episode.scheduleAuthority != AiringScheduleAuthority.Official) return state
+    if (episode.scheduleAuthority == AiringScheduleAuthority.Tmdb) return state
     val tier =
         when (episode.accessTier) {
             AiringAccessTier.Member -> "会员"
@@ -1599,7 +1630,14 @@ private fun broadcastStateLabel(entry: CalendarEntry): String {
             AiringAccessTier.Unknown -> null
         }
     return buildList {
-        add("官方排期")
+        add(
+            if (episode.scheduleAuthority == AiringScheduleAuthority.Official) {
+                "官方排期"
+            } else {
+                "预计排期"
+            },
+        )
+        episode.scheduleConfidence?.let { add("可信度 $it") }
         episode.airTime?.let(::add)
         addAll(episode.platforms.take(2))
         tier?.let(::add)

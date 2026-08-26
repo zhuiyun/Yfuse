@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,7 +23,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -53,6 +51,8 @@ import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDominantColor
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
@@ -66,14 +66,13 @@ private val DialogHeroHeight = 206.dp
 private val EpisodeRowMinimumHeight = 58.dp
 private val DialogFallbackArtwork = Color(0xFF27384B)
 
-private enum class ReminderTiming(
-    val label: String,
-) {
-    Off("提醒关闭"),
-    Before("提前30分钟"),
-    Airing("播出时"),
-    Added("新入库时"),
-}
+private fun CalendarReminderMode.label(beforeMinutes: Int): String =
+        when (this) {
+            CalendarReminderMode.Off -> "提醒关闭"
+            CalendarReminderMode.BeforeAndAtBroadcast -> "提前${beforeMinutes}分钟"
+            CalendarReminderMode.AtBroadcast -> "播出时"
+            CalendarReminderMode.WhenAvailable -> "新入库时"
+        }
 
 internal data class AiringShowDay(
     val date: String,
@@ -109,8 +108,11 @@ internal fun AiringShowCalendarDialog(
     initialEntry: CalendarEntry,
     days: List<CalendarDay>,
     today: String,
+    followedSeries: FollowedSeries?,
     refreshing: Boolean,
     onOpen: (CalendarEntry) -> Unit,
+    onToggleFollow: () -> Unit,
+    onReminderChanged: (CalendarReminderMode, Int) -> Unit,
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -121,23 +123,26 @@ internal fun AiringShowCalendarDialog(
     var selectedDate by rememberSaveable(showId) {
         mutableStateOf(initialEntry.episode.airDate)
     }
-    var reminderIndex by rememberSaveable(showId) { mutableIntStateOf(ReminderTiming.Off.ordinal) }
     var reminderExpanded by rememberSaveable(showId) { mutableStateOf(false) }
     LaunchedEffect(showDays) {
         if (showDays.none { it.date == selectedDate }) selectedDate = showDays.first().date
+    }
+    LaunchedEffect(followedSeries) {
+        if (followedSeries == null) reminderExpanded = false
     }
 
     val allEntries = remember(showDays) { showDays.flatMap(AiringShowDay::entries) }
     val selectedDay = showDays.firstOrNull { it.date == selectedDate } ?: showDays.first()
     val title = initialEntry.episode.showTitle
     val posterPath = initialEntry.episode.posterPath
+    val embyArtworkUrls = remember(allEntries) { allEntries.flatMap(CalendarEntry::posterUrls).distinct() }
     val artworkUrls =
-        remember(posterPath) {
+        remember(posterPath, embyArtworkUrls) {
             listOf(
                 TmdbImages.poster(posterPath, width = "w780"),
                 TmdbImages.media(posterPath, width = "w780"),
-            )
-        }
+            ).filterNotNull() + embyArtworkUrls
+        }.distinct()
     val artworkUrl = artworkUrls.firstOrNull { !it.isNullOrBlank() }
     val sampledArtwork = rememberDominantColor(artworkUrl, DialogFallbackArtwork)
     // The poster decides whether this is a dark or light surface. App/system theme is not read.
@@ -173,21 +178,20 @@ internal fun AiringShowCalendarDialog(
                     onDismiss = onDismiss,
                 )
                 CalendarQuickActions(
-                    tracked = allEntries.any(CalendarEntry::inLibrary),
-                    reminder = ReminderTiming.entries[reminderIndex],
+                    tracked = followedSeries != null,
+                    reminder = followedSeries?.reminderMode ?: CalendarReminderMode.Off,
+                    reminderBeforeMinutes = followedSeries?.remindBeforeMinutes ?: DEFAULT_REMINDER_MINUTES,
                     reminderExpanded = reminderExpanded,
                     refreshing = refreshing,
-                    onTracking = {
-                        allEntries.firstOrNull { it.seriesItemId != null || it.itemId != null }?.let(onOpen)
-                    },
+                    onTracking = onToggleFollow,
                     onReminder = { reminderExpanded = !reminderExpanded },
                     onRefresh = onRefresh,
                 )
                 if (reminderExpanded) {
                     ReminderOptions(
-                        selected = ReminderTiming.entries[reminderIndex],
+                        selected = followedSeries?.reminderMode ?: CalendarReminderMode.Off,
                         onSelect = { timing ->
-                            reminderIndex = timing.ordinal
+                            onReminderChanged(timing, DEFAULT_REMINDER_MINUTES)
                             reminderExpanded = false
                         },
                     )
@@ -294,7 +298,8 @@ private fun dialogSubtitle(entries: List<CalendarEntry>): String {
 @Composable
 private fun CalendarQuickActions(
     tracked: Boolean,
-    reminder: ReminderTiming,
+    reminder: CalendarReminderMode,
+    reminderBeforeMinutes: Int,
     reminderExpanded: Boolean,
     refreshing: Boolean,
     onTracking: () -> Unit,
@@ -319,14 +324,15 @@ private fun CalendarQuickActions(
         QuickActionDivider()
         CalendarQuickAction(
             icon = AppIcons.Bell,
-            label = reminder.label,
-            active = reminder != ReminderTiming.Off || reminderExpanded,
+            label = if (tracked) reminder.label(reminderBeforeMinutes) else "先加入追剧",
+            active = reminder != CalendarReminderMode.Off || reminderExpanded,
+            enabled = tracked,
             onClick = onReminder,
         )
         QuickActionDivider()
         CalendarQuickAction(
             icon = AppIcons.Refresh,
-            label = if (refreshing) "匹配中" else "重新匹配",
+            label = if (refreshing) "刷新中" else "刷新排期",
             active = false,
             enabled = !refreshing,
             onClick = onRefresh,
@@ -373,8 +379,8 @@ private fun QuickActionDivider() {
 
 @Composable
 private fun ReminderOptions(
-    selected: ReminderTiming,
-    onSelect: (ReminderTiming) -> Unit,
+    selected: CalendarReminderMode,
+    onSelect: (CalendarReminderMode) -> Unit,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -392,7 +398,7 @@ private fun ReminderOptions(
             color = palette.sub,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
         )
-        ReminderTiming.entries.forEach { timing ->
+        CalendarReminderMode.entries.forEach { timing ->
             val active = timing == selected
             Row(
                 Modifier
@@ -405,7 +411,7 @@ private fun ReminderOptions(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    timing.label,
+                    timing.label(DEFAULT_REMINDER_MINUTES),
                     style = AppTypography.body.medium,
                     color = if (active) accent.accent else palette.text,
                     modifier = Modifier.weight(1f),
@@ -422,6 +428,8 @@ private fun ReminderOptions(
         }
     }
 }
+
+private const val DEFAULT_REMINDER_MINUTES = 30
 
 @Composable
 private fun DialogDateNavigation(

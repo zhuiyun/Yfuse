@@ -47,14 +47,14 @@ private data class CalendarPayload(
 )
 
 @Serializable
-private data class CalendarPublication(
+internal data class CalendarPublication(
     val revision: String,
     val generatedAt: String,
     val schedules: List<CalendarSeries>,
 )
 
 @Serializable
-private data class CalendarSeries(
+internal data class CalendarSeries(
     val tmdbId: Int,
     val title: String,
     val seasonNumber: Int,
@@ -66,11 +66,24 @@ private data class CalendarSeries(
     val sourceUrl: String,
     val revision: String,
     val updatedAt: String,
+    val authority: String = "Official",
+    val confidence: Int = 100,
+    val evidence: List<CalendarEvidence> = emptyList(),
     val episodes: List<CalendarEpisode>,
 )
 
 @Serializable
-private data class CalendarEpisode(
+internal data class CalendarEvidence(
+    val type: String,
+    val publisher: String,
+    val sourceUrl: String,
+    val capturedAt: String,
+    val contentHash: String,
+    val extractionMethod: String,
+)
+
+@Serializable
+internal data class CalendarEpisode(
     val episodeNumber: Int,
     val airDate: String,
 )
@@ -188,7 +201,7 @@ private fun loadCalendarPublication(): CalendarPublication {
             } ?: CalendarPublication(
                 revision = CALENDAR_REVISION,
                 generatedAt = "2026-08-23T04:00:00Z",
-                schedules = SCHEDULES,
+                schedules = DEFAULT_CALENDAR_SCHEDULES,
             )
         validateCalendarPublication(publication)
         cachedPublicationSourceKey = sourceKey
@@ -202,7 +215,7 @@ private fun loadCalendarPublication(): CalendarPublication {
     }
 }
 
-private fun validateCalendarPublication(publication: CalendarPublication) {
+internal fun validateCalendarPublication(publication: CalendarPublication) {
     require(publication.revision.matches(Regex("\\d{4}-\\d{2}-\\d{2}-r\\d+")))
     require(publication.generatedAt.length in 10..64)
     require(runCatching { Instant.parse(publication.generatedAt) }.isSuccess)
@@ -221,6 +234,21 @@ private fun validateCalendarPublication(publication: CalendarPublication) {
         require(schedule.sourceUrl.startsWith("https://"))
         require(schedule.revision == publication.revision)
         require(runCatching { OffsetDateTime.parse(schedule.updatedAt) }.isSuccess)
+        require(schedule.authority in setOf("Official", "Estimated"))
+        require(
+            schedule.authority == "Official" && schedule.confidence in 80..100 ||
+                schedule.authority == "Estimated" && schedule.confidence in 60..79,
+        )
+        require(schedule.evidence.size <= 20)
+        require(schedule.evidence.isNotEmpty())
+        schedule.evidence.forEach { evidence ->
+            require(evidence.type in setOf("PlatformPage", "VerifiedAccount", "OcrConsensus", "TmdbIdentity"))
+            require(evidence.publisher.isNotBlank() && evidence.publisher.length <= 80)
+            require(evidence.sourceUrl.startsWith("https://") && evidence.sourceUrl.length <= 2_048)
+            require(runCatching { OffsetDateTime.parse(evidence.capturedAt) }.isSuccess)
+            require(evidence.contentHash.matches(Regex("[a-f0-9]{64}")))
+            require(evidence.extractionMethod.isNotBlank() && evidence.extractionMethod.length <= 80)
+        }
         require(
             schedule.episodes.all {
                 it.episodeNumber > 0 &&
@@ -236,7 +264,7 @@ private fun validateCalendarPublication(publication: CalendarPublication) {
     require(publication.schedules.distinctBy(CalendarSeries::tmdbId).size == publication.schedules.size)
 }
 
-private val SCHEDULES =
+internal val DEFAULT_CALENDAR_SCHEDULES =
     listOf(
         CalendarSeries(
             tmdbId = 272938,
@@ -250,6 +278,18 @@ private val SCHEDULES =
             sourceUrl = "https://weibo.com/7758737065",
             revision = CALENDAR_REVISION,
             updatedAt = "2026-08-23T12:00:00+08:00",
+            confidence = 100,
+            evidence =
+                listOf(
+                    CalendarEvidence(
+                        type = "VerifiedAccount",
+                        publisher = "师兄太稳健官微",
+                        sourceUrl = "https://weibo.com/7758737065",
+                        capturedAt = "2026-08-23T12:00:00+08:00",
+                        contentHash = "0f9e53e8c823fd09c3b56d03079fe0a634e700597b10ba138c8d55b675d0b93e",
+                        extractionMethod = "reviewed-official-text",
+                    ),
+                ),
             episodes =
                 buildList {
                     addEpisodes("2026-08-19", 1..3)

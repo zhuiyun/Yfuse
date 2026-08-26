@@ -183,6 +183,8 @@ class AiringCalendarTest {
         assertEquals("ep13", entry.itemId)
         assertEquals("series-item", entry.seriesItemId)
         assertEquals(listOf("家庭影院"), entry.serverNames)
+        assertEquals(1, entry.libraryEpisodeCount)
+        assertEquals(13, entry.highestLibraryEpisodeNumber)
         assertTrue(entry.posterUrls.single().contains("/Items/series-item/Images/Primary"))
     }
 

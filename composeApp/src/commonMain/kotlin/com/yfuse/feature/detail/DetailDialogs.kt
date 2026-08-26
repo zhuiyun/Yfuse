@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.TmdbSeriesIdentityCandidate
@@ -67,30 +68,41 @@ internal fun SeriesAiringCalendarDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val uriHandler = LocalUriHandler.current
     val today = currentIsoDate()
     val episodeCount = days.sumOf { it.entries.size }
-    val officialSchedule =
+    val libraryEpisodeCount =
+        days.flatMap(CalendarDay::entries).mapNotNull { it.libraryEpisodeCount }.maxOrNull()
+    val trustedSchedule =
         days
             .asSequence()
             .flatMap { it.entries.asSequence() }
             .map { it.episode }
-            .firstOrNull { it.scheduleAuthority == AiringScheduleAuthority.Official }
+            .firstOrNull { it.scheduleAuthority != AiringScheduleAuthority.Tmdb }
     val scheduleSubtitle =
         when {
-            officialSchedule != null ->
+            trustedSchedule != null ->
                 buildList {
-                    add("$episodeCount 集")
-                    add("官方会员日历")
-                    officialSchedule.airTime?.let { time ->
+                    add("$episodeCount 集排期")
+                    libraryEpisodeCount?.let { add("Emby 已入库 $it 集") }
+                    add(
+                        if (trustedSchedule.scheduleAuthority == AiringScheduleAuthority.Official) {
+                            "官方会员日历"
+                        } else {
+                            "预计排期"
+                        },
+                    )
+                    trustedSchedule.scheduleConfidence?.let { add("可信度 $it") }
+                    trustedSchedule.airTime?.let { time ->
                         add(
-                            if (officialSchedule.timeZoneId == "Asia/Shanghai") {
+                            if (trustedSchedule.timeZoneId == "Asia/Shanghai") {
                                 "北京时间 $time"
                             } else {
-                                "$time (${officialSchedule.timeZoneId ?: "原播时区"})"
+                                "$time (${trustedSchedule.timeZoneId ?: "原播时区"})"
                             },
                         )
                     }
-                    officialSchedule.platforms
+                    trustedSchedule.platforms
                         .takeIf { it.isNotEmpty() }
                         ?.joinToString("/")
                         ?.let(::add)
@@ -104,6 +116,25 @@ internal fun SeriesAiringCalendarDialog(
             subtitle = scheduleSubtitle,
             onClose = onDismiss,
         )
+        trustedSchedule?.sourceUrl?.let { sourceUrl ->
+            val publishers =
+                trustedSchedule.scheduleEvidence
+                    .map { it.publisher }
+                    .filter(String::isNotBlank)
+                    .distinct()
+                    .take(3)
+                    .joinToString(" / ")
+            OverlayOptionRow(
+                label = "查看排期来源",
+                description =
+                    buildList {
+                        publishers.takeIf(String::isNotBlank)?.let(::add)
+                        trustedSchedule.scheduleUpdatedAt?.let { add("更新于 $it") }
+                    }.joinToString(" · ").ifBlank { "打开官方证据页面" },
+                selected = false,
+                onClick = { runCatching { uriHandler.openUri(sourceUrl) } },
+            )
+        }
         if (identityCandidates.isEmpty()) {
             OverlayOptionRow(
                 label = if (followed) "已加入追剧" else "加入追剧",

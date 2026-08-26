@@ -5,6 +5,8 @@ import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.ShowOrigin
+import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.FollowedSeries
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -36,6 +38,25 @@ class AiringShowCalendarDialogTest {
         assertEquals(listOf("08-18", "08-19", "08-20"), airingDateWindow(dates, "08-18"))
         assertEquals(listOf("08-19", "08-20", "08-21"), airingDateWindow(dates, "08-20"))
         assertEquals(listOf("08-20", "08-21", "08-22"), airingDateWindow(dates, "08-22"))
+    }
+
+    @Test
+    fun calendar_entry_builds_a_real_follow_record_and_preserves_existing_reminder() {
+        val entry = entry(showId = 8, date = "2026-08-20", episode = 2)
+        val existing =
+            FollowedSeries(
+                tmdbId = 8,
+                title = "旧标题",
+                reminderMode = CalendarReminderMode.WhenAvailable,
+                remindBeforeMinutes = 45,
+            )
+
+        val result = entry.toFollowedSeries(existing)
+
+        assertEquals(8, result.tmdbId)
+        assertEquals("Show 8", result.title)
+        assertEquals(CalendarReminderMode.WhenAvailable, result.reminderMode)
+        assertEquals(45, result.remindBeforeMinutes)
     }
 
     private fun entry(

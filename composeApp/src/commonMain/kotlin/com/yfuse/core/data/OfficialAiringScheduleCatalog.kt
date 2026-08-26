@@ -6,6 +6,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.AiringAccessTier
 import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.AiringScheduleAuthority
+import com.yfuse.core.model.AiringScheduleEvidence
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.security.verifyEd25519Signature
 import com.yfuse.core.util.currentEpochMillis
@@ -234,6 +235,22 @@ class OfficialAiringScheduleCatalog(
             require(schedule.platforms.all { it.isNotBlank() && it.length <= 40 })
             require(schedule.revision == expectedRevision)
             require(schedule.updatedAt.length in 10..64)
+            require(
+                schedule.authority == AiringScheduleAuthority.Official && schedule.confidence in 80..100 ||
+                    schedule.authority == AiringScheduleAuthority.Estimated && schedule.confidence in 60..79,
+            )
+            require(schedule.evidence.size <= 20)
+            require(schedule.evidence.isNotEmpty())
+            require(
+                schedule.evidence.all { evidence ->
+                    evidence.type in EVIDENCE_TYPES &&
+                        evidence.publisher.isNotBlank() && evidence.publisher.length <= 80 &&
+                        evidence.sourceUrl.startsWith("https://") && evidence.sourceUrl.length <= 2_048 &&
+                        evidence.capturedAt.length in 10..64 &&
+                        evidence.contentHash.matches(HASH_PATTERN) &&
+                        evidence.extractionMethod.isNotBlank() && evidence.extractionMethod.length <= 80
+                },
+            )
             require(schedule.episodes.distinctBy(OfficialEpisodeSlot::episodeNumber).size == schedule.episodes.size)
             require(
                 schedule.episodes.all {
@@ -263,6 +280,9 @@ class OfficialAiringScheduleCatalog(
         val sourceUrl: String,
         val revision: String,
         val updatedAt: String,
+        val authority: AiringScheduleAuthority = AiringScheduleAuthority.Official,
+        val confidence: Int = 100,
+        val evidence: List<OfficialScheduleEvidence> = emptyList(),
         val episodes: List<OfficialEpisodeSlot>,
     ) {
         fun toEpisode(
@@ -277,7 +297,7 @@ class OfficialAiringScheduleCatalog(
             episodeTitle = null,
             airDate = slot.airDate,
             origin = ShowOrigin.Domestic,
-            scheduleAuthority = AiringScheduleAuthority.Official,
+            scheduleAuthority = authority,
             airTime = airTime,
             timeZoneId = timeZoneId,
             platforms = platforms,
@@ -285,7 +305,29 @@ class OfficialAiringScheduleCatalog(
             sourceUrl = sourceUrl,
             scheduleRevision = revision,
             scheduleUpdatedAt = updatedAt,
+            scheduleConfidence = confidence,
+            scheduleEvidence = evidence.map(OfficialScheduleEvidence::toModel),
         )
+    }
+
+    @Serializable
+    internal data class OfficialScheduleEvidence(
+        val type: String,
+        val publisher: String,
+        val sourceUrl: String,
+        val capturedAt: String,
+        val contentHash: String,
+        val extractionMethod: String,
+    ) {
+        fun toModel() =
+            AiringScheduleEvidence(
+                type = type,
+                publisher = publisher,
+                sourceUrl = sourceUrl,
+                capturedAt = capturedAt,
+                contentHash = contentHash,
+                extractionMethod = extractionMethod,
+            )
     }
 
     @Serializable
@@ -311,10 +353,12 @@ class OfficialAiringScheduleCatalog(
         val DATE_PATTERN = Regex("\\d{4}-\\d{2}-\\d{2}")
         val TIME_PATTERN = Regex("(?:[01]\\d|2[0-3]):[0-5]\\d")
         val ZONE_PATTERN = Regex("[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)+")
+        val HASH_PATTERN = Regex("[a-f0-9]{64}")
+        val EVIDENCE_TYPES = setOf("PlatformPage", "VerifiedAccount", "OcrConsensus", "TmdbIdentity")
 
         // The matching private key is deployment-only and is never stored in the app or repo.
         const val CALENDAR_PUBLIC_KEY =
-            "MCowBQYDK2VwAyEAC6w4zSGYRGAsf0ITQvKyALSGygZpjCgoH118qQK7hzk="
+            "MCowBQYDK2VwAyEALedMp5RHVd/Cw9v26cP50e0F8hFqKQ/SXm9J9T3oU/4="
 
         /**
          * 《师兄太稳健》会员追剧日历, revised by the official series account on 2026-08-23.
@@ -335,6 +379,18 @@ class OfficialAiringScheduleCatalog(
                     sourceUrl = "https://weibo.com/7758737065",
                     revision = "2026-08-23-r2",
                     updatedAt = "2026-08-23T12:00:00+08:00",
+                    confidence = 100,
+                    evidence =
+                        listOf(
+                            OfficialScheduleEvidence(
+                                type = "VerifiedAccount",
+                                publisher = "师兄太稳健官微",
+                                sourceUrl = "https://weibo.com/7758737065",
+                                capturedAt = "2026-08-23T12:00:00+08:00",
+                                contentHash = "0f9e53e8c823fd09c3b56d03079fe0a634e700597b10ba138c8d55b675d0b93e",
+                                extractionMethod = "reviewed-official-text",
+                            ),
+                        ),
                     episodes =
                         buildList {
                             addEpisodes("2026-08-19", 1..3)

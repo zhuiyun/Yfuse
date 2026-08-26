@@ -426,6 +426,9 @@ internal fun Application.watchTogetherModule(
     // Outlives any one socket, which is what a delayed host handover needs: the connection
     // whose loss starts the clock is precisely the one that can't run the timer.
     val appScope: CoroutineScope = this
+    // Disabled unless both ingestion config and publication path are configured. The collector
+    // fails closed and keeps the last signed publication when an upstream page/OCR service fails.
+    appScope.launchCalendarIngestionFromEnvironment()
     monitor.subscribe(ApplicationStopped) {
         try {
             accountBackend.close()
