@@ -96,6 +96,7 @@ fun GlassDialog(
     modifier: Modifier = Modifier,
     scrollable: Boolean = true,
     liquidButtons: Boolean = true,
+    contentPadding: Dp = 18.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var leaving by remember { mutableStateOf(false) }
@@ -149,7 +150,7 @@ fun GlassDialog(
                             over = ScrimColor,
                         ).pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
-                        .padding(18.dp)
+                        .padding(contentPadding)
                         .then(
                             if (scrollable) {
                                 Modifier.verticalScroll(panelScrollState)

@@ -110,6 +110,7 @@ fun CalendarScreen(component: CalendarComponent) {
     var scheduleChanges by remember(state.loading, state.days) {
         mutableStateOf(component.scheduleChanges())
     }
+    var dialogEntry by remember { mutableStateOf<CalendarEntry?>(null) }
 
     // Unlike the artwork-heavy home hero this route always has a quiet page background.
     // Re-assert the icon contrast when navigating here; otherwise the light icons selected
@@ -339,11 +340,7 @@ fun CalendarScreen(component: CalendarComponent) {
                             weeklyStats = weeklyStats,
                             reduceMotion = reduceMotion,
                             bottomContentInset = bottomContentInset,
-                            onOpen = { entry ->
-                                entry.openItemId?.let {
-                                    component.onOpenItem(entry.serverId, it)
-                                }
-                            },
+                            onOpen = { entry -> dialogEntry = entry },
                         )
                 }
             } else {
@@ -358,6 +355,22 @@ fun CalendarScreen(component: CalendarComponent) {
                     },
                 )
             }
+        }
+        dialogEntry?.let { entry ->
+            AiringShowCalendarDialog(
+                initialEntry = entry,
+                days = state.days,
+                today = state.today,
+                refreshing = state.loading,
+                onOpen = { target ->
+                    target.openItemId?.let { itemId ->
+                        component.onOpenItem(target.serverId, itemId)
+                        dialogEntry = null
+                    }
+                },
+                onRefresh = { component.store.accept(CalendarIntent.Refresh) },
+                onDismiss = { dialogEntry = null },
+            )
         }
     }
 }
@@ -575,13 +588,8 @@ private fun TabletWeekEntryCard(
             .fillMaxWidth()
             .clip(GlassShapes.chip)
             .background(palette.card)
-            .then(
-                if (entry.openItemId != null) {
-                    Modifier.pressable { onOpen(entry) }
-                } else {
-                    Modifier
-                },
-            ).padding(8.dp),
+            .pressable(onClickLabel = "打开${entry.episode.showTitle}播出日历") { onOpen(entry) }
+            .padding(8.dp),
     ) {
         Text(
             entry.episode.showTitle,
@@ -1374,13 +1382,11 @@ private fun EntryCard(
     val entry = display.entry
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    // Tappable for anything the library holds — the episode if it has it, the show if not.
-    val openable = entry.openItemId != null
     Row(
         modifier
             .fillMaxWidth()
             .glass(GlassShapes.card, palette.card2, palette.border)
-            .then(if (openable) Modifier.pressable(onClick = onOpen) else Modifier)
+            .pressable(onClickLabel = "打开${entry.episode.showTitle}播出日历", onClick = onOpen)
             .padding(11.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.Top,
@@ -1470,14 +1476,12 @@ private fun EntryCard(
                 }
             }
         }
-        if (openable) {
-            Icon(
-                AppIcons.ChevronRight,
-                contentDescription = null,
-                tint = palette.sub2,
-                modifier = Modifier.size(14.dp),
-            )
-        }
+        Icon(
+            AppIcons.ChevronRight,
+            contentDescription = null,
+            tint = palette.sub2,
+            modifier = Modifier.size(14.dp),
+        )
     }
 }
 
