@@ -183,6 +183,7 @@ fun appModule(
             danmaku = get(),
             skip = get(),
             serverSync = get(),
+            calendarFollows = get(),
             accessTokenSource = get(),
             mutationDispatcher = Dispatchers.Main.immediate,
         )

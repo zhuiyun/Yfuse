@@ -119,6 +119,13 @@ class HomeTabComponent(
         navigation.pop()
     }
 
+    fun openCalendarItem(
+        serverId: String?,
+        itemId: String,
+    ) {
+        navigation.push(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
+    }
+
     /**
      * Back to this tab's own root in one step — what tapping the current tab means.
      *
@@ -160,6 +167,8 @@ class HomeTabComponent(
                                 cache = dependencies.tmdbHomeCache,
                                 syncManager = dependencies.serverSyncManager,
                                 calendarRepository = calendarRepository,
+                                initialCalendarLoad =
+                                    !dependencies.tgtoMediaPreferences.connection.value.hasPassword,
                                 onOpenEmbyItem = { serverId, itemId ->
                                     navigation.push(Config.Detail(serverId, itemId))
                                 },
@@ -229,6 +238,7 @@ class HomeTabComponent(
                         componentContext = context,
                         storeFactory = storeFactory,
                         repository = calendarRepository,
+                        followStore = dependencies.calendarFollowStore,
                         onBack = { navigation.pop() },
                         onOpenItem = { serverId, itemId ->
                             navigation.push(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
@@ -243,6 +253,7 @@ class HomeTabComponent(
                         emby = repo,
                         registry = registry,
                         item = config.item,
+                        followStore = dependencies.calendarFollowStore,
                         embyItemId = config.embyItemId,
                         onBack = { navigation.pop() },
                         onPlayTarget = { serverId, id, ticks ->
@@ -303,6 +314,9 @@ class HomeRootComponent(
         scope.launch {
             preferences.connection.collectLatest { connection ->
                 _state.update { current ->
+                    if (current.configured && !connection.hasPassword) {
+                        classic.refreshCalendar()
+                    }
                     current.copy(
                         configured = connection.hasPassword,
                         mode = if (connection.hasPassword) current.mode else HomeRootMode.Classic,
@@ -313,6 +327,7 @@ class HomeRootComponent(
     }
 
     fun showClassic() {
+        if (_state.value.mode != HomeRootMode.Classic) classic.refreshCalendar()
         _state.update { it.copy(mode = HomeRootMode.Classic) }
     }
 

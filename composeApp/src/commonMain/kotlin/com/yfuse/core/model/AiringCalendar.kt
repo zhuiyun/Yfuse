@@ -171,14 +171,26 @@ data class CalendarEntry(
     val serverNames: List<String>
         get() = sources.map { it.serverName }.filter(String::isNotBlank).distinct()
 
+    private val selectedSource: CalendarSource?
+        get() =
+            sources.firstOrNull { source ->
+                source.serverId == serverId &&
+                    (
+                        itemId != null && source.itemId == itemId ||
+                            itemId == null && seriesItemId != null && source.seriesItemId == seriesItemId
+                    )
+            }
+
     val qualityTags: List<String>
-        get() = sources.flatMap { it.qualityTags }.distinct()
+        get() = selectedSource?.qualityTags.orEmpty().ifEmpty { sources.flatMap { it.qualityTags }.distinct() }
 
     val posterUrls: List<String>
         get() = sources.mapNotNull { it.posterUrl }.distinct()
 
+    /** Progress follows the same source chosen for opening; another server's 100% must not
+     * turn an in-progress source into a contradictory full progress bar. */
     val playedPercentage: Double?
-        get() = sources.mapNotNull { it.playedPercentage }.maxOrNull()
+        get() = selectedSource?.playedPercentage ?: sources.mapNotNull { it.playedPercentage }.maxOrNull()
 }
 
 /** A day's broadcasts, which is the unit the calendar is laid out in. */

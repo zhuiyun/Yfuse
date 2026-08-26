@@ -1,0 +1,23 @@
+{
+  "revision": "2026-08-23-r2",
+  "generatedAt": "2026-08-23T04:00:00Z",
+  "schedules": [
+    {
+      "tmdbId": 272938,
+      "title": "师兄太稳健",
+      "seasonNumber": 1,
+      "posterPath": "/pV38dHjE2fPWmd0ltJQpBdbpz7g.jpg",
+      "airTime": "12:00",
+      "timeZoneId": "Asia/Shanghai",
+      "platforms": ["优酷", "爱奇艺"],
+      "accessTier": "Member",
+      "sourceUrl": "https://weibo.com/7758737065",
+      "revision": "2026-08-23-r2",
+      "updatedAt": "2026-08-23T12:00:00+08:00",
+      "episodes": [
+        {"episodeNumber": 13, "airDate": "2026-08-25"},
+        {"episodeNumber": 14, "airDate": "2026-08-25"}
+      ]
+    }
+  ]
+}

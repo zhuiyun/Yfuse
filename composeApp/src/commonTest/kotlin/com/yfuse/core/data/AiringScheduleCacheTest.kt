@@ -50,13 +50,32 @@ class AiringScheduleCacheTest {
     }
 
     @Test
-    fun writing_nothing_clears_rather_than_storing_an_empty_schedule() {
+    fun writing_nothing_preserves_the_last_successful_schedule() {
         val cache = AiringScheduleCache(MapSettings())
         cache.write("2026-07-31", window, listOf(episode(1)))
 
         cache.write("2026-07-31", window, emptyList())
 
-        assertNull(cache.read("2026-07-31", window))
+        assertEquals(listOf(episode(1)), cache.read("2026-07-31", window))
+    }
+
+    @Test
+    fun yesterday_series_schedule_is_available_only_as_a_failure_fallback() {
+        val cache = AiringScheduleCache(MapSettings())
+        val episodes = listOf(episode(7))
+        cache.writeSeries(7, "2026-07-31", episodes)
+
+        assertNull(cache.readSeries(7, "2026-08-01"))
+        assertEquals(episodes, cache.readSeriesLastSuccessful(7))
+    }
+
+    @Test
+    fun old_series_fallbacks_are_pruned_after_seven_days() {
+        val cache = AiringScheduleCache(MapSettings())
+        cache.writeSeries(7, "2026-07-31", listOf(episode(7)))
+
+        assertNull(cache.readSeries(7, "2026-08-08"))
+        assertNull(cache.readSeriesLastSuccessful(7))
     }
 
     @Test

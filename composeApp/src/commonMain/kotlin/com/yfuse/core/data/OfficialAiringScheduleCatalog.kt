@@ -9,11 +9,17 @@ import com.yfuse.core.model.AiringScheduleAuthority
 import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.security.verifyEd25519Signature
 import com.yfuse.core.util.currentEpochMillis
+import com.yfuse.core.util.scheduledEpochMillis
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
@@ -59,10 +65,31 @@ class OfficialAiringScheduleCatalog(
     suspend fun refreshIfDue(force: Boolean = false): Result<Boolean> {
         val now = nowEpochMs()
         val lastAttempt = settings.getLong(KEY_LAST_ATTEMPT_EPOCH_MS, 0L)
-        if (!force && now - lastAttempt in 0 until REFRESH_INTERVAL_MS) return Result.success(false)
+        val lastSuccess = settings.getLong(KEY_LAST_SUCCESS_EPOCH_MS, 0L)
+        val retryInterval =
+            if (lastAttempt > lastSuccess) {
+                FAILURE_RETRY_INTERVAL_MS
+            } else {
+                REFRESH_INTERVAL_MS
+            }
+        if (!force && now - lastAttempt in 0 until retryInterval) return Result.success(false)
         settings.putLong(KEY_LAST_ATTEMPT_EPOCH_MS, now)
         return runCatching {
-            val envelope = withTimeout(REMOTE_DEADLINE_MS) { client.get(endpoint).body<OfficialScheduleEnvelope>() }
+            val response =
+                withTimeout(REMOTE_DEADLINE_MS) {
+                    client.get(endpoint) {
+                        settings.getString(KEY_REVISION, "")
+                            .takeIf(String::isNotBlank)
+                            ?.let { revision ->
+                                header(HttpHeaders.IfNoneMatch, "\"calendar-$revision\"")
+                            }
+                    }
+                }
+            if (response.status == HttpStatusCode.NotModified) {
+                settings.putLong(KEY_LAST_SUCCESS_EPOCH_MS, now)
+                return@runCatching false
+            }
+            val envelope = response.body<OfficialScheduleEnvelope>()
             require(envelope.schemaVersion == SCHEMA_VERSION) { "Unsupported calendar schema" }
             require(
                 verifyEd25519Signature(
@@ -72,12 +99,21 @@ class OfficialAiringScheduleCatalog(
                 ),
             ) { "Calendar signature verification failed" }
             val payload = json.decodeFromString<OfficialSchedulePayload>(envelope.payload)
-            val verified = validate(payload).associateBy(OfficialSeriesSchedule::tmdbId)
+            val verified =
+                validate(payload, expectedRevision = envelope.revision)
+                    .associateBy(OfficialSeriesSchedule::tmdbId)
             val existingRevision = settings.getString(KEY_REVISION, "")
             require(existingRevision.isBlank() || calendarRevisionIsAtLeast(envelope.revision, existingRevision)) {
                 "Calendar revision rollback rejected"
             }
-            schedules = FALLBACK_SCHEDULES + verified
+            val updatedSchedules = FALLBACK_SCHEDULES + verified
+            if (existingRevision.isNotBlank() && envelope.revision != existingRevision) {
+                val changes = detectScheduleChanges(schedules, updatedSchedules, now)
+                if (changes.isNotEmpty()) {
+                    settings.putString(KEY_CHANGES, json.encodeToString(changes))
+                }
+            }
+            schedules = updatedSchedules
             settings.putString(KEY_ENVELOPE, json.encodeToString(OfficialScheduleEnvelope.serializer(), envelope))
             settings.putString(KEY_REVISION, envelope.revision)
             settings.putLong(KEY_LAST_SUCCESS_EPOCH_MS, now)
@@ -91,6 +127,55 @@ class OfficialAiringScheduleCatalog(
             )
         }
     }
+
+    fun recentChanges(): List<OfficialScheduleChange> =
+        settings.getStringOrNull(KEY_CHANGES)
+            ?.let { raw ->
+                runCatching { json.decodeFromString<List<OfficialScheduleChange>>(raw) }.getOrNull()
+            }.orEmpty()
+
+    fun acknowledgeChanges() {
+        settings.remove(KEY_CHANGES)
+    }
+
+    private fun detectScheduleChanges(
+        previous: Map<Int, OfficialSeriesSchedule>,
+        updated: Map<Int, OfficialSeriesSchedule>,
+        detectedAtEpochMs: Long,
+    ): List<OfficialScheduleChange> =
+        updated.values
+            .flatMap { next ->
+                val old = previous[next.tmdbId] ?: return@flatMap emptyList()
+                val oldSlots = old.episodes.associateBy(OfficialEpisodeSlot::episodeNumber)
+                val nextSlots = next.episodes.associateBy(OfficialEpisodeSlot::episodeNumber)
+                buildList {
+                    nextSlots.forEach { (episodeNumber, slot) ->
+                        val previousSlot = oldSlots[episodeNumber]
+                        when {
+                            previousSlot == null ->
+                                add("新增第 ${episodeNumber} 集：${slot.airDate}")
+                            previousSlot.airDate != slot.airDate ->
+                                add(
+                                    "第 ${episodeNumber} 集由 ${previousSlot.airDate} 调整为 ${slot.airDate}",
+                                )
+                        }
+                    }
+                    oldSlots.keys.filterNot(nextSlots::containsKey).forEach { episodeNumber ->
+                        add("第 ${episodeNumber} 集已从官方排期移除")
+                    }
+                    if (old.airTime != next.airTime || old.timeZoneId != next.timeZoneId) {
+                        add("播出时间由 ${old.airTime} 调整为 ${next.airTime}")
+                    }
+                }.map { message ->
+                    OfficialScheduleChange(
+                        tmdbId = next.tmdbId,
+                        title = next.title,
+                        message = message,
+                        revision = next.revision,
+                        detectedAtEpochMs = detectedAtEpochMs,
+                    )
+                }
+            }.take(MAX_RECORDED_CHANGES)
 
     fun diagnostics(): OfficialScheduleDiagnostics =
         OfficialScheduleDiagnostics(
@@ -112,24 +197,49 @@ class OfficialAiringScheduleCatalog(
                     envelope.signature,
                 ),
             )
-            (FALLBACK_SCHEDULES.values + validate(json.decodeFromString<OfficialSchedulePayload>(envelope.payload)))
-                .associateBy(OfficialSeriesSchedule::tmdbId)
+            (
+                FALLBACK_SCHEDULES.values +
+                    validate(
+                        json.decodeFromString<OfficialSchedulePayload>(envelope.payload),
+                        expectedRevision = envelope.revision,
+                    )
+            ).associateBy(OfficialSeriesSchedule::tmdbId)
         }.onFailure {
             settings.remove(KEY_ENVELOPE)
             settings.remove(KEY_REVISION)
         }.getOrNull()
     }
 
-    private fun validate(payload: OfficialSchedulePayload): List<OfficialSeriesSchedule> {
+    private fun validate(
+        payload: OfficialSchedulePayload,
+        expectedRevision: String,
+    ): List<OfficialSeriesSchedule> {
         require(payload.schedules.size <= MAX_SERIES)
+        require(payload.schedules.distinctBy(OfficialSeriesSchedule::tmdbId).size == payload.schedules.size)
         payload.schedules.forEach { schedule ->
             require(schedule.tmdbId > 0)
+            require(schedule.seasonNumber > 0)
             require(schedule.title.isNotBlank() && schedule.title.length <= 120)
             require(schedule.episodes.isNotEmpty() && schedule.episodes.size <= MAX_EPISODES_PER_SERIES)
-            require(schedule.sourceUrl.startsWith("https://"))
+            require(schedule.sourceUrl.startsWith("https://") && schedule.sourceUrl.length <= 2_048)
             require(schedule.airTime.matches(TIME_PATTERN))
             require(schedule.timeZoneId.matches(ZONE_PATTERN))
-            require(schedule.episodes.all { it.airDate.matches(DATE_PATTERN) && it.episodeNumber > 0 })
+            require(schedule.platforms.isNotEmpty() && schedule.platforms.size <= 10)
+            require(schedule.platforms.all { it.isNotBlank() && it.length <= 40 })
+            require(schedule.revision == expectedRevision)
+            require(schedule.updatedAt.length in 10..64)
+            require(schedule.episodes.distinctBy(OfficialEpisodeSlot::episodeNumber).size == schedule.episodes.size)
+            require(
+                schedule.episodes.all {
+                    it.airDate.matches(DATE_PATTERN) &&
+                        it.episodeNumber > 0 &&
+                        scheduledEpochMillis(
+                            it.airDate,
+                            schedule.airTime,
+                            schedule.timeZoneId,
+                        ) != null
+                },
+            )
         }
         return payload.schedules
     }
@@ -185,10 +295,13 @@ class OfficialAiringScheduleCatalog(
         const val KEY_REVISION = "calendar.official.revision"
         const val KEY_LAST_ATTEMPT_EPOCH_MS = "calendar.official.lastAttemptEpochMs"
         const val KEY_LAST_SUCCESS_EPOCH_MS = "calendar.official.lastSuccessEpochMs"
+        const val KEY_CHANGES = "calendar.official.changes.v1"
         const val REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000L
+        const val FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000L
         const val REMOTE_DEADLINE_MS = 1_500L
         const val MAX_SERIES = 1_000
         const val MAX_EPISODES_PER_SERIES = 500
+        const val MAX_RECORDED_CHANGES = 50
         val DATE_PATTERN = Regex("\\d{4}-\\d{2}-\\d{2}")
         val TIME_PATTERN = Regex("(?:[01]\\d|2[0-3]):[0-5]\\d")
         val ZONE_PATTERN = Regex("[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)+")
@@ -278,6 +391,15 @@ internal data class OfficialScheduleEnvelope(
 @Serializable
 internal data class OfficialSchedulePayload(
     val schedules: List<OfficialAiringScheduleCatalog.OfficialSeriesSchedule>,
+)
+
+@Serializable
+data class OfficialScheduleChange(
+    val tmdbId: Int,
+    val title: String,
+    val message: String,
+    val revision: String,
+    val detectedAtEpochMs: Long,
 )
 
 data class OfficialScheduleDiagnostics(

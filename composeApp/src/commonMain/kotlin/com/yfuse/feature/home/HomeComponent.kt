@@ -41,6 +41,7 @@ class HomeComponent(
     val onOpenLibrary: () -> Unit,
     val onOpenProfile: () -> Unit,
     val onOpenCalendar: () -> Unit,
+    private val initialCalendarLoad: Boolean = true,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
     private var calendarJob: Job? = null
@@ -62,7 +63,7 @@ class HomeComponent(
         ).create()
 
     init {
-        refreshCalendar()
+        if (initialCalendarLoad) refreshCalendar()
         store.labels
             .onEach { label ->
                 when (label) {
@@ -80,18 +81,10 @@ class HomeComponent(
         calendarJob =
             scope.launch {
                 loadCalendarWithDeadline {
-                    calendarRepository.calendar(
-                        forceRefresh = forceRefresh,
-                        onPreview = { preview ->
-                            _calendar.update { current ->
-                                if (current.days.isEmpty()) {
-                                    HomeCalendarState(days = preview, loading = true)
-                                } else {
-                                    current.copy(loading = true, error = null)
-                                }
-                            }
-                        },
-                    )
+                    // The home card only needs tracked/active shows. Global TMDB discovery
+                    // belongs to the calendar screen and must not compete with the rest of
+                    // the home feed during cold start.
+                    calendarRepository.homeCalendar(forceRefresh = forceRefresh)
                 }.onSuccess { _calendar.value = HomeCalendarState(days = it, loading = false) }
                     .onFailure { error ->
                         _calendar.update { it.copy(loading = false, error = error.message ?: "追剧日历加载失败") }

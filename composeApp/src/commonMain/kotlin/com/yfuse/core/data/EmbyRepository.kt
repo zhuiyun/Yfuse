@@ -549,7 +549,15 @@ class EmbyRepository(
         seriesId: String,
         seasonId: String?,
         includeMediaSources: Boolean = false,
-    ): Result<List<Episode>> = detailService.episodes(server, seriesId, seasonId, includeMediaSources)
+        seasonNumber: Int? = null,
+    ): Result<List<Episode>> =
+        detailService.episodes(
+            server = server,
+            seriesId = seriesId,
+            seasonId = seasonId,
+            includeMediaSources = includeMediaSources,
+            seasonNumber = seasonNumber,
+        )
 
     suspend fun trickplayInfo(
         server: SavedServer,

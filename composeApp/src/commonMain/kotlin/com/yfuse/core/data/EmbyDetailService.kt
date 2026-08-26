@@ -188,6 +188,7 @@ internal class EmbyDetailService(
         seriesId: String,
         seasonId: String?,
         includeMediaSources: Boolean = false,
+        seasonNumber: Int? = null,
     ): Result<List<Episode>> =
         embyApiCall("episodes") {
             val dto: ItemsResponseDto =
@@ -196,6 +197,7 @@ internal class EmbyDetailService(
                         header("X-Emby-Token", server.accessToken)
                         parameter("UserId", server.userId)
                         if (seasonId != null) parameter("SeasonId", seasonId)
+                        if (seasonNumber != null) parameter("Season", seasonNumber)
                         parameter(
                             "Fields",
                             "Overview,Chapters,ProviderIds,RunTimeTicks,UserData,PremiereDate" +

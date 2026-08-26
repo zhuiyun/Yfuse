@@ -59,11 +59,12 @@ internal class EmbyLookupService(
      * series' watched state belongs to its episodes and is read from the episode list.
      */
     suspend fun movieProviderIndex(server: SavedServer): Result<Map<String, ProviderHit>> =
-        providerIndex(server, "Movie")
+        providerIndex(server, "Movie", includeTitleFallback = true)
 
     private suspend fun providerIndex(
         server: SavedServer,
         includeItemTypes: String,
+        includeTitleFallback: Boolean = false,
     ): Result<Map<String, ProviderHit>> =
         embyApiCall("provider_index") {
             val dto: ItemsResponseDto =
@@ -74,7 +75,10 @@ internal class EmbyLookupService(
                         header("X-Emby-Token", server.accessToken)
                         parameter("IncludeItemTypes", includeItemTypes)
                         parameter("Recursive", "true")
-                        parameter("Fields", "ProviderIds")
+                        parameter(
+                            "Fields",
+                            if (includeTitleFallback) "ProductionYear,ProviderIds" else "ProviderIds",
+                        )
                         parameter("EnableImages", "false")
                     }.body()
             buildMap {
@@ -83,6 +87,16 @@ internal class EmbyLookupService(
                     item.ProviderIds.orEmpty().forEach { (provider, value) ->
                         if (value.isNotBlank()) {
                             put("${provider.lowercase()}:$value", hit)
+                        }
+                    }
+                    if (includeTitleFallback) {
+                        val title = item.Name?.takeIf(String::isNotBlank)
+                        val year = item.ProductionYear
+                        if (title != null && year != null) {
+                            putIfAbsent(
+                                "title:${normalizeIdentityTitle(title)}:$year",
+                                hit,
+                            )
                         }
                     }
                 }

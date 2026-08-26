@@ -56,14 +56,59 @@ class CalendarIdentityResolver(
         return Result.failure(CalendarIdentityAmbiguousException((exact.ifEmpty { candidates }).take(5)))
     }
 
+    /** Returns candidates even when an automatic or saved mapping already exists. */
+    suspend fun candidates(detail: MediaDetail): Result<List<TmdbSeriesIdentityCandidate>> {
+        require(detail.type.equals("Series", ignoreCase = true)) { "只有剧集支持播出日历" }
+        return tmdb.searchSeriesIdentityCandidates(detail.title, detail.year)
+            .map { candidates ->
+                val normalizedTitle = normalizeIdentityTitle(detail.title)
+                candidates
+                    .sortedWith(
+                        compareByDescending<TmdbSeriesIdentityCandidate> {
+                            normalizeIdentityTitle(it.title) == normalizedTitle
+                        }.thenByDescending { candidate ->
+                            detail.year != null &&
+                                candidate.year != null &&
+                                kotlin.math.abs(detail.year - candidate.year) <= 1
+                        }.thenByDescending(TmdbSeriesIdentityCandidate::popularity),
+                    )
+                    .distinctBy(TmdbSeriesIdentityCandidate::tmdbId)
+                    .take(8)
+            }
+    }
+
     fun remember(
         serverId: String?,
         itemId: String,
         tmdbId: Int,
     ) {
         require(tmdbId > 0)
+        val oldTmdbId = settings.getIntOrNull(itemKey(serverId, itemId))
+        if (oldTmdbId != null && oldTmdbId != tmdbId) {
+            settings.getStringOrNull(reverseKey(serverId, oldTmdbId))
+                ?.takeIf { it == itemId }
+                ?.let { settings.remove(reverseKey(serverId, oldTmdbId)) }
+        }
+        val oldItemId = settings.getStringOrNull(reverseKey(serverId, tmdbId))
+        if (!oldItemId.isNullOrBlank() && oldItemId != itemId) {
+            settings.remove(itemKey(serverId, oldItemId))
+        }
         settings.putInt(itemKey(serverId, itemId), tmdbId)
         settings.putString(reverseKey(serverId, tmdbId), itemId)
+    }
+
+    fun forget(
+        serverId: String?,
+        itemId: String,
+        tmdbId: Int? = null,
+    ) {
+        val resolvedTmdbId = tmdbId ?: settings.getIntOrNull(itemKey(serverId, itemId))
+        settings.remove(itemKey(serverId, itemId))
+        resolvedTmdbId?.let { id ->
+            settings.getStringOrNull(reverseKey(serverId, id))
+                ?.takeIf { it == itemId }
+                ?.let { settings.remove(reverseKey(serverId, id)) }
+        }
     }
 
     fun mappedSeriesItemId(serverId: String, tmdbId: Int): String? =

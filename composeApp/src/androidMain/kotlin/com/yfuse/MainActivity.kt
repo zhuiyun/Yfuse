@@ -34,6 +34,7 @@ import com.yfuse.core.performance.AppJankMonitor
 import com.yfuse.core.performance.preferHighRefreshRateForUi
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
+import com.yfuse.feature.calendar.scheduleCalendarReminderWork
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.profile.applyPendingAppIconVariant
 import com.yfuse.update.AppUpdateManager
@@ -146,17 +147,22 @@ class MainActivity : ComponentActivity() {
 
         // A cold start from a shared link arrives here rather than in onNewIntent.
         consumeInviteIntent(intent)
+        consumeCalendarIntent(intent)
     }
 
     private fun observeCalendarNotificationPermission(follows: CalendarFollowStore) {
         if (Build.VERSION.SDK_INT < 33) return
         lifecycleScope.launch {
             follows.followed
-                .map { followed -> followed.any { it.reminderMode != CalendarReminderMode.Off } }
-                .distinctUntilChanged()
-                .collect { hasFollows ->
+                .map { followed ->
+                    followed
+                        .filter { it.reminderMode != CalendarReminderMode.Off }
+                        .map { listOf(it.tmdbId.toString(), it.reminderMode.name, it.remindBeforeMinutes.toString()) }
+                }.distinctUntilChanged()
+                .collect { reminderConfiguration ->
+                    scheduleCalendarReminderWork(this@MainActivity)
                     if (
-                        hasFollows &&
+                        reminderConfiguration.isNotEmpty() &&
                         !calendarNotificationPermissionRequested &&
                         checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                     ) {
@@ -176,10 +182,26 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         consumeInviteIntent(intent)
+        consumeCalendarIntent(intent)
     }
 
     private companion object {
+        const val EXTRA_CALENDAR_SERVER_ID = "calendar_server_id"
+        const val EXTRA_CALENDAR_SERIES_ITEM_ID = "calendar_series_item_id"
         const val CALENDAR_NOTIFICATION_PERMISSION_REQUEST = 4103
+    }
+
+    private fun consumeCalendarIntent(intent: Intent?) {
+        val itemId =
+            intent?.getStringExtra(EXTRA_CALENDAR_SERIES_ITEM_ID)
+                ?.takeIf(String::isNotBlank)
+                ?: return
+        rootComponent?.openCalendarTarget(
+            serverId = intent.getStringExtra(EXTRA_CALENDAR_SERVER_ID),
+            itemId = itemId,
+        )
+        intent.removeExtra(EXTRA_CALENDAR_SERVER_ID)
+        intent.removeExtra(EXTRA_CALENDAR_SERIES_ITEM_ID)
     }
 
     private fun consumeInviteIntent(intent: Intent?) {

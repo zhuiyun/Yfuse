@@ -58,9 +58,11 @@ internal fun SeriesAiringCalendarDialog(
     identityCandidates: List<TmdbSeriesIdentityCandidate> = emptyList(),
     followed: Boolean = false,
     reminderMode: CalendarReminderMode = CalendarReminderMode.Off,
+    remindBeforeMinutes: Int = 30,
     onSelectIdentity: (TmdbSeriesIdentityCandidate) -> Unit = {},
     onToggleFollow: () -> Unit = {},
-    onSetReminder: (CalendarReminderMode) -> Unit = {},
+    onSetReminder: (CalendarReminderMode, Int) -> Unit = { _, _ -> },
+    onRebindIdentity: () -> Unit = {},
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -106,13 +108,60 @@ internal fun SeriesAiringCalendarDialog(
                 onClick = onToggleFollow,
             )
             if (followed) {
-                OverlayOptionRow(
-                    label = "更新提醒",
-                    description = reminderModeLabel(reminderMode),
-                    selected = reminderMode != CalendarReminderMode.Off,
-                    onClick = { onSetReminder(nextReminderMode(reminderMode)) },
+                Text(
+                    "更新提醒",
+                    style = AppTypography.caption.strong,
+                    color = palette.sub2,
+                    modifier = Modifier.padding(top = 6.dp),
                 )
+                listOf(
+                    CalendarReminderMode.Off to "关闭",
+                    CalendarReminderMode.BeforeAndAtBroadcast to "播出前和播出时",
+                    CalendarReminderMode.AtBroadcast to "播出时",
+                    CalendarReminderMode.WhenAvailable to "新入库时",
+                ).forEach { (mode, label) ->
+                    OverlayOptionRow(
+                        label = label,
+                        description =
+                            if (mode == CalendarReminderMode.BeforeAndAtBroadcast) {
+                                "提前 $remindBeforeMinutes 分钟"
+                            } else {
+                                null
+                            },
+                        selected = reminderMode == mode,
+                        onClick = { onSetReminder(mode, remindBeforeMinutes) },
+                    )
+                }
+                if (reminderMode == CalendarReminderMode.BeforeAndAtBroadcast) {
+                    Text(
+                        "提前时间",
+                        style = AppTypography.caption.strong,
+                        color = palette.sub2,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(listOf(10, 30, 60, 120, 360)) { minutes ->
+                            OverlayOptionRow(
+                                label = if (minutes < 60) "$minutes 分钟" else "${minutes / 60} 小时",
+                                selected = remindBeforeMinutes == minutes,
+                                onClick = {
+                                    onSetReminder(
+                                        CalendarReminderMode.BeforeAndAtBroadcast,
+                                        minutes,
+                                    )
+                                },
+                                modifier = Modifier.width(92.dp),
+                            )
+                        }
+                    }
+                }
             }
+            OverlayOptionRow(
+                label = "重新匹配剧集",
+                description = "排期不对时，重新选择 TMDB 条目",
+                selected = false,
+                onClick = onRebindIdentity,
+            )
         }
         when {
             identityCandidates.isNotEmpty() -> {
@@ -209,10 +258,13 @@ internal fun SeriesAiringCalendarDialog(
     }
 }
 
-internal fun reminderModeLabel(mode: CalendarReminderMode): String =
+internal fun reminderModeLabel(
+    mode: CalendarReminderMode,
+    beforeMinutes: Int = 30,
+): String =
     when (mode) {
-        CalendarReminderMode.Off -> "关闭 · 点击开启"
-        CalendarReminderMode.BeforeAndAtBroadcast -> "提前 30 分钟和播出时"
+        CalendarReminderMode.Off -> "关闭"
+        CalendarReminderMode.BeforeAndAtBroadcast -> "提前 $beforeMinutes 分钟和播出时"
         CalendarReminderMode.AtBroadcast -> "播出时"
         CalendarReminderMode.WhenAvailable -> "检测到新入库时"
     }

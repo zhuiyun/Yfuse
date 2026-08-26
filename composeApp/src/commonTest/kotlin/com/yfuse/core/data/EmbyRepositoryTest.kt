@@ -1197,6 +1197,28 @@ class EmbyRepositoryTest {
         }
 
     @Test
+    fun episode_query_can_be_scoped_to_one_season() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    assertEquals("7", request.url.parameters["Season"])
+                    assertFalse(request.url.parameters["Fields"].orEmpty().contains("MediaSources"))
+                    json("""{"Items":[]}""")
+                }
+
+            val result =
+                repo.episodes(
+                    server = server,
+                    seriesId = "s1",
+                    seasonId = null,
+                    includeMediaSources = false,
+                    seasonNumber = 7,
+                )
+
+            assertTrue(result.isSuccess, result.toString())
+        }
+
+    @Test
     fun seasons_and_episodes_parse() =
         runTest {
             val repo =

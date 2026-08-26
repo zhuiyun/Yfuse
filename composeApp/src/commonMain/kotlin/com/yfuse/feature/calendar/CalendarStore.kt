@@ -6,6 +6,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.AiringCalendarRepository
+import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
@@ -50,6 +51,23 @@ internal suspend fun loadCalendarWithDeadline(
  * daily and a foreign one weekly — and because a combined list ordered by popularity buries
  * whichever of the two the user came for.
  */
+enum class CalendarSection(
+    val label: String,
+) {
+    Schedule("日历"),
+    Tracking("追剧"),
+    Resources("资源"),
+    Settings("设置"),
+}
+
+enum class CalendarContentFilter(
+    val label: String,
+) {
+    All("全部内容"),
+    Series("剧集"),
+    Movies("电影"),
+}
+
 enum class CalendarFilter(
     val label: String,
 ) {
@@ -88,7 +106,10 @@ data class CalendarState(
     val days: List<CalendarDay> = emptyList(),
     /** Last fully resolved server result, retained while a refresh is in flight. */
     val confirmedDays: List<CalendarDay> = emptyList(),
+    val section: CalendarSection = CalendarSection.Schedule,
     val filter: CalendarFilter = CalendarFilter.Today,
+    val platform: String? = null,
+    val contentFilter: CalendarContentFilter = CalendarContentFilter.All,
     val today: String = currentIsoDate(),
     val error: String? = null,
 ) {
@@ -104,7 +125,19 @@ data class CalendarState(
                     }
                 if (!dateAccepted) return@mapNotNull null
                 day.entries
+                    .asSequence()
                     .filter(filter::accepts)
+                    .filter { entry ->
+                        platform == null || entry.episode.platforms.any {
+                            it.equals(platform, ignoreCase = true)
+                        }
+                    }.filter { entry ->
+                        when (contentFilter) {
+                            CalendarContentFilter.All -> true
+                            CalendarContentFilter.Series -> !entry.episode.isMovie
+                            CalendarContentFilter.Movies -> entry.episode.isMovie
+                        }
+                    }.toList()
                     .takeIf { it.isNotEmpty() }
                     ?.let { day.copy(entries = it) }
             }
@@ -117,6 +150,15 @@ data class CalendarState(
      * Tuesday. Landing on today and letting the reader scroll *up* into the past keeps
      * "what have I missed" one gesture away while answering "what's on now" immediately.
      */
+    val availablePlatforms: List<String>
+        get() =
+            days
+                .flatMap { day -> day.entries.flatMap { it.episode.platforms } }
+                .map { it.trim() }
+                .filter(String::isNotBlank)
+                .distinct()
+                .sorted()
+
     val todayIndex: Int
         get() =
             visibleDays.indexOfFirst { it.date >= today }.takeIf { it >= 0 }
@@ -127,7 +169,29 @@ data class CalendarState(
 }
 
 sealed interface CalendarIntent {
+    /** User-requested refresh: bypasses both schedule and library identity caches. */
     data object Refresh : CalendarIntent
+
+    /** Lifecycle/data invalidation refresh: reuses valid caches and only reloads stale data. */
+    data object Reload : CalendarIntent
+
+    /** Applies a single-series refresh without reopening global discovery and every server. */
+    data class ApplySeriesRefresh(
+        val tmdbId: Int,
+        val days: List<CalendarDay>,
+    ) : CalendarIntent
+
+    data class SelectSection(
+        val section: CalendarSection,
+    ) : CalendarIntent
+
+    data class SelectPlatform(
+        val platform: String?,
+    ) : CalendarIntent
+
+    data class SelectContent(
+        val content: CalendarContentFilter,
+    ) : CalendarIntent
 
     data class SelectFilter(
         val filter: CalendarFilter,
@@ -156,16 +220,41 @@ private sealed interface Msg {
     data class FilterChanged(
         val filter: CalendarFilter,
     ) : Msg
+
+    data class SectionChanged(
+        val section: CalendarSection,
+    ) : Msg
+
+    data class PlatformChanged(
+        val platform: String?,
+    ) : Msg
+
+    data class ContentChanged(
+        val content: CalendarContentFilter,
+    ) : Msg
+
+    data class SeriesRefreshed(
+        val tmdbId: Int,
+        val days: List<CalendarDay>,
+    ) : Msg
 }
 
 class CalendarStoreFactory(
     private val storeFactory: StoreFactory,
     private val repository: AiringCalendarRepository,
+    private val preferences: CalendarFollowStore? = null,
 ) {
     fun create(): Store<CalendarIntent, CalendarState, Nothing> =
         storeFactory.create(
             name = "CalendarStore",
-            initialState = CalendarState(),
+            initialState =
+                CalendarState(
+                    platform = preferences?.savedPlatformFilter(),
+                    contentFilter =
+                        CalendarContentFilter.entries.firstOrNull {
+                            it.name == preferences?.savedContentFilter()
+                        } ?: CalendarContentFilter.All,
+                ),
             bootstrapper = coroutineBootstrapper<Action> { dispatch(Action.Load) },
             executorFactory = ::ExecutorImpl,
             reducer = ReducerImpl,
@@ -183,6 +272,20 @@ class CalendarStoreFactory(
         override fun executeIntent(intent: CalendarIntent) {
             when (intent) {
                 CalendarIntent.Refresh -> load(forceRefresh = true)
+                CalendarIntent.Reload -> load(forceRefresh = false)
+                is CalendarIntent.ApplySeriesRefresh -> {
+                    loadJob?.cancel()
+                    dispatch(Msg.SeriesRefreshed(intent.tmdbId, intent.days))
+                }
+                is CalendarIntent.SelectSection -> dispatch(Msg.SectionChanged(intent.section))
+                is CalendarIntent.SelectPlatform -> {
+                    preferences?.savePlatformFilter(intent.platform)
+                    dispatch(Msg.PlatformChanged(intent.platform))
+                }
+                is CalendarIntent.SelectContent -> {
+                    preferences?.saveContentFilter(intent.content.name)
+                    dispatch(Msg.ContentChanged(intent.content))
+                }
                 is CalendarIntent.SelectFilter -> dispatch(Msg.FilterChanged(intent.filter))
             }
         }
@@ -241,6 +344,34 @@ class CalendarStoreFactory(
                         error = msg.message,
                     )
                 is Msg.FilterChanged -> copy(filter = msg.filter)
+                is Msg.SectionChanged -> copy(section = msg.section)
+                is Msg.PlatformChanged -> copy(platform = msg.platform)
+                is Msg.ContentChanged -> copy(contentFilter = msg.content)
+                is Msg.SeriesRefreshed -> {
+                    val merged = mergeTrackedSeriesCalendar(days, msg.days, msg.tmdbId)
+                    copy(
+                        loading = false,
+                        days = merged,
+                        confirmedDays = mergeTrackedSeriesCalendar(confirmedDays, msg.days, msg.tmdbId),
+                        error = null,
+                    )
+                }
             }
     }
 }
+
+internal fun mergeTrackedSeriesCalendar(
+    current: List<CalendarDay>,
+    refreshed: List<CalendarDay>,
+    tmdbId: Int,
+): List<CalendarDay> =
+    (
+        current
+            .flatMap(CalendarDay::entries)
+            .filterNot { it.episode.showTmdbId == tmdbId } +
+            refreshed
+                .flatMap(CalendarDay::entries)
+                .filter { it.episode.showTmdbId == tmdbId }
+    ).groupBy { it.episode.airDate }
+        .toSortedMap()
+        .map { (date, entries) -> CalendarDay(date, entries) }

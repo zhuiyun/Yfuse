@@ -1,5 +1,6 @@
 package com.yfuse.core.account
 
+import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
@@ -56,6 +57,7 @@ class AccountRepository(
     /** PBKDF2 and AES work must never block the Compose main thread. */
     private val cryptoDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val accessTokenSource: AccountAccessTokenSource = AccountAccessTokenSource(),
+    private val calendarFollows: CalendarFollowStore? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
@@ -671,6 +673,7 @@ class AccountRepository(
                     danmaku,
                     skip,
                     serverSync,
+                    calendarFollows,
                 ).getOrThrow()
             }
             _state.value =
@@ -864,14 +867,22 @@ class AccountRepository(
         // too would block the main thread for the whole encode, which janks the sync screen.
         val snapshot =
             withContext(mutationDispatcher) {
-                captureCloudSyncSnapshot(registry, theme, watch, danmaku, skip, serverSync)
+                captureCloudSyncSnapshot(registry, theme, watch, danmaku, skip, serverSync, calendarFollows)
             }
         return withContext(cryptoDispatcher) { json.encodeToString(snapshot) }
     }
 
     private fun capturePlaintextOnMutationDispatcher(): String =
         json.encodeToString(
-            captureCloudSyncSnapshot(registry, theme, watch, danmaku, skip, serverSync),
+            captureCloudSyncSnapshot(
+                registry,
+                theme,
+                watch,
+                danmaku,
+                skip,
+                serverSync,
+                calendarFollows,
+            ),
         )
 
     private fun EncryptedSyncPayload.toRecoveryEnvelope(): RecoveryKeyEnvelope {
