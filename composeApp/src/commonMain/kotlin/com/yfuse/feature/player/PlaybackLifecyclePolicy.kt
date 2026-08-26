@@ -22,8 +22,8 @@ internal fun playerStopAction(
     changingConfigurations: Boolean,
 ): PlayerStopAction =
     when {
-        changingConfigurations -> PlayerStopAction.IgnoreConfigurationChange
         !screenInteractive -> PlayerStopAction.Pause
+        changingConfigurations -> PlayerStopAction.IgnoreConfigurationChange
         inPictureInPicture -> PlayerStopAction.KeepPlaying
         pictureInPictureWasVisible -> PlayerStopAction.FinishClosedPictureInPicture
         else -> PlayerStopAction.Pause
