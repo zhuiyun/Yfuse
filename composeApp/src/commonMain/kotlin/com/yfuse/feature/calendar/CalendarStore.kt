@@ -107,7 +107,7 @@ data class CalendarState(
     /** Last fully resolved server result, retained while a refresh is in flight. */
     val confirmedDays: List<CalendarDay> = emptyList(),
     val section: CalendarSection = CalendarSection.Schedule,
-    val filter: CalendarFilter = CalendarFilter.Today,
+    val filter: CalendarFilter = CalendarFilter.All,
     val platform: String? = null,
     val contentFilter: CalendarContentFilter = CalendarContentFilter.All,
     val today: String = currentIsoDate(),
