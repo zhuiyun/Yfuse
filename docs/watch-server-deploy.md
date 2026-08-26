@@ -19,7 +19,8 @@ Read off `watchTogetherServer/deploy/yfuse-watch.service`, which is the source o
 | Binary | `/opt/yfuse-watch/current/bin/watchTogetherServer` |
 | Port | `8080`, behind Caddy — never exposed publicly |
 | Update files | `/srv/yfuse-update/yfuse` (read-only to the service) |
-| Account DB | `/var/lib/yfuse/account.db` (the one writable path) |
+| Account DB | `/var/lib/yfuse/account.db` |
+| Calendar DB | `/var/lib/yfuse/calendar.db` (public schedule revisions only) |
 
 The repository template is named `deploy/yfuse-watch.service` for clarity, but production
 installs it as `/etc/systemd/system/yfuse-update.service` to preserve the existing unit identity.
@@ -115,15 +116,19 @@ environment copy minimizes secret residency.
 
 ### 4. Switch and restart
 
-Before switching a build that can change account persistence, take an online SQLite
-snapshot. The database uses WAL, so do not copy only `account.db` while the service is
-running:
+Before switching a build that can change persistence, take online SQLite snapshots of the account
+and public calendar databases. Both use WAL, so do not copy only the main `.db` files while the
+service is running:
 
 ```bash
-backup="/var/lib/yfuse/backups/account-$(date -u +%Y%m%d-%H%M%S).db"
+stamp="$(date -u +%Y%m%d-%H%M%S)"
+account_backup="/var/lib/yfuse/backups/account-$stamp.db"
+calendar_backup="/var/lib/yfuse/backups/calendar-$stamp.db"
 sudo install -d -o yfuse -g yfuse -m 0700 /var/lib/yfuse/backups
-sudo -u yfuse sqlite3 /var/lib/yfuse/account.db ".backup '$backup'"
-sudo -u yfuse sqlite3 "$backup" "PRAGMA integrity_check;" | grep -Fx ok
+sudo -u yfuse sqlite3 /var/lib/yfuse/account.db ".backup '$account_backup'"
+sudo -u yfuse sqlite3 /var/lib/yfuse/calendar.db ".backup '$calendar_backup'"
+sudo -u yfuse sqlite3 "$account_backup" "PRAGMA integrity_check;" | grep -Fx ok
+sudo -u yfuse sqlite3 "$calendar_backup" "PRAGMA integrity_check;" | grep -Fx ok
 ```
 
 Retain at least the newest known-good snapshot off-host according to the operator's
