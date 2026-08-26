@@ -794,7 +794,11 @@ private class CalendarIngestionRuntime(
             val publication = CalendarPublication(provisionalRevision, generatedAt, schedules)
             validateCalendarPublication(publication)
             scheduleStore.replace(publication)
-            writeAtomically(publication)
+            runCatching { writeAtomically(publication) }
+                .onFailure { failure ->
+                    if (scheduleStore === NoOpCalendarScheduleStore) throw failure
+                    System.err.println("calendar JSON snapshot failed: ${failure.message}")
+                }
             true
         }
 
