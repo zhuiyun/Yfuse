@@ -433,7 +433,11 @@ internal fun Application.watchTogetherModule(
         calendarScheduleStore !== NoOpCalendarScheduleStore &&
         calendarScheduleStore.current() == null
     ) {
-        calendarScheduleStore.replace(loadCalendarPublication())
+        runCatching {
+            calendarScheduleStore.replace(loadCalendarPublication())
+        }.onFailure { failure ->
+            System.err.println("calendar database bootstrap failed: ${failure.message}")
+        }
     }
     // Disabled unless ingestion config and at least one durable output are configured. The
     // collector fails closed and keeps the current database revision on upstream/OCR failures.
