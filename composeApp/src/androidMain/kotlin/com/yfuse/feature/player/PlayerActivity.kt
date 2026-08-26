@@ -16,6 +16,7 @@ import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.util.Rational
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -149,6 +150,9 @@ class PlayerActivity : ComponentActivity() {
     private var pipWasVisible = false
     private var stopRequested = false
     private var activityStarted = false
+    private var activityHasStarted = false
+    private var lifecyclePauseRequested = false
+    private var screenStateReceiverRegistered = false
     private var playbackKeepAliveRequested = false
     private var playbackKeepAliveStartDeferred = false
     private val playbackItems = MutableStateFlow<List<PlayerMediaItem>>(emptyList())
@@ -172,6 +176,19 @@ class PlayerActivity : ComponentActivity() {
                     ACTION_PREVIOUS -> selectAdjacentPlayback(-1)
                     ACTION_PLAY_PAUSE -> togglePlaybackWithFocus()
                     ACTION_NEXT -> selectAdjacentPlayback(1)
+                }
+            }
+        }
+
+    private val screenStateReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                context: Context?,
+                intent: Intent?,
+            ) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> pausePlaybackForLifecycle("screen_off")
+                    Intent.ACTION_SCREEN_ON -> lifecyclePauseRequested = false
                 }
             }
         }
@@ -331,6 +348,7 @@ class PlayerActivity : ComponentActivity() {
         notificationController = PlayerNotificationController(this) { mediaSession }
         notificationController.createChannel()
         registerMediaActionReceiver()
+        registerScreenStateReceiver()
         requestNotificationPermissionIfNeeded()
 
         val koin = GlobalContext.get()
@@ -485,7 +503,17 @@ class PlayerActivity : ComponentActivity() {
                         }
                         updateMediaSession(state)
                         updatePictureInPictureParams()
-                        if (state.playing) {
+                        if (
+                            (state.playing || state.buffering) &&
+                            (
+                                !isScreenInteractive() ||
+                                    activityHasStarted &&
+                                    !activityStarted &&
+                                    !isInPictureInPictureMode
+                            )
+                        ) {
+                            pausePlaybackForLifecycle("state_resumed_while_hidden")
+                        } else if (state.playing) {
                             startPlaybackKeepAliveService()
                         }
                     },
@@ -548,6 +576,8 @@ class PlayerActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         activityStarted = true
+        activityHasStarted = true
+        if (isScreenInteractive()) lifecyclePauseRequested = false
         if (activeState.playing) startPlaybackKeepAliveService()
         refreshEpisodes()
         episodePollingJob?.cancel()
@@ -605,10 +635,19 @@ class PlayerActivity : ComponentActivity() {
         episodePollingJob?.cancel()
         episodePollingJob = null
         super.onStop()
-        // Android can keep a closed PiP activity stopped but alive. Explicitly
-        // tear down its engine so audio cannot continue invisibly.
-        if (pipWasVisible && !isChangingConfigurations) {
-            stopPlaybackAndFinish()
+        when (
+            playerStopAction(
+                screenInteractive = isScreenInteractive(),
+                inPictureInPicture = isInPictureInPictureMode,
+                pictureInPictureWasVisible = pipWasVisible,
+                changingConfigurations = isChangingConfigurations,
+            )
+        ) {
+            PlayerStopAction.Pause -> pausePlaybackForLifecycle("activity_stopped")
+            PlayerStopAction.KeepPlaying,
+            PlayerStopAction.IgnoreConfigurationChange,
+            -> Unit
+            PlayerStopAction.FinishClosedPictureInPicture -> stopPlaybackAndFinish()
         }
     }
 
@@ -626,6 +665,10 @@ class PlayerActivity : ComponentActivity() {
         if (mediaReceiverRegistered) {
             runCatching { unregisterReceiver(mediaActionReceiver) }
             mediaReceiverRegistered = false
+        }
+        if (screenStateReceiverRegistered) {
+            runCatching { unregisterReceiver(screenStateReceiver) }
+            screenStateReceiverRegistered = false
         }
         if (::mediaSession.isInitialized) {
             mediaSession.isActive = false
@@ -950,6 +993,7 @@ class PlayerActivity : ComponentActivity() {
                 setCallback(
                     object : MediaSession.Callback() {
                         override fun onPlay() {
+                            if (!playbackAllowedByLifecycle()) return
                             val castManager = remoteCastManager
                             if (castManager?.state?.value?.hasActiveSession == true) {
                                 lifecycleScope.launch { castManager.resume() }
@@ -990,6 +1034,21 @@ class PlayerActivity : ComponentActivity() {
                 )
                 isActive = true
             }
+    }
+
+    private fun registerScreenStateReceiver() {
+        val filter =
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            }
+        ContextCompat.registerReceiver(
+            this,
+            screenStateReceiver,
+            filter,
+            ContextCompat.RECEIVER_EXPORTED,
+        )
+        screenStateReceiverRegistered = true
     }
 
     private fun registerMediaActionReceiver() {
@@ -1076,6 +1135,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun togglePlaybackWithFocus() {
+        if (!activeState.playing && !playbackAllowedByLifecycle()) return
         val castManager = remoteCastManager
         if (castManager?.state?.value?.hasActiveSession == true) {
             lifecycleScope.launch {
@@ -1161,6 +1221,46 @@ class PlayerActivity : ComponentActivity() {
         PlaybackKeepAliveService.requestStop(this)
         playbackKeepAliveRequested = false
         playbackKeepAliveStartDeferred = false
+    }
+
+    private fun playbackAllowedByLifecycle(): Boolean =
+        isScreenInteractive() &&
+            (
+                !activityHasStarted ||
+                    activityStarted ||
+                    isInPictureInPictureMode
+            )
+
+    private fun isScreenInteractive(): Boolean =
+        getSystemService(PowerManager::class.java).isInteractive
+
+    private fun pausePlaybackForLifecycle(reason: String) {
+        if (stopRequested || lifecyclePauseRequested) return
+        val castManager = remoteCastManager
+        val remoteActive = castManager?.state?.value?.hasActiveSession == true
+        val playbackActive = activeState.playing || activeState.buffering || remoteActive
+        if (!playbackActive) return
+
+        lifecyclePauseRequested = true
+        if (remoteActive && castManager != null) {
+            lifecycleScope.launch { castManager.pause() }
+        } else {
+            // Lifecycle safety must not be rejected by watch-together guest controls.
+            activePlayer?.pause()
+            abandonAudioFocus()
+        }
+        AppLog.info(
+            category = "feature.player",
+            event = "playback_paused_for_lifecycle",
+            message = "Playback paused because the player is no longer safely visible",
+            attributes =
+                mapOf(
+                    "reason" to reason,
+                    "pictureInPicture" to isInPictureInPictureMode.toString(),
+                    "screenInteractive" to isScreenInteractive().toString(),
+                    "remoteCast" to remoteActive.toString(),
+                ),
+        )
     }
 
     private fun ensureAudioFocus(): Boolean = audioFocusController.ensure()
