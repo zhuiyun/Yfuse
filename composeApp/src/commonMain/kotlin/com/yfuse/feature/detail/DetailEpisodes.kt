@@ -3,6 +3,7 @@ package com.yfuse.feature.detail
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -254,7 +256,14 @@ internal fun EpisodeSection(
             LazyRow(
                 state = listState,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+                verticalAlignment = Alignment.Bottom,
+                contentPadding =
+                    PaddingValues(
+                        start = Dimens.pageHorizontal,
+                        top = 10.dp,
+                        end = Dimens.pageHorizontal,
+                        bottom = 0.dp,
+                    ),
             ) {
                 itemsIndexed(
                     episodes,
@@ -288,19 +297,35 @@ private fun EpisodeCard(
     val palette = LocalPalette.current
     val stateColors = detailStateColors(accent, palette.background, palette.isDark)
     val watching = (episode.playedPercentage ?: 0.0) > 0.0
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val selectedScale by animateFloatAsState(
+        targetValue = if (selected) 1.04f else 1f,
+        animationSpec = Motion.settle(reduceMotion),
+        label = "episodeCardSelectionScale",
+    )
     Column(
         Modifier
             .width(210.dp)
-            .pressable(onClick = onPlay)
+            .graphicsLayer {
+                scaleX = selectedScale
+                scaleY = selectedScale
+                transformOrigin = TransformOrigin(0.5f, 1f)
+            }.pressable(onClick = onPlay)
             .solidGlass(
                 shape = GlassShapes.card,
                 fill =
-                    when {
-                        selected -> stateColors.surface
-                        palette.isDark -> palette.card
-                        else -> Color.White.copy(alpha = 0.24f)
+                    if (palette.isDark) {
+                        palette.card
+                    } else {
+                        Color.White.copy(alpha = 0.24f)
                     },
                 border = Color.Transparent,
+            ).then(
+                if (selected) {
+                    Modifier.border(2.dp, stateColors.border, GlassShapes.card)
+                } else {
+                    Modifier
+                },
             ).padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
