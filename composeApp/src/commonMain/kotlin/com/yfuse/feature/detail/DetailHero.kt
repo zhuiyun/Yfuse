@@ -278,6 +278,8 @@ internal fun DetailTopBar(
     onMore: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val playBody = primaryActionColor(accent)
+    val playInk = primaryActionContentColor(accent)
     // 0.94 was very nearly opaque, and it had to be: with nothing blurred behind it, any
     // less and the poster underneath read straight through the title. Now that §8.1's blur
     // is actually under the plate, the fill can go back to being a fill — this bar was the
@@ -358,8 +360,8 @@ internal fun DetailTopBar(
                         .touchTarget()
                         .liquidGlass(
                             shape = GlassShapes.chip,
-                            fill = accent.copy(alpha = 0.14f),
-                            border = accent.copy(alpha = 0.30f),
+                            fill = playBody,
+                            border = playInk.copy(alpha = 0.38f),
                             // It only ever appears once the bar's own plate is opaque.
                             over = surfaceColor,
                             sheen = 0.7f,
@@ -367,8 +369,8 @@ internal fun DetailTopBar(
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(AppIcons.Play, null, tint = accent, modifier = Modifier.size(10.dp))
-                    Text("播放", style = AppTypography.body.strong, color = accent)
+                    Icon(AppIcons.Play, null, tint = playInk, modifier = Modifier.size(10.dp))
+                    Text("播放", style = AppTypography.body.strong, color = playInk)
                 }
             }
             if (showMore) {

@@ -686,7 +686,7 @@ fun DetailScreen(component: DetailComponent) {
                     backdrop = detailBackdrop,
                     progress = topBarProgress,
                     surfaceColor = detailSurface,
-                    accent = detailAccent,
+                    accent = detailPlayColor,
                     showPlay = detail != null,
                     showMore = detail != null,
                     solid = barSolid,
