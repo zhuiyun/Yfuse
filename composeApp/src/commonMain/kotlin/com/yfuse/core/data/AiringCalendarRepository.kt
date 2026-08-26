@@ -40,6 +40,7 @@ class AiringCalendarRepository(
     private val officialSchedules: OfficialAiringScheduleCatalog,
     private val identityResolver: CalendarIdentityResolver,
     private val followStore: CalendarFollowStore,
+    private val localStore: CalendarLocalStore = NoOpCalendarLocalStore,
 ) {
     private data class IdentityCatalogSnapshot(
         val fetchedAtEpochMs: Long,
@@ -59,6 +60,7 @@ class AiringCalendarRepository(
 
     private val identityCatalogCache = mutableMapOf<String, IdentityCatalogSnapshot>()
     private val libraryEpisodeRequests = Semaphore(LIBRARY_EPISODE_REQUEST_CONCURRENCY)
+    private val libraryServerRequests = Semaphore(LIBRARY_SERVER_REQUEST_CONCURRENCY)
     private val followedScheduleRequests = Semaphore(FOLLOWED_SCHEDULE_REQUEST_CONCURRENCY)
     private val calendarIdentityRequests = Semaphore(CALENDAR_IDENTITY_REQUEST_CONCURRENCY)
     private val calendarLoadMutex = Mutex()
@@ -96,40 +98,42 @@ class AiringCalendarRepository(
             registry.data.value.servers
                 .map { server ->
                     async {
-                        val nextUpSeriesIds =
-                            emby
-                                .nextUpEpisodes(server, ACTIVE_LIBRARY_SERIES_LIMIT_PER_SERVER)
-                                .getOrElse { error ->
-                                    AppLog.warning(
-                                        category = "feature.calendar",
-                                        event = "active_library_series_failed",
-                                        message = "Next-up series could not be read for calendar enrichment",
-                                        throwable = error,
-                                        attributes = mapOf("serverId" to server.id),
-                                    )
-                                    emptyList()
-                                }.map(MediaItem::posterItemId)
-                                .toSet()
-                        selectActiveLibrarySeries(
-                            catalog = identityCatalog(server, forceRefresh).getOrDefault(emptyList()),
-                            nextUpSeriesIds = nextUpSeriesIds,
-                        ).map { identity ->
-                            async {
-                                calendarIdentityRequests.withPermit {
-                                    val tmdbId =
-                                        identityResolver.resolve(identity, server.id).getOrNull()
-                                            ?: return@withPermit null
-                                    FollowedSeries(
-                                        tmdbId = tmdbId,
-                                        title = identity.title,
-                                        year = identity.year,
-                                        serverId = server.id,
-                                        seriesItemId = identity.itemId,
-                                    )
+                        libraryServerRequests.withPermit {
+                            val nextUpSeriesIds =
+                                emby
+                                    .nextUpEpisodes(server, ACTIVE_LIBRARY_SERIES_LIMIT_PER_SERVER)
+                                    .getOrElse { error ->
+                                        AppLog.warning(
+                                            category = "feature.calendar",
+                                            event = "active_library_series_failed",
+                                            message = "Next-up series could not be read for calendar enrichment",
+                                            throwable = error,
+                                            attributes = mapOf("serverId" to server.id),
+                                        )
+                                        emptyList()
+                                    }.map(MediaItem::posterItemId)
+                                    .toSet()
+                            selectActiveLibrarySeries(
+                                catalog = identityCatalog(server, forceRefresh).getOrDefault(emptyList()),
+                                nextUpSeriesIds = nextUpSeriesIds,
+                            ).map { identity ->
+                                async {
+                                    calendarIdentityRequests.withPermit {
+                                        val tmdbId =
+                                            identityResolver.resolve(identity, server.id).getOrNull()
+                                                ?: return@withPermit null
+                                        FollowedSeries(
+                                            tmdbId = tmdbId,
+                                            title = identity.title,
+                                            year = identity.year,
+                                            serverId = server.id,
+                                            seriesItemId = identity.itemId,
+                                        )
+                                    }
                                 }
-                            }
-                        }.awaitAll()
-                            .filterNotNull()
+                            }.awaitAll()
+                                .filterNotNull()
+                        }
                     }
                 }.awaitAll()
                 .flatten()
@@ -222,9 +226,25 @@ class AiringCalendarRepository(
                 return@withLock Result.success(snapshot.days)
             }
             val result =
-                loadCalendar(pastDays, futureDays, today, forceRefresh, onPreview).onSuccess { days ->
+                loadCalendar(
+                    pastDays = pastDays,
+                    futureDays = futureDays,
+                    today = today,
+                    forceRefresh = forceRefresh,
+                    onPreview = onPreview,
+                    cacheScope = key,
+                ).onSuccess { days ->
                     calendarRuntimeSnapshot = CalendarRuntimeSnapshot(key, currentEpochMillis(), days)
                 }
+            if (result.isFailure) {
+                runCatching {
+                    localStore.recordSyncFailure(
+                        scope = key,
+                        attemptedAtEpochMs = currentEpochMillis(),
+                        message = result.exceptionOrNull()?.message,
+                    )
+                }
+            }
             lastCalendarLoadDurationMs = currentEpochMillis() - startedAt
             result
         }
@@ -235,10 +255,28 @@ class AiringCalendarRepository(
         today: String,
         forceRefresh: Boolean,
         onPreview: (List<CalendarDay>) -> Unit,
+        cacheScope: String,
     ): Result<List<CalendarDay>> {
         val from = shiftIsoDate(today, -pastDays)
         val to = shiftIsoDate(today, futureDays)
         val window = "$from..$to"
+        val localSnapshot =
+            runCatching { localStore.readCalendar(from, to, cacheScope) }
+                .onFailure { error ->
+                    AppLog.warning(
+                        category = "feature.calendar",
+                        event = "local_calendar_read_failed",
+                        message = "Persisted calendar could not be read",
+                        throwable = error,
+                    )
+                }.getOrNull()
+        val localDays = localSnapshot?.let { restoreLocalDays(it, today) }.orEmpty()
+        if (localDays.isNotEmpty()) {
+            onPreview(localDays)
+            if (!forceRefresh && localCalendarSnapshotIsFresh(localSnapshot!!, currentEpochMillis())) {
+                return Result.success(localDays)
+            }
+        }
         var officialEpisodes = officialSchedules.between(from, to)
         if (officialEpisodes.isNotEmpty()) {
             onPreview(unresolvedCalendarDays(officialEpisodes, today))
@@ -335,7 +373,14 @@ class AiringCalendarRepository(
                     .flatten()
             }
         val episodes = withOfficial(discoveredEpisodes + followedEpisodes)
-        return calendarDays(episodes, today, forceRefresh = forceRefresh)
+        return calendarDays(
+            episodes = episodes,
+            today = today,
+            forceRefresh = forceRefresh,
+            persistFrom = from,
+            persistTo = to,
+            persistScope = cacheScope,
+        )
     }
 
     /**
@@ -396,6 +441,35 @@ class AiringCalendarRepository(
         if (series.isEmpty()) return Result.success(emptyList())
         val from = shiftIsoDate(today, -pastDays)
         val to = shiftIsoDate(today, futureDays)
+        val seriesIds = series.map(FollowedSeries::tmdbId).filter { it > 0 }.toSet()
+        val cacheScope =
+            buildString {
+                append("series:")
+                append(today)
+                append(':')
+                append(pastDays)
+                append(':')
+                append(futureDays)
+                append(':')
+                append(seriesIds.sorted().joinToString(","))
+                append(':')
+                append(registry.data.value.servers.joinToString(",") { it.id })
+            }
+        if (!forceRefresh) {
+            val localSnapshot =
+                runCatching { localStore.readCalendar(from, to, cacheScope) }.getOrNull()
+            if (localSnapshot != null && localCalendarSnapshotIsFresh(localSnapshot, currentEpochMillis())) {
+                val localDays =
+                    restoreLocalDays(localSnapshot, today)
+                        .mapNotNull { day ->
+                            day.entries
+                                .filter { it.episode.showTmdbId in seriesIds }
+                                .takeIf(List<CalendarEntry>::isNotEmpty)
+                                ?.let { day.copy(entries = it) }
+                        }
+                return Result.success(localDays)
+            }
+        }
         officialSchedules.refreshIfDue(force = forceRefresh)
         val episodes =
             coroutineScope {
@@ -440,7 +514,15 @@ class AiringCalendarRepository(
                     .flatten()
                     .distinctBy(AiringEpisode::mediaKey)
             }
-        return calendarDays(episodes, today, forceRefresh = forceRefresh)
+        return calendarDays(
+            episodes = episodes,
+            today = today,
+            forceRefresh = forceRefresh,
+            persistFrom = from,
+            persistTo = to,
+            persistScope = cacheScope,
+            seriesScope = seriesIds,
+        )
     }
 
     /** Force-refreshes one tracked series without reopening global discovery. */
@@ -593,6 +675,28 @@ class AiringCalendarRepository(
         onPreview: (List<CalendarDay>) -> Unit = {},
         libraryHint: SeriesCalendarLibraryHint? = null,
     ): Result<List<CalendarDay>> {
+        val localFrom = shiftIsoDate(today, -7)
+        val localTo = shiftIsoDate(today, 60)
+        val cacheScope =
+            "series-detail:$today:$showTmdbId:" +
+                registry.data.value.servers.joinToString(",") { it.id }
+        val localSnapshot =
+            runCatching { localStore.readCalendar(localFrom, localTo, cacheScope) }.getOrNull()
+        val localDays =
+            localSnapshot
+                ?.let { restoreLocalDays(it, today) }
+                ?.mapNotNull { day ->
+                    day.entries
+                        .filter { it.episode.showTmdbId == showTmdbId }
+                        .takeIf(List<CalendarEntry>::isNotEmpty)
+                        ?.let { day.copy(entries = it) }
+                }.orEmpty()
+        if (localDays.isNotEmpty()) {
+            onPreview(localDays)
+            if (localCalendarSnapshotIsFresh(localSnapshot!!, currentEpochMillis())) {
+                return Result.success(localDays)
+            }
+        }
         var official = officialSchedules.series(showTmdbId, fallbackTitle).orEmpty()
         if (official.isNotEmpty()) {
             onPreview(calendarPreviewDays(official, today, libraryHint))
@@ -603,7 +707,15 @@ class AiringCalendarRepository(
         scheduleCache.readSeries(showTmdbId, today)?.let { cached ->
             val merged = mergeAiringSchedules(cached, official)
             onPreview(calendarPreviewDays(merged, today, libraryHint))
-            return calendarDays(merged, today, libraryHint)
+            return calendarDays(
+                episodes = merged,
+                today = today,
+                libraryHint = libraryHint,
+                persistFrom = localFrom,
+                persistTo = localTo,
+                persistScope = cacheScope,
+                seriesScope = setOf(showTmdbId),
+            )
         }
 
         val discovered =
@@ -623,7 +735,15 @@ class AiringCalendarRepository(
         scheduleCache.writeSeries(showTmdbId, today, discovered)
         val merged = mergeAiringSchedules(discovered, official)
         if (merged.isNotEmpty()) onPreview(calendarPreviewDays(merged, today, libraryHint))
-        return calendarDays(merged, today, libraryHint)
+        return calendarDays(
+                episodes = merged,
+                today = today,
+                libraryHint = libraryHint,
+                persistFrom = localFrom,
+                persistTo = localTo,
+                persistScope = cacheScope,
+                seriesScope = setOf(showTmdbId),
+            )
     }
 
     private suspend fun calendarDays(
@@ -631,17 +751,50 @@ class AiringCalendarRepository(
         today: String,
         libraryHint: SeriesCalendarLibraryHint? = null,
         forceRefresh: Boolean = false,
+        persistFrom: String? = null,
+        persistTo: String? = null,
+        persistScope: String? = null,
+        seriesScope: Set<Int>? = null,
     ): Result<List<CalendarDay>> {
+        val checkedAt = currentEpochMillis()
         val entries =
             resolveStatus(episodes, today, libraryHint, forceRefresh).map { entry ->
-                entry.copy(followed = followStore.isFollowing(entry.episode.showTmdbId))
+                entry.copy(
+                    followed = followStore.isFollowing(entry.episode.showTmdbId),
+                    availabilityCheckedAtEpochMs = checkedAt,
+                    availabilityStale = false,
+                )
             }
-        return Result.success(
+        val days =
             entries
                 .groupBy { it.episode.airDate }
                 .toSortedMap()
-                .map { (date, dayEntries) -> CalendarDay(date, dayEntries) },
-        )
+                .map { (date, dayEntries) -> CalendarDay(date, dayEntries) }
+        if (
+            persistFrom != null &&
+            persistTo != null &&
+            persistScope != null
+        ) {
+            runCatching {
+                localStore.replaceCalendarWindow(
+                    fromDate = persistFrom,
+                    toDate = persistTo,
+                    scope = persistScope,
+                    days = days,
+                    scheduleSyncedAtEpochMs = checkedAt,
+                    resourcesCheckedAtEpochMs = checkedAt,
+                    seriesScope = seriesScope,
+                )
+            }.onFailure { error ->
+                AppLog.warning(
+                    category = "feature.calendar",
+                    event = "local_calendar_write_failed",
+                    message = "Resolved calendar could not be persisted",
+                    throwable = error,
+                )
+            }
+        }
+        return Result.success(days)
     }
 
     private fun unresolvedCalendarDays(
@@ -690,13 +843,15 @@ class AiringCalendarRepository(
                 servers
                     .map { server ->
                         async {
-                            resolveServerStatus(
-                                episodes = episodes,
-                                today = today,
-                                server = server,
-                                libraryHint = libraryHint?.takeIf { it.server.id == server.id },
-                                forceRefresh = forceRefresh,
-                            )
+                            libraryServerRequests.withPermit {
+                                resolveServerStatus(
+                                    episodes = episodes,
+                                    today = today,
+                                    server = server,
+                                    libraryHint = libraryHint?.takeIf { it.server.id == server.id },
+                                    forceRefresh = forceRefresh,
+                                )
+                            }
                         }
                     }.map { it.await() }
             }
@@ -749,6 +904,13 @@ class AiringCalendarRepository(
             }
         val titleIndex = catalog.groupBy { normalizeIdentityTitle(it.title) }
         val catalogItemIds = catalog.map(LibrarySeriesIdentity::itemId).toSet()
+        val persistedBindings =
+            runCatching {
+                localStore.readBindings(
+                    serverId = server.id,
+                    tmdbIds = episodes.map(AiringEpisode::showTmdbId).toSet(),
+                )
+            }.getOrDefault(emptyMap())
         // Films are indexed separately and carry their own watched flag: a film *is* the
         // row, so there is no episode below it to read 已看 from. A failure here costs the
         // film rows their status and leaves the episode rows alone.
@@ -772,6 +934,9 @@ class AiringCalendarRepository(
                 titleIndex[normalizeIdentityTitle(episode.showTitle)]
                     ?.singleOrNull()
                     ?.itemId
+            val persistedMappedId =
+                persistedBindings[episode.showTmdbId]
+                    ?.takeIf { it in catalogItemIds }
             val mappedId =
                 identityResolver
                     .mappedSeriesItemId(server.id, episode.showTmdbId)
@@ -784,6 +949,7 @@ class AiringCalendarRepository(
                 ?.takeIf { it.showTmdbId == episode.showTmdbId }
                 ?.seriesItemId
                 ?: index["tmdb:${episode.showTmdbId}"]
+                ?: persistedMappedId
                 ?: validMappedId
                 ?: titleMatchedId?.also {
                     identityResolver.remember(server.id, it, episode.showTmdbId)
@@ -799,6 +965,29 @@ class AiringCalendarRepository(
                 .filterNot(AiringEpisode::isMovie)
                 .distinctBy(AiringEpisode::showTmdbId)
                 .associate { it.showTmdbId to seriesIdFor(it) }
+        runCatching {
+            localStore.upsertBindings(
+                seriesIdsByTmdbId.mapNotNull { (tmdbId, seriesItemId) ->
+                    seriesItemId?.let {
+                        CalendarSeriesBinding(
+                            serverId = server.id,
+                            tmdbId = tmdbId,
+                            seriesItemId = it,
+                            title = episodes.first { episode -> episode.showTmdbId == tmdbId }.showTitle,
+                            updatedAtEpochMs = currentEpochMillis(),
+                        )
+                    }
+                },
+            )
+        }.onFailure { error ->
+            AppLog.warning(
+                category = "feature.calendar",
+                event = "calendar_binding_write_failed",
+                message = "Calendar identity bindings could not be persisted",
+                throwable = error,
+                attributes = mapOf("serverId" to server.id),
+            )
+        }
         val seasonNumbersBySeriesId =
             episodes
                 .asSequence()
@@ -951,6 +1140,89 @@ class AiringCalendarRepository(
             )
         }
     }
+
+    private fun restoreLocalDays(
+        snapshot: CalendarLocalSnapshot,
+        today: String,
+    ): List<CalendarDay> {
+        val activeServers = registry.data.value.servers.associateBy(SavedServer::id)
+        val now = currentEpochMillis()
+        return snapshot.days.map { day ->
+            day.copy(
+                entries =
+                    day.entries.map { cached ->
+                        val restoredSources =
+                            cached.sources.mapNotNull { source ->
+                                val server = activeServers[source.serverId] ?: return@mapNotNull null
+                                source.copy(
+                                    posterUrl =
+                                        source.seriesItemId?.let { seriesItemId ->
+                                            EmbyImages.primary(
+                                                baseUrl = server.baseUrl,
+                                                itemId = seriesItemId,
+                                                tag = null,
+                                                maxHeight = 300,
+                                                accessToken = server.accessToken,
+                                            )
+                                        },
+                                )
+                            }
+                        val checkedAt =
+                            cached.availabilityCheckedAtEpochMs
+                                ?: snapshot.syncState?.resourcesSyncedAtEpochMs
+                        val stale =
+                            checkedAt == null ||
+                                now - checkedAt !in 0 until LOCAL_RESOURCE_STATUS_TTL_MS
+                        val restored =
+                            if (restoredSources.isEmpty()) {
+                                val selectedServerActive =
+                                    cached.serverId == null || cached.serverId in activeServers
+                                cached.copy(
+                                    status =
+                                        when {
+                                            cached.discoveryOnly -> cached.status
+                                            activeServers.isEmpty() && !airingHasStarted(cached.episode, today) ->
+                                                LibraryStatus.Unaired
+                                            activeServers.isEmpty() -> LibraryStatus.Unknown
+                                            selectedServerActive -> cached.status
+                                            !airingHasStarted(cached.episode, today) -> LibraryStatus.Unaired
+                                            else -> LibraryStatus.Unknown
+                                        },
+                                    itemId = cached.itemId.takeIf { selectedServerActive },
+                                    serverId = cached.serverId.takeIf { selectedServerActive },
+                                    seriesItemId = cached.seriesItemId.takeIf { selectedServerActive },
+                                    sources = emptyList(),
+                                    dataIssue =
+                                        CalendarDataIssue.NoServer.takeIf { activeServers.isEmpty() }
+                                            ?: cached.dataIssue,
+                                )
+                            } else {
+                                mergeCalendarEntries(
+                                    episode = cached.episode,
+                                    candidates =
+                                        restoredSources.map { source ->
+                                            CalendarEntry(
+                                                episode = cached.episode,
+                                                status = source.status,
+                                                itemId = source.itemId,
+                                                serverId = source.serverId,
+                                                seriesItemId = source.seriesItemId,
+                                                sources = listOf(source),
+                                            )
+                                        },
+                                    today = today,
+                                )
+                            }
+                        restored.copy(
+                            followed = followStore.isFollowing(cached.episode.showTmdbId),
+                            availabilityCheckedAtEpochMs = checkedAt,
+                            availabilityStale = stale,
+                        )
+                    },
+            )
+        }
+    }
+
 }
 
 /** Exact library identity already known by a series detail page. */
@@ -1188,9 +1460,22 @@ fun CalendarDay.isPast(today: String = currentIsoDate()): Boolean = date < today
 val CalendarDay.missingCount: Int
     get() = entries.count { it.status == LibraryStatus.Missing && (it.inLibrary || it.followed) }
 
-private const val IDENTITY_CATALOG_TTL_MS = 15 * 60_000L
+internal fun localCalendarSnapshotIsFresh(
+    snapshot: CalendarLocalSnapshot,
+    nowEpochMs: Long = currentEpochMillis(),
+): Boolean {
+    val state = snapshot.syncState ?: return false
+    val scheduleAge = nowEpochMs - state.scheduleSyncedAtEpochMs
+    val resourceAge = nowEpochMs - state.resourcesSyncedAtEpochMs
+    return scheduleAge in 0 until LOCAL_SCHEDULE_TTL_MS &&
+        resourceAge in 0 until LOCAL_RESOURCE_STATUS_TTL_MS
+}
+
+private const val LOCAL_SCHEDULE_TTL_MS = 6 * 60 * 60_000L
+private const val LOCAL_RESOURCE_STATUS_TTL_MS = 60_000L
 private const val ACTIVE_LIBRARY_SERIES_LIMIT_PER_SERVER = 40
 private const val LIBRARY_EPISODE_REQUEST_CONCURRENCY = 3
+private const val LIBRARY_SERVER_REQUEST_CONCURRENCY = 3
 private const val FOLLOWED_SCHEDULE_REQUEST_CONCURRENCY = 4
 private const val CALENDAR_IDENTITY_REQUEST_CONCURRENCY = 4
 private const val CALENDAR_RUNTIME_TTL_MS = 30_000L
