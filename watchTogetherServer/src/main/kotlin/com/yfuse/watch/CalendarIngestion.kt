@@ -752,8 +752,9 @@ internal object OcrConfidenceGate {
 
 private class CalendarIngestionRuntime(
     private val configFile: File,
-    private val outputFile: File,
+    private val outputFile: File?,
     private val tmdbToken: String?,
+    private val scheduleStore: CalendarScheduleStore,
 ) {
     private val http =
         HttpClient.newBuilder()
@@ -792,6 +793,7 @@ private class CalendarIngestionRuntime(
             if (contentFingerprint == oldFingerprint) return@withContext false
             val publication = CalendarPublication(provisionalRevision, generatedAt, schedules)
             validateCalendarPublication(publication)
+            scheduleStore.replace(publication)
             writeAtomically(publication)
             true
         }
@@ -1127,31 +1129,50 @@ private class CalendarIngestionRuntime(
     }
 
     private fun readExistingPublication(): CalendarPublication? =
-        outputFile.takeIf(File::isFile)?.let { file ->
-            runCatching { ingestionJson.decodeFromString<CalendarPublication>(file.readText()) }.getOrNull()
-        }
+        scheduleStore.current()
+            ?: outputFile?.takeIf(File::isFile)?.let { file ->
+                runCatching {
+                    ingestionJson.decodeFromString<CalendarPublication>(file.readText())
+                }.getOrNull()
+            }
 
     private fun writeAtomically(publication: CalendarPublication) {
-        outputFile.absoluteFile.parentFile?.mkdirs()
-        val temporary = File(outputFile.absolutePath + ".tmp")
+        val target = outputFile ?: return
+        target.absoluteFile.parentFile?.mkdirs()
+        val temporary = File(target.absolutePath + ".tmp")
         temporary.writeText(ingestionJson.encodeToString(publication))
         runCatching {
             Files.move(
                 temporary.toPath(),
-                outputFile.toPath(),
+                target.toPath(),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING,
             )
         }.getOrElse {
-            Files.move(temporary.toPath(), outputFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
         }
     }
 }
 
-internal fun CoroutineScope.launchCalendarIngestionFromEnvironment(): Job? {
-    val configPath = System.getenv("YFUSE_CALENDAR_INGEST_CONFIG")?.takeIf(String::isNotBlank) ?: return null
-    val outputPath = System.getenv("YFUSE_CALENDAR_SCHEDULES_PATH")?.takeIf(String::isNotBlank) ?: return null
-    val runtime = CalendarIngestionRuntime(File(configPath), File(outputPath), System.getenv("TMDB_TOKEN"))
+internal fun CoroutineScope.launchCalendarIngestionFromEnvironment(
+    scheduleStore: CalendarScheduleStore = NoOpCalendarScheduleStore,
+): Job? {
+    val configPath =
+        System.getenv("YFUSE_CALENDAR_INGEST_CONFIG")
+            ?.takeIf(String::isNotBlank)
+            ?: return null
+    val outputFile =
+        System.getenv("YFUSE_CALENDAR_SCHEDULES_PATH")
+            ?.takeIf(String::isNotBlank)
+            ?.let(::File)
+    if (outputFile == null && scheduleStore === NoOpCalendarScheduleStore) return null
+    val runtime =
+        CalendarIngestionRuntime(
+            configFile = File(configPath),
+            outputFile = outputFile,
+            tmdbToken = System.getenv("TMDB_TOKEN"),
+            scheduleStore = scheduleStore,
+        )
     return launch {
         while (isActive) {
             runCatching { runtime.runOnce() }.onFailure { failure ->
