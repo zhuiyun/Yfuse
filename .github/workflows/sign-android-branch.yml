@@ -168,6 +168,7 @@ jobs:
           ./gradlew :composeApp:assembleRelease \
             -PyfuseVersionCode=${{ steps.version.outputs.version_code }} \
             -PyfuseVersionName=${{ steps.version.outputs.version_name }} \
+            -PconfirmMdkDistributionRights=true \
             --no-daemon
 
       - name: Verify and stage signed APK
