@@ -126,9 +126,11 @@ account_backup="/var/lib/yfuse/backups/account-$stamp.db"
 calendar_backup="/var/lib/yfuse/backups/calendar-$stamp.db"
 sudo install -d -o yfuse -g yfuse -m 0700 /var/lib/yfuse/backups
 sudo -u yfuse sqlite3 /var/lib/yfuse/account.db ".backup '$account_backup'"
-sudo -u yfuse sqlite3 /var/lib/yfuse/calendar.db ".backup '$calendar_backup'"
 sudo -u yfuse sqlite3 "$account_backup" "PRAGMA integrity_check;" | grep -Fx ok
-sudo -u yfuse sqlite3 "$calendar_backup" "PRAGMA integrity_check;" | grep -Fx ok
+if sudo test -f /var/lib/yfuse/calendar.db; then
+  sudo -u yfuse sqlite3 /var/lib/yfuse/calendar.db ".backup '$calendar_backup'"
+  sudo -u yfuse sqlite3 "$calendar_backup" "PRAGMA integrity_check;" | grep -Fx ok
+fi
 ```
 
 Retain at least the newest known-good snapshot off-host according to the operator's
