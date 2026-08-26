@@ -501,6 +501,23 @@ object AppIcons {
             horizontalLineTo(14.6f)
         }.build()
 
+    /** Update reminder — the same rounded 24×24 stroke language as the rest of AppIcons. */
+    val Bell =
+        strokeVector("bell") {
+            moveTo(5.3f, 17.4f)
+            lineTo(6.9f, 15.2f)
+            verticalLineTo(10.2f)
+            curveTo(6.9f, 7.1f, 9f, 4.7f, 12f, 4.7f)
+            curveTo(15f, 4.7f, 17.1f, 7.1f, 17.1f, 10.2f)
+            verticalLineTo(15.2f)
+            lineTo(18.7f, 17.4f)
+            close()
+        }.andPath {
+            moveTo(9.7f, 19.2f)
+            curveTo(10.2f, 20.1f, 11f, 20.5f, 12f, 20.5f)
+            curveTo(13f, 20.5f, 13.8f, 20.1f, 14.3f, 19.2f)
+        }.build()
+
     val Download =
         strokeVector("download") {
             moveTo(12f, 4.4f)

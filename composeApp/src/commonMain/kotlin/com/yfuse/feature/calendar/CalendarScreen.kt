@@ -30,8 +30,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -86,6 +88,7 @@ fun CalendarScreen(component: CalendarComponent) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val days = state.visibleDays
     val weeklyStats = remember(state.days, state.today) { calendarWeeklyStats(state.days, state.today) }
+    var dialogEntry by remember { mutableStateOf<CalendarEntry?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -260,14 +263,7 @@ fun CalendarScreen(component: CalendarComponent) {
                                     day = day,
                                     today = state.today,
                                     weeklyStats = weeklyStats,
-                                    onOpen = { entry ->
-                                        // The episode when the library has it, else the
-                                        // show — a 未入库 row knows perfectly well which
-                                        // series it belongs to.
-                                        entry.openItemId?.let {
-                                            component.onOpenItem(entry.serverId, it)
-                                        }
-                                    },
+                                    onOpen = { entry -> dialogEntry = entry },
                                 )
                             }
                         }
@@ -297,6 +293,22 @@ fun CalendarScreen(component: CalendarComponent) {
                     }
                 }
             }
+        }
+        dialogEntry?.let { entry ->
+            AiringShowCalendarDialog(
+                initialEntry = entry,
+                days = state.days,
+                today = state.today,
+                refreshing = state.loading,
+                onOpen = { target ->
+                    target.openItemId?.let { itemId ->
+                        component.onOpenItem(target.serverId, itemId)
+                        dialogEntry = null
+                    }
+                },
+                onRefresh = { component.store.accept(CalendarIntent.Refresh) },
+                onDismiss = { dialogEntry = null },
+            )
         }
     }
 }
@@ -467,13 +479,11 @@ private fun EntryCard(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    // Tappable for anything the library holds — the episode if it has it, the show if not.
-    val openable = entry.openItemId != null
     Row(
         modifier
             .fillMaxWidth()
             .glass(GlassShapes.card, palette.card2, palette.border)
-            .then(if (openable) Modifier.pressable(onClick = onOpen) else Modifier)
+            .pressable(onClickLabel = "打开${entry.episode.showTitle}播出日历", onClick = onOpen)
             .padding(11.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.Top,
@@ -563,14 +573,12 @@ private fun EntryCard(
                 }
             }
         }
-        if (openable) {
-            Icon(
-                AppIcons.ChevronRight,
-                contentDescription = null,
-                tint = palette.sub2,
-                modifier = Modifier.size(14.dp),
-            )
-        }
+        Icon(
+            AppIcons.ChevronRight,
+            contentDescription = null,
+            tint = palette.sub2,
+            modifier = Modifier.size(14.dp),
+        )
     }
 }
 
