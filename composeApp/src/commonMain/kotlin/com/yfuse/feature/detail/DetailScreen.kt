@@ -39,7 +39,6 @@ import com.yfuse.core.data.rankServerSources
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.ArtworkPageTheme
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.GlassDialog
@@ -55,6 +54,7 @@ import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberAnimatedDominantColor
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
@@ -176,14 +176,21 @@ fun DetailScreen(component: DetailComponent) {
     // resolved keeps items with no poster tinted from a picture that is on screen rather
     // than from one that failed to load.
     val posterUrl = detail?.let { EmbyImages.poster(baseUrl, it, accessToken = accessToken) }
-    // Artwork is allowed to set the mood, not to redefine the product. Harmonize the final
-    // target before animation; doing the thresholded correction on every frame caused jumps.
+    val artworkColorUrl = posterUrl ?: resolvedHeroUrl
+    val artworkFallback = remember(heroIdentity) { detailArtworkFallbackColor(heroIdentity) }
+    // Page accents remain protected for broad UI use, while the primary play key receives the
+    // poster's raw extracted colour. It no longer inherits or blends with a fixed product blue.
     val detailAccent =
         rememberAnimatedArtworkAccent(
-            url = posterUrl ?: resolvedHeroUrl,
-            fallback = Brand.Primary, // design-system: brand-identity
+            url = artworkColorUrl,
+            fallback = artworkFallback,
             darkTheme = palette.isDark,
             identity = heroIdentity,
+        )
+    val detailPlayColor =
+        rememberAnimatedDominantColor(
+            url = artworkColorUrl,
+            fallback = artworkFallback,
         )
 
     var seasonPickerOpen by remember { mutableStateOf(false) }
@@ -471,7 +478,7 @@ fun DetailScreen(component: DetailComponent) {
                                             },
                                     )
                                     DetailActionDock(
-                                        accent = detailAccent,
+                                        accent = detailPlayColor,
                                         label = if (state.playPositionTicks > 0L) "继续播放" else "播放",
                                         detailLine = playDetailLine,
                                         resumeTimeLabel = formatResumePosition(state.playPositionTicks),
