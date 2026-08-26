@@ -52,7 +52,6 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.BackdropState
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.DolbyBadge
 import com.yfuse.core.designsystem.FallbackImage
@@ -503,36 +502,39 @@ private fun runtimeLabel(minutes: Int): String {
 }
 
 /**
- * Body of the primary key, anchored to the product blue with a restrained amount of artwork
- * influence. Letting the poster own the entire fill made yellow/olive swatches look unrelated to
- * the cool glass page around them; keeping the artwork contribution small preserves continuity
- * without allowing one image to redesign the primary action.
+ * The primary play key belongs entirely to the poster. The old resolver always mixed in the
+ * fixed product blue, so yellow, red and green artwork all converged on the same blue button.
  *
- * A poster's vibrant swatch lands anywhere on the lightness scale and this key carries white
- * copy, so the blended result is kept inside a luminance band where that copy stays legible.
+ * Keep the sampled hue intact and choose the ink by measured contrast. This lets bright posters
+ * use a bright key with dark content and dark posters use a dark key with white content, without
+ * repainting the artwork or depending on the app/system theme.
  */
 internal fun actionKeyBrush(accent: Color): Brush {
     val body = primaryActionColor(accent)
-    return cssLinearGradient(135f, 0f to lerp(body, Color.White, 0.14f), 1f to body)
+    val ink = primaryActionContentColor(accent)
+    return cssLinearGradient(135f, 0f to lerp(body, ink, 0.10f), 1f to body)
 }
 
-internal fun primaryActionColor(accent: Color): Color =
-    lerp(
-        Brand.Primary, // design-system: brand-identity
-        accent.copy(alpha = 1f),
-        PRIMARY_ACTION_ARTWORK_INFLUENCE,
-    ).forWhiteInk()
+internal fun primaryActionColor(accent: Color): Color = accent.copy(alpha = 1f)
 
-private fun Color.forWhiteInk(): Color {
-    val luminance = luminance()
-    if (luminance <= MAX_ACTION_KEY_LUMINANCE) return this
-    // Straight toward black keeps the hue and spends only lightness.
-    val excess = ((luminance - MAX_ACTION_KEY_LUMINANCE) / luminance).coerceIn(0f, 1f)
-    return lerp(this, Color.Black, excess)
+internal fun detailArtworkFallbackColor(identity: Any?): Color {
+    val seed = identity?.hashCode() ?: 0
+    fun channel(shift: Int): Float =
+        0.24f + (((seed ushr shift) and 0xff) / 255f) * 0.52f
+    return Color(
+        red = channel(16),
+        green = channel(8),
+        blue = channel(0),
+        alpha = 1f,
+    )
 }
 
-private const val MAX_ACTION_KEY_LUMINANCE = 0.22f
-private const val PRIMARY_ACTION_ARTWORK_INFLUENCE = 0.12f
+internal fun primaryActionContentColor(accent: Color): Color {
+    val bodyLuminance = primaryActionColor(accent).luminance()
+    val whiteContrast = (1.0f + 0.05f) / (bodyLuminance + 0.05f)
+    val blackContrast = (bodyLuminance + 0.05f) / 0.05f
+    return if (whiteContrast >= blackContrast) Color.White else Color.Black
+}
 
 /**
  * The title block's inks.

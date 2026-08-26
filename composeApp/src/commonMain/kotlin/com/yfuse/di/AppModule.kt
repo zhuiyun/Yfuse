@@ -15,6 +15,8 @@ import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.AiringScheduleCache
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarIdentityResolver
+import com.yfuse.core.data.CalendarLocalStore
+import com.yfuse.core.data.NoOpCalendarLocalStore
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DiagnosticPreferences
@@ -76,9 +78,11 @@ fun appModule(
     settings: Settings,
     appVersion: String,
     diagnosticPreferences: DiagnosticPreferences = DiagnosticPreferences(settings),
+    calendarLocalStore: CalendarLocalStore = NoOpCalendarLocalStore,
 ) = module {
     single { settings }
     single { diagnosticPreferences }
+    single<CalendarLocalStore> { calendarLocalStore }
     single { VaultCrypto() }
     single {
         val persistedSettings = get<Settings>()
@@ -163,6 +167,7 @@ fun appModule(
             officialSchedules = get(),
             identityResolver = get(),
             followStore = get(),
+            localStore = get(),
         )
     }
     single { DanmakuRepository(createDanmakuClient()) }

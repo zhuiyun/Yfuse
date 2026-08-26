@@ -1591,8 +1591,14 @@ private fun StatusBadge(entry: CalendarEntry) {
                 LibraryStatus.Unknown -> "未知" to palette.sub2
             }
         }
+    val displayedLabel =
+        if (entry.availabilityStale && status != LibraryStatus.Unaired) {
+            "$label · 待更新"
+        } else {
+            label
+        }
     Text(
-        label,
+        displayedLabel,
         style = AppTypography.caption.strong,
         color = tint,
         modifier =
