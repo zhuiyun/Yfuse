@@ -359,6 +359,7 @@ jobs:
           ./gradlew :composeApp:assembleRelease \
             -PyfuseVersionCode="$VERSION_CODE" \
             -PyfuseVersionName="$VERSION_NAME" \
+            -PconfirmMdkDistributionRights=true \
             --no-daemon
 
       - name: Verify release build did not mutate version metadata
