@@ -481,10 +481,10 @@ private class SqliteCalendarScheduleStore private constructor(
                     .executeQuery(
                         """
                         SELECT publication.id, publication.revision, publication.generated_at
-                        FROM calendar_current AS current
+                        FROM calendar_current AS pointer
                         JOIN calendar_publications AS publication
-                            ON publication.id = current.publication_id
-                        WHERE current.singleton = 1
+                            ON publication.id = pointer.publication_id
+                        WHERE pointer.singleton = 1
                         """.trimIndent(),
                     ).use { result ->
                         if (!result.next()) {
