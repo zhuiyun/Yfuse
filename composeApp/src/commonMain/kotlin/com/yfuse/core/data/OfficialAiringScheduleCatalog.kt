@@ -344,7 +344,7 @@ class OfficialAiringScheduleCatalog(
         const val KEY_LAST_ATTEMPT_EPOCH_MS = "calendar.official.lastAttemptEpochMs"
         const val KEY_LAST_SUCCESS_EPOCH_MS = "calendar.official.lastSuccessEpochMs"
         const val KEY_CHANGES = "calendar.official.changes.v1"
-        const val REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000L
+        const val REFRESH_INTERVAL_MS = 60 * 60 * 1_000L
         const val FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000L
         const val REMOTE_DEADLINE_MS = 1_500L
         const val MAX_SERIES = 1_000
