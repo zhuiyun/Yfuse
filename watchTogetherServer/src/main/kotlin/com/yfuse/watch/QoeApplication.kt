@@ -15,10 +15,15 @@ internal fun Application.productionWatchTogetherModule(
     migrationRelayBackend: MigrationRelayBackend,
     requireWatchAuthentication: Boolean,
 ) {
+    val calendarScheduleStore =
+        CalendarScheduleStore.sqlite(
+            File(System.getenv("CALENDAR_DB_PATH") ?: "/var/lib/yfuse/calendar.db"),
+        )
     watchTogetherModule(
         accountBackend = accountBackend,
         migrationRelayBackend = migrationRelayBackend,
         requireWatchAuthentication = requireWatchAuthentication,
+        calendarScheduleStore = calendarScheduleStore,
     )
     val backend =
         QoeAggregateBackend.sqlite(

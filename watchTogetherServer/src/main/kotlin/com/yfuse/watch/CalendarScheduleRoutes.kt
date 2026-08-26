@@ -9,6 +9,8 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -117,7 +119,10 @@ internal class CalendarScheduleSigner private constructor(
     }
 }
 
-internal fun Route.calendarScheduleRoutes(signer: CalendarScheduleSigner?) {
+internal fun Route.calendarScheduleRoutes(
+    signer: CalendarScheduleSigner?,
+    scheduleStore: CalendarScheduleStore = NoOpCalendarScheduleStore,
+) {
     get("/api/v1/calendar/schedules") {
         if (signer == null) {
             call.respondText(
@@ -128,7 +133,11 @@ internal fun Route.calendarScheduleRoutes(signer: CalendarScheduleSigner?) {
             return@get
         }
         val publication =
-            runCatching(::loadCalendarPublication).getOrElse {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    scheduleStore.current() ?: loadCalendarPublication()
+                }
+            }.getOrElse {
                 call.respondText(
                     text = "{\"error\":\"calendar_publication_invalid\"}",
                     contentType = ContentType.Application.Json,
@@ -175,7 +184,7 @@ private fun signedCalendarEnvelopeJson(
             }
     }
 
-private fun loadCalendarPublication(): CalendarPublication {
+internal fun loadCalendarPublication(): CalendarPublication {
     val inline = System.getenv("YFUSE_CALENDAR_SCHEDULES_JSON")?.takeIf(String::isNotBlank)
     val file =
         System
