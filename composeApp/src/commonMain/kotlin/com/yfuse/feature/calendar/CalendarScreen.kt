@@ -1,16 +1,20 @@
 package com.yfuse.feature.calendar
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -28,7 +32,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,6 +117,7 @@ fun CalendarScreen(component: CalendarComponent) {
     var dialogSeriesDays by remember { mutableStateOf<List<CalendarDay>?>(null) }
     var dialogRefreshing by remember { mutableStateOf(false) }
     val dialogScope = rememberCoroutineScope()
+    var filtersExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(dialogEntry?.episode?.showTmdbId) {
         val entry = dialogEntry ?: return@LaunchedEffect
@@ -152,40 +156,11 @@ fun CalendarScreen(component: CalendarComponent) {
                             .solidGlass(CircleShape, palette.card2, palette.border)
                             .padding(10.dp),
                 )
-                Column(Modifier.weight(1f)) {
-                    Text("追剧中心", style = AppTypography.section.strong, color = palette.text)
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "按原产地播出日期",
-                        style = AppTypography.caption.regular,
-                        color = palette.sub2,
-                    )
-                }
-                Icon(
-                    AppIcons.Download,
-                    contentDescription = "导出 ICS 日历",
-                    tint = palette.text,
-                    modifier =
-                        Modifier
-                            .pressable(onClickLabel = "导出 ICS 日历") {
-                                share.shareCalendar(component.exportCalendar(state.days))
-                            }.touchTarget()
-                            .size(36.dp)
-                            .solidGlass(CircleShape, palette.card2, palette.border)
-                            .padding(10.dp),
-                )
-                Icon(
-                    AppIcons.Info,
-                    contentDescription = "导出日历诊断",
-                    tint = palette.text,
-                    modifier =
-                        Modifier
-                            .pressable(onClickLabel = "导出日历诊断") {
-                                share.shareText(component.diagnosticReport(state.days))
-                            }.touchTarget()
-                            .size(36.dp)
-                            .solidGlass(CircleShape, palette.card2, palette.border)
-                            .padding(10.dp),
+                Text(
+                    "追剧中心",
+                    style = AppTypography.section.strong,
+                    color = palette.text,
+                    modifier = Modifier.weight(1f),
                 )
                 // The schedule is cached for the day, so nothing else re-reads it; a new
                 // download landing is exactly when someone wants 未入库 → 可播放 checked
@@ -262,57 +237,48 @@ fun CalendarScreen(component: CalendarComponent) {
             }
 
             if (state.section == CalendarSection.Schedule) {
-                LazyRow(
-                    modifier = Modifier.selectableGroup(),
-                    contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(CalendarFilter.entries) { filter ->
-                        val active = filter == state.filter
-                        Text(
-                            filter.label,
-                            style = AppTypography.caption.strong,
-                            color = if (active) accent.onAccent else palette.body,
-                            modifier =
-                                Modifier
-                                    .pressable(role = Role.RadioButton) {
-                                        component.store.accept(CalendarIntent.SelectFilter(filter))
-                                    }.semantics { this.selected = active }
-                                    .touchTarget()
-                                    .clip(GlassShapes.chip)
-                                    .background(if (active) accent.accent else Color.Transparent)
-                                    .then(
-                                        if (active) {
-                                            Modifier
-                                        } else {
-                                            Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
-                                        },
-                                    ).padding(horizontal = 14.dp, vertical = 7.dp),
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(14.dp))
-
-                if (state.error != null && days.isNotEmpty()) {
-                    val fallbackMessage =
-                        if (state.confirmedDays.isNotEmpty()) {
-                            "状态更新失败，正在显示上一次成功结果 · 点击重试"
-                        } else {
-                            "媒体库状态未确认，当前显示排期预览 · 点击重试"
+                CalendarWeekHeader(
+                    days = state.days,
+                    today = state.today,
+                    filter = state.filter,
+                    filtersExpanded = filtersExpanded,
+                    error = state.error,
+                    hasConfirmedData = state.confirmedDays.isNotEmpty(),
+                    onToggleFilters = { filtersExpanded = !filtersExpanded },
+                    onRetry = { component.store.accept(CalendarIntent.Refresh) },
+                )
+                if (filtersExpanded) {
+                    LazyRow(
+                        modifier = Modifier.selectableGroup(),
+                        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(CalendarFilter.entries) { filter ->
+                            val active = filter == state.filter
+                            Text(
+                                filter.label,
+                                style = AppTypography.caption.strong,
+                                color = if (active) accent.onAccent else palette.body,
+                                modifier =
+                                    Modifier
+                                        .pressable(role = Role.RadioButton) {
+                                            component.store.accept(CalendarIntent.SelectFilter(filter))
+                                            filtersExpanded = false
+                                        }.semantics { this.selected = active }
+                                        .touchTarget()
+                                        .clip(GlassShapes.chip)
+                                        .background(if (active) accent.accent else Color.Transparent)
+                                        .then(
+                                            if (active) {
+                                                Modifier
+                                            } else {
+                                                Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
+                                            },
+                                        ).padding(horizontal = 13.dp, vertical = 6.dp),
+                            )
                         }
-                    Text(
-                        fallbackMessage,
-                        style = AppTypography.caption.medium,
-                        color = palette.error,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .pressable(onClickLabel = "重新加载追剧日历") {
-                                    component.store.accept(CalendarIntent.Refresh)
-                                }.touchTarget()
-                                .padding(horizontal = Dimens.pageHorizontal, vertical = 6.dp),
-                    )
+                    }
+                    Spacer(Modifier.height(8.dp))
                 }
 
                 when {
@@ -347,9 +313,7 @@ fun CalendarScreen(component: CalendarComponent) {
                         AdaptiveCalendarResults(
                             days = days,
                             today = state.today,
-                            todayIndex = state.todayIndex,
                             filter = state.filter,
-                            loading = state.loading,
                             weeklyStats = weeklyStats,
                             reduceMotion = reduceMotion,
                             bottomContentInset = bottomContentInset,
@@ -406,12 +370,94 @@ fun CalendarScreen(component: CalendarComponent) {
 }
 
 @Composable
+private fun CalendarWeekHeader(
+    days: List<CalendarDay>,
+    today: String,
+    filter: CalendarFilter,
+    filtersExpanded: Boolean,
+    error: String?,
+    hasConfirmedData: Boolean,
+    onToggleFilters: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val weekShowCount =
+        remember(days, today) {
+            calendarWeekDays(days, today)
+                .flatMap(CalendarDay::entries)
+                .distinctBy { it.episode.showTmdbId }
+                .size
+        }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.pageHorizontal, vertical = 8.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                AppIcons.WatchCalendar,
+                contentDescription = null,
+                tint = palette.sub,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                "本周 $weekShowCount 部更新",
+                style = AppTypography.caption.medium,
+                color = palette.sub,
+                modifier = Modifier.weight(1f),
+            )
+            Row(
+                Modifier
+                    .pressable(
+                        onClickLabel = if (filtersExpanded) "收起日历筛选" else "展开日历筛选",
+                        onClick = onToggleFilters,
+                    ).touchTarget()
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    filter.label,
+                    style = AppTypography.caption.strong,
+                    color = accent.accent,
+                )
+                Icon(
+                    AppIcons.ChevronDown,
+                    contentDescription = null,
+                    tint = accent.accent,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
+        if (error != null && days.isNotEmpty()) {
+            Spacer(Modifier.height(5.dp))
+            Text(
+                if (hasConfirmedData) {
+                    "状态更新失败，正在显示上次结果 · 点击重试"
+                } else {
+                    "媒体库状态待确认 · 点击重试"
+                },
+                style = AppTypography.caption.medium,
+                color = palette.error,
+                modifier =
+                    Modifier
+                        .pressable(onClickLabel = "重新加载追剧日历", onClick = onRetry)
+                        .touchTarget(),
+            )
+        }
+    }
+}
+
+@Composable
 private fun AdaptiveCalendarResults(
     days: List<CalendarDay>,
     today: String,
-    todayIndex: Int,
     filter: CalendarFilter,
-    loading: Boolean,
     weeklyStats: Map<Int, CalendarWeekStats>,
     reduceMotion: Boolean,
     bottomContentInset: androidx.compose.ui.unit.Dp,
@@ -429,9 +475,7 @@ private fun AdaptiveCalendarResults(
             CalendarListResults(
                 days = days,
                 today = today,
-                todayIndex = todayIndex,
                 filter = filter,
-                loading = loading,
                 weeklyStats = weeklyStats,
                 reduceMotion = reduceMotion,
                 bottomContentInset = bottomContentInset,
@@ -445,86 +489,368 @@ private fun AdaptiveCalendarResults(
 private fun CalendarListResults(
     days: List<CalendarDay>,
     today: String,
-    todayIndex: Int,
     filter: CalendarFilter,
-    loading: Boolean,
     weeklyStats: Map<Int, CalendarWeekStats>,
     reduceMotion: Boolean,
     bottomContentInset: androidx.compose.ui.unit.Dp,
     onOpen: (CalendarEntry) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
+    val timelineDays =
+        remember(days, today, filter) {
+            calendarTimelineDays(days, today, filter)
+        }
+    val weekStart = remember(today) { currentWeekStart(today) }
+    val initialWeekIndex =
+        remember(timelineDays, weekStart) {
+            timelineDays.indexOfFirst { it.date >= weekStart }.coerceAtLeast(0)
+        }
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
+    var expandedDate by
+        remember(today, filter, timelineDays) {
+            mutableStateOf(
+                timelineDays.firstOrNull { it.date == today }?.date
+                    ?: timelineDays.firstOrNull()?.date,
+            )
+        }
 
-    LaunchedEffect(filter, today, loading) {
-        runCatching { listState.scrollToItem(todayIndex) }
+    LaunchedEffect(filter, today, initialWeekIndex) {
+        runCatching { listState.scrollToItem(initialWeekIndex) }
     }
-    val awayFromToday by remember(todayIndex) {
-        derivedStateOf {
-            val layout = listState.layoutInfo
-            layout.totalItemsCount > 0 &&
-                layout.visibleItemsInfo.isNotEmpty() &&
-                layout.visibleItemsInfo.none { it.index == todayIndex }
+
+    LazyColumn(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = Dimens.pageHorizontal)
+                .clip(GlassShapes.card)
+                .background(palette.card2)
+                .border(1.dp, palette.border, GlassShapes.card),
+        state = listState,
+        contentPadding = PaddingValues(bottom = bottomContentInset),
+    ) {
+        itemsIndexed(timelineDays, key = { _, day -> day.date }) { index, day ->
+            AccordionCalendarDay(
+                day = day,
+                today = today,
+                expanded = day.date == expandedDate,
+                isLast = index == timelineDays.lastIndex,
+                weeklyStats = weeklyStats,
+                reduceMotion = reduceMotion,
+                onToggle = {
+                    expandedDate = if (expandedDate == day.date) null else day.date
+                },
+                onOpen = onOpen,
+            )
         }
     }
+}
 
-    Column(Modifier.fillMaxSize()) {
-        DayStrip(
-            days = days,
-            today = today,
-            onSelect = { index ->
-                scope.launch {
-                    if (reduceMotion) {
-                        listState.scrollToItem(index)
-                    } else {
-                        listState.animateScrollToItem(index)
-                    }
-                }
-            },
-        )
-        Spacer(Modifier.height(12.dp))
+@Composable
+private fun AccordionCalendarDay(
+    day: CalendarDay,
+    today: String,
+    expanded: Boolean,
+    isLast: Boolean,
+    weeklyStats: Map<Int, CalendarWeekStats>,
+    reduceMotion: Boolean,
+    onToggle: () -> Unit,
+    onOpen: (CalendarEntry) -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val isToday = day.isToday(today)
+    val displayEntries = remember(day.entries) { coalesceCalendarEntries(day.entries) }
+    val rowMinHeight =
+        if (expanded) {
+            (displayEntries.size.coerceAtLeast(1) * 108).dp
+        } else {
+            82.dp
+        }
+    val animationModifier = if (reduceMotion) Modifier else Modifier.animateContentSize()
 
-        Box(Modifier.fillMaxSize()) {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                state = listState,
-                contentPadding = PaddingValues(bottom = bottomContentInset),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .then(animationModifier)
+            .then(
+                if (expanded) {
+                    Modifier.border(1.dp, accent.accent, GlassShapes.card)
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = rowMinHeight),
+        ) {
+            CalendarDateRail(
+                day = day,
+                today = today,
+                expanded = expanded,
+                minHeight = rowMinHeight,
+                onToggle = onToggle,
+            )
+            Box(
+                Modifier
+                    .width(1.dp)
+                    .height(rowMinHeight)
+                    .background(palette.border),
+            )
+            Box(
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = rowMinHeight),
             ) {
-                items(days, key = { it.date }) { day ->
-                    DaySection(
-                        day = day,
-                        today = today,
-                        weeklyStats = weeklyStats,
-                        onOpen = onOpen,
+                when {
+                    displayEntries.isEmpty() ->
+                        EmptyCalendarDay(
+                            expanded = expanded,
+                            onToggle = onToggle,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = rowMinHeight),
+                        )
+
+                    expanded ->
+                        Column(Modifier.fillMaxWidth()) {
+                            displayEntries.forEachIndexed { index, display ->
+                                AccordionCalendarEntry(
+                                    display = display,
+                                    weekStats = weeklyStats[display.entry.episode.showTmdbId],
+                                    expanded = true,
+                                    extraCount = 0,
+                                    showChevron = index == 0,
+                                    onToggle = onToggle,
+                                    onOpen = { onOpen(display.entry) },
+                                )
+                                if (index != displayEntries.lastIndex) {
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp)
+                                            .height(1.dp)
+                                            .background(palette.border),
+                                    )
+                                }
+                            }
+                        }
+
+                    else ->
+                        AccordionCalendarEntry(
+                            display = displayEntries.first(),
+                            weekStats = weeklyStats[displayEntries.first().entry.episode.showTmdbId],
+                            expanded = false,
+                            extraCount = displayEntries.size - 1,
+                            showChevron = true,
+                            onToggle = onToggle,
+                            onOpen = onToggle,
+                        )
+                }
+            }
+        }
+        if (!isLast) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(palette.border),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CalendarDateRail(
+    day: CalendarDay,
+    today: String,
+    expanded: Boolean,
+    minHeight: androidx.compose.ui.unit.Dp,
+    onToggle: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val isToday = day.isToday(today)
+    Column(
+        Modifier
+            .width(70.dp)
+            .heightIn(min = minHeight)
+            .pressable(onClickLabel = if (expanded) "收起${day.date}" else "展开${day.date}", onClick = onToggle)
+            .touchTarget()
+            .padding(start = 12.dp, end = 8.dp, top = 12.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            isoWeekdayLabel(day.date),
+            style = AppTypography.body.strong,
+            color = if (isToday || expanded) accent.accent else palette.text,
+        )
+        Text(
+            isoShortDate(day.date),
+            style = AppTypography.caption.regular,
+            color = if (isToday || expanded) accent.accent else palette.sub2,
+        )
+        Text(
+            dayLabel(day.date, today),
+            style = AppTypography.caption.medium,
+            color = if (isToday) accent.accent else palette.sub2,
+        )
+    }
+}
+
+@Composable
+private fun EmptyCalendarDay(
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    Row(
+        modifier
+            .pressable(onClickLabel = if (expanded) "收起日期" else "展开日期", onClick = onToggle)
+            .touchTarget()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "无更新",
+            style = AppTypography.caption.regular,
+            color = palette.sub2,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            AppIcons.ChevronDown,
+            contentDescription = if (expanded) "收起" else "展开",
+            tint = palette.sub2,
+            modifier = Modifier.size(16.dp),
+        )
+    }
+}
+
+@Composable
+private fun AccordionCalendarEntry(
+    display: CalendarDisplayEntry,
+    weekStats: CalendarWeekStats?,
+    expanded: Boolean,
+    extraCount: Int,
+    showChevron: Boolean,
+    onToggle: () -> Unit,
+    onOpen: () -> Unit,
+) {
+    val entry = display.entry
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = if (expanded) 108.dp else 82.dp)
+            .pressable(
+                onClickLabel =
+                    if (expanded) {
+                        "打开${entry.episode.showTitle}播出日历"
+                    } else {
+                        "展开${entry.episode.showTitle}"
+                    },
+                onClick = onOpen,
+            ).padding(horizontal = 12.dp, vertical = if (expanded) 10.dp else 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        FallbackImage(
+            urls =
+                listOf(
+                    TmdbImages.poster(entry.episode.posterPath, width = "w185"),
+                    TmdbImages.media(entry.episode.posterPath, width = "w185"),
+                ) + entry.posterUrls,
+            contentDescription = null,
+            modifier =
+                Modifier
+                    .width(if (expanded) 62.dp else 44.dp)
+                    .height(if (expanded) 88.dp else 62.dp)
+                    .clip(GlassShapes.thumb)
+                    .background(palette.card),
+        )
+        Column(
+            Modifier
+                .weight(1f)
+                .padding(bottom = 2.dp),
+        ) {
+            Text(
+                entry.episode.showTitle,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                buildString {
+                    append(display.episodeLabel)
+                    if (extraCount > 0) append(" · 另 $extraCount 部")
+                },
+                style = AppTypography.caption.regular,
+                color = palette.sub,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(8.dp))
+            CalendarEpisodeSegments(weekStats)
+        }
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                entry.episode.airTime?.let { airTime ->
+                    Text(
+                        airTime,
+                        style = AppTypography.caption.medium,
+                        color = palette.sub,
+                    )
+                }
+                if (showChevron) {
+                    Icon(
+                        AppIcons.ChevronDown,
+                        contentDescription = if (expanded) "收起" else "展开",
+                        tint = palette.sub2,
+                        modifier =
+                            Modifier
+                                .pressable(onClickLabel = if (expanded) "收起" else "展开", onClick = onToggle)
+                                .touchTarget()
+                                .size(16.dp),
                     )
                 }
             }
-            if (awayFromToday) {
-                Text(
-                    "回到今天",
-                    style = AppTypography.caption.strong,
-                    color = accent.onAccent,
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = bottomContentInset)
-                            .pressable {
-                                scope.launch {
-                                    if (reduceMotion) {
-                                        listState.scrollToItem(todayIndex)
-                                    } else {
-                                        listState.animateScrollToItem(todayIndex)
-                                    }
-                                }
-                            }.touchTarget()
-                            .clip(GlassShapes.chip)
-                            .background(accent.accent)
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
+            StatusBadge(entry)
+        }
+    }
+}
+
+@Composable
+private fun CalendarEpisodeSegments(stats: CalendarWeekStats?) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val segmentCount = 6
+    val filled =
+        stats
+            ?.takeIf { it.scheduled > 0 }
+            ?.let { ((it.available.toFloat() / it.scheduled) * segmentCount).toInt() }
+            ?.coerceIn(0, segmentCount)
+            ?: 0
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        repeat(segmentCount) { index ->
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(3.dp)
+                    .clip(CircleShape)
+                    .background(if (index < filled) accent.accent else palette.border),
+            )
         }
     }
 }
@@ -647,32 +973,39 @@ private fun CalendarSectionBar(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    LazyRow(
-        modifier = Modifier.selectableGroup(),
-        contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.pageHorizontal)
+            .selectableGroup(),
     ) {
-        items(CalendarSection.entries) { section ->
+        CalendarSection.entries.forEach { section ->
             val active = selected == section
-            Text(
-                section.label,
-                style = AppTypography.body.strong,
-                color = if (active) accent.onAccent else palette.text,
-                modifier =
-                    Modifier
-                        .pressable(role = Role.RadioButton) { onSelect(section) }
-                        .semantics { this.selected = active }
-                        .touchTarget()
-                        .clip(GlassShapes.chip)
-                        .background(if (active) accent.accent else Color.Transparent)
-                        .then(
-                            if (active) {
-                                Modifier
-                            } else {
-                                Modifier.glass(GlassShapes.chip, palette.card2, palette.border)
-                            },
-                        ).padding(horizontal = 18.dp, vertical = 8.dp),
-            )
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(44.dp)
+                    .pressable(role = Role.RadioButton) { onSelect(section) }
+                    .semantics { this.selected = active }
+                    .touchTarget(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    section.label,
+                    style = AppTypography.body.strong,
+                    color = if (active) accent.accent else palette.sub,
+                )
+                if (active) {
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .width(28.dp)
+                            .height(2.dp)
+                            .clip(CircleShape)
+                            .background(accent.accent),
+                    )
+                }
+            }
         }
     }
 }
@@ -1245,6 +1578,40 @@ private fun CalendarSettingsAction(
     }
 }
 
+private fun currentWeekStart(today: String): String {
+    val weekdayIndex =
+        listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+            .indexOf(isoWeekdayLabel(today))
+            .coerceAtLeast(0)
+    return shiftIsoDate(today, -weekdayIndex)
+}
+
+private fun calendarWeekDays(
+    days: List<CalendarDay>,
+    today: String,
+): List<CalendarDay> {
+    val start = currentWeekStart(today)
+    val byDate = days.associateBy(CalendarDay::date)
+    return (0..6).map { offset ->
+        val date = shiftIsoDate(start, offset)
+        byDate[date] ?: CalendarDay(date = date, entries = emptyList())
+    }
+}
+
+private fun calendarTimelineDays(
+    days: List<CalendarDay>,
+    today: String,
+    filter: CalendarFilter,
+): List<CalendarDay> {
+    if (filter == CalendarFilter.Today) return days
+    val week = calendarWeekDays(days, today)
+    val weekStart = week.first().date
+    val weekEnd = week.last().date
+    return days.filter { it.date < weekStart } +
+        week +
+        days.filter { it.date > weekEnd }
+}
+
 /**
  * The days that have something on them, as a row of chips above the list.
  *
@@ -1398,8 +1765,9 @@ private fun dayLabel(
     when (val delta = daysBetweenIso(today, date)) {
         0 -> "今天"
         1 -> "明天"
-        2 -> "后天"
+        2 -> "2 天后"
         -1 -> "昨天"
+        -2 -> "前天"
         else -> if (delta > 0) "$delta 天后" else "${-delta} 天前"
     }
 
@@ -1584,10 +1952,10 @@ private fun StatusBadge(entry: CalendarEntry) {
         } else {
             when (status) {
                 LibraryStatus.Unaired -> "未播出" to palette.sub2
-                LibraryStatus.Missing -> "未入库" to palette.error
-                LibraryStatus.Available -> "可播放" to Brand.Online
+                LibraryStatus.Missing -> "待入库" to palette.error
+                LibraryStatus.Available -> "已入库" to Brand.Online
                 LibraryStatus.InProgress -> "观看中" to Brand.Online
-                LibraryStatus.Watched -> "已看" to palette.sub2
+                LibraryStatus.Watched -> "已观看" to palette.sub2
                 LibraryStatus.Unknown -> "未知" to palette.sub2
             }
         }
