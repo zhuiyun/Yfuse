@@ -429,12 +429,11 @@ internal fun Application.watchTogetherModule(
     // whose loss starts the clock is precisely the one that can't run the timer.
     val appScope: CoroutineScope = this
     // Import the previous JSON publication exactly once when a production database is empty.
-    if (
-        calendarScheduleStore !== NoOpCalendarScheduleStore &&
-        calendarScheduleStore.current() == null
-    ) {
+    if (calendarScheduleStore !== NoOpCalendarScheduleStore) {
         runCatching {
-            calendarScheduleStore.replace(loadCalendarPublication())
+            if (calendarScheduleStore.current() == null) {
+                calendarScheduleStore.replace(loadCalendarPublication())
+            }
         }.onFailure { failure ->
             System.err.println("calendar database bootstrap failed: ${failure.message}")
         }
