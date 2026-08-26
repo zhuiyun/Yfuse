@@ -97,7 +97,8 @@ internal class CalendarScheduleSigner private constructor(
         }
 
         fun fromEnvironment(): CalendarScheduleSigner? =
-            System.getenv("YFUSE_CALENDAR_PRIVATE_KEY_PKCS8")
+            System
+                .getenv("YFUSE_CALENDAR_PRIVATE_KEY_PKCS8")
                 ?.takeIf(String::isNotBlank)
                 ?.let(::fromPkcs8Base64)
     }
@@ -164,7 +165,8 @@ private fun signedCalendarEnvelopeJson(
 private fun loadCalendarPublication(): CalendarPublication {
     val inline = System.getenv("YFUSE_CALENDAR_SCHEDULES_JSON")?.takeIf(String::isNotBlank)
     val file =
-        System.getenv("YFUSE_CALENDAR_SCHEDULES_PATH")
+        System
+            .getenv("YFUSE_CALENDAR_SCHEDULES_PATH")
             ?.takeIf(String::isNotBlank)
             ?.let(::File)
     val sourceKey =
@@ -266,6 +268,9 @@ private val SCHEDULES =
         ),
     )
 
-private fun MutableList<CalendarEpisode>.addEpisodes(date: String, episodes: IntRange) {
+private fun MutableList<CalendarEpisode>.addEpisodes(
+    date: String,
+    episodes: IntRange,
+) {
     episodes.forEach { add(CalendarEpisode(it, date)) }
 }
