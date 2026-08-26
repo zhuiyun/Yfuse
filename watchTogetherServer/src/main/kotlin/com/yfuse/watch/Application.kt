@@ -409,6 +409,8 @@ internal fun Application.watchTogetherModule(
     watchAuthClock: () -> Long = System::currentTimeMillis,
     /** Signed official schedule feed; null keeps the public endpoint safely unavailable. */
     calendarScheduleSigner: CalendarScheduleSigner? = CalendarScheduleSigner.fromEnvironment(),
+    /** Shared schedule database; user Emby credentials never enter this store. */
+    calendarScheduleStore: CalendarScheduleStore = NoOpCalendarScheduleStore,
 ) {
     require(roomGraceMs >= 0L) { "roomGraceMs must not be negative" }
     require(maxActiveRoomsPerIp in 1..MAX_ROOMS) {
@@ -426,9 +428,17 @@ internal fun Application.watchTogetherModule(
     // Outlives any one socket, which is what a delayed host handover needs: the connection
     // whose loss starts the clock is precisely the one that can't run the timer.
     val appScope: CoroutineScope = this
-    // Disabled unless both ingestion config and publication path are configured. The collector
-    // fails closed and keeps the last signed publication when an upstream page/OCR service fails.
-    appScope.launchCalendarIngestionFromEnvironment()
+    // Import the previous JSON publication exactly once when a production database is empty.
+    if (
+        calendarScheduleStore !== NoOpCalendarScheduleStore &&
+        calendarScheduleStore.current() == null
+    ) {
+        calendarScheduleStore.replace(loadCalendarPublication())
+    }
+    // Disabled unless ingestion config and at least one durable output are configured. The
+    // collector fails closed and keeps the current database revision on upstream/OCR failures.
+    appScope.launchCalendarIngestionFromEnvironment(calendarScheduleStore)
+    monitor.subscribe(ApplicationStopped) { calendarScheduleStore.close() }
     monitor.subscribe(ApplicationStopped) {
         try {
             accountBackend.close()
@@ -447,7 +457,7 @@ internal fun Application.watchTogetherModule(
         masking = false
     }
     routing {
-        calendarScheduleRoutes(calendarScheduleSigner)
+        calendarScheduleRoutes(calendarScheduleSigner, calendarScheduleStore)
         accountRoutes(accountBackend, accountRateLimiter)
         migrationRelayRoutes(
             backend = migrationRelayBackend,
