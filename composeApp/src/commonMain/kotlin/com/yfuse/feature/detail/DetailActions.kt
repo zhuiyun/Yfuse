@@ -23,8 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
@@ -41,14 +39,7 @@ import com.yfuse.core.designsystem.shadow
 
 private const val EmbyTicksPerSecond = 10_000_000L
 
-internal fun resumeTimeColor(accent: Color): Color {
-    val actionColor = primaryActionColor(accent)
-    return if (actionColor.luminance() < 0.34f) {
-        lerp(actionColor, Color.White, 0.66f)
-    } else {
-        actionColor
-    }
-}
+internal fun resumeTimeColor(accent: Color): Color = primaryActionContentColor(accent)
 
 internal fun formatResumePosition(playPositionTicks: Long): String? {
     if (playPositionTicks <= 0L) return null
@@ -82,13 +73,13 @@ internal fun DetailActionDock(
     onFavorite: () -> Unit,
     onWatchLater: () -> Unit,
 ) {
+    val actionInk = primaryActionContentColor(accent)
     Column(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // One confident primary key, with a translucent icon well inside the branded body.
-        // The two material layers and the lifted shadow keep it dimensional in both themes,
-        // while the established brand gradient preserves the rest of the page's palette.
+        // One confident primary key, with a translucent icon well inside the poster-coloured body.
+        // The lifted shadow and contrast-selected ink keep it legible across bright and dark artwork.
         Row(
             Modifier
                 .fillMaxWidth()
@@ -98,7 +89,7 @@ internal fun DetailActionDock(
                 .background(actionKeyBrush(accent))
                 .border(
                     Dimens.hairline,
-                    Color.White.copy(alpha = 0.26f),
+                    actionInk.copy(alpha = 0.26f),
                     GlassShapes.card,
                 ),
             verticalAlignment = Alignment.CenterVertically,
@@ -115,10 +106,10 @@ internal fun DetailActionDock(
                     Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.16f))
+                        .background(actionInk.copy(alpha = 0.16f))
                         .border(
                             Dimens.hairline,
-                            Color.White.copy(alpha = 0.22f),
+                            actionInk.copy(alpha = 0.22f),
                             CircleShape,
                         ),
                     contentAlignment = Alignment.Center,
@@ -126,14 +117,14 @@ internal fun DetailActionDock(
                     if (resolving) {
                         CircularProgressIndicator(
                             Modifier.size(15.dp),
-                            color = Color.White,
+                            color = actionInk,
                             strokeWidth = 2.dp,
                         )
                     } else {
                         Icon(
                             AppIcons.Play,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = actionInk,
                             modifier = Modifier.size(15.dp),
                         )
                     }
@@ -143,14 +134,14 @@ internal fun DetailActionDock(
                     Text(
                         label,
                         style = AppTypography.body.strong,
-                        color = Color.White,
+                        color = actionInk,
                         maxLines = 1,
                     )
                     detailLine?.let {
                         Text(
                             it,
                             style = AppTypography.caption.medium,
-                            color = Color.White.copy(alpha = 0.76f),
+                            color = actionInk.copy(alpha = 0.76f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -166,10 +157,10 @@ internal fun DetailActionDock(
                             Modifier
                                 .padding(start = 8.dp, end = 5.dp)
                                 .clip(GlassShapes.thumb)
-                                .background(Color.Black.copy(alpha = 0.22f))
+                                .background(actionInk.copy(alpha = 0.16f))
                                 .border(
                                     Dimens.hairline,
-                                    Color.White.copy(alpha = 0.14f),
+                                    actionInk.copy(alpha = 0.14f),
                                     GlassShapes.thumb,
                                 ).padding(horizontal = 7.dp, vertical = 3.dp),
                     )
@@ -177,7 +168,7 @@ internal fun DetailActionDock(
                 Icon(
                     AppIcons.ChevronRight,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.78f),
+                    tint = actionInk.copy(alpha = 0.78f),
                     modifier = Modifier.size(14.dp),
                 )
             }
@@ -186,7 +177,7 @@ internal fun DetailActionDock(
                     Modifier
                         .width(Dimens.hairline)
                         .height(30.dp)
-                        .background(Color.White.copy(alpha = 0.26f)),
+                        .background(actionInk.copy(alpha = 0.26f)),
                 )
                 Column(
                     Modifier
@@ -203,14 +194,14 @@ internal fun DetailActionDock(
                     Icon(
                         AppIcons.Refresh,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = actionInk,
                         modifier = Modifier.size(14.dp),
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
                         "从头",
                         style = AppTypography.caption.strong,
-                        color = Color.White,
+                        color = actionInk,
                     )
                 }
             }
