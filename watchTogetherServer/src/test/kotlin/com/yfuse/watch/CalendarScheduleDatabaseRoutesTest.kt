@@ -48,7 +48,7 @@ class CalendarScheduleDatabaseRoutesTest {
                     }
 
                 assertEquals(HttpStatusCode.OK, first.status)
-                assertEquals(""calendar-2026-08-27-r3"", etag)
+                assertEquals("\\\"calendar-2026-08-27-r3\\\"", etag)
                 assertTrue(first.bodyAsText().contains("2026-08-27-r3"))
                 assertEquals(HttpStatusCode.NotModified, unchanged.status)
             }
