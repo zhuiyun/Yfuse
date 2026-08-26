@@ -7,10 +7,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -790,8 +790,21 @@ private fun AccordionCalendarEntry(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(8.dp))
-            CalendarEpisodeSegments(weekStats)
+            if (expanded) {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    display.statusLine ?: broadcastStateLabel(entry),
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.height(if (expanded) 5.dp else 8.dp))
+            CalendarEpisodeSegments(
+                stats = weekStats,
+                playedPercentage = entry.playedPercentage,
+            )
         }
         Column(
             horizontalAlignment = Alignment.End,
@@ -827,16 +840,22 @@ private fun AccordionCalendarEntry(
 }
 
 @Composable
-private fun CalendarEpisodeSegments(stats: CalendarWeekStats?) {
+private fun CalendarEpisodeSegments(
+    stats: CalendarWeekStats?,
+    playedPercentage: Double?,
+) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val segmentCount = 6
     val filled =
-        stats
-            ?.takeIf { it.scheduled > 0 }
-            ?.let { ((it.available.toFloat() / it.scheduled) * segmentCount).toInt() }
-            ?.coerceIn(0, segmentCount)
+        playedPercentage
+            ?.takeIf { it > 0.0 }
+            ?.let { ((it / 100.0) * segmentCount).toInt().coerceAtLeast(1) }
+            ?: stats
+                ?.takeIf { it.scheduled > 0 }
+                ?.let { ((it.available.toFloat() / it.scheduled) * segmentCount).toInt() }
             ?: 0
+    val clampedFilled = filled.coerceIn(0, segmentCount)
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -847,7 +866,7 @@ private fun CalendarEpisodeSegments(stats: CalendarWeekStats?) {
                     .weight(1f)
                     .height(3.dp)
                     .clip(CircleShape)
-                    .background(if (index < filled) accent.accent else palette.border),
+                    .background(if (index < clampedFilled) accent.accent else palette.border),
             )
         }
     }
