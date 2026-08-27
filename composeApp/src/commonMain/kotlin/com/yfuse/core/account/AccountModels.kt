@@ -174,3 +174,9 @@ sealed interface AccountState {
 
 /** Together Watch is an account-bound service; every client surface uses this same gate. */
 fun AccountState.canUseWatchTogether(): Boolean = this is AccountState.SignedIn
+
+private const val MEDIA_DISCOVERY_USERNAME = "zhuiyun"
+
+/** Media discovery contains owner-only integrations and is hidden from every other account. */
+fun AccountState.canUseMediaDiscovery(): Boolean =
+    (this as? AccountState.SignedIn)?.session?.user?.username == MEDIA_DISCOVERY_USERNAME

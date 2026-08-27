@@ -38,7 +38,6 @@ import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
@@ -371,7 +370,6 @@ class PlayerActivity : ComponentActivity() {
         val danmakuPreferences = koin.get<DanmakuPreferences>()
         val skipSegmentPreferences = koin.get<SkipSegmentPreferences>()
         val danmakuRepository = koin.get<DanmakuRepository>()
-        val playbackRecovery = koin.get<PlaybackRecoveryStore>()
         val offlineMediaManager = koin.get<OfflineMediaManager>()
         playbackPreferences = koin.get()
         val videoCacheBytes = playbackPreferences.videoCacheSize.value.bytes
@@ -461,7 +459,6 @@ class PlayerActivity : ComponentActivity() {
                     skipSegmentPreferences = skipSegmentPreferences,
                     volumeKeyPresses = volumeKeyPresses,
                     danmakuRepository = danmakuRepository,
-                    playbackRecovery = playbackRecovery,
                     customUserAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
                     watchTogether = watchTogether,

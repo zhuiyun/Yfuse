@@ -11,6 +11,9 @@ import com.arkivanov.decompose.router.stack.push
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
+import com.yfuse.core.account.AccountRepository
+import com.yfuse.core.account.AccountState
+import com.yfuse.core.account.canUseMediaDiscovery
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
@@ -27,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -48,6 +52,7 @@ class HomeTabComponent(
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
     private val playerNavigation = SingleFlightNavigationGuard<Config.Player>()
+    private val scope = componentScope(lifecycle)
 
     val stack: Value<ChildStack<Config, Child>> =
         childStack(
@@ -58,6 +63,20 @@ class HomeTabComponent(
             handleBackButton = false,
             childFactory = ::child,
         )
+
+    init {
+        scope.launch {
+            dependencies.account.state.collectLatest { accountState ->
+                if (
+                    accountState !is AccountState.Restoring &&
+                    !accountState.canUseMediaDiscovery() &&
+                    stack.value.active.configuration is Config.MediaDetail
+                ) {
+                    navigation.popTo(index = 0)
+                }
+            }
+        }
+    }
 
     @Serializable
     sealed interface Config {
@@ -157,6 +176,7 @@ class HomeTabComponent(
                     HomeRootComponent(
                         componentContext = context,
                         preferences = dependencies.tgtoMediaPreferences,
+                        account = dependencies.account,
                         classic =
                             HomeComponent(
                                 componentContext = context,
@@ -168,7 +188,8 @@ class HomeTabComponent(
                                 syncManager = dependencies.serverSyncManager,
                                 calendarRepository = calendarRepository,
                                 initialCalendarLoad =
-                                    !dependencies.tgtoMediaPreferences.connection.value.hasPassword,
+                                    !dependencies.account.state.value.canUseMediaDiscovery() ||
+                                        !dependencies.tgtoMediaPreferences.connection.value.hasPassword,
                                 onOpenEmbyItem = { serverId, itemId ->
                                     navigation.push(Config.Detail(serverId, itemId))
                                 },
@@ -299,27 +320,45 @@ class HomeRootComponent(
     val classic: HomeComponent,
     val discovery: MediaHubComponent,
     preferences: TgtoMediaPreferences,
+    account: AccountRepository,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
     private val _state =
         MutableStateFlow(
             HomeRootState(
-                configured = preferences.connection.value.hasPassword,
-                mode = if (preferences.connection.value.hasPassword) HomeRootMode.Discovery else HomeRootMode.Classic,
+                configured =
+                    account.state.value.canUseMediaDiscovery() &&
+                        preferences.connection.value.hasPassword,
+                mode =
+                    if (
+                        account.state.value.canUseMediaDiscovery() &&
+                        preferences.connection.value.hasPassword
+                    ) {
+                        HomeRootMode.Discovery
+                    } else {
+                        HomeRootMode.Classic
+                    },
             ),
         )
     val state: StateFlow<HomeRootState> = _state.asStateFlow()
 
     init {
         scope.launch {
-            preferences.connection.collectLatest { connection ->
+            combine(preferences.connection, account.state) { connection, accountState ->
+                connection.hasPassword && accountState.canUseMediaDiscovery()
+            }.collectLatest { configured ->
                 _state.update { current ->
-                    if (current.configured && !connection.hasPassword) {
+                    if (current.configured && !configured) {
                         classic.refreshCalendar()
                     }
                     current.copy(
-                        configured = connection.hasPassword,
-                        mode = if (connection.hasPassword) current.mode else HomeRootMode.Classic,
+                        configured = configured,
+                        mode =
+                            when {
+                                !configured -> HomeRootMode.Classic
+                                !current.configured -> HomeRootMode.Discovery
+                                else -> current.mode
+                            },
                     )
                 }
             }

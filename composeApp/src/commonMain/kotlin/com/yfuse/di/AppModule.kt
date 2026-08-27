@@ -27,7 +27,6 @@ import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerActivityStore
@@ -99,7 +98,6 @@ fun appModule(
     single { ThemePreferences(get()) }
     single { PlaybackPreferences(get()) }
     single { PlaybackFailoverRequest() }
-    single { PlaybackRecoveryStore(get()) }
     single { PlaybackEventOutbox(get()) }
     single { PlaybackSyncStore(get()) }
     single { ServerActivityStore(get()) }

@@ -40,7 +40,6 @@ import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SeriesPlaybackPreference
 import com.yfuse.core.data.ServerRegistry
@@ -109,7 +108,6 @@ internal fun PlayerRoot(
     skipSegmentPreferences: SkipSegmentPreferences,
     /** Ticks on every volume key press; drives the player's own volume slider. */
     volumeKeyPresses: StateFlow<Long>,
-    playbackRecovery: PlaybackRecoveryStore,
     customUserAgent: String,
     videoCacheBytes: Long,
     watchTogether: WatchTogetherClient,
@@ -1346,37 +1344,11 @@ internal fun PlayerRoot(
             reporter?.update(observedState)
             onPlaybackState(observedState, activeItems.getOrNull(observedState.currentIndex))
             playbackGate.onPlaybackIndexChanged(observedState.currentIndex)
-            val item = activeItems.getOrNull(observedState.currentIndex)
-            when {
-                observedState.ended -> playbackRecovery.clear()
-                item != null && observedState.positionMs >= 2_000L ->
-                    playbackRecovery.record(
-                        itemId = item.id,
-                        title = item.title,
-                        serverId = item.serverId,
-                        positionMs = observedState.positionMs,
-                        durationMs = observedState.durationMs,
-                        engine = observedState.diagnostics.engine,
-                    )
-            }
         }
     }
     DisposableEffect(reporter) {
         onDispose {
             reporter?.close(latestState)
-            val finalState = latestState
-            val item = latestActiveItems.getOrNull(finalState.currentIndex)
-            if (item != null && !finalState.ended && finalState.positionMs >= 2_000L) {
-                playbackRecovery.record(
-                    itemId = item.id,
-                    title = item.title,
-                    serverId = item.serverId,
-                    positionMs = finalState.positionMs,
-                    durationMs = finalState.durationMs,
-                    engine = finalState.diagnostics.engine,
-                    force = true,
-                )
-            }
         }
     }
 

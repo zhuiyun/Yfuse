@@ -385,23 +385,6 @@ class PlaybackPreferences(
         if (!enabled) settings.remove(PLAYBACK_QOE_OUTBOX_KEY)
     }
 
-    private val _resumePrompt = MutableStateFlow(settings.getBoolean(KEY_RESUME_PROMPT, true))
-
-    /**
-     * Whether a cold start offers to resume the checkpoint left by the previous process.
-     *
-     * On by default, because a process that died mid-film is exactly the case the checkpoint
-     * exists for. It is a dialog in front of the app on launch, though, and the answer to
-     * "do you want to carry on watching?" is often no — so it has to be possible to say so
-     * once. Turning it off does not stop the checkpoint being *taken*: 我的 → 播放恢复与同步
-     * still has it, which is where someone who declined the prompt goes looking.
-     */
-    val resumePrompt: StateFlow<Boolean> = _resumePrompt.asStateFlow()
-
-    fun setResumePrompt(enabled: Boolean) {
-        _resumePrompt.value = enabled
-        settings.putBoolean(KEY_RESUME_PROMPT, enabled)
-    }
 
     fun rememberedSeriesPlayback(
         serverId: String?,
@@ -512,7 +495,6 @@ class PlaybackPreferences(
         const val KEY_PLAYBACK_PERFORMANCE = "player.ycore.performance.v1"
         const val KEY_SMART_CROSS_SERVER_SOURCE = "player.smartCrossServerSource"
         const val KEY_ANONYMOUS_QOE_SHARING = "player.ycore.qoeSharing"
-        const val KEY_RESUME_PROMPT = "player.resumePrompt"
         const val KEY_SERIES_PLAYBACK = "player.seriesPlayback.v1"
         const val MAX_SERIES_KEY_CHARS = 256
         const val MAX_TRACK_FIELD_CHARS = 128

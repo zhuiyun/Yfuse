@@ -7,20 +7,15 @@ import com.yfuse.app.AppDependencies
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.PlaybackRecoverySnapshot
-import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
-import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.offline.OfflineMediaManager
-import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.clearImageCache
 import com.yfuse.core.util.clearVideoCache
-import com.yfuse.feature.player.PlayerMediaItem
 
 class ProfileComponent(
     componentContext: ComponentContext,
@@ -36,8 +31,6 @@ class ProfileComponent(
     val store = ProfileStoreFactory(storeFactory, registry).create()
 
     val offlineMedia: OfflineMediaManager = dependencies.offlineMediaManager
-    val syncManager: ServerSyncManager = dependencies.serverSyncManager
-    val playbackRecovery: PlaybackRecoveryStore = dependencies.playbackRecovery
     val playbackPreferences: PlaybackPreferences = dependencies.playbackPreferences
     val userAgentPreferences: UserAgentPreferences = dependencies.userAgentPreferences
     val danmakuPreferences: DanmakuPreferences = dependencies.danmakuPreferences
@@ -77,21 +70,6 @@ class ProfileComponent(
         transferSecret: ByteArray,
         nowEpochSeconds: Long,
     ): Result<Int> = registry.importRelayBackup(payload, transferSecret, nowEpochSeconds)
-
-    fun recoveryItem(snapshot: PlaybackRecoverySnapshot): PlayerMediaItem? {
-        val server = snapshot.serverId?.let(registry::serverById) ?: registry.defaultServer
-        server ?: return null
-        val urls = EmbyStream.streamUrls(server.baseUrl, snapshot.itemId, server.accessToken)
-        return PlayerMediaItem(
-            id = snapshot.itemId,
-            url = urls.direct,
-            transcodeUrl = urls.transcode,
-            fallbackTranscodeUrl = urls.progressiveTranscode,
-            playSessionId = urls.playSessionId,
-            title = snapshot.title,
-            serverId = server.id,
-        )
-    }
 
     init {
         lifecycle.doOnDestroy {

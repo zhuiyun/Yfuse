@@ -8,7 +8,6 @@ import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.ServerActivityStore
 import com.yfuse.core.data.ServerHealthMonitor
@@ -43,7 +42,6 @@ data class AppDependencies(
     val watchTogetherPreferences: WatchTogetherPreferences,
     val inviteResolver: WatchInviteResolver,
     val playbackSourcePreloader: PlaybackSourcePreloader?,
-    val playbackRecovery: PlaybackRecoveryStore,
     val playbackReportingCoordinator: PlaybackReportingCoordinator,
     val playbackPreferences: PlaybackPreferences,
     val playbackFailoverRequest: PlaybackFailoverRequest,

@@ -172,7 +172,6 @@ internal fun PlaybackSettingsScreen(
     autoNext: Boolean,
     smartCrossServerSource: Boolean,
     anonymousQoeSharing: Boolean,
-    resumePrompt: Boolean,
     videoCacheSize: VideoCacheSize,
     skipSegments: String,
     onPlaybackMode: () -> Unit,
@@ -181,7 +180,6 @@ internal fun PlaybackSettingsScreen(
     onAutoNext: (Boolean) -> Unit,
     onSmartCrossServerSource: (Boolean) -> Unit,
     onAnonymousQoeSharing: (Boolean) -> Unit,
-    onResumePrompt: (Boolean) -> Unit,
     onVideoCache: () -> Unit,
     onSkipSegments: () -> Unit,
 ) {
@@ -201,8 +199,6 @@ internal fun PlaybackSettingsScreen(
                         true,
                         onChange = onSmartCrossServerSource,
                     )
-                    SettingsDivider()
-                    SwitchRow("启动时询问继续播放", resumePrompt, true, onChange = onResumePrompt)
                     SettingsDivider()
                     SettingRow("视频缓存大小", "${videoCacheSize.label} ›", true, onVideoCache)
                     SettingsDivider()

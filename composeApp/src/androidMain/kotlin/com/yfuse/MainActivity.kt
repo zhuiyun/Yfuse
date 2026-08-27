@@ -102,7 +102,6 @@ class MainActivity : ComponentActivity() {
                             watchTogetherPreferences = koin.get(),
                             inviteResolver = koin.get(),
                             playbackSourcePreloader = runCatching { koin.get<PlaybackSourcePreloader>() }.getOrNull(),
-                            playbackRecovery = koin.get(),
                             playbackReportingCoordinator = koin.get(),
                             playbackPreferences = koin.get(),
                             playbackFailoverRequest = koin.get(),

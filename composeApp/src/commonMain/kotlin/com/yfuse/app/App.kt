@@ -57,7 +57,6 @@ import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.canUseWatchTogether
-import com.yfuse.core.data.PlaybackRecoveryEligibility
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.AppBackdrop
@@ -96,14 +95,11 @@ import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.useNavigationRail
-import com.yfuse.core.network.EmbyStream
 import com.yfuse.feature.home.HomeTabComponent
 import com.yfuse.feature.home.HomeTabScreen
 import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.library.LibraryScreen
 import com.yfuse.feature.player.ActivePlayback
-import com.yfuse.feature.player.PlayerLauncher
-import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.profile.ProfileTabScreen
 import com.yfuse.feature.search.SearchComponent
@@ -189,38 +185,11 @@ fun App(root: RootComponent) {
         val searchStack by root.search.stack.subscribeAsState()
         val profileStack by root.profile.stack.subscribeAsState()
         val miniPlayback by ActivePlayback.state.collectAsState()
-        val playbackRecovery = root.dependencies.playbackRecovery
-        val serverRegistry = root.dependencies.serverRegistry
         val reportingCoordinator = root.dependencies.playbackReportingCoordinator
-        val startupRecovery =
-            remember(playbackRecovery, serverRegistry) {
-                playbackRecovery.takeStartupEvaluation(serverRegistry.data.value.servers)
-            }
-        // 播放 → 启动时询问继续播放. Read once, at the moment the shell decides whether to open
-        // with a dialog: turning the setting off later in the session must not make a prompt
-        // the user is currently answering disappear from under them.
-        val resumePromptEnabled =
-            remember {
-                root.dependencies.playbackPreferences.resumePrompt.value
-            }
-        var recoveryPrompt by remember(startupRecovery, resumePromptEnabled) {
-            mutableStateOf(startupRecovery?.takeIf { resumePromptEnabled && it.shouldPrompt })
-        }
-        var recoveryLaunch by remember {
-            mutableStateOf<Pair<PlayerMediaItem, Long>?>(null)
-        }
 
         LaunchedEffect(reportingCoordinator) {
             reportingCoordinator.flushPending()
         }
-        LaunchedEffect(startupRecovery) {
-            if (startupRecovery != null && !startupRecovery.shouldPrompt) {
-                // Invalid, completed-looking, removed-server and stale checkpoints should not
-                // keep being reconsidered on every later process start.
-                playbackRecovery.clear()
-            }
-        }
-
         // Watch-together lives above the tabs: an invite can arrive from a chat app at any
         // moment, and an active room has to stay visible after the player is dismissed —
         // the client is a singleton, so without this the user could be in a room with no
@@ -516,109 +485,11 @@ fun App(root: RootComponent) {
                                 )
                             }
                         }
-
-                        recoveryPrompt
-                            ?.takeIf { pendingInvite == null && !roomInfoOpen }
-                            ?.let { evaluation ->
-                                val snapshot = evaluation.snapshot
-                                val server = evaluation.server
-                                val needsLogin =
-                                    evaluation.eligibility ==
-                                        PlaybackRecoveryEligibility.AuthenticationRequired
-                                GlassDialog(
-                                    onDismiss = {
-                                        playbackRecovery.clear()
-                                        recoveryPrompt = null
-                                    },
-                                ) {
-                                    val palette = LocalPalette.current
-                                    OverlayHeader(
-                                        title = "继续上次播放？",
-                                        subtitle = "检测到上次进程结束前保存的播放位置",
-                                    )
-                                    Text(
-                                        snapshot.title.ifBlank { "未命名视频" },
-                                        style = AppTypography.body.strong,
-                                        color = palette.text,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(
-                                        "上次看到 ${formatRecoveryPosition(snapshot.positionMs)}" +
-                                            server?.serverName?.let { " · $it" }.orEmpty(),
-                                        style = AppTypography.body.regular,
-                                        color = palette.body,
-                                    )
-                                    if (needsLogin) {
-                                        Spacer(Modifier.height(8.dp))
-                                        Text(
-                                            "此服务器的登录凭据已失效，请重新登录后再继续。",
-                                            style = AppTypography.caption.regular,
-                                            color = palette.error,
-                                        )
-                                    }
-                                    OverlayButtonRow(
-                                        dismissLabel = "忽略并清除",
-                                        confirmLabel = if (needsLogin) "前往我的" else "继续",
-                                        onDismiss = {
-                                            playbackRecovery.clear()
-                                            recoveryPrompt = null
-                                        },
-                                        onConfirm = resumeRecovery@{
-                                            if (needsLogin) {
-                                                // Keep the checkpoint: after re-login it remains available
-                                                // from 我的 and on a later cold start.
-                                                root.selectTab(Tab.Profile)
-                                                recoveryPrompt = null
-                                                return@resumeRecovery
-                                            }
-                                            val selectedServer = server ?: return@resumeRecovery
-                                            val urls =
-                                                EmbyStream.streamUrls(
-                                                    baseUrl = selectedServer.baseUrl,
-                                                    itemId = snapshot.itemId,
-                                                    token = selectedServer.accessToken,
-                                                )
-                                            recoveryLaunch = PlayerMediaItem(
-                                                id = snapshot.itemId,
-                                                url = urls.direct,
-                                                transcodeUrl = urls.transcode,
-                                                fallbackTranscodeUrl = urls.progressiveTranscode,
-                                                title = snapshot.title,
-                                                serverId = snapshot.serverId,
-                                                playSessionId = urls.playSessionId,
-                                            ) to snapshot.positionMs
-                                            recoveryPrompt = null
-                                        },
-                                        confirmEnabled = server != null,
-                                    )
-                                }
-                            }
-
-                        recoveryLaunch?.let { (item, positionMs) ->
-                            PlayerLauncher(
-                                items = listOf(item),
-                                startIndex = 0,
-                                startPositionMs = positionMs,
-                                onLaunched = { recoveryLaunch = null },
-                            )
-                        }
                     }
                 }
             }
         }
     }
-}
-
-internal fun formatRecoveryPosition(positionMs: Long): String {
-    val totalSeconds = positionMs.coerceAtLeast(0L) / 1_000L
-    val hours = totalSeconds / 3_600L
-    val minutes = totalSeconds % 3_600L / 60L
-    val seconds = totalSeconds % 60L
-    val minuteText = minutes.toString().padStart(2, '0')
-    val secondText = seconds.toString().padStart(2, '0')
-    return if (hours > 0L) "$hours:$minuteText:$secondText" else "$minuteText:$secondText"
 }
 
 internal fun topLevelBackStack(active: Tab): List<Tab> =
