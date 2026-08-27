@@ -15,8 +15,9 @@ queue failure, or an incomplete natural finish.
 
 ## Build the isolated native-only test pair
 
-Place the verified dependency-closed AAR at `composeApp/libs/ycore-native.aar`, then build an
-isolated application ID so an existing installation is not replaced:
+Run `scripts/install-ycore-native.sh` to place the verified dependency-closed AAR, checksum, and
+provenance sidecars under `composeApp/libs`, then build an isolated application ID so an existing
+installation is not replaced:
 
 ```bash
 ./gradlew --max-workers=1 \

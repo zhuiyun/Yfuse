@@ -107,6 +107,10 @@ jobs:
           set -euo pipefail
           install -m 0644 .native-build/artifacts/ycore-native.aar \
             composeApp/libs/ycore-native.aar
+          install -m 0644 .native-build/artifacts/ycore-native.aar.sha256 \
+            composeApp/libs/ycore-native.aar.sha256
+          install -m 0644 .native-build/artifacts/NATIVE-SOURCES.txt \
+            composeApp/libs/ycore-native.sources.txt
           install -m 0644 .native-build/artifacts/libmpv-yfuse-bluray.aar \
             composeApp/libs/libmpv-release.aar
           install -m 0644 .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256 \
