@@ -188,8 +188,8 @@ private val SettingsSearchDestinations =
         ),
         SettingsSearchDestination(
             "播放",
-            "版本偏好、画质、引擎、续播与跳过片头",
-            "播放 版本 HDR 杜比 画质 解码 引擎 续播",
+            "版本偏好、画质、引擎、进度同步与跳过片头",
+            "播放 版本 HDR 杜比 画质 解码 引擎 续播 进度 同步",
             ProfilePage.Playback,
             icon = AppIcons.Play,
             tint = SettingTint.playback,
@@ -251,6 +251,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
     val smartCrossServerSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
     val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
+    val progressSyncEnabled by component.dependencies.serverSyncManager.syncProgress.collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
@@ -273,6 +274,7 @@ fun ProfileScreen(component: ProfileComponent) {
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
     var confirmClearVideoCache by remember { mutableStateOf(false) }
+    var videoCacheUsageBytes by remember { mutableStateOf<Long?>(null) }
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var settingsQuery by rememberSaveable { mutableStateOf("") }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
@@ -322,6 +324,12 @@ fun ProfileScreen(component: ProfileComponent) {
         }
     }
 
+    LaunchedEffect(pageStack.lastOrNull(), videoCacheSize) {
+        if (pageStack.lastOrNull() == ProfilePage.DataAndDiagnostics.name) {
+            videoCacheUsageBytes = component.videoCacheUsageBytes()
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         val navigationBackStack = remember(pageStack) { listOf(ProfilePage.Root) + pageStack.map(ProfilePage::valueOf) }
         OfficialNavDisplay(
@@ -351,6 +359,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         mediaVersionPreference = mediaVersionPreference,
                         autoNext = autoNext,
                         smartCrossServerSource = smartCrossServerSource,
+                        progressSyncEnabled = progressSyncEnabled,
                         anonymousQoeSharing = anonymousQoeSharing,
                         videoCacheSize = videoCacheSize,
                         skipSegments =
@@ -364,6 +373,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         onOpenAdvanced = { openPage(ProfilePage.AdvancedPlayback) },
                         onAutoNext = prefs::setAutoNext,
                         onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
+                        onProgressSync = component.dependencies.serverSyncManager::setProgress,
                         onAnonymousQoeSharing = component.playbackPreferences::setAnonymousQoeSharing,
                         onVideoCache = { sheet = Sheet.VideoCache },
                         onSkipSegments = { sheet = Sheet.SkipSegments },
@@ -472,6 +482,8 @@ fun ProfileScreen(component: ProfileComponent) {
                         onInspectRelay = component::inspectRelayServers,
                         onIsRelay = component::isRelayServers,
                         onImportRelay = component::importRelayServers,
+                        videoCacheUsageBytes = videoCacheUsageBytes,
+                        videoCacheSize = videoCacheSize,
                         onUserAgent = { sheet = Sheet.UserAgent },
                         onClearCache = { confirmClearCache = true },
                         onClearVideoCache = { confirmClearVideoCache = true },
@@ -933,7 +945,10 @@ fun ProfileScreen(component: ProfileComponent) {
                 destructive = true,
                 onConfirm = {
                     confirmClearVideoCache = false
-                    screenScope.launch { component.onClearVideoCache() }
+                    screenScope.launch {
+                        component.onClearVideoCache()
+                        videoCacheUsageBytes = component.videoCacheUsageBytes()
+                    }
                 },
                 onDismiss = { confirmClearVideoCache = false },
             )
@@ -952,6 +967,8 @@ private fun DataAndDiagnosticsScreen(
     onInspectRelay: (String) -> com.yfuse.core.security.RelayMigrationDescriptor,
     onIsRelay: (String) -> Boolean,
     onImportRelay: (String, ByteArray, Long) -> Result<Int>,
+    videoCacheUsageBytes: Long?,
+    videoCacheSize: VideoCacheSize,
     onUserAgent: () -> Unit,
     onClearCache: () -> Unit,
     onClearVideoCache: () -> Unit,
@@ -991,7 +1008,12 @@ private fun DataAndDiagnosticsScreen(
                 SettingsCard {
                     SettingRow("清除图片缓存", "不影响离线下载 ›", true, onClearCache)
                     SettingsDivider()
-                    SettingRow("清除视频缓存", "不影响离线下载 ›", true, onClearVideoCache)
+                    SettingRow(
+                        "清除视频缓存",
+                        videoCacheUsageSummary(videoCacheUsageBytes, videoCacheSize),
+                        true,
+                        onClearVideoCache,
+                    )
                 }
             }
         }
@@ -1000,6 +1022,17 @@ private fun DataAndDiagnosticsScreen(
         }
     }
 }
+
+internal fun videoCacheUsageSummary(
+    usedBytes: Long?,
+    cacheSize: VideoCacheSize,
+): String =
+    when {
+        usedBytes == null -> "正在计算 · 上限 ${cacheSize.label} ›"
+        cacheSize.bytes <= 0L && usedBytes <= 0L -> "已关闭 · 无缓存 ›"
+        cacheSize.bytes <= 0L -> "已关闭 · 已用 ${formatDownloadBytes(usedBytes)} ›"
+        else -> "已用 ${formatDownloadBytes(usedBytes)} / ${cacheSize.label} ›"
+    }
 
 @Composable
 internal fun SettingsPage(
@@ -1417,6 +1450,7 @@ internal fun SwitchRow(
     embedded: Boolean = false,
     icon: ImageVector? = null,
     iconTint: Color = Color.Unspecified,
+    description: String? = null,
     onChange: (Boolean) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -1437,13 +1471,23 @@ internal fun SwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) SettingIconTile(icon, iconTint)
-        Text(
-            title,
-            style = AppTypography.body.medium,
-            color = palette.text,
-            maxLines = 2,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = AppTypography.body.medium,
+                color = palette.text,
+                maxLines = 2,
+            )
+            description?.takeIf(String::isNotBlank)?.let { copy ->
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    copy,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 3,
+                )
+            }
+        }
         PillSwitch(checked)
     }
 }
@@ -1727,3 +1771,4 @@ private fun OptionSheet(
         }
     }
 }
+

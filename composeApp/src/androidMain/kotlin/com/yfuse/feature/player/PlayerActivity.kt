@@ -64,7 +64,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 import android.media.session.PlaybackState as PlatformPlaybackState
@@ -84,8 +83,8 @@ class PlayerActivity : ComponentActivity() {
         internal const val ACTION_PLAY_PAUSE = "com.yfuse.player.PLAY_PAUSE"
         internal const val ACTION_NEXT = "com.yfuse.player.NEXT"
         private const val ACTION_OPEN = "com.yfuse.player.OPEN"
-        private const val PLAYING_EPISODE_REFRESH_INTERVAL_MS = 120_000L
-        private const val PAUSED_EPISODE_REFRESH_INTERVAL_MS = 5 * 60_000L
+        private const val EPISODE_REFRESH_COOLDOWN_MS = 5 * 60_000L
+        private const val EPISODE_REFRESH_NEAR_END_MS = 5 * 60_000L
 
         fun intent(
             context: Context,
@@ -163,7 +162,7 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var playbackPreferences: PlaybackPreferences
     private lateinit var capabilityProvider: PlaybackDeviceCapabilitiesProvider
     private var episodeRefreshJob: Job? = null
-    private var episodePollingJob: Job? = null
+    private var lastEpisodeRefreshElapsedMs = 0L
     private var capabilityMonitorJob: Job? = null
     private var outputRenegotiationJob: Job? = null
     private val launchViewModel by viewModels<PlayerLaunchViewModel>()
@@ -190,6 +189,7 @@ class PlayerActivity : ComponentActivity() {
                 when (intent?.action) {
                     Intent.ACTION_SCREEN_OFF -> pausePlaybackForLifecycle("screen_off")
                     Intent.ACTION_SCREEN_ON -> lifecyclePauseRequested = false
+                    AudioManager.ACTION_AUDIO_BECOMING_NOISY -> pausePlaybackForNoisyOutput()
                 }
             }
         }
@@ -478,6 +478,13 @@ class PlayerActivity : ComponentActivity() {
                     onPlaybackState = { state, item ->
                         activeState = state
                         applyScreenOnPolicy()
+                        if (
+                            state.playing &&
+                            state.hasNext &&
+                            state.remainingMs in 1L..EPISODE_REFRESH_NEAR_END_MS
+                        ) {
+                            refreshEpisodes()
+                        }
                         if (state.ended && item?.serverId != null) {
                             val completedKey = "${item.serverId}#${item.id}"
                             if (completedOfflineKey != completedKey) {
@@ -522,7 +529,7 @@ class PlayerActivity : ComponentActivity() {
                     },
                     onBack = ::closePlayerAndReturn,
                     onEnterPictureInPicture = ::enterPlayerPictureInPicture,
-                    onRefreshEpisodes = ::refreshEpisodes,
+                    onRefreshEpisodes = { refreshEpisodes(force = true) },
                     onRemotePlayRequested = ::ensureAudioFocus,
                 )
             }
@@ -579,20 +586,6 @@ class PlayerActivity : ComponentActivity() {
         if (isScreenInteractive()) lifecyclePauseRequested = false
         if (activeState.playing) startPlaybackKeepAliveService()
         refreshEpisodes()
-        episodePollingJob?.cancel()
-        episodePollingJob =
-            lifecycleScope.launch {
-                while (isActive) {
-                    delay(
-                        if (activeState.playing) {
-                            PLAYING_EPISODE_REFRESH_INTERVAL_MS
-                        } else {
-                            PAUSED_EPISODE_REFRESH_INTERVAL_MS
-                        },
-                    )
-                    refreshEpisodes()
-                }
-            }
     }
 
     override fun onUserLeaveHint() {
@@ -606,7 +599,7 @@ class PlayerActivity : ComponentActivity() {
             enterPictureInPictureMode(
                 PictureInPictureParams
                     .Builder()
-                    .setAspectRatio(Rational(16, 9))
+                    .setAspectRatio(activePictureInPictureAspectRatio())
                     .apply { videoBounds?.let(::setSourceRectHint) }
                     .build(),
             )
@@ -631,8 +624,8 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStop() {
         activityStarted = false
-        episodePollingJob?.cancel()
-        episodePollingJob = null
+        episodeRefreshJob?.cancel()
+        episodeRefreshJob = null
         super.onStop()
         when (
             playerStopAction(
@@ -652,7 +645,6 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         episodeRefreshJob?.cancel()
-        episodePollingJob?.cancel()
         capabilityMonitorJob?.cancel()
         outputRenegotiationJob?.cancel()
         ActivePlayback.clear()
@@ -707,7 +699,7 @@ class PlayerActivity : ComponentActivity() {
         enterPictureInPictureMode(
             PictureInPictureParams
                 .Builder()
-                .setAspectRatio(Rational(16, 9))
+                .setAspectRatio(activePictureInPictureAspectRatio())
                 .apply { videoBounds?.let(::setSourceRectHint) }
                 .build(),
         )
@@ -750,22 +742,29 @@ class PlayerActivity : ComponentActivity() {
                 ) {
                     return@onSuccess
                 }
+                val mediaVersions =
+                    playbackInfo.MediaSources.mapIndexed { ordinal, source ->
+                        source.toMediaVersion(fallbackId = item.id, ordinal = ordinal)
+                    }
+                val preferredVersionId =
+                    mediaVersions
+                        .preferredVersion(
+                            playbackPreferences.mediaVersionPreference.value,
+                            explicitVersionId = sourceId,
+                        )?.id
                 val versions =
-                    playbackInfo.MediaSources
-                        .mapIndexed { ordinal, source ->
-                            source.toMediaVersion(fallbackId = item.id, ordinal = ordinal)
-                        }.toPlayerMediaVersions(
-                            baseUrl = server.baseUrl,
-                            itemId = item.id,
-                            token = server.accessToken,
-                            negotiatedPlaySessionId =
-                                playbackInfo.PlaySessionId
-                                    ?.takeIf(String::isNotBlank)
-                                    ?: requestedSessionId,
-                            localCleartextConfirmed = server.localCleartextConfirmed,
-                        )
+                    mediaVersions.toPlayerMediaVersions(
+                        baseUrl = server.baseUrl,
+                        itemId = item.id,
+                        token = server.accessToken,
+                        negotiatedPlaySessionId =
+                            playbackInfo.PlaySessionId
+                                ?.takeIf(String::isNotBlank)
+                                ?: requestedSessionId,
+                        localCleartextConfirmed = server.localCleartextConfirmed,
+                    )
                 val selected =
-                    versions.firstOrNull { version -> version.id == sourceId }
+                    versions.firstOrNull { version -> version.id == preferredVersionId }
                         ?: versions.firstOrNull()
                         ?: return@onSuccess
                 val refreshed =
@@ -818,12 +817,21 @@ class PlayerActivity : ComponentActivity() {
      * artwork and progress is applied without touching the engine; PlayerRoot only restarts at the
      * current item and position when playable sources are added, removed, reordered or replaced.
      */
-    private fun refreshEpisodes() {
+    private fun refreshEpisodes(force: Boolean = false) {
         if (episodeRefreshJob?.isActive == true) return
         val snapshot = playbackItems.value
         val seed = snapshot.firstOrNull { it.seriesId != null && it.serverId != null } ?: return
         val seriesId = seed.seriesId ?: return
         val server = seed.serverId?.let(serverRegistry::serverById) ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (
+            !force &&
+            lastEpisodeRefreshElapsedMs > 0L &&
+            now - lastEpisodeRefreshElapsedMs < EPISODE_REFRESH_COOLDOWN_MS
+        ) {
+            return
+        }
+        lastEpisodeRefreshElapsedMs = now
 
         episodeRefreshJob =
             lifecycleScope.launch {
@@ -1046,12 +1054,13 @@ class PlayerActivity : ComponentActivity() {
             IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_SCREEN_ON)
+                addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
             }
         ContextCompat.registerReceiver(
             this,
             screenStateReceiver,
             filter,
-            ContextCompat.RECEIVER_EXPORTED,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         screenStateReceiverRegistered = true
     }
@@ -1088,7 +1097,7 @@ class PlayerActivity : ComponentActivity() {
         val params =
             PictureInPictureParams
                 .Builder()
-                .setAspectRatio(Rational(16, 9))
+                .setAspectRatio(activePictureInPictureAspectRatio())
                 .apply {
                     videoBounds?.let(::setSourceRectHint)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1107,13 +1116,13 @@ class PlayerActivity : ComponentActivity() {
         } else if (state.ended || state.error != null) {
             abandonAudioFocus()
         }
-        val actions =
+        var actions =
             PlatformPlaybackState.ACTION_PLAY or
                 PlatformPlaybackState.ACTION_PAUSE or
                 PlatformPlaybackState.ACTION_PLAY_PAUSE or
-                PlatformPlaybackState.ACTION_SEEK_TO or
-                PlatformPlaybackState.ACTION_SKIP_TO_NEXT or
-                PlatformPlaybackState.ACTION_SKIP_TO_PREVIOUS
+                PlatformPlaybackState.ACTION_SEEK_TO
+        if (state.hasNext) actions = actions or PlatformPlaybackState.ACTION_SKIP_TO_NEXT
+        if (state.hasPrevious) actions = actions or PlatformPlaybackState.ACTION_SKIP_TO_PREVIOUS
         val platformState =
             when {
                 state.error != null -> PlatformPlaybackState.STATE_ERROR
@@ -1236,7 +1245,31 @@ class PlayerActivity : ComponentActivity() {
                     isInPictureInPictureMode
             )
 
+    private fun activePictureInPictureAspectRatio(): Rational {
+        val width =
+            activeState.diagnostics.videoWidth.takeIf { it > 0 }
+                ?: videoBounds?.width()
+                ?: 16
+        val height =
+            activeState.videoHeight.takeIf { it > 0 }
+                ?: videoBounds?.height()
+                ?: 9
+        val (ratioWidth, ratioHeight) = pictureInPictureAspectRatioDimensions(width, height)
+        return Rational(ratioWidth, ratioHeight)
+    }
+
     private fun isScreenInteractive(): Boolean = getSystemService(PowerManager::class.java).isInteractive
+
+    private fun pausePlaybackForNoisyOutput() {
+        if (remoteCastManager?.state?.value?.hasActiveSession == true) return
+        activePlayer?.pause()
+        abandonAudioFocus()
+        AppLog.info(
+            category = "player.audio",
+            event = "becoming_noisy",
+            message = "Playback paused before audio could move to the device speaker",
+        )
+    }
 
     private fun pausePlaybackForLifecycle(reason: String) {
         if (stopRequested || lifecyclePauseRequested) return
@@ -1274,7 +1307,23 @@ class PlayerActivity : ComponentActivity() {
     }
 }
 
+internal fun pictureInPictureAspectRatioDimensions(
+    width: Int,
+    height: Int,
+): Pair<Int, Int> {
+    if (width <= 0 || height <= 0) return 16 to 9
+    val ratio = width.toDouble() / height.toDouble()
+    return when {
+        ratio < MIN_PICTURE_IN_PICTURE_ASPECT_RATIO -> 100 to 239
+        ratio > MAX_PICTURE_IN_PICTURE_ASPECT_RATIO -> 239 to 100
+        else -> width to height
+    }
+}
+
 private fun Long.toEmbyTicks(): Long =
     coerceIn(0L, Long.MAX_VALUE / EMBY_TICKS_PER_MILLISECOND) * EMBY_TICKS_PER_MILLISECOND
 
 private const val EMBY_TICKS_PER_MILLISECOND = 10_000L
+private const val MIN_PICTURE_IN_PICTURE_ASPECT_RATIO = 1.0 / 2.39
+private const val MAX_PICTURE_IN_PICTURE_ASPECT_RATIO = 2.39
+

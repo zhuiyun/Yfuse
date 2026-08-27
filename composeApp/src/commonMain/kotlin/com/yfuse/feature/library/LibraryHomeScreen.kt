@@ -1165,6 +1165,7 @@ private fun PlaybackHistory(
                             ),
                         ),
                     title = item.title,
+                    rating = item.communityRating,
                     year = item.year?.toString(),
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
                     // Scoped to this rail: a film that was just watched is also a film
@@ -1264,6 +1265,7 @@ private fun CategorySection(
                 CaptionedPoster(
                     url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
                     title = item.title,
+                    rating = item.communityRating,
                     year = item.year?.toString(),
                     progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
                     // A shared-element key has to be unique within a screen. Keyed on the
@@ -1324,6 +1326,7 @@ internal fun PosterCard(
     CaptionedPoster(
         url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
         title = item.title,
+        rating = item.communityRating,
         year = item.year?.toString(),
         progress = if (showProgress) item.playedPercentage?.let { (it / 100.0).toFloat() } else null,
         onClick = onClick,

@@ -191,6 +191,7 @@ private fun MediaHubPoster(
             url = item.posterUrl,
             fallbackUrl = item.backdropUrl,
             title = item.title,
+            rating = item.score,
             year = item.cardMeta(),
             onClick = onClick,
             modifier = Modifier.fillMaxWidth(),

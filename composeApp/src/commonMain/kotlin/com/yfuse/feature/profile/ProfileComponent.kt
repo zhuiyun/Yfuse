@@ -16,6 +16,8 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.clearImageCache
 import com.yfuse.core.util.clearVideoCache
+import com.yfuse.feature.player.PlayerMediaItem
+import com.yfuse.core.util.videoCacheUsageBytes as currentVideoCacheUsageBytes
 
 class ProfileComponent(
     componentContext: ComponentContext,
@@ -48,6 +50,8 @@ class ProfileComponent(
     /** Clear transient playback data; offline files and the image cache are untouched. */
     suspend fun onClearVideoCache(): Long = clearVideoCache()
 
+    suspend fun videoCacheUsageBytes(): Long = currentVideoCacheUsageBytes()
+
     fun exportServers(
         passphrase: CharArray,
         createdAtEpochSeconds: Long,
@@ -77,3 +81,4 @@ class ProfileComponent(
         }
     }
 }
+

@@ -293,6 +293,7 @@ class ServerSyncManager(
                 ?: return Result.failure(IllegalStateException("服务器已移除"))
         return if (keepLocal) {
             val mutation = conflict.mutation
+            if (!kindEnabled(mutation.kind)) return Result.success(Unit)
             val result =
                 when (mutation.kind) {
                     SyncMutationKind.Favorite ->
@@ -340,7 +341,10 @@ class ServerSyncManager(
         if (!kindEnabled(kind)) {
             return when (kind) {
                 SyncMutationKind.Favorite -> repo.setFavorite(server, itemId, desired)
-                SyncMutationKind.Played -> repo.setPlayed(server, itemId, desired)
+                // DetailComponent has already mirrored this explicit decision into the
+                // device-local PlaybackSyncStore. The master switch forbids every remote
+                // progress write, including Emby's played/unplayed endpoint.
+                SyncMutationKind.Played -> Result.success(Unit)
             }
         }
         val base =
@@ -374,6 +378,9 @@ class ServerSyncManager(
                     "desired" to desired.toString(),
                 ),
         )
+        // Re-check immediately before I/O in case the switch changed after this mutation
+        // entered the durable queue. Keep it queued for a future explicit re-enable.
+        if (!kindEnabled(kind)) return Result.success(Unit)
         val result =
             when (kind) {
                 SyncMutationKind.Favorite -> repo.setFavorite(server, itemId, desired)
@@ -637,6 +644,7 @@ class ServerSyncManager(
         pending.value
             .filter { it.serverId == server.id && it !in blocked && kindEnabled(it.kind) }
             .forEach { mutation ->
+                if (!kindEnabled(mutation.kind)) return@forEach
                 val result =
                     when (mutation.kind) {
                         SyncMutationKind.Favorite ->

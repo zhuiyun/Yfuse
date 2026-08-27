@@ -265,7 +265,7 @@ internal class EmbyHomeService(
                     // UserData carries PlayedPercentage, which draws the resume bar.
                     parameter(
                         "Fields",
-                        "BackdropImageTags,UserData,Overview,ParentBackdropItemId," +
+                        "BackdropImageTags,UserData,Overview,CommunityRating,ParentBackdropItemId," +
                             "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")

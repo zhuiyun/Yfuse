@@ -50,4 +50,39 @@ fun playbackBufferProfile(mode: PlaybackOptimizationMode): PlaybackBufferProfile
             )
     }
 
+/** libmpv demuxer bounds selected from the same optimization intent. */
+data class MpvBufferProfile(
+    val forwardBytes: Int,
+    val backBytes: Int,
+    val readaheadSeconds: Int,
+)
+
+fun mpvBufferProfile(mode: PlaybackOptimizationMode): MpvBufferProfile =
+    when (mode) {
+        PlaybackOptimizationMode.PowerSaver ->
+            MpvBufferProfile(
+                forwardBytes = 32 * MEBIBYTE,
+                backBytes = 0,
+                readaheadSeconds = 12,
+            )
+        PlaybackOptimizationMode.Balanced ->
+            MpvBufferProfile(
+                forwardBytes = 64 * MEBIBYTE,
+                backBytes = 16 * MEBIBYTE,
+                readaheadSeconds = 20,
+            )
+        PlaybackOptimizationMode.Quality ->
+            MpvBufferProfile(
+                forwardBytes = 128 * MEBIBYTE,
+                backBytes = 32 * MEBIBYTE,
+                readaheadSeconds = 30,
+            )
+        PlaybackOptimizationMode.Compatibility ->
+            MpvBufferProfile(
+                forwardBytes = 96 * MEBIBYTE,
+                backBytes = 16 * MEBIBYTE,
+                readaheadSeconds = 24,
+            )
+    }
+
 private const val MEBIBYTE = 1024 * 1024

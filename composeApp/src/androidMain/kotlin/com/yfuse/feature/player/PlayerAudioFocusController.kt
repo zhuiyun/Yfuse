@@ -35,14 +35,21 @@ internal class PlayerAudioFocusController(
                     )
                 }
 
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
+                -> {
                     resumeAfterTransientLoss = isPlaying()
                     hasFocus = false
                     onPause()
                     AppLog.info(
                         category = "player.audio",
                         event = "focus_lost_transient",
-                        message = "Playback paused for a transient audio focus loss",
+                        message =
+                            if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+                                "Playback paused instead of leaking full-volume audio during ducking"
+                            } else {
+                                "Playback paused for a transient audio focus loss"
+                            },
                     )
                 }
 

@@ -186,6 +186,24 @@ internal object VideoCachePool {
         }
     }
 
+    /** Returns current transient playback cache usage without changing its configured limit. */
+    @Synchronized
+    fun usage(context: Context): Long {
+        val sharedCache = cache
+        val target =
+            sharedCache
+                ?: SimpleCache(
+                    context.cacheDir.resolve("video_cache_v2"),
+                    NoOpCacheEvictor(),
+                    StandaloneDatabaseProvider(context.applicationContext),
+                )
+        return try {
+            target.cacheSpace
+        } finally {
+            if (sharedCache == null) target.release()
+        }
+    }
+
     @Synchronized
     private fun releaseReference() {
         references = (references - 1).coerceAtLeast(0)

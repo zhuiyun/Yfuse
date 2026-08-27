@@ -127,6 +127,7 @@ internal fun TmdbRowPage(
                                     TmdbImages.media(item.backdropPath, "w780"),
                                 ),
                             title = item.title,
+                            rating = item.rating,
                             year =
                                 "TMDB · " +
                                     if (showReleaseDate) {

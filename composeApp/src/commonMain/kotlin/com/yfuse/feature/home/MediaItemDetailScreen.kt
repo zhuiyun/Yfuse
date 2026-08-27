@@ -36,7 +36,6 @@ import com.yfuse.core.data.TgtoMediaItem
 import com.yfuse.core.data.TgtoResourceItem
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.FallbackImage
@@ -206,6 +205,7 @@ private fun MediaItemDetailHero(
             Poster(
                 url = item.posterUrl,
                 fallbackUrl = item.backdropUrl,
+                rating = item.score,
                 modifier = Modifier.width(92.dp).height(138.dp),
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -224,9 +224,6 @@ private fun MediaItemDetailHero(
                     ).joinToString(" · ")
                 if (metadata.isNotBlank()) {
                     Text(metadata, style = AppTypography.caption.medium, color = Color.White.copy(alpha = 0.78f))
-                }
-                item.score?.let {
-                    Text("TMDB $it", style = AppTypography.caption.strong, color = Brand.Imdb)
                 }
             }
         }

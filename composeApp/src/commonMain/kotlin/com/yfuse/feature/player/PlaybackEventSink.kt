@@ -155,6 +155,7 @@ internal class ReliablePlaybackEventSink(
     private val outbox: PlaybackEventOutbox,
     private val directSink: PlaybackEventSink,
     private val wakeDelivery: (String) -> Unit,
+    private val progressSyncEnabled: () -> Boolean = { true },
 ) : PlaybackEventSink {
     override suspend fun started(
         itemId: String,
@@ -265,6 +266,9 @@ internal class ReliablePlaybackEventSink(
         isPaused: Boolean,
         playMethod: String,
     ) {
+        // The reporter continues persisting Yfuse's local resume state while this remote
+        // transport is disabled. Checking at submit time also covers a switch changed mid-play.
+        if (!progressSyncEnabled()) return
         val accepted =
             outbox.enqueue(
                 kind = kind,

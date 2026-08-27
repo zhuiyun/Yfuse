@@ -16,9 +16,11 @@ import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackDolbyVisionPath
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.bluRayDiscRoot
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
+import com.yfuse.core.playback.mpvBufferProfile
 import com.yfuse.core.playback.playbackDolbyVisionRoute
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
@@ -133,6 +135,7 @@ class MpvVideoEngine(
     startPlaybackRequested: Boolean,
     private val startSpeed: Float,
     private val decoderMode: DecoderMode,
+    private val optimizationMode: PlaybackOptimizationMode,
     private val autoNext: Boolean,
     private val customUserAgent: String,
     private val scope: CoroutineScope,
@@ -771,11 +774,14 @@ class MpvVideoEngine(
                         !item.url.startsWith("content://", ignoreCase = true)
                 }
             if (hugeRemoteSource) {
-                // Keep remote remux/BD seeks bounded: enough forward data for high-bitrate peaks,
-                // without retaining hundreds of megabytes after every Range jump.
-                instance.optionalOption("demuxer-max-bytes", "64MiB")
-                instance.optionalOption("demuxer-max-back-bytes", "16MiB")
-                instance.optionalOption("demuxer-readahead-secs", "20")
+                // Keep remote remux/BD seeks bounded while following the user's memory/startup goal.
+                val bufferProfile = mpvBufferProfile(optimizationMode)
+                instance.optionalOption("demuxer-max-bytes", bufferProfile.forwardBytes.toString())
+                instance.optionalOption("demuxer-max-back-bytes", bufferProfile.backBytes.toString())
+                instance.optionalOption(
+                    "demuxer-readahead-secs",
+                    bufferProfile.readaheadSeconds.toString(),
+                )
                 instance.optionalOption("cache-pause-initial", "yes")
                 instance.optionalOption("cache-pause-wait", "1")
             }

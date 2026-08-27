@@ -151,7 +151,15 @@ fun appModule(
         )
     }
     single<OfflineMediaManager> { createOfflineMediaManager(get(), get(), get()) }
-    single { PlaybackReportingCoordinator(get(), get(), get(), get()) }
+    single {
+        PlaybackReportingCoordinator(
+            repository = get(),
+            registry = get(),
+            outbox = get(),
+            activity = get(),
+            progressSyncEnabled = get<ServerSyncManager>().syncProgress,
+        )
+    }
     single { ServerHealthMonitor(get(), get()) }
     single { AiringScheduleCache(get()) }
     single { CalendarFollowStore(get()) }
@@ -201,6 +209,7 @@ fun appModule(
             accessTokens = get(),
             repo = get(),
             registry = get(),
+            progressSyncEnabled = get<ServerSyncManager>().syncProgress,
         )
     }
     // Own client (different host + bearer auth), built inline so Koin keeps a

@@ -68,7 +68,7 @@ internal class EmbySearchService(
                         // rather than making every tapped result perform a second detail request.
                         parameter(
                             "Fields",
-                            "ProductionYear,Overview,ProviderIds,SeriesPrimaryImageTag,UserData",
+                            "ProductionYear,CommunityRating,Overview,ProviderIds,SeriesPrimaryImageTag,UserData",
                         )
                         parameter("EnableImageTypes", "Primary")
                         parameter("ImageTypeLimit", 1)
@@ -171,7 +171,7 @@ internal class EmbySearchService(
                         parameter("SortOrder", "Descending")
                         parameter(
                             "Fields",
-                            "ProductionYear,Overview,ProviderIds,BackdropImageTags," +
+                            "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags," +
                                 "ParentBackdropItemId,ParentBackdropImageTags,SeriesPrimaryImageTag",
                         )
                         parameter("EnableImageTypes", "Primary,Backdrop")
