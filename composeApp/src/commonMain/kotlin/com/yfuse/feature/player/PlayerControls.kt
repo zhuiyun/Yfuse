@@ -493,8 +493,7 @@ internal fun PlayerControls(
             .padding(
                 horizontal = PLAYER_TOUCH_SAFE_HORIZONTAL,
                 vertical = PLAYER_TOUCH_SAFE_VERTICAL,
-            )
-            .onFocusChanged { controlsHaveFocus = it.hasFocus }
+            ).onFocusChanged { controlsHaveFocus = it.hasFocus }
             .focusGroup(),
     ) {
         if (watch.connected) {

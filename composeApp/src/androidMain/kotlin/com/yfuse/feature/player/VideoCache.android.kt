@@ -116,8 +116,7 @@ private class SelectivePlaybackCacheDataSource(
 
     override fun getUri(): Uri? = delegate?.uri
 
-    override fun getResponseHeaders(): Map<String, List<String>> =
-        delegate?.responseHeaders.orEmpty()
+    override fun getResponseHeaders(): Map<String, List<String>> = delegate?.responseHeaders.orEmpty()
 
     override fun close() {
         val selected = delegate ?: return

@@ -171,15 +171,14 @@ class MpvVideoEngine(
                 userAgent = customUserAgent,
                 videoCacheBytes = videoCacheBytes,
             )
-        }
-            .onFailure { error ->
-                AppLog.warning(
-                    category = "player.mpv.network",
-                    event = "platform_proxy_unavailable",
-                    message = "Could not start the Android platform transport bridge",
-                    throwable = error,
-                )
-            }.getOrNull()
+        }.onFailure { error ->
+            AppLog.warning(
+                category = "player.mpv.network",
+                event = "platform_proxy_unavailable",
+                message = "Could not start the Android platform transport bridge",
+                throwable = error,
+            )
+        }.getOrNull()
     private val surfaceGeneration = AtomicLong(0L)
     private val surfaceRecoveryAttempts = AtomicLong(0L)
     private val surfaceRecoveryInProgress = AtomicBoolean(false)

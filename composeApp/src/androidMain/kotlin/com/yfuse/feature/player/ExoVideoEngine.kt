@@ -44,7 +44,6 @@ import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.playbackBufferProfile
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -56,6 +55,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
+import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "YfusePlayer"
 private val exoRuntimeCadence =
