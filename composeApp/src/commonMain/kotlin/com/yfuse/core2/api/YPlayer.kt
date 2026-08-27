@@ -2,6 +2,7 @@ package com.yfuse.core2.api
 
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
+import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
@@ -100,6 +101,8 @@ data class YMediaItem(
     val cacheIdentity: YCacheIdentity? = null,
     /** Per-item cache budget inherited from the user's playback setting. */
     val cacheMaximumBytes: Long = 0L,
+    /** Credential-bearing DRM configuration; its own toString is redacted. */
+    val drmConfiguration: PlaybackDrmConfiguration? = null,
 ) {
     init {
         require(cacheMaximumBytes >= 0L)

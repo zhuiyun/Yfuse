@@ -260,6 +260,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
         providerKey = serverId,
         cacheIdentity = yCoreCacheIdentity(),
         cacheMaximumBytes = cacheMaximumBytes.coerceAtLeast(0L),
+        drmConfiguration = drmConfiguration ?: version?.drmConfiguration,
         externalSubtitle =
             externalSubtitleUri
                 ?.takeIf(String::isNotBlank)

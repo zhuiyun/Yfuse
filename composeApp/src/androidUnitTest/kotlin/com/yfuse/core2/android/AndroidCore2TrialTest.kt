@@ -106,6 +106,12 @@ class AndroidCore2TrialTest {
 
     @Test
     fun core2_queue_mapping_preserves_request_identity_and_user_agent() {
+        val drm =
+            PlaybackDrmConfiguration(
+                scheme = PlaybackDrmScheme.Widevine,
+                licenseUri = "https://license.example.test/widevine",
+                requestHeaders = mapOf("Authorization" to "Bearer secret"),
+            )
         val item =
             mediaItem("https://media.example.test/episode.mkv").copy(
                 id = "episode-2",
@@ -113,6 +119,7 @@ class AndroidCore2TrialTest {
                 serverId = "server-a",
                 externalSubtitleUri = "content://offline/subtitle/2",
                 externalSubtitleLanguage = "zh-CN",
+                drmConfiguration = drm,
             )
 
         val mapped =
@@ -132,6 +139,7 @@ class AndroidCore2TrialTest {
         assertEquals("Yfuse-Test/2.0", mapped.headers["User-Agent"])
         assertEquals(item.externalSubtitleUri, mapped.externalSubtitle?.uri)
         assertEquals(item.externalSubtitleLanguage, mapped.externalSubtitle?.language)
+        assertEquals(drm, mapped.drmConfiguration)
     }
 
     @Test
