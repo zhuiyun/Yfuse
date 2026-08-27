@@ -244,8 +244,8 @@ internal class AndroidNativeEnhancedYPlayer(
                     item,
                     allowAudioPassthrough = allowAudioPassthrough,
                 )
-            check(decision?.nativeEnhancedExecutable == true) {
-                "Media item is not eligible for YCore NativeEnhanced"
+            check(decision?.nativeEnhancedExecutable == true || decision?.ffmpegSoftwareExecutable == true) {
+                "Media item is not eligible for YCore enhanced execution"
             }
             val result =
                 session.open(
@@ -289,7 +289,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     errorCategory = null,
                     diagnostics =
                         it.diagnostics.copy(
-                            route = YPlaybackRoute.NativeEnhanced,
+                            route = decision.plan.route,
                             container = result.container.name,
                             demuxer = "FFmpeg 8.1 / libavformat",
                             videoCodec = video?.mimeType.orEmpty(),

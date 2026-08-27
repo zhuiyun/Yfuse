@@ -30,9 +30,9 @@ import java.nio.ByteOrder
 /**
  * Enhanced-demux implementation backed by the pinned FFmpeg 8.1 libraries in the custom native AAR.
  *
- * FFmpeg stops at AVPacket: no video/audio decode API is exposed by this class. Encoded samples are
- * copied once from a reusable native DirectByteBuffer into the immutable common demux contract,
- * then Core2 Bitstream/MediaCodec own the rest of the playback path.
+ * FFmpeg normally stops at AVPacket. An optional versioned extension also exposes bounded software
+ * video/audio decode for codecs with no executable MediaCodec route. Encoded samples are copied
+ * once from a reusable native DirectByteBuffer into the immutable common demux contract.
  *
  * FFmpeg exposes container timestamps rather than the zero-based product timeline used by the
  * other player engines. The first selected compressed packet establishes the source timestamp
@@ -191,6 +191,47 @@ internal class AndroidFfmpegDemuxer :
                 durationUs = sample.durationUs,
             ) ?: return emptyList()
         return decoded.toBitmapSubtitleCues(sample)
+    }
+
+    val softwareDecodeAvailable: Boolean get() = FfmpegNativeBridge.softwareDecodeAvailable
+
+    fun configureSoftwareDecoder(trackId: YTrackId) {
+        requireOpenResult().tracks.singleOrNull { it.id == trackId }
+            ?: error("Software decoder track does not belong to this demux session")
+        FfmpegNativeBridge.configureSoftwareDecoder(requireHandle(), trackId.value)
+    }
+
+    fun sendSoftwarePacket(
+        trackId: YTrackId,
+        sample: YCompressedSample?,
+    ): Boolean {
+        requireOpenResult().tracks.singleOrNull { it.id == trackId }
+            ?: error("Software decoder track does not belong to this demux session")
+        require(sample == null || sample.trackId == trackId) { "Software packet track is inconsistent" }
+        require(sample == null || YSampleFlag.Encrypted !in sample.flags) {
+            "Encrypted samples cannot enter FFmpeg software decode"
+        }
+        return FfmpegNativeBridge.sendSoftwarePacket(
+            handle = requireHandle(),
+            trackIndex = trackId.value,
+            data = sample?.data,
+            presentationTimeUs = sample?.presentationTimeUs,
+            decodeTimeUs = sample?.decodeTimeUs,
+        )
+    }
+
+    fun receiveSoftwareVideoFrame(
+        trackId: YTrackId,
+        target: ByteBuffer,
+    ): LongArray = FfmpegNativeBridge.receiveSoftwareVideoFrame(requireHandle(), trackId.value, target)
+
+    fun receiveSoftwareAudioFrame(
+        trackId: YTrackId,
+        target: ByteBuffer,
+    ): LongArray = FfmpegNativeBridge.receiveSoftwareAudioFrame(requireHandle(), trackId.value, target)
+
+    fun flushSoftwareDecoder(trackId: YTrackId) {
+        FfmpegNativeBridge.flushSoftwareDecoder(requireHandle(), trackId.value)
     }
 
     override fun close() {

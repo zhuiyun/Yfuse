@@ -75,6 +75,8 @@ for ABI in "${ABIS[@]}"; do
   PREFIX="$UPSTREAM/buildscripts/prefix/$ABI"
   [[ -d "$PREFIX/include/libavformat" ]] || fail "missing FFmpeg headers for $ABI"
   [[ -f "$PREFIX/lib/libavformat.so" ]] || fail "missing FFmpeg shared library for $ABI"
+  [[ -f "$PREFIX/lib/libswscale.so" ]] || fail "missing FFmpeg libswscale for $ABI"
+  [[ -f "$PREFIX/lib/libswresample.so" ]] || fail "missing FFmpeg libswresample for $ABI"
   CXX="$TOOLCHAIN/bin/$(compiler_for_abi "$ABI")"
   [[ -x "$CXX" ]] || fail "missing compiler for $ABI: $CXX"
 
@@ -96,6 +98,8 @@ for ABI in "${ABIS[@]}"; do
     -Wl,-soname,libycore_demux.so \
     -lavformat \
     -lavcodec \
+    -lswscale \
+    -lswresample \
     -lavutil \
     -o "$OUT"
 
@@ -141,6 +145,7 @@ sha256sum "$AAR" | awk '{print $1}' > "$AAR.sha256"
   echo "ycore-demux=true"
   echo "ycore-demux-ffmpeg=$FFMPEG_REVISION"
   echo "ycore-demux-source=scripts/native/ycore_demux_jni.cpp"
+  echo "ycore-software-decoder-api=1"
   echo "ycore-demux-abis=$(IFS=,; echo "${ABIS[*]}")"
 } >> "$SOURCES_MANIFEST"
 

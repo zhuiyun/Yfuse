@@ -24,6 +24,7 @@ import com.yfuse.core2.quirk.YDeviceQuirkDatabase
 import com.yfuse.core2.quirk.YDeviceQuirkRule
 import com.yfuse.core2.quirk.YTextMatch
 import com.yfuse.core2.strategy.DefaultYPlaybackStrategy
+import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YPlaybackRequest
@@ -78,7 +79,32 @@ internal data class YCore2RouteDecision(
                 plan.demuxPath == YDemuxPath.Enhanced &&
                 plan.renderPath == YRenderPath.SurfaceDirect &&
                 plan.nativeAudio
+
+    val ffmpegSoftwareExecutable: Boolean
+        get() =
+            plan.route == YPlaybackRoute.SoftwareFallback &&
+                plan.demuxPath == YDemuxPath.Enhanced &&
+                (
+                    plan.decodePath == YDecodePath.Software &&
+                        plan.renderPath == YRenderPath.Gpu &&
+                        probe.playbackRequest.video.hdrType == YHdrType.Sdr &&
+                        probe.playbackRequest.video.softwareDecodeWithinBounds() ||
+                        plan.decodePath != YDecodePath.Software &&
+                        plan.renderPath == YRenderPath.SurfaceDirect
+                ) &&
+                plan.nativeAudio
 }
+
+private fun YVideoRequirement.softwareDecodeWithinBounds(): Boolean =
+    width in 1..SOFTWARE_VIDEO_MAX_WIDTH &&
+        height in 1..SOFTWARE_VIDEO_MAX_HEIGHT &&
+        width.toLong() * height.toLong() <= SOFTWARE_VIDEO_MAX_PIXELS &&
+        (frameRate <= 0f || frameRate <= SOFTWARE_VIDEO_MAX_FRAME_RATE)
+
+private const val SOFTWARE_VIDEO_MAX_WIDTH = 4096
+private const val SOFTWARE_VIDEO_MAX_HEIGHT = 4096
+private const val SOFTWARE_VIDEO_MAX_PIXELS = 4096L * 2160L
+private const val SOFTWARE_VIDEO_MAX_FRAME_RATE = 60f
 
 /**
  * Bounded metadata truth source for deciding whether one item may enter Core2.

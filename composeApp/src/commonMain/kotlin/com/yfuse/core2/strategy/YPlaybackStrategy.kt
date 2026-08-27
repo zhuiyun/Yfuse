@@ -18,6 +18,7 @@ enum class YDemuxPath {
 
 enum class YDecodePath {
     Hardware,
+    PlatformSoftware,
     Software,
 }
 
@@ -48,6 +49,7 @@ data class YPlaybackPlan(
     val decoderName: String? = null,
     val nativeAudio: Boolean = true,
     val audioPath: YAudioOutputPath = YAudioOutputPath.DecodePcm,
+    val softwareAudioDecode: Boolean = false,
     /** True when the original HDR representation cannot be used and a compatible base is selected. */
     val usesHdrFallback: Boolean = false,
     val reason: String,
@@ -100,7 +102,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         val selectedDecoder = originalDecoder ?: fallbackDecoder
         val decodePath =
             if (selectedDecoder?.hardwareAccelerated == false) {
-                YDecodePath.Software
+                YDecodePath.PlatformSoftware
             } else {
                 YDecodePath.Hardware
             }
@@ -169,22 +171,32 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
 
         return YPlaybackPlan(
             route = YPlaybackRoute.SoftwareFallback,
-            demuxPath = YDemuxPath.Software,
-            decodePath = YDecodePath.Software,
-            renderPath = YRenderPath.Gpu,
-            outputHdrType =
-                if (capabilities.supportsDisplayHdr(request.video.hdrType)) {
-                    request.video.hdrType
-                } else {
-                    YHdrType.Sdr
+            demuxPath = if (request.enhancedDemuxSupported) YDemuxPath.Enhanced else YDemuxPath.Software,
+            decodePath =
+                when {
+                    selectedDecoder == null -> YDecodePath.Software
+                    selectedDecoder.hardwareAccelerated -> YDecodePath.Hardware
+                    else -> YDecodePath.PlatformSoftware
                 },
-            nativeAudio = nativeAudio,
-            audioPath = audioPath,
+            renderPath = if (selectedDecoder == null) YRenderPath.Gpu else YRenderPath.SurfaceDirect,
+            outputHdrType =
+                selectedRequirement
+                    ?.hdrType
+                    ?.takeIf(capabilities::supportsDisplayHdr)
+                    ?: YHdrType.Sdr,
+            decoderName = selectedDecoder?.name,
+            nativeAudio = request.audio == null || request.enhancedDemuxSupported,
+            audioPath = if (request.audio == null) YAudioOutputPath.None else YAudioOutputPath.DecodePcm,
+            softwareAudioDecode = request.audio != null && !nativeAudio && request.enhancedDemuxSupported,
+            usesHdrFallback = usesHdrFallback,
             reason =
-                if (!nativeAudio) {
-                    "Native video route exists but the selected audio codec has no safe platform decode path"
-                } else {
-                    "No compatible hardware route exists; use universal software decode fallback"
+                when {
+                    !nativeAudio && request.enhancedDemuxSupported ->
+                        "Selected audio codec has no platform decoder; use FFmpeg PCM software decode"
+                    !nativeAudio ->
+                        "Selected audio codec has no executable decode path"
+                    else ->
+                        "No compatible platform video decoder exists; use FFmpeg software video decode"
                 },
         )
     }

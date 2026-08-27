@@ -178,7 +178,9 @@ class YPlaybackStrategyTest {
             )
 
         assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
-        assertFalse(plan.nativeAudio)
+        assertTrue(plan.nativeAudio)
+        assertTrue(plan.softwareAudioDecode)
+        assertEquals(YAudioOutputPath.DecodePcm, plan.audioPath)
         assertTrue("audio" in plan.reason.lowercase())
     }
 
@@ -225,8 +227,9 @@ class YPlaybackStrategyTest {
             )
 
         assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
-        assertEquals(YAudioOutputPath.None, plan.audioPath)
-        assertFalse(plan.nativeAudio)
+        assertEquals(YAudioOutputPath.DecodePcm, plan.audioPath)
+        assertTrue(plan.nativeAudio)
+        assertTrue(plan.softwareAudioDecode)
     }
 
     @Test
@@ -273,7 +276,7 @@ class YPlaybackStrategyTest {
             )
 
         assertEquals(YPlaybackRoute.NativeDirect, plan.route)
-        assertEquals(YDecodePath.Software, plan.decodePath)
+        assertEquals(YDecodePath.PlatformSoftware, plan.decodePath)
         assertEquals(YRenderPath.SurfaceDirect, plan.renderPath)
     }
 

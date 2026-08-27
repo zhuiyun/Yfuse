@@ -21,6 +21,8 @@ extern "C" {
 #include <libavutil/dovi_meta.h>
 #include <libavutil/error.h>
 #include <libavutil/mastering_display_metadata.h>
+#include <libswresample/swresample.h>
+#include <libswscale/swscale.h>
 }
 
 namespace {
@@ -54,6 +56,28 @@ constexpr jlong kNoTimestamp = std::numeric_limits<jlong>::min();
 constexpr uint32_t kSubtitlePayloadMagic = 0x42555359;
 constexpr uint32_t kSubtitlePayloadVersion = 1;
 constexpr size_t kMaxSubtitlePayloadBytes = 32U * 1024U * 1024U;
+constexpr size_t kMaxSoftwareVideoFrameBytes = 128U * 1024U * 1024U;
+constexpr size_t kMaxSoftwareAudioFrameBytes = 8U * 1024U * 1024U;
+constexpr int kSoftwareFrameAgain = 0;
+constexpr int kSoftwareFrameData = 1;
+constexpr int kSoftwareFrameEof = 2;
+constexpr int kSoftwareFrameGrowBuffer = -1;
+constexpr int kSoftwareDecoderApiVersion = 1;
+
+struct SoftwareDecoder {
+    AVCodecContext* codec = nullptr;
+    AVFrame* frame = nullptr;
+    SwsContext* scaler = nullptr;
+    SwrContext* resampler = nullptr;
+    bool frame_pending = false;
+
+    ~SoftwareDecoder() {
+        swr_free(&resampler);
+        sws_freeContext(scaler);
+        if (frame) av_frame_free(&frame);
+        if (codec) avcodec_free_context(&codec);
+    }
+};
 
 struct DemuxSession {
     AVFormatContext* format = nullptr;
@@ -62,6 +86,7 @@ struct DemuxSession {
     bool remote_source = false;
     std::vector<uint8_t> selected;
     std::vector<AVCodecContext*> subtitle_decoders;
+    std::vector<std::unique_ptr<SoftwareDecoder>> software_decoders;
 
     ~DemuxSession() {
         for (AVCodecContext*& decoder : subtitle_decoders) {
@@ -358,6 +383,47 @@ AVCodecContext* subtitle_decoder(JNIEnv* env, DemuxSession* session, jint index)
     return existing;
 }
 
+SoftwareDecoder* software_decoder(
+    JNIEnv* env,
+    DemuxSession* session,
+    jint index) {
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return nullptr;
+    if (stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO &&
+        stream->codecpar->codec_type != AVMEDIA_TYPE_AUDIO) {
+        throw_illegal_argument(env, "FFmpeg software decoder requires a video or audio track");
+        return nullptr;
+    }
+    std::unique_ptr<SoftwareDecoder>& existing = session->software_decoders[index];
+    if (existing) return existing.get();
+
+    const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
+    if (!codec) {
+        throw_illegal_state(env, "FFmpeg software decoder is unavailable");
+        return nullptr;
+    }
+    auto decoder = std::make_unique<SoftwareDecoder>();
+    decoder->codec = avcodec_alloc_context3(codec);
+    decoder->frame = av_frame_alloc();
+    if (!decoder->codec || !decoder->frame) {
+        throw_illegal_state(env, "Unable to allocate FFmpeg software decoder");
+        return nullptr;
+    }
+    int error = avcodec_parameters_to_context(decoder->codec, stream->codecpar);
+    if (error >= 0) {
+        decoder->codec->pkt_timebase = stream->time_base;
+        decoder->codec->thread_count = 0;
+        error = avcodec_open2(decoder->codec, codec, nullptr);
+    }
+    if (error < 0) {
+        throw_illegal_state(env, "FFmpeg software decoder open failed: " + ffmpeg_error(error));
+        return nullptr;
+    }
+    SoftwareDecoder* result = decoder.get();
+    existing = std::move(decoder);
+    return result;
+}
+
 bool append_bitmap_rect(std::vector<uint8_t>* output, const AVSubtitleRect* rect) {
     if (!rect || rect->type != SUBTITLE_BITMAP || rect->w <= 0 || rect->h <= 0 ||
         rect->nb_colors <= 0 || rect->nb_colors > 256 || !rect->data[0] || !rect->data[1] ||
@@ -411,6 +477,22 @@ jlongArray make_packet_result(
         duration_us,
         flags,
     };
+    jlongArray result = env->NewLongArray(sizeof(values) / sizeof(values[0]));
+    if (result) {
+        env->SetLongArrayRegion(result, 0, sizeof(values) / sizeof(values[0]), values);
+    }
+    return result;
+}
+
+jlongArray make_software_frame_result(
+    JNIEnv* env,
+    jlong status,
+    jlong size,
+    jlong pts_us,
+    jlong first,
+    jlong second,
+    jlong third) {
+    const jlong values[] = {status, size, pts_us, first, second, third};
     jlongArray result = env->NewLongArray(sizeof(values) / sizeof(values[0]));
     if (result) {
         env->SetLongArrayRegion(result, 0, sizeof(values) / sizeof(values[0]), values);
@@ -474,6 +556,7 @@ jlong native_open(
 
     session->selected.assign(session->format->nb_streams, 0);
     session->subtitle_decoders.assign(session->format->nb_streams, nullptr);
+    session->software_decoders.resize(session->format->nb_streams);
     return to_handle(session.release());
 }
 
@@ -888,6 +971,296 @@ jbyteArray native_decode_subtitle(
     return result;
 }
 
+jint native_software_decoder_api_version(JNIEnv*, jclass) {
+    return kSoftwareDecoderApiVersion;
+}
+
+void native_configure_software_decoder(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index) {
+    software_decoder(env, from_handle(handle), index);
+}
+
+jint native_send_software_packet(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index,
+    jbyteArray encoded,
+    jlong presentation_time_us,
+    jlong decode_time_us) {
+    DemuxSession* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return AVERROR(EINVAL);
+    SoftwareDecoder* decoder = software_decoder(env, session, index);
+    if (!decoder || env->ExceptionCheck()) return AVERROR(EINVAL);
+
+    AVPacket* packet = nullptr;
+    if (encoded) {
+        const jsize size = env->GetArrayLength(encoded);
+        if (size <= 0 || static_cast<size_t>(size) > kMaxSoftwareVideoFrameBytes) {
+            throw_illegal_argument(env, "FFmpeg software packet size is invalid");
+            return AVERROR(EINVAL);
+        }
+        packet = av_packet_alloc();
+        if (!packet || av_new_packet(packet, size) < 0) {
+            av_packet_free(&packet);
+            throw_illegal_state(env, "Unable to allocate FFmpeg software packet");
+            return AVERROR(ENOMEM);
+        }
+        env->GetByteArrayRegion(encoded, 0, size, reinterpret_cast<jbyte*>(packet->data));
+        if (env->ExceptionCheck()) {
+            av_packet_free(&packet);
+            return AVERROR(EINVAL);
+        }
+        packet->stream_index = index;
+        packet->pts = presentation_time_us == kNoTimestamp
+            ? AV_NOPTS_VALUE
+            : av_rescale_q(presentation_time_us, AV_TIME_BASE_Q, stream->time_base);
+        packet->dts = decode_time_us == kNoTimestamp
+            ? packet->pts
+            : av_rescale_q(decode_time_us, AV_TIME_BASE_Q, stream->time_base);
+    }
+    const int error = avcodec_send_packet(decoder->codec, packet);
+    av_packet_free(&packet);
+    if (error == AVERROR(EAGAIN)) return 1;
+    if (error < 0 && error != AVERROR_EOF) {
+        throw_illegal_state(env, "FFmpeg software packet decode failed: " + ffmpeg_error(error));
+        return error;
+    }
+    return 0;
+}
+
+jlongArray native_receive_software_video_frame(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index,
+    jobject target) {
+    DemuxSession* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return nullptr;
+    if (stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) {
+        throw_illegal_argument(env, "Requested software decoder track is not video");
+        return nullptr;
+    }
+    SoftwareDecoder* decoder = software_decoder(env, session, index);
+    if (!decoder || env->ExceptionCheck()) return nullptr;
+    if (!decoder->frame_pending) {
+        const int error = avcodec_receive_frame(decoder->codec, decoder->frame);
+        if (error == AVERROR(EAGAIN)) {
+            return make_software_frame_result(env, kSoftwareFrameAgain, 0, kNoTimestamp, 0, 0, 0);
+        }
+        if (error == AVERROR_EOF) {
+            return make_software_frame_result(env, kSoftwareFrameEof, 0, kNoTimestamp, 0, 0, 0);
+        }
+        if (error < 0) {
+            throw_illegal_state(env, "FFmpeg software video receive failed: " + ffmpeg_error(error));
+            return nullptr;
+        }
+        decoder->frame_pending = true;
+    }
+
+    const int width = decoder->frame->width;
+    const int height = decoder->frame->height;
+    if (width <= 0 || height <= 0 ||
+        static_cast<size_t>(width) > kMaxSoftwareVideoFrameBytes / 4U / static_cast<size_t>(height)) {
+        throw_illegal_state(env, "FFmpeg software video dimensions exceed the safety limit");
+        return nullptr;
+    }
+    const size_t required = static_cast<size_t>(width) * static_cast<size_t>(height) * 4U;
+    if (required > kMaxSoftwareVideoFrameBytes) {
+        throw_illegal_state(env, "FFmpeg software video frame exceeds the safety limit");
+        return nullptr;
+    }
+    auto* destination = static_cast<uint8_t*>(env->GetDirectBufferAddress(target));
+    const jlong capacity = env->GetDirectBufferCapacity(target);
+    if (!destination || capacity < 0) {
+        throw_illegal_argument(env, "FFmpeg software video target must be a direct ByteBuffer");
+        return nullptr;
+    }
+    const jlong pts_us = timestamp_us(decoder->frame->best_effort_timestamp, stream->time_base);
+    if (static_cast<uint64_t>(capacity) < required) {
+        return make_software_frame_result(
+            env,
+            kSoftwareFrameGrowBuffer,
+            static_cast<jlong>(required),
+            pts_us,
+            width,
+            height,
+            static_cast<jlong>(width) * 4L);
+    }
+    decoder->scaler = sws_getCachedContext(
+        decoder->scaler,
+        width,
+        height,
+        static_cast<AVPixelFormat>(decoder->frame->format),
+        width,
+        height,
+        AV_PIX_FMT_BGRA,
+        SWS_BILINEAR,
+        nullptr,
+        nullptr,
+        nullptr);
+    if (!decoder->scaler) {
+        throw_illegal_state(env, "FFmpeg software video scaler is unavailable");
+        return nullptr;
+    }
+    uint8_t* output_data[] = {destination, nullptr, nullptr, nullptr};
+    const int output_linesize[] = {width * 4, 0, 0, 0};
+    const int scaled = sws_scale(
+        decoder->scaler,
+        decoder->frame->data,
+        decoder->frame->linesize,
+        0,
+        height,
+        output_data,
+        output_linesize);
+    if (scaled != height) {
+        throw_illegal_state(env, "FFmpeg software video conversion was incomplete");
+        return nullptr;
+    }
+    av_frame_unref(decoder->frame);
+    decoder->frame_pending = false;
+    return make_software_frame_result(
+        env,
+        kSoftwareFrameData,
+        static_cast<jlong>(required),
+        pts_us,
+        width,
+        height,
+        static_cast<jlong>(width) * 4L);
+}
+
+jlongArray native_receive_software_audio_frame(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index,
+    jobject target) {
+    DemuxSession* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return nullptr;
+    if (stream->codecpar->codec_type != AVMEDIA_TYPE_AUDIO) {
+        throw_illegal_argument(env, "Requested software decoder track is not audio");
+        return nullptr;
+    }
+    SoftwareDecoder* decoder = software_decoder(env, session, index);
+    if (!decoder || env->ExceptionCheck()) return nullptr;
+    if (!decoder->frame_pending) {
+        const int error = avcodec_receive_frame(decoder->codec, decoder->frame);
+        if (error == AVERROR(EAGAIN)) {
+            return make_software_frame_result(env, kSoftwareFrameAgain, 0, kNoTimestamp, 0, 0, 0);
+        }
+        if (error == AVERROR_EOF) {
+            return make_software_frame_result(env, kSoftwareFrameEof, 0, kNoTimestamp, 0, 0, 0);
+        }
+        if (error < 0) {
+            throw_illegal_state(env, "FFmpeg software audio receive failed: " + ffmpeg_error(error));
+            return nullptr;
+        }
+        decoder->frame_pending = true;
+    }
+
+    AVChannelLayout input_layout = {};
+    if (decoder->frame->ch_layout.nb_channels > 0) {
+        av_channel_layout_copy(&input_layout, &decoder->frame->ch_layout);
+    } else {
+        av_channel_layout_default(&input_layout, stream->codecpar->ch_layout.nb_channels);
+    }
+    const int channels = input_layout.nb_channels;
+    const int sample_rate = decoder->frame->sample_rate > 0
+        ? decoder->frame->sample_rate
+        : stream->codecpar->sample_rate;
+    if (channels <= 0 || channels > 32 || sample_rate <= 0 || sample_rate > 768000) {
+        av_channel_layout_uninit(&input_layout);
+        throw_illegal_state(env, "FFmpeg software audio format is invalid");
+        return nullptr;
+    }
+    AVChannelLayout output_layout = {};
+    av_channel_layout_copy(&output_layout, &input_layout);
+    swr_free(&decoder->resampler);
+    int error = swr_alloc_set_opts2(
+        &decoder->resampler,
+        &output_layout,
+        AV_SAMPLE_FMT_S16,
+        sample_rate,
+        &input_layout,
+        static_cast<AVSampleFormat>(decoder->frame->format),
+        sample_rate,
+        0,
+        nullptr);
+    av_channel_layout_uninit(&input_layout);
+    av_channel_layout_uninit(&output_layout);
+    if (error < 0 || !decoder->resampler || (error = swr_init(decoder->resampler)) < 0) {
+        throw_illegal_state(env, "FFmpeg software audio resampler open failed: " + ffmpeg_error(error));
+        return nullptr;
+    }
+    const int output_samples = swr_get_out_samples(decoder->resampler, decoder->frame->nb_samples);
+    const int required = av_samples_get_buffer_size(nullptr, channels, output_samples, AV_SAMPLE_FMT_S16, 1);
+    if (required <= 0 || static_cast<size_t>(required) > kMaxSoftwareAudioFrameBytes) {
+        throw_illegal_state(env, "FFmpeg software audio frame exceeds the safety limit");
+        return nullptr;
+    }
+    auto* destination = static_cast<uint8_t*>(env->GetDirectBufferAddress(target));
+    const jlong capacity = env->GetDirectBufferCapacity(target);
+    if (!destination || capacity < 0) {
+        throw_illegal_argument(env, "FFmpeg software audio target must be a direct ByteBuffer");
+        return nullptr;
+    }
+    const jlong pts_us = timestamp_us(decoder->frame->best_effort_timestamp, stream->time_base);
+    if (capacity < required) {
+        return make_software_frame_result(
+            env,
+            kSoftwareFrameGrowBuffer,
+            required,
+            pts_us,
+            channels,
+            sample_rate,
+            output_samples);
+    }
+    uint8_t* output_data[] = {destination};
+    const int converted = swr_convert(
+        decoder->resampler,
+        output_data,
+        output_samples,
+        const_cast<const uint8_t**>(decoder->frame->extended_data),
+        decoder->frame->nb_samples);
+    if (converted < 0) {
+        throw_illegal_state(env, "FFmpeg software audio conversion failed: " + ffmpeg_error(converted));
+        return nullptr;
+    }
+    const int output_bytes = converted * channels * static_cast<int>(sizeof(int16_t));
+    av_frame_unref(decoder->frame);
+    decoder->frame_pending = false;
+    return make_software_frame_result(
+        env,
+        kSoftwareFrameData,
+        output_bytes,
+        pts_us,
+        channels,
+        sample_rate,
+        converted);
+}
+
+void native_flush_software_decoder(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index) {
+    DemuxSession* session = from_handle(handle);
+    checked_stream(env, session, index);
+    if (env->ExceptionCheck()) return;
+    SoftwareDecoder* decoder = session->software_decoders[index].get();
+    if (!decoder) return;
+    avcodec_flush_buffers(decoder->codec);
+    av_frame_unref(decoder->frame);
+    decoder->frame_pending = false;
+    swr_free(&decoder->resampler);
+}
+
 jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
     DemuxSession* session = from_handle(handle);
     if (!session || !session->format) {
@@ -908,6 +1281,13 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
     avformat_flush(session->format);
     for (AVCodecContext* decoder : session->subtitle_decoders) {
         if (decoder) avcodec_flush_buffers(decoder);
+    }
+    for (const std::unique_ptr<SoftwareDecoder>& decoder : session->software_decoders) {
+        if (!decoder) continue;
+        avcodec_flush_buffers(decoder->codec);
+        av_frame_unref(decoder->frame);
+        decoder->frame_pending = false;
+        swr_free(&decoder->resampler);
     }
     if (session->packet_pending) {
         av_packet_unref(session->packet);
@@ -935,6 +1315,12 @@ static const JNINativeMethod kMethods[] = {
     {"nativeSelectTracks", "(J[I)V", reinterpret_cast<void*>(native_select_tracks)},
     {"nativeReadPacket", "(JLjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_read_packet)},
     {"nativeDecodeSubtitle", "(JI[BJJ)[B", reinterpret_cast<void*>(native_decode_subtitle)},
+    {"nativeSoftwareDecoderApiVersion", "()I", reinterpret_cast<void*>(native_software_decoder_api_version)},
+    {"nativeConfigureSoftwareDecoder", "(JI)V", reinterpret_cast<void*>(native_configure_software_decoder)},
+    {"nativeSendSoftwarePacket", "(JI[BJJ)I", reinterpret_cast<void*>(native_send_software_packet)},
+    {"nativeReceiveSoftwareVideoFrame", "(JILjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_receive_software_video_frame)},
+    {"nativeReceiveSoftwareAudioFrame", "(JILjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_receive_software_audio_frame)},
+    {"nativeFlushSoftwareDecoder", "(JI)V", reinterpret_cast<void*>(native_flush_software_decoder)},
     {"nativeSeek", "(JJ)I", reinterpret_cast<void*>(native_seek)},
 };
 

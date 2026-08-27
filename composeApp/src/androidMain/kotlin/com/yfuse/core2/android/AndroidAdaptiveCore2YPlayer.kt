@@ -380,6 +380,16 @@ internal class AndroidAdaptiveCore2YPlayer(
                         allowAudioPassthrough,
                         frameRateSwitchMode,
                     )
+                !forceSoftwareFallback &&
+                    decision.ffmpegSoftwareExecutable &&
+                    FfmpegNativeBridge.softwareDecodeAvailable ->
+                    AndroidNativeEnhancedYPlayer(
+                        context,
+                        singleRequest,
+                        routeEvaluator,
+                        allowAudioPassthrough,
+                        frameRateSwitchMode,
+                    )
                 plan.route == YPlaybackRoute.GpuEnhanced ||
                     plan.route == YPlaybackRoute.SoftwareFallback ->
                     fallbackRouteFactory?.create(item, singleRequest, plan, speed)
