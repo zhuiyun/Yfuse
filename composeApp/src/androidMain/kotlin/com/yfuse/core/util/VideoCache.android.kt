@@ -9,3 +9,9 @@ actual suspend fun clearVideoCache(): Long =
         val context = imageCacheContext ?: return@withContext 0L
         VideoCachePool.clear(context)
     }
+
+actual suspend fun videoCacheUsageBytes(): Long =
+    withContext(Dispatchers.IO) {
+        val context = imageCacheContext ?: return@withContext 0L
+        runCatching { VideoCachePool.usage(context) }.getOrDefault(0L)
+    }

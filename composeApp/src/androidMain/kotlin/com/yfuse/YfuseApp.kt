@@ -91,7 +91,6 @@ class YfuseApp :
                                 context = this@YfuseApp,
                                 playbackPreferences = get(),
                                 userAgentPreferences = get(),
-                                themePreferences = get(),
                             )
                         }
                     },

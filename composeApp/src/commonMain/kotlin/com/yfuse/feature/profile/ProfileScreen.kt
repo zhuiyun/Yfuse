@@ -287,6 +287,7 @@ fun ProfileScreen(component: ProfileComponent) {
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
     var confirmClearVideoCache by remember { mutableStateOf(false) }
+    var videoCacheUsageBytes by remember { mutableStateOf<Long?>(null) }
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var settingsQuery by rememberSaveable { mutableStateOf("") }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
@@ -321,6 +322,12 @@ fun ProfileScreen(component: ProfileComponent) {
         if (discoverySettingsRequest > 0L) {
             if (pageStack.lastOrNull() != ProfilePage.MediaDiscovery.name) openPage(ProfilePage.MediaDiscovery)
             component.tgtoMediaPreferences.consumeOpenSettingsRequest()
+        }
+    }
+
+    LaunchedEffect(pageStack.lastOrNull(), videoCacheSize) {
+        if (pageStack.lastOrNull() == ProfilePage.DataAndDiagnostics.name) {
+            videoCacheUsageBytes = component.videoCacheUsageBytes()
         }
     }
 
@@ -468,6 +475,8 @@ fun ProfileScreen(component: ProfileComponent) {
                         onInspectRelay = component::inspectRelayServers,
                         onIsRelay = component::isRelayServers,
                         onImportRelay = component::importRelayServers,
+                        videoCacheUsageBytes = videoCacheUsageBytes,
+                        videoCacheSize = videoCacheSize,
                         onUserAgent = { sheet = Sheet.UserAgent },
                         onClearCache = { confirmClearCache = true },
                         onClearVideoCache = { confirmClearVideoCache = true },
@@ -958,7 +967,10 @@ fun ProfileScreen(component: ProfileComponent) {
                 destructive = true,
                 onConfirm = {
                     confirmClearVideoCache = false
-                    screenScope.launch { component.onClearVideoCache() }
+                    screenScope.launch {
+                        component.onClearVideoCache()
+                        videoCacheUsageBytes = component.videoCacheUsageBytes()
+                    }
                 },
                 onDismiss = { confirmClearVideoCache = false },
             )
@@ -977,6 +989,8 @@ private fun DataAndDiagnosticsScreen(
     onInspectRelay: (String) -> com.yfuse.core.security.RelayMigrationDescriptor,
     onIsRelay: (String) -> Boolean,
     onImportRelay: (String, ByteArray, Long) -> Result<Int>,
+    videoCacheUsageBytes: Long?,
+    videoCacheSize: VideoCacheSize,
     onUserAgent: () -> Unit,
     onClearCache: () -> Unit,
     onClearVideoCache: () -> Unit,
@@ -1016,7 +1030,12 @@ private fun DataAndDiagnosticsScreen(
                 SettingsCard {
                     SettingRow("清除图片缓存", "不影响离线下载 ›", true, onClearCache)
                     SettingsDivider()
-                    SettingRow("清除视频缓存", "不影响离线下载 ›", true, onClearVideoCache)
+                    SettingRow(
+                        "清除视频缓存",
+                        videoCacheUsageSummary(videoCacheUsageBytes, videoCacheSize),
+                        true,
+                        onClearVideoCache,
+                    )
                 }
             }
         }
@@ -1025,6 +1044,17 @@ private fun DataAndDiagnosticsScreen(
         }
     }
 }
+
+internal fun videoCacheUsageSummary(
+    usedBytes: Long?,
+    cacheSize: VideoCacheSize,
+): String =
+    when {
+        usedBytes == null -> "正在计算 · 上限 ${cacheSize.label} ›"
+        cacheSize.bytes <= 0L && usedBytes <= 0L -> "已关闭 · 无缓存 ›"
+        cacheSize.bytes <= 0L -> "已关闭 · 已用 ${formatDownloadBytes(usedBytes)} ›"
+        else -> "已用 ${formatDownloadBytes(usedBytes)} / ${cacheSize.label} ›"
+    }
 
 @Composable
 internal fun SettingsPage(

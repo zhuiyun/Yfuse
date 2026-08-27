@@ -65,6 +65,12 @@ internal object PreparedPlaybackRegistry {
  * Platform cache warmer. Metadata/MediaSources are prepared in common code; Android additionally
  * warms the first bytes of the direct stream into the sparse cache shared by every player engine.
  */
+fun interface PlaybackSourcePreload {
+    fun cancel()
+}
+
+internal fun noOpPlaybackSourcePreload(): PlaybackSourcePreload = PlaybackSourcePreload {}
+
 interface PlaybackSourcePreloader {
-    fun preload(url: String)
+    fun preload(item: PlayerMediaItem): PlaybackSourcePreload
 }

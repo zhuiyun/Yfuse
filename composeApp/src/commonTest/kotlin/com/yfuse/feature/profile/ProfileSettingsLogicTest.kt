@@ -1,5 +1,6 @@
 package com.yfuse.feature.profile
 
+import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.offline.DownloadStatus
@@ -73,6 +74,23 @@ class ProfileSettingsLogicTest {
         simplePlaybackModes.map { it.simplePlaybackLabel() }.forEach { label ->
             PlayerEngine.selectable.forEach { engine -> assertFalse(engine.label in label) }
         }
+    }
+
+    @Test
+    fun video_cache_summary_reports_usage_limit_and_disabled_residue() {
+        assertEquals(
+            "正在计算 · 上限 512 MB ›",
+            videoCacheUsageSummary(null, VideoCacheSize.Medium),
+        )
+        assertEquals(
+            "已用 64 MB / 512 MB ›",
+            videoCacheUsageSummary(64L * 1024L * 1024L, VideoCacheSize.Medium),
+        )
+        assertEquals("已关闭 · 无缓存 ›", videoCacheUsageSummary(0L, VideoCacheSize.Off))
+        assertEquals(
+            "已关闭 · 已用 1 MB ›",
+            videoCacheUsageSummary(1024L * 1024L, VideoCacheSize.Off),
+        )
     }
 
     @Test

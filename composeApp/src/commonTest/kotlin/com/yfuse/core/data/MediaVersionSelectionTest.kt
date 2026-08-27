@@ -54,6 +54,21 @@ class MediaVersionSelectionTest {
     }
 
     @Test
+    fun missing_explicit_version_falls_back_to_preference_not_server_order() {
+        val dolby = version("dolby", range = "DOVI", dolbyProfile = 5)
+        val hdr = version("hdr", range = "HDR10")
+
+        assertEquals(
+            "hdr",
+            listOf(dolby, hdr)
+                .preferredVersion(
+                    preference = MediaVersionPreference.HdrFirst,
+                    explicitVersionId = "version-from-previous-episode",
+                )?.id,
+        )
+    }
+
+    @Test
     fun dolby_first_and_highest_quality_are_deterministic() {
         val dolby = version("dolby", range = "DOVI", dolbyProfile = 8, bitrate = 30_000_000)
         val hdr = version("hdr", range = "HDR10", bitrate = 50_000_000)
