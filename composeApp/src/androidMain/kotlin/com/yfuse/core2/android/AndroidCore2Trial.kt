@@ -11,6 +11,9 @@ import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
+import com.yfuse.core2.release.Core2NativeBaselineBlock
+import com.yfuse.core2.release.Core2NativeBaselineSource
+import com.yfuse.core2.release.evaluateCore2NativeBaseline
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.feature.player.AndroidPlaybackHttpProxy
 import com.yfuse.feature.player.PlayerMediaItem
@@ -38,6 +41,7 @@ internal object AndroidCore2TrialFactory {
         allowAudioPassthrough: Boolean,
         frameRateMatch: PlaybackFrameRateMatch,
         videoCacheBytes: Long = 0L,
+        nativeOnly: Boolean = false,
     ): VideoEngine? {
         if (!items.canUseCore2Trial(startIndex)) return null
         val cacheProxy =
@@ -71,10 +75,14 @@ internal object AndroidCore2TrialFactory {
                 autoNext = autoNext,
             )
         val compatibilityFactory =
-            AndroidMpvCore2FallbackFactory(
-                context = context,
-                sourceItems = items.associateBy(PlayerMediaItem::id),
-            )
+            if (nativeOnly) {
+                null
+            } else {
+                AndroidMpvCore2FallbackFactory(
+                    context = context,
+                    sourceItems = items.associateBy(PlayerMediaItem::id),
+                )
+            }
         return try {
             val player =
                 AndroidAdaptiveCore2YPlayer(
@@ -120,6 +128,45 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
             item.externalSubtitleUri.isCore2SubtitleSourceSupported() &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
     }
+}
+
+internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: Int): String? {
+    val item = getOrNull(startIndex) ?: return "YCore Native 缺少当前播放项"
+    val version = item.activeVersion
+    val source =
+        Core2NativeBaselineSource(
+            hasMetadata = version != null,
+            scheme = item.url.substringBefore(':').lowercase(),
+            container = version?.container,
+            videoCodec = version?.sourceVideoCodec,
+            serverTranscode = item.startsWithServerTranscode(),
+            adaptiveManifest = item.url.isAdaptiveManifest(),
+            disc = version?.discSource == true,
+            drm = item.drmConfiguration != null || version?.drmConfiguration != null,
+            dolbyVision = version?.dolbyVision == true,
+            externalSubtitleSupported = item.externalSubtitleUri.isCore2SubtitleSourceSupported(),
+        )
+    return evaluateCore2NativeBaseline(source)?.userMessage()
+}
+
+private fun Core2NativeBaselineBlock.userMessage(): String =
+    when (this) {
+        Core2NativeBaselineBlock.MissingMetadata -> "YCore Native 缺少片源格式元数据"
+        Core2NativeBaselineBlock.UnsupportedScheme -> "YCore Native 暂不支持当前来源协议"
+        Core2NativeBaselineBlock.ServerTranscode -> "YCore Native 基线仅验证直连片源"
+        Core2NativeBaselineBlock.AdaptiveManifest -> "YCore Native 尚未完成 HLS/DASH"
+        Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 当前仅验证 MP4/MKV"
+        Core2NativeBaselineBlock.UnsupportedVideoCodec ->
+            "YCore Native 当前仅验证 H.264/HEVC"
+        Core2NativeBaselineBlock.Disc -> "YCore Native 尚未完成原盘导航"
+        Core2NativeBaselineBlock.Drm -> "YCore Native 尚未完成 DRM"
+        Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未完成杜比视界渲染"
+        Core2NativeBaselineBlock.ExternalSubtitle -> "YCore Native 不支持当前外挂字幕来源"
+    }
+
+private fun String.isAdaptiveManifest(): Boolean {
+    val path = substringBefore('?').substringBefore('#').lowercase()
+    return path.endsWith(".m3u8") || path.endsWith(".mpd")
 }
 
 internal fun List<PlayerMediaItem>.toCore2MediaItems(

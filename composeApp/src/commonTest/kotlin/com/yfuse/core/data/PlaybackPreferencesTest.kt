@@ -94,6 +94,21 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun ycore_native_only_defaults_off_and_cannot_outlive_the_core2_switch() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertFalse(first.core2NativeOnlyEnabled.value)
+        first.setCore2NativeOnlyEnabled(true)
+        assertTrue(PlaybackPreferences(settings).core2NativeOnlyEnabled.value)
+
+        first.setCore2TrialEnabled(false)
+        val restored = PlaybackPreferences(settings)
+        assertFalse(restored.core2TrialEnabled.value)
+        assertFalse(restored.core2NativeOnlyEnabled.value)
+    }
+
+    @Test
     fun ycore_device_quirks_are_bounded_and_persist_without_media_identity() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)

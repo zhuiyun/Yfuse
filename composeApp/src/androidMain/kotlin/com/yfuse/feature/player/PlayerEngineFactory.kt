@@ -15,6 +15,7 @@ import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core2.android.AndroidCore2TrialFactory
+import com.yfuse.core2.android.core2NativeBaselineBlockReason
 import kotlinx.coroutines.CoroutineScope
 
 internal fun shouldUseCore2Trial(
@@ -44,6 +45,7 @@ internal fun createVideoEngine(
     scope: CoroutineScope,
     stopEncoding: suspend (String) -> Boolean,
     core2TrialEnabled: Boolean = false,
+    core2NativeOnlyEnabled: Boolean = false,
     engineSelection: PlaybackEngineSelection = PlaybackEngineSelection.Auto,
     allowAudioPassthrough: Boolean = false,
     frameRateMatch: PlaybackFrameRateMatch = PlaybackFrameRateMatch.Disabled,
@@ -81,6 +83,16 @@ internal fun createVideoEngine(
         media = items.getOrNull(startIndex),
     )
     if (yCoreAllowed) {
+        if (core2NativeOnlyEnabled) {
+            items.core2NativeBaselineBlockReason(startIndex)?.let { reason ->
+                return MissingNativeCapabilityVideoEngine(
+                    message = reason,
+                    startIndex = startIndex,
+                    itemCount = items.size,
+                    startPositionMs = startPositionMs,
+                )
+            }
+        }
         AndroidCore2TrialFactory
             .create(
                 context = context,
@@ -94,7 +106,16 @@ internal fun createVideoEngine(
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateMatch = frameRateMatch,
                 videoCacheBytes = videoCacheBytes,
+                nativeOnly = core2NativeOnlyEnabled,
             )?.let { return it }
+        if (core2NativeOnlyEnabled) {
+            return MissingNativeCapabilityVideoEngine(
+                message = "YCore Native 当前无法建立纯内核播放路径",
+                startIndex = startIndex,
+                itemCount = items.size,
+                startPositionMs = startPositionMs,
+            )
+        }
     }
 
     return when (kind) {

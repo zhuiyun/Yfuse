@@ -270,6 +270,7 @@ internal fun AdvancedPlaybackSettingsScreen(
     val frameRateMatch by outputPreferences.frameRateMatch.collectAsState()
     val audioPassthrough by outputPreferences.audioPassthrough.collectAsState()
     val core2TrialEnabled by outputPreferences.core2TrialEnabled.collectAsState()
+    val core2NativeOnlyEnabled by outputPreferences.core2NativeOnlyEnabled.collectAsState()
 
     SettingsPage(
         title = "高级播放设置",
@@ -298,6 +299,13 @@ internal fun AdvancedPlaybackSettingsScreen(
                         core2TrialEnabled,
                         true,
                         onChange = outputPreferences::setCore2TrialEnabled,
+                    )
+                    SettingsDivider()
+                    SwitchRow(
+                        "YCore Native 纯内核（开发中）",
+                        core2NativeOnlyEnabled,
+                        core2TrialEnabled,
+                        onChange = outputPreferences::setCore2NativeOnlyEnabled,
                     )
                     SettingsDivider()
                     SettingRow(
