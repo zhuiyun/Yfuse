@@ -184,7 +184,7 @@ internal class AndroidPlaybackHttpProxy(
         try {
             val start = range?.start ?: 0L
             val requestedLength =
-                range?.endInclusive?.let { end -> end - start + 1L } ?: C.LENGTH_UNSET
+                range?.endInclusive?.let { end -> end - start + 1L } ?: UNKNOWN_LENGTH
             val dataSpec =
                 DataSpec
                     .Builder()
@@ -201,8 +201,8 @@ internal class AndroidPlaybackHttpProxy(
                 cachedContentLength(route.upstreamUrl)
                     ?: responseContentRangeTotal(responseHeaders)
                     ?: when {
-                        range == null && openedLength != C.LENGTH_UNSET -> openedLength
-                        range?.endInclusive == null && openedLength != C.LENGTH_UNSET ->
+                        range == null && openedLength != UNKNOWN_LENGTH -> openedLength
+                        range?.endInclusive == null && openedLength != UNKNOWN_LENGTH ->
                             start + openedLength
                         else -> null
                     }
@@ -212,15 +212,15 @@ internal class AndroidPlaybackHttpProxy(
             }
             val contentLength =
                 sequenceOf(
-                    openedLength.takeIf { it != C.LENGTH_UNSET },
-                    requestedLength.takeIf { it != C.LENGTH_UNSET },
+                    openedLength.takeIf { it != UNKNOWN_LENGTH },
+                    requestedLength.takeIf { it != UNKNOWN_LENGTH },
                     totalLength?.let { it - start },
                 ).filterNotNull()
                     .minOrNull()
                     ?.coerceAtLeast(0L)
-                    ?: C.LENGTH_UNSET
+                    ?: UNKNOWN_LENGTH
             val endInclusive =
-                if (contentLength != C.LENGTH_UNSET && contentLength > 0L) {
+                if (contentLength != UNKNOWN_LENGTH && contentLength > 0L) {
                     start + contentLength - 1L
                 } else {
                     range?.endInclusive
@@ -343,7 +343,7 @@ internal class AndroidPlaybackHttpProxy(
         var remaining = contentLength
         while (remaining != 0L) {
             val requested =
-                if (remaining == C.LENGTH_UNSET) {
+                if (remaining == UNKNOWN_LENGTH) {
                     buffer.size
                 } else {
                     min(buffer.size.toLong(), remaining).toInt()
@@ -351,7 +351,7 @@ internal class AndroidPlaybackHttpProxy(
             val read = dataSource.read(buffer, 0, requested)
             if (read == C.RESULT_END_OF_INPUT) break
             output.write(buffer, 0, read)
-            if (remaining != C.LENGTH_UNSET) remaining -= read.toLong()
+            if (remaining != UNKNOWN_LENGTH) remaining -= read.toLong()
         }
     }
 
@@ -385,7 +385,7 @@ internal class AndroidPlaybackHttpProxy(
                 output.write("$name: $value\r\n".toByteArray(StandardCharsets.ISO_8859_1))
             }
         }
-        if (contentLength != C.LENGTH_UNSET) {
+        if (contentLength != UNKNOWN_LENGTH) {
             output.write(
                 "Content-Length: $contentLength\r\n".toByteArray(StandardCharsets.ISO_8859_1),
             )
@@ -528,6 +528,7 @@ private const val CLIENT_SOCKET_TIMEOUT_MS = 30_000
 private const val UPSTREAM_CONNECT_TIMEOUT_MS = 15_000
 private const val UPSTREAM_READ_TIMEOUT_MS = 30_000
 private const val WORKER_SHUTDOWN_TIMEOUT_MS = 2_000L
+private const val UNKNOWN_LENGTH = -1L
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
 private const val MAX_REQUEST_LINE_LENGTH = 8 * 1024
