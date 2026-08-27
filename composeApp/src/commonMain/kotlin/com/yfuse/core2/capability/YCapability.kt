@@ -18,6 +18,7 @@ enum class YVideoCodec {
     H265,
     Av1,
     Vp9,
+    Vc1,
     Mpeg2,
     ProRes,
     Unknown,

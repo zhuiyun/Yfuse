@@ -199,9 +199,9 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
         Core2NativeBaselineBlock.UnsupportedScheme -> "YCore Native 暂不支持当前来源协议"
         Core2NativeBaselineBlock.ServerTranscode -> "YCore Native 基线仅验证直连片源"
         Core2NativeBaselineBlock.AdaptiveManifest -> "YCore Native 当前仅支持已验证的 HLS / 静态 DASH 子集"
-        Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 当前仅验证 MP4/MKV"
+        Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 当前仅验证 MP4/MKV/WebM/MOV"
         Core2NativeBaselineBlock.UnsupportedVideoCodec ->
-            "YCore Native 当前仅验证 H.264/HEVC"
+            "YCore Native 当前仅验证 H.264/HEVC/AV1/VP9/VC-1/MPEG-2/ProRes"
         Core2NativeBaselineBlock.Disc -> "YCore Native 尚未完成原盘导航"
         Core2NativeBaselineBlock.Drm -> "YCore Native 当前仅支持 Widevine CENC（MP4 / 静态 DASH）"
         Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未完成杜比视界渲染"

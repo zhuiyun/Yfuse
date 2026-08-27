@@ -376,7 +376,9 @@ private fun String.toYVideoCodec(): YVideoCodec? =
         "video/hevc" -> YVideoCodec.H265
         "video/av01" -> YVideoCodec.Av1
         "video/x-vnd.on2.vp9" -> YVideoCodec.Vp9
+        "video/wvc1", "video/vc1", "video/x-ms-wmv" -> YVideoCodec.Vc1
         "video/mpeg2" -> YVideoCodec.Mpeg2
+        "video/prores" -> YVideoCodec.ProRes
         else -> null
     }
 

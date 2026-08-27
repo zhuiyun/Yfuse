@@ -285,6 +285,7 @@ private fun YCore2ProbeResult.Success.activeProbeMime(plan: YPlaybackPlan): Stri
             YVideoCodec.H265 -> "video/hevc"
             YVideoCodec.Av1 -> "video/av01"
             YVideoCodec.Vp9 -> "video/x-vnd.on2.vp9"
+            YVideoCodec.Vc1 -> "video/wvc1"
             YVideoCodec.Mpeg2 -> "video/mpeg2"
             YVideoCodec.ProRes -> "video/prores"
             YVideoCodec.Unknown -> videoMime
@@ -359,6 +360,7 @@ private fun String.toCore2VideoCodec(
         "video/hevc" -> YVideoCodec.H265
         "video/av01" -> YVideoCodec.Av1
         "video/x-vnd.on2.vp9" -> YVideoCodec.Vp9
+        "video/wvc1", "video/vc1", "video/x-ms-wmv" -> YVideoCodec.Vc1
         "video/mpeg2" -> YVideoCodec.Mpeg2
         "video/dolby-vision" ->
             when (dolbyVisionConfig?.codecFamily) {

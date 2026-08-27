@@ -16,6 +16,14 @@ class Core2NativeBaselineTest {
     }
 
     @Test
+    fun extended_hardware_codec_and_container_candidates_enter_runtime_probing() {
+        assertNull(evaluateCore2NativeBaseline(source(container = "webm", codec = "vp09.02.10.10")))
+        assertNull(evaluateCore2NativeBaseline(source(container = "mkv", codec = "AV1")))
+        assertNull(evaluateCore2NativeBaseline(source(container = "mkv", codec = "VC-1")))
+        assertNull(evaluateCore2NativeBaseline(source(container = "mov", codec = "ProRes")))
+    }
+
+    @Test
     fun adaptive_drm_dolby_and_disc_sources_are_fail_closed() {
         assertEquals(
             Core2NativeBaselineBlock.AdaptiveManifest,
@@ -80,7 +88,7 @@ class Core2NativeBaselineTest {
         )
         assertEquals(
             Core2NativeBaselineBlock.UnsupportedVideoCodec,
-            evaluateCore2NativeBaseline(source(codec = "AV1")),
+            evaluateCore2NativeBaseline(source(codec = "Theora")),
         )
         assertEquals(
             Core2NativeBaselineBlock.UnsupportedScheme,

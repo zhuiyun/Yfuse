@@ -317,8 +317,7 @@ internal class AndroidFfmpegDemuxer :
 
     private fun requireHandle(): Long = handle.takeIf { it != 0L } ?: error("FFmpeg demux session has not been opened")
 
-    private fun requireOpenResult(): YDemuxOpenResult =
-        checkNotNull(openResult) { "FFmpeg demux session has not been opened" }
+    private fun requireOpenResult(): YDemuxOpenResult = checkNotNull(openResult) { "FFmpeg demux session has not been opened" }
 }
 
 internal fun ByteArray.toBitmapSubtitleCues(sample: YCompressedSample): List<YSubtitleCue> {
@@ -403,6 +402,7 @@ internal fun ffmpegVideoCodec(name: String): YVideoCodec =
         "hevc" -> YVideoCodec.H265
         "av1" -> YVideoCodec.Av1
         "vp9" -> YVideoCodec.Vp9
+        "vc1", "wmv3" -> YVideoCodec.Vc1
         "mpeg2video" -> YVideoCodec.Mpeg2
         "prores" -> YVideoCodec.ProRes
         else -> YVideoCodec.Unknown
@@ -478,6 +478,7 @@ private fun ffmpegVideoMime(
             YVideoCodec.H265 -> "video/hevc"
             YVideoCodec.Av1 -> "video/av01"
             YVideoCodec.Vp9 -> "video/x-vnd.on2.vp9"
+            YVideoCodec.Vc1 -> "video/wvc1"
             YVideoCodec.Mpeg2 -> "video/mpeg2"
             YVideoCodec.ProRes -> "video/prores"
             YVideoCodec.Unknown -> "video/x-ffmpeg-unknown"

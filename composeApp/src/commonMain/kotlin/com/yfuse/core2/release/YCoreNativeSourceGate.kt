@@ -65,12 +65,33 @@ private fun String?.normalizedVideoCodec(): String {
         value.startsWith("avc1.") -> "avc1"
         value.startsWith("hvc1.") -> "hvc1"
         value.startsWith("hev1.") -> "hev1"
+        value.startsWith("av01.") -> "av01"
+        value.startsWith("vp09.") -> "vp09"
+        value.startsWith("prores") -> "prores"
         else -> value.filter(Char::isLetterOrDigit)
     }
 }
 
 private val CORE2_NATIVE_BASELINE_SCHEMES =
     setOf("http", "https", "file", "content", "android.resource")
-private val CORE2_NATIVE_BASELINE_CONTAINERS = setOf("mp4", "m4v", "mkv", "matroska")
+private val CORE2_NATIVE_BASELINE_CONTAINERS =
+    setOf("mp4", "m4v", "mkv", "matroska", "webm", "mov", "quicktime")
 private val CORE2_NATIVE_BASELINE_VIDEO_CODECS =
-    setOf("h264", "avc", "avc1", "hevc", "h265", "hvc1", "hev1")
+    setOf(
+        "h264",
+        "avc",
+        "avc1",
+        "hevc",
+        "h265",
+        "hvc1",
+        "hev1",
+        "av1",
+        "av01",
+        "vp9",
+        "vp09",
+        "vc1",
+        "wmv3",
+        "mpeg2",
+        "mpeg2video",
+        "prores",
+    )

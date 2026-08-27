@@ -22,6 +22,9 @@ class AndroidFfmpegDemuxerMappingTest {
         assertEquals(YVideoCodec.H264, ffmpegVideoCodec("h264"))
         assertEquals(YVideoCodec.H265, ffmpegVideoCodec("hevc"))
         assertEquals(YVideoCodec.Av1, ffmpegVideoCodec("av1"))
+        assertEquals(YVideoCodec.Vp9, ffmpegVideoCodec("vp9"))
+        assertEquals(YVideoCodec.Vc1, ffmpegVideoCodec("vc1"))
+        assertEquals(YVideoCodec.Vc1, ffmpegVideoCodec("wmv3"))
         assertEquals(YVideoCodec.ProRes, ffmpegVideoCodec("prores"))
         assertEquals(YVideoCodec.Unknown, ffmpegVideoCodec("unknown_codec"))
     }
