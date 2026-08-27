@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.content.Context
 import android.util.Log
 import android.view.SurfaceView
 import com.mediadevkit.sdk.MDKPlayer
@@ -245,8 +246,29 @@ class MdkVideoEngine(
     private val customUserAgent: String,
     private val scope: CoroutineScope,
     private val stopEncoding: suspend (String) -> Boolean = { true },
+    context: Context? = null,
+    private val videoCacheBytes: Long = 0L,
 ) : VideoEngine {
     private val items = items
+    private val networkProxy =
+        if (context != null && videoCacheBytes > 0L) {
+            runCatching {
+                AndroidPlaybackHttpProxy(
+                    context = context.applicationContext,
+                    userAgent = customUserAgent,
+                    videoCacheBytes = videoCacheBytes,
+                )
+            }.onFailure { error ->
+                AppLog.warning(
+                    category = "player.mdk.network",
+                    event = "cache_proxy_unavailable",
+                    message = "Could not start the shared playback cache bridge",
+                    throwable = error,
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
 
     /** Entries pushed off their original file onto the server's transcode, and past that
      *  onto its progressive MP4. Kept per index so one bad episode doesn't transcode the
@@ -572,6 +594,7 @@ class MdkVideoEngine(
         pollJob.cancel()
         nativeEventJob.cancel()
         nativeEventSignals.close()
+        networkProxy?.close()
         val instance = player
         player = null
         attachedView = null
@@ -624,7 +647,18 @@ class MdkVideoEngine(
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return
         runCatching {
-            instance.setMedia(playbackUrl(item, index))
+            val upstreamUrl = playbackUrl(item, index)
+            val usingServerTranscode =
+                index in transcodedIndices || index in progressiveIndices
+            val cacheable =
+                item.persistentPlaybackCacheUrl(usingServerTranscode) == upstreamUrl.trim()
+            val transportUrl =
+                if (cacheable) {
+                    networkProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl
+                } else {
+                    upstreamUrl
+                }
+            instance.setMedia(transportUrl)
             // MDK otherwise selects its first audio track implicitly while our facade has no
             // active-track getter. Submit the choice explicitly so UI state is never a guess.
             instance.setActiveTrack(MDKPlayer.MEDIA_TYPE_AUDIO, 0)

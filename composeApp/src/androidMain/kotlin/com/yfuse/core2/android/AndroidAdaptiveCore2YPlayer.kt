@@ -73,6 +73,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             store = AndroidYPlaybackLearningStore(context),
             nowEpochMs = System::currentTimeMillis,
         ),
+    private val onRelease: () -> Unit = {},
 ) : YPlayer {
     private val queueLock = Any()
 
@@ -209,6 +210,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         commands.close()
         worker.cancel()
         scope.cancel()
+        runCatching(onRelease)
         mutableState.value =
             mutableState.value.copy(
                 phase = YPlaybackPhase.Idle,

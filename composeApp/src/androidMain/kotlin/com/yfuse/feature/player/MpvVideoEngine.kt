@@ -139,6 +139,7 @@ class MpvVideoEngine(
     private val stopEncoding: suspend (String) -> Boolean = { true },
     private val dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
+    private val videoCacheBytes: Long = 0L,
 ) : VideoEngine {
     private val items = items
     private val outputPreferences = GlobalContext.get().get<PlaybackPreferences>()
@@ -164,7 +165,13 @@ class MpvVideoEngine(
     private val fileLoadLastProgressMs = AtomicLong(-1L)
     private val endFileTracker = MpvEndFileTracker()
     private val networkProxy =
-        runCatching { AndroidPlaybackHttpProxy(customUserAgent) }
+        runCatching {
+            AndroidPlaybackHttpProxy(
+                context = context.applicationContext,
+                userAgent = customUserAgent,
+                videoCacheBytes = videoCacheBytes,
+            )
+        }
             .onFailure { error ->
                 AppLog.warning(
                     category = "player.mpv.network",
@@ -1690,7 +1697,14 @@ class MpvVideoEngine(
             withMpvResult { instance ->
                 instance.configureDolbyVisionRouteForCurrentItem()
                 val preparedUrl = instance.prepareDiscUrl(url)
-                val transportUrl = networkProxy?.localUrl(preparedUrl) ?: preparedUrl
+                val index = _state.value.currentIndex
+                val item = items.getOrNull(index)
+                val usingServerTranscode =
+                    index in transcodedIndices || index in progressiveIndices
+                val cacheable =
+                    item?.persistentPlaybackCacheUrl(usingServerTranscode) == preparedUrl.trim()
+                val transportUrl =
+                    networkProxy?.localUrl(preparedUrl, cacheable = cacheable) ?: preparedUrl
                 instance.command(arrayOf("loadfile", transportUrl))
                 AppLog.info(
                     category = "player.mpv.network",

@@ -12,7 +12,6 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.logging.AppLog
-import com.yfuse.core.model.PlayerEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +21,7 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Warms the beginning of a direct-play file into the same SimpleCache ExoPlayer uses.
+ * Warms the beginning of a direct-play file into the SimpleCache shared by every engine.
  *
  * Only the direct URL is touched. Starting an HLS/progressive transcode speculatively would wake
  * server-side ffmpeg for something the user may never play and can leave unnecessary encodes
@@ -43,9 +42,8 @@ internal class AndroidPlaybackSourcePreloader(
     override fun preload(url: String) {
         val source = url.trim()
         if (source.isEmpty()) return
-        // Only ExoPlayer consumes VideoCachePool. Warming 16 MiB for MPV/MDK performs the
-        // network work twice and cannot make their native demuxers start any faster.
-        if (themePreferences.engine.value != PlayerEngine.Exo) return
+        // Every engine consumes this cache directly or through the loopback Range bridge.
+        if (!shouldProxyMpvNetworkUrl(source) || source.isPersistentPlaybackManifestUrl()) return
         // Cache-off is an explicit user choice. Avoid even opening the stream, and also avoid
         // retaining one completed bookkeeping Job per browsed detail page.
         if (playbackPreferences.videoCacheSize.value.bytes <= 0L) return

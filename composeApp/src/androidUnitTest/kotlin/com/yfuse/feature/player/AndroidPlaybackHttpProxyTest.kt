@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidPlaybackHttpProxyTest {
@@ -13,6 +14,21 @@ class AndroidPlaybackHttpProxyTest {
         assertFalse(shouldProxyMpvNetworkUrl("file:///storage/video.mkv"))
         assertFalse(shouldProxyMpvNetworkUrl("bd://longest"))
         assertFalse(shouldProxyMpvNetworkUrl("not a URL"))
+    }
+
+    @Test
+    fun singleByteRangesAreParsedWithoutAcceptingAmbiguousRequests() {
+        assertEquals(
+            PlaybackHttpByteRange(start = 1024L, endInclusive = 2047L),
+            parsePlaybackHttpByteRange("bytes=1024-2047"),
+        )
+        assertEquals(
+            PlaybackHttpByteRange(start = 4096L, endInclusive = null),
+            parsePlaybackHttpByteRange("bytes=4096-"),
+        )
+        assertNull(parsePlaybackHttpByteRange("bytes=-4096"))
+        assertNull(parsePlaybackHttpByteRange("bytes=50-10"))
+        assertNull(parsePlaybackHttpByteRange("bytes=0-1,4-5"))
     }
 
     @Test

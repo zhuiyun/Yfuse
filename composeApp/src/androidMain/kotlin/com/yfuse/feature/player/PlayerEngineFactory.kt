@@ -93,6 +93,7 @@ internal fun createVideoEngine(
                 customUserAgent = customUserAgent,
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateMatch = frameRateMatch,
+                videoCacheBytes = videoCacheBytes,
             )?.let { return it }
     }
 
@@ -101,6 +102,7 @@ internal fun createVideoEngine(
             if (BuildConfig.YFUSE_MDK_INCLUDED) {
                 MdkVideoEngine(
                     items = items,
+                    context = context,
                     startIndex = startIndex,
                     startPositionMs = startPositionMs,
                     startPlaybackRequested = startPlaybackRequested,
@@ -110,6 +112,7 @@ internal fun createVideoEngine(
                     customUserAgent = customUserAgent,
                     scope = scope,
                     stopEncoding = stopEncoding,
+                    videoCacheBytes = videoCacheBytes,
                 )
             } else {
                 ExoVideoEngine(
@@ -152,6 +155,7 @@ internal fun createVideoEngine(
                     scope = scope,
                     stopEncoding = stopEncoding,
                     dolbyVisionRuntime = dolbyVisionRuntime,
+                    videoCacheBytes = videoCacheBytes,
                 )
             }
         }

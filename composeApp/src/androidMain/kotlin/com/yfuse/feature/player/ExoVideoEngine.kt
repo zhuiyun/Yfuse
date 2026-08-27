@@ -44,6 +44,7 @@ import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.playbackBufferProfile
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -90,6 +91,10 @@ class ExoVideoEngine(
     private val stopEncoding: suspend (String) -> Boolean = { true },
 ) : VideoEngine {
     private val items = items.toMutableList()
+    private val persistentCacheUrls =
+        ConcurrentHashMap.newKeySet<String>().apply {
+            this@ExoVideoEngine.items.mapNotNullTo(this) { it.persistentPlaybackCacheUrl() }
+        }
     private val outputPreferences = GlobalContext.get().get<PlaybackPreferences>()
     private val capabilityProvider =
         runCatching { GlobalContext.get().get<PlaybackDeviceCapabilitiesProvider>() }.getOrNull()
@@ -191,10 +196,18 @@ class ExoVideoEngine(
                         .setCacheKeyFactory(SecureMediaCacheKeyFactory)
                         .setUpstreamDataSourceFactory(platformUpstream)
                         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                }
+            val playbackDataSourceFactory =
+                cachedDataSourceFactory?.let { cachedFactory ->
+                    SelectivePlaybackCacheDataSourceFactory(
+                        cachedFactory = cachedFactory,
+                        upstreamFactory = platformUpstream,
+                        shouldCacheUrl = persistentCacheUrls::contains,
+                    )
                 } ?: platformUpstream
             // Validate the bytes after the optional cache as well as after HTTP. A stale cached HTML
             // error page must not masquerade as an HLS manifest any more than a fresh one may.
-            val dataSourceFactory = HlsManifestGuardDataSourceFactory(cachedDataSourceFactory)
+            val dataSourceFactory = HlsManifestGuardDataSourceFactory(playbackDataSourceFactory)
             val extractorsFactory =
                 DefaultExtractorsFactory()
                     .setTsExtractorFlags(
@@ -1542,6 +1555,7 @@ class ExoVideoEngine(
         items.forEachIndexed { relativeIndex, item ->
             if (item.startsWithServerTranscode()) transcodedIndices += offset + relativeIndex
         }
+        items.mapNotNullTo(persistentCacheUrls) { it.persistentPlaybackCacheUrl() }
         this.items += items
         val mediaItems =
             items.mapIndexed { relativeIndex, item ->

@@ -12,9 +12,11 @@ import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.feature.player.AndroidPlaybackHttpProxy
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
 import com.yfuse.feature.player.externalSubtitleFormatHint
+import com.yfuse.feature.player.persistentPlaybackCacheUrl
 import com.yfuse.feature.player.startsWithServerTranscode
 
 /**
@@ -35,11 +37,34 @@ internal object AndroidCore2TrialFactory {
         customUserAgent: String,
         allowAudioPassthrough: Boolean,
         frameRateMatch: PlaybackFrameRateMatch,
+        videoCacheBytes: Long = 0L,
     ): VideoEngine? {
         if (!items.canUseCore2Trial(startIndex)) return null
+        val cacheProxy =
+            if (videoCacheBytes > 0L) {
+                runCatching {
+                    AndroidPlaybackHttpProxy(
+                        context = context.applicationContext,
+                        userAgent = customUserAgent,
+                        videoCacheBytes = videoCacheBytes,
+                    )
+                }.getOrNull()
+            } else {
+                null
+            }
         val request =
             YPlayerOpenRequest(
-                items = items.toCore2MediaItems(customUserAgent),
+                items =
+                    items.toCore2MediaItems(customUserAgent) { item, upstreamUrl ->
+                        val cacheable =
+                            item.persistentPlaybackCacheUrl(item.startsWithServerTranscode()) ==
+                                upstreamUrl.trim()
+                        if (cacheable) {
+                            cacheProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl
+                        } else {
+                            upstreamUrl
+                        }
+                    },
                 startIndex = startIndex,
                 startPositionMs = startPositionMs.coerceAtLeast(0L),
                 autoPlay = startPlaybackRequested,
@@ -50,18 +75,24 @@ internal object AndroidCore2TrialFactory {
                 context = context,
                 sourceItems = items.associateBy(PlayerMediaItem::id),
             )
-        val player =
-            AndroidAdaptiveCore2YPlayer(
-                context = context.applicationContext,
-                request = request,
-                fallbackRouteFactory = compatibilityFactory,
-                discRouteFactory = compatibilityFactory,
-                allowAudioPassthrough = allowAudioPassthrough,
-                frameRateSwitchMode = frameRateMatch.toCore2Mode(),
-            )
-        player.setSpeed(startSpeed)
-        player.prepare()
-        return YPlayerVideoEngineAdapter(player)
+        return try {
+            val player =
+                AndroidAdaptiveCore2YPlayer(
+                    context = context.applicationContext,
+                    request = request,
+                    fallbackRouteFactory = compatibilityFactory,
+                    discRouteFactory = compatibilityFactory,
+                    allowAudioPassthrough = allowAudioPassthrough,
+                    frameRateSwitchMode = frameRateMatch.toCore2Mode(),
+                    onRelease = { cacheProxy?.close() },
+                )
+            player.setSpeed(startSpeed)
+            player.prepare()
+            YPlayerVideoEngineAdapter(player)
+        } catch (error: Throwable) {
+            cacheProxy?.close()
+            throw error
+        }
     }
 }
 
@@ -91,27 +122,36 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     }
 }
 
-internal fun List<PlayerMediaItem>.toCore2MediaItems(customUserAgent: String): List<YMediaItem> {
+internal fun List<PlayerMediaItem>.toCore2MediaItems(
+    customUserAgent: String,
+    localize: (PlayerMediaItem, String) -> String = { _, uri -> uri },
+): List<YMediaItem> {
     val headers =
         customUserAgent
             .trim()
             .takeIf(String::isNotEmpty)
             ?.let { mapOf(USER_AGENT_HEADER to it) }
             .orEmpty()
-    return map { item -> item.toCore2MediaItem(headers) }
+    return map { item -> item.toCore2MediaItem(headers, localize) }
 }
 
-private fun PlayerMediaItem.toCore2MediaItem(headers: Map<String, String>): YMediaItem {
+private fun PlayerMediaItem.toCore2MediaItem(
+    headers: Map<String, String>,
+    localize: (PlayerMediaItem, String) -> String,
+): YMediaItem {
     val usingServerTranscode = startsWithServerTranscode()
     val version = activeVersion
     return YMediaItem(
         id = id,
         uri =
-            if (usingServerTranscode) {
-                transcodeUrl.ifBlank { fallbackTranscodeUrl }
-            } else {
-                url
-            },
+            localize(
+                this,
+                if (usingServerTranscode) {
+                    transcodeUrl.ifBlank { fallbackTranscodeUrl }
+                } else {
+                    url
+                },
+            ),
         title = title,
         headers = headers,
         providerKey = serverId,

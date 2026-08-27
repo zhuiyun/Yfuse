@@ -63,7 +63,7 @@ internal object PreparedPlaybackRegistry {
 
 /**
  * Platform cache warmer. Metadata/MediaSources are prepared in common code; Android additionally
- * warms the first bytes of the direct stream into the exact Media3 cache ExoPlayer will consume.
+ * warms the first bytes of the direct stream into the sparse cache shared by every player engine.
  */
 interface PlaybackSourcePreloader {
     fun preload(url: String)

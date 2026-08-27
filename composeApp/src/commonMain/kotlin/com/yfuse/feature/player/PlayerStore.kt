@@ -413,7 +413,12 @@ data class PlayerMediaItem(
 
     /** Preloading must never start server ffmpeg or read the prefix of a raw disc image. */
     val canPreloadSource: Boolean
-        get() = playMethod != PlaybackMethod.Transcode && activeVersion?.discSource != true
+        get() =
+            playMethod != PlaybackMethod.Transcode &&
+                activeVersion?.playMethod != PlaybackMethod.Transcode &&
+                activeVersion?.discSource != true &&
+                drmConfiguration == null &&
+                activeVersion?.drmConfiguration == null
 
     /** The same entry playing a different file, or unchanged when there is no such file. */
     fun withVersion(id: String?): PlayerMediaItem {
