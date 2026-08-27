@@ -249,7 +249,13 @@ internal class AndroidNativeEnhancedYPlayer(
             }
             val result =
                 session.open(
-                    source = YDemuxSource(item.uri, item.headers),
+                    source =
+                        YDemuxSource(
+                            uri = item.uri,
+                            headers = item.headers,
+                            cacheIdentity = item.cacheIdentity,
+                            cacheMaximumBytes = item.cacheMaximumBytes,
+                        ),
                     plan = decision.plan,
                     surface = output,
                     startPositionUs = positionUs.coerceAtLeast(0L),

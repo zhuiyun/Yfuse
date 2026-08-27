@@ -90,6 +90,7 @@ private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
  * implementations reads the outgoing player's position first, so the replacement picks up where
  * it left off instead of restarting the entry.
  */
+@Suppress("ktlint:standard:function-naming")
 @OptIn(UnstableApi::class)
 @Composable
 internal fun PlayerRoot(
@@ -393,7 +394,10 @@ internal fun PlayerRoot(
                 val appendedToPlayer =
                     prepared.canUseCore2Trial(startIndex = 0) &&
                         player.appendItems(
-                            prepared.toCore2MediaItems(customUserAgent),
+                            prepared.toCore2MediaItems(
+                                customUserAgent = customUserAgent,
+                                cacheMaximumBytes = videoCacheBytes,
+                            ),
                         )
                 appendedToPlayer || backendExtensions.appendItems(prepared)
             }

@@ -11,6 +11,7 @@ import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
+import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.release.Core2NativeBaselineBlock
 import com.yfuse.core2.release.Core2NativeBaselineSource
 import com.yfuse.core2.release.evaluateCore2NativeBaseline
@@ -45,7 +46,7 @@ internal object AndroidCore2TrialFactory {
     ): VideoEngine? {
         if (!items.canUseCore2Trial(startIndex)) return null
         val cacheProxy =
-            if (videoCacheBytes > 0L) {
+            if (!nativeOnly && videoCacheBytes > 0L) {
                 runCatching {
                     AndroidPlaybackHttpProxy(
                         context = context.applicationContext,
@@ -59,16 +60,20 @@ internal object AndroidCore2TrialFactory {
         val request =
             YPlayerOpenRequest(
                 items =
-                    items.toCore2MediaItems(customUserAgent) { item, upstreamUrl ->
-                        val cacheable =
-                            item.persistentPlaybackCacheUrl(item.startsWithServerTranscode()) ==
-                                upstreamUrl.trim()
-                        if (cacheable) {
-                            cacheProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl
-                        } else {
-                            upstreamUrl
-                        }
-                    },
+                    items.toCore2MediaItems(
+                        customUserAgent = customUserAgent,
+                        cacheMaximumBytes = videoCacheBytes,
+                        localize = { item, upstreamUrl ->
+                            val cacheable =
+                                item.persistentPlaybackCacheUrl(item.startsWithServerTranscode()) ==
+                                    upstreamUrl.trim()
+                            if (cacheable) {
+                                cacheProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl
+                            } else {
+                                upstreamUrl
+                            }
+                        },
+                    ),
                 startIndex = startIndex,
                 startPositionMs = startPositionMs.coerceAtLeast(0L),
                 autoPlay = startPlaybackRequested,
@@ -171,6 +176,7 @@ private fun String.isAdaptiveManifest(): Boolean {
 
 internal fun List<PlayerMediaItem>.toCore2MediaItems(
     customUserAgent: String,
+    cacheMaximumBytes: Long = 0L,
     localize: (PlayerMediaItem, String) -> String = { _, uri -> uri },
 ): List<YMediaItem> {
     val headers =
@@ -179,11 +185,12 @@ internal fun List<PlayerMediaItem>.toCore2MediaItems(
             .takeIf(String::isNotEmpty)
             ?.let { mapOf(USER_AGENT_HEADER to it) }
             .orEmpty()
-    return map { item -> item.toCore2MediaItem(headers, localize) }
+    return map { item -> item.toCore2MediaItem(headers, cacheMaximumBytes, localize) }
 }
 
 private fun PlayerMediaItem.toCore2MediaItem(
     headers: Map<String, String>,
+    cacheMaximumBytes: Long,
     localize: (PlayerMediaItem, String) -> String,
 ): YMediaItem {
     val usingServerTranscode = startsWithServerTranscode()
@@ -202,6 +209,17 @@ private fun PlayerMediaItem.toCore2MediaItem(
         title = title,
         headers = headers,
         providerKey = serverId,
+        cacheIdentity =
+            serverId
+                ?.takeIf(String::isNotBlank)
+                ?.let { scope ->
+                    YCacheIdentity(
+                        scope = scope,
+                        mediaId = id,
+                        version = version?.id.orEmpty(),
+                    )
+                },
+        cacheMaximumBytes = cacheMaximumBytes.coerceAtLeast(0L),
         externalSubtitle =
             externalSubtitleUri
                 ?.takeIf(String::isNotBlank)

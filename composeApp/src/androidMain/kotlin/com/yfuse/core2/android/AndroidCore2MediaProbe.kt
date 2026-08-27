@@ -338,7 +338,13 @@ private fun YAudioRequirement?.hasReliableCodecWhen(platform: YAudioRequirement?
         enhancedCodec = this?.codec,
     )
 
-private fun YMediaItem.toProbeSource(): YAndroidMediaSource = YAndroidMediaSource(uri = uri, headers = headers)
+private fun YMediaItem.toProbeSource(): YAndroidMediaSource =
+    YAndroidMediaSource(
+        uri = uri,
+        headers = headers,
+        cacheIdentity = cacheIdentity,
+        cacheMaximumBytes = cacheMaximumBytes,
+    )
 
 private fun String.toCore2VideoCodec(
     format: MediaFormat,
@@ -379,8 +385,7 @@ private fun MediaFormat.dolbyVisionConfigOrNull(mime: String): YDolbyVisionConfi
     return runCatching { YDolbyVisionConfig.parse(bytes) }.getOrNull()
 }
 
-private fun MediaFormat.intOrZero(key: String): Int =
-    if (containsKey(key)) runCatching { getInteger(key) }.getOrDefault(0) else 0
+private fun MediaFormat.intOrZero(key: String): Int = if (containsKey(key)) runCatching { getInteger(key) }.getOrDefault(0) else 0
 
 private fun MediaFormat.frameRateOrZero(): Float {
     if (!containsKey(MediaFormat.KEY_FRAME_RATE)) return 0f

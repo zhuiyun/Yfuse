@@ -31,7 +31,14 @@ internal class AndroidCodecSampleProbe(
         var callbackThread: HandlerThread? = null
         var configured = false
         return try {
-            demuxer.open(YAndroidMediaSource(item.uri, item.headers))
+            demuxer.open(
+                YAndroidMediaSource(
+                    uri = item.uri,
+                    headers = item.headers,
+                    cacheIdentity = item.cacheIdentity,
+                    cacheMaximumBytes = item.cacheMaximumBytes,
+                ),
+            )
             val trackIndex = demuxer.findFirstTrack("video/") ?: return YCodecConfigurationProbeResult.Inconclusive
             val format = demuxer.trackFormat(trackIndex)
             val width = format.integerOr(PROBE_WIDTH_KEY, MIN_PROBE_DIMENSION).coerceAtLeast(MIN_PROBE_DIMENSION)

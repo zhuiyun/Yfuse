@@ -117,13 +117,18 @@ class AndroidCore2TrialTest {
 
         val mapped =
             listOf(item)
-                .toCore2MediaItems("  Yfuse-Test/2.0  ")
-                .single()
+                .toCore2MediaItems(
+                    customUserAgent = "  Yfuse-Test/2.0  ",
+                    cacheMaximumBytes = 512L * 1024L * 1024L,
+                ).single()
 
         assertEquals(item.id, mapped.id)
         assertEquals(item.url, mapped.uri)
         assertEquals(item.title, mapped.title)
         assertEquals(item.serverId, mapped.providerKey)
+        assertEquals(item.serverId, mapped.cacheIdentity?.scope)
+        assertEquals(item.id, mapped.cacheIdentity?.mediaId)
+        assertEquals(512L * 1024L * 1024L, mapped.cacheMaximumBytes)
         assertEquals("Yfuse-Test/2.0", mapped.headers["User-Agent"])
         assertEquals(item.externalSubtitleUri, mapped.externalSubtitle?.uri)
         assertEquals(item.externalSubtitleLanguage, mapped.externalSubtitle?.language)

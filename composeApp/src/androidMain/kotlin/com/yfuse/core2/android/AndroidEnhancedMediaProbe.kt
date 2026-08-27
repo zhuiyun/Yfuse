@@ -29,6 +29,8 @@ internal class AndroidEnhancedMediaProbe(
                     YDemuxSource(
                         uri = item.uri,
                         headers = item.headers,
+                        cacheIdentity = item.cacheIdentity,
+                        cacheMaximumBytes = item.cacheMaximumBytes,
                     ),
                 )
             val videoTrack =

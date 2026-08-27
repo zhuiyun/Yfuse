@@ -6,6 +6,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 import com.yfuse.core2.graph.YDemuxNode
+import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.sync.YMediaTimestampTimeline
 import java.nio.ByteBuffer
@@ -13,6 +14,8 @@ import java.nio.ByteBuffer
 internal data class YAndroidMediaSource(
     val uri: String,
     val headers: Map<String, String> = emptyMap(),
+    val cacheIdentity: YCacheIdentity? = null,
+    val cacheMaximumBytes: Long = 0L,
 )
 
 internal data class YExtractorSample(
@@ -135,11 +138,9 @@ internal class AndroidMediaExtractorDemuxNode(
         timeline.establish(requireExtractor().validSampleTimeUs())
     }
 
-    private fun MediaExtractor.validSampleTimeUs(): Long =
-        sampleTime.takeUnless { it == MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE } ?: 0L
+    private fun MediaExtractor.validSampleTimeUs(): Long = sampleTime.takeUnless { it == MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE } ?: 0L
 
-    private fun requireExtractor(): MediaExtractor =
-        checkNotNull(extractor) { "MediaExtractor demux node has not been opened" }
+    private fun requireExtractor(): MediaExtractor = checkNotNull(extractor) { "MediaExtractor demux node has not been opened" }
 
     private fun MediaExtractor.setPrivateDataSource(source: YAndroidMediaSource) {
         val parsed = Uri.parse(source.uri)
@@ -156,6 +157,9 @@ internal class AndroidMediaExtractorDemuxNode(
                                 YSourceProtocol.Http
                             },
                         headers = source.headers,
+                        cacheDirectory = appContext.cacheDir,
+                        cacheIdentity = source.cacheIdentity,
+                        cacheMaximumBytes = source.cacheMaximumBytes,
                         createTransport = {
                             AndroidAdaptiveHttpMediaTransport(
                                 createCronet = { AndroidCronetMediaTransport(appContext) },
@@ -177,6 +181,9 @@ internal class AndroidMediaExtractorDemuxNode(
                         uri = normalizedUri,
                         protocol = if (tls) YSourceProtocol.WebDavTls else YSourceProtocol.WebDav,
                         headers = source.headers,
+                        cacheDirectory = appContext.cacheDir,
+                        cacheIdentity = source.cacheIdentity,
+                        cacheMaximumBytes = source.cacheMaximumBytes,
                         createTransport = ::AndroidHttpMediaTransport,
                     )
                 mediaDataSource = rangeSource
@@ -188,6 +195,9 @@ internal class AndroidMediaExtractorDemuxNode(
                         uri = source.uri,
                         protocol = YSourceProtocol.Smb,
                         headers = source.headers,
+                        cacheDirectory = appContext.cacheDir,
+                        cacheIdentity = source.cacheIdentity,
+                        cacheMaximumBytes = source.cacheMaximumBytes,
                         createTransport = ::AndroidSmbMediaTransport,
                     )
                 mediaDataSource = rangeSource

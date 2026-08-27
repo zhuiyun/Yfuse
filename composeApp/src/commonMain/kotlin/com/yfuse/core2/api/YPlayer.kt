@@ -2,6 +2,7 @@ package com.yfuse.core2.api
 
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
+import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import kotlinx.coroutines.flow.StateFlow
@@ -95,7 +96,15 @@ data class YMediaItem(
     val disc: YDiscMedia? = null,
     /** Optional sidecar subtitle rendered independently above the direct video Surface. */
     val externalSubtitle: YExternalSubtitleSource? = null,
-)
+    /** Credential-free identity for YCore-owned persistent media blocks. */
+    val cacheIdentity: YCacheIdentity? = null,
+    /** Per-item cache budget inherited from the user's playback setting. */
+    val cacheMaximumBytes: Long = 0L,
+) {
+    init {
+        require(cacheMaximumBytes >= 0L)
+    }
+}
 
 data class YExternalSubtitleSource(
     val uri: String,

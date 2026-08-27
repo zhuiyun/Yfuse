@@ -444,7 +444,13 @@ internal class AndroidNativeTunnelYPlayer(
     }
 }
 
-private fun YMediaItem.toAndroidTunnelSource(): YAndroidMediaSource = YAndroidMediaSource(uri = uri, headers = headers)
+private fun YMediaItem.toAndroidTunnelSource(): YAndroidMediaSource =
+    YAndroidMediaSource(
+        uri = uri,
+        headers = headers,
+        cacheIdentity = cacheIdentity,
+        cacheMaximumBytes = cacheMaximumBytes,
+    )
 
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     value = transform(value)
