@@ -14,6 +14,7 @@ import com.yfuse.core2.bitstream.YSamplePacking
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YDeviceCapabilities
+import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.demux.YCompressedSample
 import com.yfuse.core2.demux.YDemuxOpenResult
@@ -47,6 +48,8 @@ internal data class YEnhancedPlaybackSnapshot(
     val buffering: Boolean,
     val ended: Boolean,
     val firstVideoFrameRendered: Boolean,
+    val outputHdrType: YHdrType,
+    val softwareVideoToneMapped: Boolean,
     val videoDecoderName: String?,
     val audioDecoderName: String?,
     val audioRendering: Boolean,
@@ -177,7 +180,10 @@ internal class AndroidEnhancedPlaybackSession(
                     stage = YPlaybackFailureStage.VideoDecoderConfigure,
                     safeDetail = "FFmpeg software video decoder configure",
                 ) {
-                    requireNotNull(softwareNode).configureVideo(videoTrack.id)
+                    requireNotNull(softwareNode).configureVideo(
+                        trackId = videoTrack.id,
+                        toneMapHdrToSdr = plan.softwareVideoToneMap,
+                    )
                     softwareVideoRenderer.attach(surface)
                 }
             } else {
@@ -502,6 +508,8 @@ internal class AndroidEnhancedPlaybackSession(
             buffering = playing && !firstVideoFrameRendered && !ended(),
             ended = ended(),
             firstVideoFrameRendered = firstVideoFrameRendered,
+            outputHdrType = plan?.outputHdrType ?: YHdrType.Sdr,
+            softwareVideoToneMapped = plan?.softwareVideoToneMap == true,
             videoDecoderName =
                 if (softwareVideoActive) FFMPEG_SOFTWARE_VIDEO_NAME else videoDecoder.decoderName,
             audioDecoderName =
@@ -583,12 +591,18 @@ internal class AndroidEnhancedPlaybackSession(
             when (sample.trackId) {
                 videoTrack.id -> {
                     if (softwareVideoActive) {
+                        val softwareSample =
+                            if (requireNotNull(plan).usesHdrFallback) {
+                                sample.copy(data = transformVideoSample(sample.data))
+                            } else {
+                                sample
+                            }
                         yPlaybackStage(
                             category = YPlaybackFailureCategory.Decoder,
                             stage = YPlaybackFailureStage.VideoDecoderQueue,
                             safeDetail = "FFmpeg software video access unit",
                         ) {
-                            requireNotNull(softwareDecoder).queueVideo(sample).toCodecQueueResult()
+                            requireNotNull(softwareDecoder).queueVideo(softwareSample).toCodecQueueResult()
                         }
                     } else {
                         videoTrack.video

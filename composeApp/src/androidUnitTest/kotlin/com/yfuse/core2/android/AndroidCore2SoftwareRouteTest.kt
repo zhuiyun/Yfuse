@@ -23,6 +23,14 @@ class AndroidCore2SoftwareRouteTest {
     @Test
     fun `HDR FFmpeg video waits for the owned tone mapper`() {
         assertFalse(decision(YHdrType.Hdr10, YDecodePath.Software, YRenderPath.Gpu).ffmpegSoftwareExecutable)
+        assertTrue(
+            decision(
+                YHdrType.Hdr10,
+                YDecodePath.Software,
+                YRenderPath.Gpu,
+                softwareVideoToneMap = true,
+            ).ffmpegSoftwareExecutable,
+        )
     }
 
     @Test
@@ -50,6 +58,7 @@ class AndroidCore2SoftwareRouteTest {
         renderPath: YRenderPath,
         width: Int = 1920,
         height: Int = 1080,
+        softwareVideoToneMap: Boolean = false,
     ): YCore2RouteDecision {
         val request =
             YPlaybackRequest(
@@ -79,7 +88,8 @@ class AndroidCore2SoftwareRouteTest {
                     demuxPath = YDemuxPath.Enhanced,
                     decodePath = decodePath,
                     renderPath = renderPath,
-                    outputHdrType = if (hdrType == YHdrType.Sdr) YHdrType.Sdr else hdrType,
+                    outputHdrType = if (softwareVideoToneMap) YHdrType.Sdr else hdrType,
+                    softwareVideoToneMap = softwareVideoToneMap,
                     reason = "test",
                 ),
         )

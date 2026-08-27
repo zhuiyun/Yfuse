@@ -43,8 +43,11 @@ internal class AndroidFfmpegSoftwareDecoderNode(
 
     val available: Boolean get() = demuxer.softwareDecodeAvailable
 
-    fun configureVideo(trackId: YTrackId) {
-        demuxer.configureSoftwareDecoder(trackId)
+    fun configureVideo(
+        trackId: YTrackId,
+        toneMapHdrToSdr: Boolean = false,
+    ) {
+        demuxer.configureSoftwareDecoder(trackId, toneMapHdrToSdr)
         videoTrackId = trackId
     }
 

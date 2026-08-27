@@ -338,7 +338,11 @@ internal class AndroidNativeEnhancedYPlayer(
                                 listOfNotNull(snapshot.videoDecoderName, snapshot.audioDecoderName)
                                     .joinToString(" + "),
                             videoOutput =
-                                if (snapshot.firstVideoFrameRendered) "Surface 直出" else "等待首帧",
+                                when {
+                                    !snapshot.firstVideoFrameRendered -> "等待首帧"
+                                    snapshot.softwareVideoToneMapped -> "YCore SDR 色调映射"
+                                    else -> "Surface 直出"
+                                },
                             audioOutput =
                                 if (snapshot.audioRendering) {
                                     when {
@@ -351,10 +355,11 @@ internal class AndroidNativeEnhancedYPlayer(
                                 },
                             videoOutputVerified = snapshot.firstVideoFrameRendered,
                             audioOutputVerified = snapshot.audioRendering,
-                            // Native DV output claim requires a verified video frame AND a DV source
-                            // route. P7 FEL composition remains a separate evidence gate.
+                            // Native DV output claim requires a verified frame and actual DV output;
+                            // compatible-base and SDR tone-map routes must never inherit the source label.
                             dolbyVisionOutput =
-                                snapshot.firstVideoFrameRendered && it.diagnostics.dynamicRange == "DolbyVision",
+                                snapshot.firstVideoFrameRendered &&
+                                    snapshot.outputHdrType == com.yfuse.core2.capability.YHdrType.DolbyVision,
                             dolbyAtmosOutput = snapshot.dolbyAtmosOutput,
                             droppedFrames = snapshot.droppedFrames,
                             avSyncOffsetMs = snapshot.avSyncOffsetUs?.div(MICROS_PER_MILLISECOND),

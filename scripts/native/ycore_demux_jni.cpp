@@ -3,11 +3,11 @@
 #include <algorithm>
 #include <cerrno>
 #include <cctype>
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -24,6 +24,8 @@ extern "C" {
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
+
+#include "ycore_tone_map.h"
 
 namespace {
 
@@ -58,18 +60,21 @@ constexpr uint32_t kSubtitlePayloadVersion = 1;
 constexpr size_t kMaxSubtitlePayloadBytes = 32U * 1024U * 1024U;
 constexpr size_t kMaxSoftwareVideoFrameBytes = 128U * 1024U * 1024U;
 constexpr size_t kMaxSoftwareAudioFrameBytes = 8U * 1024U * 1024U;
+constexpr size_t kMaxSoftwareToneMapPixels = 4096U * 2160U;
 constexpr int kSoftwareFrameAgain = 0;
 constexpr int kSoftwareFrameData = 1;
 constexpr int kSoftwareFrameEof = 2;
 constexpr int kSoftwareFrameGrowBuffer = -1;
-constexpr int kSoftwareDecoderApiVersion = 1;
+constexpr int kSoftwareDecoderApiVersion = 2;
 
 struct SoftwareDecoder {
     AVCodecContext* codec = nullptr;
     AVFrame* frame = nullptr;
     SwsContext* scaler = nullptr;
     SwrContext* resampler = nullptr;
+    std::vector<uint16_t> tone_map_rgb48;
     bool frame_pending = false;
+    bool tone_map_hdr_to_sdr = false;
 
     ~SoftwareDecoder() {
         swr_free(&resampler);
@@ -422,6 +427,140 @@ SoftwareDecoder* software_decoder(
     SoftwareDecoder* result = decoder.get();
     existing = std::move(decoder);
     return result;
+}
+
+double hdr_mastering_peak_nits(const AVCodecParameters* parameters) {
+    const AVPacketSideData* light_side = av_packet_side_data_get(
+        parameters->coded_side_data,
+        parameters->nb_coded_side_data,
+        AV_PKT_DATA_CONTENT_LIGHT_LEVEL);
+    if (light_side && light_side->data && light_side->size >= sizeof(AVContentLightMetadata)) {
+        const auto* light = reinterpret_cast<const AVContentLightMetadata*>(light_side->data);
+        if (light->MaxCLL > 0) return light->MaxCLL;
+    }
+    const AVPacketSideData* mastering_side = av_packet_side_data_get(
+        parameters->coded_side_data,
+        parameters->nb_coded_side_data,
+        AV_PKT_DATA_MASTERING_DISPLAY_METADATA);
+    if (mastering_side && mastering_side->data &&
+        mastering_side->size >= sizeof(AVMasteringDisplayMetadata)) {
+        const auto* mastering =
+            reinterpret_cast<const AVMasteringDisplayMetadata*>(mastering_side->data);
+        if (mastering->has_luminance) {
+            const double maximum = av_q2d(mastering->max_luminance);
+            if (maximum > 0.0) return maximum;
+        }
+    }
+    return 1000.0;
+}
+
+bool tone_map_hdr_frame(
+    JNIEnv* env,
+    SoftwareDecoder* decoder,
+    AVStream* stream,
+    uint8_t* destination) {
+    const int width = decoder->frame->width;
+    const int height = decoder->frame->height;
+    const size_t pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (pixel_count == 0 || pixel_count > kMaxSoftwareToneMapPixels) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map frame exceeds the 4K safety limit");
+        return false;
+    }
+    const AVColorTransferCharacteristic transfer =
+        decoder->frame->color_trc != AVCOL_TRC_UNSPECIFIED
+        ? decoder->frame->color_trc
+        : stream->codecpar->color_trc;
+    if (transfer != AVCOL_TRC_SMPTE2084 && transfer != AVCOL_TRC_ARIB_STD_B67) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map transfer is unsupported or unspecified");
+        return false;
+    }
+    const AVColorPrimaries primaries =
+        decoder->frame->color_primaries != AVCOL_PRI_UNSPECIFIED
+        ? decoder->frame->color_primaries
+        : stream->codecpar->color_primaries;
+    if (primaries != AVCOL_PRI_BT2020 && primaries != AVCOL_PRI_UNSPECIFIED) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map primaries are not BT.2020");
+        return false;
+    }
+
+    try {
+        decoder->tone_map_rgb48.resize(pixel_count * 3U);
+    } catch (const std::bad_alloc&) {
+        throw_illegal_state(env, "Unable to allocate the FFmpeg HDR tone-map buffer");
+        return false;
+    }
+    decoder->scaler = sws_getCachedContext(
+        decoder->scaler,
+        width,
+        height,
+        static_cast<AVPixelFormat>(decoder->frame->format),
+        width,
+        height,
+        AV_PIX_FMT_RGB48LE,
+        SWS_BILINEAR,
+        nullptr,
+        nullptr,
+        nullptr);
+    if (!decoder->scaler) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map scaler is unavailable");
+        return false;
+    }
+    const int* source_coefficients = sws_getCoefficients(SWS_CS_BT2020);
+    const int* target_coefficients = sws_getCoefficients(SWS_CS_ITU709);
+    const int source_full_range = decoder->frame->color_range == AVCOL_RANGE_JPEG ? 1 : 0;
+    if (!source_coefficients || !target_coefficients ||
+        sws_setColorspaceDetails(
+            decoder->scaler,
+            source_coefficients,
+            source_full_range,
+            target_coefficients,
+            1,
+            0,
+            1 << 16,
+            1 << 16) < 0) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map colorspace configuration failed");
+        return false;
+    }
+    uint8_t* intermediate_data[] = {
+        reinterpret_cast<uint8_t*>(decoder->tone_map_rgb48.data()),
+        nullptr,
+        nullptr,
+        nullptr,
+    };
+    const int intermediate_linesize[] = {width * 6, 0, 0, 0};
+    const int scaled = sws_scale(
+        decoder->scaler,
+        decoder->frame->data,
+        decoder->frame->linesize,
+        0,
+        height,
+        intermediate_data,
+        intermediate_linesize);
+    if (scaled != height) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map conversion was incomplete");
+        return false;
+    }
+
+    const ycore_tone_map::Transfer tone_map_transfer =
+        transfer == AVCOL_TRC_SMPTE2084
+        ? ycore_tone_map::Transfer::Pq
+        : ycore_tone_map::Transfer::Hlg;
+    const double mastering_peak_nits = hdr_mastering_peak_nits(stream->codecpar);
+    for (size_t pixel = 0; pixel < pixel_count; ++pixel) {
+        const size_t source_offset = pixel * 3U;
+        const ycore_tone_map::BgraPixel output = ycore_tone_map::bt2020_to_sdr(
+            decoder->tone_map_rgb48[source_offset],
+            decoder->tone_map_rgb48[source_offset + 1U],
+            decoder->tone_map_rgb48[source_offset + 2U],
+            tone_map_transfer,
+            mastering_peak_nits);
+        const size_t target_offset = pixel * 4U;
+        destination[target_offset] = output.blue;
+        destination[target_offset + 1U] = output.green;
+        destination[target_offset + 2U] = output.red;
+        destination[target_offset + 3U] = output.alpha;
+    }
+    return true;
 }
 
 bool append_bitmap_rect(std::vector<uint8_t>* output, const AVSubtitleRect* rect) {
@@ -979,8 +1118,12 @@ void native_configure_software_decoder(
     JNIEnv* env,
     jclass,
     jlong handle,
-    jint index) {
-    software_decoder(env, from_handle(handle), index);
+    jint index,
+    jboolean tone_map_hdr_to_sdr) {
+    SoftwareDecoder* decoder = software_decoder(env, from_handle(handle), index);
+    if (decoder && !env->ExceptionCheck()) {
+        decoder->tone_map_hdr_to_sdr = tone_map_hdr_to_sdr == JNI_TRUE;
+    }
 }
 
 jint native_send_software_packet(
@@ -1092,35 +1235,39 @@ jlongArray native_receive_software_video_frame(
             height,
             static_cast<jlong>(width) * 4L);
     }
-    decoder->scaler = sws_getCachedContext(
-        decoder->scaler,
-        width,
-        height,
-        static_cast<AVPixelFormat>(decoder->frame->format),
-        width,
-        height,
-        AV_PIX_FMT_BGRA,
-        SWS_BILINEAR,
-        nullptr,
-        nullptr,
-        nullptr);
-    if (!decoder->scaler) {
-        throw_illegal_state(env, "FFmpeg software video scaler is unavailable");
-        return nullptr;
-    }
-    uint8_t* output_data[] = {destination, nullptr, nullptr, nullptr};
-    const int output_linesize[] = {width * 4, 0, 0, 0};
-    const int scaled = sws_scale(
-        decoder->scaler,
-        decoder->frame->data,
-        decoder->frame->linesize,
-        0,
-        height,
-        output_data,
-        output_linesize);
-    if (scaled != height) {
-        throw_illegal_state(env, "FFmpeg software video conversion was incomplete");
-        return nullptr;
+    if (decoder->tone_map_hdr_to_sdr) {
+        if (!tone_map_hdr_frame(env, decoder, stream, destination)) return nullptr;
+    } else {
+        decoder->scaler = sws_getCachedContext(
+            decoder->scaler,
+            width,
+            height,
+            static_cast<AVPixelFormat>(decoder->frame->format),
+            width,
+            height,
+            AV_PIX_FMT_BGRA,
+            SWS_BILINEAR,
+            nullptr,
+            nullptr,
+            nullptr);
+        if (!decoder->scaler) {
+            throw_illegal_state(env, "FFmpeg software video scaler is unavailable");
+            return nullptr;
+        }
+        uint8_t* output_data[] = {destination, nullptr, nullptr, nullptr};
+        const int output_linesize[] = {width * 4, 0, 0, 0};
+        const int scaled = sws_scale(
+            decoder->scaler,
+            decoder->frame->data,
+            decoder->frame->linesize,
+            0,
+            height,
+            output_data,
+            output_linesize);
+        if (scaled != height) {
+            throw_illegal_state(env, "FFmpeg software video conversion was incomplete");
+            return nullptr;
+        }
     }
     av_frame_unref(decoder->frame);
     decoder->frame_pending = false;
@@ -1316,7 +1463,7 @@ static const JNINativeMethod kMethods[] = {
     {"nativeReadPacket", "(JLjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_read_packet)},
     {"nativeDecodeSubtitle", "(JI[BJJ)[B", reinterpret_cast<void*>(native_decode_subtitle)},
     {"nativeSoftwareDecoderApiVersion", "()I", reinterpret_cast<void*>(native_software_decoder_api_version)},
-    {"nativeConfigureSoftwareDecoder", "(JI)V", reinterpret_cast<void*>(native_configure_software_decoder)},
+    {"nativeConfigureSoftwareDecoder", "(JIZ)V", reinterpret_cast<void*>(native_configure_software_decoder)},
     {"nativeSendSoftwarePacket", "(JI[BJJ)I", reinterpret_cast<void*>(native_send_software_packet)},
     {"nativeReceiveSoftwareVideoFrame", "(JILjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_receive_software_video_frame)},
     {"nativeReceiveSoftwareAudioFrame", "(JILjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_receive_software_audio_frame)},

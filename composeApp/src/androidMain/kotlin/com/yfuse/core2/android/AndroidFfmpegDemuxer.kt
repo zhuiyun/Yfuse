@@ -195,10 +195,13 @@ internal class AndroidFfmpegDemuxer :
 
     val softwareDecodeAvailable: Boolean get() = FfmpegNativeBridge.softwareDecodeAvailable
 
-    fun configureSoftwareDecoder(trackId: YTrackId) {
+    fun configureSoftwareDecoder(
+        trackId: YTrackId,
+        toneMapHdrToSdr: Boolean = false,
+    ) {
         requireOpenResult().tracks.singleOrNull { it.id == trackId }
             ?: error("Software decoder track does not belong to this demux session")
-        FfmpegNativeBridge.configureSoftwareDecoder(requireHandle(), trackId.value)
+        FfmpegNativeBridge.configureSoftwareDecoder(requireHandle(), trackId.value, toneMapHdrToSdr)
     }
 
     fun sendSoftwarePacket(

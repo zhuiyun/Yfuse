@@ -50,6 +50,7 @@ data class YPlaybackPlan(
     val nativeAudio: Boolean = true,
     val audioPath: YAudioOutputPath = YAudioOutputPath.DecodePcm,
     val softwareAudioDecode: Boolean = false,
+    val softwareVideoToneMap: Boolean = false,
     /** True when the original HDR representation cannot be used and a compatible base is selected. */
     val usesHdrFallback: Boolean = false,
     val reason: String,
@@ -93,20 +94,33 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                     )
                 }
         val fallbackDecoder = fallbackRequirement?.let(capabilities::bestDecoder)
+        val originalNativeOutput =
+            originalDecoder != null && capabilities.supportsDisplayHdr(request.video.hdrType)
+        val fallbackNativeOutput =
+            fallbackDecoder != null &&
+                capabilities.supportsDisplayHdr(requireNotNull(fallbackRequirement).hdrType)
+        val usesHdrFallback =
+            when {
+                originalNativeOutput -> false
+                fallbackNativeOutput -> true
+                originalDecoder != null -> false
+                fallbackDecoder != null -> true
+                else -> false
+            }
         val selectedRequirement =
             when {
+                usesHdrFallback -> fallbackRequirement
                 originalDecoder != null -> request.video
-                fallbackDecoder != null -> requireNotNull(fallbackRequirement)
+                fallbackDecoder != null -> fallbackRequirement
                 else -> null
             }
-        val selectedDecoder = originalDecoder ?: fallbackDecoder
+        val selectedDecoder = if (usesHdrFallback) fallbackDecoder else originalDecoder ?: fallbackDecoder
         val decodePath =
             if (selectedDecoder?.hardwareAccelerated == false) {
                 YDecodePath.PlatformSoftware
             } else {
                 YDecodePath.Hardware
             }
-        val usesHdrFallback = originalDecoder == null && fallbackDecoder != null
         val audioCapabilities =
             if (request.allowAudioPassthrough) {
                 capabilities
@@ -124,6 +138,27 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         ) {
             val hdrRoute = YHdrRouter.decide(selectedRequirement.hdrType, capabilities)
             val displayCanPresent = hdrRoute is YHdrRouteDecision.Native
+            if (
+                !displayCanPresent &&
+                request.enhancedDemuxSupported &&
+                !request.video.secureDecodeRequired &&
+                selectedRequirement.hdrType.supportsOwnedSoftwareToneMap()
+            ) {
+                return YPlaybackPlan(
+                    route = YPlaybackRoute.SoftwareFallback,
+                    demuxPath = YDemuxPath.Enhanced,
+                    decodePath = YDecodePath.Software,
+                    renderPath = YRenderPath.Gpu,
+                    outputHdrType = YHdrType.Sdr,
+                    nativeAudio = true,
+                    audioPath = audioPath,
+                    softwareVideoToneMap = true,
+                    usesHdrFallback = usesHdrFallback,
+                    reason =
+                        "Display cannot present ${selectedRequirement.hdrType}; " +
+                            "decode and tone-map to SDR inside YCore",
+                )
+            }
             val renderPath =
                 when {
                     !displayCanPresent -> YRenderPath.Gpu
@@ -169,28 +204,36 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             )
         }
 
+        val fallbackHdrType = selectedRequirement?.hdrType ?: request.video.hdrType
+        val displayCanPresentFallback = capabilities.supportsDisplayHdr(fallbackHdrType)
+        val softwareVideo = selectedDecoder == null || !displayCanPresentFallback
+        val softwareVideoToneMap =
+            softwareVideo &&
+                request.enhancedDemuxSupported &&
+                !request.video.secureDecodeRequired &&
+                fallbackHdrType.supportsOwnedSoftwareToneMap()
         return YPlaybackPlan(
             route = YPlaybackRoute.SoftwareFallback,
             demuxPath = if (request.enhancedDemuxSupported) YDemuxPath.Enhanced else YDemuxPath.Software,
             decodePath =
                 when {
-                    selectedDecoder == null -> YDecodePath.Software
-                    selectedDecoder.hardwareAccelerated -> YDecodePath.Hardware
+                    softwareVideo -> YDecodePath.Software
+                    selectedDecoder?.hardwareAccelerated == true -> YDecodePath.Hardware
                     else -> YDecodePath.PlatformSoftware
                 },
-            renderPath = if (selectedDecoder == null) YRenderPath.Gpu else YRenderPath.SurfaceDirect,
+            renderPath = if (softwareVideo) YRenderPath.Gpu else YRenderPath.SurfaceDirect,
             outputHdrType =
-                selectedRequirement
-                    ?.hdrType
-                    ?.takeIf(capabilities::supportsDisplayHdr)
-                    ?: YHdrType.Sdr,
-            decoderName = selectedDecoder?.name,
+                if (softwareVideo) YHdrType.Sdr else fallbackHdrType,
+            decoderName = selectedDecoder?.name?.takeUnless { softwareVideo },
             nativeAudio = request.audio == null || request.enhancedDemuxSupported,
             audioPath = if (request.audio == null) YAudioOutputPath.None else YAudioOutputPath.DecodePcm,
             softwareAudioDecode = request.audio != null && !nativeAudio && request.enhancedDemuxSupported,
+            softwareVideoToneMap = softwareVideoToneMap,
             usesHdrFallback = usesHdrFallback,
             reason =
                 when {
+                    softwareVideoToneMap ->
+                        "Decode $fallbackHdrType and tone-map to SDR inside YCore"
                     !nativeAudio && request.enhancedDemuxSupported ->
                         "Selected audio codec has no platform decoder; use FFmpeg PCM software decode"
                     !nativeAudio ->
@@ -201,3 +244,5 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         )
     }
 }
+
+private fun YHdrType.supportsOwnedSoftwareToneMap(): Boolean = this in setOf(YHdrType.Hdr10, YHdrType.Hdr10Plus, YHdrType.Hlg)

@@ -87,7 +87,12 @@ internal data class YCore2RouteDecision(
                 (
                     plan.decodePath == YDecodePath.Software &&
                         plan.renderPath == YRenderPath.Gpu &&
-                        probe.playbackRequest.video.hdrType == YHdrType.Sdr &&
+                        !probe.playbackRequest.video.secureDecodeRequired &&
+                        (
+                            probe.playbackRequest.video.hdrType == YHdrType.Sdr ||
+                                plan.softwareVideoToneMap &&
+                                plan.outputHdrType == YHdrType.Sdr
+                        ) &&
                         probe.playbackRequest.video.softwareDecodeWithinBounds() ||
                         plan.decodePath != YDecodePath.Software &&
                         plan.renderPath == YRenderPath.SurfaceDirect
@@ -145,6 +150,7 @@ internal class AndroidCore2MediaProbe(
                     bitDepth = videoFormat.bitDepth(videoMime),
                     hdrType = videoFormat.hdrType(videoMime),
                     dolbyVisionProfile = dolbyVisionConfig?.profile,
+                    secureDecodeRequired = item.drmConfiguration != null,
                 )
             val audio =
                 audioFormat?.let { format ->
@@ -293,9 +299,15 @@ internal class AndroidCore2RouteEvaluator(
                 )
         }
         if (dolbyDecision != null) {
+            val dolbyLabel =
+                if (plan.usesHdrFallback && plan.softwareVideoToneMap) {
+                    "DV compatible base tone-mapped to SDR"
+                } else {
+                    dolbyDecision.diagnosticLabel()
+                }
             plan =
                 plan.copy(
-                    reason = "${plan.reason}; ${dolbyDecision.diagnosticLabel()}",
+                    reason = "${plan.reason}; $dolbyLabel",
                 )
         }
         return YCore2RouteDecision(normalizedProbe, plan)

@@ -765,6 +765,7 @@ internal fun YPlaybackPlan.toSoftwareFallbackPlan(reason: String): YPlaybackPlan
         decoderName = null,
         nativeAudio = false,
         audioPath = YAudioOutputPath.None,
+        softwareVideoToneMap = false,
         usesHdrFallback = false,
         reason = reason,
     )

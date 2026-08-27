@@ -148,6 +148,10 @@ class YPlaybackStrategyTest {
                     YDeviceCapabilities(
                         videoDecoders =
                             listOf(
+                                decoder(
+                                    hdr = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
+                                    dolbyProfiles = setOf(8),
+                                ),
                                 decoder(hdr = setOf(YHdrType.Sdr, YHdrType.Hdr10)),
                             ),
                         displayHdrTypes = setOf(YHdrType.Sdr, YHdrType.Hdr10),
@@ -157,6 +161,69 @@ class YPlaybackStrategyTest {
         assertEquals(YPlaybackRoute.NativeEnhanced, plan.route)
         assertEquals(YHdrType.Hdr10, plan.outputHdrType)
         assertTrue(plan.usesHdrFallback)
+    }
+
+    @Test
+    fun `HDR10 without an HDR display uses owned SDR tone mapping`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Matroska,
+                        video =
+                            YVideoRequirement(
+                                codec = YVideoCodec.H265,
+                                width = 3840,
+                                height = 2160,
+                                frameRate = 24f,
+                                bitDepth = 10,
+                                hdrType = YHdrType.Hdr10,
+                            ),
+                        platformDemuxSupported = false,
+                        enhancedDemuxSupported = true,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders = listOf(decoder(hdr = setOf(YHdrType.Sdr, YHdrType.Hdr10))),
+                        displayHdrTypes = setOf(YHdrType.Sdr),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
+        assertEquals(YDecodePath.Software, plan.decodePath)
+        assertEquals(YRenderPath.Gpu, plan.renderPath)
+        assertEquals(YHdrType.Sdr, plan.outputHdrType)
+        assertTrue(plan.softwareVideoToneMap)
+    }
+
+    @Test
+    fun `secure HDR never enters software tone mapping`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Mp4,
+                        video =
+                            YVideoRequirement(
+                                codec = YVideoCodec.H265,
+                                hdrType = YHdrType.Hdr10,
+                                secureDecodeRequired = true,
+                            ),
+                        platformDemuxSupported = true,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders =
+                            listOf(
+                                decoder(hdr = setOf(YHdrType.Sdr, YHdrType.Hdr10)).copy(
+                                    securePlayback = true,
+                                ),
+                            ),
+                        displayHdrTypes = setOf(YHdrType.Sdr),
+                    ),
+            )
+
+        assertFalse(plan.softwareVideoToneMap)
     }
 
     @Test

@@ -103,7 +103,7 @@ class AndroidCore2TrialTest {
     }
 
     @Test
-    fun unproven_dolby_vision_stream_stays_on_the_display_backed_legacy_pipeline() {
+    fun dolby_vision_stream_enters_fail_closed_runtime_truth_probing() {
         val version =
             PlayerMediaVersion(
                 id = "dolby",
@@ -122,7 +122,7 @@ class AndroidCore2TrialTest {
                 versionId = version.id,
             )
 
-        assertFalse(listOf(item).canUseCore2Trial(startIndex = 0))
+        assertTrue(listOf(item).canUseCore2Trial(startIndex = 0))
     }
 
     @Test

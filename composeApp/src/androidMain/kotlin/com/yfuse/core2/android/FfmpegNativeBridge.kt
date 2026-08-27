@@ -130,9 +130,10 @@ internal object FfmpegNativeBridge {
     fun configureSoftwareDecoder(
         handle: Long,
         trackIndex: Int,
+        toneMapHdrToSdr: Boolean,
     ) {
         check(softwareDecodeAvailable) { "YCore FFmpeg software decoder is not installed" }
-        nativeConfigureSoftwareDecoder(handle, trackIndex)
+        nativeConfigureSoftwareDecoder(handle, trackIndex, toneMapHdrToSdr)
     }
 
     fun sendSoftwarePacket(
@@ -265,6 +266,7 @@ internal object FfmpegNativeBridge {
     private external fun nativeConfigureSoftwareDecoder(
         handle: Long,
         trackIndex: Int,
+        toneMapHdrToSdr: Boolean,
     )
 
     private external fun nativeSendSoftwarePacket(
@@ -335,5 +337,5 @@ internal const val FFMPEG_HDR10_PLUS = 3L
 internal const val FFMPEG_PACKING_ANNEX_B = 1L
 internal const val FFMPEG_PACKING_LENGTH_PREFIXED = 2L
 private const val LIBRARY_NAME = "ycore_demux"
-private const val SOFTWARE_DECODER_API_VERSION = 1
+private const val SOFTWARE_DECODER_API_VERSION = 2
 private const val SOFTWARE_PACKET_ACCEPTED = 0

@@ -44,6 +44,15 @@ class Core2NativeBaselineTest {
     }
 
     @Test
+    fun proven_dolby_pipeline_enters_runtime_routing() {
+        assertNull(
+            evaluateCore2NativeBaseline(
+                source(dolbyVision = true, dolbyVisionSupported = true),
+            ),
+        )
+    }
+
+    @Test
     fun implemented_adaptive_and_drm_lanes_bypass_progressive_container_gate() {
         assertNull(
             evaluateCore2NativeBaseline(
@@ -108,6 +117,7 @@ class Core2NativeBaselineTest {
         drm: Boolean = false,
         drmSupported: Boolean = false,
         dolbyVision: Boolean = false,
+        dolbyVisionSupported: Boolean = false,
         externalSubtitleSupported: Boolean = true,
     ) = Core2NativeBaselineSource(
         hasMetadata = hasMetadata,
@@ -121,6 +131,7 @@ class Core2NativeBaselineTest {
         drm = drm,
         drmSupported = drmSupported,
         dolbyVision = dolbyVision,
+        dolbyVisionSupported = dolbyVisionSupported,
         externalSubtitleSupported = externalSubtitleSupported,
     )
 }

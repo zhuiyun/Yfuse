@@ -154,16 +154,8 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     if (isEmpty() || startIndex !in indices) return false
     return all { item ->
         val version = item.activeVersion
-        // Core2's current private-surface/runtime probe is not yet a safe proof for Dolby-only
-        // streams (notably DV profile 5). Vendor Dolby decoders can reject that probe even though
-        // Exo + the real display Surface works correctly. Unknown DV profiles are treated the same
-        // way until the bitstream probe has enough evidence to prove a compatible base layer.
-        val requiresProvenDolbyPipeline =
-            version?.dolbyVision == true &&
-                (version.dolbyProfile == null || version.needsDolbyDecoder)
         val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
-        !requiresProvenDolbyPipeline &&
-            (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
+        (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
             item.externalSubtitleUri.isCore2SubtitleSourceSupported() &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
     }
@@ -188,6 +180,9 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
             drm = item.drmConfiguration != null || version?.drmConfiguration != null,
             drmSupported = drmConfiguration?.let { item.supportsCore2Drm(it.scheme) } == true,
             dolbyVision = version?.dolbyVision == true,
+            // Admission is safe because the deep FFmpeg probe, semantic DV router, real decoder
+            // capability evidence and output HDR types still fail closed before execution.
+            dolbyVisionSupported = true,
             externalSubtitleSupported = item.externalSubtitleUri.isCore2SubtitleSourceSupported(),
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
