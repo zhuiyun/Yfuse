@@ -286,6 +286,7 @@ fun ProfileScreen(component: ProfileComponent) {
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
+    var confirmClearVideoCache by remember { mutableStateOf(false) }
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var settingsQuery by rememberSaveable { mutableStateOf("") }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
@@ -355,7 +356,12 @@ fun ProfileScreen(component: ProfileComponent) {
                         anonymousQoeSharing = anonymousQoeSharing,
                         resumePrompt = resumePrompt,
                         videoCacheSize = videoCacheSize,
-                        skipSegments = if (skipTimesBySeries.isEmpty()) "${skipMode.label} · 跟随服务器 ›" else "${skipMode.label} ›",
+                        skipSegments =
+                            if (skipTimesBySeries.isEmpty()) {
+                                "${skipMode.label} · 跟随服务器 ›"
+                            } else {
+                                "${skipMode.label} ›"
+                            },
                         onPlaybackMode = { sheet = Sheet.PlaybackMode },
                         onMediaVersionPreference = { sheet = Sheet.MediaVersionPreference },
                         onOpenAdvanced = { openPage(ProfilePage.AdvancedPlayback) },
@@ -464,6 +470,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         onImportRelay = component::importRelayServers,
                         onUserAgent = { sheet = Sheet.UserAgent },
                         onClearCache = { confirmClearCache = true },
+                        onClearVideoCache = { confirmClearVideoCache = true },
                     )
 
                 ProfilePage.Downloads ->
@@ -942,6 +949,20 @@ fun ProfileScreen(component: ProfileComponent) {
                 onDismiss = { confirmClearCache = false },
             )
         }
+
+        if (confirmClearVideoCache) {
+            ConfirmDialog(
+                title = "清除视频缓存",
+                message = "将清除已播放视频的临时缓存；不会删除离线下载。正在播放的数据可能会重新从服务器读取。",
+                confirmLabel = "清除",
+                destructive = true,
+                onConfirm = {
+                    confirmClearVideoCache = false
+                    screenScope.launch { component.onClearVideoCache() }
+                },
+                onDismiss = { confirmClearVideoCache = false },
+            )
+        }
     }
 }
 
@@ -958,6 +979,7 @@ private fun DataAndDiagnosticsScreen(
     onImportRelay: (String, ByteArray, Long) -> Result<Int>,
     onUserAgent: () -> Unit,
     onClearCache: () -> Unit,
+    onClearVideoCache: () -> Unit,
 ) {
     SettingsPage(
         title = "高级设置",
@@ -993,6 +1015,8 @@ private fun DataAndDiagnosticsScreen(
             Section(title = "缓存") {
                 SettingsCard {
                     SettingRow("清除图片缓存", "不影响离线下载 ›", true, onClearCache)
+                    SettingsDivider()
+                    SettingRow("清除视频缓存", "不影响离线下载 ›", true, onClearVideoCache)
                 }
             }
         }

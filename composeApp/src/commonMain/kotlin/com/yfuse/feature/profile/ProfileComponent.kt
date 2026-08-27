@@ -19,6 +19,7 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.clearImageCache
+import com.yfuse.core.util.clearVideoCache
 import com.yfuse.feature.player.PlayerMediaItem
 
 class ProfileComponent(
@@ -50,6 +51,9 @@ class ProfileComponent(
 
     /** Clear the shared image cache; offline video files and library metadata are untouched. */
     suspend fun onClearCache() = clearImageCache()
+
+    /** Clear transient playback data; offline files and the image cache are untouched. */
+    suspend fun onClearVideoCache(): Long = clearVideoCache()
 
     fun exportServers(
         passphrase: CharArray,

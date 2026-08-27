@@ -9,6 +9,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.cache.CacheKeyFactory
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.network.mediaCacheKeyForUrl
@@ -156,6 +157,33 @@ internal object VideoCachePool {
         }
         references++
         return Handle(requireNotNull(cache), ::releaseReference)
+    }
+
+    /**
+     * Removes transient playback entries without touching the offline-download directory.
+     *
+     * When no player owns the shared instance, open the cache with a no-op evictor only for this
+     * operation so entries left by previous processes are cleared as well.
+     */
+    @Synchronized
+    fun clear(context: Context): Long {
+        val sharedCache = cache
+        val target =
+            sharedCache
+                ?: SimpleCache(
+                    context.cacheDir.resolve("video_cache_v2"),
+                    NoOpCacheEvictor(),
+                    StandaloneDatabaseProvider(context.applicationContext),
+                )
+        return try {
+            val before = target.cacheSpace
+            target.keys.toList().forEach { key ->
+                runCatching { target.removeResource(key) }
+            }
+            (before - target.cacheSpace).coerceAtLeast(0L)
+        } finally {
+            if (sharedCache == null) target.release()
+        }
     }
 
     @Synchronized
