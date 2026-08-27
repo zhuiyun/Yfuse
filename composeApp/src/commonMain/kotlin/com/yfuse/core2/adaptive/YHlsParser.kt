@@ -200,6 +200,7 @@ private fun normalizeRelativePath(pathAndQuery: String): String {
     val path = suffixIndex?.let { pathAndQuery.substring(0, it) } ?: pathAndQuery
     val suffix = suffixIndex?.let { pathAndQuery.substring(it) }.orEmpty()
     val absolute = path.startsWith('/')
+    val trailingSlash = path.endsWith('/')
     val stack = mutableListOf<String>()
     path.split('/').forEach { part ->
         when (part) {
@@ -208,7 +209,10 @@ private fun normalizeRelativePath(pathAndQuery: String): String {
             else -> stack += part
         }
     }
-    return (if (absolute) "/" else "") + stack.joinToString("/") + suffix
+    return (if (absolute) "/" else "") +
+        stack.joinToString("/") +
+        (if (trailingSlash && stack.isNotEmpty()) "/" else "") +
+        suffix
 }
 
 private fun String.parseResolution(): Pair<Int, Int>? {
