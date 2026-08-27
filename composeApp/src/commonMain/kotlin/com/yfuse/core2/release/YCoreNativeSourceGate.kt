@@ -23,6 +23,7 @@ data class Core2NativeBaselineSource(
     val adaptiveManifestSupported: Boolean = false,
     val disc: Boolean,
     val drm: Boolean,
+    val drmSupported: Boolean = false,
     val dolbyVision: Boolean,
     val externalSubtitleSupported: Boolean,
 )
@@ -40,7 +41,7 @@ fun evaluateCore2NativeBaseline(source: Core2NativeBaselineSource): Core2NativeB
         source.serverTranscode -> Core2NativeBaselineBlock.ServerTranscode
         source.adaptiveManifest && !source.adaptiveManifestSupported -> Core2NativeBaselineBlock.AdaptiveManifest
         source.disc -> Core2NativeBaselineBlock.Disc
-        source.drm -> Core2NativeBaselineBlock.Drm
+        source.drm && !source.drmSupported -> Core2NativeBaselineBlock.Drm
         source.dolbyVision -> Core2NativeBaselineBlock.DolbyVision
         !source.externalSubtitleSupported -> Core2NativeBaselineBlock.ExternalSubtitle
         !source.adaptiveManifest &&

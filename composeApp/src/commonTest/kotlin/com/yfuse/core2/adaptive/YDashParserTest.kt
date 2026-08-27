@@ -158,6 +158,13 @@ class YDashParserTest {
         assertFailsWith<IllegalArgumentException> {
             buildYDashPlaybackManifest(protected, protectedSelection) { _, template, _ -> template }
         }
+        val protectedPlayback =
+            buildYDashPlaybackManifest(
+                manifest = protected,
+                selection = protectedSelection,
+                allowContentProtection = true,
+            ) { _, template, _ -> template }
+        assertTrue("schemeIdUri=\"urn:mpeg:dash:mp4protection:2011\"" in protectedPlayback)
 
         val dynamic =
             protected.copy(

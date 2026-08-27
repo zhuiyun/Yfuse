@@ -179,7 +179,9 @@ internal class AndroidCore2RouteEvaluator(
         val platform = platformProbe.probe(item) as? YCore2ProbeResult.Success
         val resolved =
             when {
+                platform == null && item.drmConfiguration != null -> null
                 platform == null -> enhancedProbe.probe(item) as? YCore2ProbeResult.Success
+                item.drmConfiguration != null -> platform
                 platform.requiresEnhancedTruthProbe() -> {
                     val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
                     if (
@@ -218,7 +220,9 @@ internal class AndroidCore2RouteEvaluator(
             runtimeCapabilities.evidence(unseenRuntimeKey) == null
         ) {
             val probeResult =
-                if (plan.demuxPath == YDemuxPath.Platform) {
+                if (item.drmConfiguration != null) {
+                    YCodecConfigurationProbeResult.Inconclusive
+                } else if (plan.demuxPath == YDemuxPath.Platform) {
                     codecSampleProbe.probe(item, unseenRuntimeKey.decoderName)
                 } else {
                     codecConfigurationProbe.probe(
@@ -461,6 +465,8 @@ internal fun YMediaItem.containerHint(): YContainer {
 
     val path = uri.substringBefore('?').substringBefore('#').lowercase()
     return when {
+        path.endsWith(".mpd") -> YContainer.Mp4
+        path.endsWith(".m3u8") -> YContainer.MpegTs
         path.endsWith(".mkv") -> YContainer.Matroska
         path.endsWith(".webm") -> YContainer.WebM
         path.endsWith(".mov") -> YContainer.Mov

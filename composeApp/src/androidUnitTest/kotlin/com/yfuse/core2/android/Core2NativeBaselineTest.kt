@@ -36,7 +36,7 @@ class Core2NativeBaselineTest {
     }
 
     @Test
-    fun implemented_hls_transport_lane_bypasses_progressive_container_gate() {
+    fun implemented_adaptive_and_drm_lanes_bypass_progressive_container_gate() {
         assertNull(
             evaluateCore2NativeBaseline(
                 source(
@@ -44,6 +44,15 @@ class Core2NativeBaselineTest {
                     codec = "h264",
                     adaptive = true,
                     adaptiveSupported = true,
+                ),
+            ),
+        )
+        assertNull(
+            evaluateCore2NativeBaseline(
+                source(
+                    container = "mp4",
+                    drm = true,
+                    drmSupported = true,
                 ),
             ),
         )
@@ -89,6 +98,7 @@ class Core2NativeBaselineTest {
         adaptiveSupported: Boolean = false,
         disc: Boolean = false,
         drm: Boolean = false,
+        drmSupported: Boolean = false,
         dolbyVision: Boolean = false,
         externalSubtitleSupported: Boolean = true,
     ) = Core2NativeBaselineSource(
@@ -101,6 +111,7 @@ class Core2NativeBaselineTest {
         adaptiveManifestSupported = adaptiveSupported,
         disc = disc,
         drm = drm,
+        drmSupported = drmSupported,
         dolbyVision = dolbyVision,
         externalSubtitleSupported = externalSubtitleSupported,
     )

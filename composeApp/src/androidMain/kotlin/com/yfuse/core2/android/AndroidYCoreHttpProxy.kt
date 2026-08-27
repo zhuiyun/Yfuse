@@ -56,6 +56,7 @@ internal class AndroidYCoreHttpProxy(
         val maximumHeight: Int?,
         val hlsManifest: Boolean,
         val dashManifest: Boolean,
+        val drmProtected: Boolean,
         val dashTemplate: DashTemplateRoute? = null,
     )
 
@@ -91,6 +92,7 @@ internal class AndroidYCoreHttpProxy(
         maximumHeight: Int? = null,
         hlsManifest: Boolean = upstreamUri.isHlsManifestUri(),
         dashManifest: Boolean = upstreamUri.isDashManifestUri(),
+        drmProtected: Boolean = false,
     ): String {
         if (closed.get() || upstreamUri.sourceProtocolOrNull() == null) return upstreamUri
         val route =
@@ -102,8 +104,14 @@ internal class AndroidYCoreHttpProxy(
                 maximumHeight = maximumHeight,
                 hlsManifest = hlsManifest,
                 dashManifest = dashManifest,
+                drmProtected = drmProtected,
             )
-        val syntheticPath = upstreamUri.safeSyntheticExtension()?.let { "/resource.$it" }.orEmpty()
+        val syntheticPath =
+            when {
+                hlsManifest -> "/playlist.m3u8"
+                dashManifest -> "/manifest.mpd"
+                else -> upstreamUri.safeSyntheticExtension()?.let { "/resource.$it" }.orEmpty()
+            }
         return localRouteUrl(route, syntheticPath)
     }
 
@@ -322,7 +330,11 @@ internal class AndroidYCoreHttpProxy(
                     ),
             )
         val rewritten =
-            buildYDashPlaybackManifest(manifest, selection) { representation, template, kind ->
+            buildYDashPlaybackManifest(
+                manifest = manifest,
+                selection = selection,
+                allowContentProtection = route.drmProtected,
+            ) { representation, template, kind ->
                 when (kind) {
                     YDashResourceKind.Initialization -> {
                         val timelineStart =

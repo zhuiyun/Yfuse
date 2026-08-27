@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import android.media.MediaCodec
 import android.media.MediaDataSource
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -10,6 +11,7 @@ import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.sync.YMediaTimestampTimeline
 import java.nio.ByteBuffer
+import java.util.UUID
 
 internal data class YAndroidMediaSource(
     val uri: String,
@@ -23,6 +25,7 @@ internal data class YExtractorSample(
     val data: ByteBuffer,
     val presentationTimeUs: Long,
     val flags: Int,
+    val cryptoInfo: YExtractorCryptoInfo? = null,
 )
 
 /**
@@ -66,6 +69,12 @@ internal class AndroidMediaExtractorDemuxNode(
 
     fun trackFormat(index: Int): MediaFormat = requireExtractor().getTrackFormat(index)
 
+    fun drmInitializationData(schemeUuid: UUID): ByteArray? =
+        requireExtractor()
+            .psshInfo
+            ?.get(schemeUuid)
+            ?.copyOf()
+
     fun findFirstTrack(mimePrefix: String): Int? =
         (0 until trackCount).firstOrNull { index ->
             trackFormat(index)
@@ -101,11 +110,23 @@ internal class AndroidMediaExtractorDemuxNode(
         target.position(0)
         target.limit(size)
         val rawPresentationTimeUs = opened.validSampleTimeUs()
+        val flags = opened.sampleFlags
+        val cryptoInfo =
+            if (flags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED != 0) {
+                MediaCodec
+                    .CryptoInfo()
+                    .also { info ->
+                        require(opened.getSampleCryptoInfo(info)) { "Encrypted sample has no CryptoInfo" }
+                    }.toExtractorCryptoInfo()
+            } else {
+                null
+            }
         return YExtractorSample(
             trackIndex = trackIndex,
             data = target.slice(),
             presentationTimeUs = timeline.presentationTimeUs(rawPresentationTimeUs),
-            flags = opened.sampleFlags,
+            flags = flags,
+            cryptoInfo = cryptoInfo,
         )
     }
 
@@ -147,6 +168,10 @@ internal class AndroidMediaExtractorDemuxNode(
         when (parsed.scheme?.lowercase()) {
             "content", "android.resource", "file" -> setDataSource(appContext, parsed, source.headers)
             "http", "https" -> {
+                if (source.uri.isAdaptiveManifestUri()) {
+                    setDataSource(source.uri, source.headers)
+                    return
+                }
                 val rangeSource =
                     AndroidTransportMediaDataSource(
                         uri = source.uri,
@@ -218,5 +243,20 @@ internal fun MediaFormat.maxInputSizeOr(defaultBytes: Int): Int =
 internal fun String.isCore2RemoteMediaUri(): Boolean =
     substringBefore(':', missingDelimiterValue = "").lowercase() in
         setOf("http", "https", "smb", "webdav", "webdavs")
+
+private fun String.isAdaptiveManifestUri(): Boolean {
+    val path = substringBefore('?').substringBefore('#').lowercase()
+    return path.endsWith(".m3u8") || path.endsWith(".mpd")
+}
+
+private fun MediaCodec.CryptoInfo.toExtractorCryptoInfo(): YExtractorCryptoInfo =
+    YExtractorCryptoInfo(
+        numberOfSubSamples = numSubSamples,
+        clearBytes = numBytesOfClearData?.copyOf(),
+        encryptedBytes = numBytesOfEncryptedData?.copyOf(),
+        key = requireNotNull(key).copyOf(),
+        initializationVector = requireNotNull(iv).copyOf(),
+        mode = mode,
+    )
 
 private const val MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE = -1L

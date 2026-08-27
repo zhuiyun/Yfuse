@@ -37,9 +37,29 @@ class AndroidCore2TrialTest {
     }
 
     @Test
-    fun drm_and_unsupported_subtitle_sources_stay_on_legacy() {
+    fun supported_widevine_and_subtitle_sources_follow_core2_gates() {
         val drmItem =
             mediaItem("https://media.example.test/secure.mpd").copy(
+                drmConfiguration =
+                    PlaybackDrmConfiguration(
+                        scheme = PlaybackDrmScheme.Widevine,
+                        licenseUri = "https://license.example.test/widevine",
+                    ),
+            )
+        val misleadingHlsVersion =
+            PlayerMediaVersion(
+                id = "hls",
+                label = "HLS",
+                detail = "CMAF",
+                url = "https://media.example.test/secure.m3u8",
+                transcodeUrl = "",
+                fallbackTranscodeUrl = "",
+                container = "mp4",
+            )
+        val unsupportedDrmItem =
+            mediaItem("https://media.example.test/secure.m3u8").copy(
+                versions = listOf(misleadingHlsVersion),
+                versionId = misleadingHlsVersion.id,
                 drmConfiguration =
                     PlaybackDrmConfiguration(
                         scheme = PlaybackDrmScheme.Widevine,
@@ -70,7 +90,8 @@ class AndroidCore2TrialTest {
                 versionId = discVersion.id,
             )
 
-        assertFalse(listOf(drmItem).canUseCore2Trial(startIndex = 0))
+        assertTrue(listOf(drmItem).canUseCore2Trial(startIndex = 0))
+        assertFalse(listOf(unsupportedDrmItem).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(subtitleItem).canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(unsupportedSubtitleItem).canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(ttmlSubtitleItem).canUseCore2Trial(startIndex = 0))

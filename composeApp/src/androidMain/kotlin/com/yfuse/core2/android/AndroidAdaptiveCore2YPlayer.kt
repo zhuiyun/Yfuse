@@ -237,8 +237,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         return if (percent in 0..100) percent * 10 else -1
     }
 
-    private fun currentThermalStatus(): Int =
-        if (Build.VERSION.SDK_INT >= 29) powerManager?.currentThermalStatus ?: 0 else 0
+    private fun currentThermalStatus(): Int = if (Build.VERSION.SDK_INT >= 29) powerManager?.currentThermalStatus ?: 0 else 0
 
     private suspend fun runLoop() {
         var currentIndex = request.startIndex
@@ -291,6 +290,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             val item = queueItems[currentIndex]
             val tunnelAllowed =
                 allowTunnel &&
+                    item.drmConfiguration == null &&
                     item.externalSubtitle == null &&
                     kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
             val singleRequest =

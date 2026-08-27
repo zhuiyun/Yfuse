@@ -3,6 +3,7 @@ package com.yfuse.core2.android
 import android.content.Context
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.playback.PlaybackDiscKind
+import com.yfuse.core.playback.PlaybackDrmScheme
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core2.api.YDiscKind
 import com.yfuse.core2.api.YDiscMedia
@@ -92,6 +93,9 @@ internal object AndroidCore2TrialFactory {
                                     dashManifest =
                                         upstreamUrl.isDashManifest() ||
                                             item.activeVersion?.container.isDashContainer(),
+                                    drmProtected =
+                                        item.drmConfiguration != null ||
+                                            item.activeVersion?.drmConfiguration != null,
                                 )
                             } else if (cacheable) {
                                 cacheProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl
@@ -157,9 +161,9 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
         val requiresProvenDolbyPipeline =
             version?.dolbyVision == true &&
                 (version.dolbyProfile == null || version.needsDolbyDecoder)
+        val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
         !requiresProvenDolbyPipeline &&
-            item.drmConfiguration == null &&
-            version?.drmConfiguration == null &&
+            (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
             item.externalSubtitleUri.isCore2SubtitleSourceSupported() &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
     }
@@ -170,6 +174,7 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
     val version = item.activeVersion
     val hlsManifest = item.url.isHlsManifest() || version?.container.isHlsContainer()
     val dashManifest = item.url.isDashManifest() || version?.container.isDashContainer()
+    val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
     val source =
         Core2NativeBaselineSource(
             hasMetadata = version != null,
@@ -181,6 +186,7 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
             adaptiveManifestSupported = hlsManifest || dashManifest,
             disc = version?.discSource == true,
             drm = item.drmConfiguration != null || version?.drmConfiguration != null,
+            drmSupported = drmConfiguration?.let { item.supportsCore2Drm(it.scheme) } == true,
             dolbyVision = version?.dolbyVision == true,
             externalSubtitleSupported = item.externalSubtitleUri.isCore2SubtitleSourceSupported(),
         )
@@ -197,7 +203,7 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
         Core2NativeBaselineBlock.UnsupportedVideoCodec ->
             "YCore Native 当前仅验证 H.264/HEVC"
         Core2NativeBaselineBlock.Disc -> "YCore Native 尚未完成原盘导航"
-        Core2NativeBaselineBlock.Drm -> "YCore Native 尚未完成 DRM"
+        Core2NativeBaselineBlock.Drm -> "YCore Native 当前仅支持 Widevine CENC（MP4 / 静态 DASH）"
         Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未完成杜比视界渲染"
         Core2NativeBaselineBlock.ExternalSubtitle -> "YCore Native 不支持当前外挂字幕来源"
     }
@@ -222,6 +228,18 @@ private fun String?.isHlsContainer(): Boolean = orEmpty().trim().lowercase() in 
 private fun String?.isDashContainer(): Boolean = orEmpty().trim().lowercase() in setOf("dash", "mpd")
 
 private fun String?.isAdaptiveContainer(): Boolean = isHlsContainer() || isDashContainer()
+
+private fun PlayerMediaItem.supportsCore2Drm(scheme: PlaybackDrmScheme): Boolean {
+    if (scheme != PlaybackDrmScheme.Widevine) return false
+    val container =
+        activeVersion
+            ?.container
+            .orEmpty()
+            .trim()
+            .lowercase()
+    if (url.isHlsManifest() || container.isHlsContainer()) return false
+    return url.isDashManifest() || container.isDashContainer() || container in setOf("mp4", "m4v")
+}
 
 internal fun List<PlayerMediaItem>.toCore2MediaItems(
     customUserAgent: String,

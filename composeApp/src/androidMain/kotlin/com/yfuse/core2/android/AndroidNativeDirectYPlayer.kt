@@ -316,6 +316,8 @@ internal class AndroidNativeDirectYPlayer(
         private var audioTrackFormat: YAudioTrackFormat? = null
         private var audioOutputPath = YAudioOutputPath.None
         private var audioRendererConfigured = false
+        private var drmSession: AndroidYCoreDrmSession? = null
+        private var drmBinding: AndroidYCoreDrmBinding? = null
         private var prepared = false
         private var videoConfigured = false
         private var requestedPlay = request.autoPlay
@@ -415,6 +417,26 @@ internal class AndroidNativeDirectYPlayer(
             audioTrackIndex = demux.findFirstTrack(AUDIO_MIME_PREFIX)
             videoFormat = demux.trackFormat(requireNotNull(videoTrackIndex))
             audioInputFormat = audioTrackIndex?.let(demux::trackFormat)
+            item.drmConfiguration?.let { configuration ->
+                val initializationData =
+                    checkNotNull(demux.drmInitializationData(configuration.scheme.yCorePlatformUuid())) {
+                        "NativeDirect DRM initialization data is unavailable"
+                    }
+                val videoMime =
+                    checkNotNull(videoFormat?.getString(MediaFormat.KEY_MIME)) {
+                        "NativeDirect DRM video MIME type is unavailable"
+                    }
+                val session = AndroidYCoreDrmSession(configuration)
+                drmSession = session
+                drmBinding =
+                    yPlaybackStage(
+                        category = YPlaybackFailureCategory.Drm,
+                        stage = YPlaybackFailureStage.SourceOpen,
+                        safeDetail = "NativeDirect DRM session open",
+                    ) {
+                        session.open(initializationData, videoMime)
+                    }
+            }
             configureAudioPath(audioInputFormat)
 
             demux.selectTrack(requireNotNull(videoTrackIndex))
@@ -728,12 +750,20 @@ internal class AndroidNativeDirectYPlayer(
                                 sample.data,
                                 sample.presentationTimeUs,
                                 sample.flags,
+                                sample.cryptoInfo,
                             )
                         } else {
                             YCodecQueueResult.TryAgain
                         }
-                    audioTrackIndex -> queueAudioSample(sample.data, sample.presentationTimeUs, sample.flags)
+                    audioTrackIndex ->
+                        queueAudioSample(
+                            sample.data,
+                            sample.presentationTimeUs,
+                            sample.flags,
+                            sample.cryptoInfo,
+                        )
                     subtitleTrackIndex -> {
+                        require(sample.cryptoInfo == null) { "Encrypted subtitle samples are not executable" }
                         queueSubtitleSample(sample.data, sample.presentationTimeUs)
                         YCodecQueueResult.Queued
                     }
@@ -1026,18 +1056,22 @@ internal class AndroidNativeDirectYPlayer(
             audioTrackFormat = format?.toCore2AudioTrackFormat()
             val coreFormat = audioTrackFormat
             audioOutputPath =
-                coreFormat?.let {
-                    plannedAudioOutputPath
-                        ?: capabilityProvider
-                            .current()
-                            .audioOutputPath(
-                                YAudioRequirement(
-                                    codec = it.codec,
-                                    channelCount = it.channelCount,
-                                    sampleRate = it.sampleRate,
-                                ),
-                            )
-                } ?: YAudioOutputPath.None
+                if (coreFormat != null && drmBinding != null) {
+                    YAudioOutputPath.DecodePcm
+                } else {
+                    coreFormat?.let {
+                        plannedAudioOutputPath
+                            ?: capabilityProvider
+                                .current()
+                                .audioOutputPath(
+                                    YAudioRequirement(
+                                        codec = it.codec,
+                                        channelCount = it.channelCount,
+                                        sampleRate = it.sampleRate,
+                                    ),
+                                )
+                    } ?: YAudioOutputPath.None
+                }
             when {
                 format == null -> audioRendererConfigured = false
                 audioOutputPath == YAudioOutputPath.Passthrough -> {
@@ -1045,7 +1079,7 @@ internal class AndroidNativeDirectYPlayer(
                     audioRendererConfigured = true
                 }
                 audioOutputPath == YAudioOutputPath.DecodePcm -> {
-                    audioDecoder.configure(format)
+                    audioDecoder.configure(format, drmBinding?.mediaCrypto)
                     audioRendererConfigured = false
                 }
                 else -> error("Selected NativeDirect audio track has no platform output path")
@@ -1065,10 +1099,12 @@ internal class AndroidNativeDirectYPlayer(
             data: ByteBuffer,
             presentationTimeUs: Long,
             flags: Int,
+            cryptoInfo: YExtractorCryptoInfo?,
         ): YCodecQueueResult {
             if (!isAudioPassthrough()) {
-                return audioDecoder.queueAccessUnit(data, presentationTimeUs, flags)
+                return audioDecoder.queueAccessUnit(data, presentationTimeUs, flags, cryptoInfo)
             }
+            require(cryptoInfo == null) { "Encrypted audio cannot use passthrough" }
             if (presentationTimeUs >= seekTargetAudioUs) {
                 encodedAudioRenderer.write(data, presentationTimeUs)
                 seekTargetAudioUs = 0L
@@ -1095,7 +1131,12 @@ internal class AndroidNativeDirectYPlayer(
         private fun configureVideoDecoder(surface: Surface) {
             val format = requireNotNull(videoFormat)
             try {
-                videoDecoder.configure(format, surface, decoderName)
+                videoDecoder.configure(
+                    format = format,
+                    surface = surface,
+                    decoderName = decoderName,
+                    mediaCrypto = drmBinding?.mediaCrypto,
+                )
                 runtimeCapabilityKey?.let(runtimeCapabilities::recordConfigured)
             } catch (failure: Throwable) {
                 runtimeCapabilityKey?.let(runtimeCapabilities::recordRejected)
@@ -1245,6 +1286,9 @@ internal class AndroidNativeDirectYPlayer(
             runCatching(encodedAudioRenderer::release)
             runCatching(audioDecoder::release)
             runCatching(videoDecoder::release)
+            runCatching { drmSession?.close() }
+            drmBinding = null
+            drmSession = null
             frameRateManager.clear()
             runCatching(demux::release)
             prepared = false

@@ -27,7 +27,7 @@ internal class AndroidYCoreDrmSession(
     private val createMediaCrypto: (UUID, ByteArray) -> MediaCrypto = ::MediaCrypto,
     private val createTransport: () -> YMediaTransport = ::AndroidHttpMediaTransport,
 ) : Closeable {
-    private val schemeUuid = configuration.scheme.platformUuid()
+    private val schemeUuid = configuration.scheme.yCorePlatformUuid()
     private var mediaDrm: MediaDrm? = null
     private var sessionId: ByteArray? = null
     private var mediaCrypto: MediaCrypto? = null
@@ -85,7 +85,7 @@ internal class AndroidYCoreDrmSession(
             drm.getKeyRequest(
                 openedSession,
                 initializationData,
-                videoMimeType,
+                CENC_INIT_DATA_MIME_TYPE,
                 MediaDrm.KEY_TYPE_STREAMING,
                 hashMapOf(),
             )
@@ -94,8 +94,12 @@ internal class AndroidYCoreDrmSession(
         }
         // An explicit product URL wins even when a PSSH supplies a default. This prevents
         // credential-bearing request headers from being redirected to manifest-controlled hosts.
+        val configuredLicenseUri = configuration.licenseUri?.takeIf(String::isNotBlank)
+        require(configuredLicenseUri != null || configuration.requestHeaders.isEmpty()) {
+            "Custom DRM headers require an explicit license URI"
+        }
         val licenseUri =
-            configuration.licenseUri?.takeIf(String::isNotBlank)
+            configuredLicenseUri
                 ?: keyRequest.defaultUrl.takeIf(String::isNotBlank)
                 ?: error("DRM license URI is unavailable")
         val response = postLicense(licenseUri, keyRequest.data)
@@ -109,13 +113,19 @@ internal class AndroidYCoreDrmSession(
         runBlocking {
             val protocol = licenseUri.licenseProtocol()
             val transport = createTransport()
+            val requestHeaders =
+                if (configuration.requestHeaders.keys.any { it.equals(CONTENT_TYPE_HEADER, ignoreCase = true) }) {
+                    configuration.requestHeaders
+                } else {
+                    configuration.requestHeaders + (CONTENT_TYPE_HEADER to DRM_BINARY_CONTENT_TYPE)
+                }
             try {
                 val response =
                     transport.open(
                         YMediaTransportRequest(
                             uri = licenseUri,
                             protocol = protocol,
-                            headers = configuration.requestHeaders,
+                            headers = requestHeaders,
                             method = YTransportMethod.Post,
                             body = challenge,
                         ),
@@ -157,7 +167,7 @@ internal class AndroidYCoreDrmSession(
     }
 }
 
-private fun PlaybackDrmScheme.platformUuid(): UUID =
+internal fun PlaybackDrmScheme.yCorePlatformUuid(): UUID =
     when (this) {
         PlaybackDrmScheme.Widevine -> UUID.fromString("edef8ba9-79d6-4ace-a3c8-27dcd51d21ed")
         PlaybackDrmScheme.ClearKey -> UUID.fromString("e2719d58-a985-b3c9-781a-b030af78d30e")
@@ -180,3 +190,6 @@ private const val MAX_OFFLINE_KEY_SET_BYTES = 64 * 1024
 private const val MAX_LICENSE_CHALLENGE_BYTES = 1024 * 1024
 private const val MAX_LICENSE_RESPONSE_BYTES = 4 * 1024 * 1024
 private const val LICENSE_BUFFER_BYTES = 32 * 1024
+private const val CENC_INIT_DATA_MIME_TYPE = "video/mp4"
+private const val CONTENT_TYPE_HEADER = "Content-Type"
+private const val DRM_BINARY_CONTENT_TYPE = "application/octet-stream"

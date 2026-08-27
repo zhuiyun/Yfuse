@@ -33,6 +33,7 @@ fun selectYDashPlaybackRepresentations(
 fun buildYDashPlaybackManifest(
     manifest: YDashManifest,
     selection: YDashPlaybackSelection,
+    allowContentProtection: Boolean = false,
     localize: (representation: YDashRepresentation, template: String, kind: YDashResourceKind) -> String,
 ): String {
     require(!manifest.isLive) { "Dynamic DASH requires the live-window controller" }
@@ -43,18 +44,20 @@ fun buildYDashPlaybackManifest(
     }
     representations.forEach { representation ->
         require(representation in manifest.representations) { "DASH selection is outside the parsed manifest" }
-        require(representation.contentProtections.isEmpty()) { "Protected DASH requires the native DRM route" }
+        require(allowContentProtection || representation.contentProtections.isEmpty()) {
+            "Protected DASH requires the native DRM route"
+        }
         requireNotNull(representation.segmentTemplate) { "DASH SegmentTemplate is required" }
     }
     return buildString {
         append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        append("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" type=\"static\"")
+        append("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:cenc=\"urn:mpeg:cenc:2013\" type=\"static\"")
         append(" mediaPresentationDuration=\"")
         append(durationUs.toDashDuration())
         append("\" minBufferTime=\"PT1.5S\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\">\n")
         append("  <Period start=\"PT0S\">\n")
         representations.forEach { representation ->
-            appendRepresentation(representation, localize)
+            appendRepresentation(representation, allowContentProtection, localize)
         }
         append("  </Period>\n")
         append("</MPD>\n")
@@ -63,6 +66,7 @@ fun buildYDashPlaybackManifest(
 
 private fun StringBuilder.appendRepresentation(
     representation: YDashRepresentation,
+    allowContentProtection: Boolean,
     localize: (YDashRepresentation, String, YDashResourceKind) -> String,
 ) {
     val template = requireNotNull(representation.segmentTemplate)
@@ -72,6 +76,9 @@ private fun StringBuilder.appendRepresentation(
     representation.mimeType?.let { appendXmlAttribute("mimeType", it) }
     representation.language?.let { appendXmlAttribute("lang", it) }
     append(" segmentAlignment=\"true\">\n")
+    if (allowContentProtection) {
+        representation.contentProtections.forEach(::appendContentProtection)
+    }
     append("      <SegmentTemplate")
     appendXmlAttribute("timescale", template.timescale.toString())
     template.duration?.let { appendXmlAttribute("duration", it.toString()) }
@@ -112,6 +119,21 @@ private fun StringBuilder.appendRepresentation(
     representation.audioSamplingRate?.let { appendXmlAttribute("audioSamplingRate", it.toString()) }
     append("/>\n")
     append("    </AdaptationSet>\n")
+}
+
+private fun StringBuilder.appendContentProtection(protection: YDashContentProtection) {
+    append("      <ContentProtection")
+    appendXmlAttribute("schemeIdUri", protection.schemeIdUri)
+    protection.value?.let { appendXmlAttribute("value", it) }
+    protection.defaultKeyId?.let { appendXmlAttribute("cenc:default_KID", it) }
+    val pssh = protection.psshBase64
+    if (pssh.isNullOrBlank()) {
+        append("/>\n")
+    } else {
+        append("><cenc:pssh>")
+        append(pssh.escapeXml())
+        append("</cenc:pssh></ContentProtection>\n")
+    }
 }
 
 private fun StringBuilder.appendXmlAttribute(

@@ -1,6 +1,9 @@
 package com.yfuse.core2.android
 
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
+import android.media.MediaCrypto
 import android.media.MediaFormat
 import android.os.Build
 import android.os.Bundle
@@ -101,20 +104,29 @@ internal class AndroidMediaCodecVideoNode(
         format: MediaFormat,
         surface: Surface,
         decoderName: String? = null,
+        mediaCrypto: MediaCrypto? = null,
     ) {
         release()
         val mime =
             format.getString(MediaFormat.KEY_MIME)
                 ?: error("Video MediaFormat is missing ${MediaFormat.KEY_MIME}")
+        val secureDecoderName =
+            if (mediaCrypto?.requiresSecureDecoderComponent(mime) == true) {
+                format.setFeatureEnabled(MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback, true)
+                MediaCodecList(MediaCodecList.ALL_CODECS).findDecoderForFormat(format)
+                    ?: error("No secure video decoder accepts the encrypted format")
+            } else {
+                null
+            }
         val decoder =
             createPlannedVideoDecoder(
                 mime = mime,
-                decoderName = decoderName,
+                decoderName = secureDecoderName ?: decoderName,
                 createByType = createDecoder,
                 createByName = createDecoderByName,
             )
         try {
-            decoder.configure(format, surface, null, 0)
+            decoder.configure(format, surface, mediaCrypto, 0)
             decoder.start()
             codec = decoder
             started = true
@@ -167,6 +179,7 @@ internal class AndroidMediaCodecVideoNode(
         data: ByteBuffer,
         presentationTimeUs: Long,
         flags: Int = 0,
+        cryptoInfo: YExtractorCryptoInfo? = null,
     ): YCodecQueueResult {
         val decoder = requireStartedCodec()
         val inputIndex = decoder.dequeueInputBuffer(0L)
@@ -180,13 +193,25 @@ internal class AndroidMediaCodecVideoNode(
             "Encoded access unit ($size bytes) exceeds MediaCodec input buffer (${input.remaining()} bytes)"
         }
         input.put(sample)
-        decoder.queueInputBuffer(
-            inputIndex,
-            0,
-            size,
-            presentationTimeUs,
-            flags.toCodecInputFlags(),
-        )
+        val encrypted = flags and MediaExtractorFlags.ENCRYPTED != 0
+        require(encrypted == (cryptoInfo != null)) { "Encrypted video sample metadata is inconsistent" }
+        if (cryptoInfo == null) {
+            decoder.queueInputBuffer(
+                inputIndex,
+                0,
+                size,
+                presentationTimeUs,
+                flags.toCodecInputFlags(),
+            )
+        } else {
+            decoder.queueSecureInputBuffer(
+                inputIndex,
+                0,
+                cryptoInfo.toMediaCodecCryptoInfo(),
+                presentationTimeUs,
+                flags.toCodecInputFlags(),
+            )
+        }
         return YCodecQueueResult.Queued
     }
 
@@ -317,13 +342,8 @@ internal fun emptyTailSeekRetryTarget(
     return (currentTargetUs - retryStepUs).coerceAtLeast(0L)
 }
 
-/** MediaExtractor's SYNC bit matches MediaCodec's key-frame bit; encrypted samples are not queued here. */
-private fun Int.toCodecInputFlags(): Int =
-    if (this and MediaExtractorFlags.ENCRYPTED != 0) {
-        error("Encrypted samples require a MediaCrypto queue path")
-    } else {
-        if (this and MediaExtractorFlags.SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
-    }
+/** MediaExtractor's SYNC bit matches MediaCodec's key-frame bit. */
+private fun Int.toCodecInputFlags(): Int = if (this and MediaExtractorFlags.SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
 
 /** Kept local so the video node does not depend on MediaExtractor at runtime. */
 private object MediaExtractorFlags {
