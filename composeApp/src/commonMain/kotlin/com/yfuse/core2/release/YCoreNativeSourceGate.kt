@@ -31,7 +31,7 @@ data class Core2NativeBaselineSource(
 )
 
 /**
- * Fail-closed preflight for the first independently executable YCore lane. Audio is deliberately
+ * Fail-closed preflight for the independently executable YCore lane. Audio is deliberately
  * absent: it is verified from demuxed tracks at runtime because queue metadata only carries a
  * display string and must not be treated as codec evidence.
  */
@@ -78,7 +78,19 @@ private fun String?.normalizedVideoCodec(): String {
 private val CORE2_NATIVE_BASELINE_SCHEMES =
     setOf("http", "https", "file", "content", "android.resource")
 private val CORE2_NATIVE_BASELINE_CONTAINERS =
-    setOf("mp4", "m4v", "mkv", "matroska", "webm", "mov", "quicktime")
+    setOf(
+        "mp4",
+        "m4v",
+        "mkv",
+        "matroska",
+        "webm",
+        "mov",
+        "quicktime",
+        "ts",
+        "m2ts",
+        "mts",
+        "mpegts",
+    )
 private val CORE2_NATIVE_BASELINE_VIDEO_CODECS =
     setOf(
         "h264",

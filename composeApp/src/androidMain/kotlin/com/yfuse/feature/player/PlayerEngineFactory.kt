@@ -53,18 +53,21 @@ internal fun createVideoEngine(
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
     capabilitySignature: String = "unknown",
 ): VideoEngine {
+    val packagedNativeOnly = BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME
+    val resolvedNativeOnly = packagedNativeOnly || core2NativeOnlyEnabled
     val resolvedDecoderMode =
         AndroidNativeCrashMonitor.safeDecoderMode(kind, decoderMode, capabilitySignature)
     val yCoreAllowed =
-        shouldUseCore2Trial(
-            enabled = core2TrialEnabled,
-            engineSelection = engineSelection,
-            crashBlocked =
-                AndroidNativeCrashMonitor.isYCoreDemuxBlocked(
-                    decoderMode,
-                    capabilitySignature,
-                ),
-        )
+        packagedNativeOnly ||
+            shouldUseCore2Trial(
+                enabled = core2TrialEnabled,
+                engineSelection = engineSelection,
+                crashBlocked =
+                    AndroidNativeCrashMonitor.isYCoreDemuxBlocked(
+                        decoderMode,
+                        capabilitySignature,
+                    ),
+            )
     val component =
         if (yCoreAllowed) {
             NativePlaybackComponent.YCoreDemux
@@ -83,7 +86,7 @@ internal fun createVideoEngine(
         media = items.getOrNull(startIndex),
     )
     if (yCoreAllowed) {
-        if (core2NativeOnlyEnabled) {
+        if (resolvedNativeOnly) {
             items.core2NativeBaselineBlockReason(startIndex)?.let { reason ->
                 return MissingNativeCapabilityVideoEngine(
                     message = reason,
@@ -106,9 +109,9 @@ internal fun createVideoEngine(
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateMatch = frameRateMatch,
                 videoCacheBytes = videoCacheBytes,
-                nativeOnly = core2NativeOnlyEnabled,
+                nativeOnly = resolvedNativeOnly,
             )?.let { return it }
-        if (core2NativeOnlyEnabled) {
+        if (resolvedNativeOnly) {
             return MissingNativeCapabilityVideoEngine(
                 message = "YCore Native 当前无法建立纯内核播放路径",
                 startIndex = startIndex,

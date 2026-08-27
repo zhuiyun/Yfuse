@@ -1,22 +1,20 @@
-name: Publish verified Yfuse MPV Dolby release
+name: Publish verified YCore native release
 
 on:
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: Successful build-yfuse-mpv-dolby run containing the verified artifact
+        description: Successful Build YCore native runtime run ID
         required: true
-        default: "32688132647"
         type: string
       release_tag:
-        description: New immutable native dependency release tag
+        description: New immutable YCore dependency release tag
         required: true
-        default: native-mpv-b955aa2-yfuse-dolby1-arm64-20260824
+        default: native-ycore-ffmpeg-b79d4c4-arm64-20260827
         type: string
-      expected_aar_sha256:
-        description: SHA-256 of libmpv-release.aar after artifact extraction
+      expected_ycore_sha256:
+        description: SHA-256 of ycore-native.aar after artifact extraction
         required: true
-        default: 074121c3fbbfd32fad74b14400c0a4c2678235f5dc818f9e4a79699ee77f3ecb
         type: string
 
 permissions:
@@ -24,30 +22,30 @@ permissions:
   actions: read
 
 concurrency:
-  group: publish-native-dolby-${{ inputs.release_tag }}
+  group: publish-ycore-native-${{ inputs.release_tag }}
   cancel-in-progress: false
 
 jobs:
   publish:
-    name: Re-verify and publish immutable native release
+    name: Re-verify and publish immutable YCore runtime
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_RUN_ID: ${{ inputs.source_run_id }}
       RELEASE_TAG: ${{ inputs.release_tag }}
-      EXPECTED_AAR_SHA256: ${{ inputs.expected_aar_sha256 }}
+      EXPECTED_YCORE_SHA256: ${{ inputs.expected_ycore_sha256 }}
     steps:
       - name: Check out release policy
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Validate immutable release request
         shell: bash
         run: |
           set -euo pipefail
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
-          [[ "$RELEASE_TAG" =~ ^native-mpv-[a-zA-Z0-9._-]+$ ]]
-          [[ "$EXPECTED_AAR_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$RELEASE_TAG" =~ ^native-ycore-[a-zA-Z0-9._-]+$ ]]
+          [[ "$EXPECTED_YCORE_SHA256" =~ ^[0-9a-f]{64}$ ]]
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Native release $RELEASE_TAG already exists; refusing to replace it"
             exit 1
@@ -60,7 +58,7 @@ jobs:
             echo "::error::Source run $SOURCE_RUN_ID did not complete successfully"
             exit 1
           }
-          [[ "$workflow_name" == "Build Yfuse mpv Dolby Vision" ]] || {
+          [[ "$workflow_name" == "Build YCore native runtime" ]] || {
             echo "::error::Source run belongs to unexpected workflow: $workflow_name"
             exit 1
           }
@@ -72,55 +70,53 @@ jobs:
           mkdir -p native-release
           gh run download "$SOURCE_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
-            --name libmpv-yfuse-dolby-arm64 \
+            --name ycore-native-arm64 \
             --dir native-release
-          test -f native-release/libmpv-yfuse-bluray.aar
-          test -f native-release/libmpv-yfuse-bluray.aar.sha256
+          test -f native-release/ycore-native.aar
+          test -f native-release/ycore-native.aar.sha256
           test -f native-release/NATIVE-SOURCES.txt
           test -f native-release/BUILD-MANIFEST.txt
 
-      - name: Re-run native release gates
+      - name: Re-run standalone YCore release gates
         shell: bash
         run: |
           set -euo pipefail
-          actual="$(sha256sum native-release/libmpv-yfuse-bluray.aar | awk '{ print $1 }')"
-          [[ "$actual" == "$EXPECTED_AAR_SHA256" ]] || {
-            echo "::error::AAR SHA-256 mismatch: expected $EXPECTED_AAR_SHA256, got $actual"
+          actual="$(sha256sum native-release/ycore-native.aar | awk '{ print $1 }')"
+          [[ "$actual" == "$EXPECTED_YCORE_SHA256" ]] || {
+            echo "::error::AAR SHA-256 mismatch: expected $EXPECTED_YCORE_SHA256, got $actual"
             exit 1
           }
           bash scripts/verify-ycore-native.sh \
-            native-release/libmpv-yfuse-bluray.aar \
-            native-release/libmpv-yfuse-bluray.aar.sha256 \
+            native-release/ycore-native.aar \
+            native-release/ycore-native.aar.sha256 \
             native-release/NATIVE-SOURCES.txt
-          cp native-release/libmpv-yfuse-bluray.aar native-release/libmpv-release.aar
-          printf '%s  libmpv-release.aar\n' "$actual" > native-release/libmpv-release.aar.sha256
 
-      - name: Publish permanent native dependency release
+      - name: Publish permanent YCore dependency release
         shell: bash
         run: |
           set -euo pipefail
-          notes="$RUNNER_TEMP/native-release-notes.md"
+          notes="$RUNNER_TEMP/ycore-release-notes.md"
           cat >"$notes" <<EOF
-          Yfuse permanent arm64 native playback package.
+          YCore standalone arm64 native playback runtime.
 
-          - MPV \`gpu-next\` + libplacebo Dolby Vision RPU processing
-          - Profile 7 enhancement-layer pairing and runtime FEL composition evidence
-          - FFmpeg \`dovi_split\`
-          - Native Blu-ray ISO/BDMV, HDMV menus, chapters, titles and multi-angle
-          - YCore demux bridge built against the same pinned FFmpeg revision
-          - 16 KiB Android page alignment verified
-          - BD-J remains disabled
+          - YCore-owned demux, software video/audio decode and A/V output path
+          - HDR10/HDR10+/HLG tone mapping with explicit Dolby Vision routing boundaries
+          - Native Blu-ray title, chapter and angle navigation through libbluray
+          - Dependency-closed FFmpeg/libbluray native libraries
+          - No libmpv, libplayer, MDK, or Java engine classes
+          - 16 KiB Android page alignment verified for every packaged native library
+          - Protected AACS/BD+ media and HDMV/BD-J interactive menus remain fail-closed
 
-          Artifact SHA-256: \`$EXPECTED_AAR_SHA256\`
+          Artifact SHA-256: \`$EXPECTED_YCORE_SHA256\`
 
           Built and verified by GitHub Actions run $SOURCE_RUN_ID; published by commit $GITHUB_SHA.
           EOF
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Yfuse MPV Dolby Vision + Blu-ray arm64 (2026-08-24)" \
+            --title "YCore standalone native runtime arm64" \
             --notes-file "$notes" \
-            native-release/libmpv-release.aar \
-            native-release/libmpv-release.aar.sha256 \
+            native-release/ycore-native.aar \
+            native-release/ycore-native.aar.sha256 \
             native-release/NATIVE-SOURCES.txt \
             native-release/BUILD-MANIFEST.txt

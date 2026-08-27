@@ -5,8 +5,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE="$ROOT/.native-build"
 ARTIFACTS="$WORKSPACE/artifacts"
 AAR="$ARTIFACTS/libmpv-yfuse-bluray.aar"
+PURE_AAR="$ARTIFACTS/ycore-native.aar"
 SOURCES_MANIFEST="$ARTIFACTS/NATIVE-SOURCES.txt"
 SOURCE="$ROOT/scripts/native/ycore_demux_jni.cpp"
+PACKAGER="$ROOT/scripts/package-ycore-native-aar.py"
 NDK_VERSION="29.0.14206865"
 ANDROID_API="26"
 MAX_PAGE_SIZE="16384"
@@ -39,6 +41,7 @@ fi
 [[ -f "$AAR" ]] || fail "missing native AAR: $AAR"
 [[ -f "$SOURCES_MANIFEST" ]] || fail "missing native provenance: $SOURCES_MANIFEST"
 [[ -f "$SOURCE" ]] || fail "missing JNI source: $SOURCE"
+[[ -f "$PACKAGER" ]] || fail "missing standalone AAR packager: $PACKAGER"
 [[ -d "$UPSTREAM/buildscripts/prefix" ]] || fail "missing upstream FFmpeg prefix tree: $UPSTREAM/buildscripts/prefix"
 FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$FFMPEG_REVISION" =~ ^[0-9a-f]{40}$ ]] || fail "native provenance has no pinned FFmpeg commit"
@@ -143,7 +146,22 @@ finally:
     temp.unlink(missing_ok=True)
 PY
 
-sha256sum "$AAR" | awk '{print $1}' > "$AAR.sha256"
+sha256sum "$AAR" | awk -v name="$(basename "$AAR")" '{print $1 "  " name}' > "$AAR.sha256"
+PROVENANCE_TEMP="$(mktemp "$ARTIFACTS/.NATIVE-SOURCES.XXXXXX")"
+awk -F= '
+  $1 != "ycore-demux" &&
+  $1 != "ycore-demux-ffmpeg" &&
+  $1 != "ycore-demux-source" &&
+  $1 != "ycore-tone-map-source" &&
+  $1 != "ycore-software-decoder-api" &&
+  $1 != "ycore-disc-api" &&
+  $1 != "ycore-libbluray" &&
+  $1 != "ycore-disc-uri-source" &&
+  $1 != "ycore-demux-abis" &&
+  $1 != "ycore-native-aar" &&
+  $1 != "ycore-native-entry" &&
+  $1 != "ycore-native-forbidden" { print }
+' "$SOURCES_MANIFEST" > "$PROVENANCE_TEMP"
 {
   echo "ycore-demux=true"
   echo "ycore-demux-ffmpeg=$FFMPEG_REVISION"
@@ -154,6 +172,17 @@ sha256sum "$AAR" | awk '{print $1}' > "$AAR.sha256"
   echo "ycore-libbluray=1.4.1"
   echo "ycore-disc-uri-source=scripts/native/ycore_disc_uri.h"
   echo "ycore-demux-abis=$(IFS=,; echo "${ABIS[*]}")"
-} >> "$SOURCES_MANIFEST"
+  echo "ycore-native-aar=true"
+  echo "ycore-native-entry=libycore_demux.so"
+  echo "ycore-native-forbidden=libmpv.so,libplayer.so,libmdk.so"
+} >> "$PROVENANCE_TEMP"
+mv -f "$PROVENANCE_TEMP" "$SOURCES_MANIFEST"
+
+python3 "$PACKAGER" \
+  --readelf "$TOOLCHAIN/bin/llvm-readelf" \
+  "$AAR" \
+  "$PURE_AAR" \
+  "$SOURCES_MANIFEST"
 
 echo "[ycore-demux] injected libycore_demux.so into $AAR"
+echo "[ycore-demux] packaged standalone YCore runtime into $PURE_AAR"
