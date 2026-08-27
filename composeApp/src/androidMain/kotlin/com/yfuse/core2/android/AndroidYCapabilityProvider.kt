@@ -44,7 +44,6 @@ internal class AndroidYCapabilityProvider(
         codecInfos
             .asSequence()
             .filterNot(MediaCodecInfo::isEncoder)
-            .filter(MediaCodecInfo::isHardwareDecoderCompat)
             .flatMap { info ->
                 info.supportedTypes
                     .asSequence()
@@ -117,6 +116,7 @@ internal class AndroidYCapabilityProvider(
             YVideoDecoderCapability(
                 name = name,
                 codec = codec,
+                hardwareAccelerated = isHardwareDecoderCompat(),
                 hdrTypes = decoderHdrTypes(normalizedType, profiles),
                 rawProfiles = rawProfileSet,
                 rawProfileLevels = profileLevelMap.filterKeys(rawProfileSet::contains),

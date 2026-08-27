@@ -248,14 +248,46 @@ class YPlaybackStrategyTest {
         assertEquals(YRenderPath.Gpu, plan.renderPath)
     }
 
+    @Test
+    fun `platform software decoder stays inside YCore and never tunnels`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.WebM,
+                        video = YVideoRequirement(codec = YVideoCodec.Av1),
+                        platformDemuxSupported = true,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders =
+                            listOf(
+                                decoder(
+                                    hdr = setOf(YHdrType.Sdr),
+                                    codec = YVideoCodec.Av1,
+                                    hardwareAccelerated = false,
+                                    tunneled = false,
+                                ),
+                            ),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.NativeDirect, plan.route)
+        assertEquals(YDecodePath.Software, plan.decodePath)
+        assertEquals(YRenderPath.SurfaceDirect, plan.renderPath)
+    }
+
     private fun decoder(
         hdr: Set<YHdrType>,
         dolbyProfiles: Set<Int> = emptySet(),
         tunneled: Boolean = false,
+        codec: YVideoCodec = YVideoCodec.H265,
+        hardwareAccelerated: Boolean = true,
     ): YVideoDecoderCapability =
         YVideoDecoderCapability(
             name = "test.hevc.decoder",
-            codec = YVideoCodec.H265,
+            codec = codec,
+            hardwareAccelerated = hardwareAccelerated,
             hdrTypes = hdr,
             dolbyVisionProfiles = dolbyProfiles,
             maxWidth = 7680,

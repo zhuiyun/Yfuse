@@ -94,6 +94,7 @@ data class YVideoDecoderCapability(
     val securePlayback: Boolean = false,
     val lowLatencyPlayback: Boolean = false,
     val surfaceOutput: Boolean = true,
+    val hardwareAccelerated: Boolean = true,
 ) {
     fun supports(requirement: YVideoRequirement): Boolean {
         if (codec != requirement.codec) return false
@@ -134,7 +135,8 @@ data class YDeviceCapabilities(
             .asSequence()
             .filter { it.supports(requirement) }
             .sortedWith(
-                compareByDescending<YVideoDecoderCapability> { it.tunneledPlayback }
+                compareByDescending<YVideoDecoderCapability> { it.hardwareAccelerated }
+                    .thenByDescending { it.tunneledPlayback }
                     .thenByDescending { it.adaptivePlayback },
             ).firstOrNull()
 

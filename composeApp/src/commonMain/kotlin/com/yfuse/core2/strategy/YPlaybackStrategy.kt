@@ -98,6 +98,12 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                 else -> null
             }
         val selectedDecoder = originalDecoder ?: fallbackDecoder
+        val decodePath =
+            if (selectedDecoder?.hardwareAccelerated == false) {
+                YDecodePath.Software
+            } else {
+                YDecodePath.Hardware
+            }
         val usesHdrFallback = originalDecoder == null && fallbackDecoder != null
         val audioCapabilities =
             if (request.allowAudioPassthrough) {
@@ -120,6 +126,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                 when {
                     !displayCanPresent -> YRenderPath.Gpu
                     demuxPath == YDemuxPath.Platform &&
+                        selectedDecoder.hardwareAccelerated &&
                         canUseNativeTunnel(request, capabilities, selectedDecoder) -> YRenderPath.Tunnel
                     else -> YRenderPath.SurfaceDirect
                 }
@@ -135,7 +142,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             return YPlaybackPlan(
                 route = route,
                 demuxPath = demuxPath,
-                decodePath = YDecodePath.Hardware,
+                decodePath = decodePath,
                 renderPath = renderPath,
                 outputHdrType = outputHdr,
                 decoderName = selectedDecoder.name,
@@ -146,6 +153,8 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                     when {
                         usesHdrFallback ->
                             "Original HDR path unsupported; use compatible ${selectedRequirement.hdrType} base layer"
+                        !selectedDecoder.hardwareAccelerated ->
+                            "No hardware decoder is available; use the platform software codec under YCore scheduling"
                         demuxPath == YDemuxPath.Enhanced ->
                             "Platform extractor is insufficient; normalize compressed samples then keep hardware decode"
                         renderPath == YRenderPath.Tunnel ->

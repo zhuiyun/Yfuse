@@ -126,7 +126,9 @@ internal class AndroidEnhancedPlaybackSession(
         close()
         this.runtimeCapabilityKey = runtimeCapabilityKey
         require(plan.route == YPlaybackRoute.NativeEnhanced) { "Enhanced session requires NativeEnhanced route" }
-        require(plan.decodePath == YDecodePath.Hardware) { "Enhanced session requires hardware decode" }
+        require(plan.decodePath in setOf(YDecodePath.Hardware, YDecodePath.Software)) {
+            "Enhanced session requires a MediaCodec decode path"
+        }
         require(plan.renderPath == YRenderPath.SurfaceDirect) { "Enhanced session currently requires SurfaceDirect" }
         require(surface.isValid) { "Enhanced session requires a valid Surface" }
 
