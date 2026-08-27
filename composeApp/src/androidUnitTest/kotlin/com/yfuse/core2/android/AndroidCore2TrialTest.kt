@@ -120,6 +120,7 @@ class AndroidCore2TrialTest {
             mediaItem(version.url).copy(
                 versions = listOf(version),
                 versionId = version.id,
+                rawDiscUri = "file:///storage/movie",
             )
 
         assertTrue(listOf(item).canUseCore2Trial(startIndex = 0))
@@ -235,6 +236,7 @@ class AndroidCore2TrialTest {
                 .toCore2MediaItems("")
                 .single()
 
+        assertEquals("file:///storage/movie", mapped.uri)
         assertEquals(com.yfuse.core2.api.YDiscKind.Bdmv, mapped.disc?.kind)
         assertEquals("BDMV", mapped.disc?.container)
     }

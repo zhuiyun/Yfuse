@@ -31,9 +31,7 @@ internal suspend fun prepareNativeRemoteBluRayRoutes(
     return items.toMutableList().also { it[startIndex] = prepared }
 }
 
-private fun PlayerMediaItem.nativeRemoteBluRayRequest(
-    serverRegistry: ServerRegistry,
-): NativeRemoteBluRayPreflightRequest? {
+private fun PlayerMediaItem.nativeRemoteBluRayRequest(serverRegistry: ServerRegistry): NativeRemoteBluRayPreflightRequest? {
     val version = activeVersion ?: return null
     if (!version.discSource || playMethod == PlaybackMethod.DirectStream) return null
     val serverId = serverId ?: return null
@@ -80,6 +78,7 @@ private fun PlayerMediaItem.prepareNativeRemoteBluRayRoute(
         )
     return copy(
         url = nativeUrl,
+        rawDiscUri = rawDiscUri ?: url,
         playMethod = PlaybackMethod.DirectPlay,
         forcedTranscodeReason = null,
         versions = versions.map { candidate -> if (candidate.id == version.id) nativeVersion else candidate },

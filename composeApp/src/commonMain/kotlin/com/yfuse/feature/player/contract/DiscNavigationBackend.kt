@@ -113,9 +113,7 @@ internal class VideoEngineDiscNavigationBackend(
 
     override fun selectChapter(index: Int): Boolean = engine.selectDiscChapter(index)
 
-    // Current engine contract has no stable runtime angle setter. Custom libbluray sessions own
-    // authored Blu-ray angles directly; ordinary mpv `--bluray-angle` remains only an open-time knob.
-    override fun selectAngle(index: Int): Boolean = false
+    override fun selectAngle(index: Int): Boolean = engine.selectDiscAngle(index)
 
     override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean = engine.sendDiscMenuCommand(command)
 }

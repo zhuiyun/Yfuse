@@ -23,6 +23,41 @@ internal object FfmpegNativeBridge {
         available && runCatching { nativeSoftwareDecoderApiVersion() >= SOFTWARE_DECODER_API_VERSION }.getOrDefault(false)
     }
 
+    val discNavigationAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        available && runCatching { nativeDiscApiVersion() >= DISC_API_VERSION }.getOrDefault(false)
+    }
+
+    fun registerBluRaySource(source: Any): Long {
+        check(discNavigationAvailable) { "YCore Blu-ray runtime is not installed" }
+        return nativeRegisterBluRaySource(source).also { handle ->
+            check(handle > 0L) { "YCore Blu-ray source was not registered" }
+        }
+    }
+
+    fun unregisterBluRaySource(handle: Long) {
+        if (handle > 0L && discNavigationAvailable) nativeUnregisterBluRaySource(handle)
+    }
+
+    fun selectDiscTitle(
+        handle: Long,
+        index: Int,
+    ): Boolean = handle > 0L && index >= 0 && nativeSelectDiscTitle(handle, index)
+
+    fun discChapterStartMs(
+        handle: Long,
+        index: Int,
+    ): Long? =
+        if (handle > 0L && index >= 0) {
+            nativeDiscChapterStartMs(handle, index).takeIf { it >= 0L }
+        } else {
+            null
+        }
+
+    fun selectDiscAngle(
+        handle: Long,
+        index: Int,
+    ): Boolean = handle > 0L && index >= 0 && nativeSelectDiscAngle(handle, index)
+
     fun open(
         uri: String,
         headers: Map<String, String>,
@@ -263,6 +298,27 @@ internal object FfmpegNativeBridge {
 
     private external fun nativeSoftwareDecoderApiVersion(): Int
 
+    private external fun nativeDiscApiVersion(): Int
+
+    private external fun nativeRegisterBluRaySource(source: Any): Long
+
+    private external fun nativeUnregisterBluRaySource(handle: Long)
+
+    private external fun nativeSelectDiscTitle(
+        handle: Long,
+        index: Int,
+    ): Boolean
+
+    private external fun nativeDiscChapterStartMs(
+        handle: Long,
+        index: Int,
+    ): Long
+
+    private external fun nativeSelectDiscAngle(
+        handle: Long,
+        index: Int,
+    ): Boolean
+
     private external fun nativeConfigureSoftwareDecoder(
         handle: Long,
         trackIndex: Int,
@@ -338,4 +394,5 @@ internal const val FFMPEG_PACKING_ANNEX_B = 1L
 internal const val FFMPEG_PACKING_LENGTH_PREFIXED = 2L
 private const val LIBRARY_NAME = "ycore_demux"
 private const val SOFTWARE_DECODER_API_VERSION = 2
+private const val DISC_API_VERSION = 1
 private const val SOFTWARE_PACKET_ACCEPTED = 0

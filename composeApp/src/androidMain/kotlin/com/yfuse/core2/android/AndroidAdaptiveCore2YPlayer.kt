@@ -181,6 +181,8 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     override fun selectDiscChapter(index: Int): Boolean = !released && activeChild?.selectDiscChapter(index) == true
 
+    override fun selectDiscAngle(index: Int): Boolean = !released && activeChild?.selectDiscAngle(index) == true
+
     override fun sendDiscMenuCommand(command: com.yfuse.core.playback.PlaybackDiscMenuCommand): Boolean =
         !released && activeChild?.sendDiscMenuCommand(command) == true
 

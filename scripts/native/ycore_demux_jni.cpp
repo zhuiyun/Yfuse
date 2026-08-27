@@ -1,14 +1,17 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 extern "C" {
@@ -21,11 +24,15 @@ extern "C" {
 #include <libavutil/dovi_meta.h>
 #include <libavutil/error.h>
 #include <libavutil/mastering_display_metadata.h>
+#include <libavutil/mem.h>
+#include <libbluray/bluray.h>
+#include <libbluray/keys.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
 
 #include "ycore_tone_map.h"
+#include "ycore_disc_uri.h"
 
 namespace {
 
@@ -66,6 +73,41 @@ constexpr int kSoftwareFrameData = 1;
 constexpr int kSoftwareFrameEof = 2;
 constexpr int kSoftwareFrameGrowBuffer = -1;
 constexpr int kSoftwareDecoderApiVersion = 2;
+constexpr int kDiscApiVersion = 1;
+constexpr int kDiscBlockSize = 2048;
+constexpr int kDiscAvioBufferBytes = 64 * 1024;
+constexpr int64_t kBlurayClock = 90000;
+
+struct BlurayIo;
+
+struct DiscSource {
+    JavaVM* vm = nullptr;
+    jobject object = nullptr;
+    jmethodID read_blocks = nullptr;
+    jmethodID publish_state = nullptr;
+    jmethodID close_source = nullptr;
+    std::string path;
+    std::mutex mutex;
+    BlurayIo* active = nullptr;
+    int preferred_title = -1;
+
+    ~DiscSource();
+};
+
+struct BlurayIo {
+    std::shared_ptr<DiscSource> source;
+    BLURAY* bd = nullptr;
+    BLURAY_TITLE_INFO* title_info = nullptr;
+    int title_count = 0;
+    int current_title = 0;
+    int current_angle = 0;
+
+    ~BlurayIo();
+};
+
+std::mutex g_disc_sources_mutex;
+std::unordered_map<int64_t, std::shared_ptr<DiscSource>> g_disc_sources;
+std::atomic<int64_t> g_next_disc_source_id{1};
 
 struct SoftwareDecoder {
     AVCodecContext* codec = nullptr;
@@ -86,6 +128,8 @@ struct SoftwareDecoder {
 
 struct DemuxSession {
     AVFormatContext* format = nullptr;
+    AVIOContext* custom_io = nullptr;
+    std::shared_ptr<BlurayIo> disc;
     AVPacket* packet = nullptr;
     bool packet_pending = false;
     bool remote_source = false;
@@ -100,9 +144,12 @@ struct DemuxSession {
         if (packet) {
             av_packet_free(&packet);
         }
-        if (format) {
-            avformat_close_input(&format);
+        if (format) avformat_close_input(&format);
+        if (custom_io) {
+            av_freep(&custom_io->buffer);
+            avio_context_free(&custom_io);
         }
+        disc.reset();
     }
 };
 
@@ -112,6 +159,47 @@ DemuxSession* from_handle(jlong handle) {
 
 jlong to_handle(DemuxSession* session) {
     return static_cast<jlong>(reinterpret_cast<intptr_t>(session));
+}
+
+JNIEnv* disc_env(JavaVM* vm, bool* attached) {
+    *attached = false;
+    if (!vm) return nullptr;
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_OK) return env;
+    if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return nullptr;
+    *attached = true;
+    return env;
+}
+
+void clear_java_exception(JNIEnv* env) {
+    if (env && env->ExceptionCheck()) env->ExceptionClear();
+}
+
+DiscSource::~DiscSource() {
+    bool attached = false;
+    JNIEnv* env = disc_env(vm, &attached);
+    if (env && object) {
+        env->CallVoidMethod(object, close_source);
+        clear_java_exception(env);
+        env->DeleteGlobalRef(object);
+        object = nullptr;
+    }
+    if (attached) vm->DetachCurrentThread();
+}
+
+BlurayIo::~BlurayIo() {
+    if (source) {
+        std::lock_guard<std::mutex> lock(source->mutex);
+        if (source->active == this) source->active = nullptr;
+    }
+    if (title_info) bd_free_title_info(title_info);
+    if (bd) bd_close(bd);
+}
+
+std::shared_ptr<DiscSource> find_disc_source(int64_t source_id) {
+    std::lock_guard<std::mutex> lock(g_disc_sources_mutex);
+    const auto found = g_disc_sources.find(source_id);
+    return found == g_disc_sources.end() ? nullptr : found->second;
 }
 
 void throw_java(JNIEnv* env, const char* class_name, const std::string& message) {
@@ -226,6 +314,215 @@ std::string build_headers(
     }
     *valid = true;
     return output;
+}
+
+int disc_read_blocks(void* opaque, void* destination, int lba, int block_count) {
+    auto* source = static_cast<DiscSource*>(opaque);
+    if (!source || !source->object || !destination || lba < 0 || block_count <= 0) return -1;
+    const int64_t byte_count = static_cast<int64_t>(block_count) * kDiscBlockSize;
+    if (byte_count <= 0 || byte_count > std::numeric_limits<jsize>::max()) return -1;
+
+    bool attached = false;
+    JNIEnv* env = disc_env(source->vm, &attached);
+    if (!env) return -1;
+    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(byte_count));
+    if (!bytes) {
+        clear_java_exception(env);
+        if (attached) source->vm->DetachCurrentThread();
+        return -1;
+    }
+    jint blocks = env->CallIntMethod(
+        source->object,
+        source->read_blocks,
+        static_cast<jint>(lba),
+        static_cast<jint>(block_count),
+        bytes,
+        0);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        blocks = -1;
+    }
+    if (blocks > 0 && blocks <= block_count) {
+        const jsize copied = static_cast<jsize>(static_cast<int64_t>(blocks) * kDiscBlockSize);
+        env->GetByteArrayRegion(bytes, 0, copied, static_cast<jbyte*>(destination));
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            blocks = -1;
+        }
+    } else if (blocks > block_count) {
+        blocks = -1;
+    }
+    env->DeleteLocalRef(bytes);
+    if (attached) source->vm->DetachCurrentThread();
+    return blocks;
+}
+
+void refresh_disc_title_info(BlurayIo* disc) {
+    if (!disc || !disc->bd) return;
+    if (disc->title_info) {
+        bd_free_title_info(disc->title_info);
+        disc->title_info = nullptr;
+    }
+    disc->current_title = bd_get_current_title(disc->bd);
+    if (disc->current_title < 0 || disc->current_title >= disc->title_count) {
+        disc->current_title = 0;
+    }
+    disc->current_angle = std::max(0, bd_get_current_angle(disc->bd));
+    disc->title_info = bd_get_title_info(disc->bd, disc->current_title, disc->current_angle);
+}
+
+void publish_disc_state(BlurayIo* disc) {
+    if (!disc || !disc->source || !disc->source->object || !disc->bd) return;
+    const int chapter_count = disc->title_info ? static_cast<int>(disc->title_info->chapter_count) : 0;
+    int chapter = static_cast<int>(bd_get_current_chapter(disc->bd));
+    if (chapter < 0 || (chapter_count > 0 && chapter >= chapter_count)) chapter = 0;
+    const int angle_count = disc->title_info ? static_cast<int>(disc->title_info->angle_count) : 0;
+
+    bool attached = false;
+    JNIEnv* env = disc_env(disc->source->vm, &attached);
+    if (env) {
+        env->CallVoidMethod(
+            disc->source->object,
+            disc->source->publish_state,
+            static_cast<jint>(disc->title_count),
+            static_cast<jint>(disc->current_title),
+            static_cast<jint>(chapter_count),
+            static_cast<jint>(chapter),
+            static_cast<jint>(angle_count),
+            static_cast<jint>(disc->current_angle));
+        clear_java_exception(env);
+    }
+    if (attached) disc->source->vm->DetachCurrentThread();
+}
+
+void drain_disc_events(BlurayIo* disc) {
+    if (!disc || !disc->bd) return;
+    bool changed = false;
+    BD_EVENT event = {};
+    while (bd_get_event(disc->bd, &event)) {
+        switch (event.event) {
+            case BD_EVENT_TITLE:
+            case BD_EVENT_PLAYLIST:
+                refresh_disc_title_info(disc);
+                changed = true;
+                break;
+            case BD_EVENT_CHAPTER:
+                changed = true;
+                break;
+            case BD_EVENT_ANGLE:
+                disc->current_angle = static_cast<int>(event.param);
+                refresh_disc_title_info(disc);
+                changed = true;
+                break;
+            case BD_EVENT_STILL_TIME:
+                bd_read_skip_still(disc->bd);
+                break;
+            default:
+                break;
+        }
+    }
+    if (changed) publish_disc_state(disc);
+}
+
+int disc_avio_read(void* opaque, uint8_t* destination, int size) {
+    auto* disc = static_cast<BlurayIo*>(opaque);
+    if (!disc || !disc->source || !disc->bd || !destination || size <= 0) return AVERROR(EINVAL);
+    std::lock_guard<std::mutex> lock(disc->source->mutex);
+    drain_disc_events(disc);
+    const int result = bd_read(disc->bd, destination, size);
+    drain_disc_events(disc);
+    return result < 0 ? AVERROR(EIO) : result;
+}
+
+int64_t disc_avio_seek(void* opaque, int64_t offset, int whence) {
+    auto* disc = static_cast<BlurayIo*>(opaque);
+    if (!disc || !disc->source || !disc->bd) return AVERROR(EINVAL);
+    std::lock_guard<std::mutex> lock(disc->source->mutex);
+    if (whence & AVSEEK_SIZE) return static_cast<int64_t>(bd_get_title_size(disc->bd));
+    const int origin = whence & ~AVSEEK_FORCE;
+    int64_t target = offset;
+    if (origin == SEEK_CUR) {
+        target += static_cast<int64_t>(bd_tell(disc->bd));
+    } else if (origin == SEEK_END) {
+        target += static_cast<int64_t>(bd_get_title_size(disc->bd));
+    } else if (origin != SEEK_SET) {
+        return AVERROR(EINVAL);
+    }
+    if (target < 0) return AVERROR(EINVAL);
+    const uint64_t position = bd_seek(disc->bd, static_cast<uint64_t>(target));
+    drain_disc_events(disc);
+    return static_cast<int64_t>(position);
+}
+
+int open_bluray_demux(
+    int64_t source_id,
+    DemuxSession* session) {
+    const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
+    if (!source || !session) return AVERROR(ENOENT);
+    auto disc = std::make_shared<BlurayIo>();
+    disc->source = source;
+    if (source->path.empty()) {
+        disc->bd = bd_init();
+        if (!disc->bd || !bd_open_stream(disc->bd, source.get(), disc_read_blocks)) {
+            return AVERROR_INVALIDDATA;
+        }
+    } else {
+        disc->bd = bd_open(source->path.c_str(), nullptr);
+        if (!disc->bd) return AVERROR_INVALIDDATA;
+    }
+    const BLURAY_DISC_INFO* info = bd_get_disc_info(disc->bd);
+    if (
+        !info ||
+        !info->bluray_detected ||
+        (info->aacs_detected && !info->aacs_handled) ||
+        (info->bdplus_detected && !info->bdplus_handled)
+    ) {
+        return AVERROR(EACCES);
+    }
+    disc->title_count = static_cast<int>(bd_get_titles(disc->bd, TITLES_RELEVANT, 0));
+    if (disc->title_count <= 0) return AVERROR_INVALIDDATA;
+    bd_get_event(disc->bd, nullptr);
+    int title = source->preferred_title;
+    if (title < 0 || title >= disc->title_count) title = bd_get_main_title(disc->bd);
+    if (title < 0 || title >= disc->title_count) title = 0;
+    if (!bd_select_title(disc->bd, static_cast<uint32_t>(title))) return AVERROR_INVALIDDATA;
+    refresh_disc_title_info(disc.get());
+
+    {
+        std::lock_guard<std::mutex> lock(source->mutex);
+        if (source->active) return AVERROR(EBUSY);
+        source->active = disc.get();
+    }
+    session->disc = disc;
+    uint8_t* io_buffer = static_cast<uint8_t*>(av_malloc(kDiscAvioBufferBytes));
+    if (!io_buffer) return AVERROR(ENOMEM);
+    session->custom_io =
+        avio_alloc_context(
+            io_buffer,
+            kDiscAvioBufferBytes,
+            0,
+            disc.get(),
+            disc_avio_read,
+            nullptr,
+            disc_avio_seek);
+    if (!session->custom_io) {
+        av_free(io_buffer);
+        return AVERROR(ENOMEM);
+    }
+    session->custom_io->seekable = AVIO_SEEKABLE_NORMAL;
+    session->format = avformat_alloc_context();
+    if (!session->format) return AVERROR(ENOMEM);
+    session->format->pb = session->custom_io;
+    session->format->flags |= AVFMT_FLAG_CUSTOM_IO;
+    const AVInputFormat* input = av_find_input_format("mpegts");
+    if (!input) return AVERROR_DEMUXER_NOT_FOUND;
+    AVDictionary* options = nullptr;
+    av_dict_set(&options, "scan_all_pmts", "1", 0);
+    const int error = avformat_open_input(&session->format, nullptr, input, &options);
+    av_dict_free(&options);
+    if (error < 0) return error;
+    publish_disc_state(disc.get());
+    return 0;
 }
 
 AVStream* checked_stream(JNIEnv* env, DemuxSession* session, jint index) {
@@ -639,6 +936,124 @@ jlongArray make_software_frame_result(
     return result;
 }
 
+jint native_disc_api_version(JNIEnv*, jclass) {
+    return kDiscApiVersion;
+}
+
+jlong native_register_bluray_source(JNIEnv* env, jclass, jobject source_object) {
+    if (!source_object) {
+        throw_illegal_argument(env, "Blu-ray source object is required");
+        return 0;
+    }
+    jclass source_class = env->GetObjectClass(source_object);
+    if (!source_class) return 0;
+    auto source = std::make_shared<DiscSource>();
+    env->GetJavaVM(&source->vm);
+    source->read_blocks = env->GetMethodID(source_class, "readBlocksNative", "(II[BI)I");
+    source->publish_state = env->GetMethodID(source_class, "onNativeDiscState", "(IIIIII)V");
+    source->close_source = env->GetMethodID(source_class, "closeNativeSource", "()V");
+    const jmethodID path_method =
+        env->GetMethodID(source_class, "discPathNative", "()Ljava/lang/String;");
+    if (
+        !source->read_blocks ||
+        !source->publish_state ||
+        !source->close_source ||
+        !path_method ||
+        env->ExceptionCheck()
+    ) {
+        clear_java_exception(env);
+        env->DeleteLocalRef(source_class);
+        throw_illegal_argument(env, "Blu-ray source object has an incompatible callback contract");
+        return 0;
+    }
+    auto path_ref = static_cast<jstring>(env->CallObjectMethod(source_object, path_method));
+    if (env->ExceptionCheck()) {
+        clear_java_exception(env);
+        env->DeleteLocalRef(source_class);
+        throw_illegal_argument(env, "Blu-ray source path callback failed");
+        return 0;
+    }
+    source->path = to_utf8(env, path_ref);
+    if (path_ref) env->DeleteLocalRef(path_ref);
+    source->object = env->NewGlobalRef(source_object);
+    env->DeleteLocalRef(source_class);
+    if (!source->object) {
+        throw_illegal_state(env, "Unable to retain Blu-ray source object");
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lock(g_disc_sources_mutex);
+    if (g_disc_sources.size() >= 16) {
+        throw_illegal_state(env, "Too many registered Blu-ray sources");
+        return 0;
+    }
+    const int64_t source_id = g_next_disc_source_id.fetch_add(1);
+    if (source_id <= 0) {
+        throw_illegal_state(env, "Blu-ray source id space is exhausted");
+        return 0;
+    }
+    g_disc_sources.emplace(source_id, std::move(source));
+    return static_cast<jlong>(source_id);
+}
+
+void native_unregister_bluray_source(JNIEnv*, jclass, jlong source_id) {
+    std::shared_ptr<DiscSource> removed;
+    {
+        std::lock_guard<std::mutex> lock(g_disc_sources_mutex);
+        const auto found = g_disc_sources.find(static_cast<int64_t>(source_id));
+        if (found == g_disc_sources.end()) return;
+        removed = std::move(found->second);
+        g_disc_sources.erase(found);
+    }
+}
+
+jboolean native_select_disc_title(JNIEnv*, jclass, jlong source_id, jint index) {
+    const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
+    if (!source || index < 0) return JNI_FALSE;
+    std::lock_guard<std::mutex> lock(source->mutex);
+    BlurayIo* disc = source->active;
+    if (!disc || index >= disc->title_count) return JNI_FALSE;
+    if (!bd_select_title(disc->bd, static_cast<uint32_t>(index))) return JNI_FALSE;
+    source->preferred_title = index;
+    refresh_disc_title_info(disc);
+    publish_disc_state(disc);
+    return JNI_TRUE;
+}
+
+jlong native_disc_chapter_start_ms(JNIEnv*, jclass, jlong source_id, jint index) {
+    const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
+    if (!source || index < 0) return -1;
+    std::lock_guard<std::mutex> lock(source->mutex);
+    BlurayIo* disc = source->active;
+    if (
+        !disc ||
+        !disc->title_info ||
+        static_cast<uint32_t>(index) >= disc->title_info->chapter_count
+    ) {
+        return -1;
+    }
+    return static_cast<jlong>(disc->title_info->chapters[index].start / (kBlurayClock / 1000));
+}
+
+jboolean native_select_disc_angle(JNIEnv*, jclass, jlong source_id, jint index) {
+    const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
+    if (!source || index < 0) return JNI_FALSE;
+    std::lock_guard<std::mutex> lock(source->mutex);
+    BlurayIo* disc = source->active;
+    if (
+        !disc ||
+        !disc->title_info ||
+        static_cast<uint32_t>(index) >= disc->title_info->angle_count
+    ) {
+        return JNI_FALSE;
+    }
+    bd_seamless_angle_change(disc->bd, static_cast<unsigned>(index));
+    disc->current_angle = index;
+    refresh_disc_title_info(disc);
+    publish_disc_state(disc);
+    return JNI_TRUE;
+}
+
 jlong native_open(
     JNIEnv* env,
     jclass,
@@ -660,11 +1075,18 @@ jlong native_open(
     if (!headers_valid || env->ExceptionCheck()) return 0;
 
     auto session = std::make_unique<DemuxSession>();
+    int64_t disc_source_id = 0;
+    const bool disc_source = ycore_disc::parse_source_id(source, &disc_source_id);
     session->remote_source = is_remote_source(source);
     session->packet = av_packet_alloc();
     if (!session->packet) {
         throw_illegal_state(env, "Unable to allocate FFmpeg packet");
         return 0;
+    }
+
+    if (disc_source) {
+        const int error = open_bluray_demux(disc_source_id, session.get());
+        if (error < 0) return failure_status(error, false);
     }
 
     AVDictionary* options = nullptr;
@@ -683,7 +1105,10 @@ jlong native_open(
         av_dict_set(&options, "rw_timeout", "15000000", 0);
     }
 
-    int error = avformat_open_input(&session->format, source.c_str(), nullptr, &options);
+    int error =
+        disc_source
+        ? 0
+        : avformat_open_input(&session->format, source.c_str(), nullptr, &options);
     av_dict_free(&options);
     if (error < 0) {
         return failure_status(error, session->remote_source);
@@ -726,6 +1151,13 @@ jlong native_duration_us(JNIEnv* env, jclass, jlong handle) {
     if (!session || !session->format) {
         throw_illegal_state(env, "FFmpeg demux session is closed");
         return kNoTimestamp;
+    }
+    if (session->disc && session->disc->title_info) {
+        return static_cast<jlong>(
+            av_rescale_q(
+                static_cast<int64_t>(session->disc->title_info->duration),
+                AVRational{1, static_cast<int>(kBlurayClock)},
+                AV_TIME_BASE_Q));
     }
     return session->format->duration == AV_NOPTS_VALUE
         ? kNoTimestamp
@@ -1415,13 +1847,36 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
         return kFailureContainer;
     }
     const int64_t target = std::max<int64_t>(0, position_us);
-    const int error = avformat_seek_file(
-        session->format,
-        -1,
-        std::numeric_limits<int64_t>::min(),
-        target,
-        std::numeric_limits<int64_t>::max(),
-        AVSEEK_FLAG_BACKWARD);
+    int error = 0;
+    if (session->disc) {
+        int64_t byte_position = -1;
+        {
+            std::lock_guard<std::mutex> lock(session->disc->source->mutex);
+            const int64_t disc_time =
+                av_rescale_q(
+                    target,
+                    AV_TIME_BASE_Q,
+                    AVRational{1, static_cast<int>(kBlurayClock)});
+            if (bd_seek_time(session->disc->bd, static_cast<uint64_t>(disc_time)) < 0) {
+                error = AVERROR(EIO);
+            } else {
+                byte_position = static_cast<int64_t>(bd_tell(session->disc->bd));
+                drain_disc_events(session->disc.get());
+                publish_disc_state(session->disc.get());
+            }
+        }
+        if (error >= 0 && avio_seek(session->custom_io, byte_position, SEEK_SET) < 0) {
+            error = AVERROR(EIO);
+        }
+    } else {
+        error = avformat_seek_file(
+            session->format,
+            -1,
+            std::numeric_limits<int64_t>::min(),
+            target,
+            std::numeric_limits<int64_t>::max(),
+            AVSEEK_FLAG_BACKWARD);
+    }
     if (error < 0) {
         return failure_status(error, session->remote_source);
     }
@@ -1444,6 +1899,12 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
 }
 
 static const JNINativeMethod kMethods[] = {
+    {"nativeDiscApiVersion", "()I", reinterpret_cast<void*>(native_disc_api_version)},
+    {"nativeRegisterBluRaySource", "(Ljava/lang/Object;)J", reinterpret_cast<void*>(native_register_bluray_source)},
+    {"nativeUnregisterBluRaySource", "(J)V", reinterpret_cast<void*>(native_unregister_bluray_source)},
+    {"nativeSelectDiscTitle", "(JI)Z", reinterpret_cast<void*>(native_select_disc_title)},
+    {"nativeDiscChapterStartMs", "(JI)J", reinterpret_cast<void*>(native_disc_chapter_start_ms)},
+    {"nativeSelectDiscAngle", "(JI)Z", reinterpret_cast<void*>(native_select_disc_angle)},
     {"nativeOpen", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)J", reinterpret_cast<void*>(native_open)},
     {"nativeClose", "(J)V", reinterpret_cast<void*>(native_close)},
     {"nativeTrackCount", "(J)I", reinterpret_cast<void*>(native_track_count)},

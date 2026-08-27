@@ -53,6 +53,15 @@ class Core2NativeBaselineTest {
     }
 
     @Test
+    fun proven_bluray_pipeline_enters_native_runtime_probing() {
+        assertNull(
+            evaluateCore2NativeBaseline(
+                source(container = "iso", codec = null, disc = true, discSupported = true),
+            ),
+        )
+    }
+
+    @Test
     fun implemented_adaptive_and_drm_lanes_bypass_progressive_container_gate() {
         assertNull(
             evaluateCore2NativeBaseline(
@@ -114,6 +123,7 @@ class Core2NativeBaselineTest {
         adaptive: Boolean = false,
         adaptiveSupported: Boolean = false,
         disc: Boolean = false,
+        discSupported: Boolean = false,
         drm: Boolean = false,
         drmSupported: Boolean = false,
         dolbyVision: Boolean = false,
@@ -128,6 +138,7 @@ class Core2NativeBaselineTest {
         adaptiveManifest = adaptive,
         adaptiveManifestSupported = adaptiveSupported,
         disc = disc,
+        discSupported = discSupported,
         drm = drm,
         drmSupported = drmSupported,
         dolbyVision = dolbyVision,

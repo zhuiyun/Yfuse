@@ -48,6 +48,7 @@ internal class AndroidFfmpegDemuxer :
     private var openResult: YDemuxOpenResult? = null
     private var packetBuffer = ByteBuffer.allocateDirect(INITIAL_PACKET_BUFFER_BYTES)
     private var prefetchedSample: YCompressedSample? = null
+    private var discSource = false
 
     val available: Boolean get() = FfmpegNativeBridge.available
 
@@ -56,6 +57,7 @@ internal class AndroidFfmpegDemuxer :
         check(available) { "YCore FFmpeg enhanced demux is unavailable" }
         var openedHandle = 0L
         return try {
+            discSource = source.uri.startsWith("ycorebd://", ignoreCase = true)
             openedHandle = FfmpegNativeBridge.open(source.uri, source.headers)
             handle = openedHandle
             val tracks =
@@ -77,6 +79,7 @@ internal class AndroidFfmpegDemuxer :
             handle = 0L
             openResult = null
             prefetchedSample = null
+            discSource = false
             timeline.reset()
             throw throwable
         }
@@ -169,7 +172,7 @@ internal class AndroidFfmpegDemuxer :
         prefetchedSample = null
         FfmpegNativeBridge.seek(
             requireHandle(),
-            timeline.sourceTimeUs(positionUs),
+            if (discSource) positionUs else timeline.sourceTimeUs(positionUs),
         )
     }
 
@@ -242,6 +245,7 @@ internal class AndroidFfmpegDemuxer :
         handle = 0L
         openResult = null
         prefetchedSample = null
+        discSource = false
         timeline.reset()
         packetBuffer.clear()
         if (previous != 0L) FfmpegNativeBridge.close(previous)

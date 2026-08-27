@@ -118,13 +118,20 @@ internal object AndroidCore2TrialFactory {
                     sourceItems = items.associateBy(PlayerMediaItem::id),
                 )
             }
+        val discFactory =
+            AndroidYCoreDiscRouteFactory(
+                context = context,
+                allowAudioPassthrough = allowAudioPassthrough,
+                frameRateSwitchMode = frameRateMatch.toCore2Mode(),
+                fallback = compatibilityFactory,
+            )
         return try {
             val player =
                 AndroidAdaptiveCore2YPlayer(
                     context = context.applicationContext,
                     request = request,
                     fallbackRouteFactory = compatibilityFactory,
-                    discRouteFactory = compatibilityFactory,
+                    discRouteFactory = discFactory,
                     allowAudioPassthrough = allowAudioPassthrough,
                     frameRateSwitchMode = frameRateMatch.toCore2Mode(),
                     onRelease = {
@@ -177,6 +184,17 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
             adaptiveManifest = item.url.isAdaptiveManifest() || version?.container.isAdaptiveContainer(),
             adaptiveManifestSupported = hlsManifest || dashManifest,
             disc = version?.discSource == true,
+            discSupported =
+                version
+                    ?.takeIf { it.discSource }
+                    ?.let { discVersion ->
+                        FfmpegNativeBridge.discNavigationAvailable &&
+                            detectPlaybackDiscKind(
+                                container = discVersion.container,
+                                labelHint = discVersion.label,
+                                declaredDiscSource = true,
+                            ) in setOf(PlaybackDiscKind.BluRay, PlaybackDiscKind.Bdmv)
+                    } ?: true,
             drm = item.drmConfiguration != null || version?.drmConfiguration != null,
             drmSupported = drmConfiguration?.let { item.supportsCore2Drm(it.scheme) } == true,
             dolbyVision = version?.dolbyVision == true,
@@ -197,7 +215,7 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
         Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 当前仅验证 MP4/MKV/WebM/MOV"
         Core2NativeBaselineBlock.UnsupportedVideoCodec ->
             "YCore Native 当前仅验证 H.264/HEVC/AV1/VP9/VC-1/MPEG-2/ProRes"
-        Core2NativeBaselineBlock.Disc -> "YCore Native 尚未完成原盘导航"
+        Core2NativeBaselineBlock.Disc -> "YCore Native 当前仅支持已验证的 Blu-ray / BDMV 导航"
         Core2NativeBaselineBlock.Drm -> "YCore Native 当前仅支持 Widevine CENC（MP4 / 静态 DASH）"
         Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未完成杜比视界渲染"
         Core2NativeBaselineBlock.ExternalSubtitle -> "YCore Native 不支持当前外挂字幕来源"
@@ -264,6 +282,8 @@ private fun PlayerMediaItem.toCore2MediaItem(
                 this,
                 if (usingServerTranscode) {
                     transcodeUrl.ifBlank { fallbackTranscodeUrl }
+                } else if (version?.discSource == true) {
+                    rawDiscUri ?: url
                 } else {
                     url
                 },
@@ -341,6 +361,7 @@ private val CORE2_SOURCE_SCHEMES =
         "android.resource",
         "yfusebd",
         "yfusebdmv",
+        "ycorebd",
     )
 private val CORE2_SUBTITLE_SOURCE_SCHEMES =
     setOf(

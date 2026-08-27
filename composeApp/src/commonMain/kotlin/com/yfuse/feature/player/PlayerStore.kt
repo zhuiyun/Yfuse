@@ -385,6 +385,8 @@ data class PlayerMediaItem(
     val drmConfiguration: PlaybackDrmConfiguration? = null,
     /** Local preflight reason when the device forces the prepared server stream before rendering. */
     val forcedTranscodeReason: String? = null,
+    /** Original raw optical URI retained in memory when a legacy native route replaces [url]. */
+    val rawDiscUri: String? = null,
     val trickplay: TrickplayStoryboard? = null,
     /** Optional process-local offline sidecar; never contains an account token. */
     val externalSubtitleUri: String? = null,
@@ -413,12 +415,7 @@ data class PlayerMediaItem(
 
     /** Preloading must never start server ffmpeg or read the prefix of a raw disc image. */
     val canPreloadSource: Boolean
-        get() =
-            playMethod != PlaybackMethod.Transcode &&
-                activeVersion?.playMethod != PlaybackMethod.Transcode &&
-                activeVersion?.discSource != true &&
-                drmConfiguration == null &&
-                activeVersion?.drmConfiguration == null
+        get() = playMethod != PlaybackMethod.Transcode && activeVersion?.discSource != true
 
     /** The same entry playing a different file, or unchanged when there is no such file. */
     fun withVersion(id: String?): PlayerMediaItem {
@@ -628,8 +625,7 @@ class PlayerStoreFactory(
             reducer = ReducerImpl,
         )
 
-    private inner class ExecutorImpl :
-        CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
+    private inner class ExecutorImpl : CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
         override fun executeAction(action: PlayerAction) {
             load()
         }

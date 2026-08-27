@@ -46,6 +46,8 @@ interface YPlayer {
 
     fun selectDiscChapter(index: Int): Boolean = false
 
+    fun selectDiscAngle(index: Int): Boolean = false
+
     fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
     /**

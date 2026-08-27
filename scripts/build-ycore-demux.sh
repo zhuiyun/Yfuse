@@ -77,6 +77,8 @@ for ABI in "${ABIS[@]}"; do
   [[ -f "$PREFIX/lib/libavformat.so" ]] || fail "missing FFmpeg shared library for $ABI"
   [[ -f "$PREFIX/lib/libswscale.so" ]] || fail "missing FFmpeg libswscale for $ABI"
   [[ -f "$PREFIX/lib/libswresample.so" ]] || fail "missing FFmpeg libswresample for $ABI"
+  [[ -f "$PREFIX/lib/libbluray.so" || -f "$PREFIX/lib/libbluray.a" ]] ||
+    fail "missing libbluray for $ABI"
   CXX="$TOOLCHAIN/bin/$(compiler_for_abi "$ABI")"
   [[ -x "$CXX" ]] || fail "missing compiler for $ABI: $CXX"
 
@@ -101,6 +103,7 @@ for ABI in "${ABIS[@]}"; do
     -lswscale \
     -lswresample \
     -lavutil \
+    -lbluray \
     -o "$OUT"
 
   "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT"
@@ -147,6 +150,9 @@ sha256sum "$AAR" | awk '{print $1}' > "$AAR.sha256"
   echo "ycore-demux-source=scripts/native/ycore_demux_jni.cpp"
   echo "ycore-tone-map-source=scripts/native/ycore_tone_map.h"
   echo "ycore-software-decoder-api=2"
+  echo "ycore-disc-api=1"
+  echo "ycore-libbluray=1.4.1"
+  echo "ycore-disc-uri-source=scripts/native/ycore_disc_uri.h"
   echo "ycore-demux-abis=$(IFS=,; echo "${ABIS[*]}")"
 } >> "$SOURCES_MANIFEST"
 
