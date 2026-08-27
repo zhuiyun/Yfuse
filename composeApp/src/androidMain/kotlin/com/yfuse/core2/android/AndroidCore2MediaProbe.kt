@@ -29,6 +29,7 @@ import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YPlaybackRequest
 import com.yfuse.core2.strategy.YPlaybackStrategy
 import com.yfuse.core2.strategy.YRenderPath
+import com.yfuse.core2.strategy.enhancedAudioCodecIsMoreReliable
 
 internal enum class YCore2ProbeFailure {
     SourceUnavailable,
@@ -323,12 +324,19 @@ private fun androidCore2QuirkDatabase(): YDeviceQuirkDatabase =
 internal fun YCore2RouteDecision.runtimeCapabilityKey(): YRuntimeVideoCapabilityKey? =
     runtimeVideoCapabilityKey(probe.playbackRequest, plan)
 
-private fun YCore2ProbeResult.Success.materiallyOverrides(platform: YCore2ProbeResult.Success): Boolean =
+internal fun YCore2ProbeResult.Success.materiallyOverrides(platform: YCore2ProbeResult.Success): Boolean =
     dolbyVisionConfig != null &&
         platform.dolbyVisionConfig == null ||
         playbackRequest.video.hdrType != platform.playbackRequest.video.hdrType ||
         playbackRequest.video.codec != platform.playbackRequest.video.codec ||
-        playbackRequest.video.bitDepth > platform.playbackRequest.video.bitDepth
+        playbackRequest.video.bitDepth > platform.playbackRequest.video.bitDepth ||
+        playbackRequest.audio.hasReliableCodecWhen(platform.playbackRequest.audio)
+
+private fun YAudioRequirement?.hasReliableCodecWhen(platform: YAudioRequirement?): Boolean =
+    enhancedAudioCodecIsMoreReliable(
+        platformCodec = platform?.codec,
+        enhancedCodec = this?.codec,
+    )
 
 private fun YMediaItem.toProbeSource(): YAndroidMediaSource = YAndroidMediaSource(uri = uri, headers = headers)
 

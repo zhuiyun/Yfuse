@@ -15,6 +15,7 @@ import com.yfuse.core2.api.YDiscKind
 import com.yfuse.core2.api.YDiscMedia
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackPhase
+import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.capability.YVideoCodec
@@ -23,7 +24,6 @@ import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.dolby.YDolbyVisionEnhancementLayerKind
 import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
-import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.quirk.InMemoryYCore2FailureStore
 import com.yfuse.core2.quirk.YCore2FailureLedger
 import com.yfuse.core2.render.YFrameRateSwitchMode
@@ -203,13 +203,10 @@ class YCoreMediaSuiteInstrumentedTest {
                 autoPlay = true,
                 autoNext = false,
             )
-        val compatibilityFactory = AndroidMpvCore2FallbackFactory(context)
         val player =
             AndroidAdaptiveCore2YPlayer(
                 context = context,
                 request = request,
-                fallbackRouteFactory = compatibilityFactory,
-                discRouteFactory = compatibilityFactory,
                 allowAudioPassthrough = true,
                 frameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
                 failureLedger =
@@ -429,7 +426,10 @@ class YCoreMediaSuiteInstrumentedTest {
                     assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
                     val audioOutputReady =
                         state.audioTracks.isEmpty() || state.diagnostics.audioOutputVerified
-                    if (state.diagnostics.videoOutputVerified && audioOutputReady) return@withTimeout
+                    if (state.diagnostics.videoOutputVerified && audioOutputReady) {
+                        assertPureNativeRoute(label, state)
+                        return@withTimeout
+                    }
                     delay(POLL_INTERVAL_MS)
                 }
             }
@@ -449,7 +449,9 @@ class YCoreMediaSuiteInstrumentedTest {
                 player.state.first { state ->
                     assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
                     val tracks = if (type == YTrackType.Audio) state.audioTracks else state.subtitleTracks
-                    tracks.any { it.id == id && it.selected }
+                    tracks.any { it.id == id && it.selected }.also { selected ->
+                        if (selected) assertPureNativeRoute(label, state)
+                    }
                 }
             }
         } catch (failure: TimeoutCancellationException) {
@@ -465,7 +467,9 @@ class YCoreMediaSuiteInstrumentedTest {
             withTimeout(PLAYBACK_TIMEOUT_MS) {
                 player.state.first { state ->
                     assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
-                    state.phase == YPlaybackPhase.Ended
+                    (state.phase == YPlaybackPhase.Ended).also { ended ->
+                        if (ended) assertPureNativeRoute(label, state)
+                    }
                 }
             }
         } catch (failure: TimeoutCancellationException) {
@@ -486,9 +490,12 @@ class YCoreMediaSuiteInstrumentedTest {
                         player.state.first { state ->
                             assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
                             if (!state.diagnostics.videoOutputVerified) resetObserved = true
-                            resetObserved &&
-                                state.diagnostics.videoOutputVerified &&
-                                (state.audioTracks.isEmpty() || state.diagnostics.audioOutputVerified)
+                            val outputReady =
+                                resetObserved &&
+                                    state.diagnostics.videoOutputVerified &&
+                                    (state.audioTracks.isEmpty() || state.diagnostics.audioOutputVerified)
+                            if (outputReady) assertPureNativeRoute(label, state)
+                            outputReady
                         }
                     }
                 } catch (failure: TimeoutCancellationException) {
@@ -546,6 +553,16 @@ class YCoreMediaSuiteInstrumentedTest {
             append(", audio=")
             append(state.diagnostics.audioOutput)
         }
+
+    private fun assertPureNativeRoute(
+        label: String,
+        state: com.yfuse.core2.api.YPlayerState,
+    ) {
+        assertTrue(
+            "$label used non-native route ${state.diagnostics.route}: ${state.diagnostics.reason}",
+            state.diagnostics.route in PURE_NATIVE_ROUTES,
+        )
+    }
 
     private fun stressSeekTarget(
         durationMs: Long,
@@ -723,6 +740,12 @@ private const val RESULT_STATUS_CODE = 3
 private const val RESULT_BUNDLE_KEY = "ycoreResult"
 private const val SOAK_SAMPLE_INTERVAL_MS = 30_000L
 private const val SOAK_PROGRESS_INTERVAL_MS = 5L * 60_000L
+private val PURE_NATIVE_ROUTES =
+    setOf(
+        YPlaybackRoute.NativeTunnel,
+        YPlaybackRoute.NativeDirect,
+        YPlaybackRoute.NativeEnhanced,
+    )
 
 private fun Bundle.intArgument(
     key: String,

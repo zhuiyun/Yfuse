@@ -40,6 +40,12 @@ class AndroidFfmpegDemuxerMappingTest {
     }
 
     @Test
+    fun `baseline AAC and AC3 codecs remain native-decodable identities`() {
+        assertEquals(YAudioCodec.Aac, ffmpegAudioCodec("aac", -99))
+        assertEquals(YAudioCodec.Ac3, ffmpegAudioCodec("ac3", -99))
+    }
+
+    @Test
     fun `PCM 24-bit family stays PCM instead of unknown audio`() {
         assertEquals(YAudioCodec.Pcm, ffmpegAudioCodec("pcm_s24le", -99))
     }
