@@ -23,6 +23,57 @@ fun parseYHlsPlaylist(
     }
 }
 
+enum class YHlsResourceKind {
+    VariantPlaylist,
+    RenditionPlaylist,
+    MediaSegment,
+    InitializationSegment,
+    EncryptionKey,
+}
+
+/**
+ * Rewrites every network-bearing HLS URI while preserving tags that are not interpreted by YCore.
+ * This is used by the loopback transport boundary so native demuxers can never escape to an
+ * upstream URL (including keys, low-latency parts, and rendition reload hints).
+ */
+fun rewriteYHlsResourceUris(
+    text: String,
+    baseUri: String,
+    localize: (absoluteUri: String, kind: YHlsResourceKind) -> String,
+): String {
+    var nextPlainUriKind = YHlsResourceKind.MediaSegment
+    return text.lineSequence().joinToString("\n") { line ->
+        val trimmed = line.trim()
+        when {
+            trimmed.startsWith(STREAM_INFO_TAG) -> {
+                nextPlainUriKind = YHlsResourceKind.VariantPlaylist
+                line
+            }
+            trimmed.isEmpty() || trimmed.startsWith('#') -> {
+                val kind = trimmed.hlsAttributeResourceKind()
+                if (kind == null || "URI=" !in trimmed.uppercase()) {
+                    line
+                } else {
+                    HLS_URI_ATTRIBUTE.replace(line) { match ->
+                        val quote = match.groupValues[1]
+                        val reference = match.groupValues[2]
+                        val localized =
+                            localize(resolveAdaptiveUri(baseUri, reference), kind)
+                                .also(::requireSafeManifestUri)
+                        "URI=$quote$localized$quote"
+                    }
+                }
+            }
+            else -> {
+                val kind = nextPlainUriKind
+                nextPlainUriKind = YHlsResourceKind.MediaSegment
+                localize(resolveAdaptiveUri(baseUri, trimmed), kind)
+                    .also(::requireSafeManifestUri)
+            }
+        }
+    }
+}
+
 private fun parseMasterPlaylist(
     lines: List<String>,
     baseUri: String,
@@ -249,6 +300,20 @@ private fun Map<String, String>.toAdaptiveEncryption(baseUri: String): YAdaptive
     )
 }
 
+private fun String.hlsAttributeResourceKind(): YHlsResourceKind? =
+    when {
+        startsWith(KEY_TAG) || startsWith(SESSION_KEY_TAG) -> YHlsResourceKind.EncryptionKey
+        startsWith(MAP_TAG) -> YHlsResourceKind.InitializationSegment
+        startsWith(MEDIA_TAG) || startsWith(I_FRAME_STREAM_INFO_TAG) || startsWith(RENDITION_REPORT_TAG) ->
+            YHlsResourceKind.RenditionPlaylist
+        startsWith(PART_TAG) || startsWith(PRELOAD_HINT_TAG) -> YHlsResourceKind.MediaSegment
+        else -> null
+    }
+
+private fun requireSafeManifestUri(uri: String) {
+    require(uri.isNotBlank() && '\r' !in uri && '\n' !in uri) { "Unsafe localized HLS URI" }
+}
+
 private fun String.secondsToUs(label: String): Long {
     val seconds = toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: error("Invalid HLS $label")
     return (seconds * MICROS_PER_SECOND).roundToLong().coerceAtLeast(1L)
@@ -266,6 +331,13 @@ private const val EXTINF_TAG = "#EXTINF:"
 private const val BYTE_RANGE_TAG = "#EXT-X-BYTERANGE:"
 private const val MAP_TAG = "#EXT-X-MAP:"
 private const val KEY_TAG = "#EXT-X-KEY:"
+private const val SESSION_KEY_TAG = "#EXT-X-SESSION-KEY:"
+private const val MEDIA_TAG = "#EXT-X-MEDIA:"
+private const val I_FRAME_STREAM_INFO_TAG = "#EXT-X-I-FRAME-STREAM-INF:"
+private const val PART_TAG = "#EXT-X-PART:"
+private const val PRELOAD_HINT_TAG = "#EXT-X-PRELOAD-HINT:"
+private const val RENDITION_REPORT_TAG = "#EXT-X-RENDITION-REPORT:"
 private const val DISCONTINUITY_TAG = "#EXT-X-DISCONTINUITY"
 private const val END_LIST_TAG = "#EXT-X-ENDLIST"
 private val URI_SCHEME = Regex("[A-Za-z][A-Za-z0-9+.-]*:")
+private val HLS_URI_ATTRIBUTE = Regex("URI=([\\\"'])(.*?)(?:\\1)", RegexOption.IGNORE_CASE)

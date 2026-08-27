@@ -36,6 +36,20 @@ class Core2NativeBaselineTest {
     }
 
     @Test
+    fun implemented_hls_transport_lane_bypasses_progressive_container_gate() {
+        assertNull(
+            evaluateCore2NativeBaseline(
+                source(
+                    container = "hls",
+                    codec = "h264",
+                    adaptive = true,
+                    adaptiveSupported = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun unsupported_or_unknown_metadata_cannot_silently_use_a_legacy_engine() {
         assertEquals(
             Core2NativeBaselineBlock.MissingMetadata,
@@ -62,6 +76,7 @@ class Core2NativeBaselineTest {
         codec: String? = "hevc",
         serverTranscode: Boolean = false,
         adaptive: Boolean = false,
+        adaptiveSupported: Boolean = false,
         disc: Boolean = false,
         drm: Boolean = false,
         dolbyVision: Boolean = false,
@@ -73,6 +88,7 @@ class Core2NativeBaselineTest {
         videoCodec = codec,
         serverTranscode = serverTranscode,
         adaptiveManifest = adaptive,
+        adaptiveManifestSupported = adaptiveSupported,
         disc = disc,
         drm = drm,
         dolbyVision = dolbyVision,

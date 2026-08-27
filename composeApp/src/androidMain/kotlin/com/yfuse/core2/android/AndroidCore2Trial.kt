@@ -57,17 +57,40 @@ internal object AndroidCore2TrialFactory {
             } else {
                 null
             }
+        val yCoreProxy =
+            if (nativeOnly) {
+                runCatching {
+                    AndroidYCoreHttpProxy(
+                        context = context.applicationContext,
+                        userAgent = customUserAgent,
+                        cacheMaximumBytes = videoCacheBytes.coerceAtLeast(0L),
+                    )
+                }.getOrNull() ?: return null
+            } else {
+                null
+            }
         val request =
             YPlayerOpenRequest(
                 items =
                     items.toCore2MediaItems(
                         customUserAgent = customUserAgent,
-                        cacheMaximumBytes = videoCacheBytes,
+                        cacheMaximumBytes = if (nativeOnly) 0L else videoCacheBytes,
                         localize = { item, upstreamUrl ->
                             val cacheable =
                                 item.persistentPlaybackCacheUrl(item.startsWithServerTranscode()) ==
                                     upstreamUrl.trim()
-                            if (cacheable) {
+                            if (nativeOnly) {
+                                requireNotNull(yCoreProxy).localUrl(
+                                    upstreamUri = upstreamUrl,
+                                    cacheable = cacheable,
+                                    cacheIdentity = item.yCoreCacheIdentity(),
+                                    maximumWidth = item.activeVersion?.sourceWidth,
+                                    maximumHeight = item.activeVersion?.sourceHeight,
+                                    hlsManifest =
+                                        upstreamUrl.isHlsManifest() ||
+                                            item.activeVersion?.container.isHlsContainer(),
+                                )
+                            } else if (cacheable) {
                                 cacheProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl
                             } else {
                                 upstreamUrl
@@ -97,13 +120,17 @@ internal object AndroidCore2TrialFactory {
                     discRouteFactory = compatibilityFactory,
                     allowAudioPassthrough = allowAudioPassthrough,
                     frameRateSwitchMode = frameRateMatch.toCore2Mode(),
-                    onRelease = { cacheProxy?.close() },
+                    onRelease = {
+                        cacheProxy?.close()
+                        yCoreProxy?.close()
+                    },
                 )
             player.setSpeed(startSpeed)
             player.prepare()
             YPlayerVideoEngineAdapter(player)
         } catch (error: Throwable) {
             cacheProxy?.close()
+            yCoreProxy?.close()
             throw error
         }
     }
@@ -138,6 +165,7 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
 internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: Int): String? {
     val item = getOrNull(startIndex) ?: return "YCore Native 缺少当前播放项"
     val version = item.activeVersion
+    val hlsManifest = item.url.isHlsManifest() || version?.container.isHlsContainer()
     val source =
         Core2NativeBaselineSource(
             hasMetadata = version != null,
@@ -145,7 +173,8 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
             container = version?.container,
             videoCodec = version?.sourceVideoCodec,
             serverTranscode = item.startsWithServerTranscode(),
-            adaptiveManifest = item.url.isAdaptiveManifest(),
+            adaptiveManifest = item.url.isAdaptiveManifest() || version?.container.isAdaptiveContainer(),
+            adaptiveManifestSupported = hlsManifest,
             disc = version?.discSource == true,
             drm = item.drmConfiguration != null || version?.drmConfiguration != null,
             dolbyVision = version?.dolbyVision == true,
@@ -159,7 +188,7 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
         Core2NativeBaselineBlock.MissingMetadata -> "YCore Native 缺少片源格式元数据"
         Core2NativeBaselineBlock.UnsupportedScheme -> "YCore Native 暂不支持当前来源协议"
         Core2NativeBaselineBlock.ServerTranscode -> "YCore Native 基线仅验证直连片源"
-        Core2NativeBaselineBlock.AdaptiveManifest -> "YCore Native 尚未完成 HLS/DASH"
+        Core2NativeBaselineBlock.AdaptiveManifest -> "YCore Native 当前仅支持无 DRM、音视频复用的 HLS"
         Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 当前仅验证 MP4/MKV"
         Core2NativeBaselineBlock.UnsupportedVideoCodec ->
             "YCore Native 当前仅验证 H.264/HEVC"
@@ -173,6 +202,15 @@ private fun String.isAdaptiveManifest(): Boolean {
     val path = substringBefore('?').substringBefore('#').lowercase()
     return path.endsWith(".m3u8") || path.endsWith(".mpd")
 }
+
+private fun String.isHlsManifest(): Boolean {
+    val path = substringBefore('?').substringBefore('#').lowercase()
+    return path.endsWith(".m3u8")
+}
+
+private fun String?.isHlsContainer(): Boolean = orEmpty().trim().lowercase() in setOf("hls", "m3u8")
+
+private fun String?.isAdaptiveContainer(): Boolean = isHlsContainer() || orEmpty().trim().lowercase() in setOf("dash", "mpd")
 
 internal fun List<PlayerMediaItem>.toCore2MediaItems(
     customUserAgent: String,
@@ -209,16 +247,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
         title = title,
         headers = headers,
         providerKey = serverId,
-        cacheIdentity =
-            serverId
-                ?.takeIf(String::isNotBlank)
-                ?.let { scope ->
-                    YCacheIdentity(
-                        scope = scope,
-                        mediaId = id,
-                        version = version?.id.orEmpty(),
-                    )
-                },
+        cacheIdentity = yCoreCacheIdentity(),
         cacheMaximumBytes = cacheMaximumBytes.coerceAtLeast(0L),
         externalSubtitle =
             externalSubtitleUri
@@ -246,6 +275,17 @@ private fun PlayerMediaItem.toCore2MediaItem(
             },
     )
 }
+
+private fun PlayerMediaItem.yCoreCacheIdentity(): YCacheIdentity? =
+    serverId
+        ?.takeIf(String::isNotBlank)
+        ?.let { scope ->
+            YCacheIdentity(
+                scope = scope,
+                mediaId = id,
+                version = activeVersion?.id.orEmpty(),
+            )
+        }
 
 private fun String?.isCore2SubtitleSourceSupported(): Boolean {
     if (isNullOrBlank()) return true

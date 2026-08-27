@@ -73,4 +73,46 @@ class YHlsParserTest {
         assertEquals(11_500_000L, media.segments[2].startTimeUs)
         assertNull(media.segments[2].encryption)
     }
+
+    @Test
+    fun resource_rewriter_keeps_every_hls_fetch_inside_the_transport_boundary() {
+        val kinds = mutableListOf<YHlsResourceKind>()
+        val rewritten =
+            rewriteYHlsResourceUris(
+                text =
+                    """
+                    #EXTM3U
+                    #EXT-X-MEDIA:TYPE=AUDIO,URI="audio/main.m3u8"
+                    #EXT-X-STREAM-INF:BANDWIDTH=1000000
+                    video/main.m3u8
+                    #EXT-X-MAP:URI="init.mp4"
+                    #EXT-X-KEY:METHOD=AES-128,URI="key.bin"
+                    #EXT-X-PART:DURATION=0.5,URI="part-1.m4s"
+                    #EXTINF:4,
+                    segment-1.m4s
+                    """.trimIndent(),
+                baseUri = "https://media.example.test/root/master.m3u8?token=secret",
+            ) { uri, kind ->
+                kinds += kind
+                "http://127.0.0.1/resource/${uri.substringAfterLast('/')}"
+            }
+
+        assertTrue("URI=\"http://127.0.0.1/resource/main.m3u8\"" in rewritten)
+        assertTrue("http://127.0.0.1/resource/init.mp4" in rewritten)
+        assertTrue("http://127.0.0.1/resource/key.bin" in rewritten)
+        assertTrue("http://127.0.0.1/resource/part-1.m4s" in rewritten)
+        assertTrue("http://127.0.0.1/resource/segment-1.m4s" in rewritten)
+        assertEquals(
+            listOf(
+                YHlsResourceKind.RenditionPlaylist,
+                YHlsResourceKind.VariantPlaylist,
+                YHlsResourceKind.InitializationSegment,
+                YHlsResourceKind.EncryptionKey,
+                YHlsResourceKind.MediaSegment,
+                YHlsResourceKind.MediaSegment,
+            ),
+            kinds,
+        )
+        assertFalse("token=secret" in rewritten)
+    }
 }
