@@ -22,6 +22,7 @@ import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.appendingDistinct
 import com.yfuse.core2.capability.YAudioOutputPath
+import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.learning.YLearnedRouteAdvice
 import com.yfuse.core2.learning.YPlaybackLearningEngine
 import com.yfuse.core2.learning.YPlaybackLearningKey
@@ -29,6 +30,9 @@ import com.yfuse.core2.learning.YPlaybackObservation
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.quirk.YCore2FailureKey
 import com.yfuse.core2.quirk.YCore2FailureLedger
+import com.yfuse.core2.recovery.YPlaybackRecoveryAction
+import com.yfuse.core2.recovery.YPlaybackRecoveryContext
+import com.yfuse.core2.recovery.YPlaybackRecoveryPolicy
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
@@ -181,8 +185,6 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     override fun selectDiscChapter(index: Int): Boolean = !released && activeChild?.selectDiscChapter(index) == true
 
-    override fun selectDiscAngle(index: Int): Boolean = !released && activeChild?.selectDiscAngle(index) == true
-
     override fun sendDiscMenuCommand(command: com.yfuse.core.playback.PlaybackDiscMenuCommand): Boolean =
         !released && activeChild?.sendDiscMenuCommand(command) == true
 
@@ -253,6 +255,8 @@ internal class AndroidAdaptiveCore2YPlayer(
         var forceSoftwareFallback = false
         var pendingFailureKey: YCore2FailureKey? = null
         var finalizeChildLearning: (() -> Unit)? = null
+        val sameRouteRecoveryAttempts = mutableMapOf<RouteRecoveryKey, Int>()
+        val codecResetCounts = mutableMapOf<Int, Int>()
 
         fun stopChild() {
             finalizeChildLearning?.invoke()
@@ -272,7 +276,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     playing = false,
                     playbackRequested = requestedPlay,
                     buffering = false,
-                    error = "YCore 2.0 当前没有可证明安全的本地路径，交回 Legacy",
+                    error = "YCore 2.0 当前没有可证明安全的本地路径，已停止播放",
                     errorCategory = YPlaybackFailureCategory.Unknown,
                     diagnostics =
                         it.diagnostics.copy(
@@ -382,15 +386,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                         allowAudioPassthrough,
                         frameRateSwitchMode,
                     )
-                !forceSoftwareFallback &&
-                    decision.ffmpegSoftwareExecutable &&
-                    FfmpegNativeBridge.softwareDecodeAvailable ->
+                plan.route == YPlaybackRoute.SoftwareFallback &&
+                    plan.demuxPath == YDemuxPath.Enhanced &&
+                    item.drmConfiguration == null &&
+                    yCoreSoftwarePlanExecutable(plan) ->
                     AndroidNativeEnhancedYPlayer(
-                        context,
-                        singleRequest,
-                        routeEvaluator,
-                        allowAudioPassthrough,
-                        frameRateSwitchMode,
+                        context = context,
+                        request = singleRequest,
+                        routeEvaluator = routeEvaluator,
+                        allowAudioPassthrough = false,
+                        frameRateSwitchMode = frameRateSwitchMode,
+                        forcedPlan = plan,
                     )
                 plan.route == YPlaybackRoute.GpuEnhanced ||
                     plan.route == YPlaybackRoute.SoftwareFallback ->
@@ -408,6 +414,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             var failureRecorded = false
             var successRecorded = false
             var learningRecorded = false
+            var recoveryQueued = false
             val learningStartPositionMs = next.currentPositionMs()
             val learningStartBatteryPermille = currentBatteryPermille()
             val learningStartThermalStatus = currentThermalStatus()
@@ -433,7 +440,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                             droppedFrames = childState.diagnostics.droppedFrames.coerceAtLeast(0),
                             codecResets =
                                 maxOf(
-                                    childState.diagnostics.codecResetCount,
+                                    childState.diagnostics.codecResetCount +
+                                        (codecResetCounts[childIndex] ?: 0),
                                     if (childState.errorCategory == YPlaybackFailureCategory.Decoder) 1 else 0,
                                 ),
                             audioUnderruns =
@@ -488,26 +496,63 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                         if (
                             childState.phase == YPlaybackPhase.Failed &&
-                            childState.diagnostics.route == YPlaybackRoute.NativeTunnel
+                            failureRecorded &&
+                            !recoveryQueued
                         ) {
-                            commands.trySend(Command.FallbackFromTunnel(childIndex, childState.positionMs))
-                            return@collect
-                        }
-                        if (
-                            childState.phase == YPlaybackPhase.Failed &&
-                            childState.diagnostics.route != YPlaybackRoute.SoftwareFallback &&
-                            childState.errorCategory.allowsCore2LocalSoftwareFallback()
-                        ) {
-                            commands.trySend(
-                                Command.FallbackToSoftware(childIndex, childState.positionMs),
-                            )
-                            return@collect
+                            recoveryQueued = true
+                            val recoveryKey =
+                                RouteRecoveryKey(
+                                    itemIndex = childIndex,
+                                    route = childState.diagnostics.route,
+                                    category = childState.errorCategory,
+                                )
+                            when (
+                                YPlaybackRecoveryPolicy.decide(
+                                    YPlaybackRecoveryContext(
+                                        route = childState.diagnostics.route,
+                                        category = childState.errorCategory,
+                                        sameRouteAttempts = sameRouteRecoveryAttempts[recoveryKey] ?: 0,
+                                        protectedContent = queueItems[childIndex].drmConfiguration != null,
+                                    ),
+                                )
+                            ) {
+                                YPlaybackRecoveryAction.RetrySameRoute -> {
+                                    sameRouteRecoveryAttempts[recoveryKey] =
+                                        (sameRouteRecoveryAttempts[recoveryKey] ?: 0) + 1
+                                    codecResetCounts[childIndex] = (codecResetCounts[childIndex] ?: 0) + 1
+                                    commands.trySend(
+                                        Command.RecoverSameRoute(
+                                            index = childIndex,
+                                            positionMs = childState.positionMs,
+                                            route = childState.diagnostics.route,
+                                        ),
+                                    )
+                                    return@collect
+                                }
+                                YPlaybackRecoveryAction.DisableTunnel -> {
+                                    commands.trySend(Command.FallbackFromTunnel(childIndex, childState.positionMs))
+                                    return@collect
+                                }
+                                YPlaybackRecoveryAction.FallbackToSoftware -> {
+                                    commands.trySend(
+                                        Command.FallbackToSoftware(childIndex, childState.positionMs),
+                                    )
+                                    return@collect
+                                }
+                                YPlaybackRecoveryAction.Stop -> Unit
+                            }
                         }
                         mutableState.value =
                             childState.copy(
                                 currentIndex = childIndex,
                                 itemCount = queueItems.size,
                                 playbackRequested = requestedPlay && childState.phase != YPlaybackPhase.Ended,
+                                diagnostics =
+                                    childState.diagnostics.copy(
+                                        codecResetCount =
+                                            childState.diagnostics.codecResetCount +
+                                                (codecResetCounts[childIndex] ?: 0),
+                                    ),
                             )
                         if (
                             childState.phase == YPlaybackPhase.Ended &&
@@ -618,6 +663,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                         is Command.SelectItem -> {
                             pendingPositionMs = 0L
                             currentIndex = command.index
+                            sameRouteRecoveryAttempts.keys.removeAll { it.itemIndex == currentIndex }
+                            codecResetCounts.remove(currentIndex)
                             allowTunnel = true
                             forceSoftwareFallback = false
                             rebuild(0L)
@@ -647,6 +694,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 rebuild(pendingPositionMs)
                             }
                         }
+                        is Command.RecoverSameRoute -> {
+                            val activeState = child?.state?.value
+                            if (
+                                command.index == currentIndex &&
+                                activeState?.phase == YPlaybackPhase.Failed &&
+                                activeState.diagnostics.route == command.route
+                            ) {
+                                pendingPositionMs = command.positionMs
+                                rebuild(pendingPositionMs)
+                            }
+                        }
                         is Command.FallbackToSoftware -> {
                             if (
                                 command.index == currentIndex &&
@@ -663,7 +721,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 rebuild(pendingPositionMs)
                             }
                         }
-                        Command.Retry -> rebuild(mutableState.value.positionMs)
+                        Command.Retry -> {
+                            sameRouteRecoveryAttempts.keys.removeAll { it.itemIndex == currentIndex }
+                            codecResetCounts.remove(currentIndex)
+                            forceSoftwareFallback = false
+                            rebuild(mutableState.value.positionMs)
+                        }
                     }
                 } catch (_: Throwable) {
                     publishUnavailable("Core2 router failed before a child route became active")
@@ -713,11 +776,23 @@ internal class AndroidAdaptiveCore2YPlayer(
             val positionMs: Long,
         ) : Command
 
+        data class RecoverSameRoute(
+            val index: Int,
+            val positionMs: Long,
+            val route: YPlaybackRoute,
+        ) : Command
+
         data class FallbackToSoftware(
             val index: Int,
             val positionMs: Long,
         ) : Command
     }
+
+    private data class RouteRecoveryKey(
+        val itemIndex: Int,
+        val route: YPlaybackRoute,
+        val category: YPlaybackFailureCategory?,
+    )
 }
 
 internal class AndroidCore2PlayerFactory(
@@ -758,16 +833,28 @@ internal fun YPlaybackFailureCategory?.allowsCore2LocalSoftwareFallback(): Boole
         this == YPlaybackFailureCategory.AudioSink ||
         this == YPlaybackFailureCategory.Unknown
 
-internal fun YPlaybackPlan.toSoftwareFallbackPlan(reason: String): YPlaybackPlan =
-    copy(
+internal fun YPlaybackPlan.toSoftwareFallbackPlan(reason: String): YPlaybackPlan {
+    val needsOwnedToneMap =
+        !usesHdrFallback && outputHdrType in setOf(YHdrType.Hdr10, YHdrType.Hdr10Plus, YHdrType.Hlg)
+    return copy(
         route = YPlaybackRoute.SoftwareFallback,
-        demuxPath = YDemuxPath.Software,
+        demuxPath = YDemuxPath.Enhanced,
         decodePath = YDecodePath.Software,
         renderPath = YRenderPath.Gpu,
+        outputHdrType = if (needsOwnedToneMap) YHdrType.Sdr else outputHdrType,
         decoderName = null,
-        nativeAudio = false,
-        audioPath = YAudioOutputPath.None,
-        softwareVideoToneMap = false,
-        usesHdrFallback = false,
+        audioPath = if (audioPath == YAudioOutputPath.None) YAudioOutputPath.None else YAudioOutputPath.DecodePcm,
+        softwareAudioDecode = softwareAudioDecode || !nativeAudio,
+        softwareVideoToneMap = needsOwnedToneMap,
         reason = reason,
     )
+}
+
+private fun yCoreSoftwarePlanExecutable(plan: YPlaybackPlan): Boolean {
+    if (plan.usesHdrFallback || plan.outputHdrType == YHdrType.DolbyVision) return false
+    return runCatching {
+        AndroidFfmpegDemuxer().let { demuxer ->
+            demuxer.available && demuxer.softwareDecodeAvailable
+        }
+    }.getOrDefault(false)
+}

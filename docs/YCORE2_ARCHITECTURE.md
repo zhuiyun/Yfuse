@@ -191,12 +191,12 @@ release evidence remain explicit future gates.
 - tone mapping, gamut mapping, dithering/debanding;
 - FFmpeg software decode fallback only after native routes are exhausted.
 
-Current compatibility milestone: the adaptive Core2 router can execute `GpuEnhanced` and
-`SoftwareFallback` through the repository's pinned libmpv build. The former requests hardware
-decode plus libmpv GPU tone mapping; the latter disables hardware decode and uses FFmpeg plus the GPU
-renderer. Active `hwdec-current` evidence corrects the reported route if hardware decode falls back
-internally. This executor lives under `core2.legacy` and is an explicit bridge, not a claim that the
-planned AHardwareBuffer/Vulkan and standalone avcodec graph nodes are complete.
+Current compatibility milestone: ordinary non-DRM `SoftwareFallback` now executes inside YCore's
+own enhanced session through the bundled FFmpeg software decoder, PCM path and hardware-Canvas
+Surface presenter. HDR10/HDR10+/HLG software fallback is explicitly tone-mapped to SDR. Dolby
+Vision compatible-base/FEL cases and `GpuEnhanced` still use the pinned libmpv/libplacebo bridge
+until the native AHardwareBuffer/Vulkan compositor can prove equivalent output; the route never
+mislabels that bridge as native Vulkan.
 
 ### Phase 8 — Device intelligence and retirement of Legacy
 
@@ -234,8 +234,9 @@ As of 2026-08-19, the opt-in path has these production boundaries:
   `NativeEnhanced`;
 - changing speed or tracks exits `NativeTunnel` at the current position, while a Tunnel runtime
   failure retries the same item on a non-Tunnel Core2 route;
-- an exhausted Core2 failure rebuilds the user's selected Legacy engine with the current queue item,
-  position, playback intent, and requested speed;
+- a transient decoder/renderer/audio failure receives one same-route rebuild at the current
+  position; eligible ordinary media then enters YCore's owned software route, while DRM,
+  authorization and network failures stop without crossing a security boundary;
 - DRM, unsupported external-subtitle formats/schemes, unsupported media schemes, and otherwise
   ineligible queues bypass the trial and continue directly on Legacy; supported SRT, WebVTT,
   ASS/SSA sidecars stay in Core2; direct ISO/BDMV items may enter the capability-gated compatibility
@@ -258,17 +259,19 @@ explicit unsupported result and preserve the existing rebuild/fallback policy. T
 Phase 0 product-control migration without claiming those optional capabilities in the stable
 `YPlayer` API. Disc navigation is now part of the stable API and the direct-disc route is executable
 through the verified libmpv/libbluray compatibility layer; this is not a claim that native Core2 disc
-graph nodes or physical-disc release validation are complete. `GpuEnhanced` and `SoftwareFallback`
-are likewise executable through the verified libmpv compatibility executor, including
-native-route-to-software runtime fallback for container/decoder/renderer/audio-sink failures.
-Network, authorization and DRM failures skip that retry. The native routes render embedded text,
+graph nodes or physical-disc release validation are complete. Ordinary `SoftwareFallback` is
+executed by YCore's FFmpeg decoder/PCM/Surface graph; `GpuEnhanced` and Dolby-specialized fallback
+remain on the verified libmpv compatibility executor until native Vulkan evidence exists. Network,
+authorization and DRM failures never enter an insecure software retry. The native routes render embedded text,
 PGS and VobSub plus bounded UTF-8/UTF-16 SRT, WebVTT and ASS/SSA sidecars on an independent overlay;
 subtitle selection and delay do not feed decoded video through Compose. HTTP(S) NativeDirect input
-uses validated byte ranges and a bounded LRU block cache, while enhanced FFmpeg input applies bounded
-reconnects and exposes authorization/network/container failures without persisting URLs or headers.
+uses validated byte ranges, two bounded transient retries and a CRC-verified atomic LRU block cache,
+while enhanced FFmpeg input applies bounded reconnects and exposes authorization/network/container
+failures without persisting URLs or headers. Encoded audio rejection and non-1.0x speed hand over at
+the current position to MediaCodec PCM, then to YCore's FFmpeg audio decoder when required.
 Deterministic local failures are stored as device-local capability facts and skip only the exact
-route after three observations within the seven-day window. Native Vulkan and standalone avcodec
-nodes remain Phase 7 replacement work, rather than being misrepresented as already implemented.
+route after three observations within the seven-day window. Native Vulkan/AHardwareBuffer remains
+Phase 7 replacement work, rather than being misrepresented as already implemented.
 Physical-device startup, seek, surface recreation, HDR, audio-route, and background/foreground
 regression gates must pass before any eligible cohort can default to Core2.
 

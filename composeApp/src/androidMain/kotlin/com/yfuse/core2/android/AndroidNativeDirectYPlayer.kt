@@ -22,6 +22,7 @@ import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.demux.YAudioTrackFormat
+import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.subtitle.YEmbeddedSubtitleDecoder
@@ -316,6 +317,7 @@ internal class AndroidNativeDirectYPlayer(
         private var audioTrackFormat: YAudioTrackFormat? = null
         private var audioOutputPath = YAudioOutputPath.None
         private var audioRendererConfigured = false
+        private val rejectedPassthroughTracks = mutableSetOf<Int>()
         private var drmSession: AndroidYCoreDrmSession? = null
         private var drmBinding: AndroidYCoreDrmBinding? = null
         private var prepared = false
@@ -377,6 +379,15 @@ internal class AndroidNativeDirectYPlayer(
 
         fun pump(): Boolean {
             var didWork = false
+            drmSession?.let { session ->
+                yPlaybackStage(
+                    category = YPlaybackFailureCategory.Drm,
+                    stage = YPlaybackFailureStage.VideoDecoderQueue,
+                    safeDetail = "NativeDirect DRM key refresh",
+                ) {
+                    session.refreshKeysIfNeeded()
+                }
+            }
             didWork = drainAudio() || didWork
             didWork = drainVideo() || didWork
             didWork = feedInput() || didWork
@@ -649,12 +660,15 @@ internal class AndroidNativeDirectYPlayer(
 
         private fun updateSpeed(value: Float) {
             if (!value.isFinite() || value <= 0f) return
-            require(!isAudioPassthrough() || value == 1f) {
-                "Encoded audio passthrough requires a route handover for non-1.0x speed"
-            }
             val positionUs = currentPositionUs()
             speed = value
             wallClock.setSpeed(value, positionUs, System.nanoTime())
+            if (isAudioPassthrough() && value != 1f) {
+                switchPassthroughToPcm(countFailure = false)
+                seekTo(positionUs)
+                mutableState.value = mutableState.value.copy(speed = value)
+                return
+            }
             if (audioRendererConfigured && !isAudioPassthrough()) audioRenderer.setSpeed(value)
             mutableState.value = mutableState.value.copy(speed = value)
         }
@@ -1056,7 +1070,15 @@ internal class AndroidNativeDirectYPlayer(
             audioTrackFormat = format?.toCore2AudioTrackFormat()
             val coreFormat = audioTrackFormat
             audioOutputPath =
-                if (coreFormat != null && drmBinding != null) {
+                if (
+                    coreFormat != null &&
+                    requiresPcmAudioPath(
+                        protectedContent = drmBinding != null,
+                        passthroughRejected =
+                            audioTrackIndex?.let(rejectedPassthroughTracks::contains) == true,
+                        speed = speed,
+                    )
+                ) {
                     YAudioOutputPath.DecodePcm
                 } else {
                     coreFormat?.let {
@@ -1075,8 +1097,13 @@ internal class AndroidNativeDirectYPlayer(
             when {
                 format == null -> audioRendererConfigured = false
                 audioOutputPath == YAudioOutputPath.Passthrough -> {
-                    encodedAudioRenderer.configure(requireNotNull(coreFormat))
-                    audioRendererConfigured = true
+                    try {
+                        encodedAudioRenderer.configure(requireNotNull(coreFormat))
+                        audioRendererConfigured = true
+                    } catch (_: Exception) {
+                        rejectedPassthroughTracks += requireNotNull(audioTrackIndex)
+                        switchPassthroughToPcm(countFailure = true)
+                    }
                 }
                 audioOutputPath == YAudioOutputPath.DecodePcm -> {
                     audioDecoder.configure(format, drmBinding?.mediaCrypto)
@@ -1106,7 +1133,15 @@ internal class AndroidNativeDirectYPlayer(
             }
             require(cryptoInfo == null) { "Encrypted audio cannot use passthrough" }
             if (presentationTimeUs >= seekTargetAudioUs) {
-                encodedAudioRenderer.write(data, presentationTimeUs)
+                try {
+                    encodedAudioRenderer.write(data, presentationTimeUs)
+                } catch (_: Exception) {
+                    val resumeUs = currentPositionUs()
+                    rejectedPassthroughTracks += requireNotNull(audioTrackIndex)
+                    switchPassthroughToPcm(countFailure = true)
+                    seekTo(resumeUs)
+                    return YCodecQueueResult.TryAgain
+                }
                 seekTargetAudioUs = 0L
                 if (!mutableState.value.diagnostics.audioOutputVerified) {
                     mutableState.value =
@@ -1121,6 +1156,28 @@ internal class AndroidNativeDirectYPlayer(
                 }
             }
             return YCodecQueueResult.Queued
+        }
+
+        private fun switchPassthroughToPcm(countFailure: Boolean) {
+            val format = checkNotNull(audioInputFormat) { "PCM fallback requires an audio track" }
+            runCatching(encodedAudioRenderer::release)
+            runCatching(audioRenderer::release)
+            runCatching(audioDecoder::release)
+            audioOutputPath = YAudioOutputPath.DecodePcm
+            audioRendererConfigured = false
+            audioDecoder.configure(format, drmBinding?.mediaCrypto)
+            mutableState.value =
+                mutableState.value.copy(
+                    diagnostics =
+                        mutableState.value.diagnostics.copy(
+                            audioOutput = "原码不可用 · 自动回落 PCM",
+                            audioOutputVerified = false,
+                            dolbyAtmosOutput = false,
+                            audioUnderrunCount =
+                                mutableState.value.diagnostics.audioUnderrunCount +
+                                    if (countFailure) 1 else 0,
+                        ),
+                )
         }
 
         private fun isAudioPassthrough(): Boolean = audioInputFormat != null && audioOutputPath == YAudioOutputPath.Passthrough
@@ -1305,6 +1362,7 @@ internal class AndroidNativeDirectYPlayer(
             audioInputFormat = null
             audioTrackFormat = null
             audioOutputPath = YAudioOutputPath.None
+            rejectedPassthroughTracks.clear()
             firstVideoFrameRendered = false
             droppedFrames = 0
             runtimeRenderRecorded = false

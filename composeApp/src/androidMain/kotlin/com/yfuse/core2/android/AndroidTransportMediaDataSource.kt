@@ -9,8 +9,11 @@ import com.yfuse.core2.network.YCachePlanner
 import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
+import com.yfuse.core2.network.YTransportFailureKind
+import com.yfuse.core2.network.mediaRangeRetryDelayMs
 import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.io.IOException
 import java.util.LinkedHashMap
 
 /** Adapts protocol transports to MediaExtractor without ever materializing the full remote file. */
@@ -22,7 +25,6 @@ internal class AndroidTransportMediaDataSource(
     cacheDirectory: File? = null,
     cacheIdentity: YCacheIdentity? = null,
     cacheMaximumBytes: Long = 0L,
-    private val onNetworkSample: ((bytes: Long, durationMs: Long) -> Unit)? = null,
 ) : MediaDataSource() {
     private val transport = createTransport()
     private val cachePlan =
@@ -82,8 +84,31 @@ internal class AndroidTransportMediaDataSource(
 
     private fun loadBlock(blockIndex: Long): ByteArray {
         diskCache?.readBlock(blockIndex, blockSize)?.let { return it }
-        return runBlocking {
-            val startedNs = System.nanoTime()
+        var completedRetries = 0
+        while (true) {
+            try {
+                return loadRemoteBlock(blockIndex)
+            } catch (failure: Exception) {
+                val failureKind =
+                    when (failure) {
+                        is YRangeReadException -> failure.failureKind
+                        is IOException -> YTransportFailureKind.TransientIo
+                        else -> throw failure
+                    }
+                val delayMs = mediaRangeRetryDelayMs(completedRetries, failureKind) ?: throw failure
+                completedRetries++
+                try {
+                    Thread.sleep(delayMs)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw failure
+                }
+            }
+        }
+    }
+
+    private fun loadRemoteBlock(blockIndex: Long): ByteArray =
+        runBlocking {
             val position = blockIndex.saturatedMultiply(blockSize.toLong())
             val end = position.saturatedAdd(blockSize.toLong() - 1L)
             try {
@@ -96,9 +121,17 @@ internal class AndroidTransportMediaDataSource(
                             headers = headers,
                         ),
                     )
-                require(response.statusCode == 206) { "Random-access transport did not accept byte range" }
-                require(response.acceptedRange?.startInclusive == position) {
-                    "Random-access transport returned mismatched range metadata"
+                if (response.statusCode != 206) {
+                    throw YRangeReadException(
+                        failureKind = response.statusCode.toRangeFailureKind(),
+                        safeMessage = "Random-access transport did not accept byte range",
+                    )
+                }
+                if (response.acceptedRange?.startInclusive != position) {
+                    throw YRangeReadException(
+                        failureKind = YTransportFailureKind.InvalidRange,
+                        safeMessage = "Random-access transport returned mismatched range metadata",
+                    )
                 }
                 response.contentLength?.takeIf { it >= 0L }?.let { total ->
                     if (knownSize >= 0L) require(knownSize == total) { "Remote media size changed during playback" }
@@ -117,27 +150,23 @@ internal class AndroidTransportMediaDataSource(
                         ?.endInclusive
                         ?.let { servedEnd -> servedEnd - position + 1L }
                         ?.coerceAtMost(blockSize.toLong())
-                require(
-                    expectedBytes == null ||
-                        total.toLong() == expectedBytes ||
-                        (knownSize >= 0L && position + total == knownSize),
+                if (
+                    expectedBytes != null &&
+                    total.toLong() != expectedBytes &&
+                    (knownSize < 0L || position + total != knownSize)
                 ) {
-                    "Random-access transport ended before the accepted block range"
+                    throw YRangeReadException(
+                        failureKind = YTransportFailureKind.PrematureEof,
+                        safeMessage = "Random-access transport ended before the accepted block range",
+                    )
                 }
                 output.copyOf(total).also { block ->
-                    if (total > 0) {
-                        onNetworkSample?.invoke(
-                            total.toLong(),
-                            ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
-                        )
-                    }
                     if (block.isNotEmpty()) diskCache?.writeBlock(blockIndex, block, knownSize.takeIf { it >= 0L })
                 }
             } finally {
                 transport.close()
             }
         }
-    }
 
     @Synchronized
     override fun getSize(): Long {
@@ -172,6 +201,19 @@ internal class AndroidTransportMediaDataSource(
     }
 }
 
+private class YRangeReadException(
+    val failureKind: YTransportFailureKind,
+    safeMessage: String,
+) : IOException(safeMessage)
+
+private fun Int.toRangeFailureKind(): YTransportFailureKind =
+    when (this) {
+        401, 403 -> YTransportFailureKind.Authorization
+        408, 425, 429 -> YTransportFailureKind.ServerBusy
+        in 500..599 -> YTransportFailureKind.ServerBusy
+        else -> YTransportFailureKind.InvalidRange
+    }
+
 private fun checkWorkerThread() {
     check(Looper.myLooper() != Looper.getMainLooper()) { "Remote media I/O is forbidden on the main thread" }
 }
@@ -182,4 +224,3 @@ private fun Long.saturatedMultiply(other: Long): Long = if (other > 0L && this >
 
 private const val MIN_TRANSPORT_BLOCK_BYTES = 256 * 1024
 private const val DEFAULT_TRANSPORT_CACHE_BYTES = 64L * 1024L * 1024L
-private const val NANOS_PER_MILLISECOND = 1_000_000L

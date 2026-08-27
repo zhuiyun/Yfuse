@@ -17,6 +17,8 @@ import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.strategy.YDemuxPath
+import com.yfuse.core2.strategy.YPlaybackPlan
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,6 +44,7 @@ internal class AndroidNativeEnhancedYPlayer(
     private val routeEvaluator: AndroidCore2RouteEvaluator = AndroidCore2RouteEvaluator(context),
     private val allowAudioPassthrough: Boolean = true,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+    private val forcedPlan: YPlaybackPlan? = null,
 ) : YPlayer {
     private val appContext = context.applicationContext
     private val capabilityProvider = AndroidYCapabilityProvider(context)
@@ -56,7 +59,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 itemCount = request.items.size,
                 diagnostics =
                     YPlayerDiagnostics(
-                        route = YPlaybackRoute.NativeEnhanced,
+                        route = forcedPlan?.route ?: YPlaybackRoute.NativeEnhanced,
                         demuxer = "FFmpeg 8.1 / libavformat",
                         renderer = "Surface + AudioTrack",
                         reason = "YCore 2.0 NativeEnhanced opt-in path",
@@ -244,8 +247,19 @@ internal class AndroidNativeEnhancedYPlayer(
                     item,
                     allowAudioPassthrough = allowAudioPassthrough,
                 )
-            check(decision?.nativeEnhancedExecutable == true || decision?.ffmpegSoftwareExecutable == true) {
-                "Media item is not eligible for YCore enhanced execution"
+            val playbackPlan = forcedPlan ?: decision?.plan
+            checkNotNull(playbackPlan) { "Media item has no executable YCore enhanced plan" }
+            if (forcedPlan == null) {
+                check(decision?.nativeEnhancedExecutable == true) {
+                    "Media item is not eligible for YCore NativeEnhanced"
+                }
+            } else {
+                check(
+                    playbackPlan.route == YPlaybackRoute.SoftwareFallback &&
+                        playbackPlan.demuxPath == YDemuxPath.Enhanced,
+                ) {
+                    "Forced YCore software plan must use the enhanced demux path"
+                }
             }
             val result =
                 session.open(
@@ -256,7 +270,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             cacheIdentity = item.cacheIdentity,
                             cacheMaximumBytes = item.cacheMaximumBytes,
                         ),
-                    plan = decision.plan,
+                    plan = playbackPlan,
                     surface = output,
                     startPositionUs = positionUs.coerceAtLeast(0L),
                     runtimeCapabilityKey = decision.runtimeCapabilityKey(),
@@ -289,7 +303,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     errorCategory = null,
                     diagnostics =
                         it.diagnostics.copy(
-                            route = decision.plan.route,
+                            route = playbackPlan.route,
                             container = result.container.name,
                             demuxer = "FFmpeg 8.1 / libavformat",
                             videoCodec = video?.mimeType.orEmpty(),
@@ -306,7 +320,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             dynamicRange = video?.hdrType?.name.orEmpty(),
                             videoOutput = "等待首帧",
                             audioOutput = if (tracks.isEmpty()) "无音频轨" else "等待 PCM 输出",
-                            reason = decision.plan.reason,
+                            reason = playbackPlan.reason,
                         ),
                 )
             }
@@ -338,11 +352,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 listOfNotNull(snapshot.videoDecoderName, snapshot.audioDecoderName)
                                     .joinToString(" + "),
                             videoOutput =
-                                when {
-                                    !snapshot.firstVideoFrameRendered -> "等待首帧"
-                                    snapshot.softwareVideoToneMapped -> "YCore SDR 色调映射"
-                                    else -> "Surface 直出"
-                                },
+                                if (snapshot.firstVideoFrameRendered) "Surface 直出" else "等待首帧",
                             audioOutput =
                                 if (snapshot.audioRendering) {
                                     when {
@@ -355,12 +365,12 @@ internal class AndroidNativeEnhancedYPlayer(
                                 },
                             videoOutputVerified = snapshot.firstVideoFrameRendered,
                             audioOutputVerified = snapshot.audioRendering,
-                            // Native DV output claim requires a verified frame and actual DV output;
-                            // compatible-base and SDR tone-map routes must never inherit the source label.
+                            // Native DV output claim requires a verified video frame AND a DV source
+                            // route. P7 FEL composition remains a separate evidence gate.
                             dolbyVisionOutput =
-                                snapshot.firstVideoFrameRendered &&
-                                    snapshot.outputHdrType == com.yfuse.core2.capability.YHdrType.DolbyVision,
+                                snapshot.firstVideoFrameRendered && it.diagnostics.dynamicRange == "DolbyVision",
                             dolbyAtmosOutput = snapshot.dolbyAtmosOutput,
+                            audioUnderrunCount = snapshot.audioFallbackCount,
                             droppedFrames = snapshot.droppedFrames,
                             avSyncOffsetMs = snapshot.avSyncOffsetUs?.div(MICROS_PER_MILLISECOND),
                             avSyncMeasurement =
@@ -376,10 +386,13 @@ internal class AndroidNativeEnhancedYPlayer(
 
         try {
             while (scope.isActive) {
-                var handled = false
+                val pendingCommands = mutableListOf<Command>()
                 while (true) {
                     val command = commands.tryReceive().getOrNull() ?: break
-                    handled = true
+                    pendingCommands += command
+                }
+                val handled = pendingCommands.isNotEmpty()
+                coalesceNativeEnhancedCommands(pendingCommands).forEach { command ->
                     try {
                         when (command) {
                             Command.Prepare ->
@@ -504,7 +517,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 playing = false,
                                 playbackRequested = false,
                                 buffering = false,
-                                error = "YCore 2.0 增强播放路径失败，允许回退 Legacy",
+                                error = "YCore 2.0 增强播放路径失败，已安全停止",
                                 // Unknown is deliberately non-penalizing until each native stage has
                                 // a typed failure domain. Never infer decoder failure from text.
                                 errorCategory = typed?.category ?: YPlaybackFailureCategory.Unknown,
@@ -530,7 +543,7 @@ internal class AndroidNativeEnhancedYPlayer(
         }
     }
 
-    private sealed interface Command {
+    internal sealed interface Command {
         data object Prepare : Command
 
         data object Play : Command
@@ -563,6 +576,35 @@ internal class AndroidNativeEnhancedYPlayer(
         ) : Command
     }
 }
+
+internal fun coalesceNativeEnhancedCommands(
+    commands: List<AndroidNativeEnhancedYPlayer.Command>,
+): List<AndroidNativeEnhancedYPlayer.Command> =
+    commands.fold(mutableListOf()) { result, command ->
+        val previous = result.lastOrNull()
+        if (previous != null && previous.canBeReplacedBy(command)) {
+            result[result.lastIndex] = command
+        } else {
+            result += command
+        }
+        result
+    }
+
+private fun AndroidNativeEnhancedYPlayer.Command.canBeReplacedBy(next: AndroidNativeEnhancedYPlayer.Command): Boolean =
+    when (this) {
+        is AndroidNativeEnhancedYPlayer.Command.Seek -> next is AndroidNativeEnhancedYPlayer.Command.Seek
+        is AndroidNativeEnhancedYPlayer.Command.SetSpeed -> next is AndroidNativeEnhancedYPlayer.Command.SetSpeed
+        is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput ->
+            next is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput
+        is AndroidNativeEnhancedYPlayer.Command.SelectAudioTrack ->
+            next is AndroidNativeEnhancedYPlayer.Command.SelectAudioTrack
+        is AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack ->
+            next is AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack
+        is AndroidNativeEnhancedYPlayer.Command.SelectItem -> next is AndroidNativeEnhancedYPlayer.Command.SelectItem
+        AndroidNativeEnhancedYPlayer.Command.Prepare -> next == AndroidNativeEnhancedYPlayer.Command.Prepare
+        AndroidNativeEnhancedYPlayer.Command.Play -> next == AndroidNativeEnhancedYPlayer.Command.Play
+        AndroidNativeEnhancedYPlayer.Command.Pause -> next == AndroidNativeEnhancedYPlayer.Command.Pause
+    }
 
 private fun YDemuxOpenResult.toAudioTracks(): List<YTrack> {
     val firstAudioId = tracks.firstOrNull { it.type == YDemuxTrackType.Audio }?.id

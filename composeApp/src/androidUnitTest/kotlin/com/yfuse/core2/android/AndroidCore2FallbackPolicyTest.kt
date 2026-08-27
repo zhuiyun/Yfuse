@@ -28,7 +28,7 @@ class AndroidCore2FallbackPolicyTest {
     }
 
     @Test
-    fun runtime_fallback_forces_software_decode_and_gpu_rendering() {
+    fun runtime_fallback_uses_owned_software_decode_and_tone_mapping() {
         val original =
             YPlaybackPlan(
                 route = YPlaybackRoute.NativeDirect,
@@ -44,11 +44,13 @@ class AndroidCore2FallbackPolicyTest {
         val fallback = original.toSoftwareFallbackPlan("decoder failed")
 
         assertEquals(YPlaybackRoute.SoftwareFallback, fallback.route)
-        assertEquals(YDemuxPath.Software, fallback.demuxPath)
+        assertEquals(YDemuxPath.Enhanced, fallback.demuxPath)
         assertEquals(YDecodePath.Software, fallback.decodePath)
         assertEquals(YRenderPath.Gpu, fallback.renderPath)
+        assertEquals(YHdrType.Sdr, fallback.outputHdrType)
         assertEquals(null, fallback.decoderName)
-        assertFalse(fallback.nativeAudio)
+        assertTrue(fallback.nativeAudio)
+        assertTrue(fallback.softwareVideoToneMap)
         assertEquals("decoder failed", fallback.reason)
     }
 }

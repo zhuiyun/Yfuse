@@ -29,6 +29,7 @@ import com.yfuse.core2.demux.YVideoTrackFormat
 import com.yfuse.core2.dolby.dolbyVisionHevcBaseLayerSample
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
+import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.strategy.YDecodePath
@@ -55,6 +56,7 @@ internal data class YEnhancedPlaybackSnapshot(
     val audioRendering: Boolean,
     val audioPassthrough: Boolean,
     val dolbyAtmosOutput: Boolean,
+    val audioFallbackCount: Int,
     val droppedFrames: Int,
     val avSyncOffsetUs: Long?,
     val subtitleCues: List<YSubtitleCue>,
@@ -101,6 +103,7 @@ internal class AndroidEnhancedPlaybackSession(
     private var playing = false
     private var prepared = false
     private var audioRendererConfigured = false
+    private val rejectedPassthroughTracks = mutableSetOf<YTrackId>()
     private var inputEnded = false
     private var videoInputEnded = false
     private var audioInputEnded = false
@@ -110,6 +113,7 @@ internal class AndroidEnhancedPlaybackSession(
     private var seekPrerollVideoOutput: YCodecOutputResult.Buffer? = null
     private var emptyTailSeekRetries = 0
     private var droppedFrames = 0
+    private var audioFallbackCount = 0
     private var runtimeRenderRecorded = false
     private var runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null
     private var renderCallbackGeneration = 0
@@ -211,20 +215,31 @@ internal class AndroidEnhancedPlaybackSession(
                             stage = YPlaybackFailureStage.AudioDecoderConfigure,
                             safeDetail = "Enhanced audio decoder configure",
                         ) {
-                            if (softwareAudioActive) {
-                                requireNotNull(softwareNode).configureAudio(audioTrack.id)
-                            } else {
-                                audioDecoder.configure(AndroidMediaFormatFactory.audio(format))
+                            softwareAudioActive = configurePcmDecoder(audioTrack, softwareAudioActive)
+                        }
+                    YAudioOutputPath.Passthrough -> {
+                        try {
+                            yPlaybackStage(
+                                category = YPlaybackFailureCategory.AudioSink,
+                                stage = YPlaybackFailureStage.AudioRenderer,
+                                safeDetail = "Enhanced encoded audio configure",
+                            ) {
+                                encodedAudioRenderer.configure(format)
                             }
+                        } catch (_: Exception) {
+                            rejectedPassthroughTracks += audioTrack.id
+                            audioFallbackCount++
+                            audioOutputPath = YAudioOutputPath.DecodePcm
+                            softwareAudioActive =
+                                yPlaybackStage(
+                                    category = YPlaybackFailureCategory.Decoder,
+                                    stage = YPlaybackFailureStage.AudioDecoderConfigure,
+                                    safeDetail = "Enhanced PCM fallback decoder configure",
+                                ) {
+                                    configurePcmDecoder(audioTrack, preferSoftware = false)
+                                }
                         }
-                    YAudioOutputPath.Passthrough ->
-                        yPlaybackStage(
-                            category = YPlaybackFailureCategory.AudioSink,
-                            stage = YPlaybackFailureStage.AudioRenderer,
-                            safeDetail = "Enhanced encoded audio configure",
-                        ) {
-                            encodedAudioRenderer.configure(format)
-                        }
+                    }
                     YAudioOutputPath.None -> error("Enhanced route selected an audio track without an output path")
                 }
             }
@@ -255,7 +270,11 @@ internal class AndroidEnhancedPlaybackSession(
         this.sourceVideoTrack = videoTrack
         this.effectiveVideoTrack = effectiveVideo
         this.audioTrack = audioTrack
-        audioOutputPath = if (audioTrack == null) YAudioOutputPath.None else plan.audioPath
+        if (audioTrack == null) {
+            audioOutputPath = YAudioOutputPath.None
+        } else if (audioOutputPath == YAudioOutputPath.None) {
+            audioOutputPath = plan.audioPath
+        }
         this.surface = surface
         maxInputAheadUs =
             YBufferController
@@ -265,7 +284,7 @@ internal class AndroidEnhancedPlaybackSession(
                         mediaBitRateBitsPerSecond = result.bitRateBitsPerSecond,
                     ),
                 ).targetAheadUs
-        audioRendererConfigured = audioTrack != null && plan.audioPath == YAudioOutputPath.Passthrough
+        audioRendererConfigured = audioTrack != null && audioOutputPath == YAudioOutputPath.Passthrough
         prepared = true
         resetEndState()
         if (startPositionUs > 0L) {
@@ -298,12 +317,13 @@ internal class AndroidEnhancedPlaybackSession(
 
     fun setSpeed(value: Float) {
         require(value.isFinite() && value > 0f) { "Playback speed must be finite and positive" }
-        require(!isAudioPassthrough() || value == 1f) {
-            "Encoded audio passthrough requires a route handover for non-1.0x speed"
-        }
         val position = currentPositionUs()
         speed = value
         wallClock.setSpeed(value, position, System.nanoTime())
+        if (isAudioPassthrough() && requiresPcmAudioPath(false, false, value)) {
+            switchPassthroughToPcm(position, countFailure = false)
+            return
+        }
         if (audioRendererConfigured && !isAudioPassthrough()) audioRenderer.setSpeed(value)
     }
 
@@ -344,10 +364,18 @@ internal class AndroidEnhancedPlaybackSession(
                     sampleRate = format.sampleRate,
                 ),
             )
-        val nextSoftwareDecoder =
-            if (devicePath == YAudioOutputPath.None) softwareDecoderOrNull() else null
-        val nextUsesSoftware = nextSoftwareDecoder != null
-        val nextPath = if (nextUsesSoftware) YAudioOutputPath.DecodePcm else devicePath
+        val passthroughRejected = trackId in rejectedPassthroughTracks
+        var nextPath =
+            if (
+                devicePath == YAudioOutputPath.Passthrough &&
+                requiresPcmAudioPath(false, passthroughRejected, speed)
+            ) {
+                YAudioOutputPath.DecodePcm
+            } else {
+                devicePath
+            }
+        var nextUsesSoftware = devicePath == YAudioOutputPath.None
+        if (nextUsesSoftware) nextPath = YAudioOutputPath.DecodePcm
         require(nextPath != YAudioOutputPath.None) { "Selected audio track has no device output path" }
         if (
             audioTrack?.id == trackId &&
@@ -362,9 +390,6 @@ internal class AndroidEnhancedPlaybackSession(
         runCatching(encodedAudioRenderer::release)
         runCatching(audioDecoder::release)
         audioRendererConfigured = false
-        audioTrack = nextTrack
-        audioOutputPath = nextPath
-        softwareAudioActive = nextUsesSoftware
         when (nextPath) {
             YAudioOutputPath.DecodePcm ->
                 yPlaybackStage(
@@ -372,24 +397,37 @@ internal class AndroidEnhancedPlaybackSession(
                     stage = YPlaybackFailureStage.AudioDecoderConfigure,
                     safeDetail = "Enhanced audio track switch decoder configure",
                 ) {
-                    if (softwareAudioActive) {
-                        requireNotNull(nextSoftwareDecoder).configureAudio(nextTrack.id)
-                    } else {
-                        audioDecoder.configure(AndroidMediaFormatFactory.audio(format))
-                    }
+                    nextUsesSoftware = configurePcmDecoder(nextTrack, nextUsesSoftware)
                 }
             YAudioOutputPath.Passthrough -> {
-                yPlaybackStage(
-                    category = YPlaybackFailureCategory.AudioSink,
-                    stage = YPlaybackFailureStage.AudioRenderer,
-                    safeDetail = "Enhanced audio track switch sink configure",
-                ) {
-                    encodedAudioRenderer.configure(format)
+                try {
+                    yPlaybackStage(
+                        category = YPlaybackFailureCategory.AudioSink,
+                        stage = YPlaybackFailureStage.AudioRenderer,
+                        safeDetail = "Enhanced audio track switch sink configure",
+                    ) {
+                        encodedAudioRenderer.configure(format)
+                    }
+                    audioRendererConfigured = true
+                } catch (_: Exception) {
+                    rejectedPassthroughTracks += trackId
+                    audioFallbackCount++
+                    nextPath = YAudioOutputPath.DecodePcm
+                    nextUsesSoftware =
+                        yPlaybackStage(
+                            category = YPlaybackFailureCategory.Decoder,
+                            stage = YPlaybackFailureStage.AudioDecoderConfigure,
+                            safeDetail = "Enhanced switched-track PCM fallback configure",
+                        ) {
+                            configurePcmDecoder(nextTrack, preferSoftware = false)
+                        }
                 }
-                audioRendererConfigured = true
             }
             YAudioOutputPath.None -> error("Selected audio track has no output path")
         }
+        audioTrack = nextTrack
+        audioOutputPath = nextPath
+        softwareAudioActive = nextUsesSoftware
         demuxer.selectTracks(selectedTrackIds())
         audioInputEnded = false
         audioOutputEnded = false
@@ -400,6 +438,7 @@ internal class AndroidEnhancedPlaybackSession(
 
     fun selectSubtitleTrack(trackId: YTrackId?) {
         check(prepared) { "Enhanced session is not prepared" }
+        val position = currentPositionUs()
         val nextTrack =
             trackId?.let { selectedId ->
                 requireNotNull(openResult)
@@ -421,6 +460,9 @@ internal class AndroidEnhancedPlaybackSession(
                 sample.trackId != sourceVideoTrack?.id && sample.trackId != audioTrack?.id
             }
         demuxer.selectTracks(selectedTrackIds())
+        if (nextTrack != null) {
+            seekToInternal(position, tailRetry = false, resetVideoDecoder = false)
+        }
     }
 
     fun seekTo(positionUs: Long) {
@@ -521,6 +563,7 @@ internal class AndroidEnhancedPlaybackSession(
             audioRendering = audioRendererConfigured && audioClockSnapshot() != null,
             audioPassthrough = isAudioPassthrough(),
             dolbyAtmosOutput = encodedAudioRenderer.immersiveOutput,
+            audioFallbackCount = audioFallbackCount,
             droppedFrames = droppedFrames,
             avSyncOffsetUs = lastAvSyncOffsetUs,
             subtitleCues = subtitleCues.toList(),
@@ -560,8 +603,10 @@ internal class AndroidEnhancedPlaybackSession(
         playing = false
         prepared = false
         audioRendererConfigured = false
+        rejectedPassthroughTracks.clear()
         firstVideoFrameRendered = false
         droppedFrames = 0
+        audioFallbackCount = 0
         resetEndState()
     }
 
@@ -1063,15 +1108,22 @@ internal class AndroidEnhancedPlaybackSession(
             }
         }
         if (sample.presentationTimeUs >= seekAudioTargetUs) {
-            yPlaybackStage(
-                category = YPlaybackFailureCategory.AudioSink,
-                stage = YPlaybackFailureStage.AudioRenderer,
-                safeDetail = "Enhanced encoded audio write",
-            ) {
-                encodedAudioRenderer.write(
-                    java.nio.ByteBuffer.wrap(sample.data),
-                    sample.presentationTimeUs,
-                )
+            try {
+                yPlaybackStage(
+                    category = YPlaybackFailureCategory.AudioSink,
+                    stage = YPlaybackFailureStage.AudioRenderer,
+                    safeDetail = "Enhanced encoded audio write",
+                ) {
+                    encodedAudioRenderer.write(
+                        java.nio.ByteBuffer.wrap(sample.data),
+                        sample.presentationTimeUs,
+                    )
+                }
+            } catch (_: Exception) {
+                val position = currentPositionUs()
+                rejectedPassthroughTracks += requireNotNull(audioTrack).id
+                switchPassthroughToPcm(position, countFailure = true)
+                return YCodecQueueResult.Queued
             }
             seekAudioTargetUs = 0L
         }
@@ -1113,6 +1165,49 @@ internal class AndroidEnhancedPlaybackSession(
         }
 
     private fun isAudioPassthrough(): Boolean = audioTrack != null && audioOutputPath == YAudioOutputPath.Passthrough
+
+    private fun configurePcmDecoder(
+        track: YDemuxTrack,
+        preferSoftware: Boolean,
+    ): Boolean {
+        val format = requireNotNull(track.audio)
+        if (!preferSoftware) {
+            try {
+                audioDecoder.configure(AndroidMediaFormatFactory.audio(format))
+                return false
+            } catch (failure: Exception) {
+                runCatching(audioDecoder::release)
+                val software = softwareDecoderOrNull() ?: throw failure
+                software.configureAudio(track.id)
+                return true
+            }
+        }
+        requireNotNull(softwareDecoderOrNull()).configureAudio(track.id)
+        return true
+    }
+
+    private fun switchPassthroughToPcm(
+        positionUs: Long,
+        countFailure: Boolean,
+    ) {
+        val track = checkNotNull(audioTrack) { "PCM fallback requires an audio track" }
+        pauseAudio()
+        runCatching(encodedAudioRenderer::release)
+        runCatching(audioRenderer::release)
+        runCatching(audioDecoder::release)
+        audioRendererConfigured = false
+        softwareAudioActive =
+            yPlaybackStage(
+                category = YPlaybackFailureCategory.Decoder,
+                stage = YPlaybackFailureStage.AudioDecoderConfigure,
+                safeDetail = "Enhanced runtime PCM fallback configure",
+            ) {
+                configurePcmDecoder(track, preferSoftware = false)
+            }
+        audioOutputPath = YAudioOutputPath.DecodePcm
+        if (countFailure) audioFallbackCount++
+        seekToInternal(positionUs, tailRetry = false, resetVideoDecoder = false)
+    }
 
     private fun softwareDecoderOrNull(): AndroidFfmpegSoftwareDecoderNode? {
         softwareDecoder?.let { return it.takeIf { node -> node.available } }
