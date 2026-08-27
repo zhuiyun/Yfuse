@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
+import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackFailoverPlan
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.model.MediaVersion
@@ -298,6 +299,117 @@ class PlayerStoreTest {
             )
             assertFalse("MediaSourceId=e2&" in sibling.transcodeUrl, sibling.transcodeUrl)
             assertEquals("source-e2", sibling.versionId)
+            store.dispose()
+        }
+
+    @Test
+    fun next_episode_uses_hdr_preference_instead_of_media_source_order() =
+        runTest {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val repo =
+                testRepo { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                            json("""{"MediaSources":[],"PlaySessionId":"session-e1"}""")
+                        request.url.encodedPath.contains("/Shows/s1/Episodes") ->
+                            json(
+                                """
+                                {
+                                  "Items":[
+                                    {
+                                      "Id":"e1",
+                                      "Name":"一",
+                                      "Type":"Episode",
+                                      "IndexNumber":1,
+                                      "ParentIndexNumber":1,
+                                      "MediaSources":[{
+                                        "Id":"e1-hdr",
+                                        "Container":"mkv",
+                                        "MediaStreams":[{
+                                          "Type":"Video",
+                                          "Width":3840,
+                                          "Height":2160,
+                                          "VideoRange":"HDR10"
+                                        }]
+                                      }]
+                                    },
+                                    {
+                                      "Id":"e2",
+                                      "Name":"二",
+                                      "Type":"Episode",
+                                      "IndexNumber":2,
+                                      "ParentIndexNumber":1,
+                                      "MediaSources":[
+                                        {
+                                          "Id":"e2-dolby",
+                                          "Container":"mkv",
+                                          "MediaStreams":[{
+                                            "Type":"Video",
+                                            "Width":3840,
+                                            "Height":2160,
+                                            "VideoRange":"DOVI",
+                                            "DvProfile":5
+                                          }]
+                                        },
+                                        {
+                                          "Id":"e2-hdr",
+                                          "Container":"mkv",
+                                          "MediaStreams":[{
+                                            "Type":"Video",
+                                            "Width":3840,
+                                            "Height":2160,
+                                            "VideoRange":"HDR10"
+                                          }]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                                """.trimIndent(),
+                            )
+                        request.url.encodedPath.endsWith("/Items/e1") ->
+                            json(
+                                """
+                                {
+                                  "Id":"e1",
+                                  "Name":"一",
+                                  "Type":"Episode",
+                                  "SeriesId":"s1",
+                                  "SeriesName":"剧",
+                                  "MediaSources":[{
+                                    "Id":"e1-hdr",
+                                    "Container":"mkv",
+                                    "MediaStreams":[{
+                                      "Type":"Video",
+                                      "Width":3840,
+                                      "Height":2160,
+                                      "VideoRange":"HDR10"
+                                    }]
+                                  }]
+                                }
+                                """.trimIndent(),
+                            )
+                        else -> json("""{"Id":"s1","Name":"剧","Type":"Series"}""")
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "e1",
+                    startPositionTicks = 0L,
+                    mediaVersionPreference = MediaVersionPreference.HdrFirst,
+                ).create()
+
+            val next = store.states.first { !it.loading }.items.single { it.id == "e2" }
+
+            assertEquals("e2-hdr", next.versionId)
+            assertTrue("MediaSourceId=e2-hdr" in next.url, next.url)
+            assertFalse("MediaSourceId=e2-dolby" in next.url, next.url)
             store.dispose()
         }
 

@@ -279,6 +279,7 @@ class DetailComponent(
                         startPositionTicks = startTicks,
                         serverId = server.id,
                         mediaSourceId = state.selectedVersionId,
+                        mediaVersionPreference = dependencies.playbackPreferences.mediaVersionPreference.value,
                         failoverRequest = dependencies.playbackFailoverRequest,
                         healthMonitor = dependencies.serverHealthMonitor,
                     ).create()

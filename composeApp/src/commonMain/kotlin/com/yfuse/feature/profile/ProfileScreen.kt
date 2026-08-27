@@ -63,6 +63,7 @@ import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.DanmakuSource
+import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ThemePreferences
@@ -121,6 +122,7 @@ private enum class Sheet {
     StartupTab,
     Background,
     PlaybackMode,
+    MediaVersionPreference,
     AdvancedPlaybackMode,
     Engine,
     Decoder,
@@ -190,8 +192,8 @@ private val SettingsSearchDestinations =
         ),
         SettingsSearchDestination(
             "播放",
-            "画质、引擎、续播与跳过片头",
-            "播放 画质 解码 引擎 续播",
+            "版本偏好、画质、引擎、续播与跳过片头",
+            "播放 版本 HDR 杜比 画质 解码 引擎 续播",
             ProfilePage.Playback,
             icon = AppIcons.Play,
             tint = SettingTint.playback,
@@ -257,6 +259,7 @@ fun ProfileScreen(component: ProfileComponent) {
     var appIcon by remember { mutableStateOf(currentAppIconVariant()) }
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val optimizationMode by component.playbackPreferences.optimizationMode.collectAsState()
+    val mediaVersionPreference by component.playbackPreferences.mediaVersionPreference.collectAsState()
     val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
     val smartCrossServerSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
     val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
@@ -346,6 +349,7 @@ fun ProfileScreen(component: ProfileComponent) {
                     PlaybackSettingsScreen(
                         onBack = ::closePage,
                         optimizationMode = optimizationMode,
+                        mediaVersionPreference = mediaVersionPreference,
                         autoNext = autoNext,
                         smartCrossServerSource = smartCrossServerSource,
                         anonymousQoeSharing = anonymousQoeSharing,
@@ -353,6 +357,7 @@ fun ProfileScreen(component: ProfileComponent) {
                         videoCacheSize = videoCacheSize,
                         skipSegments = if (skipTimesBySeries.isEmpty()) "${skipMode.label} · 跟随服务器 ›" else "${skipMode.label} ›",
                         onPlaybackMode = { sheet = Sheet.PlaybackMode },
+                        onMediaVersionPreference = { sheet = Sheet.MediaVersionPreference },
                         onOpenAdvanced = { openPage(ProfilePage.AdvancedPlayback) },
                         onAutoNext = prefs::setAutoNext,
                         onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
@@ -765,6 +770,24 @@ fun ProfileScreen(component: ProfileComponent) {
                     onSelect = { index ->
                         component.playbackPreferences.setOptimizationMode(
                             simplePlaybackModes[index],
+                        )
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
+            Sheet.MediaVersionPreference ->
+                OptionSheet(
+                    title = "视频版本偏好",
+                    subtitle = "同一集有多个文件时按此顺序自动选择，不受入库顺序影响",
+                    options =
+                        MediaVersionPreference.entries.map {
+                            it.playbackOptionCopy().label to (it == mediaVersionPreference)
+                        },
+                    descriptions = MediaVersionPreference.entries.map { it.playbackOptionCopy().description },
+                    onSelect = { index ->
+                        component.playbackPreferences.setMediaVersionPreference(
+                            MediaVersionPreference.entries[index],
                         )
                         sheet = null
                     },

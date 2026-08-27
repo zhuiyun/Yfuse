@@ -41,6 +41,20 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun media_version_preference_defaults_to_hdr_and_persists() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(MediaVersionPreference.HdrFirst, first.mediaVersionPreference.value)
+        first.setMediaVersionPreference(MediaVersionPreference.DolbyVisionFirst)
+
+        assertEquals(
+            MediaVersionPreference.DolbyVisionFirst,
+            PlaybackPreferences(settings).mediaVersionPreference.value,
+        )
+    }
+
+    @Test
     fun ycore_optimization_mode_defaults_balanced_and_persists() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)

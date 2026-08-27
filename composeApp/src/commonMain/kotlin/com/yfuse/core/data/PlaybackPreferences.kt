@@ -149,6 +149,20 @@ class PlaybackPreferences(
         settings.putString(KEY_AUDIO_PASSTHROUGH, mode.storageValue)
     }
 
+    private val _mediaVersionPreference =
+        MutableStateFlow(
+            MediaVersionPreference.fromStorage(
+                settings.getStringOrNull(KEY_MEDIA_VERSION_PREFERENCE),
+            ),
+        )
+    val mediaVersionPreference: StateFlow<MediaVersionPreference> =
+        _mediaVersionPreference.asStateFlow()
+
+    fun setMediaVersionPreference(preference: MediaVersionPreference) {
+        _mediaVersionPreference.value = preference
+        settings.putString(KEY_MEDIA_VERSION_PREFERENCE, preference.storageValue)
+    }
+
     private val _optimizationMode =
         MutableStateFlow(
             enumSetting(KEY_OPTIMIZATION_MODE, PlaybackOptimizationMode.Balanced),
@@ -490,6 +504,7 @@ class PlaybackPreferences(
         const val KEY_VIDEO_CACHE_SIZE = "player.videoCacheSize"
         const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
         const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
+        const val KEY_MEDIA_VERSION_PREFERENCE = "player.mediaVersionPreference"
         const val KEY_OPTIMIZATION_MODE = "player.optimizationMode"
         const val KEY_ENGINE_SELECTION = "player.ycore.engineSelection"
         const val KEY_CORE2_TRIAL_ENABLED = "player.ycore2.trialEnabled"

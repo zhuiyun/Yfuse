@@ -7,11 +7,13 @@ import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.MAX_SMART_SOURCE_FALLBACKS
+import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.dto.toMediaVersion
+import com.yfuse.core.data.preferredVersion
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackMethod
@@ -608,6 +610,7 @@ class PlayerStoreFactory(
     private val serverId: String? = null,
     /** The file the detail page picked, when the item has more than one. */
     private val mediaSourceId: String? = null,
+    private val mediaVersionPreference: MediaVersionPreference = MediaVersionPreference.HdrFirst,
     private val failoverRequest: PlaybackFailoverRequest = PlaybackFailoverRequest(),
     private val healthMonitor: ServerHealthMonitor? = null,
 ) {
@@ -804,11 +807,15 @@ class PlayerStoreFactory(
                             negotiatedPlaySessionId = negotiatedSessionId.takeIf { id == effectiveItemId },
                             localCleartextConfirmed = server.localCleartextConfirmed,
                         )
-                    // The file the detail page picked, else the server's first — which is
-                    // also what an unqualified stream request would have returned anyway.
+                    // Preserve an explicit choice for the opened episode. Every other queue
+                    // entry is selected by persisted preference, never server/ingest order.
                     val requestedVersionId = effectiveMediaSourceId.takeIf { id == effectiveItemId }
+                    val preferredVersionId =
+                        effectiveVersions
+                            .preferredVersion(mediaVersionPreference, requestedVersionId)
+                            ?.id
                     val chosen =
-                        playerVersions.firstOrNull { it.id == requestedVersionId }
+                        playerVersions.firstOrNull { it.id == preferredVersionId }
                             ?: playerVersions.firstOrNull()
                     if (id == effectiveItemId && chosen != null) {
                         val selectedMetadata =
@@ -1281,7 +1288,10 @@ class PlayerStoreFactory(
                             ?: requestedSessionId,
                     localCleartextConfirmed = fallback.localCleartextConfirmed,
                 )
-            val selected = playerVersions.firstOrNull()
+            val preferredVersionId = versions.preferredVersion(mediaVersionPreference)?.id
+            val selected =
+                playerVersions.firstOrNull { it.id == preferredVersionId }
+                    ?: playerVersions.firstOrNull()
             val playable =
                 selected ?: EmbyStream
                     .streamUrls(fallback.baseUrl, detail.id, fallback.accessToken)

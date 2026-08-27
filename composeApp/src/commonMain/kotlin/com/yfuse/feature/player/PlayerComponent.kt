@@ -45,6 +45,7 @@ class PlayerComponent(
                 startPositionTicks,
                 serverId = serverId,
                 mediaSourceId = mediaSourceId,
+                mediaVersionPreference = dependencies.playbackPreferences.mediaVersionPreference.value,
                 failoverRequest = dependencies.playbackFailoverRequest,
                 healthMonitor = dependencies.serverHealthMonitor,
             ).create()

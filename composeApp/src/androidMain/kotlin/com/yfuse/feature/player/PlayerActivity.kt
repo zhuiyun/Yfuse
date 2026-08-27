@@ -45,6 +45,7 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.dto.toMediaVersion
+import com.yfuse.core.data.preferredVersion
 import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.logging.AppLog
@@ -160,6 +161,7 @@ class PlayerActivity : ComponentActivity() {
     private val queueRevision = MutableStateFlow(0L)
     private lateinit var embyRepository: EmbyRepository
     private lateinit var serverRegistry: ServerRegistry
+    private lateinit var playbackPreferences: PlaybackPreferences
     private lateinit var capabilityProvider: PlaybackDeviceCapabilitiesProvider
     private var episodeRefreshJob: Job? = null
     private var episodePollingJob: Job? = null
@@ -371,7 +373,7 @@ class PlayerActivity : ComponentActivity() {
         val danmakuRepository = koin.get<DanmakuRepository>()
         val playbackRecovery = koin.get<PlaybackRecoveryStore>()
         val offlineMediaManager = koin.get<OfflineMediaManager>()
-        val playbackPreferences = koin.get<PlaybackPreferences>()
+        playbackPreferences = koin.get()
         val videoCacheBytes = playbackPreferences.videoCacheSize.value.bytes
         val customUserAgent = koin.get<UserAgentPreferences>().userAgent.value
         val watchTogether = koin.get<WatchTogetherClient>()
@@ -888,13 +890,19 @@ class PlayerActivity : ComponentActivity() {
                             progress = progress,
                             caption = episode.indexNumber?.let { "第 $it 集" },
                         ) ?: run {
+                            val selectedVersionId =
+                                episode.versions
+                                    .preferredVersion(playbackPreferences.mediaVersionPreference.value)
+                                    ?.id
                             val versions =
                                 episode.versions.toPlayerMediaVersions(
                                     baseUrl = server.baseUrl,
                                     itemId = episode.id,
                                     token = server.accessToken,
                                 )
-                            val selected = versions.firstOrNull()
+                            val selected =
+                                versions.firstOrNull { it.id == selectedVersionId }
+                                    ?: versions.firstOrNull()
                             val unqualified =
                                 if (selected == null) {
                                     EmbyStream.streamUrls(

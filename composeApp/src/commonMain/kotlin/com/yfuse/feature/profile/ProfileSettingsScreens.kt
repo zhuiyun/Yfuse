@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.data.PlaybackPreferences
@@ -139,10 +140,35 @@ internal fun PlaybackOptimizationMode.simplePlaybackLabel(): String =
         PlaybackOptimizationMode.PowerSaver -> "省电优先"
     }
 
+internal fun MediaVersionPreference.playbackOptionCopy(): PlaybackOptionCopy =
+    when (this) {
+        MediaVersionPreference.HdrFirst ->
+            PlaybackOptionCopy(
+                label = "HDR 优先",
+                summary = "HDR 优先",
+                description = "多版本时先选 HDR/HDR10+/HLG，再选杜比视界，最后选择普通版本",
+            )
+        MediaVersionPreference.DolbyVisionFirst ->
+            PlaybackOptionCopy(
+                label = "杜比视界优先",
+                summary = "杜比优先",
+                description = "多版本时先选杜比视界，再选 HDR，最后选择普通版本",
+            )
+        MediaVersionPreference.HighestQuality ->
+            PlaybackOptionCopy(
+                label = "综合画质优先",
+                summary = "综合画质",
+                description =
+                    "综合分辨率、码率、动态范围和音频质量自动选择，" +
+                        "不依赖入库顺序",
+            )
+    }
+
 @Composable
 internal fun PlaybackSettingsScreen(
     onBack: () -> Unit,
     optimizationMode: PlaybackOptimizationMode,
+    mediaVersionPreference: MediaVersionPreference,
     autoNext: Boolean,
     smartCrossServerSource: Boolean,
     anonymousQoeSharing: Boolean,
@@ -150,6 +176,7 @@ internal fun PlaybackSettingsScreen(
     videoCacheSize: VideoCacheSize,
     skipSegments: String,
     onPlaybackMode: () -> Unit,
+    onMediaVersionPreference: () -> Unit,
     onOpenAdvanced: () -> Unit,
     onAutoNext: (Boolean) -> Unit,
     onSmartCrossServerSource: (Boolean) -> Unit,
@@ -186,6 +213,13 @@ internal fun PlaybackSettingsScreen(
         item {
             Section(title = "播放模式") {
                 SettingsCard {
+                    SettingRow(
+                        "视频版本偏好",
+                        "${mediaVersionPreference.playbackOptionCopy().label} ›",
+                        true,
+                        onMediaVersionPreference,
+                    )
+                    SettingsDivider()
                     SettingRow(
                         "播放模式",
                         "${optimizationMode.simplePlaybackLabel()} ›",
