@@ -79,7 +79,14 @@ class PlaybackSyncManager(
             ) { sessionAvailable, enabled ->
                 sessionAvailable && enabled
             }.collectLatest { active ->
-                if (!active) return@collectLatest
+                if (!active) {
+                    debounceJob?.cancel()
+                    debounceJob = null
+                    urgentJob?.cancel()
+                    urgentJob = null
+                    _state.value = _state.value.copy(syncing = false)
+                    return@collectLatest
+                }
                 val userId = cipher.currentUserId() ?: return@collectLatest
                 if (store.bindAccount(userId)) updatePendingState()
                 syncNow()

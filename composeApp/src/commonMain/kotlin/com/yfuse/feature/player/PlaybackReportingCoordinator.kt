@@ -19,7 +19,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 
 /** One bounded pass over every server lane, suitable for a network-constrained background job. */
@@ -49,11 +48,13 @@ class PlaybackReportingCoordinator(
     private val jobs = mutableMapOf<String, Job>()
 
     init {
-        // Re-enabling is explicit consent to resume the durable reports retained while disabled.
-        // The first value is handled by normal application startup, avoiding duplicate wake-ups.
+        // Stop active delivery promptly when consent is withdrawn. Re-enabling resumes durable
+        // reports retained while disabled; startup handles the first value to avoid duplicate wakes.
         progressSyncEnabled?.let { enabled ->
             scope.launch {
-                enabled.drop(1).filter { it }.collect { flushPending() }
+                enabled.drop(1).collect { isEnabled ->
+                    if (isEnabled) flushPending() else pauseDelivery()
+                }
             }
         }
     }
@@ -177,6 +178,14 @@ class PlaybackReportingCoordinator(
                 if (relaunch) wake(serverId)
             }
         }
+    }
+
+    private fun pauseDelivery() {
+        val activeJobs =
+            synchronized(jobsLock) {
+                jobs.values.toList().also { jobs.clear() }
+            }
+        activeJobs.forEach { it.cancel() }
     }
 
     private suspend fun runLoop(serverId: String) {
