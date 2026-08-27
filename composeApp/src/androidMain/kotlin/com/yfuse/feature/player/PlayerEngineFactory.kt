@@ -10,11 +10,21 @@ import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.NativePlaybackComponent
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
+import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core2.android.AndroidCore2TrialFactory
 import kotlinx.coroutines.CoroutineScope
+
+internal fun shouldUseCore2Trial(
+    enabled: Boolean,
+    engineSelection: PlaybackEngineSelection,
+    crashBlocked: Boolean,
+): Boolean =
+    enabled &&
+        engineSelection == PlaybackEngineSelection.Auto &&
+        !crashBlocked
 
 /** Android engine construction boundary; callers depend only on [VideoEngine]. */
 @OptIn(UnstableApi::class)
@@ -34,6 +44,7 @@ internal fun createVideoEngine(
     scope: CoroutineScope,
     stopEncoding: suspend (String) -> Boolean,
     core2TrialEnabled: Boolean = false,
+    engineSelection: PlaybackEngineSelection = PlaybackEngineSelection.Auto,
     allowAudioPassthrough: Boolean = false,
     frameRateMatch: PlaybackFrameRateMatch = PlaybackFrameRateMatch.Disabled,
     dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
@@ -43,8 +54,15 @@ internal fun createVideoEngine(
     val resolvedDecoderMode =
         AndroidNativeCrashMonitor.safeDecoderMode(kind, decoderMode, capabilitySignature)
     val yCoreAllowed =
-        core2TrialEnabled &&
-            !AndroidNativeCrashMonitor.isYCoreDemuxBlocked(decoderMode, capabilitySignature)
+        shouldUseCore2Trial(
+            enabled = core2TrialEnabled,
+            engineSelection = engineSelection,
+            crashBlocked =
+                AndroidNativeCrashMonitor.isYCoreDemuxBlocked(
+                    decoderMode,
+                    capabilitySignature,
+                ),
+        )
     val component =
         if (yCoreAllowed) {
             NativePlaybackComponent.YCoreDemux

@@ -335,6 +335,7 @@ internal fun PlayerRoot(
             effectiveDecoderMode,
             core2TrialEnabled,
             core2DisabledForSession,
+            sessionEngineSelection,
             allowAudioPassthrough,
             frameRateMatch,
         ) {
@@ -356,6 +357,7 @@ internal fun PlayerRoot(
                     playbackSinkForSession(sessionId)?.stopEncoding(sessionId) ?: true
                 },
                 core2TrialEnabled = core2TrialEnabled && !core2DisabledForSession,
+                engineSelection = sessionEngineSelection,
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateMatch = frameRateMatch,
                 dolbyVisionRuntime = dolbyVisionRuntime,

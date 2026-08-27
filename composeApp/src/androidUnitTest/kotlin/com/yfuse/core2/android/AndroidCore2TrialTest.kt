@@ -52,6 +52,8 @@ class AndroidCore2TrialTest {
             )
         val unsupportedSubtitleItem =
             subtitleItem.copy(externalSubtitleUri = "ftp://media.example.test/movie.srt")
+        val ttmlSubtitleItem =
+            subtitleItem.copy(externalSubtitleUri = "file:///offline/movie.ttml")
         val discVersion =
             PlayerMediaVersion(
                 id = "disc",
@@ -71,6 +73,7 @@ class AndroidCore2TrialTest {
         assertFalse(listOf(drmItem).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(subtitleItem).canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(unsupportedSubtitleItem).canUseCore2Trial(startIndex = 0))
+        assertFalse(listOf(ttmlSubtitleItem).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(discItem).canUseCore2Trial(startIndex = 0))
         assertTrue(
             listOf(mediaItem("https://media/movie"), subtitleItem)

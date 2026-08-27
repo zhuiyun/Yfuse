@@ -114,11 +114,36 @@ internal fun PlaybackDrmConfiguration.toMedia3Configuration(): MediaItem.DrmConf
         }.build()
 }
 
+internal fun externalSubtitleFormatHint(uri: String): String? {
+    val normalized = uri.substringBefore('#')
+    val path = normalized.substringBefore('?')
+    val fileName = path.substringAfterLast('/')
+    val extension =
+        fileName
+            .substringAfterLast('.', missingDelimiterValue = "")
+            .trim()
+            .lowercase()
+            .takeIf { it.matches(Regex("[a-z0-9]{2,8}")) }
+    if (extension != null) return extension
+    return sequenceOf("format", "codec", "extension")
+        .mapNotNull { playbackQueryParameter(normalized, it) }
+        .map { it.trim().lowercase() }
+        .firstOrNull { it.matches(Regex("[a-z0-9]{2,8}")) }
+}
+
+internal fun externalSubtitleMimeType(uri: String): String =
+    when (externalSubtitleFormatHint(uri)) {
+        "vtt", "webvtt" -> MimeTypes.TEXT_VTT
+        "ass", "ssa" -> MimeTypes.TEXT_SSA
+        "ttml", "dfxp" -> MimeTypes.APPLICATION_TTML
+        else -> MimeTypes.APPLICATION_SUBRIP
+    }
+
 internal fun offlineSubtitleConfiguration(item: PlayerMediaItem): MediaItem.SubtitleConfiguration? {
     val uri = item.externalSubtitleUri?.takeIf(String::isNotBlank) ?: return null
     return MediaItem.SubtitleConfiguration
         .Builder(android.net.Uri.parse(uri))
-        .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+        .setMimeType(externalSubtitleMimeType(uri))
         .setLanguage(item.externalSubtitleLanguage?.takeIf(String::isNotBlank))
         .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
         .build()

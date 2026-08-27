@@ -29,6 +29,40 @@ class OfflineSubtitleConfigurationTest {
     }
 
     @Test
+    fun supported_sidecar_formats_use_their_media3_mime_type() {
+        val cases =
+            mapOf(
+                "file:///offline/episode.vtt" to MimeTypes.TEXT_VTT,
+                "file:///offline/episode.ass" to MimeTypes.TEXT_SSA,
+                "file:///offline/episode.ssa?token=secret" to MimeTypes.TEXT_SSA,
+                "https://media.example.test/subtitle?format=ttml" to MimeTypes.APPLICATION_TTML,
+                "file:///offline/episode.dfxp" to MimeTypes.APPLICATION_TTML,
+            )
+
+        cases.forEach { (uri, expectedMimeType) ->
+            val subtitle =
+                offlineSubtitleConfiguration(
+                    PlayerMediaItem(
+                        id = uri,
+                        url = "file:///offline/episode.media",
+                        transcodeUrl = "file:///offline/episode.media",
+                        title = "Episode",
+                        externalSubtitleUri = uri,
+                    ),
+                )!!
+            assertEquals(expectedMimeType, subtitle.mimeType, uri)
+        }
+    }
+
+    @Test
+    fun unknown_sidecar_format_keeps_the_previous_subrip_fallback() {
+        assertEquals(
+            MimeTypes.APPLICATION_SUBRIP,
+            externalSubtitleMimeType("content://offline/subtitle/42"),
+        )
+    }
+
+    @Test
     fun ordinary_stream_has_no_external_subtitle() {
         assertNull(
             offlineSubtitleConfiguration(
@@ -38,11 +72,11 @@ class OfflineSubtitleConfigurationTest {
     }
 
     @Test
-    fun sidecar_forces_the_engine_that_can_mount_it() {
+    fun sidecar_does_not_override_the_selected_engine() {
         val plain = PlayerMediaItem("movie", "file:///movie", "file:///movie", "Movie")
         val withSubtitle = plain.copy(externalSubtitleUri = "file:///movie.srt")
 
         assertEquals(PlayerEngine.Mpv, offlineSubtitlePlaybackEngine(PlayerEngine.Mpv, listOf(plain)))
-        assertEquals(PlayerEngine.Exo, offlineSubtitlePlaybackEngine(PlayerEngine.Mpv, listOf(withSubtitle)))
+        assertEquals(PlayerEngine.Mpv, offlineSubtitlePlaybackEngine(PlayerEngine.Mpv, listOf(withSubtitle)))
     }
 }

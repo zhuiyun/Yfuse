@@ -49,6 +49,16 @@ internal fun mpvScaleModeProperties(mode: VideoScaleMode): MpvScaleModePropertie
         keepAspect = mode != VideoScaleMode.Stretch,
     )
 
+internal fun externalSubtitleMpvCommand(item: PlayerMediaItem): Array<String>? {
+    val uri = item.externalSubtitleUri?.takeIf(String::isNotBlank) ?: return null
+    val language = item.externalSubtitleLanguage?.takeIf(String::isNotBlank)
+    return if (language == null) {
+        arrayOf("sub-add", uri, "select", "外挂字幕")
+    } else {
+        arrayOf("sub-add", uri, "select", "外挂字幕", language)
+    }
+}
+
 internal fun mpvAudioOutputReadiness(
     outputDriver: String?,
     outputFormat: String?,
@@ -616,6 +626,10 @@ class MpvVideoEngine(
                                 automaticFallbackBlocked = false,
                             )
                         }
+                        items
+                            .getOrNull(_state.value.currentIndex)
+                            ?.let(::externalSubtitleMpvCommand)
+                            ?.let { command -> withMpv { it.command(command) } }
                         readTracks()
                         readDiscNavigation()
                         readVideoSize()

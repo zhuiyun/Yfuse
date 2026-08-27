@@ -45,10 +45,9 @@ actual fun PlayerLauncher(
                     items = preparedItems,
                     startIndex = startIndex,
                     startPositionMs = startPositionMs,
-                    // External .srt sidecars are mounted by the Media3 engine. Native
-                    // engines do not share Media3's merged subtitle source, so an offline
-                    // item with a selected sidecar must launch Exo regardless of the normal
-                    // streaming-engine preference.
+                    // Keep the selected backend authoritative. Exo mounts the sidecar through
+                    // Media3 and mpv mounts it after FILE_LOADED; a manual engine lock must never
+                    // be rewritten merely because an external subtitle was selected.
                     engine =
                         offlineSubtitlePlaybackEngine(
                             preferred = preferences?.engine?.value ?: PlayerEngine.Exo,
@@ -92,4 +91,4 @@ actual fun PlayerLauncher(
 internal fun offlineSubtitlePlaybackEngine(
     preferred: PlayerEngine,
     items: List<PlayerMediaItem>,
-): PlayerEngine = if (items.any { !it.externalSubtitleUri.isNullOrBlank() }) PlayerEngine.Exo else preferred
+): PlayerEngine = preferred

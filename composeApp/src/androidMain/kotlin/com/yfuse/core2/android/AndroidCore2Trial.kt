@@ -14,6 +14,7 @@ import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
+import com.yfuse.feature.player.externalSubtitleFormatHint
 import com.yfuse.feature.player.startsWithServerTranscode
 
 /**
@@ -141,8 +142,11 @@ private fun PlayerMediaItem.toCore2MediaItem(headers: Map<String, String>): YMed
     )
 }
 
-private fun String?.isCore2SubtitleSourceSupported(): Boolean =
-    isNullOrBlank() || substringBefore(':').lowercase() in CORE2_SUBTITLE_SOURCE_SCHEMES
+private fun String?.isCore2SubtitleSourceSupported(): Boolean {
+    if (isNullOrBlank()) return true
+    if (substringBefore(':').lowercase() !in CORE2_SUBTITLE_SOURCE_SCHEMES) return false
+    return externalSubtitleFormatHint(this)?.let(CORE2_SUBTITLE_FORMATS::contains) != false
+}
 
 private fun PlaybackDiscKind.toCore2DiscKind(): YDiscKind =
     when (this) {
@@ -176,4 +180,5 @@ private val CORE2_SUBTITLE_SOURCE_SCHEMES =
         "content",
         "android.resource",
     )
+private val CORE2_SUBTITLE_FORMATS = setOf("srt", "vtt", "webvtt", "ass", "ssa")
 private const val USER_AGENT_HEADER = "User-Agent"
