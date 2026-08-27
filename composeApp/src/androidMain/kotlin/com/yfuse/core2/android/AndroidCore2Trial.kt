@@ -89,6 +89,9 @@ internal object AndroidCore2TrialFactory {
                                     hlsManifest =
                                         upstreamUrl.isHlsManifest() ||
                                             item.activeVersion?.container.isHlsContainer(),
+                                    dashManifest =
+                                        upstreamUrl.isDashManifest() ||
+                                            item.activeVersion?.container.isDashContainer(),
                                 )
                             } else if (cacheable) {
                                 cacheProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl
@@ -166,6 +169,7 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
     val item = getOrNull(startIndex) ?: return "YCore Native 缺少当前播放项"
     val version = item.activeVersion
     val hlsManifest = item.url.isHlsManifest() || version?.container.isHlsContainer()
+    val dashManifest = item.url.isDashManifest() || version?.container.isDashContainer()
     val source =
         Core2NativeBaselineSource(
             hasMetadata = version != null,
@@ -174,7 +178,7 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
             videoCodec = version?.sourceVideoCodec,
             serverTranscode = item.startsWithServerTranscode(),
             adaptiveManifest = item.url.isAdaptiveManifest() || version?.container.isAdaptiveContainer(),
-            adaptiveManifestSupported = hlsManifest,
+            adaptiveManifestSupported = hlsManifest || dashManifest,
             disc = version?.discSource == true,
             drm = item.drmConfiguration != null || version?.drmConfiguration != null,
             dolbyVision = version?.dolbyVision == true,
@@ -188,7 +192,7 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
         Core2NativeBaselineBlock.MissingMetadata -> "YCore Native 缺少片源格式元数据"
         Core2NativeBaselineBlock.UnsupportedScheme -> "YCore Native 暂不支持当前来源协议"
         Core2NativeBaselineBlock.ServerTranscode -> "YCore Native 基线仅验证直连片源"
-        Core2NativeBaselineBlock.AdaptiveManifest -> "YCore Native 当前仅支持无 DRM、音视频复用的 HLS"
+        Core2NativeBaselineBlock.AdaptiveManifest -> "YCore Native 当前仅支持已验证的 HLS / 静态 DASH 子集"
         Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 当前仅验证 MP4/MKV"
         Core2NativeBaselineBlock.UnsupportedVideoCodec ->
             "YCore Native 当前仅验证 H.264/HEVC"
@@ -208,9 +212,16 @@ private fun String.isHlsManifest(): Boolean {
     return path.endsWith(".m3u8")
 }
 
+private fun String.isDashManifest(): Boolean {
+    val path = substringBefore('?').substringBefore('#').lowercase()
+    return path.endsWith(".mpd")
+}
+
 private fun String?.isHlsContainer(): Boolean = orEmpty().trim().lowercase() in setOf("hls", "m3u8")
 
-private fun String?.isAdaptiveContainer(): Boolean = isHlsContainer() || orEmpty().trim().lowercase() in setOf("dash", "mpd")
+private fun String?.isDashContainer(): Boolean = orEmpty().trim().lowercase() in setOf("dash", "mpd")
+
+private fun String?.isAdaptiveContainer(): Boolean = isHlsContainer() || isDashContainer()
 
 internal fun List<PlayerMediaItem>.toCore2MediaItems(
     customUserAgent: String,

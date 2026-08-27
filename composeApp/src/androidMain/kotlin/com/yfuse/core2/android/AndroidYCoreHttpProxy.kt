@@ -4,10 +4,16 @@ import android.content.Context
 import com.yfuse.core2.adaptive.YAdaptiveEncryptionMethod
 import com.yfuse.core2.adaptive.YAdaptiveSelectionConditions
 import com.yfuse.core2.adaptive.YAdaptiveVariantSelector
+import com.yfuse.core2.adaptive.YDashRepresentation
+import com.yfuse.core2.adaptive.YDashResourceKind
 import com.yfuse.core2.adaptive.YHlsPlaylist
 import com.yfuse.core2.adaptive.YHlsResourceKind
+import com.yfuse.core2.adaptive.buildYDashPlaybackManifest
+import com.yfuse.core2.adaptive.parseYDashManifest
 import com.yfuse.core2.adaptive.parseYHlsPlaylist
+import com.yfuse.core2.adaptive.renderDashTemplate
 import com.yfuse.core2.adaptive.rewriteYHlsResourceUris
+import com.yfuse.core2.adaptive.selectYDashPlaybackRepresentations
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
@@ -49,6 +55,16 @@ internal class AndroidYCoreHttpProxy(
         val maximumWidth: Int?,
         val maximumHeight: Int?,
         val hlsManifest: Boolean,
+        val dashManifest: Boolean,
+        val dashTemplate: DashTemplateRoute? = null,
+    )
+
+    private data class DashTemplateRoute(
+        val representation: YDashRepresentation,
+        val upstreamTemplate: String,
+        val usesNumber: Boolean,
+        val usesTime: Boolean,
+        val localExtension: String,
     )
 
     private val cacheDirectory = context.applicationContext.cacheDir
@@ -74,6 +90,7 @@ internal class AndroidYCoreHttpProxy(
         maximumWidth: Int? = null,
         maximumHeight: Int? = null,
         hlsManifest: Boolean = upstreamUri.isHlsManifestUri(),
+        dashManifest: Boolean = upstreamUri.isDashManifestUri(),
     ): String {
         if (closed.get() || upstreamUri.sourceProtocolOrNull() == null) return upstreamUri
         val route =
@@ -84,13 +101,10 @@ internal class AndroidYCoreHttpProxy(
                 maximumWidth = maximumWidth,
                 maximumHeight = maximumHeight,
                 hlsManifest = hlsManifest,
+                dashManifest = dashManifest,
             )
-        val routeId =
-            synchronized(routesLock) {
-                routeIds[route] ?: registerRoute(route)
-            }
         val syntheticPath = upstreamUri.safeSyntheticExtension()?.let { "/resource.$it" }.orEmpty()
-        return "http://$LOOPBACK_HOST:${server.localPort}/$ROUTE_PREFIX/$routeId$syntheticPath"
+        return localRouteUrl(route, syntheticPath)
     }
 
     override fun close() {
@@ -112,6 +126,17 @@ internal class AndroidYCoreHttpProxy(
         return routeId
     }
 
+    private fun localRouteUrl(
+        route: Route,
+        pathSuffix: String,
+    ): String {
+        val routeId =
+            synchronized(routesLock) {
+                routeIds[route] ?: registerRoute(route)
+            }
+        return "http://$LOOPBACK_HOST:${server.localPort}/$ROUTE_PREFIX/$routeId$pathSuffix"
+    }
+
     private fun acceptLoop() {
         while (!closed.get()) {
             val socket = runCatching { server.accept() }.getOrNull() ?: break
@@ -129,14 +154,15 @@ internal class AndroidYCoreHttpProxy(
         val requestLine = reader.readLine()?.take(MAX_REQUEST_LINE_BYTES).orEmpty()
         val requestParts = requestLine.split(' ', limit = 3)
         val method = requestParts.getOrNull(0)?.uppercase().orEmpty()
-        val routeId =
+        val localPath =
             requestParts
                 .getOrNull(1)
                 ?.substringBefore('?')
                 ?.substringAfter("/$ROUTE_PREFIX/", missingDelimiterValue = "")
-                ?.substringBefore('/')
                 ?.takeIf(String::isNotEmpty)
-        val route = routeId?.let(::findRoute)
+        val routeId = localPath?.substringBefore('/')
+        val routeSuffix = localPath?.substringAfter('/', missingDelimiterValue = "").orEmpty()
+        val route = routeId?.let(::findRoute)?.resolveDashTemplate(routeSuffix)
         if (method !in ALLOWED_METHODS || route == null) {
             writeEmptyResponse(socket, 404, "Not Found")
             return
@@ -145,6 +171,8 @@ internal class AndroidYCoreHttpProxy(
         runCatching {
             if (route.hlsManifest) {
                 serveHls(socket, route, method)
+            } else if (route.dashManifest) {
+                serveDash(socket, route, method)
             } else {
                 serveBinary(socket, route, method, headers["range"])
             }
@@ -157,6 +185,39 @@ internal class AndroidYCoreHttpProxy(
         synchronized(routesLock) {
             routes.remove(routeId)?.also { route -> routes[routeId] = route }
         }
+
+    private fun Route.resolveDashTemplate(pathSuffix: String): Route? {
+        val templateRoute = dashTemplate ?: return this
+        val coordinatePattern =
+            when {
+                templateRoute.usesNumber && templateRoute.usesTime -> "(\\d+)-(\\d+)"
+                else -> "(\\d+)"
+            }
+        val match =
+            Regex("^dash-$coordinatePattern\\.${Regex.escape(templateRoute.localExtension)}$")
+                .matchEntire(pathSuffix)
+                ?: return null
+        val first = match.groupValues[1].toLongOrNull() ?: return null
+        val number = if (templateRoute.usesNumber) first else templateRoute.representation.segmentTemplate?.startNumber ?: 1L
+        val time =
+            when {
+                templateRoute.usesNumber && templateRoute.usesTime -> match.groupValues[2].toLongOrNull()
+                templateRoute.usesTime -> first
+                else -> null
+            }
+        val resolvedUri =
+            renderDashTemplate(
+                template = templateRoute.upstreamTemplate,
+                representation = templateRoute.representation,
+                number = number,
+                time = time,
+            )
+        return copy(
+            upstreamUri = resolvedUri,
+            cacheIdentity = cacheIdentity?.forAdaptiveResource(resolvedUri),
+            dashTemplate = null,
+        )
+    }
 
     private fun readRequestHeaders(reader: BufferedReader): Map<String, String> {
         val headers = linkedMapOf<String, String>()
@@ -237,6 +298,103 @@ internal class AndroidYCoreHttpProxy(
         )
         if (method == "GET") socket.getOutputStream().write(rewritten)
         socket.getOutputStream().flush()
+    }
+
+    private fun serveDash(
+        socket: Socket,
+        route: Route,
+        method: String,
+    ) {
+        val sourceXml = loadBounded(route.upstreamUri, MAX_DASH_MANIFEST_BYTES).decodeToString()
+        require(DASH_PERIOD_TAG.findAll(sourceXml).count() == 1) {
+            "Multi-period DASH requires the period controller"
+        }
+        val manifest = parseYDashManifest(sourceXml, route.upstreamUri)
+        val selection =
+            selectYDashPlaybackRepresentations(
+                manifest = manifest,
+                conditions =
+                    YAdaptiveSelectionConditions(
+                        estimatedBandwidthBitsPerSecond = INITIAL_BANDWIDTH_BITS_PER_SECOND,
+                        bufferedDurationUs = STARTUP_BUFFER_US,
+                        maximumWidth = route.maximumWidth,
+                        maximumHeight = route.maximumHeight,
+                    ),
+            )
+        val rewritten =
+            buildYDashPlaybackManifest(manifest, selection) { representation, template, kind ->
+                when (kind) {
+                    YDashResourceKind.Initialization -> {
+                        val timelineStart =
+                            representation.segmentTemplate
+                                ?.timeline
+                                ?.firstOrNull()
+                                ?.startTime ?: 0L
+                        val upstreamUri =
+                            renderDashTemplate(
+                                template = template,
+                                representation = representation,
+                                number = representation.segmentTemplate?.startNumber ?: 1L,
+                                time = timelineStart,
+                            )
+                        localUrl(
+                            upstreamUri = upstreamUri,
+                            cacheable = route.cacheable,
+                            cacheIdentity = route.cacheIdentity?.forAdaptiveResource(upstreamUri),
+                            hlsManifest = false,
+                            dashManifest = false,
+                        )
+                    }
+                    YDashResourceKind.MediaTemplate ->
+                        localDashTemplate(
+                            route = route,
+                            representation = representation,
+                            upstreamTemplate = template,
+                        )
+                }
+            }.encodeToByteArray()
+        writeHeaders(
+            socket = socket,
+            status = 200,
+            reason = "OK",
+            contentType = DASH_CONTENT_TYPE,
+            contentLength = rewritten.size.toLong(),
+        )
+        if (method == "GET") socket.getOutputStream().write(rewritten)
+        socket.getOutputStream().flush()
+    }
+
+    private fun localDashTemplate(
+        route: Route,
+        representation: YDashRepresentation,
+        upstreamTemplate: String,
+    ): String {
+        val usesNumber = DASH_NUMBER_TOKEN.containsMatchIn(upstreamTemplate)
+        val usesTime = DASH_TIME_TOKEN.containsMatchIn(upstreamTemplate)
+        require(usesNumber || usesTime) { "DASH media template has no segment coordinate" }
+        val extension = upstreamTemplate.safeTemplateExtension() ?: "m4s"
+        val localTemplate =
+            when {
+                usesNumber && usesTime -> "dash-\$Number\$-\$Time\$.$extension"
+                usesNumber -> "dash-\$Number\$.$extension"
+                else -> "dash-\$Time\$.$extension"
+            }
+        val templateRoute =
+            route.copy(
+                upstreamUri = representation.baseUri,
+                cacheIdentity = route.cacheIdentity,
+                hlsManifest = false,
+                dashManifest = false,
+                dashTemplate =
+                    DashTemplateRoute(
+                        representation = representation,
+                        upstreamTemplate = upstreamTemplate,
+                        usesNumber = usesNumber,
+                        usesTime = usesTime,
+                        localExtension = extension,
+                    ),
+            )
+        return localRouteUrl(templateRoute, "/$localTemplate")
     }
 
     private fun serveBinary(
@@ -473,6 +631,15 @@ private fun String.isHlsManifestUri(): Boolean =
             .endsWith(".m3u8")
     }.getOrDefault(false)
 
+private fun String.isDashManifestUri(): Boolean =
+    runCatching {
+        URI(this)
+            .path
+            .orEmpty()
+            .lowercase()
+            .endsWith(".mpd")
+    }.getOrDefault(false)
+
 private fun String.hasSeparateHlsRenditions(): Boolean =
     lineSequence().any { line ->
         val normalized = line.trim().uppercase()
@@ -494,6 +661,7 @@ private fun String.guessContentType(): String =
         }.getOrDefault("")
     ) {
         "m3u8" -> HLS_CONTENT_TYPE
+        "mpd" -> DASH_CONTENT_TYPE
         "ts" -> "video/mp2t"
         "mp4", "m4s", "m4v" -> "video/mp4"
         "aac" -> "audio/aac"
@@ -510,6 +678,13 @@ private fun String.safeSyntheticExtension(): String? =
             .lowercase()
     }.getOrNull()
         ?.takeIf(SAFE_SYNTHETIC_EXTENSIONS::contains)
+
+private fun String.safeTemplateExtension(): String? =
+    substringBefore('?')
+        .substringBefore('#')
+        .substringAfterLast('.', missingDelimiterValue = "")
+        .lowercase()
+        .takeIf(SAFE_SYNTHETIC_EXTENSIONS::contains)
 
 private fun YCacheIdentity.forAdaptiveResource(upstreamUri: String): YCacheIdentity =
     copy(
@@ -534,6 +709,7 @@ private const val CLIENT_SOCKET_TIMEOUT_MS = 30_000
 private const val WORKER_SHUTDOWN_TIMEOUT_MS = 2_000L
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
+private const val MAX_DASH_MANIFEST_BYTES = 8 * 1024 * 1024
 private const val MAX_ROUTES = 50_000
 private const val MAX_REQUEST_LINE_BYTES = 8 * 1024
 private const val MAX_REQUEST_HEADER_BYTES = 8 * 1024
@@ -541,7 +717,11 @@ private const val MAX_REQUEST_HEADER_COUNT = 64
 private const val INITIAL_BANDWIDTH_BITS_PER_SECOND = 25_000_000L
 private const val STARTUP_BUFFER_US = 10_000_000L
 private const val HLS_CONTENT_TYPE = "application/vnd.apple.mpegurl"
+private const val DASH_CONTENT_TYPE = "application/dash+xml"
 private val ALLOWED_METHODS = setOf("GET", "HEAD")
 private val HTTP_BYTE_RANGE = Regex("^bytes=(\\d+)-(\\d*)$", RegexOption.IGNORE_CASE)
+private val DASH_PERIOD_TAG = Regex("<\\s*(?:[A-Za-z0-9_.-]+:)?Period(?:\\s|>)", RegexOption.IGNORE_CASE)
+private val DASH_NUMBER_TOKEN = Regex("\\\$Number(?:%0\\d+d)?\\\$")
+private val DASH_TIME_TOKEN = Regex("\\\$Time(?:%0\\d+d)?\\\$")
 private val SAFE_SYNTHETIC_EXTENSIONS =
     setOf("aac", "bin", "key", "m3u8", "m4s", "m4v", "mkv", "mov", "mp4", "mpd", "m2ts", "mts", "ts", "vtt", "webm")

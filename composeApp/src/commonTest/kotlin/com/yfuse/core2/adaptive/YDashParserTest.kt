@@ -2,6 +2,7 @@ package com.yfuse.core2.adaptive
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -87,5 +88,85 @@ class YDashParserTest {
             "https://live.example.test/path/audio/chunk-96000.m4s",
             renderDashTemplate(assertNotNull(audio.segmentTemplate).media, audio, number = 1L, time = 96_000L),
         )
+    }
+
+    @Test
+    fun playback_mpd_keeps_only_selected_clear_representations_and_local_urls() {
+        val manifest =
+            parseYDashManifest(
+                xml =
+                    """
+                    <MPD type="static" mediaPresentationDuration="PT30S">
+                      <Period>
+                        <AdaptationSet contentType="video" mimeType="video/mp4">
+                          <SegmentTemplate timescale="1000" duration="5000" initialization="init-${'$'}RepresentationID${'$'}.mp4" media="v-${'$'}Number${'$'}.m4s"/>
+                          <Representation id="v-low" bandwidth="500000" width="640" height="360" codecs="avc1.64001f"/>
+                          <Representation id="v-high" bandwidth="4000000" width="1920" height="1080" codecs="hvc1.2.4.L120.B0"/>
+                        </AdaptationSet>
+                        <AdaptationSet contentType="audio" mimeType="audio/mp4" lang="zh-CN">
+                          <SegmentTemplate timescale="48000" duration="240000" initialization="a-init.mp4" media="a-${'$'}Number${'$'}.m4s"/>
+                          <Representation id="a-main" bandwidth="192000" audioSamplingRate="48000" codecs="mp4a.40.2"/>
+                        </AdaptationSet>
+                      </Period>
+                    </MPD>
+                    """.trimIndent(),
+                baseUri = "https://origin.example.test/path/manifest.mpd?token=secret",
+            )
+        val selection =
+            selectYDashPlaybackRepresentations(
+                manifest,
+                YAdaptiveSelectionConditions(
+                    estimatedBandwidthBitsPerSecond = 8_000_000L,
+                    bufferedDurationUs = 10_000_000L,
+                    maximumWidth = 1920,
+                    maximumHeight = 1080,
+                ),
+            )
+        val playback =
+            buildYDashPlaybackManifest(manifest, selection) { representation, _, kind ->
+                "http://127.0.0.1/${representation.id}/${kind.name}"
+            }
+
+        assertEquals("v-high", selection.video.id)
+        assertEquals("a-main", selection.audio?.id)
+        assertTrue("id=\"v-high\"" in playback)
+        assertTrue("id=\"a-main\"" in playback)
+        assertFalse("v-low" in playback)
+        assertFalse("origin.example.test" in playback)
+        assertFalse("token=secret" in playback)
+        assertTrue("mediaPresentationDuration=\"PT30S\"" in playback)
+    }
+
+    @Test
+    fun playback_mpd_rejects_dynamic_and_protected_presentations() {
+        val protected =
+            parseYDashManifest(
+                xml =
+                    """
+                    <MPD type="static" mediaPresentationDuration="PT10S"><Period>
+                      <AdaptationSet contentType="video" mimeType="video/mp4">
+                        <ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011" value="cenc"/>
+                        <SegmentTemplate duration="5" initialization="init.mp4" media="s-${'$'}Number${'$'}.m4s"/>
+                        <Representation id="v1" bandwidth="1000000"/>
+                      </AdaptationSet>
+                    </Period></MPD>
+                    """.trimIndent(),
+                baseUri = "https://media.example.test/manifest.mpd",
+            )
+        val conditions = YAdaptiveSelectionConditions(2_000_000L, 10_000_000L)
+        val protectedSelection = selectYDashPlaybackRepresentations(protected, conditions)
+        assertFailsWith<IllegalArgumentException> {
+            buildYDashPlaybackManifest(protected, protectedSelection) { _, template, _ -> template }
+        }
+
+        val dynamic =
+            protected.copy(
+                isLive = true,
+                representations = protected.representations.map { it.copy(contentProtections = emptyList()) },
+            )
+        val dynamicSelection = selectYDashPlaybackRepresentations(dynamic, conditions)
+        assertFailsWith<IllegalArgumentException> {
+            buildYDashPlaybackManifest(dynamic, dynamicSelection) { _, template, _ -> template }
+        }
     }
 }

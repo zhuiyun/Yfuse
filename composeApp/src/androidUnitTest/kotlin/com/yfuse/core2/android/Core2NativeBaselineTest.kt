@@ -47,6 +47,16 @@ class Core2NativeBaselineTest {
                 ),
             ),
         )
+        assertNull(
+            evaluateCore2NativeBaseline(
+                source(
+                    container = "dash",
+                    codec = "hevc",
+                    adaptive = true,
+                    adaptiveSupported = true,
+                ),
+            ),
+        )
     }
 
     @Test
