@@ -2,6 +2,7 @@ package com.yfuse.core2.test
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class YMediaTestSuiteTest {
@@ -24,6 +25,11 @@ class YMediaTestSuiteTest {
                 audioOutputMode = "eac3_joc_passthrough",
                 serverTranscodeUsed = false,
                 dolbyRpuApplied = true,
+                seekCycles = 1_000,
+                surfaceRecreations = 1_000,
+                queueTransitions = 144,
+                continuousSoakMinutes = 480,
+                queueSoakMinutes = 1_440,
             )
 
         assertTrue(observation.completed)
@@ -33,6 +39,24 @@ class YMediaTestSuiteTest {
         assertEquals("eac3_joc_passthrough", observation.audioOutputMode)
         assertTrue(observation.dolbyRpuApplied)
         assertTrue(!observation.serverTranscodeUsed)
+        assertEquals(1_000, observation.seekCycles)
+        assertEquals(1_000, observation.surfaceRecreations)
+        assertEquals(144, observation.queueTransitions)
+        assertEquals(480, observation.continuousSoakMinutes)
+        assertEquals(1_440, observation.queueSoakMinutes)
+    }
+
+    @Test
+    fun `device observation rejects impossible operation evidence`() {
+        assertFailsWith<IllegalArgumentException> {
+            YMediaTestObservation(
+                caseId = "invalid",
+                elapsedMs = 1L,
+                completed = false,
+                timedOut = false,
+                seekCycles = -1,
+            )
+        }
     }
 
     @Test

@@ -12,12 +12,19 @@ on:
       - scripts/build-ycore-native.sh
       - scripts/build-ycore-demux.sh
       - scripts/package-ycore-native-aar.py
+      - scripts/run-ycore-device-gates.sh
+      - scripts/ycore-release-evidence.py
       - scripts/test-ycore-tone-map.sh
       - scripts/test-ycore-disc-uri.sh
       - scripts/verify-yfuse-mpv-bluray-aar.sh
       - scripts/verify-yfuse-mpv-dolby-aar.sh
       - scripts/verify-ycore-native.sh
+      - scripts/verify-ycore-native-apk.sh
       - scripts/native/**
+      - media-tests/**
+      - composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/core2/android/YCoreMediaSuiteInstrumentedTest.kt
+      - composeApp/src/commonMain/kotlin/com/yfuse/core2/test/YMediaTestSuite.kt
+      - composeApp/src/commonTest/kotlin/com/yfuse/core2/test/YMediaTestSuiteTest.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvDolbyRuntimeEvidence.android.kt
       - composeApp/src/commonMain/kotlin/com/yfuse/feature/player/MpvDolbyRuntimeEvidence.kt
@@ -35,7 +42,7 @@ jobs:
   build:
     name: YCore + FFmpeg + libbluray (arm64)
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 240
     steps:
       - name: Checkout Yfuse
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -64,6 +71,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/package-ycore-native-aar.py --self-test
+          python3 scripts/ycore-release-evidence.py --self-test
+          bash -n scripts/run-ycore-device-gates.sh
           bash scripts/test-ycore-tone-map.sh
           bash scripts/test-ycore-disc-uri.sh
           cp scripts/build-yfuse-mpv-bluray.sh "$RUNNER_TEMP/generated-dolby-builder.sh"
@@ -92,6 +101,35 @@ jobs:
           set -euo pipefail
           bash scripts/verify-ycore-native.sh
 
+      - name: Build hash-bound native-only device test APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 0644 .native-build/artifacts/ycore-native.aar \
+            composeApp/libs/ycore-native.aar
+          install -m 0644 .native-build/artifacts/libmpv-yfuse-bluray.aar \
+            composeApp/libs/libmpv-release.aar
+          install -m 0644 .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256 \
+            composeApp/libs/libmpv-release.aar.sha256
+          install -m 0644 .native-build/artifacts/NATIVE-SOURCES.txt \
+            composeApp/libs/libmpv-release.sources.txt
+          ./gradlew --no-daemon --max-workers=2 \
+            :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest \
+            -PyfuseNativeOnlyRuntime=true \
+            -PyfuseApplicationId=com.yfuse.validation
+          app_apk=composeApp/build/outputs/apk/debug/composeApp-debug.apk
+          test_apk=composeApp/build/outputs/apk/androidTest/debug/composeApp-debug-androidTest.apk
+          bash scripts/verify-ycore-native-apk.sh "$app_apk"
+          mkdir -p .native-build/artifacts/device-tests
+          install -m 0644 "$app_apk" \
+            .native-build/artifacts/device-tests/ycore-native-test-app.apk
+          install -m 0644 "$test_apk" \
+            .native-build/artifacts/device-tests/ycore-native-test-androidTest.apk
+          (
+            cd .native-build/artifacts/device-tests
+            sha256sum ycore-native-test-app.apk ycore-native-test-androidTest.apk > SHA256SUMS
+          )
+
       - name: Record artifact manifest
         shell: bash
         run: |
@@ -101,6 +139,7 @@ jobs:
             echo 'architectures=arm64'
             cat .native-build/artifacts/ycore-native.aar.sha256
             cat .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
+            cat .native-build/artifacts/device-tests/SHA256SUMS
           } > .native-build/artifacts/BUILD-MANIFEST.txt
 
       - name: Upload standalone YCore AAR
@@ -113,7 +152,15 @@ jobs:
             .native-build/artifacts/NATIVE-SOURCES.txt
             .native-build/artifacts/BUILD-MANIFEST.txt
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+
+      - name: Upload hash-bound physical-device test APKs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ycore-device-test-apks
+          path: .native-build/artifacts/device-tests/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload compatibility carrier
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

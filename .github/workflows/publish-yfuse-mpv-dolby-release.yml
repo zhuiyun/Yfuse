@@ -16,6 +16,11 @@ on:
         description: SHA-256 of ycore-native.aar after artifact extraction
         required: true
         type: string
+      evidence_path:
+        description: Repository path to merged, redacted physical-device evidence JSON
+        required: true
+        default: media-tests/evidence/ycore-release-evidence.json
+        type: string
 
 permissions:
   contents: write
@@ -27,7 +32,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Re-verify and publish immutable YCore runtime
+    name: Re-verify device evidence and publish immutable YCore runtime
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -35,8 +40,9 @@ jobs:
       SOURCE_RUN_ID: ${{ inputs.source_run_id }}
       RELEASE_TAG: ${{ inputs.release_tag }}
       EXPECTED_YCORE_SHA256: ${{ inputs.expected_ycore_sha256 }}
+      EVIDENCE_PATH: ${{ inputs.evidence_path }}
     steps:
-      - name: Check out release policy
+      - name: Check out release policy and redacted evidence
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Validate immutable release request
@@ -46,14 +52,17 @@ jobs:
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
           [[ "$RELEASE_TAG" =~ ^native-ycore-[a-zA-Z0-9._-]+$ ]]
           [[ "$EXPECTED_YCORE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EVIDENCE_PATH" =~ ^media-tests/evidence/[a-zA-Z0-9._/-]+\.json$ ]]
+          [[ "$EVIDENCE_PATH" != *".."* ]]
+          test -f "$EVIDENCE_PATH"
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Native release $RELEASE_TAG already exists; refusing to replace it"
             exit 1
           fi
           run_metadata="$(gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --json conclusion,workflowName \
-            --jq '[.conclusion, .workflowName] | @tsv')"
-          IFS=$'\t' read -r conclusion workflow_name <<<"$run_metadata"
+            --json conclusion,headSha,workflowName \
+            --jq '[.conclusion, .headSha, .workflowName] | @tsv')"
+          IFS=$'\t' read -r conclusion source_commit_sha workflow_name <<<"$run_metadata"
           [[ "$conclusion" == "success" ]] || {
             echo "::error::Source run $SOURCE_RUN_ID did not complete successfully"
             exit 1
@@ -62,22 +71,31 @@ jobs:
             echo "::error::Source run belongs to unexpected workflow: $workflow_name"
             exit 1
           }
+          [[ "$source_commit_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "SOURCE_COMMIT_SHA=$source_commit_sha" >> "$GITHUB_ENV"
 
-      - name: Download verified workflow artifact
+      - name: Download verified workflow artifacts
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p native-release
+          mkdir -p native-release device-tests
           gh run download "$SOURCE_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --name ycore-native-arm64 \
             --dir native-release
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name ycore-device-test-apks \
+            --dir device-tests
           test -f native-release/ycore-native.aar
           test -f native-release/ycore-native.aar.sha256
           test -f native-release/NATIVE-SOURCES.txt
           test -f native-release/BUILD-MANIFEST.txt
+          test -f device-tests/ycore-native-test-app.apk
+          test -f device-tests/ycore-native-test-androidTest.apk
+          test -f device-tests/SHA256SUMS
 
-      - name: Re-run standalone YCore release gates
+      - name: Re-run standalone YCore artifact gates
         shell: bash
         run: |
           set -euo pipefail
@@ -90,6 +108,32 @@ jobs:
             native-release/ycore-native.aar \
             native-release/ycore-native.aar.sha256 \
             native-release/NATIVE-SOURCES.txt
+          (cd device-tests && sha256sum --check SHA256SUMS)
+
+      - name: Verify physical-device evidence against exact build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          export APP_SHA="$(sha256sum device-tests/ycore-native-test-app.apk | awk '{ print $1 }')"
+          export TEST_APK_SHA="$(sha256sum device-tests/ycore-native-test-androidTest.apk | awk '{ print $1 }')"
+          python3 - "$EVIDENCE_PATH" <<'PY'
+          import json, os, pathlib, sys
+          evidence = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          expected = {
+              "commitSha": os.environ["SOURCE_COMMIT_SHA"],
+              "artifactSha256": os.environ["EXPECTED_YCORE_SHA256"],
+              "testedApkSha256": os.environ["APP_SHA"],
+              "testedTestApkSha256": os.environ["TEST_APK_SHA"],
+          }
+          actual = {key: evidence.get(key) for key in expected}
+          if actual != expected:
+              raise SystemExit(f"evidence/build binding mismatch: expected={expected} actual={actual}")
+          PY
+          python3 scripts/ycore-release-evidence.py verify \
+            --evidence "$EVIDENCE_PATH" \
+            --suite media-tests/ycore-suite.example.json \
+            --output native-release/YCORE-DEVICE-GATES.json
+          install -m 0644 "$EVIDENCE_PATH" native-release/YCORE-DEVICE-EVIDENCE.json
 
       - name: Publish permanent YCore dependency release
         shell: bash
@@ -105,18 +149,23 @@ jobs:
           - Dependency-closed FFmpeg/libbluray native libraries
           - No libmpv, libplayer, MDK, or Java engine classes
           - 16 KiB Android page alignment verified for every packaged native library
+          - Physical-device matrix, 1,000 Seek/Surface cycles, 100 queue transitions, 8-hour
+            continuous soak, and 24-hour queue soak all verified against hash-bound APKs
           - Protected AACS/BD+ media and HDMV/BD-J interactive menus remain fail-closed
 
           Artifact SHA-256: \`$EXPECTED_YCORE_SHA256\`
 
-          Built and verified by GitHub Actions run $SOURCE_RUN_ID; published by commit $GITHUB_SHA.
+          Built by GitHub Actions run $SOURCE_RUN_ID from commit $SOURCE_COMMIT_SHA. The redacted
+          device evidence and machine gate result are attached to this immutable release.
           EOF
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
+            --target "$SOURCE_COMMIT_SHA" \
             --title "YCore standalone native runtime arm64" \
             --notes-file "$notes" \
             native-release/ycore-native.aar \
             native-release/ycore-native.aar.sha256 \
             native-release/NATIVE-SOURCES.txt \
-            native-release/BUILD-MANIFEST.txt
+            native-release/BUILD-MANIFEST.txt \
+            native-release/YCORE-DEVICE-EVIDENCE.json \
+            native-release/YCORE-DEVICE-GATES.json
