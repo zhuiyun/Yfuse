@@ -2,6 +2,7 @@ package com.yfuse.core2.adaptive
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class YAdaptiveBitrateTest {
     private val variants =
@@ -50,6 +51,57 @@ class YAdaptiveBitrateTest {
         assertEquals("mid", YAdaptiveVariantSelector.select(variants, conditions).id)
     }
 
+    @Test
+    fun hls_alignment_keeps_only_decoder_and_timeline_compatible_segments() {
+        val selected = variant("selected", 2_000_000L, 1920, 1080)
+        val lower = variant("lower", 1_000_000L, 1280, 720)
+        val differentCodec =
+            variant("hevc", 800_000L, 1280, 720).copy(codecs = listOf("hvc1.1.6.L93.B0", "mp4a.40.2"))
+        val selectedMedia = media(segment(sequence = 10L, uri = "selected-10.ts"))
+        val lowerMedia = media(segment(sequence = 10L, uri = "lower-10.ts"))
+        val misalignedMedia = media(segment(sequence = 10L, uri = "hevc-10.ts", durationUs = 5_500_000L))
+
+        val aligned =
+            alignYHlsVariantSegments(
+                variants =
+                    listOf(
+                        YHlsVariantMediaPlaylist(selected, selectedMedia),
+                        YHlsVariantMediaPlaylist(lower, lowerMedia),
+                        YHlsVariantMediaPlaylist(differentCodec, misalignedMedia),
+                    ),
+                selectedVariantId = selected.id,
+            ).single()
+
+        assertEquals(listOf("lower", "selected"), aligned.resources.map { it.variant.id }.sorted())
+        assertTrue(aligned.resources.none { it.uri == "hevc-10.ts" })
+    }
+
+    @Test
+    fun hls_alignment_rejects_range_or_encryption_changes() {
+        val selected = variant("selected", 2_000_000L, 1920, 1080)
+        val lower = variant("lower", 1_000_000L, 1280, 720)
+        val reference =
+            segment(sequence = 10L, uri = "selected.ts").copy(
+                byteRange = YAdaptiveByteRange(1_024L, 0L),
+                encryption = YAdaptiveEncryption(YAdaptiveEncryptionMethod.Aes128, "https://key.test/common"),
+            )
+        val changed =
+            reference.copy(
+                uri = "lower.ts",
+                byteRange = YAdaptiveByteRange(2_048L, 0L),
+            )
+        val aligned =
+            alignYHlsVariantSegments(
+                listOf(
+                    YHlsVariantMediaPlaylist(selected, media(reference)),
+                    YHlsVariantMediaPlaylist(lower, media(changed)),
+                ),
+                selected.id,
+            ).single()
+
+        assertEquals(listOf("selected"), aligned.resources.map { it.variant.id })
+    }
+
     private fun variant(
         id: String,
         bandwidth: Long,
@@ -61,5 +113,25 @@ class YAdaptiveBitrateTest {
         bandwidthBitsPerSecond = bandwidth,
         width = width,
         height = height,
+        codecs = listOf("avc1.640028", "mp4a.40.2"),
+    )
+
+    private fun media(vararg segments: YAdaptiveSegment) =
+        YHlsPlaylist.Media(
+            isLive = false,
+            mediaSequence = segments.first().sequence,
+            targetDurationUs = 6_000_000L,
+            segments = segments.toList(),
+        )
+
+    private fun segment(
+        sequence: Long,
+        uri: String,
+        durationUs: Long = 6_000_000L,
+    ) = YAdaptiveSegment(
+        sequence = sequence,
+        uri = uri,
+        startTimeUs = 0L,
+        durationUs = durationUs,
     )
 }

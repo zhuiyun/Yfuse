@@ -15,6 +15,65 @@ data class YAdaptiveSelectionConditions(
     }
 }
 
+data class YHlsVariantMediaPlaylist(
+    val variant: YAdaptiveVariant,
+    val playlist: YHlsPlaylist.Media,
+)
+
+data class YHlsAlignedSegmentResource(
+    val variant: YAdaptiveVariant,
+    val uri: String,
+)
+
+data class YHlsAlignedSegment(
+    val sequence: Long,
+    val durationUs: Long,
+    val resources: List<YHlsAlignedSegmentResource>,
+)
+
+/**
+ * Builds a switch-safe muxed HLS ladder around one already selected media playlist.
+ *
+ * A candidate is admitted only when codec families, timing, byte ranges, discontinuities,
+ * initialization data, and encryption metadata match. This deliberately excludes representation
+ * changes that would require a new decoder configuration or a different key/map tag.
+ */
+fun alignYHlsVariantSegments(
+    variants: List<YHlsVariantMediaPlaylist>,
+    selectedVariantId: String,
+): List<YHlsAlignedSegment> {
+    require(variants.isNotEmpty())
+    require(variants.distinctBy { it.variant.id }.size == variants.size) { "HLS variant ids are not unique" }
+    val selected = variants.singleOrNull { it.variant.id == selectedVariantId } ?: error("Selected HLS variant is missing")
+    val selectedCodecFamilies = selected.variant.codecFamilies()
+    val compatibleVariants =
+        variants.filter { candidate ->
+            candidate.variant.id == selectedVariantId ||
+                selectedCodecFamilies.isNotEmpty() &&
+                candidate.variant.codecFamilies() == selectedCodecFamilies &&
+                candidate.playlist.isLive == selected.playlist.isLive
+        }
+    val segmentsByVariant =
+        compatibleVariants.associateWith { candidate -> candidate.playlist.segments.associateBy(YAdaptiveSegment::sequence) }
+    return selected.playlist.segments.map { selectedSegment ->
+        YHlsAlignedSegment(
+            sequence = selectedSegment.sequence,
+            durationUs = selectedSegment.durationUs,
+            resources =
+                compatibleVariants.mapNotNull { candidate ->
+                    val segment = segmentsByVariant.getValue(candidate)[selectedSegment.sequence]
+                    segment
+                        ?.takeIf { it.switchCompatibleWith(selectedSegment) }
+                        ?.let { YHlsAlignedSegmentResource(candidate.variant, it.uri) }
+                },
+        ).also { aligned ->
+            require(aligned.resources.any { it.variant.id == selectedVariantId }) {
+                "Selected HLS segment disappeared from its own ladder"
+            }
+        }
+    }
+}
+
 /** Throughput EWMA that ignores zero-length and implausibly short samples. */
 class YAdaptiveBandwidthEstimator(
     private val previousWeightPermille: Int = 700,
@@ -102,6 +161,19 @@ object YAdaptiveVariantSelector {
     }
 }
 
+private fun YAdaptiveVariant.codecFamilies(): List<String> =
+    codecs
+        .map { codec -> codec.substringBefore('.').trim().lowercase() }
+        .filter(String::isNotEmpty)
+
+private fun YAdaptiveSegment.switchCompatibleWith(reference: YAdaptiveSegment): Boolean =
+    kotlin.math.abs(durationUs - reference.durationUs) <=
+        maxOf(MAX_HLS_SEGMENT_DRIFT_US, reference.durationUs / MAX_HLS_SEGMENT_DRIFT_DIVISOR) &&
+        byteRange == reference.byteRange &&
+        discontinuity == reference.discontinuity &&
+        initialization == reference.initialization &&
+        encryption == reference.encryption
+
 private fun weightedAverage(
     previous: Long,
     sample: Long,
@@ -121,3 +193,5 @@ private const val METERED_BUDGET_PERCENT = 55L
 private const val UPGRADE_HEADROOM_PERCENT = 125L
 private const val LOW_BUFFER_US = 2_000_000L
 private const val UPGRADE_BUFFER_US = 10_000_000L
+private const val MAX_HLS_SEGMENT_DRIFT_US = 50_000L
+private const val MAX_HLS_SEGMENT_DRIFT_DIVISOR = 100L

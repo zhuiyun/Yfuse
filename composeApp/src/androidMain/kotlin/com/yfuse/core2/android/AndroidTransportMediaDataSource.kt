@@ -22,6 +22,7 @@ internal class AndroidTransportMediaDataSource(
     cacheDirectory: File? = null,
     cacheIdentity: YCacheIdentity? = null,
     cacheMaximumBytes: Long = 0L,
+    private val onNetworkSample: ((bytes: Long, durationMs: Long) -> Unit)? = null,
 ) : MediaDataSource() {
     private val transport = createTransport()
     private val cachePlan =
@@ -82,6 +83,7 @@ internal class AndroidTransportMediaDataSource(
     private fun loadBlock(blockIndex: Long): ByteArray {
         diskCache?.readBlock(blockIndex, blockSize)?.let { return it }
         return runBlocking {
+            val startedNs = System.nanoTime()
             val position = blockIndex.saturatedMultiply(blockSize.toLong())
             val end = position.saturatedAdd(blockSize.toLong() - 1L)
             try {
@@ -123,6 +125,12 @@ internal class AndroidTransportMediaDataSource(
                     "Random-access transport ended before the accepted block range"
                 }
                 output.copyOf(total).also { block ->
+                    if (total > 0) {
+                        onNetworkSample?.invoke(
+                            total.toLong(),
+                            ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
+                        )
+                    }
                     if (block.isNotEmpty()) diskCache?.writeBlock(blockIndex, block, knownSize.takeIf { it >= 0L })
                 }
             } finally {
@@ -174,3 +182,4 @@ private fun Long.saturatedMultiply(other: Long): Long = if (other > 0L && this >
 
 private const val MIN_TRANSPORT_BLOCK_BYTES = 256 * 1024
 private const val DEFAULT_TRANSPORT_CACHE_BYTES = 64L * 1024L * 1024L
+private const val NANOS_PER_MILLISECOND = 1_000_000L

@@ -1,13 +1,18 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import com.yfuse.core2.adaptive.YAdaptiveBandwidthEstimator
 import com.yfuse.core2.adaptive.YAdaptiveEncryptionMethod
 import com.yfuse.core2.adaptive.YAdaptiveSelectionConditions
+import com.yfuse.core2.adaptive.YAdaptiveVariant
 import com.yfuse.core2.adaptive.YAdaptiveVariantSelector
 import com.yfuse.core2.adaptive.YDashRepresentation
 import com.yfuse.core2.adaptive.YDashResourceKind
+import com.yfuse.core2.adaptive.YHlsAlignedSegment
 import com.yfuse.core2.adaptive.YHlsPlaylist
 import com.yfuse.core2.adaptive.YHlsResourceKind
+import com.yfuse.core2.adaptive.YHlsVariantMediaPlaylist
+import com.yfuse.core2.adaptive.alignYHlsVariantSegments
 import com.yfuse.core2.adaptive.buildYDashPlaybackManifest
 import com.yfuse.core2.adaptive.parseYDashManifest
 import com.yfuse.core2.adaptive.parseYHlsPlaylist
@@ -58,6 +63,7 @@ internal class AndroidYCoreHttpProxy(
         val dashManifest: Boolean,
         val drmProtected: Boolean,
         val dashTemplate: DashTemplateRoute? = null,
+        val hlsAbrResource: HlsAbrResourceRoute? = null,
     )
 
     private data class DashTemplateRoute(
@@ -67,6 +73,84 @@ internal class AndroidYCoreHttpProxy(
         val usesTime: Boolean,
         val localExtension: String,
     )
+
+    private data class HlsPlaybackManifest(
+        val text: String,
+        val uri: String,
+        val media: YHlsPlaylist.Media,
+        val abrSession: HlsAbrSession? = null,
+        val alignedSegments: Map<Long, YHlsAlignedSegment> = emptyMap(),
+    )
+
+    private data class HlsAbrResourceRoute(
+        val session: HlsAbrSession,
+        val segment: YHlsAlignedSegment,
+        val selectedVariantId: String? = null,
+    )
+
+    private class HlsAbrSession(
+        initialVariantId: String,
+    ) {
+        private val bandwidthEstimator = YAdaptiveBandwidthEstimator()
+        private var currentVariantId = initialVariantId
+        private var bufferedDurationUs = STARTUP_BUFFER_US
+        private var updatedAtNs = System.nanoTime()
+        private var lastCompletedSequence: Long? = null
+
+        @Synchronized
+        fun select(segment: YHlsAlignedSegment): com.yfuse.core2.adaptive.YHlsAlignedSegmentResource {
+            drainBuffer(System.nanoTime())
+            val currentForSegment =
+                currentVariantId.takeIf { current -> segment.resources.any { it.variant.id == current } }
+                    ?: segment.resources
+                        .minBy { it.variant.selectionBandwidthBitsPerSecond }
+                        .variant.id
+            val selected =
+                YAdaptiveVariantSelector.select(
+                    variants = segment.resources.map { it.variant },
+                    conditions =
+                        YAdaptiveSelectionConditions(
+                            estimatedBandwidthBitsPerSecond =
+                                bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
+                                    ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
+                            bufferedDurationUs = bufferedDurationUs,
+                        ),
+                    currentVariantId = currentForSegment,
+                )
+            currentVariantId = selected.id
+            return segment.resources.first { it.variant.id == selected.id }
+        }
+
+        @Synchronized
+        fun recordNetworkSample(
+            bytes: Long,
+            durationMs: Long,
+        ) {
+            bandwidthEstimator.addSample(bytes, durationMs)
+        }
+
+        @Synchronized
+        fun complete(
+            sequence: Long,
+            durationUs: Long,
+        ) {
+            drainBuffer(System.nanoTime())
+            if (lastCompletedSequence == sequence) return
+            bufferedDurationUs =
+                if (lastCompletedSequence == null || sequence == lastCompletedSequence?.plus(1L)) {
+                    (bufferedDurationUs + durationUs).coerceAtMost(MAX_ABR_BUFFER_US)
+                } else {
+                    durationUs.coerceAtMost(MAX_ABR_BUFFER_US)
+                }
+            lastCompletedSequence = sequence
+        }
+
+        private fun drainBuffer(nowNs: Long) {
+            val elapsedUs = ((nowNs - updatedAtNs).coerceAtLeast(0L) / NANOS_PER_MICROSECOND)
+            bufferedDurationUs = (bufferedDurationUs - elapsedUs).coerceAtLeast(0L)
+            updatedAtNs = nowNs
+        }
+    }
 
     private val cacheDirectory = context.applicationContext.cacheDir
     private val routesLock = Any()
@@ -170,7 +254,7 @@ internal class AndroidYCoreHttpProxy(
                 ?.takeIf(String::isNotEmpty)
         val routeId = localPath?.substringBefore('/')
         val routeSuffix = localPath?.substringAfter('/', missingDelimiterValue = "").orEmpty()
-        val route = routeId?.let(::findRoute)?.resolveDashTemplate(routeSuffix)
+        val route = routeId?.let(::findRoute)?.resolveDashTemplate(routeSuffix)?.resolveHlsAbr()
         if (method !in ALLOWED_METHODS || route == null) {
             writeEmptyResponse(socket, 404, "Not Found")
             return
@@ -227,6 +311,16 @@ internal class AndroidYCoreHttpProxy(
         )
     }
 
+    private fun Route.resolveHlsAbr(): Route {
+        val abr = hlsAbrResource ?: return this
+        val selected = abr.session.select(abr.segment)
+        return copy(
+            upstreamUri = selected.uri,
+            cacheIdentity = cacheIdentity?.forAdaptiveResource(selected.uri),
+            hlsAbrResource = abr.copy(selectedVariantId = selected.variant.id),
+        )
+    }
+
     private fun readRequestHeaders(reader: BufferedReader): Map<String, String> {
         val headers = linkedMapOf<String, String>()
         repeat(MAX_REQUEST_HEADER_COUNT) {
@@ -249,53 +343,48 @@ internal class AndroidYCoreHttpProxy(
         val rootText = loadBounded(route.upstreamUri, MAX_HLS_MANIFEST_BYTES).decodeToString()
         require(!rootText.hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
         val root = parseYHlsPlaylist(rootText, route.upstreamUri)
-        val (mediaText, mediaUri, media) =
+        val playback =
             when (root) {
-                is YHlsPlaylist.Media -> Triple(rootText, route.upstreamUri, root)
-                is YHlsPlaylist.Master -> {
-                    require(!rootText.hasSeparateHlsRenditions()) {
-                        "Separate HLS rendition groups are not executable yet"
-                    }
-                    val selected =
-                        YAdaptiveVariantSelector.select(
-                            variants = root.variants,
-                            conditions =
-                                YAdaptiveSelectionConditions(
-                                    estimatedBandwidthBitsPerSecond = INITIAL_BANDWIDTH_BITS_PER_SECOND,
-                                    bufferedDurationUs = STARTUP_BUFFER_US,
-                                    maximumWidth = route.maximumWidth,
-                                    maximumHeight = route.maximumHeight,
-                                ),
-                        )
-                    val selectedText = loadBounded(selected.uri, MAX_HLS_MANIFEST_BYTES).decodeToString()
-                    require(!selectedText.hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
-                    val selectedMedia = parseYHlsPlaylist(selectedText, selected.uri) as? YHlsPlaylist.Media
-                    requireNotNull(selectedMedia) { "Nested HLS master playlists are not executable" }
-                    Triple(selectedText, selected.uri, selectedMedia)
-                }
+                is YHlsPlaylist.Media -> HlsPlaybackManifest(rootText, route.upstreamUri, root)
+                is YHlsPlaylist.Master -> loadHlsPlaybackManifest(rootText, root, route)
             }
         require(
-            media.segments.none { segment ->
+            playback.media.segments.none { segment ->
                 segment.encryption?.method in
                     setOf(YAdaptiveEncryptionMethod.SampleAes, YAdaptiveEncryptionMethod.Other)
             },
         ) { "HLS sample encryption requires the native DRM route" }
+        var segmentIndex = 0
         val rewritten =
-            rewriteYHlsResourceUris(mediaText, mediaUri) { upstreamUri, kind ->
+            rewriteYHlsResourceUris(playback.text, playback.uri) { upstreamUri, kind ->
                 val persistent =
                     route.cacheable &&
-                        !media.isLive &&
+                        !playback.media.isLive &&
                         kind in setOf(YHlsResourceKind.MediaSegment, YHlsResourceKind.InitializationSegment)
-                localUrl(
-                    upstreamUri = upstreamUri,
-                    cacheable = persistent,
-                    cacheIdentity = route.cacheIdentity?.forAdaptiveResource(upstreamUri),
-                    maximumWidth = route.maximumWidth,
-                    maximumHeight = route.maximumHeight,
-                    hlsManifest =
-                        kind in
-                            setOf(YHlsResourceKind.VariantPlaylist, YHlsResourceKind.RenditionPlaylist),
-                )
+                val mediaSegment =
+                    if (kind == YHlsResourceKind.MediaSegment) {
+                        playback.media.segments
+                            .getOrNull(segmentIndex)
+                            ?.takeIf { it.uri == upstreamUri }
+                    } else {
+                        null
+                    }
+                if (mediaSegment != null) segmentIndex++
+                val aligned = mediaSegment?.let { playback.alignedSegments[it.sequence] }
+                if (aligned != null && aligned.resources.size > 1 && playback.abrSession != null) {
+                    localHlsAbrUrl(route, persistent, aligned, playback.abrSession)
+                } else {
+                    localUrl(
+                        upstreamUri = upstreamUri,
+                        cacheable = persistent,
+                        cacheIdentity = route.cacheIdentity?.forAdaptiveResource(upstreamUri),
+                        maximumWidth = route.maximumWidth,
+                        maximumHeight = route.maximumHeight,
+                        hlsManifest =
+                            kind in
+                                setOf(YHlsResourceKind.VariantPlaylist, YHlsResourceKind.RenditionPlaylist),
+                    )
+                }
             }.encodeToByteArray()
         writeHeaders(
             socket = socket,
@@ -306,6 +395,92 @@ internal class AndroidYCoreHttpProxy(
         )
         if (method == "GET") socket.getOutputStream().write(rewritten)
         socket.getOutputStream().flush()
+    }
+
+    private fun loadHlsPlaybackManifest(
+        rootText: String,
+        root: YHlsPlaylist.Master,
+        route: Route,
+    ): HlsPlaybackManifest {
+        require(!rootText.hasSeparateHlsRenditions()) { "Separate HLS rendition groups are not executable yet" }
+        val selected =
+            YAdaptiveVariantSelector.select(
+                variants = root.variants,
+                conditions =
+                    YAdaptiveSelectionConditions(
+                        estimatedBandwidthBitsPerSecond = INITIAL_BANDWIDTH_BITS_PER_SECOND,
+                        bufferedDurationUs = STARTUP_BUFFER_US,
+                        maximumWidth = route.maximumWidth,
+                        maximumHeight = route.maximumHeight,
+                    ),
+            )
+        val selectedText = loadBounded(selected.uri, MAX_HLS_MANIFEST_BYTES).decodeToString()
+        val selectedMedia = selectedText.requireExecutableHlsMedia(selected.uri)
+        if (selectedMedia.isLive || selectedText.hasLowLatencyHlsParts()) {
+            return HlsPlaybackManifest(selectedText, selected.uri, selectedMedia)
+        }
+        val eligibleAlternates =
+            root.variants
+                .filter { it.id != selected.id && it.fits(route.maximumWidth, route.maximumHeight) }
+                .sortedBy(YAdaptiveVariant::selectionBandwidthBitsPerSecond)
+                .take(MAX_HLS_ABR_VARIANTS - 1)
+        val variantMedia =
+            buildList {
+                add(YHlsVariantMediaPlaylist(selected, selectedMedia))
+                eligibleAlternates.mapNotNullTo(this) { variant ->
+                    runCatching {
+                        val text = loadBounded(variant.uri, MAX_HLS_MANIFEST_BYTES).decodeToString()
+                        if (text.hasLowLatencyHlsParts()) return@runCatching null
+                        YHlsVariantMediaPlaylist(variant, text.requireExecutableHlsMedia(variant.uri))
+                    }.getOrNull()
+                }
+            }.filterNotNull()
+        val aligned = alignYHlsVariantSegments(variantMedia, selected.id)
+        val session = HlsAbrSession(selected.id).takeIf { aligned.any { it.resources.size > 1 } }
+        return HlsPlaybackManifest(
+            text = selectedText,
+            uri = selected.uri,
+            media = selectedMedia,
+            abrSession = session,
+            alignedSegments = aligned.associateBy(YHlsAlignedSegment::sequence),
+        )
+    }
+
+    private fun String.requireExecutableHlsMedia(uri: String): YHlsPlaylist.Media {
+        require(!hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
+        val media = parseYHlsPlaylist(this, uri) as? YHlsPlaylist.Media
+        requireNotNull(media) { "Nested HLS master playlists are not executable" }
+        require(
+            media.segments.none { segment ->
+                segment.encryption?.method in
+                    setOf(YAdaptiveEncryptionMethod.SampleAes, YAdaptiveEncryptionMethod.Other)
+            },
+        ) { "HLS sample encryption requires the native DRM route" }
+        return media
+    }
+
+    private fun localHlsAbrUrl(
+        parent: Route,
+        cacheable: Boolean,
+        segment: YHlsAlignedSegment,
+        session: HlsAbrSession,
+    ): String {
+        val selected = segment.resources.first()
+        val route =
+            parent.copy(
+                upstreamUri = selected.uri,
+                cacheable = cacheable,
+                cacheIdentity = parent.cacheIdentity?.forAdaptiveResource(selected.uri),
+                hlsManifest = false,
+                dashManifest = false,
+                hlsAbrResource = HlsAbrResourceRoute(session, segment),
+            )
+        val suffix =
+            selected.uri
+                .safeSyntheticExtension()
+                ?.let { "/resource.$it" }
+                .orEmpty()
+        return localRouteUrl(route, suffix)
     }
 
     private fun serveDash(
@@ -433,6 +608,10 @@ internal class AndroidYCoreHttpProxy(
                 cacheDirectory = cacheDirectory.takeIf { route.cacheable },
                 cacheIdentity = route.cacheIdentity.takeIf { route.cacheable },
                 cacheMaximumBytes = cacheMaximumBytes.takeIf { route.cacheable } ?: 0L,
+                onNetworkSample =
+                    route.hlsAbrResource?.let { abr ->
+                        { bytes: Long, durationMs: Long -> abr.session.recordNetworkSample(bytes, durationMs) }
+                    },
             )
         try {
             val totalLength = source.getSize()
@@ -463,6 +642,9 @@ internal class AndroidYCoreHttpProxy(
             )
             if (method == "HEAD") return
             copySource(source, socket, start, contentLength)
+            route.hlsAbrResource?.let { abr ->
+                abr.session.complete(abr.segment.sequence, abr.segment.durationUs)
+            }
         } finally {
             source.close()
         }
@@ -492,11 +674,23 @@ internal class AndroidYCoreHttpProxy(
                 contentLength = response.contentLength,
             )
             if (method == "GET") {
+                val startedNs = System.nanoTime()
+                var transferredBytes = 0L
                 val buffer = ByteArray(NETWORK_BUFFER_BYTES)
                 while (true) {
                     val count = transport.read(buffer, 0, buffer.size)
                     if (count < 0) break
-                    if (count > 0) socket.getOutputStream().write(buffer, 0, count)
+                    if (count > 0) {
+                        socket.getOutputStream().write(buffer, 0, count)
+                        transferredBytes += count
+                    }
+                }
+                route.hlsAbrResource?.let { abr ->
+                    abr.session.recordNetworkSample(
+                        transferredBytes,
+                        ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
+                    )
+                    abr.session.complete(abr.segment.sequence, abr.segment.durationUs)
                 }
             }
             socket.getOutputStream().flush()
@@ -662,6 +856,19 @@ private fun String.hasSeparateHlsRenditions(): Boolean =
 
 private fun String.hasHlsSessionKey(): Boolean = lineSequence().any { line -> line.trim().uppercase().startsWith("#EXT-X-SESSION-KEY:") }
 
+private fun String.hasLowLatencyHlsParts(): Boolean =
+    lineSequence().any { line ->
+        val normalized = line.trim().uppercase()
+        normalized.startsWith("#EXT-X-PART:") || normalized.startsWith("#EXT-X-PRELOAD-HINT:")
+    }
+
+private fun YAdaptiveVariant.fits(
+    maximumWidth: Int?,
+    maximumHeight: Int?,
+): Boolean =
+    (maximumWidth == null || width == null || width <= maximumWidth) &&
+        (maximumHeight == null || height == null || height <= maximumHeight)
+
 private fun String.guessContentType(): String =
     when (
         runCatching {
@@ -728,6 +935,10 @@ private const val MAX_REQUEST_HEADER_BYTES = 8 * 1024
 private const val MAX_REQUEST_HEADER_COUNT = 64
 private const val INITIAL_BANDWIDTH_BITS_PER_SECOND = 25_000_000L
 private const val STARTUP_BUFFER_US = 10_000_000L
+private const val MAX_ABR_BUFFER_US = 30_000_000L
+private const val MAX_HLS_ABR_VARIANTS = 8
+private const val NANOS_PER_MICROSECOND = 1_000L
+private const val NANOS_PER_MILLISECOND = 1_000_000L
 private const val HLS_CONTENT_TYPE = "application/vnd.apple.mpegurl"
 private const val DASH_CONTENT_TYPE = "application/dash+xml"
 private val ALLOWED_METHODS = setOf("GET", "HEAD")
