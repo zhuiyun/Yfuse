@@ -14,7 +14,7 @@ MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/$MDK_FILE
 MPV_CUSTOM_SHA="$LIBS/libmpv-release.aar.sha256"
 MPV_CUSTOM_SOURCES="$LIBS/libmpv-release.sources.txt"
 MPV_PINNED_SOURCES="$ROOT/scripts/yfuse-mpv-sources.txt"
-MPV_VERIFIER="$ROOT/scripts/verify-ycore-native.sh"
+MPV_VERIFIER="$ROOT/scripts/verify-yfuse-mpv-dolby-aar.sh"
 
 die() {
   printf 'error: %s\n' "$*" >&2
