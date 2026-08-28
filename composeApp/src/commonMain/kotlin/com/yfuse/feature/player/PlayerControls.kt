@@ -770,10 +770,13 @@ internal fun PlayerControls(
         }
 
         if (locked) {
-            LockedOverlay(onUnlock = {
-                onLockedChange(false)
-                poke()
-            })
+            LockedOverlay(
+                onUnlock = {
+                    onLockedChange(false)
+                    poke()
+                },
+                contentPadding = chromeSafePadding,
+            )
             return@BoxWithConstraints
         }
 

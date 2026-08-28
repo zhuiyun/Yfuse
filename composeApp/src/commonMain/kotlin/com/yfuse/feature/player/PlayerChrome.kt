@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -1410,7 +1411,10 @@ private val ControlTouchPadding = 7.dp
  * `长按解锁` pill at `right:22px; bottom:40px`.
  */
 @Composable
-internal fun LockedOverlay(onUnlock: () -> Unit) {
+internal fun LockedOverlay(
+    onUnlock: () -> Unit,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+) {
     val haptics = LocalHaptics.current
     val latestOnUnlock by rememberUpdatedState(onUnlock)
     Box(Modifier.fillMaxSize()) {
@@ -1442,6 +1446,7 @@ internal fun LockedOverlay(onUnlock: () -> Unit) {
             modifier =
                 Modifier
                     .align(Alignment.BottomEnd)
+                    .padding(contentPadding)
                     .padding(end = 22.dp, bottom = 40.dp)
                     .glass(
                         shape = AppShapes.pill,
