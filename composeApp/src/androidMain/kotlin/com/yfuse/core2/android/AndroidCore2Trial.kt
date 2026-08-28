@@ -118,11 +118,12 @@ internal object AndroidCore2TrialFactory {
                     sourceItems = items.associateBy(PlayerMediaItem::id),
                 )
             }
+        val frameRateSwitchMode = frameRateMatch.toCore2Mode()
         val discFactory =
             AndroidYCoreDiscRouteFactory(
                 context = context,
                 allowAudioPassthrough = allowAudioPassthrough,
-                frameRateSwitchMode = frameRateMatch.toCore2Mode(),
+                frameRateSwitchMode = frameRateSwitchMode,
                 fallback = compatibilityFactory,
             )
         return try {
@@ -133,7 +134,7 @@ internal object AndroidCore2TrialFactory {
                     fallbackRouteFactory = compatibilityFactory,
                     discRouteFactory = discFactory,
                     allowAudioPassthrough = allowAudioPassthrough,
-                    frameRateSwitchMode = frameRateMatch.toCore2Mode(),
+                    frameRateSwitchMode = frameRateSwitchMode,
                     onRelease = {
                         cacheProxy?.close()
                         yCoreProxy?.close()
@@ -161,8 +162,16 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     if (isEmpty() || startIndex !in indices) return false
     return all { item ->
         val version = item.activeVersion
+        // Core2's current private-surface/runtime probe is not yet a safe proof for Dolby-only
+        // streams (notably DV profile 5). Vendor Dolby decoders can reject that probe even though
+        // Exo + the real display Surface works correctly. Unknown DV profiles are treated the same
+        // way until the bitstream probe has enough evidence to prove a compatible base layer.
+        val requiresProvenDolbyPipeline =
+            version?.dolbyVision == true &&
+                (version.dolbyProfile == null || version.needsDolbyDecoder)
         val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
-        (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
+        !requiresProvenDolbyPipeline &&
+            (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
             item.externalSubtitleUri.isCore2SubtitleSourceSupported() &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
     }
@@ -184,23 +193,9 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
             adaptiveManifest = item.url.isAdaptiveManifest() || version?.container.isAdaptiveContainer(),
             adaptiveManifestSupported = hlsManifest || dashManifest,
             disc = version?.discSource == true,
-            discSupported =
-                version
-                    ?.takeIf { it.discSource }
-                    ?.let { discVersion ->
-                        FfmpegNativeBridge.discNavigationAvailable &&
-                            detectPlaybackDiscKind(
-                                container = discVersion.container,
-                                labelHint = discVersion.label,
-                                declaredDiscSource = true,
-                            ) in setOf(PlaybackDiscKind.BluRay, PlaybackDiscKind.Bdmv)
-                    } ?: true,
             drm = item.drmConfiguration != null || version?.drmConfiguration != null,
             drmSupported = drmConfiguration?.let { item.supportsCore2Drm(it.scheme) } == true,
             dolbyVision = version?.dolbyVision == true,
-            // Admission is safe because the deep FFmpeg probe, semantic DV router, real decoder
-            // capability evidence and output HDR types still fail closed before execution.
-            dolbyVisionSupported = true,
             externalSubtitleSupported = item.externalSubtitleUri.isCore2SubtitleSourceSupported(),
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
@@ -212,11 +207,11 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
         Core2NativeBaselineBlock.UnsupportedScheme -> "YCore Native 暂不支持当前来源协议"
         Core2NativeBaselineBlock.ServerTranscode -> "YCore Native 基线仅验证直连片源"
         Core2NativeBaselineBlock.AdaptiveManifest -> "YCore Native 当前仅支持已验证的 HLS / 静态 DASH 子集"
-        Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 当前仅验证 MP4/MKV/WebM/MOV"
+        Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 当前仅验证 MP4/MKV"
         Core2NativeBaselineBlock.UnsupportedVideoCodec ->
-            "YCore Native 当前仅验证 H.264/HEVC/AV1/VP9/VC-1/MPEG-2/ProRes"
-        Core2NativeBaselineBlock.Disc -> "YCore Native 当前仅支持已验证的 Blu-ray / BDMV 导航"
-        Core2NativeBaselineBlock.Drm -> "YCore Native 当前仅支持 Widevine CENC（MP4 / 静态 DASH）"
+            "YCore Native 当前仅验证 H.264/HEVC"
+        Core2NativeBaselineBlock.Disc -> "YCore Native 尚未完成原盘导航"
+        Core2NativeBaselineBlock.Drm -> "YCore Native 尚未完成 DRM"
         Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未完成杜比视界渲染"
         Core2NativeBaselineBlock.ExternalSubtitle -> "YCore Native 不支持当前外挂字幕来源"
     }
@@ -250,8 +245,7 @@ private fun PlayerMediaItem.supportsCore2Drm(scheme: PlaybackDrmScheme): Boolean
             .orEmpty()
             .trim()
             .lowercase()
-    if (url.isHlsManifest() || container.isHlsContainer()) return false
-    return url.isDashManifest() || container.isDashContainer() || container in setOf("mp4", "m4v")
+    return url.isDashManifest() || container in setOf("dash", "mpd", "mp4", "m4v")
 }
 
 internal fun List<PlayerMediaItem>.toCore2MediaItems(
@@ -282,8 +276,6 @@ private fun PlayerMediaItem.toCore2MediaItem(
                 this,
                 if (usingServerTranscode) {
                     transcodeUrl.ifBlank { fallbackTranscodeUrl }
-                } else if (version?.discSource == true) {
-                    rawDiscUri ?: url
                 } else {
                     url
                 },
@@ -361,7 +353,6 @@ private val CORE2_SOURCE_SCHEMES =
         "android.resource",
         "yfusebd",
         "yfusebdmv",
-        "ycorebd",
     )
 private val CORE2_SUBTITLE_SOURCE_SCHEMES =
     setOf(

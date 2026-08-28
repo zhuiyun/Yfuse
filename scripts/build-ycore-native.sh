@@ -9,5 +9,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 "$ROOT/scripts/package-ycore-native-aar.py" --self-test
 bash "$ROOT/scripts/test-ycore-tone-map.sh"
 bash "$ROOT/scripts/test-ycore-disc-uri.sh"
+bash "$ROOT/scripts/test-ycore-gpu-capability.sh"
 bash "$ROOT/scripts/build-yfuse-mpv-dolby.sh" "$@"
 bash "$ROOT/scripts/build-ycore-demux.sh"

@@ -176,13 +176,13 @@ Planned handling:
 - reuse existing libbluray work behind Core2 demux/navigation contracts;
 - keep BD-J and licensed/protected-disc runtime as explicit capability boundaries.
 
-Current compatibility milestone: direct disc items now carry a backend-neutral descriptor through
-`YMediaItem` and enter the pinned libmpv/libbluray executor from the adaptive Core2 router. The
-temporary executor preserves the original prepared `yfusebd://` or `yfusebdmv://` source, forwards
-title/chapter/menu commands through `YPlayer`, and shares the existing HDMV input/overlay plane with
-Legacy. Server-resolved disc streams deliberately remain ordinary media streams and do not expose
-native navigation. Native Core2 MPLS/CLPI graph nodes, BD-J, protected-disc support, and physical-disc
-release evidence remain explicit future gates.
+Current milestone: direct Blu-ray/ISO/BDMV items now prefer `AndroidYCoreDiscRouteFactory`.
+`AndroidYCoreBluRaySource` exposes local, content-URI or authenticated range blocks to the private
+libbluray registry; libbluray selects the title and FFmpeg feeds the ordinary YCore Enhanced decode,
+clock, audio, subtitle and Surface graph. Title, chapter and angle navigation therefore no longer
+requires mpv. The compatibility executor remains only when the YCore source cannot be created.
+Interactive HDMV/BD-J menus, protected discs and physical-disc release evidence remain explicit
+future gates.
 
 ### Phase 7 — GPU and universal fallback
 
@@ -195,8 +195,10 @@ Current compatibility milestone: ordinary non-DRM `SoftwareFallback` now execute
 own enhanced session through the bundled FFmpeg software decoder, PCM path and hardware-Canvas
 Surface presenter. HDR10/HDR10+/HLG software fallback is explicitly tone-mapped to SDR. Dolby
 Vision compatible-base/FEL cases and `GpuEnhanced` still use the pinned libmpv/libplacebo bridge
-until the native AHardwareBuffer/Vulkan compositor can prove equivalent output; the route never
-mislabels that bridge as native Vulkan.
+until the native AHardwareBuffer/Vulkan compositor can prove equivalent output. The first native
+GPU increment now probes the Vulkan loader/device, swapchain and sampler-YCbCr requirements and
+performs a real Vulkan import of a GPU AHardwareBuffer. Import capability alone is warm-up evidence:
+the route remains disabled until a decoded frame reaches a swapchain and measured output passes.
 
 ### Phase 8 — Device intelligence and retirement of Legacy
 
@@ -257,9 +259,9 @@ Backend-specific quality/transcode/output tuning, secondary subtitles, and disc 
 isolated behind `PlayerBackendExtensions`; unsupported Core2 operations continue to return an
 explicit unsupported result and preserve the existing rebuild/fallback policy. This completes the
 Phase 0 product-control migration without claiming those optional capabilities in the stable
-`YPlayer` API. Disc navigation is now part of the stable API and the direct-disc route is executable
-through the verified libmpv/libbluray compatibility layer; this is not a claim that native Core2 disc
-graph nodes or physical-disc release validation are complete. Ordinary `SoftwareFallback` is
+`YPlayer` API. Disc navigation is now part of the stable API and the direct-disc route prefers the
+owned libbluray/FFmpeg/YCore graph, retaining compatibility fallback only when its source cannot be
+created; this is not a claim that BD-J or physical-disc release validation is complete. Ordinary `SoftwareFallback` is
 executed by YCore's FFmpeg decoder/PCM/Surface graph; `GpuEnhanced` and Dolby-specialized fallback
 remain on the verified libmpv compatibility executor until native Vulkan evidence exists. Network,
 authorization and DRM failures never enter an insecure software retry. The native routes render embedded text,
@@ -270,8 +272,9 @@ while enhanced FFmpeg input applies bounded reconnects and exposes authorization
 failures without persisting URLs or headers. Encoded audio rejection and non-1.0x speed hand over at
 the current position to MediaCodec PCM, then to YCore's FFmpeg audio decoder when required.
 Deterministic local failures are stored as device-local capability facts and skip only the exact
-route after three observations within the seven-day window. Native Vulkan/AHardwareBuffer remains
-Phase 7 replacement work, rather than being misrepresented as already implemented.
+route after three observations within the seven-day window. Native Vulkan/AHardwareBuffer now has
+an executable device/import probe, but presentation, decoded-frame and measured-output gates remain
+Phase 7 replacement work rather than being misrepresented as already implemented.
 Physical-device startup, seek, surface recreation, HDR, audio-route, and background/foreground
 regression gates must pass before any eligible cohort can default to Core2.
 

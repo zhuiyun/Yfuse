@@ -72,6 +72,11 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$(manifest_value ycore-libbluray)" == "1.4.1" ]] || fail "unexpected libbluray revision"
 [[ "$(manifest_value ycore-disc-uri-source)" == "scripts/native/ycore_disc_uri.h" ]] ||
   fail "YCore disc URI boundary provenance is missing"
+[[ "$(manifest_value ycore-gpu-api)" == "1" ]] || fail "YCore GPU API v1 is missing"
+[[ "$(manifest_value ycore-gpu-source)" == "scripts/native/ycore_vulkan_jni.cpp" ]] ||
+  fail "YCore Vulkan source provenance is missing"
+[[ "$(manifest_value ycore-gpu-capability-source)" == "scripts/native/ycore_gpu_capability.h" ]] ||
+  fail "YCore GPU truth-gate provenance is missing"
 [[ "$(manifest_value ycore-native-aar)" == "true" ]] || fail "standalone YCore AAR marker is missing"
 [[ "$(manifest_value ycore-native-entry)" == "libycore_demux.so" ]] ||
   fail "unexpected standalone YCore entry library"
@@ -119,6 +124,10 @@ for bridge in "${bridges[@]}"; do
     grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
       fail "$abi bridge is not dynamically linked to $dependency"
   done
+  for dependency in libandroid.so libvulkan.so; do
+    grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
+      fail "$abi bridge is not dynamically linked to $dependency"
+  done
   for symbol in avcodec_send_packet avcodec_receive_frame; do
     grep -F "$symbol" "$symbols" >/dev/null ||
       fail "$abi bridge is missing software-decode symbol $symbol"
@@ -130,6 +139,8 @@ for bridge in "${bridges[@]}"; do
     fail "$abi bridge is not linked to libbluray navigation"
   grep -F 'ycorebd://' "$bridge_strings" >/dev/null ||
     fail "$abi bridge is missing the opaque Blu-ray URI boundary"
+  grep -F 'nativeProbeGpuFeatures' "$symbols" >/dev/null ||
+    fail "$abi bridge is missing the Vulkan/AHardwareBuffer probe"
 done
 
 mapfile -t native_libraries < <(find "$stage/aar/jni" -mindepth 2 -maxdepth 2 -type f -name '*.so' -print | sort)
@@ -149,5 +160,6 @@ done
 printf 'verified standalone YCore runtime: %s\n' "$AAR"
 printf 'FFmpeg: %s; demux + software decode + HDR tone map\n' "$FFMPEG_REVISION"
 printf 'Blu-ray: libbluray 1.4.1 through opaque YCore block I/O\n'
+printf 'GPU: Vulkan device probe + real AHardwareBuffer import, presentation still gated\n'
 printf 'purity: no mpv, player, MDK, or Java engine classes\n'
 printf 'page alignment: all packaged native libraries PT_LOAD >= 16 KiB\n'

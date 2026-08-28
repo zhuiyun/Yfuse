@@ -7,7 +7,9 @@ ARTIFACTS="$WORKSPACE/artifacts"
 AAR="$ARTIFACTS/libmpv-yfuse-bluray.aar"
 PURE_AAR="$ARTIFACTS/ycore-native.aar"
 SOURCES_MANIFEST="$ARTIFACTS/NATIVE-SOURCES.txt"
-SOURCE="$ROOT/scripts/native/ycore_demux_jni.cpp"
+DEMUX_SOURCE="$ROOT/scripts/native/ycore_demux_jni.cpp"
+VULKAN_SOURCE="$ROOT/scripts/native/ycore_vulkan_jni.cpp"
+GPU_CAPABILITY_HEADER="$ROOT/scripts/native/ycore_gpu_capability.h"
 PACKAGER="$ROOT/scripts/package-ycore-native-aar.py"
 NDK_VERSION="29.0.14206865"
 ANDROID_API="26"
@@ -40,7 +42,9 @@ fi
 
 [[ -f "$AAR" ]] || fail "missing native AAR: $AAR"
 [[ -f "$SOURCES_MANIFEST" ]] || fail "missing native provenance: $SOURCES_MANIFEST"
-[[ -f "$SOURCE" ]] || fail "missing JNI source: $SOURCE"
+[[ -f "$DEMUX_SOURCE" ]] || fail "missing JNI source: $DEMUX_SOURCE"
+[[ -f "$VULKAN_SOURCE" ]] || fail "missing Vulkan JNI source: $VULKAN_SOURCE"
+[[ -f "$GPU_CAPABILITY_HEADER" ]] || fail "missing GPU capability contract: $GPU_CAPABILITY_HEADER"
 [[ -f "$PACKAGER" ]] || fail "missing standalone AAR packager: $PACKAGER"
 [[ -d "$UPSTREAM/buildscripts/prefix" ]] || fail "missing upstream FFmpeg prefix tree: $UPSTREAM/buildscripts/prefix"
 FFMPEG_REVISION="$(manifest_value ffmpeg)"
@@ -96,7 +100,8 @@ for ABI in "${ABIS[@]}"; do
     -std=c++17 \
     -fvisibility=hidden \
     -I"$PREFIX/include" \
-    "$SOURCE" \
+    "$DEMUX_SOURCE" \
+    "$VULKAN_SOURCE" \
     -L"$PREFIX/lib" \
     -Wl,--no-undefined \
     -Wl,-z,max-page-size="$MAX_PAGE_SIZE" \
@@ -107,6 +112,8 @@ for ABI in "${ABIS[@]}"; do
     -lswresample \
     -lavutil \
     -lbluray \
+    -landroid \
+    -lvulkan \
     -o "$OUT"
 
   "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT"
@@ -155,6 +162,9 @@ awk -F= '
   $1 != "ycore-tone-map-source" &&
   $1 != "ycore-software-decoder-api" &&
   $1 != "ycore-disc-api" &&
+  $1 != "ycore-gpu-api" &&
+  $1 != "ycore-gpu-source" &&
+  $1 != "ycore-gpu-capability-source" &&
   $1 != "ycore-libbluray" &&
   $1 != "ycore-disc-uri-source" &&
   $1 != "ycore-demux-abis" &&
@@ -169,6 +179,9 @@ awk -F= '
   echo "ycore-tone-map-source=scripts/native/ycore_tone_map.h"
   echo "ycore-software-decoder-api=2"
   echo "ycore-disc-api=1"
+  echo "ycore-gpu-api=1"
+  echo "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp"
+  echo "ycore-gpu-capability-source=scripts/native/ycore_gpu_capability.h"
   echo "ycore-libbluray=1.4.1"
   echo "ycore-disc-uri-source=scripts/native/ycore_disc_uri.h"
   echo "ycore-demux-abis=$(IFS=,; echo "${ABIS[*]}")"

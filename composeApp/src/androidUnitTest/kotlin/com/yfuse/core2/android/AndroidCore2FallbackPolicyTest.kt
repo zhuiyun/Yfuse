@@ -3,6 +3,9 @@ package com.yfuse.core2.android
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.render.NATIVE_GPU_API_VERSION
+import com.yfuse.core2.render.YNativeGpuFeature
+import com.yfuse.core2.render.YNativeGpuRuntimeProbe
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
@@ -52,5 +55,29 @@ class AndroidCore2FallbackPolicyTest {
         assertTrue(fallback.nativeAudio)
         assertTrue(fallback.softwareVideoToneMap)
         assertEquals("decoder failed", fallback.reason)
+    }
+
+    @Test
+    fun gpu_fallback_reports_the_first_unproven_native_boundary() {
+        val plan =
+            YPlaybackPlan(
+                route = YPlaybackRoute.GpuEnhanced,
+                demuxPath = YDemuxPath.Enhanced,
+                decodePath = YDecodePath.Hardware,
+                renderPath = YRenderPath.Gpu,
+                outputHdrType = YHdrType.Sdr,
+                reason = "tone map through GPU",
+            )
+        val probe =
+            YNativeGpuRuntimeProbe(
+                platformApiLevel = 35,
+                nativeApiVersion = NATIVE_GPU_API_VERSION,
+                featureMask = YNativeGpuFeature.VulkanLoader.mask,
+            )
+
+        val annotated = plan.withNativeGpuFallbackTruth(probe)
+
+        assertTrue(annotated.reason.contains("VulkanInstance"))
+        assertEquals(YPlaybackRoute.GpuEnhanced, annotated.route)
     }
 }

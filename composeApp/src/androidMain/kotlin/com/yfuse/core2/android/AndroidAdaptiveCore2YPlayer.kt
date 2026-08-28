@@ -34,6 +34,7 @@ import com.yfuse.core2.recovery.YPlaybackRecoveryAction
 import com.yfuse.core2.recovery.YPlaybackRecoveryContext
 import com.yfuse.core2.recovery.YPlaybackRecoveryPolicy
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.render.YNativeGpuRuntimeProbe
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
@@ -110,6 +111,7 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val powerManager = context.applicationContext.getSystemService(PowerManager::class.java)
     private val audioCallbackHandler = Handler(Looper.getMainLooper())
     private val audioRouteChangeQueued = AtomicBoolean(false)
+    private val nativeGpuRuntimeProbe by lazy(AndroidYCoreGpuRuntime::probe)
     private val audioDeviceCallback =
         object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = queueAudioRouteChange()
@@ -398,8 +400,14 @@ internal class AndroidAdaptiveCore2YPlayer(
                         frameRateSwitchMode = frameRateSwitchMode,
                         forcedPlan = plan,
                     )
-                plan.route == YPlaybackRoute.GpuEnhanced ||
-                    plan.route == YPlaybackRoute.SoftwareFallback ->
+                plan.route == YPlaybackRoute.GpuEnhanced ->
+                    fallbackRouteFactory?.create(
+                        item,
+                        singleRequest,
+                        plan.withNativeGpuFallbackTruth(nativeGpuRuntimeProbe),
+                        speed,
+                    )
+                plan.route == YPlaybackRoute.SoftwareFallback ->
                     fallbackRouteFactory?.create(item, singleRequest, plan, speed)
                 else -> null
             }
@@ -800,11 +808,18 @@ internal class AndroidCore2PlayerFactory(
 ) : YPlayerFactory {
     override fun create(request: YPlayerOpenRequest): YPlayer {
         val compatibilityFactory = AndroidMpvCore2FallbackFactory(context)
+        val discFactory =
+            AndroidYCoreDiscRouteFactory(
+                context = context,
+                allowAudioPassthrough = true,
+                frameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+                fallback = compatibilityFactory,
+            )
         return AndroidAdaptiveCore2YPlayer(
             context = context,
             request = request,
             fallbackRouteFactory = compatibilityFactory,
-            discRouteFactory = compatibilityFactory,
+            discRouteFactory = discFactory,
         )
     }
 }
@@ -857,4 +872,13 @@ private fun yCoreSoftwarePlanExecutable(plan: YPlaybackPlan): Boolean {
             demuxer.available && demuxer.softwareDecodeAvailable
         }
     }.getOrDefault(false)
+}
+
+internal fun YPlaybackPlan.withNativeGpuFallbackTruth(probe: YNativeGpuRuntimeProbe): YPlaybackPlan {
+    if (route != YPlaybackRoute.GpuEnhanced) return this
+    val reason =
+        probe.firstMissingRequirement()?.let { requirement ->
+            "$reason; native Vulkan blocked at $requirement"
+        } ?: "$reason; native Vulkan presentation executor is not installed"
+    return copy(reason = reason)
 }
