@@ -22,6 +22,7 @@ import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.demux.YAudioTrackFormat
+import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.videoFrameRateHint
@@ -59,6 +60,7 @@ internal class AndroidNativeDirectYPlayer(
     private val runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null,
     private val plannedAudioOutputPath: YAudioOutputPath? = null,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+    private val plannedDolbyVisionConfig: YDolbyVisionConfig? = null,
 ) : YPlayer {
     private val appContext = context.applicationContext
     private val mutableState =
@@ -426,7 +428,14 @@ internal class AndroidNativeDirectYPlayer(
             videoTrackIndex = demux.findFirstTrack(VIDEO_MIME_PREFIX)
             checkNotNull(videoTrackIndex) { "NativeDirect requires a video track" }
             audioTrackIndex = demux.findFirstTrack(AUDIO_MIME_PREFIX)
-            videoFormat = demux.trackFormat(requireNotNull(videoTrackIndex))
+            videoFormat =
+                demux
+                    .trackFormat(requireNotNull(videoTrackIndex))
+                    .also { format ->
+                        plannedDolbyVisionConfig?.let { config ->
+                            format.applyDolbyVisionConfiguration(config)
+                        }
+                    }
             audioInputFormat = audioTrackIndex?.let(demux::trackFormat)
             item.drmConfiguration?.let { configuration ->
                 val initializationData =

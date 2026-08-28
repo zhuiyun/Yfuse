@@ -165,6 +165,36 @@ class AndroidCore2TrialTest {
     }
 
     @Test
+    fun core2_queue_mapping_preserves_remote_matroska_dolby_probe_hints() {
+        val version =
+            PlayerMediaVersion(
+                id = "remote-dv",
+                label = "Dolby Vision",
+                detail = "4K Dolby Vision · MKV",
+                url = "https://media.example.test/direct-stream/opaque-id",
+                transcodeUrl = "",
+                fallbackTranscodeUrl = "",
+                container = "MKV",
+                sourceVideoCodec = "hevc",
+                sourceDynamicRange = "Dolby Vision",
+                dolbyVision = true,
+                dolbyProfile = null,
+            )
+        val item =
+            mediaItem(version.url).copy(
+                versions = listOf(version),
+                versionId = version.id,
+            )
+
+        val mapped = listOf(item).toCore2MediaItems("").single()
+
+        assertEquals("video/x-matroska", mapped.mimeType)
+        assertTrue(mapped.sourceHints?.dolbyVision == true)
+        assertEquals(null, mapped.sourceHints?.dolbyVisionProfile)
+        assertEquals("hevc", mapped.sourceHints?.videoCodec)
+    }
+
+    @Test
     fun core2_queue_mapping_uses_the_active_server_transcode_url() {
         val item =
             mediaItem("https://media.example.test/original.mkv").copy(

@@ -55,6 +55,33 @@ class PlaybackHandoverTest {
     }
 
     @Test
+    fun handover_position_validation_is_one_shot_and_item_scoped() {
+        val snapshot = PlaybackHandoverSnapshot(2, 20_000L, true, 1f)
+
+        assertTrue(
+            shouldValidatePlaybackHandoverPosition(
+                snapshot = snapshot,
+                currentItemIndex = 2,
+                alreadyValidated = false,
+            ),
+        )
+        assertFalse(
+            shouldValidatePlaybackHandoverPosition(
+                snapshot = snapshot,
+                currentItemIndex = 3,
+                alreadyValidated = false,
+            ),
+        )
+        assertFalse(
+            shouldValidatePlaybackHandoverPosition(
+                snapshot = snapshot,
+                currentItemIndex = 2,
+                alreadyValidated = true,
+            ),
+        )
+    }
+
+    @Test
     fun captures_tracks_delays_and_disc_location() {
         val audio = EngineTrack("a1", "TrueHD", "eng", selected = true, codec = "truehd")
         val subtitle = EngineTrack("s1", "简体", "zho", selected = true, codec = "ass")

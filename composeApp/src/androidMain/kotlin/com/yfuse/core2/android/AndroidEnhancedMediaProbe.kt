@@ -116,3 +116,7 @@ internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
         audioCodec = request.audio?.codec,
     )
 }
+
+internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(item: YMediaItem): Boolean =
+    (item.sourceHints?.dolbyVision == true && dolbyVisionConfig == null) ||
+        requiresEnhancedTruthProbe()

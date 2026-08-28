@@ -384,6 +384,8 @@ internal fun PlayerRoot(
         }
     val player = remember(engine) { engine.asYPlayer() }
     val engineCreatedAtElapsedMs = remember(engine) { SystemClock.elapsedRealtime() }
+    val engineHandoverSnapshot = remember(engine) { resume }
+    var handoverPositionValidated by remember(engine) { mutableStateOf(false) }
     val backendExtensions = remember(engine) { PlayerBackendExtensions(engine) }
     val presentationState = remember(player) { player.asPlaybackStateFlow() }
     val latestQueueAppender =
@@ -1829,19 +1831,44 @@ internal fun PlayerRoot(
 
     // Validate one replacement clock sample. A correction is issued only outside the allowed
     // 250 ms window, so this cannot become a recurring seek loop on imprecise TS keyframes.
-    LaunchedEffect(engine, state.diagnostics.effectiveVideoReadiness) {
+    LaunchedEffect(engine, state.diagnostics.effectiveVideoReadiness, state.currentIndex) {
         if (state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering) {
             return@LaunchedEffect
         }
+        if (
+            !shouldValidatePlaybackHandoverPosition(
+                snapshot = engineHandoverSnapshot,
+                currentItemIndex = state.currentIndex,
+                alreadyValidated = handoverPositionValidated,
+            )
+        ) {
+            if (!handoverPositionValidated) {
+                handoverPositionValidated = true
+                AppLog.info(
+                    category = "player.handover",
+                    event = "position_validation_skipped",
+                    message = "Playback moved to another queue item before handover validation",
+                    attributes =
+                        mapOf(
+                            "snapshotItemIndex" to engineHandoverSnapshot.itemIndex.toString(),
+                            "currentItemIndex" to state.currentIndex.toString(),
+                        ),
+                )
+            }
+            return@LaunchedEffect
+        }
+        // Mark first so a renderer readiness bounce cannot schedule the same correction again.
+        handoverPositionValidated = true
         val elapsed = SystemClock.elapsedRealtime() - engineCreatedAtElapsedMs
         val actual = player.currentPositionMs().coerceAtLeast(0L)
-        val error = handoverPositionErrorMs(actual, resume, elapsed)
+        val error = handoverPositionErrorMs(actual, engineHandoverSnapshot, elapsed)
         if (error > 0L) {
             val correction =
-                if (resume.playbackRequested) {
-                    resume.positionMs + (elapsed.coerceAtLeast(0L) * resume.speed).toLong()
+                if (engineHandoverSnapshot.playbackRequested) {
+                    engineHandoverSnapshot.positionMs +
+                        (elapsed.coerceAtLeast(0L) * engineHandoverSnapshot.speed).toLong()
                 } else {
-                    resume.positionMs
+                    engineHandoverSnapshot.positionMs
                 }
             player.seekTo(correction.coerceAtLeast(0L))
         }
@@ -1852,7 +1879,7 @@ internal fun PlayerRoot(
             attributes =
                 mapOf(
                     "engine" to kind.name,
-                    "targetMs" to resume.positionMs.toString(),
+                    "targetMs" to engineHandoverSnapshot.positionMs.toString(),
                     "actualMs" to actual.toString(),
                     "errorMs" to error.toString(),
                     "toleranceMs" to PLAYBACK_HANDOVER_POSITION_TOLERANCE_MS.toString(),

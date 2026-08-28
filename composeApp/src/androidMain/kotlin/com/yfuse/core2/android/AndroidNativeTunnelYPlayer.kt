@@ -250,6 +250,7 @@ internal class AndroidNativeTunnelYPlayer(
                 startPositionUs = positionUs.coerceAtLeast(0L),
                 decoderName = decision.plan.decoderName,
                 runtimeCapabilityKey = decision.runtimeCapabilityKey(),
+                dolbyVisionConfig = decision.probe.dolbyVisionConfig,
             )
             prepared = true
             val snapshot = session.snapshot()

@@ -1,5 +1,7 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
@@ -65,6 +67,56 @@ class AndroidCore2DolbyTrialGuardTest {
             )
 
         assertTrue(platform.requiresEnhancedTruthProbe())
+    }
+
+    @Test
+    fun server_dolby_hint_prevents_generic_hevc_platform_routing() {
+        val genericPlatform =
+            YCore2ProbeResult.Success(
+                playbackRequest =
+                    YPlaybackRequest(
+                        container = YContainer.Matroska,
+                        video =
+                            YVideoRequirement(
+                                codec = YVideoCodec.H265,
+                                width = 3840,
+                                height = 2160,
+                                frameRate = 24f,
+                                bitDepth = 10,
+                                hdrType = YHdrType.Sdr,
+                            ),
+                        platformDemuxSupported = true,
+                        enhancedDemuxSupported = true,
+                    ),
+                videoMime = "video/hevc",
+                audioMime = null,
+                durationMs = 60_000L,
+            )
+        val item =
+            YMediaItem(
+                id = "remote-dv",
+                uri = "https://media.example.test/direct-stream/opaque-id",
+                sourceHints = YMediaSourceHints(dolbyVision = true),
+            )
+
+        assertTrue(genericPlatform.requiresEnhancedTruthProbe(item))
+
+        val confirmedProfile5 =
+            genericPlatform.withConfirmedDolbyVisionSourceHint(
+                item.copy(
+                    sourceHints =
+                        YMediaSourceHints(
+                            videoCodec = "hevc",
+                            dolbyVision = true,
+                            dolbyVisionProfile = 5,
+                        ),
+                ),
+            )
+
+        assertTrue(confirmedProfile5.playbackRequest.video.hdrType == YHdrType.DolbyVision)
+        assertTrue(confirmedProfile5.playbackRequest.video.dolbyVisionProfile == 5)
+        assertTrue(confirmedProfile5.videoMime == "video/dolby-vision")
+        assertTrue(confirmedProfile5.dolbyVisionConfig?.profile == 5)
     }
 
     @Test

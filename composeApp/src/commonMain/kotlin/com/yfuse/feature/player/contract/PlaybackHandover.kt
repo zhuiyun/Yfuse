@@ -49,6 +49,13 @@ internal fun playbackHandoverSnapshot(
 
 internal const val PLAYBACK_HANDOVER_POSITION_TOLERANCE_MS = 250L
 
+/** A replacement snapshot belongs to exactly one engine item and is validated at most once. */
+internal fun shouldValidatePlaybackHandoverPosition(
+    snapshot: PlaybackHandoverSnapshot,
+    currentItemIndex: Int,
+    alreadyValidated: Boolean,
+): Boolean = !alreadyValidated && currentItemIndex == snapshot.itemIndex
+
 /**
  * The replacement may legitimately advance while it starts playing. Its first position must stay
  * between the captured point and wall-clock advancement, with 250 ms allowed on either edge.
