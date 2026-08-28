@@ -18,6 +18,11 @@ enum class YTransportFeature {
     RandomAccess,
 }
 
+enum class YTransportMethod {
+    Get,
+    Post,
+}
+
 data class YByteRange(
     val startInclusive: Long,
     val endInclusive: Long? = null,
@@ -34,9 +39,14 @@ data class YMediaTransportRequest(
     val range: YByteRange? = null,
     val headers: Map<String, String> = emptyMap(),
     val credentials: YTransportCredentials? = null,
+    val method: YTransportMethod = YTransportMethod.Get,
+    /** Request payload is kept in memory only and is always omitted from diagnostics. */
+    val body: ByteArray? = null,
 ) {
     init {
         require(uri.isNotBlank())
+        require(method == YTransportMethod.Post || body == null) { "Only POST transport requests carry a body" }
+        require(method == YTransportMethod.Get || range == null) { "POST transport requests cannot carry a byte range" }
     }
 
     /** Safe for diagnostics: URI query and all authorization headers are intentionally omitted. */
@@ -45,6 +55,10 @@ data class YMediaTransportRequest(
             append(protocol)
             append(' ')
             append(uri.redactedTransportUri())
+            if (method != YTransportMethod.Get) {
+                append(' ')
+                append(method)
+            }
             range?.let {
                 append(" bytes=")
                 append(it.startInclusive)

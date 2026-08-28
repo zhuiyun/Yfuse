@@ -2,6 +2,8 @@ package com.yfuse.core2.api
 
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
+import com.yfuse.core.playback.PlaybackDrmConfiguration
+import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +45,8 @@ interface YPlayer {
     fun selectDiscTitle(index: Int): Boolean = false
 
     fun selectDiscChapter(index: Int): Boolean = false
+
+    fun selectDiscAngle(index: Int): Boolean = false
 
     fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
@@ -95,7 +99,17 @@ data class YMediaItem(
     val disc: YDiscMedia? = null,
     /** Optional sidecar subtitle rendered independently above the direct video Surface. */
     val externalSubtitle: YExternalSubtitleSource? = null,
-)
+    /** Credential-free identity for YCore-owned persistent media blocks. */
+    val cacheIdentity: YCacheIdentity? = null,
+    /** Per-item cache budget inherited from the user's playback setting. */
+    val cacheMaximumBytes: Long = 0L,
+    /** Credential-bearing DRM configuration; its own toString is redacted. */
+    val drmConfiguration: PlaybackDrmConfiguration? = null,
+) {
+    init {
+        require(cacheMaximumBytes >= 0L)
+    }
+}
 
 data class YExternalSubtitleSource(
     val uri: String,

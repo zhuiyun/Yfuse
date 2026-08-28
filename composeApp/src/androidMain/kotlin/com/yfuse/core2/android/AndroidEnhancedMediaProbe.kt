@@ -9,6 +9,7 @@ import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
 import com.yfuse.core2.strategy.YPlaybackRequest
+import com.yfuse.core2.strategy.shouldRequestEnhancedProbe
 
 /**
  * Deep metadata probe over the demux-only FFmpeg bridge.
@@ -28,6 +29,8 @@ internal class AndroidEnhancedMediaProbe(
                     YDemuxSource(
                         uri = item.uri,
                         headers = item.headers,
+                        cacheIdentity = item.cacheIdentity,
+                        cacheMaximumBytes = item.cacheMaximumBytes,
                     ),
                 )
             val videoTrack =
@@ -101,19 +104,10 @@ internal class AndroidEnhancedMediaProbe(
 private const val DOLBY_PROBE_SAMPLE_LIMIT = 24
 
 internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
-    val video = playbackRequest.video
-    return playbackRequest.container.requiresEnhancedTruthProbe() &&
-        video.codec in
-        setOf(
-            com.yfuse.core2.capability.YVideoCodec.H265,
-            com.yfuse.core2.capability.YVideoCodec.Av1,
-        )
+    val request = playbackRequest
+    return shouldRequestEnhancedProbe(
+        container = request.container,
+        videoCodec = request.video.codec,
+        audioCodec = request.audio?.codec,
+    )
 }
-
-private fun com.yfuse.core2.capability.YContainer.requiresEnhancedTruthProbe(): Boolean =
-    this in
-        setOf(
-            com.yfuse.core2.capability.YContainer.Matroska,
-            com.yfuse.core2.capability.YContainer.MpegTs,
-            com.yfuse.core2.capability.YContainer.M2ts,
-        )

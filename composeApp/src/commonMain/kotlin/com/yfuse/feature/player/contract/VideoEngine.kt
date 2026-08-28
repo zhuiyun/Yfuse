@@ -128,8 +128,7 @@ data class PlaybackOutputEvidence(
     val rendererDetail: String = "",
 )
 
-internal fun PlaybackOutputEvidence.nextSession(): PlaybackOutputEvidence =
-    PlaybackOutputEvidence(sessionRevision = sessionRevision + 1L)
+internal fun PlaybackOutputEvidence.nextSession(): PlaybackOutputEvidence = PlaybackOutputEvidence(sessionRevision = sessionRevision + 1L)
 
 data class PlaybackDiagnostics(
     val engine: String = "",
@@ -332,6 +331,9 @@ interface VideoEngine {
     /** Selects a chapter inside the active title. */
     fun selectDiscChapter(index: Int): Boolean = false
 
+    /** Selects an authored seamless Blu-ray camera angle. */
+    fun selectDiscAngle(index: Int): Boolean = false
+
     /** Sends a DVD/Blu-ray menu command to the native navigation backend. */
     fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
@@ -395,8 +397,7 @@ interface VideoEngine {
     fun release()
 }
 
-internal fun subtitleBrightnessByte(brightness: Float): Int =
-    (brightness.coerceIn(MIN_SUBTITLE_BRIGHTNESS, 1f) * 255f).roundToInt()
+internal fun subtitleBrightnessByte(brightness: Float): Int = (brightness.coerceIn(MIN_SUBTITLE_BRIGHTNESS, 1f) * 255f).roundToInt()
 
 internal fun subtitleBrightnessRgba(brightness: Float): String {
     val channel = subtitleBrightnessByte(brightness).toString(16).padStart(2, '0')

@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import android.content.Context
+import android.os.PowerManager
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
@@ -8,51 +9,62 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
+import com.yfuse.core.data.PlaybackNetworkClass
 import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.logging.AppLog
-import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core.network.currentPlaybackNetworkClass
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Warms the beginning of a direct-play file into the same SimpleCache ExoPlayer uses.
+ * Warms the beginning of a direct-play file into the SimpleCache shared by every engine.
  *
  * Only the direct URL is touched. Starting an HLS/progressive transcode speculatively would wake
  * server-side ffmpeg for something the user may never play and can leave unnecessary encodes
- * running. 16 MiB is enough to cover ExoPlayer's initial time buffer for ordinary sources while
- * remaining bounded for a detail page the user only browses.
+ * running. The bounded prefix follows source bitrate, and warmup is skipped on metered networks or
+ * while battery saver is active.
  */
 @OptIn(UnstableApi::class)
 internal class AndroidPlaybackSourcePreloader(
     context: Context,
     private val playbackPreferences: PlaybackPreferences,
     private val userAgentPreferences: UserAgentPreferences,
-    private val themePreferences: ThemePreferences,
 ) : PlaybackSourcePreloader {
     private val applicationContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
 
-    override fun preload(url: String) {
-        val source = url.trim()
-        if (source.isEmpty()) return
-        // Only ExoPlayer consumes VideoCachePool. Warming 16 MiB for MPV/MDK performs the
-        // network work twice and cannot make their native demuxers start any faster.
-        if (themePreferences.engine.value != PlayerEngine.Exo) return
-        // Cache-off is an explicit user choice. Avoid even opening the stream, and also avoid
-        // retaining one completed bookkeeping Job per browsed detail page.
-        if (playbackPreferences.videoCacheSize.value.bytes <= 0L) return
-        if (jobs[source]?.isActive == true) return
+    override fun preload(item: PlayerMediaItem): PlaybackSourcePreload {
+        val source = item.persistentPlaybackCacheUrl() ?: return noOpPlaybackSourcePreload()
+        if (playbackPreferences.videoCacheSize.value.bytes <= 0L) {
+            return noOpPlaybackSourcePreload()
+        }
+        val networkClass = currentPlaybackNetworkClass()
+        val powerSaveMode =
+            (
+                applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            )?.isPowerSaveMode == true
+        if (!shouldWarmPlaybackCache(networkClass, powerSaveMode)) {
+            return noOpPlaybackSourcePreload()
+        }
 
-        val job =
-            scope.launch {
+        val cacheKey = secureMediaCacheKeyForUrl(source)
+        if (jobs[cacheKey]?.isActive == true) return noOpPlaybackSourcePreload()
+        val preloadBytes = playbackPreloadBytes(item.activeVersion?.sourceBitrateBps)
+        val cancelled = AtomicBoolean(false)
+        val writerRef = AtomicReference<CacheWriter?>()
+        lateinit var job: Job
+        job =
+            scope.launch(start = CoroutineStart.LAZY) {
                 val cacheBytes = playbackPreferences.videoCacheSize.value.bytes
                 val handle = VideoCachePool.acquire(applicationContext, cacheBytes) ?: return@launch
                 try {
@@ -84,21 +96,30 @@ internal class AndroidPlaybackSourcePreloader(
                             .Builder()
                             .setUri(source)
                             .setPosition(0L)
-                            .setLength(PRELOAD_BYTES)
+                            .setLength(preloadBytes)
                             .build()
 
-                    CacheWriter(dataSource, dataSpec, null, null).cache()
+                    val writer = CacheWriter(dataSource, dataSpec, null, null)
+                    writerRef.set(writer)
+                    try {
+                        writer.cache()
+                    } finally {
+                        writerRef.compareAndSet(writer, null)
+                    }
+                    if (cancelled.get()) return@launch
                     AppLog.info(
                         category = "feature.player",
                         event = "source_preloaded",
                         message = "Playback source prefix warmed into Media3 cache",
-                        attributes = mapOf("bytes" to PRELOAD_BYTES.toString()),
+                        attributes =
+                            mapOf(
+                                "bytes" to preloadBytes.toString(),
+                                "network" to networkClass.name,
+                            ),
                     )
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (throwable: Throwable) {
-                    // Preload is opportunistic. The normal player path remains authoritative and
-                    // will surface a useful playback/network error if the source is actually bad.
                     AppLog.warning(
                         category = "feature.player",
                         event = "source_preload_failed",
@@ -107,13 +128,40 @@ internal class AndroidPlaybackSourcePreloader(
                     )
                 } finally {
                     handle.close()
-                    jobs.remove(source)
                 }
             }
-        jobs[source] = job
-    }
-
-    private companion object {
-        const val PRELOAD_BYTES = 16L * 1024L * 1024L
+        val existing = jobs.putIfAbsent(cacheKey, job)
+        if (existing != null) {
+            job.cancel()
+            return noOpPlaybackSourcePreload()
+        }
+        job.invokeOnCompletion { jobs.remove(cacheKey, job) }
+        job.start()
+        return PlaybackSourcePreload {
+            cancelled.set(true)
+            writerRef.getAndSet(null)?.cancel()
+            if (jobs.remove(cacheKey, job)) job.cancel()
+        }
     }
 }
+
+internal fun shouldWarmPlaybackCache(
+    networkClass: PlaybackNetworkClass,
+    powerSaveMode: Boolean,
+): Boolean = networkClass == PlaybackNetworkClass.Unmetered && !powerSaveMode
+
+internal fun playbackPreloadBytes(sourceBitrateBps: Int?): Long {
+    val bytesForStartup =
+        sourceBitrateBps
+            ?.takeIf { it > 0 }
+            ?.toLong()
+            ?.times(PRELOAD_TARGET_SECONDS)
+            ?.div(8L)
+            ?: DEFAULT_PRELOAD_BYTES
+    return bytesForStartup.coerceIn(MIN_PRELOAD_BYTES, MAX_PRELOAD_BYTES)
+}
+
+private const val PRELOAD_TARGET_SECONDS = 8L
+private const val MIN_PRELOAD_BYTES = 4L * 1024L * 1024L
+private const val DEFAULT_PRELOAD_BYTES = 8L * 1024L * 1024L
+private const val MAX_PRELOAD_BYTES = 16L * 1024L * 1024L

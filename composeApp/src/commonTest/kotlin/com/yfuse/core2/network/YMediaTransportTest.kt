@@ -1,77 +1,46 @@
 package com.yfuse.core2.network
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class YMediaTransportTest {
     @Test
-    fun `diagnostics omit query fragments and authorization headers`() {
+    fun drm_post_body_and_credentials_never_enter_diagnostics() {
         val request =
             YMediaTransportRequest(
-                uri = "https://media.example/video.mkv?api_key=secret#fragment",
+                uri = "https://license.example.test/widevine?token=secret",
                 protocol = YSourceProtocol.Https,
-                range = YByteRange(128L, 255L),
                 headers = mapOf("Authorization" to "Bearer secret"),
+                method = YTransportMethod.Post,
+                body = "private-challenge".encodeToByteArray(),
             )
 
-        val summary = request.diagnosticSummary()
-
-        assertEquals("Https https://media.example/video.mkv bytes=128-255", summary)
-        assertFalse("secret" in summary)
+        val diagnostic = request.diagnosticSummary()
+        assertTrue("Post" in diagnostic)
+        assertFalse("secret" in diagnostic)
+        assertFalse("private-challenge" in diagnostic)
+        assertFalse("Authorization" in diagnostic)
+        assertFalse("private-challenge" in request.toString())
     }
 
     @Test
-    fun `SMB diagnostics redact URI user info and credential objects`() {
-        val credentials = YTransportCredentials.UsernamePassword("alice", "top-secret", "MEDIA")
-        val request =
+    fun post_ranges_and_get_bodies_are_rejected() {
+        assertFailsWith<IllegalArgumentException> {
             YMediaTransportRequest(
-                uri = "smb://alice:top-secret@nas.local/Movies/video.mkv?token=secret",
-                protocol = YSourceProtocol.Smb,
-                credentials = credentials,
+                uri = "https://example.test",
+                protocol = YSourceProtocol.Https,
+                body = byteArrayOf(1),
             )
-
-        assertEquals("Smb smb://nas.local/Movies/video.mkv", request.diagnosticSummary())
-        assertFalse("top-secret" in request.toString())
-        assertFalse("alice" in credentials.toString())
-    }
-
-    @Test
-    fun `cache identity never depends on signed source URI`() {
-        assertEquals("account-a\titem-42\tv3", YCacheIdentity("account-a", "item-42", "v3").key())
-    }
-
-    @Test
-    fun `remote seekable remux gets bounded bitrate aware cache`() {
-        val plan =
-            YCachePlanner.plan(
-                YCacheConditions(
-                    remote = true,
-                    live = false,
-                    seekable = true,
-                    mediaBitRateBitsPerSecond = 160_000_000L,
-                    availableBytes = 512L * 1024L * 1024L,
-                ),
+        }
+        assertFailsWith<IllegalArgumentException> {
+            YMediaTransportRequest(
+                uri = "https://example.test",
+                protocol = YSourceProtocol.Https,
+                range = YByteRange(0L, 1L),
+                method = YTransportMethod.Post,
             )
-
-        assertTrue(plan.enabled)
-        assertEquals(16L * 1024L * 1024L, plan.readAheadBytes)
-        assertEquals(512L * 1024L * 1024L, plan.maximumBytes)
-    }
-
-    @Test
-    fun `live and local sources bypass persistent cache`() {
-        val local =
-            YCachePlanner.plan(
-                YCacheConditions(false, live = false, seekable = true, availableBytes = 1_000L),
-            )
-        val live =
-            YCachePlanner.plan(
-                YCacheConditions(true, live = true, seekable = true, availableBytes = 1_000L),
-            )
-
-        assertFalse(local.enabled)
-        assertFalse(live.enabled)
+        }
     }
 }

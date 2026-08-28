@@ -5,8 +5,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE="$ROOT/.native-build"
 ARTIFACTS="$WORKSPACE/artifacts"
 AAR="$ARTIFACTS/libmpv-yfuse-bluray.aar"
+PURE_AAR="$ARTIFACTS/ycore-native.aar"
 SOURCES_MANIFEST="$ARTIFACTS/NATIVE-SOURCES.txt"
-SOURCE="$ROOT/scripts/native/ycore_demux_jni.cpp"
+DEMUX_SOURCE="$ROOT/scripts/native/ycore_demux_jni.cpp"
+VULKAN_SOURCE="$ROOT/scripts/native/ycore_vulkan_jni.cpp"
+GPU_CAPABILITY_HEADER="$ROOT/scripts/native/ycore_gpu_capability.h"
+PACKAGER="$ROOT/scripts/package-ycore-native-aar.py"
 NDK_VERSION="29.0.14206865"
 ANDROID_API="26"
 MAX_PAGE_SIZE="16384"
@@ -38,7 +42,10 @@ fi
 
 [[ -f "$AAR" ]] || fail "missing native AAR: $AAR"
 [[ -f "$SOURCES_MANIFEST" ]] || fail "missing native provenance: $SOURCES_MANIFEST"
-[[ -f "$SOURCE" ]] || fail "missing JNI source: $SOURCE"
+[[ -f "$DEMUX_SOURCE" ]] || fail "missing JNI source: $DEMUX_SOURCE"
+[[ -f "$VULKAN_SOURCE" ]] || fail "missing Vulkan JNI source: $VULKAN_SOURCE"
+[[ -f "$GPU_CAPABILITY_HEADER" ]] || fail "missing GPU capability contract: $GPU_CAPABILITY_HEADER"
+[[ -f "$PACKAGER" ]] || fail "missing standalone AAR packager: $PACKAGER"
 [[ -d "$UPSTREAM/buildscripts/prefix" ]] || fail "missing upstream FFmpeg prefix tree: $UPSTREAM/buildscripts/prefix"
 FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$FFMPEG_REVISION" =~ ^[0-9a-f]{40}$ ]] || fail "native provenance has no pinned FFmpeg commit"
@@ -75,6 +82,10 @@ for ABI in "${ABIS[@]}"; do
   PREFIX="$UPSTREAM/buildscripts/prefix/$ABI"
   [[ -d "$PREFIX/include/libavformat" ]] || fail "missing FFmpeg headers for $ABI"
   [[ -f "$PREFIX/lib/libavformat.so" ]] || fail "missing FFmpeg shared library for $ABI"
+  [[ -f "$PREFIX/lib/libswscale.so" ]] || fail "missing FFmpeg libswscale for $ABI"
+  [[ -f "$PREFIX/lib/libswresample.so" ]] || fail "missing FFmpeg libswresample for $ABI"
+  [[ -f "$PREFIX/lib/libbluray.so" || -f "$PREFIX/lib/libbluray.a" ]] ||
+    fail "missing libbluray for $ABI"
   CXX="$TOOLCHAIN/bin/$(compiler_for_abi "$ABI")"
   [[ -x "$CXX" ]] || fail "missing compiler for $ABI: $CXX"
 
@@ -89,14 +100,20 @@ for ABI in "${ABIS[@]}"; do
     -std=c++17 \
     -fvisibility=hidden \
     -I"$PREFIX/include" \
-    "$SOURCE" \
+    "$DEMUX_SOURCE" \
+    "$VULKAN_SOURCE" \
     -L"$PREFIX/lib" \
     -Wl,--no-undefined \
     -Wl,-z,max-page-size="$MAX_PAGE_SIZE" \
     -Wl,-soname,libycore_demux.so \
     -lavformat \
     -lavcodec \
+    -lswscale \
+    -lswresample \
     -lavutil \
+    -lbluray \
+    -landroid \
+    -lvulkan \
     -o "$OUT"
 
   "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT"
@@ -136,12 +153,49 @@ finally:
     temp.unlink(missing_ok=True)
 PY
 
-sha256sum "$AAR" | awk '{print $1}' > "$AAR.sha256"
+sha256sum "$AAR" | awk -v name="$(basename "$AAR")" '{print $1 "  " name}' > "$AAR.sha256"
+PROVENANCE_TEMP="$(mktemp "$ARTIFACTS/.NATIVE-SOURCES.XXXXXX")"
+awk -F= '
+  $1 != "ycore-demux" &&
+  $1 != "ycore-demux-ffmpeg" &&
+  $1 != "ycore-demux-source" &&
+  $1 != "ycore-tone-map-source" &&
+  $1 != "ycore-software-decoder-api" &&
+  $1 != "ycore-disc-api" &&
+  $1 != "ycore-gpu-api" &&
+  $1 != "ycore-gpu-source" &&
+  $1 != "ycore-gpu-capability-source" &&
+  $1 != "ycore-libbluray" &&
+  $1 != "ycore-disc-uri-source" &&
+  $1 != "ycore-demux-abis" &&
+  $1 != "ycore-native-aar" &&
+  $1 != "ycore-native-entry" &&
+  $1 != "ycore-native-forbidden" { print }
+' "$SOURCES_MANIFEST" > "$PROVENANCE_TEMP"
 {
   echo "ycore-demux=true"
   echo "ycore-demux-ffmpeg=$FFMPEG_REVISION"
   echo "ycore-demux-source=scripts/native/ycore_demux_jni.cpp"
+  echo "ycore-tone-map-source=scripts/native/ycore_tone_map.h"
+  echo "ycore-software-decoder-api=2"
+  echo "ycore-disc-api=1"
+  echo "ycore-gpu-api=1"
+  echo "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp"
+  echo "ycore-gpu-capability-source=scripts/native/ycore_gpu_capability.h"
+  echo "ycore-libbluray=1.4.1"
+  echo "ycore-disc-uri-source=scripts/native/ycore_disc_uri.h"
   echo "ycore-demux-abis=$(IFS=,; echo "${ABIS[*]}")"
-} >> "$SOURCES_MANIFEST"
+  echo "ycore-native-aar=true"
+  echo "ycore-native-entry=libycore_demux.so"
+  echo "ycore-native-forbidden=libmpv.so,libplayer.so,libmdk.so"
+} >> "$PROVENANCE_TEMP"
+mv -f "$PROVENANCE_TEMP" "$SOURCES_MANIFEST"
+
+python3 "$PACKAGER" \
+  --readelf "$TOOLCHAIN/bin/llvm-readelf" \
+  "$AAR" \
+  "$PURE_AAR" \
+  "$SOURCES_MANIFEST"
 
 echo "[ycore-demux] injected libycore_demux.so into $AAR"
+echo "[ycore-demux] packaged standalone YCore runtime into $PURE_AAR"

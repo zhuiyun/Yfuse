@@ -17,14 +17,26 @@ plugins {
     alias(libs.plugins.serialization)
 }
 
-val includeMdk =
-    providers.gradleProperty("yfuseIncludeMdk").orNull?.let { raw ->
+val nativeOnlyRuntime =
+    providers.gradleProperty("yfuseNativeOnlyRuntime").orNull?.let { raw ->
         when (raw.trim().lowercase()) {
             "", "true" -> true
             "false" -> false
-            else -> error("yfuseIncludeMdk must be omitted, true, or false")
+            else -> error("yfuseNativeOnlyRuntime must be omitted, true, or false")
         }
-    } ?: true
+    } ?: false
+
+val includeMdk =
+    !nativeOnlyRuntime &&
+        (
+            providers.gradleProperty("yfuseIncludeMdk").orNull?.let { raw ->
+                when (raw.trim().lowercase()) {
+                    "", "true" -> true
+                    "false" -> false
+                    else -> error("yfuseIncludeMdk must be omitted, true, or false")
+                }
+            } ?: true
+        )
 
 /**
  * Keeps feature code on the semantic design-system surface. These are deliberately simple
@@ -189,6 +201,84 @@ val verifyCustomMpvArtifact by tasks.registering {
     }
 }
 
+val verifyStandaloneYCoreArtifact by tasks.registering {
+    group = "verification"
+    description = "Verifies the dependency-closed YCore AAR used by native-only packages."
+    val aar = layout.projectDirectory.file("libs/ycore-native.aar")
+    val checksum = layout.projectDirectory.file("libs/ycore-native.aar.sha256")
+    val sources = layout.projectDirectory.file("libs/ycore-native.sources.txt")
+    inputs.files(aar, checksum, sources)
+
+    doLast {
+        val aarFile = aar.asFile
+        val checksumFile = checksum.asFile
+        val sourcesFile = sources.asFile
+        require(aarFile.isFile && checksumFile.isFile && sourcesFile.isFile) {
+            "Missing standalone YCore artifact; build it and run scripts/install-ycore-native.sh"
+        }
+        val expected =
+            checksumFile
+                .readText()
+                .trim()
+                .substringBefore(' ')
+                .lowercase()
+        require(expected.matches(Regex("[0-9a-f]{64}"))) { "Invalid YCore SHA-256 sidecar" }
+        val digest = MessageDigest.getInstance("SHA-256")
+        aarFile.inputStream().use { input ->
+            val buffer = ByteArray(128 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        require(actual == expected) { "Standalone YCore AAR SHA-256 mismatch" }
+
+        val provenance = sourcesFile.readText()
+        listOf(
+            "ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
+            "ycore-demux=true",
+            "ycore-demux-ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
+            "ycore-software-decoder-api=2",
+            "ycore-tone-map-source=scripts/native/ycore_tone_map.h",
+            "ycore-disc-api=1",
+            "ycore-libbluray=1.4.1",
+            "ycore-native-aar=true",
+            "ycore-native-forbidden=libmpv.so,libplayer.so,libmdk.so",
+        ).forEach { marker ->
+            require(marker in provenance) { "Standalone YCore provenance is missing $marker" }
+        }
+        ZipFile(aarFile).use { archive ->
+            require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
+                "Standalone YCore AAR is missing arm64-v8a/libycore_demux.so"
+            }
+            val nativeEntries =
+                archive
+                    .entries()
+                    .asSequence()
+                    .map { it.name }
+                    .filter { it.endsWith(".so") }
+                    .toList()
+            listOf("libmpv.so", "libplayer.so", "libmdk.so").forEach { forbidden ->
+                require(nativeEntries.none { it.endsWith("/$forbidden") }) {
+                    "Standalone YCore AAR contains forbidden legacy runtime $forbidden"
+                }
+            }
+            val embedded =
+                archive.getEntry("META-INF/ycore-native-sources.txt")
+                    ?: throw GradleException("Standalone YCore AAR is missing embedded provenance")
+            require(archive.getEntry("META-INF/NOTICE") != null) {
+                "Standalone YCore AAR is missing third-party notices"
+            }
+            val embeddedProvenance = archive.getInputStream(embedded).bufferedReader().use { it.readText() }
+            require(embeddedProvenance == provenance) {
+                "Standalone YCore embedded provenance differs from its sidecar"
+            }
+        }
+    }
+}
+
 val verifyMdkArtifact by tasks.registering {
     group = "verification"
     description = "Rejects a missing, unpinned, or incomplete MDK SDK before packaging."
@@ -280,8 +370,8 @@ val verifyMediaTestManifest by tasks.registering {
         require(unsafePath == null) { "YCore media manifest contains an unsafe relativePath" }
 
         fun values(name: String) = rows.mapNotNull { it[name]?.toString()?.lowercase() }.toSet()
-        require(values("videoCodec").containsAll(setOf("h264", "hevc", "av1"))) {
-            "YCore media manifest must cover H.264, HEVC and AV1"
+        require(values("videoCodec").containsAll(setOf("h264", "hevc", "vp9", "av1", "vc1", "prores"))) {
+            "YCore media manifest is missing a required video codec"
         }
         require(values("hdr").containsAll(setOf("hdr10", "hdr10+", "hlg", "dolbyvision"))) {
             "YCore media manifest is missing an HDR family"
@@ -289,8 +379,18 @@ val verifyMediaTestManifest by tasks.registering {
         require(values("dolbyVisionProfile").containsAll(setOf("p5", "p7_mel", "p7_fel", "p8.1", "p8.4"))) {
             "YCore media manifest is missing a Dolby Vision profile"
         }
-        require(values("container").containsAll(setOf("mp4", "mkv", "ts", "m2ts", "iso"))) {
+        require(values("container").containsAll(setOf("mp4", "mkv", "ts", "m2ts", "iso", "mov", "webm", "hls", "dash"))) {
             "YCore media manifest is missing a required container"
+        }
+        require(
+            values("audioCodec").containsAll(
+                setOf("aac", "ac3", "eac3", "truehd", "dts-hd", "flac", "opus", "vorbis", "pcm_s24le"),
+            ),
+        ) {
+            "YCore media manifest is missing a required audio codec"
+        }
+        require(values("subtitle").containsAll(setOf("srt", "ass", "pgs"))) {
+            "YCore media manifest is missing a required subtitle family"
         }
     }
 }
@@ -399,8 +499,15 @@ kotlin {
             implementation(libs.media3.ui)
             implementation(libs.media3.hls)
             implementation(libs.media3.dash)
-            // Native engines fetched by scripts/fetch-engines.sh (gitignored).
-            implementation(files("libs/libmpv-release.aar"))
+            // Native-only builds package the dependency-closed YCore carrier. The verified mpv
+            // AAR remains compile-only so compatibility adapters can compile without entering the
+            // APK; ordinary builds retain the existing compatibility runtime until device gates pass.
+            if (nativeOnlyRuntime) {
+                implementation(files("libs/ycore-native.aar"))
+                compileOnly(files("libs/libmpv-release.aar"))
+            } else {
+                implementation(files("libs/libmpv-release.aar"))
+            }
             implementation(libs.androidx.palette)
             implementation(libs.androidx.work.runtime)
             implementation(libs.zxing.core)
@@ -577,6 +684,7 @@ android {
 
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
         buildConfigField("boolean", "YFUSE_MDK_INCLUDED", includeMdk.toString())
+        buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", nativeOnlyRuntime.toString())
         buildConfigField(
             "String",
             "YFUSE_PACKAGE_PROFILE",
@@ -789,6 +897,7 @@ tasks.register<BumpVersionTask>("bumpVersion") {
 tasks.configureEach {
     if (name == "preBuild") {
         dependsOn(verifyCustomMpvArtifact)
+        if (nativeOnlyRuntime) dependsOn(verifyStandaloneYCoreArtifact)
         if (includeMdk) dependsOn(verifyMdkArtifact)
         dependsOn(verifyMediaTestManifest)
     }

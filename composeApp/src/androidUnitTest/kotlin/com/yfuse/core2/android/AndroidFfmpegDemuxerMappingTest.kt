@@ -22,6 +22,9 @@ class AndroidFfmpegDemuxerMappingTest {
         assertEquals(YVideoCodec.H264, ffmpegVideoCodec("h264"))
         assertEquals(YVideoCodec.H265, ffmpegVideoCodec("hevc"))
         assertEquals(YVideoCodec.Av1, ffmpegVideoCodec("av1"))
+        assertEquals(YVideoCodec.Vp9, ffmpegVideoCodec("vp9"))
+        assertEquals(YVideoCodec.Vc1, ffmpegVideoCodec("vc1"))
+        assertEquals(YVideoCodec.Vc1, ffmpegVideoCodec("wmv3"))
         assertEquals(YVideoCodec.ProRes, ffmpegVideoCodec("prores"))
         assertEquals(YVideoCodec.Unknown, ffmpegVideoCodec("unknown_codec"))
     }
@@ -37,6 +40,12 @@ class AndroidFfmpegDemuxerMappingTest {
         assertEquals(YAudioCodec.Mp3, ffmpegAudioCodec("mp3", -99))
         assertEquals(YAudioCodec.Eac3Joc, ffmpegAudioCodec("eac3", 30))
         assertEquals(YAudioCodec.TrueHdAtmos, ffmpegAudioCodec("truehd", 30))
+    }
+
+    @Test
+    fun `baseline AAC and AC3 codecs remain native-decodable identities`() {
+        assertEquals(YAudioCodec.Aac, ffmpegAudioCodec("aac", -99))
+        assertEquals(YAudioCodec.Ac3, ffmpegAudioCodec("ac3", -99))
     }
 
     @Test

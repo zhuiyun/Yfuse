@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFAULT_ARTIFACTS="$ROOT/.native-build/artifacts"
-AAR="${1:-$DEFAULT_ARTIFACTS/libmpv-yfuse-bluray.aar}"
+AAR="${1:-$DEFAULT_ARTIFACTS/ycore-native.aar}"
 SHA_FILE="${2:-$AAR.sha256}"
 SOURCES="${3:-$DEFAULT_ARTIFACTS/NATIVE-SOURCES.txt}"
 PAGE_ALIGNMENT=$((16 * 1024))
@@ -11,6 +11,10 @@ PAGE_ALIGNMENT=$((16 * 1024))
 fail() {
   echo "[verify-ycore-native] $*" >&2
   exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
 
 manifest_value() {
@@ -31,43 +35,131 @@ verify_alignment() {
   (( count > 0 )) || fail "$so contains no PT_LOAD segments"
 }
 
-bash "$ROOT/scripts/verify-yfuse-mpv-dolby-aar.sh" "$AAR" "$SHA_FILE" "$SOURCES"
+is_android_system_library() {
+  case "$1" in
+    libc.so|libm.so|libdl.so|liblog.so|libandroid.so|libz.so|libjnigraphics.so|\
+      libmediandk.so|libOpenSLES.so|libEGL.so|libGLESv2.so|libGLESv3.so|libvulkan.so)
+      return 0
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+for command in awk cmp find readelf sha256sum strings unzip; do
+  need "$command"
+done
+[[ -f "$AAR" ]] || fail "missing standalone YCore AAR: $AAR"
+[[ -f "$SHA_FILE" ]] || fail "missing YCore checksum: $SHA_FILE"
+[[ -f "$SOURCES" ]] || fail "missing YCore provenance: $SOURCES"
+
+expected_sha="$(awk 'NR == 1 { print tolower($1) }' "$SHA_FILE")"
+actual_sha="$(sha256sum "$AAR" | awk '{ print tolower($1) }')"
+[[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || fail "invalid YCore SHA-256 sidecar"
+[[ "$actual_sha" == "$expected_sha" ]] || fail "YCore AAR SHA-256 mismatch"
 
 FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$FFMPEG_REVISION" =~ ^[0-9a-f]{40}$ ]] || fail "native provenance is missing the pinned FFmpeg commit"
 [[ "$(manifest_value ycore-demux)" == "true" ]] || fail "native provenance is missing ycore-demux=true"
 [[ "$(manifest_value ycore-demux-ffmpeg)" == "$FFMPEG_REVISION" ]] ||
-  fail "YCore demux was not built against the same FFmpeg revision as libmpv"
+  fail "YCore was not built against the pinned FFmpeg revision"
 [[ "$(manifest_value ycore-demux-source)" == "scripts/native/ycore_demux_jni.cpp" ]] ||
-  fail "native provenance points at an unexpected YCore demux source"
+  fail "native provenance points at an unexpected YCore source"
+[[ "$(manifest_value ycore-software-decoder-api)" == "2" ]] ||
+  fail "YCore software decoder API v2 is missing"
+[[ "$(manifest_value ycore-tone-map-source)" == "scripts/native/ycore_tone_map.h" ]] ||
+  fail "YCore HDR tone-map provenance is missing"
+[[ "$(manifest_value ycore-disc-api)" == "1" ]] || fail "YCore disc API v1 is missing"
+[[ "$(manifest_value ycore-libbluray)" == "1.4.1" ]] || fail "unexpected libbluray revision"
+[[ "$(manifest_value ycore-disc-uri-source)" == "scripts/native/ycore_disc_uri.h" ]] ||
+  fail "YCore disc URI boundary provenance is missing"
+[[ "$(manifest_value ycore-gpu-api)" == "1" ]] || fail "YCore GPU API v1 is missing"
+[[ "$(manifest_value ycore-gpu-source)" == "scripts/native/ycore_vulkan_jni.cpp" ]] ||
+  fail "YCore Vulkan source provenance is missing"
+[[ "$(manifest_value ycore-gpu-capability-source)" == "scripts/native/ycore_gpu_capability.h" ]] ||
+  fail "YCore GPU truth-gate provenance is missing"
+[[ "$(manifest_value ycore-native-aar)" == "true" ]] || fail "standalone YCore AAR marker is missing"
+[[ "$(manifest_value ycore-native-entry)" == "libycore_demux.so" ]] ||
+  fail "unexpected standalone YCore entry library"
+[[ "$(manifest_value ycore-native-forbidden)" == "libmpv.so,libplayer.so,libmdk.so" ]] ||
+  fail "standalone YCore legacy-runtime exclusion marker is missing"
 
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 unzip -q "$AAR" -d "$stage/aar"
 
+[[ -f "$stage/aar/AndroidManifest.xml" ]] || fail "AAR is missing AndroidManifest.xml"
+[[ -f "$stage/aar/classes.jar" ]] || fail "AAR is missing classes.jar"
+[[ -f "$stage/aar/META-INF/ycore-native-sources.txt" ]] ||
+  fail "AAR is missing embedded provenance"
+[[ -f "$stage/aar/META-INF/NOTICE" ]] || fail "AAR is missing third-party notices"
+cmp -s "$SOURCES" "$stage/aar/META-INF/ycore-native-sources.txt" ||
+  fail "embedded YCore provenance differs from its sidecar"
+unzip -Z1 "$stage/aar/classes.jar" > "$stage/classes.txt"
+if grep -E '\.class$' "$stage/classes.txt" >/dev/null; then
+  fail "standalone YCore carrier must not contain Java engine classes"
+fi
+
+for forbidden in libmpv.so libplayer.so libmdk.so; do
+  if find "$stage/aar/jni" -type f -name "$forbidden" -print -quit | grep -q .; then
+    fail "standalone YCore AAR contains forbidden legacy runtime $forbidden"
+  fi
+done
+
 mapfile -t bridges < <(find "$stage/aar/jni" -mindepth 2 -maxdepth 2 -type f -name 'libycore_demux.so' -print | sort)
 (( ${#bridges[@]} > 0 )) || fail "AAR contains no libycore_demux.so"
-[[ -f "$stage/aar/jni/arm64-v8a/libycore_demux.so" ]] || fail "AAR is missing arm64-v8a/libycore_demux.so"
+[[ -f "$stage/aar/jni/arm64-v8a/libycore_demux.so" ]] ||
+  fail "AAR is missing arm64-v8a/libycore_demux.so"
 
 for bridge in "${bridges[@]}"; do
   abi="$(basename "$(dirname "$bridge")")"
   symbols="$stage/$abi-ycore-symbols.txt"
   dynamic="$stage/$abi-ycore-dynamic.txt"
+  bridge_strings="$stage/$abi-ycore-strings.txt"
   readelf -Ws "$bridge" > "$symbols"
-  readelf -d "$bridge" > "$dynamic"
+  readelf -dW "$bridge" > "$dynamic"
+  strings "$bridge" > "$bridge_strings"
 
   grep -F 'JNI_OnLoad' "$symbols" >/dev/null || fail "$abi bridge does not export JNI_OnLoad"
-  for dependency in libavformat.so libavcodec.so libavutil.so; do
+  for dependency in libavformat.so libavcodec.so libavutil.so libswscale.so libswresample.so; do
     grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
       fail "$abi bridge is not dynamically linked to $dependency"
   done
-  if grep -Eq 'avcodec_(send_packet|receive_frame|send_frame|receive_packet)' "$symbols"; then
-    fail "$abi bridge links FFmpeg decode/encode entry points; YCore enhanced demux must stay demux-only"
+  for dependency in libandroid.so libvulkan.so; do
+    grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
+      fail "$abi bridge is not dynamically linked to $dependency"
+  done
+  for symbol in avcodec_send_packet avcodec_receive_frame; do
+    grep -F "$symbol" "$symbols" >/dev/null ||
+      fail "$abi bridge is missing software-decode symbol $symbol"
+  done
+  if grep -E 'avcodec_(send_frame|receive_packet)' "$symbols" >/dev/null; then
+    fail "$abi bridge unexpectedly links FFmpeg encode entry points"
   fi
-  verify_alignment "$bridge"
+  grep -E 'bd_(open|open_files)' "$symbols" >/dev/null ||
+    fail "$abi bridge is not linked to libbluray navigation"
+  grep -F 'ycorebd://' "$bridge_strings" >/dev/null ||
+    fail "$abi bridge is missing the opaque Blu-ray URI boundary"
+  grep -F 'nativeProbeGpuFeatures' "$symbols" >/dev/null ||
+    fail "$abi bridge is missing the Vulkan/AHardwareBuffer probe"
 done
 
-printf 'verified YCore demux bridge: %s\n' "$AAR"
-printf 'ffmpeg: %s shared ABI, demux-only JNI\n' "$FFMPEG_REVISION"
-printf 'Dolby: verified RPU + P7 FEL render path\n'
-printf 'page alignment: all libycore_demux.so PT_LOAD >= 16 KiB\n'
+mapfile -t native_libraries < <(find "$stage/aar/jni" -mindepth 2 -maxdepth 2 -type f -name '*.so' -print | sort)
+(( ${#native_libraries[@]} > 0 )) || fail "AAR contains no native libraries"
+for library in "${native_libraries[@]}"; do
+  abi_dir="$(dirname "$library")"
+  dynamic="$stage/$(basename "$abi_dir")-$(basename "$library")-dynamic.txt"
+  readelf -dW "$library" > "$dynamic"
+  while IFS= read -r dependency; do
+    is_android_system_library "$dependency" && continue
+    [[ -f "$abi_dir/$dependency" ]] ||
+      fail "$(basename "$library") links unpackaged dependency $dependency"
+  done < <(sed -n 's/.*Shared library: \[\([^]]*\)\].*/\1/p' "$dynamic")
+  verify_alignment "$library"
+done
+
+printf 'verified standalone YCore runtime: %s\n' "$AAR"
+printf 'FFmpeg: %s; demux + software decode + HDR tone map\n' "$FFMPEG_REVISION"
+printf 'Blu-ray: libbluray 1.4.1 through opaque YCore block I/O\n'
+printf 'GPU: Vulkan device probe + real AHardwareBuffer import, presentation still gated\n'
+printf 'purity: no mpv, player, MDK, or Java engine classes\n'
+printf 'page alignment: all packaged native libraries PT_LOAD >= 16 KiB\n'

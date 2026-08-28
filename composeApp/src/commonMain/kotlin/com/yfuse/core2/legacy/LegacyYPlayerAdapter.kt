@@ -66,6 +66,8 @@ internal class LegacyYPlayerAdapter(
 
     override fun selectDiscChapter(index: Int): Boolean = engine.selectDiscChapter(index)
 
+    override fun selectDiscAngle(index: Int): Boolean = engine.selectDiscAngle(index)
+
     override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = engine.sendDiscMenuCommand(command)
 
     override fun currentPositionMs(): Long = engine.currentPositionMs()
@@ -84,8 +86,7 @@ private class MappedStateFlow<Source, Target>(
 
     override val replayCache: List<Target> get() = listOf(value)
 
-    override suspend fun collect(collector: FlowCollector<Target>): Nothing =
-        source.collect { value -> collector.emit(transform(value)) }
+    override suspend fun collect(collector: FlowCollector<Target>): Nothing = source.collect { value -> collector.emit(transform(value)) }
 }
 
 private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerState =

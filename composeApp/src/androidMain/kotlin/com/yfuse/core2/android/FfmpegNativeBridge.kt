@@ -19,6 +19,45 @@ internal object FfmpegNativeBridge {
         }.getOrDefault(false)
     }
 
+    val softwareDecodeAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        available && runCatching { nativeSoftwareDecoderApiVersion() >= SOFTWARE_DECODER_API_VERSION }.getOrDefault(false)
+    }
+
+    val discNavigationAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        available && runCatching { nativeDiscApiVersion() >= DISC_API_VERSION }.getOrDefault(false)
+    }
+
+    fun registerBluRaySource(source: Any): Long {
+        check(discNavigationAvailable) { "YCore Blu-ray runtime is not installed" }
+        return nativeRegisterBluRaySource(source).also { handle ->
+            check(handle > 0L) { "YCore Blu-ray source was not registered" }
+        }
+    }
+
+    fun unregisterBluRaySource(handle: Long) {
+        if (handle > 0L && discNavigationAvailable) nativeUnregisterBluRaySource(handle)
+    }
+
+    fun selectDiscTitle(
+        handle: Long,
+        index: Int,
+    ): Boolean = handle > 0L && index >= 0 && nativeSelectDiscTitle(handle, index)
+
+    fun discChapterStartMs(
+        handle: Long,
+        index: Int,
+    ): Long? =
+        if (handle > 0L && index >= 0) {
+            nativeDiscChapterStartMs(handle, index).takeIf { it >= 0L }
+        } else {
+            null
+        }
+
+    fun selectDiscAngle(
+        handle: Long,
+        index: Int,
+    ): Boolean = handle > 0L && index >= 0 && nativeSelectDiscAngle(handle, index)
+
     fun open(
         uri: String,
         headers: Map<String, String>,
@@ -123,6 +162,53 @@ internal object FfmpegNativeBridge {
             durationUs ?: Long.MIN_VALUE,
         )
 
+    fun configureSoftwareDecoder(
+        handle: Long,
+        trackIndex: Int,
+        toneMapHdrToSdr: Boolean,
+    ) {
+        check(softwareDecodeAvailable) { "YCore FFmpeg software decoder is not installed" }
+        nativeConfigureSoftwareDecoder(handle, trackIndex, toneMapHdrToSdr)
+    }
+
+    fun sendSoftwarePacket(
+        handle: Long,
+        trackIndex: Int,
+        data: ByteArray?,
+        presentationTimeUs: Long?,
+        decodeTimeUs: Long?,
+    ): Boolean =
+        nativeSendSoftwarePacket(
+            handle,
+            trackIndex,
+            data,
+            presentationTimeUs ?: Long.MIN_VALUE,
+            decodeTimeUs ?: presentationTimeUs ?: Long.MIN_VALUE,
+        ) == SOFTWARE_PACKET_ACCEPTED
+
+    fun receiveSoftwareVideoFrame(
+        handle: Long,
+        trackIndex: Int,
+        target: ByteBuffer,
+    ): LongArray =
+        checkNotNull(nativeReceiveSoftwareVideoFrame(handle, trackIndex, target)) {
+            "FFmpeg software video result is unavailable"
+        }
+
+    fun receiveSoftwareAudioFrame(
+        handle: Long,
+        trackIndex: Int,
+        target: ByteBuffer,
+    ): LongArray =
+        checkNotNull(nativeReceiveSoftwareAudioFrame(handle, trackIndex, target)) {
+            "FFmpeg software audio result is unavailable"
+        }
+
+    fun flushSoftwareDecoder(
+        handle: Long,
+        trackIndex: Int,
+    ) = nativeFlushSoftwareDecoder(handle, trackIndex)
+
     fun seek(
         handle: Long,
         positionUs: Long,
@@ -210,6 +296,60 @@ internal object FfmpegNativeBridge {
         durationUs: Long,
     ): ByteArray?
 
+    private external fun nativeSoftwareDecoderApiVersion(): Int
+
+    private external fun nativeDiscApiVersion(): Int
+
+    private external fun nativeRegisterBluRaySource(source: Any): Long
+
+    private external fun nativeUnregisterBluRaySource(handle: Long)
+
+    private external fun nativeSelectDiscTitle(
+        handle: Long,
+        index: Int,
+    ): Boolean
+
+    private external fun nativeDiscChapterStartMs(
+        handle: Long,
+        index: Int,
+    ): Long
+
+    private external fun nativeSelectDiscAngle(
+        handle: Long,
+        index: Int,
+    ): Boolean
+
+    private external fun nativeConfigureSoftwareDecoder(
+        handle: Long,
+        trackIndex: Int,
+        toneMapHdrToSdr: Boolean,
+    )
+
+    private external fun nativeSendSoftwarePacket(
+        handle: Long,
+        trackIndex: Int,
+        data: ByteArray?,
+        presentationTimeUs: Long,
+        decodeTimeUs: Long,
+    ): Int
+
+    private external fun nativeReceiveSoftwareVideoFrame(
+        handle: Long,
+        trackIndex: Int,
+        target: ByteBuffer,
+    ): LongArray?
+
+    private external fun nativeReceiveSoftwareAudioFrame(
+        handle: Long,
+        trackIndex: Int,
+        target: ByteBuffer,
+    ): LongArray?
+
+    private external fun nativeFlushSoftwareDecoder(
+        handle: Long,
+        trackIndex: Int,
+    )
+
     private external fun nativeSeek(
         handle: Long,
         positionUs: Long,
@@ -253,3 +393,6 @@ internal const val FFMPEG_HDR10_PLUS = 3L
 internal const val FFMPEG_PACKING_ANNEX_B = 1L
 internal const val FFMPEG_PACKING_LENGTH_PREFIXED = 2L
 private const val LIBRARY_NAME = "ycore_demux"
+private const val SOFTWARE_DECODER_API_VERSION = 2
+private const val DISC_API_VERSION = 1
+private const val SOFTWARE_PACKET_ACCEPTED = 0

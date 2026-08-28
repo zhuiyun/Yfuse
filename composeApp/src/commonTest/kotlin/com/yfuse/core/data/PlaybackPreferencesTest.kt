@@ -41,6 +41,20 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun media_version_preference_defaults_to_hdr_and_persists() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(MediaVersionPreference.HdrFirst, first.mediaVersionPreference.value)
+        first.setMediaVersionPreference(MediaVersionPreference.DolbyVisionFirst)
+
+        assertEquals(
+            MediaVersionPreference.DolbyVisionFirst,
+            PlaybackPreferences(settings).mediaVersionPreference.value,
+        )
+    }
+
+    @Test
     fun ycore_optimization_mode_defaults_balanced_and_persists() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)
@@ -77,6 +91,21 @@ class PlaybackPreferencesTest {
         first.setCore2TrialEnabled(false)
 
         assertFalse(PlaybackPreferences(settings).core2TrialEnabled.value)
+    }
+
+    @Test
+    fun ycore_native_only_defaults_off_and_cannot_outlive_the_core2_switch() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertFalse(first.core2NativeOnlyEnabled.value)
+        first.setCore2NativeOnlyEnabled(true)
+        assertTrue(PlaybackPreferences(settings).core2NativeOnlyEnabled.value)
+
+        first.setCore2TrialEnabled(false)
+        val restored = PlaybackPreferences(settings)
+        assertFalse(restored.core2TrialEnabled.value)
+        assertFalse(restored.core2NativeOnlyEnabled.value)
     }
 
     @Test

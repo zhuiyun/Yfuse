@@ -24,11 +24,13 @@ import com.yfuse.core2.quirk.YDeviceQuirkDatabase
 import com.yfuse.core2.quirk.YDeviceQuirkRule
 import com.yfuse.core2.quirk.YTextMatch
 import com.yfuse.core2.strategy.DefaultYPlaybackStrategy
+import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YPlaybackRequest
 import com.yfuse.core2.strategy.YPlaybackStrategy
 import com.yfuse.core2.strategy.YRenderPath
+import com.yfuse.core2.strategy.enhancedAudioCodecIsMoreReliable
 
 internal enum class YCore2ProbeFailure {
     SourceUnavailable,
@@ -77,7 +79,37 @@ internal data class YCore2RouteDecision(
                 plan.demuxPath == YDemuxPath.Enhanced &&
                 plan.renderPath == YRenderPath.SurfaceDirect &&
                 plan.nativeAudio
+
+    val ffmpegSoftwareExecutable: Boolean
+        get() =
+            plan.route == YPlaybackRoute.SoftwareFallback &&
+                plan.demuxPath == YDemuxPath.Enhanced &&
+                (
+                    plan.decodePath == YDecodePath.Software &&
+                        plan.renderPath == YRenderPath.Gpu &&
+                        !probe.playbackRequest.video.secureDecodeRequired &&
+                        (
+                            probe.playbackRequest.video.hdrType == YHdrType.Sdr ||
+                                plan.softwareVideoToneMap &&
+                                plan.outputHdrType == YHdrType.Sdr
+                        ) &&
+                        probe.playbackRequest.video.softwareDecodeWithinBounds() ||
+                        plan.decodePath != YDecodePath.Software &&
+                        plan.renderPath == YRenderPath.SurfaceDirect
+                ) &&
+                plan.nativeAudio
 }
+
+private fun YVideoRequirement.softwareDecodeWithinBounds(): Boolean =
+    width in 1..SOFTWARE_VIDEO_MAX_WIDTH &&
+        height in 1..SOFTWARE_VIDEO_MAX_HEIGHT &&
+        width.toLong() * height.toLong() <= SOFTWARE_VIDEO_MAX_PIXELS &&
+        (frameRate <= 0f || frameRate <= SOFTWARE_VIDEO_MAX_FRAME_RATE)
+
+private const val SOFTWARE_VIDEO_MAX_WIDTH = 4096
+private const val SOFTWARE_VIDEO_MAX_HEIGHT = 4096
+private const val SOFTWARE_VIDEO_MAX_PIXELS = 4096L * 2160L
+private const val SOFTWARE_VIDEO_MAX_FRAME_RATE = 60f
 
 /**
  * Bounded metadata truth source for deciding whether one item may enter Core2.
@@ -118,6 +150,7 @@ internal class AndroidCore2MediaProbe(
                     bitDepth = videoFormat.bitDepth(videoMime),
                     hdrType = videoFormat.hdrType(videoMime),
                     dolbyVisionProfile = dolbyVisionConfig?.profile,
+                    secureDecodeRequired = item.drmConfiguration != null,
                 )
             val audio =
                 audioFormat?.let { format ->
@@ -178,7 +211,9 @@ internal class AndroidCore2RouteEvaluator(
         val platform = platformProbe.probe(item) as? YCore2ProbeResult.Success
         val resolved =
             when {
+                platform == null && item.drmConfiguration != null -> null
                 platform == null -> enhancedProbe.probe(item) as? YCore2ProbeResult.Success
+                item.drmConfiguration != null -> platform
                 platform.requiresEnhancedTruthProbe() -> {
                     val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
                     if (
@@ -217,7 +252,9 @@ internal class AndroidCore2RouteEvaluator(
             runtimeCapabilities.evidence(unseenRuntimeKey) == null
         ) {
             val probeResult =
-                if (plan.demuxPath == YDemuxPath.Platform) {
+                if (item.drmConfiguration != null) {
+                    YCodecConfigurationProbeResult.Inconclusive
+                } else if (plan.demuxPath == YDemuxPath.Platform) {
                     codecSampleProbe.probe(item, unseenRuntimeKey.decoderName)
                 } else {
                     codecConfigurationProbe.probe(
@@ -262,9 +299,15 @@ internal class AndroidCore2RouteEvaluator(
                 )
         }
         if (dolbyDecision != null) {
+            val dolbyLabel =
+                if (plan.usesHdrFallback && plan.softwareVideoToneMap) {
+                    "DV compatible base tone-mapped to SDR"
+                } else {
+                    dolbyDecision.diagnosticLabel()
+                }
             plan =
                 plan.copy(
-                    reason = "${plan.reason}; ${dolbyDecision.diagnosticLabel()}",
+                    reason = "${plan.reason}; $dolbyLabel",
                 )
         }
         return YCore2RouteDecision(normalizedProbe, plan)
@@ -280,6 +323,7 @@ private fun YCore2ProbeResult.Success.activeProbeMime(plan: YPlaybackPlan): Stri
             YVideoCodec.H265 -> "video/hevc"
             YVideoCodec.Av1 -> "video/av01"
             YVideoCodec.Vp9 -> "video/x-vnd.on2.vp9"
+            YVideoCodec.Vc1 -> "video/wvc1"
             YVideoCodec.Mpeg2 -> "video/mpeg2"
             YVideoCodec.ProRes -> "video/prores"
             YVideoCodec.Unknown -> videoMime
@@ -323,14 +367,27 @@ private fun androidCore2QuirkDatabase(): YDeviceQuirkDatabase =
 internal fun YCore2RouteDecision.runtimeCapabilityKey(): YRuntimeVideoCapabilityKey? =
     runtimeVideoCapabilityKey(probe.playbackRequest, plan)
 
-private fun YCore2ProbeResult.Success.materiallyOverrides(platform: YCore2ProbeResult.Success): Boolean =
+internal fun YCore2ProbeResult.Success.materiallyOverrides(platform: YCore2ProbeResult.Success): Boolean =
     dolbyVisionConfig != null &&
         platform.dolbyVisionConfig == null ||
         playbackRequest.video.hdrType != platform.playbackRequest.video.hdrType ||
         playbackRequest.video.codec != platform.playbackRequest.video.codec ||
-        playbackRequest.video.bitDepth > platform.playbackRequest.video.bitDepth
+        playbackRequest.video.bitDepth > platform.playbackRequest.video.bitDepth ||
+        playbackRequest.audio.hasReliableCodecWhen(platform.playbackRequest.audio)
 
-private fun YMediaItem.toProbeSource(): YAndroidMediaSource = YAndroidMediaSource(uri = uri, headers = headers)
+private fun YAudioRequirement?.hasReliableCodecWhen(platform: YAudioRequirement?): Boolean =
+    enhancedAudioCodecIsMoreReliable(
+        platformCodec = platform?.codec,
+        enhancedCodec = this?.codec,
+    )
+
+private fun YMediaItem.toProbeSource(): YAndroidMediaSource =
+    YAndroidMediaSource(
+        uri = uri,
+        headers = headers,
+        cacheIdentity = cacheIdentity,
+        cacheMaximumBytes = cacheMaximumBytes,
+    )
 
 private fun String.toCore2VideoCodec(
     format: MediaFormat,
@@ -341,6 +398,7 @@ private fun String.toCore2VideoCodec(
         "video/hevc" -> YVideoCodec.H265
         "video/av01" -> YVideoCodec.Av1
         "video/x-vnd.on2.vp9" -> YVideoCodec.Vp9
+        "video/wvc1", "video/vc1", "video/x-ms-wmv" -> YVideoCodec.Vc1
         "video/mpeg2" -> YVideoCodec.Mpeg2
         "video/dolby-vision" ->
             when (dolbyVisionConfig?.codecFamily) {
@@ -371,8 +429,7 @@ private fun MediaFormat.dolbyVisionConfigOrNull(mime: String): YDolbyVisionConfi
     return runCatching { YDolbyVisionConfig.parse(bytes) }.getOrNull()
 }
 
-private fun MediaFormat.intOrZero(key: String): Int =
-    if (containsKey(key)) runCatching { getInteger(key) }.getOrDefault(0) else 0
+private fun MediaFormat.intOrZero(key: String): Int = if (containsKey(key)) runCatching { getInteger(key) }.getOrDefault(0) else 0
 
 private fun MediaFormat.frameRateOrZero(): Float {
     if (!containsKey(MediaFormat.KEY_FRAME_RATE)) return 0f
@@ -448,6 +505,8 @@ internal fun YMediaItem.containerHint(): YContainer {
 
     val path = uri.substringBefore('?').substringBefore('#').lowercase()
     return when {
+        path.endsWith(".mpd") -> YContainer.Mp4
+        path.endsWith(".m3u8") -> YContainer.MpegTs
         path.endsWith(".mkv") -> YContainer.Matroska
         path.endsWith(".webm") -> YContainer.WebM
         path.endsWith(".mov") -> YContainer.Mov

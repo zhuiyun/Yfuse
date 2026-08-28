@@ -16,6 +16,16 @@ class PlaybackBufferPolicyTest {
     }
 
     @Test
+    fun mpv_profiles_follow_the_same_power_and_quality_intent() {
+        val power = mpvBufferProfile(PlaybackOptimizationMode.PowerSaver)
+        val quality = mpvBufferProfile(PlaybackOptimizationMode.Quality)
+
+        assertEquals(0, power.backBytes)
+        assertTrue(power.forwardBytes < quality.forwardBytes)
+        assertTrue(power.readaheadSeconds < quality.readaheadSeconds)
+    }
+
+    @Test
     fun every_profile_has_valid_load_control_ordering() {
         PlaybackOptimizationMode.entries.forEach { mode ->
             val profile = playbackBufferProfile(mode)

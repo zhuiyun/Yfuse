@@ -2,6 +2,7 @@ package com.yfuse.feature.detail
 
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackFailoverPlan
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.PlaybackNetworkClass
@@ -9,6 +10,7 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.data.preferredVersion
 import com.yfuse.core.data.recommendedServerSource
 import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.logging.AppLog
@@ -470,6 +472,14 @@ internal class DetailExecutor(
         preferredVersionId: String? = null,
     ) {
         val visible = state()
+        val selectedVersionId =
+            preferredVersionId
+                ?.takeIf { requested -> selection.target.versions.any { it.id == requested } }
+                ?: selection.target.versions
+                    .preferredVersion(
+                        playbackPreferences?.mediaVersionPreference?.value
+                            ?: MediaVersionPreference.HdrFirst,
+                    )?.id
         val sourceChanged =
             visible.server?.id != selection.server.id ||
                 visible.detail?.id != selection.sourceDetail.id
@@ -482,7 +492,7 @@ internal class DetailExecutor(
                 seasons = selection.seasons,
                 selectedSeasonId = selection.selectedSeasonId,
                 episodes = selection.episodes,
-                preferredVersionId = preferredVersionId,
+                preferredVersionId = selectedVersionId,
             ),
         )
         loadSources(

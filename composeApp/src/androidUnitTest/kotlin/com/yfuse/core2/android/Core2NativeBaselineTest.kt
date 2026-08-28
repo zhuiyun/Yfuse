@@ -1,0 +1,148 @@
+package com.yfuse.core2.android
+
+import com.yfuse.core2.release.Core2NativeBaselineBlock
+import com.yfuse.core2.release.Core2NativeBaselineSource
+import com.yfuse.core2.release.evaluateCore2NativeBaseline
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+
+class Core2NativeBaselineTest {
+    @Test
+    fun progressive_mp4_and_mkv_with_avc_or_hevc_enter_the_native_lane() {
+        assertNull(evaluateCore2NativeBaseline(source(container = "MP4", codec = "avc1.640028")))
+        assertNull(evaluateCore2NativeBaseline(source(container = "MKV", codec = "HEVC")))
+        assertNull(evaluateCore2NativeBaseline(source(container = "video/mp4", codec = "H.264")))
+    }
+
+    @Test
+    fun extended_hardware_codec_and_container_candidates_enter_runtime_probing() {
+        assertNull(evaluateCore2NativeBaseline(source(container = "webm", codec = "vp09.02.10.10")))
+        assertNull(evaluateCore2NativeBaseline(source(container = "mkv", codec = "AV1")))
+        assertNull(evaluateCore2NativeBaseline(source(container = "mkv", codec = "VC-1")))
+        assertNull(evaluateCore2NativeBaseline(source(container = "mov", codec = "ProRes")))
+    }
+
+    @Test
+    fun adaptive_drm_dolby_and_disc_sources_are_fail_closed() {
+        assertEquals(
+            Core2NativeBaselineBlock.AdaptiveManifest,
+            evaluateCore2NativeBaseline(source(adaptive = true)),
+        )
+        assertEquals(
+            Core2NativeBaselineBlock.Drm,
+            evaluateCore2NativeBaseline(source(drm = true)),
+        )
+        assertEquals(
+            Core2NativeBaselineBlock.DolbyVision,
+            evaluateCore2NativeBaseline(source(dolbyVision = true)),
+        )
+        assertEquals(
+            Core2NativeBaselineBlock.Disc,
+            evaluateCore2NativeBaseline(source(disc = true)),
+        )
+    }
+
+    @Test
+    fun proven_dolby_pipeline_enters_runtime_routing() {
+        assertNull(
+            evaluateCore2NativeBaseline(
+                source(dolbyVision = true, dolbyVisionSupported = true),
+            ),
+        )
+    }
+
+    @Test
+    fun proven_bluray_pipeline_enters_native_runtime_probing() {
+        assertNull(
+            evaluateCore2NativeBaseline(
+                source(container = "iso", codec = null, disc = true, discSupported = true),
+            ),
+        )
+    }
+
+    @Test
+    fun implemented_adaptive_and_drm_lanes_bypass_progressive_container_gate() {
+        assertNull(
+            evaluateCore2NativeBaseline(
+                source(
+                    container = "hls",
+                    codec = "h264",
+                    adaptive = true,
+                    adaptiveSupported = true,
+                ),
+            ),
+        )
+        assertNull(
+            evaluateCore2NativeBaseline(
+                source(
+                    container = "mp4",
+                    drm = true,
+                    drmSupported = true,
+                ),
+            ),
+        )
+        assertNull(
+            evaluateCore2NativeBaseline(
+                source(
+                    container = "dash",
+                    codec = "hevc",
+                    adaptive = true,
+                    adaptiveSupported = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun unsupported_or_unknown_metadata_cannot_silently_use_a_legacy_engine() {
+        assertEquals(
+            Core2NativeBaselineBlock.MissingMetadata,
+            evaluateCore2NativeBaseline(source(hasMetadata = false)),
+        )
+        assertEquals(
+            Core2NativeBaselineBlock.UnsupportedContainer,
+            evaluateCore2NativeBaseline(source(container = "AVI")),
+        )
+        assertEquals(
+            Core2NativeBaselineBlock.UnsupportedVideoCodec,
+            evaluateCore2NativeBaseline(source(codec = "Theora")),
+        )
+        assertEquals(
+            Core2NativeBaselineBlock.UnsupportedScheme,
+            evaluateCore2NativeBaseline(source(scheme = "smb")),
+        )
+    }
+
+    private fun source(
+        hasMetadata: Boolean = true,
+        scheme: String = "https",
+        container: String? = "mkv",
+        codec: String? = "hevc",
+        serverTranscode: Boolean = false,
+        adaptive: Boolean = false,
+        adaptiveSupported: Boolean = false,
+        disc: Boolean = false,
+        discSupported: Boolean = false,
+        drm: Boolean = false,
+        drmSupported: Boolean = false,
+        dolbyVision: Boolean = false,
+        dolbyVisionSupported: Boolean = false,
+        externalSubtitleSupported: Boolean = true,
+    ) = Core2NativeBaselineSource(
+        hasMetadata = hasMetadata,
+        scheme = scheme,
+        container = container,
+        videoCodec = codec,
+        serverTranscode = serverTranscode,
+        adaptiveManifest = adaptive,
+        adaptiveManifestSupported = adaptiveSupported,
+        disc = disc,
+        discSupported = discSupported,
+        drm = drm,
+        drmSupported = drmSupported,
+        dolbyVision = dolbyVision,
+        dolbyVisionSupported = dolbyVisionSupported,
+        externalSubtitleSupported = externalSubtitleSupported,
+    )
+}

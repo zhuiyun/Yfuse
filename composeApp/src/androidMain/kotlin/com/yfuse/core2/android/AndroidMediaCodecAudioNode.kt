@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import android.media.MediaCodec
+import android.media.MediaCrypto
 import android.media.MediaFormat
 import com.yfuse.core2.graph.YAudioDecodeNode
 import java.nio.ByteBuffer
@@ -34,14 +35,17 @@ internal class AndroidMediaCodecAudioNode(
 
     val decoderName: String? get() = codec?.name
 
-    fun configure(format: MediaFormat) {
+    fun configure(
+        format: MediaFormat,
+        mediaCrypto: MediaCrypto? = null,
+    ) {
         release()
         val mime =
             format.getString(MediaFormat.KEY_MIME)
                 ?: error("Audio MediaFormat is missing ${MediaFormat.KEY_MIME}")
         val decoder = createDecoder(mime)
         try {
-            decoder.configure(format, null, null, 0)
+            decoder.configure(format, null, mediaCrypto, 0)
             decoder.start()
             codec = decoder
             started = true
@@ -55,6 +59,7 @@ internal class AndroidMediaCodecAudioNode(
         data: ByteBuffer,
         presentationTimeUs: Long,
         flags: Int = 0,
+        cryptoInfo: YExtractorCryptoInfo? = null,
     ): YCodecQueueResult {
         val decoder = requireStartedCodec()
         val inputIndex = decoder.dequeueInputBuffer(0L)
@@ -67,13 +72,25 @@ internal class AndroidMediaCodecAudioNode(
             "Encoded audio sample ($size bytes) exceeds MediaCodec input buffer (${input.remaining()} bytes)"
         }
         input.put(sample)
-        decoder.queueInputBuffer(
-            inputIndex,
-            0,
-            size,
-            presentationTimeUs,
-            flags.toAudioCodecInputFlags(),
-        )
+        val encrypted = flags and EXTRACTOR_SAMPLE_ENCRYPTED != 0
+        require(encrypted == (cryptoInfo != null)) { "Encrypted audio sample metadata is inconsistent" }
+        if (cryptoInfo == null) {
+            decoder.queueInputBuffer(
+                inputIndex,
+                0,
+                size,
+                presentationTimeUs,
+                flags.toAudioCodecInputFlags(),
+            )
+        } else {
+            decoder.queueSecureInputBuffer(
+                inputIndex,
+                0,
+                cryptoInfo.toMediaCodecCryptoInfo(),
+                presentationTimeUs,
+                flags.toAudioCodecInputFlags(),
+            )
+        }
         return YCodecQueueResult.Queued
     }
 
@@ -152,12 +169,7 @@ internal class AndroidMediaCodecAudioNode(
         }
 }
 
-private fun Int.toAudioCodecInputFlags(): Int {
-    if (this and EXTRACTOR_SAMPLE_ENCRYPTED != 0) {
-        error("Encrypted audio samples require a MediaCrypto queue path")
-    }
-    return if (this and EXTRACTOR_SAMPLE_SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
-}
+private fun Int.toAudioCodecInputFlags(): Int = if (this and EXTRACTOR_SAMPLE_SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
 
 private const val EXTRACTOR_SAMPLE_SYNC = 1
 private const val EXTRACTOR_SAMPLE_ENCRYPTED = 2

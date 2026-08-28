@@ -37,9 +37,29 @@ class AndroidCore2TrialTest {
     }
 
     @Test
-    fun drm_and_unsupported_subtitle_sources_stay_on_legacy() {
+    fun supported_widevine_and_subtitle_sources_follow_core2_gates() {
         val drmItem =
             mediaItem("https://media.example.test/secure.mpd").copy(
+                drmConfiguration =
+                    PlaybackDrmConfiguration(
+                        scheme = PlaybackDrmScheme.Widevine,
+                        licenseUri = "https://license.example.test/widevine",
+                    ),
+            )
+        val misleadingHlsVersion =
+            PlayerMediaVersion(
+                id = "hls",
+                label = "HLS",
+                detail = "CMAF",
+                url = "https://media.example.test/secure.m3u8",
+                transcodeUrl = "",
+                fallbackTranscodeUrl = "",
+                container = "mp4",
+            )
+        val unsupportedDrmItem =
+            mediaItem("https://media.example.test/secure.m3u8").copy(
+                versions = listOf(misleadingHlsVersion),
+                versionId = misleadingHlsVersion.id,
                 drmConfiguration =
                     PlaybackDrmConfiguration(
                         scheme = PlaybackDrmScheme.Widevine,
@@ -52,6 +72,8 @@ class AndroidCore2TrialTest {
             )
         val unsupportedSubtitleItem =
             subtitleItem.copy(externalSubtitleUri = "ftp://media.example.test/movie.srt")
+        val ttmlSubtitleItem =
+            subtitleItem.copy(externalSubtitleUri = "file:///offline/movie.ttml")
         val discVersion =
             PlayerMediaVersion(
                 id = "disc",
@@ -68,9 +90,11 @@ class AndroidCore2TrialTest {
                 versionId = discVersion.id,
             )
 
-        assertFalse(listOf(drmItem).canUseCore2Trial(startIndex = 0))
+        assertTrue(listOf(drmItem).canUseCore2Trial(startIndex = 0))
+        assertFalse(listOf(unsupportedDrmItem).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(subtitleItem).canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(unsupportedSubtitleItem).canUseCore2Trial(startIndex = 0))
+        assertFalse(listOf(ttmlSubtitleItem).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(discItem).canUseCore2Trial(startIndex = 0))
         assertTrue(
             listOf(mediaItem("https://media/movie"), subtitleItem)
@@ -79,7 +103,7 @@ class AndroidCore2TrialTest {
     }
 
     @Test
-    fun unproven_dolby_vision_stream_stays_on_the_display_backed_legacy_pipeline() {
+    fun dolby_vision_stream_enters_fail_closed_runtime_truth_probing() {
         val version =
             PlayerMediaVersion(
                 id = "dolby",
@@ -96,13 +120,20 @@ class AndroidCore2TrialTest {
             mediaItem(version.url).copy(
                 versions = listOf(version),
                 versionId = version.id,
+                rawDiscUri = "file:///storage/movie",
             )
 
-        assertFalse(listOf(item).canUseCore2Trial(startIndex = 0))
+        assertTrue(listOf(item).canUseCore2Trial(startIndex = 0))
     }
 
     @Test
     fun core2_queue_mapping_preserves_request_identity_and_user_agent() {
+        val drm =
+            PlaybackDrmConfiguration(
+                scheme = PlaybackDrmScheme.Widevine,
+                licenseUri = "https://license.example.test/widevine",
+                requestHeaders = mapOf("Authorization" to "Bearer secret"),
+            )
         val item =
             mediaItem("https://media.example.test/episode.mkv").copy(
                 id = "episode-2",
@@ -110,20 +141,27 @@ class AndroidCore2TrialTest {
                 serverId = "server-a",
                 externalSubtitleUri = "content://offline/subtitle/2",
                 externalSubtitleLanguage = "zh-CN",
+                drmConfiguration = drm,
             )
 
         val mapped =
             listOf(item)
-                .toCore2MediaItems("  Yfuse-Test/2.0  ")
-                .single()
+                .toCore2MediaItems(
+                    customUserAgent = "  Yfuse-Test/2.0  ",
+                    cacheMaximumBytes = 512L * 1024L * 1024L,
+                ).single()
 
         assertEquals(item.id, mapped.id)
         assertEquals(item.url, mapped.uri)
         assertEquals(item.title, mapped.title)
         assertEquals(item.serverId, mapped.providerKey)
+        assertEquals(item.serverId, mapped.cacheIdentity?.scope)
+        assertEquals(item.id, mapped.cacheIdentity?.mediaId)
+        assertEquals(512L * 1024L * 1024L, mapped.cacheMaximumBytes)
         assertEquals("Yfuse-Test/2.0", mapped.headers["User-Agent"])
         assertEquals(item.externalSubtitleUri, mapped.externalSubtitle?.uri)
         assertEquals(item.externalSubtitleLanguage, mapped.externalSubtitle?.language)
+        assertEquals(drm, mapped.drmConfiguration)
     }
 
     @Test
@@ -198,6 +236,7 @@ class AndroidCore2TrialTest {
                 .toCore2MediaItems("")
                 .single()
 
+        assertEquals("file:///storage/movie", mapped.uri)
         assertEquals(com.yfuse.core2.api.YDiscKind.Bdmv, mapped.disc?.kind)
         assertEquals("BDMV", mapped.disc?.container)
     }

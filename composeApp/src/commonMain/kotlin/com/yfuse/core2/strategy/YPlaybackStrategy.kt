@@ -18,6 +18,7 @@ enum class YDemuxPath {
 
 enum class YDecodePath {
     Hardware,
+    PlatformSoftware,
     Software,
 }
 
@@ -48,6 +49,8 @@ data class YPlaybackPlan(
     val decoderName: String? = null,
     val nativeAudio: Boolean = true,
     val audioPath: YAudioOutputPath = YAudioOutputPath.DecodePcm,
+    val softwareAudioDecode: Boolean = false,
+    val softwareVideoToneMap: Boolean = false,
     /** True when the original HDR representation cannot be used and a compatible base is selected. */
     val usesHdrFallback: Boolean = false,
     val reason: String,
@@ -91,14 +94,33 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                     )
                 }
         val fallbackDecoder = fallbackRequirement?.let(capabilities::bestDecoder)
+        val originalNativeOutput =
+            originalDecoder != null && capabilities.supportsDisplayHdr(request.video.hdrType)
+        val fallbackNativeOutput =
+            fallbackDecoder != null &&
+                capabilities.supportsDisplayHdr(requireNotNull(fallbackRequirement).hdrType)
+        val usesHdrFallback =
+            when {
+                originalNativeOutput -> false
+                fallbackNativeOutput -> true
+                originalDecoder != null -> false
+                fallbackDecoder != null -> true
+                else -> false
+            }
         val selectedRequirement =
             when {
+                usesHdrFallback -> fallbackRequirement
                 originalDecoder != null -> request.video
-                fallbackDecoder != null -> requireNotNull(fallbackRequirement)
+                fallbackDecoder != null -> fallbackRequirement
                 else -> null
             }
-        val selectedDecoder = originalDecoder ?: fallbackDecoder
-        val usesHdrFallback = originalDecoder == null && fallbackDecoder != null
+        val selectedDecoder = if (usesHdrFallback) fallbackDecoder else originalDecoder ?: fallbackDecoder
+        val decodePath =
+            if (selectedDecoder?.hardwareAccelerated == false) {
+                YDecodePath.PlatformSoftware
+            } else {
+                YDecodePath.Hardware
+            }
         val audioCapabilities =
             if (request.allowAudioPassthrough) {
                 capabilities
@@ -116,10 +138,32 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         ) {
             val hdrRoute = YHdrRouter.decide(selectedRequirement.hdrType, capabilities)
             val displayCanPresent = hdrRoute is YHdrRouteDecision.Native
+            if (
+                !displayCanPresent &&
+                request.enhancedDemuxSupported &&
+                !request.video.secureDecodeRequired &&
+                selectedRequirement.hdrType.supportsOwnedSoftwareToneMap()
+            ) {
+                return YPlaybackPlan(
+                    route = YPlaybackRoute.SoftwareFallback,
+                    demuxPath = YDemuxPath.Enhanced,
+                    decodePath = YDecodePath.Software,
+                    renderPath = YRenderPath.Gpu,
+                    outputHdrType = YHdrType.Sdr,
+                    nativeAudio = true,
+                    audioPath = audioPath,
+                    softwareVideoToneMap = true,
+                    usesHdrFallback = usesHdrFallback,
+                    reason =
+                        "Display cannot present ${selectedRequirement.hdrType}; " +
+                            "decode and tone-map to SDR inside YCore",
+                )
+            }
             val renderPath =
                 when {
                     !displayCanPresent -> YRenderPath.Gpu
                     demuxPath == YDemuxPath.Platform &&
+                        selectedDecoder.hardwareAccelerated &&
                         canUseNativeTunnel(request, capabilities, selectedDecoder) -> YRenderPath.Tunnel
                     else -> YRenderPath.SurfaceDirect
                 }
@@ -135,7 +179,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             return YPlaybackPlan(
                 route = route,
                 demuxPath = demuxPath,
-                decodePath = YDecodePath.Hardware,
+                decodePath = decodePath,
                 renderPath = renderPath,
                 outputHdrType = outputHdr,
                 decoderName = selectedDecoder.name,
@@ -146,6 +190,8 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                     when {
                         usesHdrFallback ->
                             "Original HDR path unsupported; use compatible ${selectedRequirement.hdrType} base layer"
+                        !selectedDecoder.hardwareAccelerated ->
+                            "No hardware decoder is available; use the platform software codec under YCore scheduling"
                         demuxPath == YDemuxPath.Enhanced ->
                             "Platform extractor is insufficient; normalize compressed samples then keep hardware decode"
                         renderPath == YRenderPath.Tunnel ->
@@ -158,25 +204,45 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             )
         }
 
+        val fallbackHdrType = selectedRequirement?.hdrType ?: request.video.hdrType
+        val displayCanPresentFallback = capabilities.supportsDisplayHdr(fallbackHdrType)
+        val softwareVideo = selectedDecoder == null || !displayCanPresentFallback
+        val softwareVideoToneMap =
+            softwareVideo &&
+                request.enhancedDemuxSupported &&
+                !request.video.secureDecodeRequired &&
+                fallbackHdrType.supportsOwnedSoftwareToneMap()
         return YPlaybackPlan(
             route = YPlaybackRoute.SoftwareFallback,
-            demuxPath = YDemuxPath.Software,
-            decodePath = YDecodePath.Software,
-            renderPath = YRenderPath.Gpu,
-            outputHdrType =
-                if (capabilities.supportsDisplayHdr(request.video.hdrType)) {
-                    request.video.hdrType
-                } else {
-                    YHdrType.Sdr
+            demuxPath = if (request.enhancedDemuxSupported) YDemuxPath.Enhanced else YDemuxPath.Software,
+            decodePath =
+                when {
+                    softwareVideo -> YDecodePath.Software
+                    selectedDecoder?.hardwareAccelerated == true -> YDecodePath.Hardware
+                    else -> YDecodePath.PlatformSoftware
                 },
-            nativeAudio = nativeAudio,
-            audioPath = audioPath,
+            renderPath = if (softwareVideo) YRenderPath.Gpu else YRenderPath.SurfaceDirect,
+            outputHdrType =
+                if (softwareVideo) YHdrType.Sdr else fallbackHdrType,
+            decoderName = selectedDecoder?.name?.takeUnless { softwareVideo },
+            nativeAudio = request.audio == null || request.enhancedDemuxSupported,
+            audioPath = if (request.audio == null) YAudioOutputPath.None else YAudioOutputPath.DecodePcm,
+            softwareAudioDecode = request.audio != null && !nativeAudio && request.enhancedDemuxSupported,
+            softwareVideoToneMap = softwareVideoToneMap,
+            usesHdrFallback = usesHdrFallback,
             reason =
-                if (!nativeAudio) {
-                    "Native video route exists but the selected audio codec has no safe platform decode path"
-                } else {
-                    "No compatible hardware route exists; use universal software decode fallback"
+                when {
+                    softwareVideoToneMap ->
+                        "Decode $fallbackHdrType and tone-map to SDR inside YCore"
+                    !nativeAudio && request.enhancedDemuxSupported ->
+                        "Selected audio codec has no platform decoder; use FFmpeg PCM software decode"
+                    !nativeAudio ->
+                        "Selected audio codec has no executable decode path"
+                    else ->
+                        "No compatible platform video decoder exists; use FFmpeg software video decode"
                 },
         )
     }
 }
+
+private fun YHdrType.supportsOwnedSoftwareToneMap(): Boolean = this in setOf(YHdrType.Hdr10, YHdrType.Hdr10Plus, YHdrType.Hlg)

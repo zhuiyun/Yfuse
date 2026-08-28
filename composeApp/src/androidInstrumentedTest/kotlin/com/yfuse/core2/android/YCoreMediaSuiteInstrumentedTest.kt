@@ -15,6 +15,7 @@ import com.yfuse.core2.api.YDiscKind
 import com.yfuse.core2.api.YDiscMedia
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackPhase
+import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.capability.YVideoCodec
@@ -23,7 +24,6 @@ import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.dolby.YDolbyVisionEnhancementLayerKind
 import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
-import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.quirk.InMemoryYCore2FailureStore
 import com.yfuse.core2.quirk.YCore2FailureLedger
 import com.yfuse.core2.render.YFrameRateSwitchMode
@@ -203,13 +203,10 @@ class YCoreMediaSuiteInstrumentedTest {
                 autoPlay = true,
                 autoNext = false,
             )
-        val compatibilityFactory = AndroidMpvCore2FallbackFactory(context)
         val player =
             AndroidAdaptiveCore2YPlayer(
                 context = context,
                 request = request,
-                fallbackRouteFactory = compatibilityFactory,
-                discRouteFactory = compatibilityFactory,
                 allowAudioPassthrough = true,
                 frameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
                 failureLedger =
@@ -222,6 +219,10 @@ class YCoreMediaSuiteInstrumentedTest {
         val health = DeviceHealthSampler(context, testCase)
         var completed = false
         var timedOut = false
+        var completedSeekCycles = 0
+        var completedSurfaceRecreations = 0
+        var queueTransitions = 0
+        var completedSoakMinutes = 0
         try {
             assertTrue(player.setVideoOutput(output.output))
             player.prepare()
@@ -239,6 +240,7 @@ class YCoreMediaSuiteInstrumentedTest {
                     // Seeking clears Ended but intentionally does not imply autoplay.
                     player.play()
                 }
+                completedSeekCycles += 1
                 health.sample(player.state.value)
                 if ((iteration + 1) % PROGRESS_INTERVAL == 0 || iteration + 1 == seekIterations) {
                     reportProgress(
@@ -280,6 +282,7 @@ class YCoreMediaSuiteInstrumentedTest {
                     assertTrue(player.setVideoOutput(output.output))
                     player.play()
                 }
+                completedSurfaceRecreations += 1
                 health.sample(player.state.value)
                 reportProgress("${testCase.id}: completed Surface recreation ${iteration + 1}")
             }
@@ -299,16 +302,28 @@ class YCoreMediaSuiteInstrumentedTest {
             if (soakDurationMs > 0L) {
                 val soakStartedAtMs = SystemClock.elapsedRealtime()
                 var nextProgressAtMs = SOAK_PROGRESS_INTERVAL_MS
+                var nextQueueTransitionAtMs = QUEUE_TRANSITION_INTERVAL_MS
                 while (SystemClock.elapsedRealtime() - soakStartedAtMs < soakDurationMs) {
                     val soakState = player.state.value
                     assertFalse(
                         failureMessage("${testCase.id}:soak", soakState),
                         soakState.phase == YPlaybackPhase.Failed,
                     )
-                    if (soakState.phase == YPlaybackPhase.Ended) {
+                    val elapsedBeforeActionMs = SystemClock.elapsedRealtime() - soakStartedAtMs
+                    val scheduledQueueTransition =
+                        soakQueue && elapsedBeforeActionMs >= nextQueueTransitionAtMs
+                    if (scheduledQueueTransition) {
+                        awaitFreshVideoOutput(player, "${testCase.id}:soak-queue-transition") {
+                            player.selectItem(if (soakState.currentIndex == 0) 1 else 0)
+                            player.play()
+                        }
+                        queueTransitions += 1
+                        nextQueueTransitionAtMs += QUEUE_TRANSITION_INTERVAL_MS
+                    } else if (soakState.phase == YPlaybackPhase.Ended) {
                         awaitFreshVideoOutput(player, "${testCase.id}:soak-loop") {
                             if (soakQueue && soakState.itemCount > 1) {
                                 player.selectItem(if (soakState.currentIndex == 0) 1 else 0)
+                                queueTransitions += 1
                             } else {
                                 player.seekTo(0L)
                             }
@@ -329,6 +344,7 @@ class YCoreMediaSuiteInstrumentedTest {
                         nextProgressAtMs += SOAK_PROGRESS_INTERVAL_MS
                     }
                 }
+                completedSoakMinutes = (soakDurationMs / 60_000L).toInt()
             }
 
             if (verifyNextEpisode) {
@@ -337,11 +353,13 @@ class YCoreMediaSuiteInstrumentedTest {
                     player.play()
                 }
                 assertTrue(player.state.value.currentIndex == 1)
+                queueTransitions += 1
                 awaitFreshVideoOutput(player, "${testCase.id}:previous-episode") {
                     player.selectItem(0)
                     player.play()
                 }
                 assertTrue(player.state.value.currentIndex == 0)
+                queueTransitions += 1
                 reportProgress("${testCase.id}: completed next/previous episode round trip")
             }
             val finishFromMs = (player.state.value.durationMs - FINISH_END_GUARD_MS).coerceAtLeast(0L)
@@ -360,6 +378,11 @@ class YCoreMediaSuiteInstrumentedTest {
                     state = player.state.value,
                     completed = completed,
                     timedOut = timedOut,
+                    seekCycles = completedSeekCycles,
+                    surfaceRecreations = completedSurfaceRecreations,
+                    queueTransitions = queueTransitions,
+                    continuousSoakMinutes = if (soakQueue) 0 else completedSoakMinutes,
+                    queueSoakMinutes = if (soakQueue) completedSoakMinutes else 0,
                 ),
             )
             player.release()
@@ -429,7 +452,10 @@ class YCoreMediaSuiteInstrumentedTest {
                     assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
                     val audioOutputReady =
                         state.audioTracks.isEmpty() || state.diagnostics.audioOutputVerified
-                    if (state.diagnostics.videoOutputVerified && audioOutputReady) return@withTimeout
+                    if (state.diagnostics.videoOutputVerified && audioOutputReady) {
+                        assertPureNativeRoute(label, state)
+                        return@withTimeout
+                    }
                     delay(POLL_INTERVAL_MS)
                 }
             }
@@ -449,7 +475,9 @@ class YCoreMediaSuiteInstrumentedTest {
                 player.state.first { state ->
                     assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
                     val tracks = if (type == YTrackType.Audio) state.audioTracks else state.subtitleTracks
-                    tracks.any { it.id == id && it.selected }
+                    tracks.any { it.id == id && it.selected }.also { selected ->
+                        if (selected) assertPureNativeRoute(label, state)
+                    }
                 }
             }
         } catch (failure: TimeoutCancellationException) {
@@ -465,7 +493,9 @@ class YCoreMediaSuiteInstrumentedTest {
             withTimeout(PLAYBACK_TIMEOUT_MS) {
                 player.state.first { state ->
                     assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
-                    state.phase == YPlaybackPhase.Ended
+                    (state.phase == YPlaybackPhase.Ended).also { ended ->
+                        if (ended) assertPureNativeRoute(label, state)
+                    }
                 }
             }
         } catch (failure: TimeoutCancellationException) {
@@ -486,9 +516,12 @@ class YCoreMediaSuiteInstrumentedTest {
                         player.state.first { state ->
                             assertFalse(failureMessage(label, state), state.phase == YPlaybackPhase.Failed)
                             if (!state.diagnostics.videoOutputVerified) resetObserved = true
-                            resetObserved &&
-                                state.diagnostics.videoOutputVerified &&
-                                (state.audioTracks.isEmpty() || state.diagnostics.audioOutputVerified)
+                            val outputReady =
+                                resetObserved &&
+                                    state.diagnostics.videoOutputVerified &&
+                                    (state.audioTracks.isEmpty() || state.diagnostics.audioOutputVerified)
+                            if (outputReady) assertPureNativeRoute(label, state)
+                            outputReady
                         }
                     }
                 } catch (failure: TimeoutCancellationException) {
@@ -546,6 +579,16 @@ class YCoreMediaSuiteInstrumentedTest {
             append(", audio=")
             append(state.diagnostics.audioOutput)
         }
+
+    private fun assertPureNativeRoute(
+        label: String,
+        state: com.yfuse.core2.api.YPlayerState,
+    ) {
+        assertTrue(
+            "$label used non-native route ${state.diagnostics.route}: ${state.diagnostics.reason}",
+            state.diagnostics.route in PURE_NATIVE_ROUTES,
+        )
+    }
 
     private fun stressSeekTarget(
         durationMs: Long,
@@ -615,6 +658,11 @@ class YCoreMediaSuiteInstrumentedTest {
             state: com.yfuse.core2.api.YPlayerState,
             completed: Boolean,
             timedOut: Boolean,
+            seekCycles: Int,
+            surfaceRecreations: Int,
+            queueTransitions: Int,
+            continuousSoakMinutes: Int,
+            queueSoakMinutes: Int,
         ): YMediaTestObservation {
             val endBattery = batteryPermille()
             return YMediaTestObservation(
@@ -643,6 +691,11 @@ class YCoreMediaSuiteInstrumentedTest {
                 // A native-DV badge/decoder name alone proves neither RPU application nor P7 EL.
                 dolbyRpuApplied = false,
                 dolbyEnhancementLayerComposed = false,
+                seekCycles = seekCycles,
+                surfaceRecreations = surfaceRecreations,
+                queueTransitions = queueTransitions,
+                continuousSoakMinutes = continuousSoakMinutes,
+                queueSoakMinutes = queueSoakMinutes,
             )
         }
 
@@ -652,8 +705,7 @@ class YCoreMediaSuiteInstrumentedTest {
             return if (percent in 0..100) percent * 10 else -1
         }
 
-        private fun thermalStatus(): Int =
-            if (Build.VERSION.SDK_INT >= 29) powerManager?.currentThermalStatus ?: 0 else 0
+        private fun thermalStatus(): Int = if (Build.VERSION.SDK_INT >= 29) powerManager?.currentThermalStatus ?: 0 else 0
     }
 }
 
@@ -723,6 +775,13 @@ private const val RESULT_STATUS_CODE = 3
 private const val RESULT_BUNDLE_KEY = "ycoreResult"
 private const val SOAK_SAMPLE_INTERVAL_MS = 30_000L
 private const val SOAK_PROGRESS_INTERVAL_MS = 5L * 60_000L
+private const val QUEUE_TRANSITION_INTERVAL_MS = 10L * 60_000L
+private val PURE_NATIVE_ROUTES =
+    setOf(
+        YPlaybackRoute.NativeTunnel,
+        YPlaybackRoute.NativeDirect,
+        YPlaybackRoute.NativeEnhanced,
+    )
 
 private fun Bundle.intArgument(
     key: String,

@@ -190,10 +190,13 @@ class DetailComponent(
         var preloadKey: PlaybackPreloadKey? = null
         var preloadStore: PreparedPlayerStore? = null
         var preloadObserver: Job? = null
+        var sourceWarmup: PlaybackSourcePreload? = null
 
         fun releaseOwnedPreload() {
             preloadObserver?.cancel()
             preloadObserver = null
+            sourceWarmup?.cancel()
+            sourceWarmup = null
             val key = preloadKey
             val prepared = preloadStore
             if (key != null &&
@@ -279,6 +282,7 @@ class DetailComponent(
                         startPositionTicks = startTicks,
                         serverId = server.id,
                         mediaSourceId = state.selectedVersionId,
+                        mediaVersionPreference = dependencies.playbackPreferences.mediaVersionPreference.value,
                         failoverRequest = dependencies.playbackFailoverRequest,
                         healthMonitor = dependencies.serverHealthMonitor,
                     ).create()
@@ -301,7 +305,8 @@ class DetailComponent(
                                 selected != null &&
                                 selected.canPreloadSource
                             ) {
-                                sourcePreloader?.preload(selected.url)
+                                sourceWarmup?.cancel()
+                                sourceWarmup = sourcePreloader?.preload(selected)
                             }
                             // Ready/failed is terminal for PlayerStore. Keeping the Store itself is
                             // intentional: PlayerComponent claims this exact result for one launch.

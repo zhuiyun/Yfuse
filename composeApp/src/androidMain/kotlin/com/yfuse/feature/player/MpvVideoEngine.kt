@@ -16,9 +16,11 @@ import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackDolbyVisionPath
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.bluRayDiscRoot
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
+import com.yfuse.core.playback.mpvBufferProfile
 import com.yfuse.core.playback.playbackDolbyVisionRoute
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +50,16 @@ internal fun mpvScaleModeProperties(mode: VideoScaleMode): MpvScaleModePropertie
         panscan = if (mode == VideoScaleMode.Fill) 1.0 else 0.0,
         keepAspect = mode != VideoScaleMode.Stretch,
     )
+
+internal fun externalSubtitleMpvCommand(item: PlayerMediaItem): Array<String>? {
+    val uri = item.externalSubtitleUri?.takeIf(String::isNotBlank) ?: return null
+    val language = item.externalSubtitleLanguage?.takeIf(String::isNotBlank)
+    return if (language == null) {
+        arrayOf("sub-add", uri, "select", "外挂字幕")
+    } else {
+        arrayOf("sub-add", uri, "select", "外挂字幕", language)
+    }
+}
 
 internal fun mpvAudioOutputReadiness(
     outputDriver: String?,
@@ -123,12 +135,14 @@ class MpvVideoEngine(
     startPlaybackRequested: Boolean,
     private val startSpeed: Float,
     private val decoderMode: DecoderMode,
+    private val optimizationMode: PlaybackOptimizationMode,
     private val autoNext: Boolean,
     private val customUserAgent: String,
     private val scope: CoroutineScope,
     private val stopEncoding: suspend (String) -> Boolean = { true },
     private val dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
+    private val videoCacheBytes: Long = 0L,
 ) : VideoEngine {
     private val items = items
     private val outputPreferences = GlobalContext.get().get<PlaybackPreferences>()
@@ -154,15 +168,20 @@ class MpvVideoEngine(
     private val fileLoadLastProgressMs = AtomicLong(-1L)
     private val endFileTracker = MpvEndFileTracker()
     private val networkProxy =
-        runCatching { AndroidPlaybackHttpProxy(customUserAgent) }
-            .onFailure { error ->
-                AppLog.warning(
-                    category = "player.mpv.network",
-                    event = "platform_proxy_unavailable",
-                    message = "Could not start the Android platform transport bridge",
-                    throwable = error,
-                )
-            }.getOrNull()
+        runCatching {
+            AndroidPlaybackHttpProxy(
+                context = context.applicationContext,
+                userAgent = customUserAgent,
+                videoCacheBytes = videoCacheBytes,
+            )
+        }.onFailure { error ->
+            AppLog.warning(
+                category = "player.mpv.network",
+                event = "platform_proxy_unavailable",
+                message = "Could not start the Android platform transport bridge",
+                throwable = error,
+            )
+        }.getOrNull()
     private val surfaceGeneration = AtomicLong(0L)
     private val surfaceRecoveryAttempts = AtomicLong(0L)
     private val surfaceRecoveryInProgress = AtomicBoolean(false)
@@ -616,6 +635,10 @@ class MpvVideoEngine(
                                 automaticFallbackBlocked = false,
                             )
                         }
+                        items
+                            .getOrNull(_state.value.currentIndex)
+                            ?.let(::externalSubtitleMpvCommand)
+                            ?.let { command -> withMpv { it.command(command) } }
                         readTracks()
                         readDiscNavigation()
                         readVideoSize()
@@ -751,11 +774,14 @@ class MpvVideoEngine(
                         !item.url.startsWith("content://", ignoreCase = true)
                 }
             if (hugeRemoteSource) {
-                // Keep remote remux/BD seeks bounded: enough forward data for high-bitrate peaks,
-                // without retaining hundreds of megabytes after every Range jump.
-                instance.optionalOption("demuxer-max-bytes", "64MiB")
-                instance.optionalOption("demuxer-max-back-bytes", "16MiB")
-                instance.optionalOption("demuxer-readahead-secs", "20")
+                // Keep remote remux/BD seeks bounded while following the user's memory/startup goal.
+                val bufferProfile = mpvBufferProfile(optimizationMode)
+                instance.optionalOption("demuxer-max-bytes", bufferProfile.forwardBytes.toString())
+                instance.optionalOption("demuxer-max-back-bytes", bufferProfile.backBytes.toString())
+                instance.optionalOption(
+                    "demuxer-readahead-secs",
+                    bufferProfile.readaheadSeconds.toString(),
+                )
                 instance.optionalOption("cache-pause-initial", "yes")
                 instance.optionalOption("cache-pause-wait", "1")
             }
@@ -1676,7 +1702,14 @@ class MpvVideoEngine(
             withMpvResult { instance ->
                 instance.configureDolbyVisionRouteForCurrentItem()
                 val preparedUrl = instance.prepareDiscUrl(url)
-                val transportUrl = networkProxy?.localUrl(preparedUrl) ?: preparedUrl
+                val index = _state.value.currentIndex
+                val item = items.getOrNull(index)
+                val usingServerTranscode =
+                    index in transcodedIndices || index in progressiveIndices
+                val cacheable =
+                    item?.persistentPlaybackCacheUrl(usingServerTranscode) == preparedUrl.trim()
+                val transportUrl =
+                    networkProxy?.localUrl(preparedUrl, cacheable = cacheable) ?: preparedUrl
                 instance.command(arrayOf("loadfile", transportUrl))
                 AppLog.info(
                     category = "player.mpv.network",

@@ -187,7 +187,7 @@ class PlaybackPlannerTest {
     }
 
     @Test
-    fun protected_content_safely_overrides_a_native_backend_lock() {
+    fun protected_content_cannot_silently_override_a_native_backend_lock() {
         val plan =
             planPlayback(
                 probe = probe(container = "mp4").copy(drmProtected = true),
@@ -197,10 +197,10 @@ class PlaybackPlannerTest {
                 engineSelection = PlaybackEngineSelection.LockMpv,
             )
 
-        assertEquals(PlayerEngine.Exo, plan.primaryEngine)
-        assertEquals(listOf(PlayerEngine.Exo), plan.engineOrder)
+        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+        assertEquals(listOf(PlayerEngine.Mpv), plan.engineOrder)
         assertEquals(DecoderMode.Hardware, plan.decoderMode)
-        assertTrue(plan.reason.orEmpty().contains("安全输出"))
+        assertTrue(plan.reason.orEmpty().contains("已锁定"))
     }
 
     @Test

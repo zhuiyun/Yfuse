@@ -50,6 +50,8 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun selectDiscChapter(index: Int): Boolean = player.selectDiscChapter(index)
 
+    override fun selectDiscAngle(index: Int): Boolean = player.selectDiscAngle(index)
+
     override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = player.sendDiscMenuCommand(command)
 
     override fun currentPositionMs(): Long = player.currentPositionMs()
@@ -60,8 +62,7 @@ internal class YPlayerVideoEngineAdapter(
 }
 
 /** Returns the product player without wrapping a Core2 player back through the Legacy contract. */
-internal fun VideoEngine.asYPlayer(): YPlayer =
-    if (this is YPlayerVideoEngineAdapter) player else LegacyYPlayerAdapter(this)
+internal fun VideoEngine.asYPlayer(): YPlayer = if (this is YPlayerVideoEngineAdapter) player else LegacyYPlayerAdapter(this)
 
 /**
  * Product presentation bridge used while YPlayerState intentionally omits Legacy-only extensions.
@@ -83,8 +84,7 @@ private class ReverseMappedStateFlow<Source, Target>(
 
     override val replayCache: List<Target> get() = listOf(value)
 
-    override suspend fun collect(collector: FlowCollector<Target>): Nothing =
-        source.collect { value -> collector.emit(transform(value)) }
+    override suspend fun collect(collector: FlowCollector<Target>): Nothing = source.collect { value -> collector.emit(transform(value)) }
 }
 
 private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =

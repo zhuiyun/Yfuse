@@ -1,14 +1,17 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cctype>
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <new>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 extern "C" {
@@ -21,7 +24,15 @@ extern "C" {
 #include <libavutil/dovi_meta.h>
 #include <libavutil/error.h>
 #include <libavutil/mastering_display_metadata.h>
+#include <libavutil/mem.h>
+#include <libbluray/bluray.h>
+#include <libbluray/keys.h>
+#include <libswresample/swresample.h>
+#include <libswscale/swscale.h>
 }
+
+#include "ycore_tone_map.h"
+#include "ycore_disc_uri.h"
 
 namespace {
 
@@ -54,14 +65,77 @@ constexpr jlong kNoTimestamp = std::numeric_limits<jlong>::min();
 constexpr uint32_t kSubtitlePayloadMagic = 0x42555359;
 constexpr uint32_t kSubtitlePayloadVersion = 1;
 constexpr size_t kMaxSubtitlePayloadBytes = 32U * 1024U * 1024U;
+constexpr size_t kMaxSoftwareVideoFrameBytes = 128U * 1024U * 1024U;
+constexpr size_t kMaxSoftwareAudioFrameBytes = 8U * 1024U * 1024U;
+constexpr size_t kMaxSoftwareToneMapPixels = 4096U * 2160U;
+constexpr int kSoftwareFrameAgain = 0;
+constexpr int kSoftwareFrameData = 1;
+constexpr int kSoftwareFrameEof = 2;
+constexpr int kSoftwareFrameGrowBuffer = -1;
+constexpr int kSoftwareDecoderApiVersion = 2;
+constexpr int kDiscApiVersion = 1;
+constexpr int kDiscBlockSize = 2048;
+constexpr int kDiscAvioBufferBytes = 64 * 1024;
+constexpr int64_t kBlurayClock = 90000;
+
+struct BlurayIo;
+
+struct DiscSource {
+    JavaVM* vm = nullptr;
+    jobject object = nullptr;
+    jmethodID read_blocks = nullptr;
+    jmethodID publish_state = nullptr;
+    jmethodID close_source = nullptr;
+    std::string path;
+    std::mutex mutex;
+    BlurayIo* active = nullptr;
+    int preferred_title = -1;
+
+    ~DiscSource();
+};
+
+struct BlurayIo {
+    std::shared_ptr<DiscSource> source;
+    BLURAY* bd = nullptr;
+    BLURAY_TITLE_INFO* title_info = nullptr;
+    int title_count = 0;
+    int current_title = 0;
+    int current_angle = 0;
+
+    ~BlurayIo();
+};
+
+std::mutex g_disc_sources_mutex;
+std::unordered_map<int64_t, std::shared_ptr<DiscSource>> g_disc_sources;
+std::atomic<int64_t> g_next_disc_source_id{1};
+
+struct SoftwareDecoder {
+    AVCodecContext* codec = nullptr;
+    AVFrame* frame = nullptr;
+    SwsContext* scaler = nullptr;
+    SwrContext* resampler = nullptr;
+    std::vector<uint16_t> tone_map_rgb48;
+    bool frame_pending = false;
+    bool tone_map_hdr_to_sdr = false;
+
+    ~SoftwareDecoder() {
+        swr_free(&resampler);
+        sws_freeContext(scaler);
+        if (frame) av_frame_free(&frame);
+        if (codec) avcodec_free_context(&codec);
+    }
+};
 
 struct DemuxSession {
     AVFormatContext* format = nullptr;
+    AVIOContext* custom_io = nullptr;
+    std::shared_ptr<BlurayIo> disc;
     AVPacket* packet = nullptr;
     bool packet_pending = false;
     bool remote_source = false;
     std::vector<uint8_t> selected;
     std::vector<AVCodecContext*> subtitle_decoders;
+    std::vector<std::unique_ptr<SoftwareDecoder>> software_decoders;
 
     ~DemuxSession() {
         for (AVCodecContext*& decoder : subtitle_decoders) {
@@ -70,9 +144,12 @@ struct DemuxSession {
         if (packet) {
             av_packet_free(&packet);
         }
-        if (format) {
-            avformat_close_input(&format);
+        if (format) avformat_close_input(&format);
+        if (custom_io) {
+            av_freep(&custom_io->buffer);
+            avio_context_free(&custom_io);
         }
+        disc.reset();
     }
 };
 
@@ -82,6 +159,47 @@ DemuxSession* from_handle(jlong handle) {
 
 jlong to_handle(DemuxSession* session) {
     return static_cast<jlong>(reinterpret_cast<intptr_t>(session));
+}
+
+JNIEnv* disc_env(JavaVM* vm, bool* attached) {
+    *attached = false;
+    if (!vm) return nullptr;
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_OK) return env;
+    if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return nullptr;
+    *attached = true;
+    return env;
+}
+
+void clear_java_exception(JNIEnv* env) {
+    if (env && env->ExceptionCheck()) env->ExceptionClear();
+}
+
+DiscSource::~DiscSource() {
+    bool attached = false;
+    JNIEnv* env = disc_env(vm, &attached);
+    if (env && object) {
+        env->CallVoidMethod(object, close_source);
+        clear_java_exception(env);
+        env->DeleteGlobalRef(object);
+        object = nullptr;
+    }
+    if (attached) vm->DetachCurrentThread();
+}
+
+BlurayIo::~BlurayIo() {
+    if (source) {
+        std::lock_guard<std::mutex> lock(source->mutex);
+        if (source->active == this) source->active = nullptr;
+    }
+    if (title_info) bd_free_title_info(title_info);
+    if (bd) bd_close(bd);
+}
+
+std::shared_ptr<DiscSource> find_disc_source(int64_t source_id) {
+    std::lock_guard<std::mutex> lock(g_disc_sources_mutex);
+    const auto found = g_disc_sources.find(source_id);
+    return found == g_disc_sources.end() ? nullptr : found->second;
 }
 
 void throw_java(JNIEnv* env, const char* class_name, const std::string& message) {
@@ -196,6 +314,215 @@ std::string build_headers(
     }
     *valid = true;
     return output;
+}
+
+int disc_read_blocks(void* opaque, void* destination, int lba, int block_count) {
+    auto* source = static_cast<DiscSource*>(opaque);
+    if (!source || !source->object || !destination || lba < 0 || block_count <= 0) return -1;
+    const int64_t byte_count = static_cast<int64_t>(block_count) * kDiscBlockSize;
+    if (byte_count <= 0 || byte_count > std::numeric_limits<jsize>::max()) return -1;
+
+    bool attached = false;
+    JNIEnv* env = disc_env(source->vm, &attached);
+    if (!env) return -1;
+    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(byte_count));
+    if (!bytes) {
+        clear_java_exception(env);
+        if (attached) source->vm->DetachCurrentThread();
+        return -1;
+    }
+    jint blocks = env->CallIntMethod(
+        source->object,
+        source->read_blocks,
+        static_cast<jint>(lba),
+        static_cast<jint>(block_count),
+        bytes,
+        0);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        blocks = -1;
+    }
+    if (blocks > 0 && blocks <= block_count) {
+        const jsize copied = static_cast<jsize>(static_cast<int64_t>(blocks) * kDiscBlockSize);
+        env->GetByteArrayRegion(bytes, 0, copied, static_cast<jbyte*>(destination));
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            blocks = -1;
+        }
+    } else if (blocks > block_count) {
+        blocks = -1;
+    }
+    env->DeleteLocalRef(bytes);
+    if (attached) source->vm->DetachCurrentThread();
+    return blocks;
+}
+
+void refresh_disc_title_info(BlurayIo* disc) {
+    if (!disc || !disc->bd) return;
+    if (disc->title_info) {
+        bd_free_title_info(disc->title_info);
+        disc->title_info = nullptr;
+    }
+    disc->current_title = bd_get_current_title(disc->bd);
+    if (disc->current_title < 0 || disc->current_title >= disc->title_count) {
+        disc->current_title = 0;
+    }
+    disc->current_angle = std::max(0, bd_get_current_angle(disc->bd));
+    disc->title_info = bd_get_title_info(disc->bd, disc->current_title, disc->current_angle);
+}
+
+void publish_disc_state(BlurayIo* disc) {
+    if (!disc || !disc->source || !disc->source->object || !disc->bd) return;
+    const int chapter_count = disc->title_info ? static_cast<int>(disc->title_info->chapter_count) : 0;
+    int chapter = static_cast<int>(bd_get_current_chapter(disc->bd));
+    if (chapter < 0 || (chapter_count > 0 && chapter >= chapter_count)) chapter = 0;
+    const int angle_count = disc->title_info ? static_cast<int>(disc->title_info->angle_count) : 0;
+
+    bool attached = false;
+    JNIEnv* env = disc_env(disc->source->vm, &attached);
+    if (env) {
+        env->CallVoidMethod(
+            disc->source->object,
+            disc->source->publish_state,
+            static_cast<jint>(disc->title_count),
+            static_cast<jint>(disc->current_title),
+            static_cast<jint>(chapter_count),
+            static_cast<jint>(chapter),
+            static_cast<jint>(angle_count),
+            static_cast<jint>(disc->current_angle));
+        clear_java_exception(env);
+    }
+    if (attached) disc->source->vm->DetachCurrentThread();
+}
+
+void drain_disc_events(BlurayIo* disc) {
+    if (!disc || !disc->bd) return;
+    bool changed = false;
+    BD_EVENT event = {};
+    while (bd_get_event(disc->bd, &event)) {
+        switch (event.event) {
+            case BD_EVENT_TITLE:
+            case BD_EVENT_PLAYLIST:
+                refresh_disc_title_info(disc);
+                changed = true;
+                break;
+            case BD_EVENT_CHAPTER:
+                changed = true;
+                break;
+            case BD_EVENT_ANGLE:
+                disc->current_angle = static_cast<int>(event.param);
+                refresh_disc_title_info(disc);
+                changed = true;
+                break;
+            case BD_EVENT_STILL_TIME:
+                bd_read_skip_still(disc->bd);
+                break;
+            default:
+                break;
+        }
+    }
+    if (changed) publish_disc_state(disc);
+}
+
+int disc_avio_read(void* opaque, uint8_t* destination, int size) {
+    auto* disc = static_cast<BlurayIo*>(opaque);
+    if (!disc || !disc->source || !disc->bd || !destination || size <= 0) return AVERROR(EINVAL);
+    std::lock_guard<std::mutex> lock(disc->source->mutex);
+    drain_disc_events(disc);
+    const int result = bd_read(disc->bd, destination, size);
+    drain_disc_events(disc);
+    return result < 0 ? AVERROR(EIO) : result;
+}
+
+int64_t disc_avio_seek(void* opaque, int64_t offset, int whence) {
+    auto* disc = static_cast<BlurayIo*>(opaque);
+    if (!disc || !disc->source || !disc->bd) return AVERROR(EINVAL);
+    std::lock_guard<std::mutex> lock(disc->source->mutex);
+    if (whence & AVSEEK_SIZE) return static_cast<int64_t>(bd_get_title_size(disc->bd));
+    const int origin = whence & ~AVSEEK_FORCE;
+    int64_t target = offset;
+    if (origin == SEEK_CUR) {
+        target += static_cast<int64_t>(bd_tell(disc->bd));
+    } else if (origin == SEEK_END) {
+        target += static_cast<int64_t>(bd_get_title_size(disc->bd));
+    } else if (origin != SEEK_SET) {
+        return AVERROR(EINVAL);
+    }
+    if (target < 0) return AVERROR(EINVAL);
+    const uint64_t position = bd_seek(disc->bd, static_cast<uint64_t>(target));
+    drain_disc_events(disc);
+    return static_cast<int64_t>(position);
+}
+
+int open_bluray_demux(
+    int64_t source_id,
+    DemuxSession* session) {
+    const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
+    if (!source || !session) return AVERROR(ENOENT);
+    auto disc = std::make_shared<BlurayIo>();
+    disc->source = source;
+    if (source->path.empty()) {
+        disc->bd = bd_init();
+        if (!disc->bd || !bd_open_stream(disc->bd, source.get(), disc_read_blocks)) {
+            return AVERROR_INVALIDDATA;
+        }
+    } else {
+        disc->bd = bd_open(source->path.c_str(), nullptr);
+        if (!disc->bd) return AVERROR_INVALIDDATA;
+    }
+    const BLURAY_DISC_INFO* info = bd_get_disc_info(disc->bd);
+    if (
+        !info ||
+        !info->bluray_detected ||
+        (info->aacs_detected && !info->aacs_handled) ||
+        (info->bdplus_detected && !info->bdplus_handled)
+    ) {
+        return AVERROR(EACCES);
+    }
+    disc->title_count = static_cast<int>(bd_get_titles(disc->bd, TITLES_RELEVANT, 0));
+    if (disc->title_count <= 0) return AVERROR_INVALIDDATA;
+    bd_get_event(disc->bd, nullptr);
+    int title = source->preferred_title;
+    if (title < 0 || title >= disc->title_count) title = bd_get_main_title(disc->bd);
+    if (title < 0 || title >= disc->title_count) title = 0;
+    if (!bd_select_title(disc->bd, static_cast<uint32_t>(title))) return AVERROR_INVALIDDATA;
+    refresh_disc_title_info(disc.get());
+
+    {
+        std::lock_guard<std::mutex> lock(source->mutex);
+        if (source->active) return AVERROR(EBUSY);
+        source->active = disc.get();
+    }
+    session->disc = disc;
+    uint8_t* io_buffer = static_cast<uint8_t*>(av_malloc(kDiscAvioBufferBytes));
+    if (!io_buffer) return AVERROR(ENOMEM);
+    session->custom_io =
+        avio_alloc_context(
+            io_buffer,
+            kDiscAvioBufferBytes,
+            0,
+            disc.get(),
+            disc_avio_read,
+            nullptr,
+            disc_avio_seek);
+    if (!session->custom_io) {
+        av_free(io_buffer);
+        return AVERROR(ENOMEM);
+    }
+    session->custom_io->seekable = AVIO_SEEKABLE_NORMAL;
+    session->format = avformat_alloc_context();
+    if (!session->format) return AVERROR(ENOMEM);
+    session->format->pb = session->custom_io;
+    session->format->flags |= AVFMT_FLAG_CUSTOM_IO;
+    const AVInputFormat* input = av_find_input_format("mpegts");
+    if (!input) return AVERROR_DEMUXER_NOT_FOUND;
+    AVDictionary* options = nullptr;
+    av_dict_set(&options, "scan_all_pmts", "1", 0);
+    const int error = avformat_open_input(&session->format, nullptr, input, &options);
+    av_dict_free(&options);
+    if (error < 0) return error;
+    publish_disc_state(disc.get());
+    return 0;
 }
 
 AVStream* checked_stream(JNIEnv* env, DemuxSession* session, jint index) {
@@ -358,6 +685,181 @@ AVCodecContext* subtitle_decoder(JNIEnv* env, DemuxSession* session, jint index)
     return existing;
 }
 
+SoftwareDecoder* software_decoder(
+    JNIEnv* env,
+    DemuxSession* session,
+    jint index) {
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return nullptr;
+    if (stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO &&
+        stream->codecpar->codec_type != AVMEDIA_TYPE_AUDIO) {
+        throw_illegal_argument(env, "FFmpeg software decoder requires a video or audio track");
+        return nullptr;
+    }
+    std::unique_ptr<SoftwareDecoder>& existing = session->software_decoders[index];
+    if (existing) return existing.get();
+
+    const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
+    if (!codec) {
+        throw_illegal_state(env, "FFmpeg software decoder is unavailable");
+        return nullptr;
+    }
+    auto decoder = std::make_unique<SoftwareDecoder>();
+    decoder->codec = avcodec_alloc_context3(codec);
+    decoder->frame = av_frame_alloc();
+    if (!decoder->codec || !decoder->frame) {
+        throw_illegal_state(env, "Unable to allocate FFmpeg software decoder");
+        return nullptr;
+    }
+    int error = avcodec_parameters_to_context(decoder->codec, stream->codecpar);
+    if (error >= 0) {
+        decoder->codec->pkt_timebase = stream->time_base;
+        decoder->codec->thread_count = 0;
+        error = avcodec_open2(decoder->codec, codec, nullptr);
+    }
+    if (error < 0) {
+        throw_illegal_state(env, "FFmpeg software decoder open failed: " + ffmpeg_error(error));
+        return nullptr;
+    }
+    SoftwareDecoder* result = decoder.get();
+    existing = std::move(decoder);
+    return result;
+}
+
+double hdr_mastering_peak_nits(const AVCodecParameters* parameters) {
+    const AVPacketSideData* light_side = av_packet_side_data_get(
+        parameters->coded_side_data,
+        parameters->nb_coded_side_data,
+        AV_PKT_DATA_CONTENT_LIGHT_LEVEL);
+    if (light_side && light_side->data && light_side->size >= sizeof(AVContentLightMetadata)) {
+        const auto* light = reinterpret_cast<const AVContentLightMetadata*>(light_side->data);
+        if (light->MaxCLL > 0) return light->MaxCLL;
+    }
+    const AVPacketSideData* mastering_side = av_packet_side_data_get(
+        parameters->coded_side_data,
+        parameters->nb_coded_side_data,
+        AV_PKT_DATA_MASTERING_DISPLAY_METADATA);
+    if (mastering_side && mastering_side->data &&
+        mastering_side->size >= sizeof(AVMasteringDisplayMetadata)) {
+        const auto* mastering =
+            reinterpret_cast<const AVMasteringDisplayMetadata*>(mastering_side->data);
+        if (mastering->has_luminance) {
+            const double maximum = av_q2d(mastering->max_luminance);
+            if (maximum > 0.0) return maximum;
+        }
+    }
+    return 1000.0;
+}
+
+bool tone_map_hdr_frame(
+    JNIEnv* env,
+    SoftwareDecoder* decoder,
+    AVStream* stream,
+    uint8_t* destination) {
+    const int width = decoder->frame->width;
+    const int height = decoder->frame->height;
+    const size_t pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (pixel_count == 0 || pixel_count > kMaxSoftwareToneMapPixels) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map frame exceeds the 4K safety limit");
+        return false;
+    }
+    const AVColorTransferCharacteristic transfer =
+        decoder->frame->color_trc != AVCOL_TRC_UNSPECIFIED
+        ? decoder->frame->color_trc
+        : stream->codecpar->color_trc;
+    if (transfer != AVCOL_TRC_SMPTE2084 && transfer != AVCOL_TRC_ARIB_STD_B67) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map transfer is unsupported or unspecified");
+        return false;
+    }
+    const AVColorPrimaries primaries =
+        decoder->frame->color_primaries != AVCOL_PRI_UNSPECIFIED
+        ? decoder->frame->color_primaries
+        : stream->codecpar->color_primaries;
+    if (primaries != AVCOL_PRI_BT2020 && primaries != AVCOL_PRI_UNSPECIFIED) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map primaries are not BT.2020");
+        return false;
+    }
+
+    try {
+        decoder->tone_map_rgb48.resize(pixel_count * 3U);
+    } catch (const std::bad_alloc&) {
+        throw_illegal_state(env, "Unable to allocate the FFmpeg HDR tone-map buffer");
+        return false;
+    }
+    decoder->scaler = sws_getCachedContext(
+        decoder->scaler,
+        width,
+        height,
+        static_cast<AVPixelFormat>(decoder->frame->format),
+        width,
+        height,
+        AV_PIX_FMT_RGB48LE,
+        SWS_BILINEAR,
+        nullptr,
+        nullptr,
+        nullptr);
+    if (!decoder->scaler) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map scaler is unavailable");
+        return false;
+    }
+    const int* source_coefficients = sws_getCoefficients(SWS_CS_BT2020);
+    const int* target_coefficients = sws_getCoefficients(SWS_CS_ITU709);
+    const int source_full_range = decoder->frame->color_range == AVCOL_RANGE_JPEG ? 1 : 0;
+    if (!source_coefficients || !target_coefficients ||
+        sws_setColorspaceDetails(
+            decoder->scaler,
+            source_coefficients,
+            source_full_range,
+            target_coefficients,
+            1,
+            0,
+            1 << 16,
+            1 << 16) < 0) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map colorspace configuration failed");
+        return false;
+    }
+    uint8_t* intermediate_data[] = {
+        reinterpret_cast<uint8_t*>(decoder->tone_map_rgb48.data()),
+        nullptr,
+        nullptr,
+        nullptr,
+    };
+    const int intermediate_linesize[] = {width * 6, 0, 0, 0};
+    const int scaled = sws_scale(
+        decoder->scaler,
+        decoder->frame->data,
+        decoder->frame->linesize,
+        0,
+        height,
+        intermediate_data,
+        intermediate_linesize);
+    if (scaled != height) {
+        throw_illegal_state(env, "FFmpeg HDR tone-map conversion was incomplete");
+        return false;
+    }
+
+    const ycore_tone_map::Transfer tone_map_transfer =
+        transfer == AVCOL_TRC_SMPTE2084
+        ? ycore_tone_map::Transfer::Pq
+        : ycore_tone_map::Transfer::Hlg;
+    const double mastering_peak_nits = hdr_mastering_peak_nits(stream->codecpar);
+    for (size_t pixel = 0; pixel < pixel_count; ++pixel) {
+        const size_t source_offset = pixel * 3U;
+        const ycore_tone_map::BgraPixel output = ycore_tone_map::bt2020_to_sdr(
+            decoder->tone_map_rgb48[source_offset],
+            decoder->tone_map_rgb48[source_offset + 1U],
+            decoder->tone_map_rgb48[source_offset + 2U],
+            tone_map_transfer,
+            mastering_peak_nits);
+        const size_t target_offset = pixel * 4U;
+        destination[target_offset] = output.blue;
+        destination[target_offset + 1U] = output.green;
+        destination[target_offset + 2U] = output.red;
+        destination[target_offset + 3U] = output.alpha;
+    }
+    return true;
+}
+
 bool append_bitmap_rect(std::vector<uint8_t>* output, const AVSubtitleRect* rect) {
     if (!rect || rect->type != SUBTITLE_BITMAP || rect->w <= 0 || rect->h <= 0 ||
         rect->nb_colors <= 0 || rect->nb_colors > 256 || !rect->data[0] || !rect->data[1] ||
@@ -418,6 +920,140 @@ jlongArray make_packet_result(
     return result;
 }
 
+jlongArray make_software_frame_result(
+    JNIEnv* env,
+    jlong status,
+    jlong size,
+    jlong pts_us,
+    jlong first,
+    jlong second,
+    jlong third) {
+    const jlong values[] = {status, size, pts_us, first, second, third};
+    jlongArray result = env->NewLongArray(sizeof(values) / sizeof(values[0]));
+    if (result) {
+        env->SetLongArrayRegion(result, 0, sizeof(values) / sizeof(values[0]), values);
+    }
+    return result;
+}
+
+jint native_disc_api_version(JNIEnv*, jclass) {
+    return kDiscApiVersion;
+}
+
+jlong native_register_bluray_source(JNIEnv* env, jclass, jobject source_object) {
+    if (!source_object) {
+        throw_illegal_argument(env, "Blu-ray source object is required");
+        return 0;
+    }
+    jclass source_class = env->GetObjectClass(source_object);
+    if (!source_class) return 0;
+    auto source = std::make_shared<DiscSource>();
+    env->GetJavaVM(&source->vm);
+    source->read_blocks = env->GetMethodID(source_class, "readBlocksNative", "(II[BI)I");
+    source->publish_state = env->GetMethodID(source_class, "onNativeDiscState", "(IIIIII)V");
+    source->close_source = env->GetMethodID(source_class, "closeNativeSource", "()V");
+    const jmethodID path_method =
+        env->GetMethodID(source_class, "discPathNative", "()Ljava/lang/String;");
+    if (
+        !source->read_blocks ||
+        !source->publish_state ||
+        !source->close_source ||
+        !path_method ||
+        env->ExceptionCheck()
+    ) {
+        clear_java_exception(env);
+        env->DeleteLocalRef(source_class);
+        throw_illegal_argument(env, "Blu-ray source object has an incompatible callback contract");
+        return 0;
+    }
+    auto path_ref = static_cast<jstring>(env->CallObjectMethod(source_object, path_method));
+    if (env->ExceptionCheck()) {
+        clear_java_exception(env);
+        env->DeleteLocalRef(source_class);
+        throw_illegal_argument(env, "Blu-ray source path callback failed");
+        return 0;
+    }
+    source->path = to_utf8(env, path_ref);
+    if (path_ref) env->DeleteLocalRef(path_ref);
+    source->object = env->NewGlobalRef(source_object);
+    env->DeleteLocalRef(source_class);
+    if (!source->object) {
+        throw_illegal_state(env, "Unable to retain Blu-ray source object");
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lock(g_disc_sources_mutex);
+    if (g_disc_sources.size() >= 16) {
+        throw_illegal_state(env, "Too many registered Blu-ray sources");
+        return 0;
+    }
+    const int64_t source_id = g_next_disc_source_id.fetch_add(1);
+    if (source_id <= 0) {
+        throw_illegal_state(env, "Blu-ray source id space is exhausted");
+        return 0;
+    }
+    g_disc_sources.emplace(source_id, std::move(source));
+    return static_cast<jlong>(source_id);
+}
+
+void native_unregister_bluray_source(JNIEnv*, jclass, jlong source_id) {
+    std::shared_ptr<DiscSource> removed;
+    {
+        std::lock_guard<std::mutex> lock(g_disc_sources_mutex);
+        const auto found = g_disc_sources.find(static_cast<int64_t>(source_id));
+        if (found == g_disc_sources.end()) return;
+        removed = std::move(found->second);
+        g_disc_sources.erase(found);
+    }
+}
+
+jboolean native_select_disc_title(JNIEnv*, jclass, jlong source_id, jint index) {
+    const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
+    if (!source || index < 0) return JNI_FALSE;
+    std::lock_guard<std::mutex> lock(source->mutex);
+    BlurayIo* disc = source->active;
+    if (!disc || index >= disc->title_count) return JNI_FALSE;
+    if (!bd_select_title(disc->bd, static_cast<uint32_t>(index))) return JNI_FALSE;
+    source->preferred_title = index;
+    refresh_disc_title_info(disc);
+    publish_disc_state(disc);
+    return JNI_TRUE;
+}
+
+jlong native_disc_chapter_start_ms(JNIEnv*, jclass, jlong source_id, jint index) {
+    const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
+    if (!source || index < 0) return -1;
+    std::lock_guard<std::mutex> lock(source->mutex);
+    BlurayIo* disc = source->active;
+    if (
+        !disc ||
+        !disc->title_info ||
+        static_cast<uint32_t>(index) >= disc->title_info->chapter_count
+    ) {
+        return -1;
+    }
+    return static_cast<jlong>(disc->title_info->chapters[index].start / (kBlurayClock / 1000));
+}
+
+jboolean native_select_disc_angle(JNIEnv*, jclass, jlong source_id, jint index) {
+    const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
+    if (!source || index < 0) return JNI_FALSE;
+    std::lock_guard<std::mutex> lock(source->mutex);
+    BlurayIo* disc = source->active;
+    if (
+        !disc ||
+        !disc->title_info ||
+        static_cast<uint32_t>(index) >= disc->title_info->angle_count
+    ) {
+        return JNI_FALSE;
+    }
+    bd_seamless_angle_change(disc->bd, static_cast<unsigned>(index));
+    disc->current_angle = index;
+    refresh_disc_title_info(disc);
+    publish_disc_state(disc);
+    return JNI_TRUE;
+}
+
 jlong native_open(
     JNIEnv* env,
     jclass,
@@ -439,11 +1075,18 @@ jlong native_open(
     if (!headers_valid || env->ExceptionCheck()) return 0;
 
     auto session = std::make_unique<DemuxSession>();
+    int64_t disc_source_id = 0;
+    const bool disc_source = ycore_disc::parse_source_id(source, &disc_source_id);
     session->remote_source = is_remote_source(source);
     session->packet = av_packet_alloc();
     if (!session->packet) {
         throw_illegal_state(env, "Unable to allocate FFmpeg packet");
         return 0;
+    }
+
+    if (disc_source) {
+        const int error = open_bluray_demux(disc_source_id, session.get());
+        if (error < 0) return failure_status(error, false);
     }
 
     AVDictionary* options = nullptr;
@@ -462,7 +1105,10 @@ jlong native_open(
         av_dict_set(&options, "rw_timeout", "15000000", 0);
     }
 
-    int error = avformat_open_input(&session->format, source.c_str(), nullptr, &options);
+    int error =
+        disc_source
+        ? 0
+        : avformat_open_input(&session->format, source.c_str(), nullptr, &options);
     av_dict_free(&options);
     if (error < 0) {
         return failure_status(error, session->remote_source);
@@ -474,6 +1120,7 @@ jlong native_open(
 
     session->selected.assign(session->format->nb_streams, 0);
     session->subtitle_decoders.assign(session->format->nb_streams, nullptr);
+    session->software_decoders.resize(session->format->nb_streams);
     return to_handle(session.release());
 }
 
@@ -504,6 +1151,13 @@ jlong native_duration_us(JNIEnv* env, jclass, jlong handle) {
     if (!session || !session->format) {
         throw_illegal_state(env, "FFmpeg demux session is closed");
         return kNoTimestamp;
+    }
+    if (session->disc && session->disc->title_info) {
+        return static_cast<jlong>(
+            av_rescale_q(
+                static_cast<int64_t>(session->disc->title_info->duration),
+                AVRational{1, static_cast<int>(kBlurayClock)},
+                AV_TIME_BASE_Q));
     }
     return session->format->duration == AV_NOPTS_VALUE
         ? kNoTimestamp
@@ -888,6 +1542,304 @@ jbyteArray native_decode_subtitle(
     return result;
 }
 
+jint native_software_decoder_api_version(JNIEnv*, jclass) {
+    return kSoftwareDecoderApiVersion;
+}
+
+void native_configure_software_decoder(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index,
+    jboolean tone_map_hdr_to_sdr) {
+    SoftwareDecoder* decoder = software_decoder(env, from_handle(handle), index);
+    if (decoder && !env->ExceptionCheck()) {
+        decoder->tone_map_hdr_to_sdr = tone_map_hdr_to_sdr == JNI_TRUE;
+    }
+}
+
+jint native_send_software_packet(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index,
+    jbyteArray encoded,
+    jlong presentation_time_us,
+    jlong decode_time_us) {
+    DemuxSession* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return AVERROR(EINVAL);
+    SoftwareDecoder* decoder = software_decoder(env, session, index);
+    if (!decoder || env->ExceptionCheck()) return AVERROR(EINVAL);
+
+    AVPacket* packet = nullptr;
+    if (encoded) {
+        const jsize size = env->GetArrayLength(encoded);
+        if (size <= 0 || static_cast<size_t>(size) > kMaxSoftwareVideoFrameBytes) {
+            throw_illegal_argument(env, "FFmpeg software packet size is invalid");
+            return AVERROR(EINVAL);
+        }
+        packet = av_packet_alloc();
+        if (!packet || av_new_packet(packet, size) < 0) {
+            av_packet_free(&packet);
+            throw_illegal_state(env, "Unable to allocate FFmpeg software packet");
+            return AVERROR(ENOMEM);
+        }
+        env->GetByteArrayRegion(encoded, 0, size, reinterpret_cast<jbyte*>(packet->data));
+        if (env->ExceptionCheck()) {
+            av_packet_free(&packet);
+            return AVERROR(EINVAL);
+        }
+        packet->stream_index = index;
+        packet->pts = presentation_time_us == kNoTimestamp
+            ? AV_NOPTS_VALUE
+            : av_rescale_q(presentation_time_us, AV_TIME_BASE_Q, stream->time_base);
+        packet->dts = decode_time_us == kNoTimestamp
+            ? packet->pts
+            : av_rescale_q(decode_time_us, AV_TIME_BASE_Q, stream->time_base);
+    }
+    const int error = avcodec_send_packet(decoder->codec, packet);
+    av_packet_free(&packet);
+    if (error == AVERROR(EAGAIN)) return 1;
+    if (error < 0 && error != AVERROR_EOF) {
+        throw_illegal_state(env, "FFmpeg software packet decode failed: " + ffmpeg_error(error));
+        return error;
+    }
+    return 0;
+}
+
+jlongArray native_receive_software_video_frame(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index,
+    jobject target) {
+    DemuxSession* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return nullptr;
+    if (stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) {
+        throw_illegal_argument(env, "Requested software decoder track is not video");
+        return nullptr;
+    }
+    SoftwareDecoder* decoder = software_decoder(env, session, index);
+    if (!decoder || env->ExceptionCheck()) return nullptr;
+    if (!decoder->frame_pending) {
+        const int error = avcodec_receive_frame(decoder->codec, decoder->frame);
+        if (error == AVERROR(EAGAIN)) {
+            return make_software_frame_result(env, kSoftwareFrameAgain, 0, kNoTimestamp, 0, 0, 0);
+        }
+        if (error == AVERROR_EOF) {
+            return make_software_frame_result(env, kSoftwareFrameEof, 0, kNoTimestamp, 0, 0, 0);
+        }
+        if (error < 0) {
+            throw_illegal_state(env, "FFmpeg software video receive failed: " + ffmpeg_error(error));
+            return nullptr;
+        }
+        decoder->frame_pending = true;
+    }
+
+    const int width = decoder->frame->width;
+    const int height = decoder->frame->height;
+    if (width <= 0 || height <= 0 ||
+        static_cast<size_t>(width) > kMaxSoftwareVideoFrameBytes / 4U / static_cast<size_t>(height)) {
+        throw_illegal_state(env, "FFmpeg software video dimensions exceed the safety limit");
+        return nullptr;
+    }
+    const size_t required = static_cast<size_t>(width) * static_cast<size_t>(height) * 4U;
+    if (required > kMaxSoftwareVideoFrameBytes) {
+        throw_illegal_state(env, "FFmpeg software video frame exceeds the safety limit");
+        return nullptr;
+    }
+    auto* destination = static_cast<uint8_t*>(env->GetDirectBufferAddress(target));
+    const jlong capacity = env->GetDirectBufferCapacity(target);
+    if (!destination || capacity < 0) {
+        throw_illegal_argument(env, "FFmpeg software video target must be a direct ByteBuffer");
+        return nullptr;
+    }
+    const jlong pts_us = timestamp_us(decoder->frame->best_effort_timestamp, stream->time_base);
+    if (static_cast<uint64_t>(capacity) < required) {
+        return make_software_frame_result(
+            env,
+            kSoftwareFrameGrowBuffer,
+            static_cast<jlong>(required),
+            pts_us,
+            width,
+            height,
+            static_cast<jlong>(width) * 4L);
+    }
+    if (decoder->tone_map_hdr_to_sdr) {
+        if (!tone_map_hdr_frame(env, decoder, stream, destination)) return nullptr;
+    } else {
+        decoder->scaler = sws_getCachedContext(
+            decoder->scaler,
+            width,
+            height,
+            static_cast<AVPixelFormat>(decoder->frame->format),
+            width,
+            height,
+            AV_PIX_FMT_BGRA,
+            SWS_BILINEAR,
+            nullptr,
+            nullptr,
+            nullptr);
+        if (!decoder->scaler) {
+            throw_illegal_state(env, "FFmpeg software video scaler is unavailable");
+            return nullptr;
+        }
+        uint8_t* output_data[] = {destination, nullptr, nullptr, nullptr};
+        const int output_linesize[] = {width * 4, 0, 0, 0};
+        const int scaled = sws_scale(
+            decoder->scaler,
+            decoder->frame->data,
+            decoder->frame->linesize,
+            0,
+            height,
+            output_data,
+            output_linesize);
+        if (scaled != height) {
+            throw_illegal_state(env, "FFmpeg software video conversion was incomplete");
+            return nullptr;
+        }
+    }
+    av_frame_unref(decoder->frame);
+    decoder->frame_pending = false;
+    return make_software_frame_result(
+        env,
+        kSoftwareFrameData,
+        static_cast<jlong>(required),
+        pts_us,
+        width,
+        height,
+        static_cast<jlong>(width) * 4L);
+}
+
+jlongArray native_receive_software_audio_frame(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index,
+    jobject target) {
+    DemuxSession* session = from_handle(handle);
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return nullptr;
+    if (stream->codecpar->codec_type != AVMEDIA_TYPE_AUDIO) {
+        throw_illegal_argument(env, "Requested software decoder track is not audio");
+        return nullptr;
+    }
+    SoftwareDecoder* decoder = software_decoder(env, session, index);
+    if (!decoder || env->ExceptionCheck()) return nullptr;
+    if (!decoder->frame_pending) {
+        const int error = avcodec_receive_frame(decoder->codec, decoder->frame);
+        if (error == AVERROR(EAGAIN)) {
+            return make_software_frame_result(env, kSoftwareFrameAgain, 0, kNoTimestamp, 0, 0, 0);
+        }
+        if (error == AVERROR_EOF) {
+            return make_software_frame_result(env, kSoftwareFrameEof, 0, kNoTimestamp, 0, 0, 0);
+        }
+        if (error < 0) {
+            throw_illegal_state(env, "FFmpeg software audio receive failed: " + ffmpeg_error(error));
+            return nullptr;
+        }
+        decoder->frame_pending = true;
+    }
+
+    AVChannelLayout input_layout = {};
+    if (decoder->frame->ch_layout.nb_channels > 0) {
+        av_channel_layout_copy(&input_layout, &decoder->frame->ch_layout);
+    } else {
+        av_channel_layout_default(&input_layout, stream->codecpar->ch_layout.nb_channels);
+    }
+    const int channels = input_layout.nb_channels;
+    const int sample_rate = decoder->frame->sample_rate > 0
+        ? decoder->frame->sample_rate
+        : stream->codecpar->sample_rate;
+    if (channels <= 0 || channels > 32 || sample_rate <= 0 || sample_rate > 768000) {
+        av_channel_layout_uninit(&input_layout);
+        throw_illegal_state(env, "FFmpeg software audio format is invalid");
+        return nullptr;
+    }
+    AVChannelLayout output_layout = {};
+    av_channel_layout_copy(&output_layout, &input_layout);
+    swr_free(&decoder->resampler);
+    int error = swr_alloc_set_opts2(
+        &decoder->resampler,
+        &output_layout,
+        AV_SAMPLE_FMT_S16,
+        sample_rate,
+        &input_layout,
+        static_cast<AVSampleFormat>(decoder->frame->format),
+        sample_rate,
+        0,
+        nullptr);
+    av_channel_layout_uninit(&input_layout);
+    av_channel_layout_uninit(&output_layout);
+    if (error < 0 || !decoder->resampler || (error = swr_init(decoder->resampler)) < 0) {
+        throw_illegal_state(env, "FFmpeg software audio resampler open failed: " + ffmpeg_error(error));
+        return nullptr;
+    }
+    const int output_samples = swr_get_out_samples(decoder->resampler, decoder->frame->nb_samples);
+    const int required = av_samples_get_buffer_size(nullptr, channels, output_samples, AV_SAMPLE_FMT_S16, 1);
+    if (required <= 0 || static_cast<size_t>(required) > kMaxSoftwareAudioFrameBytes) {
+        throw_illegal_state(env, "FFmpeg software audio frame exceeds the safety limit");
+        return nullptr;
+    }
+    auto* destination = static_cast<uint8_t*>(env->GetDirectBufferAddress(target));
+    const jlong capacity = env->GetDirectBufferCapacity(target);
+    if (!destination || capacity < 0) {
+        throw_illegal_argument(env, "FFmpeg software audio target must be a direct ByteBuffer");
+        return nullptr;
+    }
+    const jlong pts_us = timestamp_us(decoder->frame->best_effort_timestamp, stream->time_base);
+    if (capacity < required) {
+        return make_software_frame_result(
+            env,
+            kSoftwareFrameGrowBuffer,
+            required,
+            pts_us,
+            channels,
+            sample_rate,
+            output_samples);
+    }
+    uint8_t* output_data[] = {destination};
+    const int converted = swr_convert(
+        decoder->resampler,
+        output_data,
+        output_samples,
+        const_cast<const uint8_t**>(decoder->frame->extended_data),
+        decoder->frame->nb_samples);
+    if (converted < 0) {
+        throw_illegal_state(env, "FFmpeg software audio conversion failed: " + ffmpeg_error(converted));
+        return nullptr;
+    }
+    const int output_bytes = converted * channels * static_cast<int>(sizeof(int16_t));
+    av_frame_unref(decoder->frame);
+    decoder->frame_pending = false;
+    return make_software_frame_result(
+        env,
+        kSoftwareFrameData,
+        output_bytes,
+        pts_us,
+        channels,
+        sample_rate,
+        converted);
+}
+
+void native_flush_software_decoder(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jint index) {
+    DemuxSession* session = from_handle(handle);
+    checked_stream(env, session, index);
+    if (env->ExceptionCheck()) return;
+    SoftwareDecoder* decoder = session->software_decoders[index].get();
+    if (!decoder) return;
+    avcodec_flush_buffers(decoder->codec);
+    av_frame_unref(decoder->frame);
+    decoder->frame_pending = false;
+    swr_free(&decoder->resampler);
+}
+
 jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
     DemuxSession* session = from_handle(handle);
     if (!session || !session->format) {
@@ -895,19 +1847,49 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
         return kFailureContainer;
     }
     const int64_t target = std::max<int64_t>(0, position_us);
-    const int error = avformat_seek_file(
-        session->format,
-        -1,
-        std::numeric_limits<int64_t>::min(),
-        target,
-        std::numeric_limits<int64_t>::max(),
-        AVSEEK_FLAG_BACKWARD);
+    int error = 0;
+    if (session->disc) {
+        int64_t byte_position = -1;
+        {
+            std::lock_guard<std::mutex> lock(session->disc->source->mutex);
+            const int64_t disc_time =
+                av_rescale_q(
+                    target,
+                    AV_TIME_BASE_Q,
+                    AVRational{1, static_cast<int>(kBlurayClock)});
+            if (bd_seek_time(session->disc->bd, static_cast<uint64_t>(disc_time)) < 0) {
+                error = AVERROR(EIO);
+            } else {
+                byte_position = static_cast<int64_t>(bd_tell(session->disc->bd));
+                drain_disc_events(session->disc.get());
+                publish_disc_state(session->disc.get());
+            }
+        }
+        if (error >= 0 && avio_seek(session->custom_io, byte_position, SEEK_SET) < 0) {
+            error = AVERROR(EIO);
+        }
+    } else {
+        error = avformat_seek_file(
+            session->format,
+            -1,
+            std::numeric_limits<int64_t>::min(),
+            target,
+            std::numeric_limits<int64_t>::max(),
+            AVSEEK_FLAG_BACKWARD);
+    }
     if (error < 0) {
         return failure_status(error, session->remote_source);
     }
     avformat_flush(session->format);
     for (AVCodecContext* decoder : session->subtitle_decoders) {
         if (decoder) avcodec_flush_buffers(decoder);
+    }
+    for (const std::unique_ptr<SoftwareDecoder>& decoder : session->software_decoders) {
+        if (!decoder) continue;
+        avcodec_flush_buffers(decoder->codec);
+        av_frame_unref(decoder->frame);
+        decoder->frame_pending = false;
+        swr_free(&decoder->resampler);
     }
     if (session->packet_pending) {
         av_packet_unref(session->packet);
@@ -917,6 +1899,12 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
 }
 
 static const JNINativeMethod kMethods[] = {
+    {"nativeDiscApiVersion", "()I", reinterpret_cast<void*>(native_disc_api_version)},
+    {"nativeRegisterBluRaySource", "(Ljava/lang/Object;)J", reinterpret_cast<void*>(native_register_bluray_source)},
+    {"nativeUnregisterBluRaySource", "(J)V", reinterpret_cast<void*>(native_unregister_bluray_source)},
+    {"nativeSelectDiscTitle", "(JI)Z", reinterpret_cast<void*>(native_select_disc_title)},
+    {"nativeDiscChapterStartMs", "(JI)J", reinterpret_cast<void*>(native_disc_chapter_start_ms)},
+    {"nativeSelectDiscAngle", "(JI)Z", reinterpret_cast<void*>(native_select_disc_angle)},
     {"nativeOpen", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)J", reinterpret_cast<void*>(native_open)},
     {"nativeClose", "(J)V", reinterpret_cast<void*>(native_close)},
     {"nativeTrackCount", "(J)I", reinterpret_cast<void*>(native_track_count)},
@@ -935,6 +1923,12 @@ static const JNINativeMethod kMethods[] = {
     {"nativeSelectTracks", "(J[I)V", reinterpret_cast<void*>(native_select_tracks)},
     {"nativeReadPacket", "(JLjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_read_packet)},
     {"nativeDecodeSubtitle", "(JI[BJJ)[B", reinterpret_cast<void*>(native_decode_subtitle)},
+    {"nativeSoftwareDecoderApiVersion", "()I", reinterpret_cast<void*>(native_software_decoder_api_version)},
+    {"nativeConfigureSoftwareDecoder", "(JIZ)V", reinterpret_cast<void*>(native_configure_software_decoder)},
+    {"nativeSendSoftwarePacket", "(JI[BJJ)I", reinterpret_cast<void*>(native_send_software_packet)},
+    {"nativeReceiveSoftwareVideoFrame", "(JILjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_receive_software_video_frame)},
+    {"nativeReceiveSoftwareAudioFrame", "(JILjava/nio/ByteBuffer;)[J", reinterpret_cast<void*>(native_receive_software_audio_frame)},
+    {"nativeFlushSoftwareDecoder", "(JI)V", reinterpret_cast<void*>(native_flush_software_decoder)},
     {"nativeSeek", "(JJ)I", reinterpret_cast<void*>(native_seek)},
 };
 

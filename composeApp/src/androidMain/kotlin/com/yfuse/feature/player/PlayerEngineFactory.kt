@@ -10,11 +10,22 @@ import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.NativePlaybackComponent
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
+import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core2.android.AndroidCore2TrialFactory
+import com.yfuse.core2.android.core2NativeBaselineBlockReason
 import kotlinx.coroutines.CoroutineScope
+
+internal fun shouldUseCore2Trial(
+    enabled: Boolean,
+    engineSelection: PlaybackEngineSelection,
+    crashBlocked: Boolean,
+): Boolean =
+    enabled &&
+        engineSelection == PlaybackEngineSelection.Auto &&
+        !crashBlocked
 
 /** Android engine construction boundary; callers depend only on [VideoEngine]. */
 @OptIn(UnstableApi::class)
@@ -34,17 +45,29 @@ internal fun createVideoEngine(
     scope: CoroutineScope,
     stopEncoding: suspend (String) -> Boolean,
     core2TrialEnabled: Boolean = false,
+    core2NativeOnlyEnabled: Boolean = false,
+    engineSelection: PlaybackEngineSelection = PlaybackEngineSelection.Auto,
     allowAudioPassthrough: Boolean = false,
     frameRateMatch: PlaybackFrameRateMatch = PlaybackFrameRateMatch.Disabled,
     dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
     capabilitySignature: String = "unknown",
 ): VideoEngine {
+    val packagedNativeOnly = BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME
+    val resolvedNativeOnly = packagedNativeOnly || core2NativeOnlyEnabled
     val resolvedDecoderMode =
         AndroidNativeCrashMonitor.safeDecoderMode(kind, decoderMode, capabilitySignature)
     val yCoreAllowed =
-        core2TrialEnabled &&
-            !AndroidNativeCrashMonitor.isYCoreDemuxBlocked(decoderMode, capabilitySignature)
+        packagedNativeOnly ||
+            shouldUseCore2Trial(
+                enabled = core2TrialEnabled,
+                engineSelection = engineSelection,
+                crashBlocked =
+                    AndroidNativeCrashMonitor.isYCoreDemuxBlocked(
+                        decoderMode,
+                        capabilitySignature,
+                    ),
+            )
     val component =
         if (yCoreAllowed) {
             NativePlaybackComponent.YCoreDemux
@@ -63,6 +86,16 @@ internal fun createVideoEngine(
         media = items.getOrNull(startIndex),
     )
     if (yCoreAllowed) {
+        if (resolvedNativeOnly) {
+            items.core2NativeBaselineBlockReason(startIndex)?.let { reason ->
+                return MissingNativeCapabilityVideoEngine(
+                    message = reason,
+                    startIndex = startIndex,
+                    itemCount = items.size,
+                    startPositionMs = startPositionMs,
+                )
+            }
+        }
         AndroidCore2TrialFactory
             .create(
                 context = context,
@@ -75,7 +108,17 @@ internal fun createVideoEngine(
                 customUserAgent = customUserAgent,
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateMatch = frameRateMatch,
+                videoCacheBytes = videoCacheBytes,
+                nativeOnly = resolvedNativeOnly,
             )?.let { return it }
+        if (resolvedNativeOnly) {
+            return MissingNativeCapabilityVideoEngine(
+                message = "YCore Native 当前无法建立纯内核播放路径",
+                startIndex = startIndex,
+                itemCount = items.size,
+                startPositionMs = startPositionMs,
+            )
+        }
     }
 
     return when (kind) {
@@ -83,6 +126,7 @@ internal fun createVideoEngine(
             if (BuildConfig.YFUSE_MDK_INCLUDED) {
                 MdkVideoEngine(
                     items = items,
+                    context = context,
                     startIndex = startIndex,
                     startPositionMs = startPositionMs,
                     startPlaybackRequested = startPlaybackRequested,
@@ -92,6 +136,7 @@ internal fun createVideoEngine(
                     customUserAgent = customUserAgent,
                     scope = scope,
                     stopEncoding = stopEncoding,
+                    videoCacheBytes = videoCacheBytes,
                 )
             } else {
                 ExoVideoEngine(
@@ -129,11 +174,13 @@ internal fun createVideoEngine(
                     startPlaybackRequested = startPlaybackRequested,
                     startSpeed = startSpeed,
                     decoderMode = resolvedDecoderMode,
+                    optimizationMode = optimizationMode,
                     autoNext = autoNext,
                     customUserAgent = customUserAgent,
                     scope = scope,
                     stopEncoding = stopEncoding,
                     dolbyVisionRuntime = dolbyVisionRuntime,
+                    videoCacheBytes = videoCacheBytes,
                 )
             }
         }

@@ -30,9 +30,9 @@ import java.nio.ByteOrder
 /**
  * Enhanced-demux implementation backed by the pinned FFmpeg 8.1 libraries in the custom native AAR.
  *
- * FFmpeg stops at AVPacket: no video/audio decode API is exposed by this class. Encoded samples are
- * copied once from a reusable native DirectByteBuffer into the immutable common demux contract,
- * then Core2 Bitstream/MediaCodec own the rest of the playback path.
+ * FFmpeg normally stops at AVPacket. An optional versioned extension also exposes bounded software
+ * video/audio decode for codecs with no executable MediaCodec route. Encoded samples are copied
+ * once from a reusable native DirectByteBuffer into the immutable common demux contract.
  *
  * FFmpeg exposes container timestamps rather than the zero-based product timeline used by the
  * other player engines. The first selected compressed packet establishes the source timestamp
@@ -48,6 +48,7 @@ internal class AndroidFfmpegDemuxer :
     private var openResult: YDemuxOpenResult? = null
     private var packetBuffer = ByteBuffer.allocateDirect(INITIAL_PACKET_BUFFER_BYTES)
     private var prefetchedSample: YCompressedSample? = null
+    private var discSource = false
 
     val available: Boolean get() = FfmpegNativeBridge.available
 
@@ -56,6 +57,7 @@ internal class AndroidFfmpegDemuxer :
         check(available) { "YCore FFmpeg enhanced demux is unavailable" }
         var openedHandle = 0L
         return try {
+            discSource = source.uri.startsWith("ycorebd://", ignoreCase = true)
             openedHandle = FfmpegNativeBridge.open(source.uri, source.headers)
             handle = openedHandle
             val tracks =
@@ -77,6 +79,7 @@ internal class AndroidFfmpegDemuxer :
             handle = 0L
             openResult = null
             prefetchedSample = null
+            discSource = false
             timeline.reset()
             throw throwable
         }
@@ -169,7 +172,7 @@ internal class AndroidFfmpegDemuxer :
         prefetchedSample = null
         FfmpegNativeBridge.seek(
             requireHandle(),
-            timeline.sourceTimeUs(positionUs),
+            if (discSource) positionUs else timeline.sourceTimeUs(positionUs),
         )
     }
 
@@ -193,11 +196,56 @@ internal class AndroidFfmpegDemuxer :
         return decoded.toBitmapSubtitleCues(sample)
     }
 
+    val softwareDecodeAvailable: Boolean get() = FfmpegNativeBridge.softwareDecodeAvailable
+
+    fun configureSoftwareDecoder(
+        trackId: YTrackId,
+        toneMapHdrToSdr: Boolean = false,
+    ) {
+        requireOpenResult().tracks.singleOrNull { it.id == trackId }
+            ?: error("Software decoder track does not belong to this demux session")
+        FfmpegNativeBridge.configureSoftwareDecoder(requireHandle(), trackId.value, toneMapHdrToSdr)
+    }
+
+    fun sendSoftwarePacket(
+        trackId: YTrackId,
+        sample: YCompressedSample?,
+    ): Boolean {
+        requireOpenResult().tracks.singleOrNull { it.id == trackId }
+            ?: error("Software decoder track does not belong to this demux session")
+        require(sample == null || sample.trackId == trackId) { "Software packet track is inconsistent" }
+        require(sample == null || YSampleFlag.Encrypted !in sample.flags) {
+            "Encrypted samples cannot enter FFmpeg software decode"
+        }
+        return FfmpegNativeBridge.sendSoftwarePacket(
+            handle = requireHandle(),
+            trackIndex = trackId.value,
+            data = sample?.data,
+            presentationTimeUs = sample?.presentationTimeUs,
+            decodeTimeUs = sample?.decodeTimeUs,
+        )
+    }
+
+    fun receiveSoftwareVideoFrame(
+        trackId: YTrackId,
+        target: ByteBuffer,
+    ): LongArray = FfmpegNativeBridge.receiveSoftwareVideoFrame(requireHandle(), trackId.value, target)
+
+    fun receiveSoftwareAudioFrame(
+        trackId: YTrackId,
+        target: ByteBuffer,
+    ): LongArray = FfmpegNativeBridge.receiveSoftwareAudioFrame(requireHandle(), trackId.value, target)
+
+    fun flushSoftwareDecoder(trackId: YTrackId) {
+        FfmpegNativeBridge.flushSoftwareDecoder(requireHandle(), trackId.value)
+    }
+
     override fun close() {
         val previous = handle
         handle = 0L
         openResult = null
         prefetchedSample = null
+        discSource = false
         timeline.reset()
         packetBuffer.clear()
         if (previous != 0L) FfmpegNativeBridge.close(previous)
@@ -317,8 +365,7 @@ internal class AndroidFfmpegDemuxer :
 
     private fun requireHandle(): Long = handle.takeIf { it != 0L } ?: error("FFmpeg demux session has not been opened")
 
-    private fun requireOpenResult(): YDemuxOpenResult =
-        checkNotNull(openResult) { "FFmpeg demux session has not been opened" }
+    private fun requireOpenResult(): YDemuxOpenResult = checkNotNull(openResult) { "FFmpeg demux session has not been opened" }
 }
 
 internal fun ByteArray.toBitmapSubtitleCues(sample: YCompressedSample): List<YSubtitleCue> {
@@ -403,6 +450,7 @@ internal fun ffmpegVideoCodec(name: String): YVideoCodec =
         "hevc" -> YVideoCodec.H265
         "av1" -> YVideoCodec.Av1
         "vp9" -> YVideoCodec.Vp9
+        "vc1", "wmv3" -> YVideoCodec.Vc1
         "mpeg2video" -> YVideoCodec.Mpeg2
         "prores" -> YVideoCodec.ProRes
         else -> YVideoCodec.Unknown
@@ -478,6 +526,7 @@ private fun ffmpegVideoMime(
             YVideoCodec.H265 -> "video/hevc"
             YVideoCodec.Av1 -> "video/av01"
             YVideoCodec.Vp9 -> "video/x-vnd.on2.vp9"
+            YVideoCodec.Vc1 -> "video/wvc1"
             YVideoCodec.Mpeg2 -> "video/mpeg2"
             YVideoCodec.ProRes -> "video/prores"
             YVideoCodec.Unknown -> "video/x-ffmpeg-unknown"

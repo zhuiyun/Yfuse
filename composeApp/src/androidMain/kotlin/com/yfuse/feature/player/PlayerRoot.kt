@@ -90,6 +90,7 @@ private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
  * implementations reads the outgoing player's position first, so the replacement picks up where
  * it left off instead of restarting the entry.
  */
+@Suppress("ktlint:standard:function-naming")
 @OptIn(UnstableApi::class)
 @Composable
 internal fun PlayerRoot(
@@ -136,10 +137,16 @@ internal fun PlayerRoot(
     val frameRateMatch by playbackPreferences.frameRateMatch.collectAsState()
     val configuredEngineSelection by playbackPreferences.engineSelection.collectAsState()
     val core2TrialEnabled by playbackPreferences.core2TrialEnabled.collectAsState()
+    val core2NativeOnlyEnabled by playbackPreferences.core2NativeOnlyEnabled.collectAsState()
     var core2DisabledForSession by remember { mutableStateOf(false) }
     var sessionEngineSelection by remember {
         mutableStateOf(configuredEngineSelection)
     }
+    val core2NativeOnlyActive =
+        core2NativeOnlyEnabled &&
+            core2TrialEnabled &&
+            sessionEngineSelection == PlaybackEngineSelection.Auto &&
+            !core2DisabledForSession
 
     /**
      * Decide the initial HDR path before constructing a backend. Exo is selected for a verified
@@ -334,7 +341,9 @@ internal fun PlayerRoot(
             engineGeneration,
             effectiveDecoderMode,
             core2TrialEnabled,
+            core2NativeOnlyActive,
             core2DisabledForSession,
+            sessionEngineSelection,
             allowAudioPassthrough,
             frameRateMatch,
         ) {
@@ -356,6 +365,8 @@ internal fun PlayerRoot(
                     playbackSinkForSession(sessionId)?.stopEncoding(sessionId) ?: true
                 },
                 core2TrialEnabled = core2TrialEnabled && !core2DisabledForSession,
+                core2NativeOnlyEnabled = core2NativeOnlyActive,
+                engineSelection = sessionEngineSelection,
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateMatch = frameRateMatch,
                 dolbyVisionRuntime = dolbyVisionRuntime,
@@ -383,7 +394,10 @@ internal fun PlayerRoot(
                 val appendedToPlayer =
                     prepared.canUseCore2Trial(startIndex = 0) &&
                         player.appendItems(
-                            prepared.toCore2MediaItems(customUserAgent),
+                            prepared.toCore2MediaItems(
+                                customUserAgent = customUserAgent,
+                                cacheMaximumBytes = videoCacheBytes,
+                            ),
                         )
                 appendedToPlayer || backendExtensions.appendItems(prepared)
             }
@@ -446,12 +460,38 @@ internal fun PlayerRoot(
         )
     val localState = timelineResolution.state
     SideEffect { timelineMemory = timelineResolution.memory }
-    LaunchedEffect(engine, localState.error, localState.fallbacksExhausted) {
+    LaunchedEffect(
+        engine,
+        localState.error,
+        localState.fallbacksExhausted,
+        core2NativeOnlyActive,
+    ) {
         if (
             engine !is YPlayerVideoEngineAdapter ||
             localState.error == null ||
             !localState.fallbacksExhausted
         ) {
+            return@LaunchedEffect
+        }
+        if (core2NativeOnlyActive) {
+            AppLog.warning(
+                category = "player.core2",
+                event = "native_only_failure",
+                message = "YCore Native failed without invoking a compatibility engine",
+                attributes =
+                    mapOf(
+                        "engine" to kind.name,
+                        "itemIndex" to localState.currentIndex.toString(),
+                        "failureKind" to (localState.errorKind?.name ?: "Unknown"),
+                        "failure" to localState.error.orEmpty(),
+                    ),
+            )
+            Toast
+                .makeText(
+                    context,
+                    "YCore Native 播放失败，纯内核模式未切换兼容内核",
+                    Toast.LENGTH_SHORT,
+                ).show()
             return@LaunchedEffect
         }
         resume =
@@ -1683,9 +1723,30 @@ internal fun PlayerRoot(
         sessionEngineSelection,
         engine,
         core2DisabledForSession,
+        core2NativeOnlyActive,
     ) {
         val fault = runtimeAssessment.runtimeFault ?: return@LaunchedEffect
         if (sessionEngineSelection != PlaybackEngineSelection.Auto || castAuthoritative) {
+            return@LaunchedEffect
+        }
+        if (core2NativeOnlyActive) {
+            AppLog.warning(
+                category = "player.core2",
+                event = "native_only_runtime_fault",
+                message = "YCore Native reported a silent output fault without Legacy fallback",
+                attributes =
+                    mapOf(
+                        "engine" to kind.name,
+                        "itemIndex" to state.currentIndex.toString(),
+                        "fault" to fault.kind.name,
+                    ),
+            )
+            Toast
+                .makeText(
+                    context,
+                    "YCore Native 输出异常，纯内核模式未切换兼容内核",
+                    Toast.LENGTH_SHORT,
+                ).show()
             return@LaunchedEffect
         }
         if (engine is YPlayerVideoEngineAdapter && !core2DisabledForSession) {
@@ -1799,8 +1860,10 @@ internal fun PlayerRoot(
         currentItem?.serverId,
         currentItem?.versionId,
         state.error,
+        core2NativeOnlyActive,
     ) {
         if (
+            core2NativeOnlyActive ||
             engine is YPlayerVideoEngineAdapter ||
             !state.fallbacksExhausted ||
             state.automaticFallbackBlocked

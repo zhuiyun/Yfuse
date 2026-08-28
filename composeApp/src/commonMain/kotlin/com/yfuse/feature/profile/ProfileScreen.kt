@@ -63,6 +63,7 @@ import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.account.AccountState
 import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.DanmakuSource
+import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.PlaybackRecoverySnapshot
 import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ThemePreferences
@@ -121,6 +122,7 @@ private enum class Sheet {
     StartupTab,
     Background,
     PlaybackMode,
+    MediaVersionPreference,
     AdvancedPlaybackMode,
     Engine,
     Decoder,
@@ -190,8 +192,8 @@ private val SettingsSearchDestinations =
         ),
         SettingsSearchDestination(
             "播放",
-            "画质、引擎、续播与跳过片头",
-            "播放 画质 解码 引擎 续播",
+            "版本偏好、画质、引擎、续播与跳过片头",
+            "播放 版本 HDR 杜比 画质 解码 引擎 续播",
             ProfilePage.Playback,
             icon = AppIcons.Play,
             tint = SettingTint.playback,
@@ -257,6 +259,7 @@ fun ProfileScreen(component: ProfileComponent) {
     var appIcon by remember { mutableStateOf(currentAppIconVariant()) }
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
     val optimizationMode by component.playbackPreferences.optimizationMode.collectAsState()
+    val mediaVersionPreference by component.playbackPreferences.mediaVersionPreference.collectAsState()
     val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
     val smartCrossServerSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
     val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
@@ -283,6 +286,8 @@ fun ProfileScreen(component: ProfileComponent) {
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
+    var confirmClearVideoCache by remember { mutableStateOf(false) }
+    var videoCacheUsageBytes by remember { mutableStateOf<Long?>(null) }
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var settingsQuery by rememberSaveable { mutableStateOf("") }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
@@ -320,6 +325,12 @@ fun ProfileScreen(component: ProfileComponent) {
         }
     }
 
+    LaunchedEffect(pageStack.lastOrNull(), videoCacheSize) {
+        if (pageStack.lastOrNull() == ProfilePage.DataAndDiagnostics.name) {
+            videoCacheUsageBytes = component.videoCacheUsageBytes()
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         val navigationBackStack = remember(pageStack) { listOf(ProfilePage.Root) + pageStack.map(ProfilePage::valueOf) }
         OfficialNavDisplay(
@@ -346,13 +357,20 @@ fun ProfileScreen(component: ProfileComponent) {
                     PlaybackSettingsScreen(
                         onBack = ::closePage,
                         optimizationMode = optimizationMode,
+                        mediaVersionPreference = mediaVersionPreference,
                         autoNext = autoNext,
                         smartCrossServerSource = smartCrossServerSource,
                         anonymousQoeSharing = anonymousQoeSharing,
                         resumePrompt = resumePrompt,
                         videoCacheSize = videoCacheSize,
-                        skipSegments = if (skipTimesBySeries.isEmpty()) "${skipMode.label} · 跟随服务器 ›" else "${skipMode.label} ›",
+                        skipSegments =
+                            if (skipTimesBySeries.isEmpty()) {
+                                "${skipMode.label} · 跟随服务器 ›"
+                            } else {
+                                "${skipMode.label} ›"
+                            },
                         onPlaybackMode = { sheet = Sheet.PlaybackMode },
+                        onMediaVersionPreference = { sheet = Sheet.MediaVersionPreference },
                         onOpenAdvanced = { openPage(ProfilePage.AdvancedPlayback) },
                         onAutoNext = prefs::setAutoNext,
                         onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
@@ -457,8 +475,11 @@ fun ProfileScreen(component: ProfileComponent) {
                         onInspectRelay = component::inspectRelayServers,
                         onIsRelay = component::isRelayServers,
                         onImportRelay = component::importRelayServers,
+                        videoCacheUsageBytes = videoCacheUsageBytes,
+                        videoCacheSize = videoCacheSize,
                         onUserAgent = { sheet = Sheet.UserAgent },
                         onClearCache = { confirmClearCache = true },
+                        onClearVideoCache = { confirmClearVideoCache = true },
                     )
 
                 ProfilePage.Downloads ->
@@ -771,6 +792,24 @@ fun ProfileScreen(component: ProfileComponent) {
                     onDismiss = { sheet = null },
                 )
 
+            Sheet.MediaVersionPreference ->
+                OptionSheet(
+                    title = "视频版本偏好",
+                    subtitle = "同一集有多个文件时按此顺序自动选择，不受入库顺序影响",
+                    options =
+                        MediaVersionPreference.entries.map {
+                            it.playbackOptionCopy().label to (it == mediaVersionPreference)
+                        },
+                    descriptions = MediaVersionPreference.entries.map { it.playbackOptionCopy().description },
+                    onSelect = { index ->
+                        component.playbackPreferences.setMediaVersionPreference(
+                            MediaVersionPreference.entries[index],
+                        )
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
             Sheet.AdvancedPlaybackMode ->
                 OptionSheet(
                     title = "YCore 播放策略",
@@ -919,6 +958,23 @@ fun ProfileScreen(component: ProfileComponent) {
                 onDismiss = { confirmClearCache = false },
             )
         }
+
+        if (confirmClearVideoCache) {
+            ConfirmDialog(
+                title = "清除视频缓存",
+                message = "将清除已播放视频的临时缓存；不会删除离线下载。正在播放的数据可能会重新从服务器读取。",
+                confirmLabel = "清除",
+                destructive = true,
+                onConfirm = {
+                    confirmClearVideoCache = false
+                    screenScope.launch {
+                        component.onClearVideoCache()
+                        videoCacheUsageBytes = component.videoCacheUsageBytes()
+                    }
+                },
+                onDismiss = { confirmClearVideoCache = false },
+            )
+        }
     }
 }
 
@@ -933,8 +989,11 @@ private fun DataAndDiagnosticsScreen(
     onInspectRelay: (String) -> com.yfuse.core.security.RelayMigrationDescriptor,
     onIsRelay: (String) -> Boolean,
     onImportRelay: (String, ByteArray, Long) -> Result<Int>,
+    videoCacheUsageBytes: Long?,
+    videoCacheSize: VideoCacheSize,
     onUserAgent: () -> Unit,
     onClearCache: () -> Unit,
+    onClearVideoCache: () -> Unit,
 ) {
     SettingsPage(
         title = "高级设置",
@@ -970,6 +1029,13 @@ private fun DataAndDiagnosticsScreen(
             Section(title = "缓存") {
                 SettingsCard {
                     SettingRow("清除图片缓存", "不影响离线下载 ›", true, onClearCache)
+                    SettingsDivider()
+                    SettingRow(
+                        "清除视频缓存",
+                        videoCacheUsageSummary(videoCacheUsageBytes, videoCacheSize),
+                        true,
+                        onClearVideoCache,
+                    )
                 }
             }
         }
@@ -978,6 +1044,17 @@ private fun DataAndDiagnosticsScreen(
         }
     }
 }
+
+internal fun videoCacheUsageSummary(
+    usedBytes: Long?,
+    cacheSize: VideoCacheSize,
+): String =
+    when {
+        usedBytes == null -> "正在计算 · 上限 ${cacheSize.label} ›"
+        cacheSize.bytes <= 0L && usedBytes <= 0L -> "已关闭 · 无缓存 ›"
+        cacheSize.bytes <= 0L -> "已关闭 · 已用 ${formatDownloadBytes(usedBytes)} ›"
+        else -> "已用 ${formatDownloadBytes(usedBytes)} / ${cacheSize.label} ›"
+    }
 
 @Composable
 internal fun SettingsPage(

@@ -11,12 +11,23 @@ is intentionally opted out by product decision.
 
 ## Build
 
-Native player artifacts are downloaded from pinned HTTPS release URLs and verified
-against `scripts/engine-checksums.sha256` before installation:
+Compatibility player artifacts are downloaded from pinned HTTPS release URLs and
+verified against `scripts/engine-checksums.sha256` before installation:
 
 ```bash
 scripts/fetch-engines.sh
 ./gradlew :composeApp:assembleDebug
+```
+
+The standalone YCore runtime is built and verified separately. The native-only build
+packages `ycore-native.aar`, keeps the compatibility AAR compile-only, disables MDK,
+and makes playback fail closed instead of falling back to a legacy engine:
+
+```bash
+scripts/build-ycore-native.sh --arch arm64
+scripts/install-ycore-native.sh
+./gradlew :composeApp:assembleDebug -PyfuseNativeOnlyRuntime=true
+scripts/verify-ycore-native-apk.sh composeApp/build/outputs/apk/debug/composeApp-debug.apk
 ```
 
 Gradle dependency lockfiles are committed per module. When intentionally changing
@@ -39,7 +50,9 @@ debt cleanup review.
 
 Production Android releases use the GitHub Actions workflow documented in
 [docs/android-release.md](docs/android-release.md). Release assembly never edits
-`version.properties`; version changes are an explicit reviewed operation.
+`version.properties`; version changes are an explicit reviewed operation. Standalone
+YCore promotion additionally requires physical-device coverage plus the committed
+8-hour continuous and 24-hour queue-soak gates; absent evidence remains `NotMeasured`.
 
 ## Licensing and security
 

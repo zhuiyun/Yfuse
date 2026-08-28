@@ -85,6 +85,7 @@ private fun PlayerMediaItem.withNativeLocalDiscUrl(
         }
     return copy(
         url = nativeUrl,
+        rawDiscUri = rawDiscUri ?: url,
         playMethod = PlaybackMethod.DirectPlay,
         forcedTranscodeReason = null,
         versions = nativeVersions,

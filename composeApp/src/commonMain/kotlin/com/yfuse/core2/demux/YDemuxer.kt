@@ -7,6 +7,7 @@ import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.hdr.YHdrStaticMetadata
+import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
 
@@ -120,6 +121,8 @@ data class YDemuxOpenResult(
 data class YDemuxSource(
     val uri: String,
     val headers: Map<String, String> = emptyMap(),
+    val cacheIdentity: YCacheIdentity? = null,
+    val cacheMaximumBytes: Long = 0L,
 )
 
 /**

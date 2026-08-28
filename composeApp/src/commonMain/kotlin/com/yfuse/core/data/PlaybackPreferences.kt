@@ -149,6 +149,20 @@ class PlaybackPreferences(
         settings.putString(KEY_AUDIO_PASSTHROUGH, mode.storageValue)
     }
 
+    private val _mediaVersionPreference =
+        MutableStateFlow(
+            MediaVersionPreference.fromStorage(
+                settings.getStringOrNull(KEY_MEDIA_VERSION_PREFERENCE),
+            ),
+        )
+    val mediaVersionPreference: StateFlow<MediaVersionPreference> =
+        _mediaVersionPreference.asStateFlow()
+
+    fun setMediaVersionPreference(preference: MediaVersionPreference) {
+        _mediaVersionPreference.value = preference
+        settings.putString(KEY_MEDIA_VERSION_PREFERENCE, preference.storageValue)
+    }
+
     private val _optimizationMode =
         MutableStateFlow(
             enumSetting(KEY_OPTIMIZATION_MODE, PlaybackOptimizationMode.Balanced),
@@ -183,6 +197,19 @@ class PlaybackPreferences(
     fun setCore2TrialEnabled(enabled: Boolean) {
         _core2TrialEnabled.value = enabled
         settings.putBoolean(KEY_CORE2_TRIAL_ENABLED, enabled)
+        if (!enabled) setCore2NativeOnlyEnabled(false)
+    }
+
+    private val _core2NativeOnlyEnabled =
+        MutableStateFlow(
+            settings.getBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, false) && _core2TrialEnabled.value,
+        )
+    val core2NativeOnlyEnabled: StateFlow<Boolean> = _core2NativeOnlyEnabled.asStateFlow()
+
+    fun setCore2NativeOnlyEnabled(enabled: Boolean) {
+        val resolved = enabled && _core2TrialEnabled.value
+        _core2NativeOnlyEnabled.value = resolved
+        settings.putBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, resolved)
     }
 
     internal fun playbackFailureRecords(): List<PlaybackFailureRecord> =
@@ -490,9 +517,11 @@ class PlaybackPreferences(
         const val KEY_VIDEO_CACHE_SIZE = "player.videoCacheSize"
         const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
         const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
+        const val KEY_MEDIA_VERSION_PREFERENCE = "player.mediaVersionPreference"
         const val KEY_OPTIMIZATION_MODE = "player.optimizationMode"
         const val KEY_ENGINE_SELECTION = "player.ycore.engineSelection"
         const val KEY_CORE2_TRIAL_ENABLED = "player.ycore2.trialEnabled"
+        const val KEY_CORE2_NATIVE_ONLY_ENABLED = "player.ycore2.nativeOnlyEnabled"
         const val KEY_PLAYBACK_FAILURES = "player.ycore.failures.v1"
         const val KEY_PLAYBACK_PERFORMANCE = "player.ycore.performance.v1"
         const val KEY_SMART_CROSS_SERVER_SOURCE = "player.smartCrossServerSource"

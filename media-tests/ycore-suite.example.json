@@ -16,6 +16,13 @@
     {"id":"dv-p7-mel-iso","relativePath":"dolby/dv-p7-mel.iso","videoCodec":"hevc","bitDepth":10,"hdr":"DolbyVision","dolbyVisionProfile":"p7_mel","frameRate":23.976,"container":"iso","audioCodec":"truehd","subtitle":"pgs","height":2160,"bitrateBitsPerSecond":90000000},
     {"id":"dv-p7-fel","relativePath":"dolby/dv-p7-fel.m2ts","videoCodec":"hevc","bitDepth":10,"hdr":"DolbyVision","dolbyVisionProfile":"p7_fel","frameRate":24.0,"container":"m2ts","audioCodec":"truehd-atmos","height":2160,"bitrateBitsPerSecond":110000000},
     {"id":"dv-p8-1","relativePath":"dolby/dv-p8-1.mkv","videoCodec":"hevc","bitDepth":10,"hdr":"DolbyVision","dolbyVisionProfile":"p8.1","frameRate":25.0,"container":"mkv","audioCodec":"eac3","height":2160,"bitrateBitsPerSecond":60000000},
-    {"id":"dv-p8-4","relativePath":"dolby/dv-p8-4.ts","videoCodec":"hevc","bitDepth":10,"hdr":"DolbyVision","dolbyVisionProfile":"p8.4","frameRate":50.0,"container":"ts","audioCodec":"ac3","height":2160,"bitrateBitsPerSecond":50000000}
+    {"id":"dv-p8-4","relativePath":"dolby/dv-p8-4.ts","videoCodec":"hevc","bitDepth":10,"hdr":"DolbyVision","dolbyVisionProfile":"p8.4","frameRate":50.0,"container":"ts","audioCodec":"ac3","height":2160,"bitrateBitsPerSecond":50000000},
+    {"id":"vp9-10-hdr10-opus","relativePath":"vp9/vp9-10-hdr10-opus.webm","videoCodec":"vp9","bitDepth":10,"hdr":"HDR10","frameRate":59.94,"container":"webm","audioCodec":"opus","height":2160,"bitrateBitsPerSecond":24000000},
+    {"id":"vc1-remux-dts","relativePath":"vc1/vc1-remux-dts.m2ts","videoCodec":"vc1","bitDepth":8,"hdr":"SDR","frameRate":23.976,"container":"m2ts","audioCodec":"dts-hd","subtitle":"pgs","height":1080,"bitrateBitsPerSecond":35000000},
+    {"id":"prores-422-pcm","relativePath":"prores/prores-422-pcm.mov","videoCodec":"prores","bitDepth":10,"hdr":"SDR","frameRate":24.0,"container":"mov","audioCodec":"pcm_s24le","height":2160,"bitrateBitsPerSecond":180000000},
+    {"id":"av1-10-flac","relativePath":"av1/av1-10-flac.mkv","videoCodec":"av1","bitDepth":10,"hdr":"HDR10","frameRate":29.97,"container":"mkv","audioCodec":"flac","subtitle":"ass","height":2160,"bitrateBitsPerSecond":18000000},
+    {"id":"h264-vorbis","relativePath":"h264/h264-vorbis.mkv","videoCodec":"h264","bitDepth":8,"hdr":"SDR","frameRate":25.0,"container":"mkv","audioCodec":"vorbis","subtitle":"srt","height":1080,"bitrateBitsPerSecond":6000000},
+    {"id":"hls-h264-aac","relativePath":"adaptive/hls/master.m3u8","videoCodec":"h264","bitDepth":8,"hdr":"SDR","frameRate":24.0,"container":"hls","audioCodec":"aac","height":1080,"bitrateBitsPerSecond":8000000},
+    {"id":"dash-hevc-eac3","relativePath":"adaptive/dash/manifest.mpd","videoCodec":"hevc","bitDepth":10,"hdr":"HDR10","frameRate":50.0,"container":"dash","audioCodec":"eac3","height":2160,"bitrateBitsPerSecond":30000000}
   ]
 }

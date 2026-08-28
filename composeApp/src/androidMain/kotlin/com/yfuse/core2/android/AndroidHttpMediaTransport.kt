@@ -6,11 +6,13 @@ import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFeature
+import com.yfuse.core2.network.YTransportMethod
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.InputStream
 
@@ -39,9 +41,12 @@ internal class AndroidHttpMediaTransport(
                 Request
                     .Builder()
                     .url(request.uri)
-                    .get()
                     .header("Accept-Encoding", "identity")
                     .header("Cache-Control", "no-transform")
+            when (request.method) {
+                YTransportMethod.Get -> builder.get()
+                YTransportMethod.Post -> builder.post(request.body.orEmpty().toRequestBody())
+            }
             request.headers.forEach { (name, value) ->
                 require(name.isSafeTransportHeader() && value.isSafeTransportHeader()) {
                     "Unsafe transport header"

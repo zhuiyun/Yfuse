@@ -231,8 +231,8 @@ fun planPlayback(
 
     val contentEngine =
         when {
-            strictPlatformPath -> PlayerEngine.Exo
             lockedEngine != null -> lockedEngine
+            strictPlatformPath -> PlayerEngine.Exo
             unsupportedVideoCanUseLocalSoftware -> PlayerEngine.Mpv
             unsupportedVideoUsesServer -> PlayerEngine.Exo
             discNeedsServer -> PlayerEngine.Exo
@@ -251,8 +251,8 @@ fun planPlayback(
 
     val requestedOrder =
         when {
-            strictPlatformPath -> listOf(PlayerEngine.Exo)
             lockedEngine != null -> listOf(lockedEngine)
+            strictPlatformPath -> listOf(PlayerEngine.Exo)
             optimizationMode == PlaybackOptimizationMode.PowerSaver ->
                 listOf(contentEngine, PlayerEngine.Exo, PlayerEngine.Mdk, PlayerEngine.Mpv)
             optimizationMode == PlaybackOptimizationMode.Quality ->
@@ -287,7 +287,7 @@ fun planPlayback(
             requestedOrder
         }
     val availableOrder =
-        if (lockedEngine != null && !strictPlatformPath) {
+        if (lockedEngine != null) {
             rankedOrder
         } else {
             rankedOrder.filterNot(excludedEngines::contains)
@@ -313,8 +313,6 @@ fun planPlayback(
         }
     val reason =
         when {
-            strictPlatformPath && lockedEngine != null && lockedEngine != PlayerEngine.Exo ->
-                "受保护内容需要安全输出，已临时使用平台内核"
             lockedEngine != null -> "已锁定 ${lockedEngine.label}，YCore 不自动切换内核"
             unsupportedVideoCanUseLocalSoftware &&
                 probe.source.videoRequirements.codec == PlaybackVideoCodec.ProRes ->

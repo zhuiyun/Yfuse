@@ -200,8 +200,7 @@ data class YMediaTestSuite(
             if (cases.none { it.bitrateBitsPerSecond >= 150_000_000L }) add("missing bitrate: 150Mbps+")
         }
 
-    private fun videoVariants(): Set<String> =
-        cases.mapTo(mutableSetOf()) { "${it.videoCodec.normalized()}:${it.bitDepth}" }
+    private fun videoVariants(): Set<String> = cases.mapTo(mutableSetOf()) { "${it.videoCodec.normalized()}:${it.bitDepth}" }
 
     private fun <T> List<YMediaTestCase>.valuesOf(selector: (YMediaTestCase) -> T?): Set<String> =
         mapNotNull(selector).mapTo(mutableSetOf()) { it.toString().normalized() }
@@ -239,6 +238,12 @@ data class YMediaTestObservation(
     val serverTranscodeUsed: Boolean = false,
     val dolbyRpuApplied: Boolean = false,
     val dolbyEnhancementLayerComposed: Boolean = false,
+    /** Successfully completed stress operations in this uninterrupted instrumentation run. */
+    val seekCycles: Int = 0,
+    val surfaceRecreations: Int = 0,
+    val queueTransitions: Int = 0,
+    val continuousSoakMinutes: Int = 0,
+    val queueSoakMinutes: Int = 0,
 ) {
     init {
         require(caseId.isNotBlank())
@@ -248,6 +253,11 @@ data class YMediaTestObservation(
         require(maximumAbsoluteAvDriftMs >= 0L)
         require(peakPssBytes >= 0L)
         require(maximumThermalStatus >= 0)
+        require(seekCycles >= 0)
+        require(surfaceRecreations >= 0)
+        require(queueTransitions >= 0)
+        require(continuousSoakMinutes >= 0)
+        require(queueSoakMinutes >= 0)
     }
 }
 
