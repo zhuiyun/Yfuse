@@ -18,6 +18,11 @@ import com.yfuse.core2.demux.YSubtitlePacketDecoder
 import com.yfuse.core2.demux.YSubtitleTrackFormat
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.demux.YVideoTrackFormat
+import com.yfuse.core2.demux.YColorRange
+import com.yfuse.core2.demux.YColorMatrix
+import com.yfuse.core2.demux.YColorPrimaries
+import com.yfuse.core2.demux.YChromaLocation
+import com.yfuse.core2.demux.YVideoGeometry
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.hdr.YHdrStaticMetadata
 import com.yfuse.core2.subtitle.YSubtitleCue
@@ -316,6 +321,20 @@ internal class AndroidFfmpegDemuxer :
                                 FfmpegNativeBridge
                                     .trackHdrStaticInfo(handle, index)
                                     ?.toHdrStaticMetadata(),
+                            colorRange = ffmpegColorRange(info.getOrElse(VIDEO_COLOR_RANGE_INDEX) { 0L }),
+                            colorMatrix = ffmpegColorMatrix(info.getOrElse(VIDEO_COLOR_MATRIX_INDEX) { 0L }),
+                            colorPrimaries = ffmpegColorPrimaries(info.getOrElse(VIDEO_COLOR_PRIMARIES_INDEX) { 0L }),
+                            chromaLocation = ffmpegChromaLocation(info.getOrElse(VIDEO_CHROMA_LOCATION_INDEX) { 0L }),
+                            geometry =
+                                YVideoGeometry(
+                                    pixelAspectRatioNumerator = info.getOrElse(VIDEO_SAR_NUM_INDEX) { 1L }.toInt().coerceAtLeast(1),
+                                    pixelAspectRatioDenominator = info.getOrElse(VIDEO_SAR_DEN_INDEX) { 1L }.toInt().coerceAtLeast(1),
+                                    rotationDegrees = info.getOrElse(VIDEO_ROTATION_INDEX) { 0L }.toInt(),
+                                    cropLeft = info.getOrElse(VIDEO_CROP_LEFT_INDEX) { 0L }.toInt().coerceAtLeast(0),
+                                    cropTop = info.getOrElse(VIDEO_CROP_TOP_INDEX) { 0L }.toInt().coerceAtLeast(0),
+                                    cropRight = info.getOrElse(VIDEO_CROP_RIGHT_INDEX) { 0L }.toInt().coerceAtLeast(0),
+                                    cropBottom = info.getOrElse(VIDEO_CROP_BOTTOM_INDEX) { 0L }.toInt().coerceAtLeast(0),
+                                ),
                         ),
                 )
             }
@@ -585,6 +604,41 @@ private fun IntArray.toHdrStaticMetadata(): YHdrStaticMetadata? {
     )
 }
 
+private fun ffmpegColorRange(value: Long): YColorRange =
+    when (value.toInt()) {
+        1 -> YColorRange.Limited
+        2 -> YColorRange.Full
+        else -> YColorRange.Unspecified
+    }
+
+private fun ffmpegColorMatrix(value: Long): YColorMatrix =
+    when (value.toInt()) {
+        0 -> YColorMatrix.Identity
+        1 -> YColorMatrix.Bt709
+        5, 6 -> YColorMatrix.Bt601
+        9, 10 -> YColorMatrix.Bt2020
+        else -> YColorMatrix.Unspecified
+    }
+
+private fun ffmpegColorPrimaries(value: Long): YColorPrimaries =
+    when (value.toInt()) {
+        1 -> YColorPrimaries.Bt709
+        9 -> YColorPrimaries.Bt2020
+        12 -> YColorPrimaries.DisplayP3
+        else -> YColorPrimaries.Unspecified
+    }
+
+private fun ffmpegChromaLocation(value: Long): YChromaLocation =
+    when (value.toInt()) {
+        1 -> YChromaLocation.Left
+        2 -> YChromaLocation.Center
+        3 -> YChromaLocation.TopLeft
+        4 -> YChromaLocation.Top
+        5 -> YChromaLocation.BottomLeft
+        6 -> YChromaLocation.Bottom
+        else -> YChromaLocation.Unspecified
+    }
+
 private fun rationalToFloat(
     numerator: Long,
     denominator: Long,
@@ -618,6 +672,17 @@ private const val VIDEO_BIT_DEPTH_INDEX = 4
 private const val VIDEO_HDR_INDEX = 5
 private const val VIDEO_PACKING_INDEX = 8
 private const val VIDEO_LENGTH_BYTES_INDEX = 9
+private const val VIDEO_COLOR_RANGE_INDEX = 10
+private const val VIDEO_COLOR_MATRIX_INDEX = 11
+private const val VIDEO_COLOR_PRIMARIES_INDEX = 12
+private const val VIDEO_CHROMA_LOCATION_INDEX = 14
+private const val VIDEO_SAR_NUM_INDEX = 15
+private const val VIDEO_SAR_DEN_INDEX = 16
+private const val VIDEO_ROTATION_INDEX = 17
+private const val VIDEO_CROP_LEFT_INDEX = 18
+private const val VIDEO_CROP_TOP_INDEX = 19
+private const val VIDEO_CROP_RIGHT_INDEX = 20
+private const val VIDEO_CROP_BOTTOM_INDEX = 21
 private const val AUDIO_INFO_FIELDS = 4
 private const val AUDIO_CHANNELS_INDEX = 0
 private const val AUDIO_SAMPLE_RATE_INDEX = 1

@@ -20,10 +20,11 @@ class YNativeGpuRuntimeTest {
     fun verifiedExecutorRequiresPresentationDecodedFrameAndMeasurement() {
         val probe =
             probe(
-                WARMUP_FEATURE_MASK or
+                STATIC_READY_FEATURE_MASK or
                     YNativeGpuFeature.SwapchainPresented.mask or
                     YNativeGpuFeature.DecodedFramePresented.mask or
-                    YNativeGpuFeature.OutputMeasured.mask,
+                    YNativeGpuFeature.OutputMeasured.mask or
+                    YNativeGpuFeature.ImageReaderDecodedFrame.mask,
             )
 
         assertTrue(probe.canClaimNativeVulkan)
@@ -48,6 +49,19 @@ class YNativeGpuRuntimeTest {
         assertTrue(capabilities.toneMappers.isEmpty())
     }
 
+    @Test
+    fun hdrProcessingRequiresMeasuredP010Input() {
+        val verifiedMask =
+            STATIC_READY_FEATURE_MASK or
+                YNativeGpuFeature.SwapchainPresented.mask or
+                YNativeGpuFeature.DecodedFramePresented.mask or
+                YNativeGpuFeature.OutputMeasured.mask or
+                YNativeGpuFeature.ImageReaderDecodedFrame.mask
+
+        assertFalse(probe(verifiedMask).canProcessHdr)
+        assertTrue(probe(verifiedMask or YNativeGpuFeature.P010Input.mask).canProcessHdr)
+    }
+
     private fun probe(
         mask: Long,
         apiLevel: Int = 35,
@@ -69,3 +83,13 @@ private val WARMUP_FEATURE_MASK =
         YNativeGpuFeature.SamplerYcbcrConversion,
         YNativeGpuFeature.HardwareBufferImported,
     ).fold(0L) { mask, feature -> mask or feature.mask }
+
+private val STATIC_READY_FEATURE_MASK =
+    WARMUP_FEATURE_MASK or
+        listOf(
+            YNativeGpuFeature.Bt2390Shader,
+            YNativeGpuFeature.GamutMappingShader,
+            YNativeGpuFeature.HighQualityScalingShader,
+            YNativeGpuFeature.DebandDitherShader,
+            YNativeGpuFeature.DisplayTiming,
+        ).fold(0L) { mask, feature -> mask or feature.mask }

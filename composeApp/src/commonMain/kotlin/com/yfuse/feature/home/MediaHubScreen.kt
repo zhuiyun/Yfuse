@@ -257,18 +257,29 @@ private fun MediaHubHeader(
                     color = palette.sub2,
                 )
             }
-            Icon(
-                AppIcons.Home,
-                contentDescription = "切换到 Yfuse 首页",
-                tint = palette.sub,
+            Row(
                 modifier =
                     Modifier
-                        .pressable(onClick = onOpenClassic)
+                        .pressable(onClickLabel = "关闭影视发现首页", onClick = onOpenClassic)
                         .touchTarget()
-                        .size(40.dp)
                         .liquidGlass(GlassShapes.chip, palette.card2, palette.border, palette.background)
-                        .padding(10.dp),
-            )
+                        .padding(horizontal = 11.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    AppIcons.Close,
+                    contentDescription = null,
+                    tint = palette.sub,
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    "关闭",
+                    style = AppTypography.caption.strong,
+                    color = palette.body,
+                    maxLines = 1,
+                )
+            }
             Spacer(Modifier.width(8.dp))
             Icon(
                 AppIcons.Server,

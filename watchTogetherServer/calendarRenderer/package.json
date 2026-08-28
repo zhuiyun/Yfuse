@@ -1,0 +1,14 @@
+{
+  "name": "yfuse-calendar-renderer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check server.mjs && node --check capture-session.mjs",
+    "capture-session": "node capture-session.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.62.1"
+  }
+}

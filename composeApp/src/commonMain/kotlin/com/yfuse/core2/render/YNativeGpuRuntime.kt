@@ -15,6 +15,14 @@ enum class YNativeGpuFeature(
     SwapchainPresented(1L shl 8),
     DecodedFramePresented(1L shl 9),
     OutputMeasured(1L shl 10),
+    ImageReaderDecodedFrame(1L shl 11),
+    P010Input(1L shl 12),
+    HdrSwapchain(1L shl 13),
+    Bt2390Shader(1L shl 14),
+    GamutMappingShader(1L shl 15),
+    HighQualityScalingShader(1L shl 16),
+    DebandDitherShader(1L shl 17),
+    DisplayTiming(1L shl 18),
 }
 
 data class YNativeGpuRuntimeProbe(
@@ -33,19 +41,32 @@ data class YNativeGpuRuntimeProbe(
 
     /** A real decoded frame and measured output are mandatory before Vulkan becomes a media route. */
     val canClaimNativeVulkan: Boolean
-        get() = supportsWarmup && VERIFIED_OUTPUT_FEATURES.all(::supports)
+        get() =
+            supportsWarmup &&
+                VERIFIED_OUTPUT_FEATURES.all(::supports) &&
+                COLOR_PIPELINE_FEATURES.all(::supports)
+
+    /** Allows an opt-in measurement run; this is deliberately weaker than a publishable claim. */
+    val canAttemptNativeVulkan: Boolean
+        get() = supportsWarmup && STATIC_COLOR_PIPELINE_FEATURES.all(::supports)
+
+    val canProcessHdr: Boolean
+        get() = canClaimNativeVulkan && supports(YNativeGpuFeature.P010Input)
 
     fun toGpuCapabilities(): YGpuCapabilities =
         YGpuCapabilities(
             backends = if (supportsWarmup) setOf(YGpuBackend.Vulkan) else emptySet(),
             nativeVulkanExecutorVerified = canClaimNativeVulkan,
-            // The first native milestone proves zero-copy import and presentation only. HDR
-            // processing is enabled later when its shaders and measured device evidence exist.
-            toneMappers = emptySet(),
-            scalingFilters = setOf(YScalingFilter.Bilinear),
-            supportsHdrInput = false,
-            supportsHdrOutput = false,
-            supportsTenBitOutput = false,
+            toneMappers = if (supports(YNativeGpuFeature.Bt2390Shader)) setOf(YToneMapper.Bt2390) else emptySet(),
+            scalingFilters =
+                if (supports(YNativeGpuFeature.HighQualityScalingShader)) {
+                    setOf(YScalingFilter.Bilinear, YScalingFilter.Bicubic, YScalingFilter.Lanczos)
+                } else {
+                    setOf(YScalingFilter.Bilinear)
+                },
+            supportsHdrInput = supports(YNativeGpuFeature.P010Input),
+            supportsHdrOutput = supports(YNativeGpuFeature.HdrSwapchain),
+            supportsTenBitOutput = supports(YNativeGpuFeature.HdrSwapchain),
         )
 
     fun firstMissingRequirement(): YNativeGpuRequirement? =
@@ -63,6 +84,7 @@ data class YNativeGpuRuntimeProbe(
             !supports(YNativeGpuFeature.SwapchainPresented) -> YNativeGpuRequirement.SwapchainPresentation
             !supports(YNativeGpuFeature.DecodedFramePresented) -> YNativeGpuRequirement.DecodedFramePresentation
             !supports(YNativeGpuFeature.OutputMeasured) -> YNativeGpuRequirement.MeasuredOutput
+            !COLOR_PIPELINE_FEATURES.all(::supports) -> YNativeGpuRequirement.ColorPipeline
             else -> null
         }
 }
@@ -81,6 +103,7 @@ enum class YNativeGpuRequirement {
     SwapchainPresentation,
     DecodedFramePresentation,
     MeasuredOutput,
+    ColorPipeline,
 }
 
 private val WARMUP_FEATURES =
@@ -101,5 +124,24 @@ private val VERIFIED_OUTPUT_FEATURES =
         YNativeGpuFeature.OutputMeasured,
     )
 
-const val NATIVE_GPU_API_VERSION = 1
+private val COLOR_PIPELINE_FEATURES =
+    setOf(
+        YNativeGpuFeature.ImageReaderDecodedFrame,
+        YNativeGpuFeature.Bt2390Shader,
+        YNativeGpuFeature.GamutMappingShader,
+        YNativeGpuFeature.HighQualityScalingShader,
+        YNativeGpuFeature.DebandDitherShader,
+        YNativeGpuFeature.DisplayTiming,
+    )
+
+private val STATIC_COLOR_PIPELINE_FEATURES =
+    setOf(
+        YNativeGpuFeature.Bt2390Shader,
+        YNativeGpuFeature.GamutMappingShader,
+        YNativeGpuFeature.HighQualityScalingShader,
+        YNativeGpuFeature.DebandDitherShader,
+        YNativeGpuFeature.DisplayTiming,
+    )
+
+const val NATIVE_GPU_API_VERSION = 2
 const val MIN_ANDROID_HARDWARE_BUFFER_API = 28

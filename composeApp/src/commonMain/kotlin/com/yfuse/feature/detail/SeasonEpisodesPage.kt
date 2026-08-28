@@ -204,12 +204,26 @@ private fun EpisodeRow(
 ) {
     val palette = LocalPalette.current
     val stateColors = detailStateColors(accent, palette.background, palette.isDark)
+    val selectedHighlight = Color.White
     Row(
         modifier
             .fillMaxWidth()
             .pressable(onClick = onPlay)
             .clip(GlassShapes.card)
-            .background(if (current) stateColors.surface else Color.Transparent)
+            .background(
+                if (current) {
+                    selectedHighlight.copy(alpha = if (palette.isDark) 0.24f else 0.30f)
+                } else {
+                    Color.Transparent
+                },
+            )
+            .then(
+                if (current) {
+                    Modifier.border(3.dp, selectedHighlight, GlassShapes.card)
+                } else {
+                    Modifier
+                },
+            )
             .padding(7.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

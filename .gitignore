@@ -62,3 +62,9 @@ audit/**/*.mp4
 # Extracted native AAR contents are fetched and verified during the build.
 mpvaar/
 .native-build/
+
+# Calendar renderer session material and deployment secrets
+watchTogetherServer/calendarRenderer/node_modules/
+watchTogetherServer/calendarRenderer/renderer.environment
+watchTogetherServer/calendarRenderer/storage-state.json
+watchTogetherServer/calendarRenderer/renderer-state/storage-state.json

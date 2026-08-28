@@ -59,7 +59,7 @@ import com.yfuse.core.network.EmbyImages
 private fun EpisodeHeader(
     accent: Color,
     seasonLabel: String,
-    episodeCount: Int,
+    availableEpisodeCount: Int,
     seasons: List<Pair<String, String>>,
     selectedSeasonId: String?,
     pickerOpen: Boolean,
@@ -86,8 +86,7 @@ private fun EpisodeHeader(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 共 N 集 is the label and the way in: a rail shows four of them, and the
-                // count is exactly the promise the full list keeps.
+                // This count comes from Emby, not the official production total.
                 Row(
                     Modifier
                         .pressable(onClick = onSeeAll)
@@ -95,7 +94,11 @@ private fun EpisodeHeader(
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("共 $episodeCount 集", style = AppTypography.caption.strong, color = palette.body)
+                    Text(
+                        "已入库 $availableEpisodeCount 集",
+                        style = AppTypography.caption.strong,
+                        color = palette.body,
+                    )
                     Icon(
                         AppIcons.ChevronRight,
                         contentDescription = "查看全部剧集",
@@ -199,7 +202,7 @@ internal fun EpisodeSection(
     selectedEpisodeId: String?,
     accent: Color,
     seasonLabel: String,
-    episodeCount: Int,
+    availableEpisodeCount: Int,
     seasons: List<Pair<String, String>>,
     selectedSeasonId: String?,
     pickerOpen: Boolean,
@@ -223,7 +226,7 @@ internal fun EpisodeSection(
             accent = accent,
             onSeeAll = onSeeAll,
             seasonLabel = seasonLabel,
-            episodeCount = episodeCount,
+            availableEpisodeCount = availableEpisodeCount,
             seasons = seasons,
             selectedSeasonId = selectedSeasonId,
             pickerOpen = pickerOpen,
@@ -296,6 +299,7 @@ private fun EpisodeCard(
 ) {
     val palette = LocalPalette.current
     val stateColors = detailStateColors(accent, palette.background, palette.isDark)
+    val selectedHighlight = Color.White
     val watching = (episode.playedPercentage ?: 0.0) > 0.0
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val selectedScale by animateFloatAsState(
@@ -314,7 +318,9 @@ private fun EpisodeCard(
             .solidGlass(
                 shape = GlassShapes.card,
                 fill =
-                    if (palette.isDark) {
+                    if (selected) {
+                        selectedHighlight.copy(alpha = if (palette.isDark) 0.24f else 0.30f)
+                    } else if (palette.isDark) {
                         palette.card
                     } else {
                         Color.White.copy(alpha = 0.24f)
@@ -322,7 +328,7 @@ private fun EpisodeCard(
                 border = Color.Transparent,
             ).then(
                 if (selected) {
-                    Modifier.border(2.dp, stateColors.border, GlassShapes.card)
+                    Modifier.border(3.dp, selectedHighlight, GlassShapes.card)
                 } else {
                     Modifier
                 },
@@ -349,12 +355,6 @@ private fun EpisodeCard(
                     Modifier
                         .align(Alignment.TopEnd)
                         .padding(6.dp),
-                )
-            }
-            if (selected) {
-                EpisodeSelectionBadge(
-                    accent = accent,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
                 )
             }
         }

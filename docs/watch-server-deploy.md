@@ -157,8 +157,9 @@ resync — so prefer a quiet moment.
 
 The unit does not become active until `ExecStartPost` can reach the loopback `/health`
 endpoint. It allows up to 45 seconds for JVM startup, raises the file-descriptor limit
-to 16,384 for WebSockets, caps tasks at 256, and applies `MemoryHigh=256M` /
-`MemoryMax=384M` around the existing `-Xmx128m` heap. A readiness failure is therefore
+to 16,384 for WebSockets, caps tasks at 256, and applies `MemoryHigh=384M` /
+`MemoryMax=448M` around the `-Xmx256m` heap. The larger heap leaves bounded headroom for
+streaming-provider schedule ingestion. A readiness failure is therefore
 a failed start and is handled by the unit's bounded restart policy instead of exposing
 a half-started backend through Caddy.
 

@@ -12,6 +12,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
+import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
@@ -61,7 +62,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     YPlayerDiagnostics(
                         route = forcedPlan?.route ?: YPlaybackRoute.NativeEnhanced,
                         demuxer = "FFmpeg 8.1 / libavformat",
-                        renderer = "Surface + AudioTrack",
+                        renderer = if (forcedPlan?.route == YPlaybackRoute.GpuEnhanced) "Vulkan + AudioTrack" else "Surface + AudioTrack",
                         reason = "YCore 2.0 NativeEnhanced opt-in path",
                     ),
             ),
@@ -226,6 +227,8 @@ internal class AndroidNativeEnhancedYPlayer(
         var lastPublishNs = 0L
         var externalSubtitle: AndroidLoadedExternalSubtitle? = null
         var externalSubtitleSelected = false
+        var activePlan: YPlaybackPlan? = null
+        var activeDolbyProfile: Int? = null
 
         suspend fun prepareCurrent(positionUs: Long) {
             val output = surfaceOutput?.surface?.takeIf { it.isValid }
@@ -254,11 +257,11 @@ internal class AndroidNativeEnhancedYPlayer(
                     "Media item is not eligible for YCore NativeEnhanced"
                 }
             } else {
-                check(
-                    playbackPlan.route == YPlaybackRoute.SoftwareFallback &&
-                        playbackPlan.demuxPath == YDemuxPath.Enhanced,
-                ) {
-                    "Forced YCore software plan must use the enhanced demux path"
+                check(playbackPlan.demuxPath == YDemuxPath.Enhanced) {
+                    "Forced YCore plan must use the enhanced demux path"
+                }
+                check(playbackPlan.route in setOf(YPlaybackRoute.SoftwareFallback, YPlaybackRoute.GpuEnhanced)) {
+                    "Only YCore software and measured GPU plans may be forced"
                 }
             }
             val result =
@@ -273,9 +276,10 @@ internal class AndroidNativeEnhancedYPlayer(
                     plan = playbackPlan,
                     surface = output,
                     startPositionUs = positionUs.coerceAtLeast(0L),
-                    runtimeCapabilityKey = decision.runtimeCapabilityKey(),
+                    runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
                 )
             prepared = true
+            activePlan = playbackPlan
             speed = mutableState.value.speed
             session.setSpeed(speed)
             val tracks = result.toAudioTracks()
@@ -288,6 +292,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 result.toSubtitleTracks() +
                     listOfNotNull(externalSubtitle?.track?.copy(selected = externalSubtitleSelected))
             val video = result.tracks.firstOrNull { it.type == YDemuxTrackType.Video }?.video
+            activeDolbyProfile = video?.dolbyVisionConfig?.profile
             mutableState.updateState {
                 it.copy(
                     phase = YPlaybackPhase.Ready,
@@ -352,7 +357,17 @@ internal class AndroidNativeEnhancedYPlayer(
                                 listOfNotNull(snapshot.videoDecoderName, snapshot.audioDecoderName)
                                     .joinToString(" + "),
                             videoOutput =
-                                if (snapshot.firstVideoFrameRendered) "Surface 直出" else "等待首帧",
+                                when {
+                                    snapshot.nativeGpuFeatureMask != 0L && snapshot.firstVideoFrameRendered ->
+                                        nativeGpuOutputLabel(
+                                            plan = activePlan,
+                                            dolbyProfile = activeDolbyProfile,
+                                            gpuFrameDurationNs = snapshot.gpuFrameDurationNs,
+                                        )
+                                    snapshot.nativeGpuFeatureMask != 0L -> "等待 Vulkan 实测门槛"
+                                    snapshot.firstVideoFrameRendered -> "Surface 直出"
+                                    else -> "等待首帧"
+                                },
                             audioOutput =
                                 if (snapshot.audioRendering) {
                                     when {
@@ -368,7 +383,8 @@ internal class AndroidNativeEnhancedYPlayer(
                             // Native DV output claim requires a verified video frame AND a DV source
                             // route. P7 FEL composition remains a separate evidence gate.
                             dolbyVisionOutput =
-                                snapshot.firstVideoFrameRendered && it.diagnostics.dynamicRange == "DolbyVision",
+                                snapshot.firstVideoFrameRendered &&
+                                    snapshot.outputHdrType == com.yfuse.core2.capability.YHdrType.DolbyVision,
                             dolbyAtmosOutput = snapshot.dolbyAtmosOutput,
                             audioUnderrunCount = snapshot.audioFallbackCount,
                             droppedFrames = snapshot.droppedFrames,
@@ -641,6 +657,24 @@ private fun YDemuxOpenResult.toSubtitleTracks(): List<YTrack> =
 
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     value = transform(value)
+}
+
+private fun nativeGpuOutputLabel(
+    plan: YPlaybackPlan?,
+    dolbyProfile: Int?,
+    gpuFrameDurationNs: Long,
+): String {
+    val duration = gpuFrameDurationNs / 1_000_000.0
+    return when {
+        plan?.usesHdrFallback == true ->
+            "DV P${dolbyProfile ?: "7/8"} 兼容基层 ${plan.inputHdrType} → ${plan.outputHdrType} · " +
+                "Vulkan ${duration} ms"
+        plan?.inputHdrType == YHdrType.DolbyVision ->
+            "DV P${dolbyProfile ?: "5/8"} MediaCodec → Vulkan（非原生 DV 输出）· ${duration} ms"
+        plan != null && plan.inputHdrType != plan.outputHdrType ->
+            "${plan.inputHdrType} → ${plan.outputHdrType} · Vulkan ${duration} ms"
+        else -> "Vulkan Swapchain · GPU ${duration} ms"
+    }
 }
 
 private const val MICROS_PER_MILLISECOND = 1_000L

@@ -45,7 +45,7 @@ internal class AndroidHttpMediaTransport(
                     .header("Cache-Control", "no-transform")
             when (request.method) {
                 YTransportMethod.Get -> builder.get()
-                YTransportMethod.Post -> builder.post(request.body.orEmpty().toRequestBody())
+                YTransportMethod.Post -> builder.post((request.body ?: ByteArray(0)).toRequestBody())
             }
             request.headers.forEach { (name, value) ->
                 require(name.isSafeTransportHeader() && value.isSafeTransportHeader()) {

@@ -121,6 +121,21 @@ class TgtoMediaIntegrationTest {
     }
 
     @Test
+    fun discoveryHomeChoicePersistsWithoutClearingConnection() {
+        val settings = MapSettings()
+        val secureStore = TestSecureStore()
+        val preferences = TgtoMediaPreferences(settings, secureStore)
+        preferences.save("https://tgto.example.test", "viewer", "secret")
+
+        preferences.setDiscoveryHomeEnabled(false)
+
+        val restored = TgtoMediaPreferences(settings, secureStore)
+        assertFalse(restored.discoveryHomeEnabled.value)
+        assertTrue(restored.connection.value.hasPassword)
+        assertEquals("secret", restored.password())
+    }
+
+    @Test
     fun concurrentUnauthorizedResponsesShareOneLogin() =
         runTest {
             val preferences = TgtoMediaPreferences(MapSettings(), TestSecureStore())

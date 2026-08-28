@@ -1,7 +1,15 @@
 package com.yfuse.core2.android
 
 import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YVideoCodec
+import com.yfuse.core2.capability.YVideoRequirement
+import com.yfuse.core2.api.YPlaybackRoute
+import com.yfuse.core2.strategy.YDecodePath
+import com.yfuse.core2.strategy.YDemuxPath
+import com.yfuse.core2.strategy.YPlaybackPlan
+import com.yfuse.core2.strategy.YPlaybackRequest
+import com.yfuse.core2.strategy.YRenderPath
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -37,5 +45,38 @@ class AndroidRuntimeCapabilityRegistryTest {
 
         assertEquals(YRuntimeCapabilityEvidence.Rendered, configured.evidence)
         assertEquals(2L, configured.updatedAtEpochMs)
+    }
+
+    @Test
+    fun capabilityKeyRecordsDecoderInputInsteadOfToneMappedOutput() {
+        val request =
+            YPlaybackRequest(
+                container = YContainer.Matroska,
+                video =
+                    YVideoRequirement(
+                        codec = YVideoCodec.H265,
+                        hdrType = YHdrType.DolbyVision,
+                        dolbyVisionProfile = 7,
+                    ),
+                platformDemuxSupported = false,
+                fallbackHdrType = YHdrType.Hdr10,
+            )
+        val plan =
+            YPlaybackPlan(
+                route = YPlaybackRoute.GpuEnhanced,
+                demuxPath = YDemuxPath.Enhanced,
+                decodePath = YDecodePath.Hardware,
+                renderPath = YRenderPath.Gpu,
+                inputHdrType = YHdrType.Hdr10,
+                outputHdrType = YHdrType.Sdr,
+                decoderName = "c2.vendor.hevc.decoder",
+                usesHdrFallback = true,
+                reason = "test",
+            )
+
+        val key = requireNotNull(runtimeVideoCapabilityKey(request, plan))
+
+        assertEquals(YHdrType.Hdr10, key.hdrType)
+        assertEquals(null, key.dolbyVisionProfile)
     }
 }

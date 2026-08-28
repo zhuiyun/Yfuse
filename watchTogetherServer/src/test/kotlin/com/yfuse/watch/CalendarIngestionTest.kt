@@ -8,6 +8,166 @@ import kotlin.test.assertTrue
 
 class CalendarIngestionTest {
     @Test
+    fun official_archive_discovers_new_show_links_without_a_per_show_manifest() {
+        val feed =
+            CalendarDiscoveryFeed(
+                type = "PlatformPage",
+                platform = "优酷",
+                publisher = "优酷",
+                url = "https://www.youku.com/calendar",
+                platforms = listOf("优酷"),
+            )
+        val shows =
+            discoverCalendarShowsFromHtml(
+                feed = feed,
+                html =
+                    """
+                    <a href="/show/new-a">《全新电视剧》追剧日历</a>
+                    <a href="/show/unrelated">普通综艺节目</a>
+                    <a href="https://www.youku.com/show/new-a">《全新电视剧》更新时间</a>
+                    """.trimIndent(),
+                defaultYear = 2026,
+            )
+
+        assertEquals(1, shows.size)
+        assertEquals("全新电视剧", shows.single().title)
+        assertEquals(2026, shows.single().year)
+        assertEquals("https://www.youku.com/show/new-a", shows.single().sources.single().url)
+    }
+
+    @Test
+    fun discovery_feed_can_use_a_platform_specific_title_pattern() {
+        val feed =
+            CalendarDiscoveryFeed(
+                type = "PlatformPage",
+                platform = "爱奇艺",
+                publisher = "爱奇艺",
+                url = "https://www.iqiyi.com/calendar",
+                titlePattern = "剧名[:：]\\s*([^|]+)\\s*\\|\\s*会员排期",
+                year = 2027,
+                platforms = listOf("爱奇艺"),
+            )
+
+        val shows =
+            discoverCalendarShowsFromHtml(
+                feed,
+                "<a aria-label=\"剧名：测试新剧 | 会员排期\" href=\"/v/test.html\"><img></a>",
+                defaultYear = 2026,
+            )
+
+        assertEquals("测试新剧", shows.single().title)
+        assertEquals(2027, shows.single().year)
+    }
+
+    @Test
+    fun verified_account_timeline_associates_post_body_permalink_and_calendar_image() {
+        val feed =
+            CalendarDiscoveryFeed(
+                type = "VerifiedAccount",
+                publisherId = "3752699924",
+                publisher = "腾讯电视剧",
+                url = "https://weibo.com/u/3752699924",
+                platforms = listOf("腾讯视频"),
+            )
+        val shows =
+            discoverCalendarShowsFromHtml(
+                feed,
+                """
+                <article>
+                  <a href="/3752699924/QmCalendar01">8月27日 12:00</a>
+                  <div>#问心2大结局点映礼# #问心2点映礼# 最新追剧日历请查收！</div>
+                  <img src="https://wx1.sinaimg.cn/large/calendar.jpg" alt="图片">
+                </article>
+                <article>
+                  <a href="/3752699924/QmTrailer002">8月27日 13:00</a>
+                  <div>#普通预告# 主创花絮送达</div>
+                </article>
+                """.trimIndent(),
+                defaultYear = 2026,
+            )
+
+        assertEquals(1, shows.size)
+        assertEquals("问心2", shows.single().title)
+        assertEquals("https://weibo.com/3752699924/QmCalendar01", shows.single().sources.single().url)
+        assertEquals(
+            listOf("https://wx1.sinaimg.cn/large/calendar.jpg"),
+            shows.single().sources.single().imageUrls,
+        )
+    }
+
+    @Test
+    fun verified_account_json_timeline_discovers_hashtag_calendar_without_normalized_html() {
+        val feed =
+            CalendarDiscoveryFeed(
+                type = "VerifiedAccount",
+                publisherId = "1832974324",
+                publisher = "爱奇艺电视剧",
+                url = "https://weibo.com/u/1832974324",
+                platforms = listOf("爱奇艺"),
+            )
+        val shows =
+            discoverCalendarShowsFromHtml(
+                feed,
+                """
+                {
+                    "data": {
+                      "list": [{
+                        "mblogid": "Qiqiyi123",
+                        "text_raw": "#逐玉追剧日历# 上新！会员排期请查收",
+                        "user": {"profile_image_url": "https://wx2.sinaimg.cn/large/avatar.png"},
+                        "pics": [{
+                          "url": "https://wx2.sinaimg.cn/thumb150/zhuyu.png",
+                          "large": {"url": "https://wx2.sinaimg.cn/large/zhuyu.png"}
+                        }]
+                      }]
+                    }
+                }
+                """.trimIndent(),
+                defaultYear = 2026,
+            )
+
+        assertEquals("逐玉", shows.single().title)
+        assertEquals("https://weibo.com/1832974324/Qiqiyi123", shows.single().sources.single().url)
+        assertEquals(
+            listOf("https://wx2.sinaimg.cn/large/zhuyu.png"),
+            shows.single().sources.single().imageUrls,
+        )
+    }
+
+    @Test
+    fun verified_account_does_not_treat_hashtag_search_as_official_evidence_page() {
+        val feed =
+            CalendarDiscoveryFeed(
+                type = "VerifiedAccount",
+                publisherId = "1642904381",
+                publisher = "优酷",
+                url = "https://weibo.com/u/1642904381",
+                platforms = listOf("优酷"),
+            )
+
+        val shows =
+            discoverCalendarShowsFromHtml(
+                feed,
+                "<a href=\"https://s.weibo.com/weibo?q=x\">#千香追剧日历#</a>",
+                defaultYear = 2026,
+            )
+
+        assertTrue(shows.isEmpty())
+    }
+
+    @Test
+    fun renderer_endpoint_accepts_local_sidecar_but_rejects_remote_plaintext() {
+        assertEquals(
+            "127.0.0.1",
+            validateCalendarRendererEndpoint("http://127.0.0.1:8091/v1/render").host,
+        )
+        validateCalendarRendererEndpoint("https://renderer.example.com/v1/render")
+        assertFailsWith<IllegalArgumentException> {
+            validateCalendarRendererEndpoint("http://renderer.example.com/v1/render")
+        }
+    }
+
+    @Test
     fun parses_ranges_single_episodes_and_chinese_lists() {
         val parsed =
             ChineseScheduleParser.parse(
@@ -170,6 +330,42 @@ class CalendarIngestionTest {
                 defaultYear = 2026,
                 accessTier = "Member",
             )
+        assertEquals(OcrAgreement.SemanticCorroboration, resolution.agreement)
+        assertEquals(expected, resolution.episodes)
+    }
+
+    @Test
+    fun daily_calendar_grid_is_rebuilt_when_ocr_flattens_rows_differently() {
+        val ocrSpace =
+            """
+            爱奇艺VIP会员 追剧日历 8月 周一 周二 周三 周四 周五 周六 周日
+            17 18 19 20今日开播 21 22 23
+            1-4集 5-6集 7-8集 9-10集
+            24 25 26 27 会员收官 28 29 30
+            20集 21集 11-12集 13-14集 15-16集 17-18集 19集
+            8月20日起,VIP会员首更4集,每日19:30更新2集
+            """.trimIndent()
+        val paddle =
+            "8月20日起，VIP会员首更4集，每日19：30更新2集 " +
+                "1-4集 5-6集 7-8集 9-10集 11-12集 13-14集 15-16集 17-18集 19集 20集 21集"
+        val expected =
+            buildMap {
+                listOf(1..4, 5..6, 7..8, 9..10, 11..12, 13..14, 15..16, 17..18, 19..19, 20..20, 21..21)
+                    .forEachIndexed { dayOffset, episodes ->
+                        val date = java.time.LocalDate.of(2026, 8, 20).plusDays(dayOffset.toLong()).toString()
+                        episodes.forEach { put(it, date) }
+                    }
+            }
+        val resolution =
+            OcrConfidenceGate.resolve(
+                listOf(
+                    OcrReading("ocr-space", ocrSpace, ChineseScheduleParser.parse(ocrSpace, 2026, "Member")),
+                    OcrReading("paddle", paddle, ChineseScheduleParser.parse(paddle, 2026, "Member")),
+                ),
+                defaultYear = 2026,
+                accessTier = "Member",
+            )
+
         assertEquals(OcrAgreement.SemanticCorroboration, resolution.agreement)
         assertEquals(expected, resolution.episodes)
     }
@@ -367,6 +563,12 @@ class CalendarIngestionTest {
                 """.trimIndent(),
             ),
         )
+        assertTrue(
+            PaddleOcrResponseParser.isSubmitQueueFull(
+                """{"code":10010,"msg":"任务提交队列已满，请稍后重试"}""",
+            ),
+        )
+        assertTrue(!PaddleOcrResponseParser.isSubmitQueueFull("""{"code":10001}"""))
     }
 
     @Test
@@ -457,6 +659,178 @@ class CalendarIngestionTest {
                 ),
             )
         }
+    }
+
+    @Test
+    fun tvmaze_full_schedule_discovers_foreign_show_without_inventing_streaming_time() {
+        val shows =
+            OverseasScheduleParser.discoverTvmazeShows(
+                body =
+                    """
+                    [{
+                      "season": 2,
+                      "number": 3,
+                      "airdate": "2026-08-28",
+                      "airtime": "",
+                      "_embedded": {"show": {
+                        "id": 901,
+                        "name": "Example Global Drama",
+                        "type": "Scripted",
+                        "weight": 95,
+                        "premiered": "2025-09-01",
+                        "externals": {"imdb": "tt1234567"},
+                        "network": null,
+                        "webChannel": {"name": "Netflix", "country": null},
+                        "schedule": {"time": ""}
+                      }}
+                    }]
+                    """.trimIndent(),
+                today = java.time.LocalDate.of(2026, 8, 27),
+                config = OverseasCalendarConfig(enabled = true),
+            )
+
+        val show = shows.single()
+        assertEquals("Foreign", show.origin)
+        assertEquals("GLOBAL", show.availabilityRegion)
+        assertEquals("DateOnly", show.releaseMode)
+        assertNull(show.airTime)
+        assertNull(show.timeZoneId)
+        assertEquals(901, show.tvmazeId)
+    }
+
+    @Test
+    fun tvmaze_airstamp_keeps_utc_and_beijing_instants() {
+        val source =
+            OverseasScheduleParser.parseTvmazeEpisodes(
+                body =
+                    """
+                    [{
+                      "season": 1,
+                      "number": 4,
+                      "airdate": "2026-08-27",
+                      "airtime": "21:00",
+                      "airstamp": "2026-08-28T01:00:00+00:00"
+                    }]
+                    """.trimIndent(),
+                seasonNumber = 1,
+                showId = 901,
+                timeZoneId = "America/New_York",
+                capturedAt = "2026-08-27T12:00:00Z",
+            )!!
+
+        val episode = source.episodes.getValue(4)
+        assertEquals("2026-08-27", episode.airDate)
+        assertEquals("2026-08-28T01:00:00Z", episode.releaseAtUtc)
+        assertEquals("2026-08-28T09:00+08:00", episode.releaseAtBeijing)
+        assertEquals("21:00", source.airTime)
+    }
+
+    @Test
+    fun tvmaze_discovery_excludes_news_and_sports() {
+        val shows =
+            OverseasScheduleParser.discoverTvmazeShows(
+                body =
+                    """
+                    [{
+                      "season": 1,
+                      "number": 1,
+                      "airdate": "2026-08-28",
+                      "_embedded": {"show": {
+                        "id": 902,
+                        "name": "Daily News",
+                        "type": "News",
+                        "weight": 100,
+                        "premiered": "2026-01-01",
+                        "network": {"name": "Network", "country": {"code": "US", "timezone": "America/New_York"}},
+                        "webChannel": null
+                      }}
+                    }]
+                    """.trimIndent(),
+                today = java.time.LocalDate.of(2026, 8, 28),
+                config = OverseasCalendarConfig(enabled = true),
+            )
+
+        assertTrue(shows.isEmpty())
+    }
+
+    @Test
+    fun tmdb_and_tvmaze_agreement_is_verified_at_eighty_five() {
+        val tmdb =
+            StructuredCalendarSource(
+                type = "TmdbSchedule",
+                publisher = "TMDB",
+                sourceUrl = "https://api.themoviedb.org/3/tv/1/season/1",
+                capturedAt = "2026-08-27T12:00:00Z",
+                contentHash = HASH,
+                episodes = mapOf(1 to CalendarEpisode(1, "2026-08-28")),
+            )
+        val tvmaze =
+            StructuredCalendarSource(
+                type = "TvmazeSchedule",
+                publisher = "TVmaze",
+                sourceUrl = "https://www.tvmaze.com/shows/901",
+                capturedAt = "2026-08-27T12:00:00Z",
+                contentHash = "b".repeat(64),
+                episodes = mapOf(1 to CalendarEpisode(1, "2026-08-28")),
+            )
+        val foreign =
+            CalendarIngestionShow(
+                title = "Example Global Drama",
+                year = 2026,
+                tmdbId = 1,
+                tvmazeId = 901,
+                airTime = null,
+                timeZoneId = null,
+                platforms = listOf("Netflix"),
+                accessTier = "Unknown",
+                origin = "Foreign",
+                availabilityRegion = "GLOBAL",
+                releaseMode = "DateOnly",
+                sources = emptyList(),
+            )
+        val series =
+            OverseasEvidenceGate.compile(
+                foreign,
+                ResolvedCalendarIdentity(1, foreign.title, null, "https://www.themoviedb.org/tv/1", HASH),
+                listOf(tmdb, tvmaze),
+                "2026-08-27-r1",
+                "2026-08-27T12:00:00Z",
+            )
+
+        assertEquals("Verified", series?.authority)
+        assertEquals(85, series?.confidence)
+        assertEquals("Foreign", series?.origin)
+    }
+
+    @Test
+    fun conflicting_tmdb_and_tvmaze_dates_are_not_published() {
+        val show =
+            CalendarIngestionShow(
+                title = "Conflict",
+                year = 2026,
+                tmdbId = 1,
+                airTime = null,
+                timeZoneId = null,
+                platforms = listOf("Network"),
+                accessTier = "Unknown",
+                origin = "Foreign",
+                sources = emptyList(),
+            )
+        val sources =
+            listOf(
+                StructuredCalendarSource("TmdbSchedule", "TMDB", "https://www.themoviedb.org/tv/1", HASH, HASH, mapOf(1 to CalendarEpisode(1, "2026-08-28"))),
+                StructuredCalendarSource("TvmazeSchedule", "TVmaze", "https://www.tvmaze.com/shows/1", HASH, HASH, mapOf(1 to CalendarEpisode(1, "2026-08-29"))),
+            )
+
+        assertNull(
+            OverseasEvidenceGate.compile(
+                show,
+                ResolvedCalendarIdentity(1, show.title, null, "https://www.themoviedb.org/tv/1", HASH),
+                sources,
+                "2026-08-27-r1",
+                "2026-08-27T12:00:00Z",
+            ),
+        )
     }
 
     private fun show() =

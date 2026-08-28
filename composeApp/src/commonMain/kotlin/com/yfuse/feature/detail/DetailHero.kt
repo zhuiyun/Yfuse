@@ -148,10 +148,11 @@ internal fun rememberTopBarProgress(
     listState: LazyListState,
     heroHeightPx: Float,
     density: Density,
+    takeoverInset: Dp = 188.dp,
 ): State<Float> =
-    remember(listState, heroHeightPx, density) {
-        val start = (heroHeightPx - with(density) { 188.dp.toPx() }).coerceAtLeast(1f)
-        val span = with(density) { 96.dp.toPx() }
+    remember(listState, heroHeightPx, density, takeoverInset) {
+        val start = (heroHeightPx - with(density) { takeoverInset.toPx() }).coerceAtLeast(1f)
+        val span = with(density) { TopBarHeight.toPx() }
         derivedStateOf {
             if (listState.firstVisibleItemIndex > 0) {
                 1f
@@ -493,7 +494,7 @@ internal fun TitleBlock(
 }
 
 /** `1小时13分钟` — hours only when there are any, because "0小时13分钟" reads as a bug. */
-private fun runtimeLabel(minutes: Int): String {
+internal fun runtimeLabel(minutes: Int): String {
     val hours = minutes / 60
     val rest = minutes % 60
     return when {

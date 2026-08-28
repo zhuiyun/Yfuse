@@ -19,6 +19,7 @@ import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.MpvVideoEngine
 import com.yfuse.feature.player.PlayerMediaItem
@@ -131,6 +132,7 @@ private class AndroidMpvCore2FallbackPlayer(
                 },
             autoNext = false,
             customUserAgent = item.headers[USER_AGENT_HEADER].orEmpty(),
+            optimizationMode = PlaybackOptimizationMode.Balanced,
             scope = scope,
         )
     private val delegate = LegacyYPlayerAdapter(engine)

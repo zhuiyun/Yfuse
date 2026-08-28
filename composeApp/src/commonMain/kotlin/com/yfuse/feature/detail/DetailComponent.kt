@@ -26,6 +26,7 @@ import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.loadCalendarWithDeadline
 import com.yfuse.feature.player.PlaybackPreloadKey
+import com.yfuse.feature.player.PlaybackSourcePreload
 import com.yfuse.feature.player.PlayerStoreFactory
 import com.yfuse.feature.player.PreparedPlaybackRegistry
 import com.yfuse.feature.player.PreparedPlayerStore

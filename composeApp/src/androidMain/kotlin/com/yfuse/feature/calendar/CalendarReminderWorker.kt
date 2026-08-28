@@ -110,6 +110,8 @@ private fun scheduleNextCalendarAlarm(
 }
 
 private const val BROADCAST_LATE_WINDOW_MS = 90 * 60_000L
+private const val AUTOMATIC_FOLLOW_DISCOVERY_DEADLINE_MS = 25_000L
+private const val AUTOMATIC_FOLLOW_REFRESH_MAX_AGE_MS = 20 * 60_000L
 private const val REMINDER_WORK_DEADLINE_MS = 30_000L
 private const val MAX_REMINDER_DEDUP_KEYS = 1_000
 
@@ -126,16 +128,31 @@ class CalendarReminderWorker(
 ) : CoroutineWorker(appContext, parameters) {
     override suspend fun doWork(): Result {
         val koin = runCatching { GlobalContext.get() }.getOrElse { return Result.retry() }
-        val follows = koin.get<CalendarFollowStore>().followed.value
+        val repository = koin.get<AiringCalendarRepository>()
+        val followStore = koin.get<CalendarFollowStore>()
+        val automaticRefreshCompleted =
+            if (
+                followStore.automaticFollowRefreshDue(
+                    nowEpochMs = currentEpochMillis(),
+                    maxAgeMs = AUTOMATIC_FOLLOW_REFRESH_MAX_AGE_MS,
+                )
+            ) {
+                withTimeoutOrNull(AUTOMATIC_FOLLOW_DISCOVERY_DEADLINE_MS) {
+                    repository.refreshAutomaticFollows()
+                    true
+                } ?: false
+            } else {
+                true
+            }
+        val follows = followStore.followed.value
         if (follows.isEmpty()) {
             scheduleNextCalendarAlarm(applicationContext, null)
-            return Result.success()
+            return if (automaticRefreshCompleted) Result.success() else Result.retry()
         }
         if (!notificationsAllowed()) {
             scheduleNextCalendarAlarm(applicationContext, null)
             return Result.success()
         }
-        val repository = koin.get<AiringCalendarRepository>()
         val calendarResult =
             withTimeoutOrNull(REMINDER_WORK_DEADLINE_MS) {
                 repository.followedCalendar(pastDays = 1, futureDays = 2)

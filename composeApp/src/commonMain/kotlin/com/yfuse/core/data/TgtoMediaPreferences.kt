@@ -25,12 +25,16 @@ class TgtoMediaPreferences(
         private const val ENDPOINT_KEY = "tgto.media.endpoint"
         private const val USERNAME_KEY = "tgto.media.username"
         private const val PASSWORD_KEY = "password"
+        private const val DISCOVERY_HOME_ENABLED_KEY = "tgto.media.discoveryHomeEnabled"
         private const val PAN123_PHONE_KEY = "tgto.media.pan123.phone"
         private const val PAN123_TOKEN_KEY = "pan123.token"
     }
 
     private val _connection = MutableStateFlow(loadConnection())
     val connection: StateFlow<TgtoConnection> = _connection.asStateFlow()
+    private val _discoveryHomeEnabled =
+        MutableStateFlow(settings.getBoolean(DISCOVERY_HOME_ENABLED_KEY, true))
+    val discoveryHomeEnabled: StateFlow<Boolean> = _discoveryHomeEnabled.asStateFlow()
     private val _pan123Authorization = MutableStateFlow(loadPan123Authorization())
     val pan123Authorization: StateFlow<Pan123Authorization> = _pan123Authorization.asStateFlow()
     private val _openSettingsRequest = MutableStateFlow(0L)
@@ -56,6 +60,12 @@ class TgtoMediaPreferences(
     fun clearPassword() {
         secureStore.remove(PASSWORD_KEY)
         _connection.value = loadConnection()
+    }
+
+    /** Keeps the TgtoDrive connection while choosing which experience owns the Home tab. */
+    fun setDiscoveryHomeEnabled(enabled: Boolean) {
+        settings.putBoolean(DISCOVERY_HOME_ENABLED_KEY, enabled)
+        _discoveryHomeEnabled.value = enabled
     }
 
     fun savePan123Authorization(

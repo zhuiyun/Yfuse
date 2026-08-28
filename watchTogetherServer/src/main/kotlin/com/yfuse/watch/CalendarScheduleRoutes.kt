@@ -61,10 +61,13 @@ internal data class CalendarSeries(
     val title: String,
     val seasonNumber: Int,
     val posterPath: String? = null,
-    val airTime: String,
-    val timeZoneId: String,
+    val airTime: String? = null,
+    val timeZoneId: String? = null,
     val platforms: List<String>,
     val accessTier: String,
+    val origin: String = "Domestic",
+    val availabilityRegion: String? = null,
+    val releaseMode: String = "Scheduled",
     val sourceUrl: String,
     val revision: String,
     val updatedAt: String,
@@ -88,6 +91,8 @@ internal data class CalendarEvidence(
 internal data class CalendarEpisode(
     val episodeNumber: Int,
     val airDate: String,
+    val releaseAtUtc: String? = null,
+    val releaseAtBeijing: String? = null,
 )
 
 internal class CalendarScheduleSigner private constructor(
@@ -123,6 +128,13 @@ internal fun Route.calendarScheduleRoutes(
     signer: CalendarScheduleSigner?,
     scheduleStore: CalendarScheduleStore = NoOpCalendarScheduleStore,
 ) {
+    get("/api/v1/calendar/ingestion/status") {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        call.respondText(
+            text = calendarJson.encodeToString(CalendarIngestionHealth.snapshot()),
+            contentType = ContentType.Application.Json,
+        )
+    }
     get("/api/v1/calendar/schedules") {
         if (signer == null) {
             call.respondText(
@@ -234,24 +246,41 @@ internal fun validateCalendarPublication(publication: CalendarPublication) {
         require(schedule.seasonNumber > 0)
         require(schedule.title.isNotBlank() && schedule.title.length <= 120)
         require(schedule.episodes.isNotEmpty() && schedule.episodes.size <= 500)
-        require(schedule.airTime.matches(Regex("(?:[01]\\d|2[0-3]):[0-5]\\d")))
-        require(runCatching { LocalTime.parse(schedule.airTime) }.isSuccess)
-        require(runCatching { ZoneId.of(schedule.timeZoneId) }.isSuccess)
+        require((schedule.airTime == null) == (schedule.timeZoneId == null))
+        schedule.airTime?.let {
+            require(it.matches(Regex("(?:[01]\\d|2[0-3]):[0-5]\\d")))
+            require(runCatching { LocalTime.parse(it) }.isSuccess)
+        }
+        schedule.timeZoneId?.let { require(runCatching { ZoneId.of(it) }.isSuccess) }
         require(schedule.platforms.isNotEmpty() && schedule.platforms.size <= 10)
         require(schedule.platforms.all { it.isNotBlank() && it.length <= 40 })
         require(schedule.accessTier in setOf("Unknown", "Free", "Member", "SviP"))
+        require(schedule.origin in setOf("Domestic", "Foreign"))
+        require(schedule.availabilityRegion?.matches(Regex("[A-Z]{2}|GLOBAL")) != false)
+        require(schedule.releaseMode in setOf("Scheduled", "Weekly", "Batch", "DateOnly", "Unknown"))
         require(schedule.sourceUrl.startsWith("https://"))
         require(schedule.revision == publication.revision)
         require(runCatching { OffsetDateTime.parse(schedule.updatedAt) }.isSuccess)
-        require(schedule.authority in setOf("Official", "Estimated"))
+        require(schedule.authority in setOf("Official", "Verified", "Estimated"))
         require(
             schedule.authority == "Official" && schedule.confidence in 80..100 ||
+                schedule.authority == "Verified" && schedule.confidence in 80..89 ||
                 schedule.authority == "Estimated" && schedule.confidence in 60..79,
         )
         require(schedule.evidence.size <= 20)
         require(schedule.evidence.isNotEmpty())
         schedule.evidence.forEach { evidence ->
-            require(evidence.type in setOf("PlatformPage", "VerifiedAccount", "OcrConsensus", "TmdbIdentity"))
+            require(
+                evidence.type in
+                    setOf(
+                        "PlatformPage",
+                        "VerifiedAccount",
+                        "OcrConsensus",
+                        "TmdbIdentity",
+                        "TmdbSchedule",
+                        "TvmazeSchedule",
+                    ),
+            )
             require(evidence.publisher.isNotBlank() && evidence.publisher.length <= 80)
             require(evidence.sourceUrl.startsWith("https://") && evidence.sourceUrl.length <= 2_048)
             require(runCatching { OffsetDateTime.parse(evidence.capturedAt) }.isSuccess)
@@ -262,7 +291,10 @@ internal fun validateCalendarPublication(publication: CalendarPublication) {
             schedule.episodes.all {
                 it.episodeNumber > 0 &&
                     it.airDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) &&
-                    runCatching { LocalDate.parse(it.airDate) }.isSuccess
+                    runCatching { LocalDate.parse(it.airDate) }.isSuccess &&
+                    (it.releaseAtUtc == null) == (it.releaseAtBeijing == null) &&
+                    it.releaseAtUtc?.let { timestamp -> runCatching { Instant.parse(timestamp) }.isSuccess } != false &&
+                    it.releaseAtBeijing?.let { timestamp -> runCatching { OffsetDateTime.parse(timestamp) }.isSuccess } != false
             },
         )
         require(

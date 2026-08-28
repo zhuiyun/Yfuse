@@ -6,12 +6,15 @@ enum class NativePlaybackComponent {
     Mpv,
     Mdk,
     YCoreDemux,
+    YCoreGpu,
 }
 
 /** Classifies a bounded tombstone in descending order of specificity. */
 fun classifyNativePlaybackCrash(tombstone: String): NativePlaybackComponent {
     val text = tombstone.lowercase()
     return when {
+        "libycore_gpu" in text || "ycore vulkan" in text ->
+            NativePlaybackComponent.YCoreGpu
         "libycore_demux" in text || "libycore-demux" in text || "ycore demux" in text ->
             NativePlaybackComponent.YCoreDemux
         "libyfuse-mdk-jni" in text || "libmdk" in text || "mdkplayer" in text ->

@@ -229,14 +229,18 @@ class OfficialAiringScheduleCatalog(
             require(schedule.title.isNotBlank() && schedule.title.length <= 120)
             require(schedule.episodes.isNotEmpty() && schedule.episodes.size <= MAX_EPISODES_PER_SERIES)
             require(schedule.sourceUrl.startsWith("https://") && schedule.sourceUrl.length <= 2_048)
-            require(schedule.airTime.matches(TIME_PATTERN))
-            require(schedule.timeZoneId.matches(ZONE_PATTERN))
+            require((schedule.airTime == null) == (schedule.timeZoneId == null))
+            schedule.airTime?.let { require(it.matches(TIME_PATTERN)) }
+            schedule.timeZoneId?.let { require(it.matches(ZONE_PATTERN)) }
             require(schedule.platforms.isNotEmpty() && schedule.platforms.size <= 10)
             require(schedule.platforms.all { it.isNotBlank() && it.length <= 40 })
+            require(schedule.availabilityRegion?.matches(REGION_PATTERN) != false)
+            require(schedule.releaseMode in RELEASE_MODES)
             require(schedule.revision == expectedRevision)
             require(schedule.updatedAt.length in 10..64)
             require(
                 schedule.authority == AiringScheduleAuthority.Official && schedule.confidence in 80..100 ||
+                    schedule.authority == AiringScheduleAuthority.Verified && schedule.confidence in 80..89 ||
                     schedule.authority == AiringScheduleAuthority.Estimated && schedule.confidence in 60..79,
             )
             require(schedule.evidence.size <= 20)
@@ -256,11 +260,17 @@ class OfficialAiringScheduleCatalog(
                 schedule.episodes.all {
                     it.airDate.matches(DATE_PATTERN) &&
                         it.episodeNumber > 0 &&
-                        scheduledEpochMillis(
-                            it.airDate,
-                            schedule.airTime,
-                            schedule.timeZoneId,
-                        ) != null
+                        (
+                            schedule.airTime == null ||
+                                scheduledEpochMillis(
+                                    it.airDate,
+                                    schedule.airTime,
+                                    requireNotNull(schedule.timeZoneId),
+                                ) != null
+                        ) &&
+                        (it.releaseAtUtc == null) == (it.releaseAtBeijing == null) &&
+                        it.releaseAtUtc?.let(ISO_INSTANT_PATTERN::matches) != false &&
+                        it.releaseAtBeijing?.let(ISO_OFFSET_PATTERN::matches) != false
                 },
             )
         }
@@ -273,10 +283,13 @@ class OfficialAiringScheduleCatalog(
         val title: String,
         val seasonNumber: Int,
         val posterPath: String?,
-        val airTime: String,
-        val timeZoneId: String,
+        val airTime: String? = null,
+        val timeZoneId: String? = null,
         val platforms: List<String>,
         val accessTier: AiringAccessTier,
+        val origin: ShowOrigin = ShowOrigin.Domestic,
+        val availabilityRegion: String? = null,
+        val releaseMode: String = "Scheduled",
         val sourceUrl: String,
         val revision: String,
         val updatedAt: String,
@@ -296,10 +309,14 @@ class OfficialAiringScheduleCatalog(
             episodeNumber = slot.episodeNumber,
             episodeTitle = null,
             airDate = slot.airDate,
-            origin = ShowOrigin.Domestic,
+            origin = origin,
             scheduleAuthority = authority,
             airTime = airTime,
             timeZoneId = timeZoneId,
+            releaseAtUtc = slot.releaseAtUtc,
+            releaseAtBeijing = slot.releaseAtBeijing,
+            availabilityRegion = availabilityRegion,
+            releaseMode = releaseMode,
             platforms = platforms,
             accessTier = accessTier,
             sourceUrl = sourceUrl,
@@ -334,6 +351,8 @@ class OfficialAiringScheduleCatalog(
     internal data class OfficialEpisodeSlot(
         val episodeNumber: Int,
         val airDate: String,
+        val releaseAtUtc: String? = null,
+        val releaseAtBeijing: String? = null,
     )
 
     private companion object {
@@ -346,7 +365,7 @@ class OfficialAiringScheduleCatalog(
         const val KEY_CHANGES = "calendar.official.changes.v1"
         const val REFRESH_INTERVAL_MS = 60 * 60 * 1_000L
         const val FAILURE_RETRY_INTERVAL_MS = 15 * 60 * 1_000L
-        const val REMOTE_DEADLINE_MS = 1_500L
+        const val REMOTE_DEADLINE_MS = 5_000L
         const val MAX_SERIES = 1_000
         const val MAX_EPISODES_PER_SERIES = 500
         const val MAX_RECORDED_CHANGES = 50
@@ -354,7 +373,19 @@ class OfficialAiringScheduleCatalog(
         val TIME_PATTERN = Regex("(?:[01]\\d|2[0-3]):[0-5]\\d")
         val ZONE_PATTERN = Regex("[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)+")
         val HASH_PATTERN = Regex("[a-f0-9]{64}")
-        val EVIDENCE_TYPES = setOf("PlatformPage", "VerifiedAccount", "OcrConsensus", "TmdbIdentity")
+        val REGION_PATTERN = Regex("[A-Z]{2}|GLOBAL")
+        val RELEASE_MODES = setOf("Scheduled", "Weekly", "Batch", "DateOnly", "Unknown")
+        val EVIDENCE_TYPES =
+            setOf(
+                "PlatformPage",
+                "VerifiedAccount",
+                "OcrConsensus",
+                "TmdbIdentity",
+                "TmdbSchedule",
+                "TvmazeSchedule",
+            )
+        val ISO_INSTANT_PATTERN = Regex("\\d{4}-\\d{2}-\\d{2}T.*Z")
+        val ISO_OFFSET_PATTERN = Regex("\\d{4}-\\d{2}-\\d{2}T.*[+-]\\d{2}:\\d{2}")
 
         // The matching private key is deployment-only and is never stored in the app or repo.
         const val CALENDAR_PUBLIC_KEY =

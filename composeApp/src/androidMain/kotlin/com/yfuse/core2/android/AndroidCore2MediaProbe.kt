@@ -202,6 +202,7 @@ internal class AndroidCore2RouteEvaluator(
 ) {
     private val platformProbe = AndroidCore2MediaProbe(context)
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
+    private val nativeGpuRuntimeProbe = AndroidYCoreGpuRuntime.probe(context)
 
     fun evaluate(
         item: YMediaItem,
@@ -242,6 +243,7 @@ internal class AndroidCore2RouteEvaluator(
                     video = request.video,
                     evidence = resolved.dolbyVisionStreamEvidence ?: YDolbyVisionStreamEvidence(config),
                     capabilities = capabilities,
+                    gpuProcessingSupported = nativeGpuRuntimeProbe.canAttemptNativeVulkan,
                 )
             }
         var plan = strategy.plan(request, capabilities)
@@ -315,7 +317,7 @@ internal class AndroidCore2RouteEvaluator(
 }
 
 private fun YCore2ProbeResult.Success.activeProbeMime(plan: YPlaybackPlan): String =
-    if (plan.outputHdrType == YHdrType.DolbyVision) {
+    if (!plan.usesHdrFallback && playbackRequest.video.hdrType == YHdrType.DolbyVision) {
         videoMime
     } else {
         when (playbackRequest.video.codec) {
@@ -334,7 +336,10 @@ private fun YDolbyVisionRouteDecision.diagnosticLabel(): String =
     when (this) {
         is YDolbyVisionRouteDecision.Native ->
             "DV P$profile native, enhancement=$enhancementLayerKind, FEL-claim=$canClaimFelComposition"
-        is YDolbyVisionRouteDecision.CompatibleBase -> "DV compatible-base=$hdrType"
+        is YDolbyVisionRouteDecision.GpuDecoded ->
+            "DV P$profile MediaCodec decoded to Vulkan, enhancement=$enhancementLayerKind"
+        is YDolbyVisionRouteDecision.CompatibleBase ->
+            "DV compatible-base=$hdrType, GPU=$gpuProcessed"
         is YDolbyVisionRouteDecision.Unsupported -> "DV unsupported=$reason"
     }
 

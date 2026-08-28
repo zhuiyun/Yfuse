@@ -20,11 +20,23 @@ class AndroidCore2DolbyTrialGuardTest {
     }
 
     @Test
-    fun dolby_profile_5_stays_on_legacy() {
-        assertFalse(
+    fun dolby_profile_5_enters_strict_runtime_routing() {
+        assertTrue(
             listOf(
                 item(
                     dolbyProfile = 5,
+                    needsDolbyDecoder = true,
+                ),
+            ).canUseCore2Trial(startIndex = 0),
+        )
+    }
+
+    @Test
+    fun dolby_profile_7_enters_layer_aware_runtime_routing() {
+        assertTrue(
+            listOf(
+                item(
+                    dolbyProfile = 7,
                     needsDolbyDecoder = true,
                 ),
             ).canUseCore2Trial(startIndex = 0),

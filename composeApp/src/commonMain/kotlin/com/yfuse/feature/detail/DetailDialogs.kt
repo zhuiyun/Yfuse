@@ -86,14 +86,18 @@ internal fun SeriesAiringCalendarDialog(
                     add("$episodeCount 集排期")
                     libraryEpisodeCount?.let { add("Emby 已入库 $it 集") }
                     add(
-                        if (trustedSchedule.scheduleAuthority == AiringScheduleAuthority.Official) {
-                            "官方会员日历"
-                        } else {
-                            "预计排期"
+                        when (trustedSchedule.scheduleAuthority) {
+                            AiringScheduleAuthority.Official -> "官方会员日历"
+                            AiringScheduleAuthority.Verified -> "多源确认排期"
+                            else -> "预计排期"
                         },
                     )
                     trustedSchedule.scheduleConfidence?.let { add("可信度 $it") }
-                    trustedSchedule.airTime?.let { time ->
+                    trustedSchedule.releaseAtBeijing
+                        ?.takeIf { trustedSchedule.origin == com.yfuse.core.model.ShowOrigin.Foreign && it.length >= 16 }
+                        ?.substring(11, 16)
+                        ?.let { time -> add("北京时间 $time") }
+                        ?: trustedSchedule.airTime?.let { time ->
                         add(
                             if (trustedSchedule.timeZoneId == "Asia/Shanghai") {
                                 "北京时间 $time"
@@ -101,7 +105,7 @@ internal fun SeriesAiringCalendarDialog(
                                 "$time (${trustedSchedule.timeZoneId ?: "原播时区"})"
                             },
                         )
-                    }
+                        }
                     trustedSchedule.platforms
                         .takeIf { it.isNotEmpty() }
                         ?.joinToString("/")

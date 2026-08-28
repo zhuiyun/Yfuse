@@ -3,6 +3,7 @@ package com.yfuse.core2.dolby
 import com.yfuse.core2.capability.YDeviceCapabilities
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
+import com.yfuse.core2.capability.YVideoDecoderCapability
 import com.yfuse.core2.capability.YVideoRequirement
 
 enum class YDolbyVisionUnsupportedReason {
@@ -28,6 +29,21 @@ sealed interface YDolbyVisionRouteDecision {
         val decoderName: String,
         val hdrType: YHdrType,
         val codec: YVideoCodec,
+        /** True when Vulkan, rather than a native HDR display path, presents the compatible base. */
+        val gpuProcessed: Boolean = false,
+    ) : YDolbyVisionRouteDecision
+
+    /**
+     * The platform Dolby decoder produced frames for YCore Vulkan processing. This is deliberately
+     * distinct from [Native]: dynamic metadata is no longer claimed at the display boundary.
+     */
+    data class GpuDecoded(
+        val decoderName: String,
+        val profile: Int,
+        val codec: YVideoCodec,
+        val enhancementLayerKind: YDolbyVisionEnhancementLayerKind,
+        /** P5/P8 output color conversion is vendor-owned until measured at the Vulkan boundary. */
+        val requiresRuntimeColorVerification: Boolean = true,
     ) : YDolbyVisionRouteDecision
 
     data class Unsupported(
@@ -48,6 +64,7 @@ object YDolbyVisionRouter {
         evidence: YDolbyVisionStreamEvidence,
         capabilities: YDeviceCapabilities,
         outputEvidence: YDolbyVisionOutputEvidence? = null,
+        gpuProcessingSupported: Boolean = false,
     ): YDolbyVisionRouteDecision {
         val config = evidence.config
         val codec =
@@ -74,7 +91,6 @@ object YDolbyVisionRouter {
                         outputEvidence?.canClaimFELComposition == true,
             )
         }
-
         val compatibleHdr = config.compatibleBaseHdr
         if (compatibleHdr != null) {
             val fallbackRequirement =
@@ -84,11 +100,25 @@ object YDolbyVisionRouter {
                 )
             val fallbackDecoder = capabilities.bestDecoder(fallbackRequirement)
             if (fallbackDecoder == null) {
+                if (exactDecoder != null && gpuProcessingSupported) {
+                    return exactDecoder.toGpuDecoded(config, codec, evidence)
+                }
                 return YDolbyVisionRouteDecision.Unsupported(
                     YDolbyVisionUnsupportedReason.MissingCompatibleBaseDecoder,
                 )
             }
-            if (!capabilities.supportsDisplayHdr(compatibleHdr)) {
+            val nativeCompatibleBase = capabilities.supportsDisplayHdr(compatibleHdr)
+            if (nativeCompatibleBase) {
+                return YDolbyVisionRouteDecision.CompatibleBase(
+                    decoderName = fallbackDecoder.name,
+                    hdrType = compatibleHdr,
+                    codec = codec,
+                )
+            }
+            if (exactDecoder != null && gpuProcessingSupported && config.profile != 7) {
+                return exactDecoder.toGpuDecoded(config, codec, evidence)
+            }
+            if (!nativeCompatibleBase && !gpuProcessingSupported) {
                 return YDolbyVisionRouteDecision.Unsupported(
                     YDolbyVisionUnsupportedReason.MissingCompatibleBaseDisplay,
                 )
@@ -97,7 +127,12 @@ object YDolbyVisionRouter {
                 decoderName = fallbackDecoder.name,
                 hdrType = compatibleHdr,
                 codec = codec,
+                gpuProcessed = true,
             )
+        }
+
+        if (exactDecoder != null && gpuProcessingSupported) {
+            return exactDecoder.toGpuDecoded(config, codec, evidence)
         }
 
         return YDolbyVisionRouteDecision.Unsupported(
@@ -110,6 +145,18 @@ object YDolbyVisionRouter {
         )
     }
 }
+
+private fun YVideoDecoderCapability.toGpuDecoded(
+    config: YDolbyVisionConfig,
+    codec: YVideoCodec,
+    evidence: YDolbyVisionStreamEvidence,
+): YDolbyVisionRouteDecision.GpuDecoded =
+    YDolbyVisionRouteDecision.GpuDecoded(
+        decoderName = name,
+        profile = config.profile,
+        codec = codec,
+        enhancementLayerKind = evidence.enhancementLayerKind,
+    )
 
 private fun YDolbyVisionCodecFamily.toVideoCodec(): YVideoCodec? =
     when (this) {

@@ -71,6 +71,18 @@ internal object AndroidNativeCrashMonitor {
             capabilitySignature,
         )
 
+    @Synchronized
+    fun isYCoreGpuBlocked(
+        decoderMode: DecoderMode,
+        capabilitySignature: String,
+    ): Boolean =
+        isBlocked(
+            NativePlaybackComponent.YCoreGpu,
+            PlayerEngine.Exo,
+            decoderMode,
+            capabilitySignature,
+        )
+
     /** Must run before native construction so a constructor crash still leaves useful context. */
     @Synchronized
     fun arm(

@@ -305,7 +305,7 @@ fun Poster(
                     .padding(7.dp)
                     .clip(GlassShapes.chip)
                     .background(Color.Black.copy(alpha = 0.64f))
-                    .semantics { contentDescription = "评分 $label" }
+                    .semantics { this.contentDescription = "评分 $label" }
                     .padding(horizontal = 7.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,

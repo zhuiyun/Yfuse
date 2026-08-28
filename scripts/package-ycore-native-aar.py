@@ -34,7 +34,10 @@ SYSTEM_LIBRARIES = frozenset(
     },
 )
 FORBIDDEN_LIBRARIES = frozenset({"libmpv.so", "libplayer.so", "libmdk.so"})
+COMPANION_LIBRARIES = frozenset({"libc++_shared.so"})
 SEED_LIBRARY = "libycore_demux.so"
+OPTIONAL_SEED_LIBRARIES = ("libycore_gpu.so",)
+GPU_LIBRARY = "libycore_gpu.so"
 NEEDED_PATTERN = re.compile(r"Shared library: \[([^\]]+)]")
 SAFE_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9_.+-]+")
 
@@ -50,13 +53,14 @@ def parse_needed(dynamic_section: str) -> tuple[str, ...]:
 def dependency_closure(
     available: Iterable[str],
     needed: Callable[[str], Iterable[str]],
+    seeds: Iterable[str] = (SEED_LIBRARY,),
 ) -> tuple[str, ...]:
     available_set = set(available)
     if SEED_LIBRARY not in available_set:
         raise PackagingError(f"missing {SEED_LIBRARY}")
 
     selected: set[str] = set()
-    pending = [SEED_LIBRARY]
+    pending = list(seeds)
     while pending:
         library = pending.pop()
         if library in selected:
@@ -161,6 +165,10 @@ def package_ycore_aar(
             selected = dependency_closure(
                 entries,
                 lambda filename, root=abi_dir: readelf_needed(readelf, root / filename),
+                (
+                    SEED_LIBRARY,
+                    *(seed for seed in OPTIONAL_SEED_LIBRARIES if seed in entries),
+                ),
             )
             selected_by_abi[abi] = selected
             for filename in selected:
@@ -207,6 +215,94 @@ def package_ycore_aar(
     return selected_by_abi
 
 
+def package_ycore_gpu_aar(
+    source_aar: pathlib.Path,
+    output_aar: pathlib.Path,
+    provenance: pathlib.Path,
+    notice: pathlib.Path,
+    readelf: str,
+) -> Mapping[str, tuple[str, ...]]:
+    """Build the GPU-only companion used next to the verified MPV runtime.
+
+    The full application already receives libc++_shared from libmpv. Keeping only the Vulkan
+    executor here avoids duplicate FFmpeg/demux libraries while allowing YCore GPU, MPV and MDK
+    to coexist in one package. The dependency check deliberately fails if the executor starts
+    depending on anything except Android system libraries and that single companion runtime.
+    """
+    if not source_aar.is_file():
+        raise PackagingError(f"source AAR does not exist: {source_aar}")
+    if not provenance.is_file():
+        raise PackagingError(f"provenance manifest does not exist: {provenance}")
+    if not notice.is_file():
+        raise PackagingError(f"third-party notice does not exist: {notice}")
+
+    selected_by_abi: dict[str, tuple[str, ...]] = {}
+    staged_bytes: dict[str, bytes] = {}
+    with zipfile.ZipFile(source_aar, "r") as source, tempfile.TemporaryDirectory(
+        prefix="ycore-gpu-aar.",
+    ) as temporary:
+        grouped = grouped_native_entries(source)
+        for abi, entries in sorted(grouped.items()):
+            archive_name = entries.get(GPU_LIBRARY)
+            if archive_name is None:
+                continue
+            abi_dir = pathlib.Path(temporary, abi)
+            abi_dir.mkdir(parents=True)
+            library = abi_dir / GPU_LIBRARY
+            library.write_bytes(source.read(archive_name))
+            dependencies = readelf_needed(readelf, library)
+            unexpected = set(dependencies) - SYSTEM_LIBRARIES - COMPANION_LIBRARIES
+            if unexpected:
+                raise PackagingError(
+                    f"{GPU_LIBRARY} has unsupported companion dependencies: "
+                    f"{', '.join(sorted(unexpected))}",
+                )
+            if "libvulkan.so" not in dependencies or "libandroid.so" not in dependencies:
+                raise PackagingError(f"{GPU_LIBRARY} is not the Vulkan/AHardwareBuffer executor")
+            selected_by_abi[abi] = (GPU_LIBRARY,)
+            staged_bytes[abi] = library.read_bytes()
+
+    if "arm64-v8a" not in selected_by_abi:
+        raise PackagingError("source AAR has no arm64-v8a YCore GPU executor")
+
+    manifest = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android" '
+        'package="com.yfuse.ycore.gpucarrier" />\n'
+    )
+    output_aar.parent.mkdir(parents=True, exist_ok=True)
+    temporary_output = output_aar.with_name(f".{output_aar.name}.tmp")
+    try:
+        with zipfile.ZipFile(temporary_output, "w") as output:
+            output.writestr(deterministic_info("AndroidManifest.xml"), manifest)
+            output.writestr(deterministic_info("classes.jar"), empty_classes_jar())
+            output.writestr(deterministic_info("R.txt"), "")
+            output.writestr(deterministic_info("consumer-rules.pro"), "")
+            output.writestr(
+                deterministic_info("META-INF/ycore-gpu-sources.txt"),
+                provenance.read_text(encoding="utf-8"),
+            )
+            output.writestr(
+                deterministic_info("META-INF/NOTICE"),
+                notice.read_text(encoding="utf-8"),
+            )
+            for abi, content in sorted(staged_bytes.items()):
+                output.writestr(
+                    deterministic_info(f"jni/{abi}/{GPU_LIBRARY}", mode=0o755),
+                    content,
+                )
+        temporary_output.replace(output_aar)
+    finally:
+        temporary_output.unlink(missing_ok=True)
+
+    digest = hashlib.sha256(output_aar.read_bytes()).hexdigest()
+    output_aar.with_suffix(output_aar.suffix + ".sha256").write_text(
+        f"{digest}  {output_aar.name}\n",
+        encoding="utf-8",
+    )
+    return selected_by_abi
+
+
 class SelfTest(unittest.TestCase):
     def test_parse_needed(self) -> None:
         self.assertEqual(
@@ -236,6 +332,17 @@ class SelfTest(unittest.TestCase):
         with self.assertRaisesRegex(PackagingError, "unavailable libavcodec"):
             dependency_closure((SEED_LIBRARY,), lambda _: ("libavcodec.so",))
 
+    def test_closure_includes_optional_gpu_seed(self) -> None:
+        graph = {
+            SEED_LIBRARY: ("libavformat.so",),
+            "libavformat.so": ("libc.so",),
+            "libycore_gpu.so": ("libvulkan.so",),
+        }
+        self.assertEqual(
+            dependency_closure(graph, lambda name: graph[name], (SEED_LIBRARY, "libycore_gpu.so")),
+            ("libavformat.so", SEED_LIBRARY, "libycore_gpu.so"),
+        )
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -249,6 +356,11 @@ def main() -> int:
         default=pathlib.Path(__file__).resolve().parents[1] / "NOTICE",
     )
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--gpu-only",
+        action="store_true",
+        help="package only libycore_gpu.so for use next to the full MPV/MDK runtime",
+    )
     args = parser.parse_args()
     if args.self_test:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(SelfTest)
@@ -256,7 +368,8 @@ def main() -> int:
     if args.source_aar is None or args.output_aar is None or args.provenance is None:
         parser.error("source_aar, output_aar, and provenance are required")
     try:
-        selected = package_ycore_aar(
+        package = package_ycore_gpu_aar if args.gpu_only else package_ycore_aar
+        selected = package(
             args.source_aar,
             args.output_aar,
             args.provenance,

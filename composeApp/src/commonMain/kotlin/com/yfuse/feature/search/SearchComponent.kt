@@ -97,6 +97,7 @@ class SearchComponent(
     }
 
     fun navigateBack() {
+        (stack.value.active.configuration as? Config.Player)?.let(playerNavigation::complete)
         navigation.pop()
     }
 
@@ -107,6 +108,7 @@ class SearchComponent(
      * stack they were trying to leave.
      */
     fun popToRoot() {
+        (stack.value.active.configuration as? Config.Player)?.let(playerNavigation::complete)
         navigation.popTo(index = 0)
     }
 
@@ -161,7 +163,6 @@ class SearchComponent(
                     ),
                 )
             is Config.Player -> {
-                playerNavigation.complete(config)
                 Child.Player(
                     PlayerComponent(
                         componentContext = context,
@@ -173,7 +174,10 @@ class SearchComponent(
                         serverId = config.serverId,
                         mediaSourceId = config.mediaSourceId,
                         dependencies = dependencies,
-                        onBack = { navigation.pop() },
+                        onBack = {
+                            playerNavigation.complete(config)
+                            navigation.pop()
+                        },
                     ),
                 )
             }

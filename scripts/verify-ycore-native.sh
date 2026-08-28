@@ -72,14 +72,26 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$(manifest_value ycore-libbluray)" == "1.4.1" ]] || fail "unexpected libbluray revision"
 [[ "$(manifest_value ycore-disc-uri-source)" == "scripts/native/ycore_disc_uri.h" ]] ||
   fail "YCore disc URI boundary provenance is missing"
-[[ "$(manifest_value ycore-gpu-api)" == "1" ]] || fail "YCore GPU API v1 is missing"
+[[ "$(manifest_value ycore-gpu-api)" == "2" ]] || fail "YCore GPU API v2 is missing"
 [[ "$(manifest_value ycore-gpu-source)" == "scripts/native/ycore_vulkan_jni.cpp" ]] ||
   fail "YCore Vulkan source provenance is missing"
+[[ "$(manifest_value ycore-gpu-renderer-source)" == "scripts/native/ycore_vulkan_renderer.cpp" ]] ||
+  fail "YCore Vulkan renderer provenance is missing"
+[[ "$(manifest_value ycore-gpu-vertex-shader)" == "scripts/native/shaders/ycore_fullscreen.vert" ]] ||
+  fail "YCore vertex shader provenance is missing"
+[[ "$(manifest_value ycore-gpu-fragment-shader)" == "scripts/native/shaders/ycore_video.frag" ]] ||
+  fail "YCore fragment shader provenance is missing"
 [[ "$(manifest_value ycore-gpu-capability-source)" == "scripts/native/ycore_gpu_capability.h" ]] ||
   fail "YCore GPU truth-gate provenance is missing"
+[[ "$(manifest_value ycore-gpu-frame-ring)" == "3" ]] || fail "YCore GPU frame ring is missing"
+[[ "$(manifest_value ycore-gpu-import-cache)" == "12" ]] || fail "YCore GPU import cache is missing"
+[[ "$(manifest_value ycore-gpu-hdr10plus)" == "per-frame-st2094-40" ]] ||
+  fail "YCore per-frame HDR10+ provenance is missing"
 [[ "$(manifest_value ycore-native-aar)" == "true" ]] || fail "standalone YCore AAR marker is missing"
 [[ "$(manifest_value ycore-native-entry)" == "libycore_demux.so" ]] ||
   fail "unexpected standalone YCore entry library"
+[[ "$(manifest_value ycore-gpu-entry)" == "libycore_gpu.so" ]] ||
+  fail "unexpected standalone YCore GPU entry library"
 [[ "$(manifest_value ycore-native-forbidden)" == "libmpv.so,libplayer.so,libmdk.so" ]] ||
   fail "standalone YCore legacy-runtime exclusion marker is missing"
 
@@ -109,6 +121,8 @@ mapfile -t bridges < <(find "$stage/aar/jni" -mindepth 2 -maxdepth 2 -type f -na
 (( ${#bridges[@]} > 0 )) || fail "AAR contains no libycore_demux.so"
 [[ -f "$stage/aar/jni/arm64-v8a/libycore_demux.so" ]] ||
   fail "AAR is missing arm64-v8a/libycore_demux.so"
+[[ -f "$stage/aar/jni/arm64-v8a/libycore_gpu.so" ]] ||
+  fail "AAR is missing arm64-v8a/libycore_gpu.so"
 
 for bridge in "${bridges[@]}"; do
   abi="$(basename "$(dirname "$bridge")")"
@@ -124,10 +138,6 @@ for bridge in "${bridges[@]}"; do
     grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
       fail "$abi bridge is not dynamically linked to $dependency"
   done
-  for dependency in libandroid.so libvulkan.so; do
-    grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
-      fail "$abi bridge is not dynamically linked to $dependency"
-  done
   for symbol in avcodec_send_packet avcodec_receive_frame; do
     grep -F "$symbol" "$symbols" >/dev/null ||
       fail "$abi bridge is missing software-decode symbol $symbol"
@@ -139,8 +149,26 @@ for bridge in "${bridges[@]}"; do
     fail "$abi bridge is not linked to libbluray navigation"
   grep -F 'ycorebd://' "$bridge_strings" >/dev/null ||
     fail "$abi bridge is missing the opaque Blu-ray URI boundary"
+done
+
+mapfile -t gpu_bridges < <(find "$stage/aar/jni" -mindepth 2 -maxdepth 2 -type f -name 'libycore_gpu.so' -print | sort)
+(( ${#gpu_bridges[@]} > 0 )) || fail "AAR contains no libycore_gpu.so"
+for bridge in "${gpu_bridges[@]}"; do
+  abi="$(basename "$(dirname "$bridge")")"
+  symbols="$stage/$abi-ycore-gpu-symbols.txt"
+  dynamic="$stage/$abi-ycore-gpu-dynamic.txt"
+  readelf -Ws "$bridge" > "$symbols"
+  readelf -dW "$bridge" > "$dynamic"
+  for dependency in libandroid.so libvulkan.so; do
+    grep -F "Shared library: [$dependency]" "$dynamic" >/dev/null ||
+      fail "$abi GPU bridge is not dynamically linked to $dependency"
+  done
   grep -F 'nativeProbeGpuFeatures' "$symbols" >/dev/null ||
-    fail "$abi bridge is missing the Vulkan/AHardwareBuffer probe"
+    fail "$abi GPU bridge is missing the Vulkan/AHardwareBuffer probe"
+  grep -F 'nativeCreateRenderer' "$symbols" >/dev/null ||
+    fail "$abi GPU bridge is missing the Vulkan swapchain renderer"
+  grep -F 'nativeRenderHardwareBuffer' "$symbols" >/dev/null ||
+    fail "$abi GPU bridge is missing decoded HardwareBuffer rendering"
 done
 
 mapfile -t native_libraries < <(find "$stage/aar/jni" -mindepth 2 -maxdepth 2 -type f -name '*.so' -print | sort)
@@ -160,6 +188,6 @@ done
 printf 'verified standalone YCore runtime: %s\n' "$AAR"
 printf 'FFmpeg: %s; demux + software decode + HDR tone map\n' "$FFMPEG_REVISION"
 printf 'Blu-ray: libbluray 1.4.1 through opaque YCore block I/O\n'
-printf 'GPU: Vulkan device probe + real AHardwareBuffer import, presentation still gated\n'
+printf 'GPU: ImageReader/AHardwareBuffer + Vulkan YCbCr shader + measured swapchain presentation\n'
 printf 'purity: no mpv, player, MDK, or Java engine classes\n'
 printf 'page alignment: all packaged native libraries PT_LOAD >= 16 KiB\n'

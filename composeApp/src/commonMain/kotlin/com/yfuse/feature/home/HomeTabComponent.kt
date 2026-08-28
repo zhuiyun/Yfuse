@@ -135,6 +135,7 @@ class HomeTabComponent(
     }
 
     fun navigateBack() {
+        (stack.value.active.configuration as? Config.Player)?.let(playerNavigation::complete)
         navigation.pop()
     }
 
@@ -146,12 +147,31 @@ class HomeTabComponent(
     }
 
     /**
+     * Cold-start recovery uses the normal queue builder so episode identity, the full queue,
+     * and server-provided intro/credits markers are restored before playback starts.
+     */
+    fun resumePlayback(
+        serverId: String?,
+        itemId: String,
+        positionMs: Long,
+    ) {
+        openPlayer(
+            Config.Player(
+                serverId = serverId,
+                itemId = itemId,
+                startPositionTicks = positionMs.toEmbyTicks(),
+            ),
+        )
+    }
+
+    /**
      * Back to this tab's own root in one step — what tapping the current tab means.
      *
      * Popping one level at a time would land the user somewhere in the middle of the
      * stack they were trying to leave.
      */
     fun popToRoot() {
+        (stack.value.active.configuration as? Config.Player)?.let(playerNavigation::complete)
         navigation.popTo(index = 0)
     }
 
@@ -237,7 +257,6 @@ class HomeTabComponent(
                     ),
                 )
             is Config.Player -> {
-                playerNavigation.complete(config)
                 Child.Player(
                     PlayerComponent(
                         componentContext = context,
@@ -249,7 +268,10 @@ class HomeTabComponent(
                         serverId = config.serverId,
                         mediaSourceId = config.mediaSourceId,
                         dependencies = dependencies,
-                        onBack = { navigation.pop() },
+                        onBack = {
+                            playerNavigation.complete(config)
+                            navigation.pop()
+                        },
                     ),
                 )
             }
@@ -260,6 +282,7 @@ class HomeTabComponent(
                         storeFactory = storeFactory,
                         repository = calendarRepository,
                         followStore = dependencies.calendarFollowStore,
+                        registry = registry,
                         onBack = { navigation.pop() },
                         onOpenItem = { serverId, itemId ->
                             navigation.push(Config.Detail(serverId ?: registry.defaultServer?.id, itemId))
@@ -305,6 +328,10 @@ class HomeTabComponent(
         }
 }
 
+internal fun Long.toEmbyTicks(): Long =
+    coerceAtLeast(0L)
+        .coerceAtMost(Long.MAX_VALUE / 10_000L) * 10_000L
+
 enum class HomeRootMode {
     Classic,
     Discovery,
@@ -319,7 +346,7 @@ class HomeRootComponent(
     componentContext: ComponentContext,
     val classic: HomeComponent,
     val discovery: MediaHubComponent,
-    preferences: TgtoMediaPreferences,
+    private val preferences: TgtoMediaPreferences,
     account: AccountRepository,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
@@ -332,7 +359,8 @@ class HomeRootComponent(
                 mode =
                     if (
                         account.state.value.canUseMediaDiscovery() &&
-                        preferences.connection.value.hasPassword
+                        preferences.connection.value.hasPassword &&
+                        preferences.discoveryHomeEnabled.value
                     ) {
                         HomeRootMode.Discovery
                     } else {
@@ -344,9 +372,13 @@ class HomeRootComponent(
 
     init {
         scope.launch {
-            combine(preferences.connection, account.state) { connection, accountState ->
-                connection.hasPassword && accountState.canUseMediaDiscovery()
-            }.collectLatest { configured ->
+            combine(
+                preferences.connection,
+                account.state,
+                preferences.discoveryHomeEnabled,
+            ) { connection, accountState, enabled ->
+                (connection.hasPassword && accountState.canUseMediaDiscovery()) to enabled
+            }.collectLatest { (configured, enabled) ->
                 _state.update { current ->
                     if (current.configured && !configured) {
                         classic.refreshCalendar()
@@ -356,8 +388,8 @@ class HomeRootComponent(
                         mode =
                             when {
                                 !configured -> HomeRootMode.Classic
-                                !current.configured -> HomeRootMode.Discovery
-                                else -> current.mode
+                                enabled -> HomeRootMode.Discovery
+                                else -> HomeRootMode.Classic
                             },
                     )
                 }
@@ -367,10 +399,14 @@ class HomeRootComponent(
 
     fun showClassic() {
         if (_state.value.mode != HomeRootMode.Classic) classic.refreshCalendar()
+        preferences.setDiscoveryHomeEnabled(false)
         _state.update { it.copy(mode = HomeRootMode.Classic) }
     }
 
     fun showDiscovery() {
-        if (_state.value.configured) _state.update { it.copy(mode = HomeRootMode.Discovery) }
+        if (_state.value.configured) {
+            preferences.setDiscoveryHomeEnabled(true)
+            _state.update { it.copy(mode = HomeRootMode.Discovery) }
+        }
     }
 }

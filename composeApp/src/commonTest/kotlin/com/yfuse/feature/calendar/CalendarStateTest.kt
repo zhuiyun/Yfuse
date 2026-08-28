@@ -209,4 +209,67 @@ class CalendarStateTest {
         )
         assertEquals(listOf("平台A", "平台B"), subject.availablePlatforms)
     }
+
+    @Test
+    fun a_schedule_preview_stops_the_blocking_loading_state() {
+        val preview = listOf(CalendarDay("2026-08-26", listOf(entry("新剧", "2026-08-26"))))
+
+        val result = CalendarState(loading = true).withCalendarPreview(preview)
+
+        assertFalse(result.loading)
+        assertEquals(preview, result.days)
+        assertEquals(null, result.error)
+    }
+
+    @Test
+    fun a_later_unresolved_preview_does_not_replace_resolved_inventory() {
+        val resolved = entry("新剧", "2026-08-26", status = LibraryStatus.Available)
+        val unresolved =
+            entry("新剧", "2026-08-26", status = LibraryStatus.Unknown)
+                .copy(availabilityStale = true)
+        val extra =
+            entry("另一部剧", "2026-08-27", status = LibraryStatus.Unknown)
+                .copy(availabilityStale = true)
+
+        val result =
+            CalendarState(
+                loading = true,
+                days = listOf(CalendarDay("2026-08-26", listOf(resolved))),
+            ).withCalendarPreview(
+                listOf(
+                    CalendarDay("2026-08-26", listOf(unresolved)),
+                    CalendarDay("2026-08-27", listOf(extra)),
+                ),
+            )
+
+        assertEquals(
+            LibraryStatus.Available,
+            result.days.first().entries.single().status,
+        )
+        assertFalse(result.days.first().entries.single().availabilityStale)
+        assertEquals(2, result.days.size)
+    }
+
+    @Test
+    fun an_enrichment_timeout_keeps_an_available_preview_without_an_error_page() {
+        val preview = listOf(CalendarDay("2026-08-26", listOf(entry("新剧", "2026-08-26"))))
+        val result =
+            CalendarState(loading = false, days = preview)
+                .withCalendarLoadFailure("日历加载超时，请检查网络后重试")
+
+        assertEquals(preview, result.days)
+        assertEquals(null, result.error)
+        assertFalse(result.loading)
+    }
+
+    @Test
+    fun a_load_failure_is_still_visible_when_no_schedule_is_available() {
+        val message = "日历加载超时，请检查网络后重试"
+
+        val result = CalendarState(loading = true).withCalendarLoadFailure(message)
+
+        assertEquals(message, result.error)
+        assertTrue(result.days.isEmpty())
+        assertFalse(result.loading)
+    }
 }

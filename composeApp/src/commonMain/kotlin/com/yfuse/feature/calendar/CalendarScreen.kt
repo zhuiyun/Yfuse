@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.CalendarTrackingOrigin
 import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.isToday
 import com.yfuse.core.data.missingCount
@@ -121,7 +122,15 @@ fun CalendarScreen(component: CalendarComponent) {
         val entry = dialogEntry ?: return@LaunchedEffect
         dialogSeriesDays = null
         dialogRefreshing = true
-        component.seriesCalendar(entry).onSuccess { loaded ->
+        component.seriesCalendar(
+            entry = entry,
+            onPreview = { preview ->
+                if (preview.isNotEmpty()) {
+                    dialogSeriesDays = preview
+                    dialogRefreshing = false
+                }
+            },
+        ).onSuccess { loaded ->
             if (loaded.isNotEmpty()) dialogSeriesDays = loaded
         }
         dialogRefreshing = false
@@ -503,17 +512,23 @@ private fun CalendarListResults(
         remember(timelineDays, weekStart) {
             timelineDays.indexOfFirst { it.date >= weekStart }.coerceAtLeast(0)
         }
-    val listState = rememberLazyListState()
-    var expandedDate by
-        remember(today, filter, timelineDays) {
-            mutableStateOf(
-                timelineDays.firstOrNull { it.date == today }?.date
-                    ?: timelineDays.firstOrNull()?.date,
-            )
+    val displayEntriesByDate =
+        remember(timelineDays) {
+            timelineDays.associate { day -> day.date to coalesceCalendarEntries(day.entries) }
         }
+    val listState = rememberLazyListState()
+    val initiallyExpandedDate =
+        timelineDays.firstOrNull { it.date == today }?.date
+            ?: timelineDays.firstOrNull()?.date
+    var expandedDates by
+        remember(today, filter, timelineDays) {
+            mutableStateOf(setOfNotNull(initiallyExpandedDate))
+        }
+    val allContentExpanded =
+        timelineDays.isNotEmpty() && expandedDates.size == timelineDays.size
 
     LaunchedEffect(filter, today, initialWeekIndex) {
-        runCatching { listState.scrollToItem(initialWeekIndex) }
+        runCatching { listState.scrollToItem(initialWeekIndex + 1) }
     }
 
     LazyColumn(
@@ -527,21 +542,176 @@ private fun CalendarListResults(
         state = listState,
         contentPadding = PaddingValues(bottom = bottomContentInset),
     ) {
-        itemsIndexed(timelineDays, key = { _, day -> day.date }) { index, day ->
-            AccordionCalendarDay(
-                day = day,
-                today = today,
-                expanded = day.date == expandedDate,
-                isLast = index == timelineDays.lastIndex,
-                weeklyStats = weeklyStats,
-                reduceMotion = reduceMotion,
-                onToggle = {
-                    expandedDate = if (expandedDate == day.date) null else day.date
-                },
-                onOpen = onOpen,
-            )
+        item(key = "expand-all-content", contentType = "calendar-expand-all") {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .pressable(
+                        onClickLabel =
+                            if (allContentExpanded) {
+                                "收起所有内容"
+                            } else {
+                                "展开所有内容"
+                            },
+                    ) {
+                        expandedDates =
+                            if (allContentExpanded) {
+                                setOfNotNull(initiallyExpandedDate)
+                            } else {
+                                timelineDays.mapTo(linkedSetOf(), CalendarDay::date)
+                            }
+                    }.touchTarget()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    if (allContentExpanded) "收起所有内容" else "展开所有内容",
+                    style = AppTypography.body.strong,
+                    color = LocalAccentColors.current.accent,
+                )
+                Text(
+                    "共 ${displayEntriesByDate.values.sumOf(List<CalendarDisplayEntry>::size)} 项",
+                    style = AppTypography.caption.medium,
+                    color = palette.sub2,
+                )
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
+        }
+        timelineDays.forEach { day ->
+            val expanded = day.date in expandedDates
+            val displayEntries = displayEntriesByDate[day.date].orEmpty()
+            item(key = "day-header:${day.date}", contentType = "calendar-day-header") {
+                CalendarDayHeader(
+                    day = day,
+                    today = today,
+                    expanded = expanded,
+                    showCount = displayEntries.size,
+                    onToggle = {
+                        expandedDates =
+                            if (expanded) {
+                                expandedDates - day.date
+                            } else {
+                                expandedDates + day.date
+                            }
+                    },
+                )
+            }
+            if (expanded) {
+                if (displayEntries.isEmpty()) {
+                    item(key = "day-empty:${day.date}", contentType = "calendar-day-empty") {
+                        EmptyCalendarDay(
+                            expanded = true,
+                            onToggle = { expandedDates = expandedDates - day.date },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
+                        )
+                    }
+                } else {
+                    items(
+                        items = displayEntries,
+                        key = { display -> "${day.date}:${display.entry.episode.mediaKey}" },
+                        contentType = { "calendar-entry" },
+                    ) { display ->
+                        Column {
+                            AccordionCalendarEntry(
+                                display = display,
+                                weekStats = weeklyStats[display.entry.episode.showTmdbId],
+                                expanded = true,
+                                extraCount = 0,
+                                showChevron = false,
+                                onToggle = { expandedDates = expandedDates - day.date },
+                                onOpen = { onOpen(display.entry) },
+                            )
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp)
+                                    .height(1.dp)
+                                    .background(palette.border),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun CalendarDayHeader(
+    day: CalendarDay,
+    today: String,
+    expanded: Boolean,
+    showCount: Int,
+    onToggle: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val accent = LocalAccentColors.current
+    val isToday = day.isToday(today)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 64.dp)
+            .pressable(
+                onClickLabel = if (expanded) "收起${day.date}" else "展开${day.date}",
+                onClick = onToggle,
+            )
+            .background(if (expanded) accent.container.copy(alpha = 0.24f) else Color.Transparent)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (expanded) {
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(30.dp)
+                    .clip(CircleShape)
+                    .background(accent.accent),
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Text(
+                    isoWeekdayLabel(day.date),
+                    style = AppTypography.body.strong,
+                    color = if (expanded) accent.accent else palette.text,
+                )
+                if (isToday) {
+                    Text(
+                        "今天",
+                        style = AppTypography.caption.strong,
+                        color = accent.onAccent,
+                        modifier =
+                            Modifier
+                                .clip(GlassShapes.chip)
+                                .background(accent.accent)
+                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                    )
+                }
+            }
+            Text(
+                isoShortDate(day.date),
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+            )
+        }
+        Text(
+            if (showCount > 0) "$showCount 部更新" else "无更新",
+            style = AppTypography.caption.medium,
+            color = if (showCount > 0) palette.sub else palette.sub2,
+        )
+        Icon(
+            AppIcons.ChevronDown,
+            contentDescription = if (expanded) "收起" else "展开",
+            tint = if (expanded) accent.accent else palette.sub2,
+            modifier = Modifier.size(16.dp),
+        )
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
 }
 
 @Composable
@@ -856,6 +1026,7 @@ private fun CalendarEpisodeSegments(
                 ?.let { ((it.available.toFloat() / it.scheduled) * segmentCount).toInt() }
             ?: 0
     val clampedFilled = filled.coerceIn(0, segmentCount)
+    if (clampedFilled == 0) return
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1041,6 +1212,7 @@ private fun CalendarAuxiliaryPane(
         CalendarSection.Tracking ->
             CalendarTrackingPane(
                 followedSeries = followedSeries,
+                calendarDays = state.confirmedDays.ifEmpty { state.days },
                 component = component,
                 bottomContentInset = bottomContentInset,
             )
@@ -1064,6 +1236,7 @@ private fun CalendarAuxiliaryPane(
 @Composable
 private fun CalendarTrackingPane(
     followedSeries: List<FollowedSeries>,
+    calendarDays: List<CalendarDay>,
     component: CalendarComponent,
     bottomContentInset: androidx.compose.ui.unit.Dp,
 ) {
@@ -1073,6 +1246,22 @@ private fun CalendarTrackingPane(
     var refreshingTmdbId by remember { mutableStateOf<Int?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var confirmUnfollowAll by remember { mutableStateOf(false) }
+    val schedulePosterUrls =
+        remember(calendarDays) {
+            calendarDays
+                .flatMap(CalendarDay::entries)
+                .groupBy { it.episode.showTmdbId }
+                .mapValues { (_, entries) ->
+                    entries
+                        .flatMap { entry ->
+                            listOf(
+                                TmdbImages.poster(entry.episode.posterPath, width = "w185"),
+                                TmdbImages.media(entry.episode.posterPath, width = "w185"),
+                            ) + entry.posterUrls
+                        }.filterNotNull()
+                        .distinct()
+                }
+        }
 
     if (followedSeries.isEmpty()) {
         PageHint(
@@ -1175,10 +1364,12 @@ private fun CalendarTrackingPane(
             ) {
                 FallbackImage(
                     urls =
-                        listOf(
-                            TmdbImages.poster(series.posterPath, width = "w185"),
-                            TmdbImages.media(series.posterPath, width = "w185"),
-                        ),
+                        component.trackingPosterUrls(series) +
+                            listOf(
+                                TmdbImages.poster(series.posterPath, width = "w185"),
+                                TmdbImages.media(series.posterPath, width = "w185"),
+                            ) +
+                            schedulePosterUrls[series.tmdbId].orEmpty(),
                     contentDescription = null,
                     modifier =
                         Modifier
@@ -1272,13 +1463,14 @@ private fun CalendarTrackingPane(
 }
 
 private fun trackingReminderLabel(series: FollowedSeries): String =
-    when (series.reminderMode) {
-        CalendarReminderMode.Off -> "提醒已关闭"
-        CalendarReminderMode.AtBroadcast -> "播出时提醒"
-        CalendarReminderMode.BeforeAndAtBroadcast ->
-            "提前 ${series.remindBeforeMinutes} 分钟和播出时提醒"
-        CalendarReminderMode.WhenAvailable -> "新集入库时提醒"
-    }
+    (if (series.trackingOrigin == CalendarTrackingOrigin.LibraryAuto) "自动追更 · " else "") +
+        when (series.reminderMode) {
+            CalendarReminderMode.Off -> "提醒已关闭"
+            CalendarReminderMode.AtBroadcast -> "播出时提醒"
+            CalendarReminderMode.BeforeAndAtBroadcast ->
+                "提前 ${series.remindBeforeMinutes} 分钟和播出时提醒"
+            CalendarReminderMode.WhenAvailable -> "新集入库时提醒"
+        }
 
 private fun nextTrackingReminder(mode: CalendarReminderMode): CalendarReminderMode =
     when (mode) {
@@ -1691,10 +1883,16 @@ private fun coalesceCalendarEntries(entries: List<CalendarEntry>): List<Calendar
                 sorted.count {
                     it.status in setOf(LibraryStatus.Available, LibraryStatus.InProgress, LibraryStatus.Watched)
                 }
+            val inventoryConfirmed = sorted.none { it.status == LibraryStatus.Unknown }
             CalendarDisplayEntry(
                 entry = representative,
                 episodeLabel = label,
-                statusLine = "$available/${sorted.size} 集已入库 · ${broadcastStateLabel(representative)}",
+                statusLine =
+                    if (inventoryConfirmed) {
+                        "$available/${sorted.size} 集已入库 · ${broadcastStateLabel(representative)}"
+                    } else {
+                        broadcastStateLabel(representative)
+                    },
             )
         }.sortedWith(
             compareBy<CalendarDisplayEntry> { it.entry.episode.airTime ?: "99:99" }
@@ -1715,11 +1913,17 @@ private fun StatusBadge(entry: CalendarEntry) {
                 LibraryStatus.Available -> "已入库" to Brand.Online
                 LibraryStatus.InProgress -> "观看中" to Brand.Online
                 LibraryStatus.Watched -> "已观看" to palette.sub2
-                LibraryStatus.Unknown -> "未知" to palette.sub2
+                LibraryStatus.Unknown ->
+                    when (entry.dataIssue) {
+                        CalendarDataIssue.NoServer -> "未连接" to palette.sub2
+                        CalendarDataIssue.LibraryLookupFailed -> "查询失败" to palette.error
+                        CalendarDataIssue.IdentityUnmatched -> "待匹配" to palette.sub2
+                        null -> if (entry.availabilityStale) "查询中" to palette.sub2 else "待确认" to palette.sub2
+                    }
             }
         }
     val displayedLabel =
-        if (entry.availabilityStale && status != LibraryStatus.Unaired) {
+        if (entry.availabilityStale && status != LibraryStatus.Unaired && status != LibraryStatus.Unknown) {
             "$label · 待更新"
         } else {
             label
@@ -1764,14 +1968,18 @@ private fun broadcastStateLabel(entry: CalendarEntry): String {
         }
     return buildList {
         add(
-            if (episode.scheduleAuthority == AiringScheduleAuthority.Official) {
-                "官方排期"
-            } else {
-                "预计排期"
+            when (episode.scheduleAuthority) {
+                AiringScheduleAuthority.Official -> "官方排期"
+                AiringScheduleAuthority.Verified -> "多源确认"
+                else -> "预计排期"
             },
         )
         episode.scheduleConfidence?.let { add("可信度 $it") }
-        episode.airTime?.let(::add)
+        episode.releaseAtBeijing
+            ?.takeIf { episode.origin == com.yfuse.core.model.ShowOrigin.Foreign && it.length >= 16 }
+            ?.substring(11, 16)
+            ?.let { add("北京时间 $it") }
+            ?: episode.airTime?.let(::add)
         addAll(episode.platforms.take(2))
         tier?.let(::add)
         add(state)

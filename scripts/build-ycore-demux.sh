@@ -9,7 +9,10 @@ PURE_AAR="$ARTIFACTS/ycore-native.aar"
 SOURCES_MANIFEST="$ARTIFACTS/NATIVE-SOURCES.txt"
 DEMUX_SOURCE="$ROOT/scripts/native/ycore_demux_jni.cpp"
 VULKAN_SOURCE="$ROOT/scripts/native/ycore_vulkan_jni.cpp"
+VULKAN_RENDERER_SOURCE="$ROOT/scripts/native/ycore_vulkan_renderer.cpp"
 GPU_CAPABILITY_HEADER="$ROOT/scripts/native/ycore_gpu_capability.h"
+VERTEX_SHADER_SOURCE="$ROOT/scripts/native/shaders/ycore_fullscreen.vert"
+FRAGMENT_SHADER_SOURCE="$ROOT/scripts/native/shaders/ycore_video.frag"
 PACKAGER="$ROOT/scripts/package-ycore-native-aar.py"
 NDK_VERSION="29.0.14206865"
 ANDROID_API="26"
@@ -44,7 +47,10 @@ fi
 [[ -f "$SOURCES_MANIFEST" ]] || fail "missing native provenance: $SOURCES_MANIFEST"
 [[ -f "$DEMUX_SOURCE" ]] || fail "missing JNI source: $DEMUX_SOURCE"
 [[ -f "$VULKAN_SOURCE" ]] || fail "missing Vulkan JNI source: $VULKAN_SOURCE"
+[[ -f "$VULKAN_RENDERER_SOURCE" ]] || fail "missing Vulkan renderer source: $VULKAN_RENDERER_SOURCE"
 [[ -f "$GPU_CAPABILITY_HEADER" ]] || fail "missing GPU capability contract: $GPU_CAPABILITY_HEADER"
+[[ -f "$VERTEX_SHADER_SOURCE" ]] || fail "missing Vulkan vertex shader: $VERTEX_SHADER_SOURCE"
+[[ -f "$FRAGMENT_SHADER_SOURCE" ]] || fail "missing Vulkan fragment shader: $FRAGMENT_SHADER_SOURCE"
 [[ -f "$PACKAGER" ]] || fail "missing standalone AAR packager: $PACKAGER"
 [[ -d "$UPSTREAM/buildscripts/prefix" ]] || fail "missing upstream FFmpeg prefix tree: $UPSTREAM/buildscripts/prefix"
 FFMPEG_REVISION="$(manifest_value ffmpeg)"
@@ -67,6 +73,33 @@ mapfile -t ABIS < <(
 STAGE="$(mktemp -d "$WORKSPACE/ycore-demux.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/libs"
+
+NDK_ROOT="$(cd "$TOOLCHAIN/../../../.." && pwd)"
+GLSLC="$(find "$NDK_ROOT/shader-tools" -type f -name glslc -print -quit)"
+[[ -n "$GLSLC" && -x "$GLSLC" ]] || fail "missing NDK glslc"
+mkdir -p "$STAGE/generated"
+"$GLSLC" -fshader-stage=vert "$VERTEX_SHADER_SOURCE" -o "$STAGE/generated/ycore_fullscreen.vert.spv"
+"$GLSLC" -fshader-stage=frag "$FRAGMENT_SHADER_SOURCE" -o "$STAGE/generated/ycore_video.frag.spv"
+python3 - "$STAGE/generated" <<'PY'
+import pathlib
+import struct
+import sys
+
+root = pathlib.Path(sys.argv[1])
+output = root / "ycore_gpu_shaders.inc"
+arrays = []
+for path, name in (
+    (root / "ycore_fullscreen.vert.spv", "kYCoreFullscreenVertexShader"),
+    (root / "ycore_video.frag.spv", "kYCoreVideoFragmentShader"),
+):
+    data = path.read_bytes()
+    if len(data) % 4:
+        raise SystemExit(f"unaligned SPIR-V: {path}")
+    words = struct.unpack(f"<{len(data) // 4}I", data)
+    body = ",\n    ".join(f"0x{word:08x}U" for word in words)
+    arrays.append(f"static const uint32_t {name}[] = {{\n    {body}\n}};\n")
+output.write_text("\n".join(arrays), encoding="utf-8")
+PY
 
 compiler_for_abi() {
   case "$1" in
@@ -92,6 +125,7 @@ for ABI in "${ABIS[@]}"; do
   OUT_DIR="$STAGE/libs/$ABI"
   mkdir -p "$OUT_DIR"
   OUT="$OUT_DIR/libycore_demux.so"
+  GPU_OUT="$OUT_DIR/libycore_gpu.so"
   echo "[ycore-demux] compiling $ABI"
   "$CXX" \
     -shared \
@@ -101,7 +135,6 @@ for ABI in "${ABIS[@]}"; do
     -fvisibility=hidden \
     -I"$PREFIX/include" \
     "$DEMUX_SOURCE" \
-    "$VULKAN_SOURCE" \
     -L"$PREFIX/lib" \
     -Wl,--no-undefined \
     -Wl,-z,max-page-size="$MAX_PAGE_SIZE" \
@@ -112,11 +145,28 @@ for ABI in "${ABIS[@]}"; do
     -lswresample \
     -lavutil \
     -lbluray \
-    -landroid \
-    -lvulkan \
     -o "$OUT"
 
+  echo "[ycore-gpu] compiling isolated Vulkan executor for $ABI"
+  "$CXX" \
+    -shared \
+    -fPIC \
+    -O2 \
+    -std=c++17 \
+    -fvisibility=hidden \
+    -I"$ROOT/scripts/native" \
+    -I"$STAGE/generated" \
+    "$VULKAN_SOURCE" \
+    "$VULKAN_RENDERER_SOURCE" \
+    -Wl,--no-undefined \
+    -Wl,-z,max-page-size="$MAX_PAGE_SIZE" \
+    -Wl,-soname,libycore_gpu.so \
+    -landroid \
+    -lvulkan \
+    -o "$GPU_OUT"
+
   "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT"
+  "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$GPU_OUT"
 done
 
 export YCORE_AAR="$AAR"
@@ -135,8 +185,8 @@ os.close(fd)
 temp = pathlib.Path(temp_name)
 try:
     replacements = {
-        f"jni/{path.parent.name}/libycore_demux.so": path
-        for path in stage.glob("*/libycore_demux.so")
+        f"jni/{path.parent.name}/{path.name}": path
+        for path in stage.glob("*/libycore_*.so")
     }
     with zipfile.ZipFile(source, "r") as old, zipfile.ZipFile(temp, "w") as new:
         for info in old.infolist():
@@ -164,12 +214,20 @@ awk -F= '
   $1 != "ycore-disc-api" &&
   $1 != "ycore-gpu-api" &&
   $1 != "ycore-gpu-source" &&
+  $1 != "ycore-gpu-renderer-source" &&
+  $1 != "ycore-gpu-vertex-shader" &&
+  $1 != "ycore-gpu-fragment-shader" &&
   $1 != "ycore-gpu-capability-source" &&
+  $1 != "ycore-gpu-frame-ring" &&
+  $1 != "ycore-gpu-import-cache" &&
+  $1 != "ycore-gpu-hdr10plus" &&
+  $1 != "ycore-gpu-color-metadata" &&
   $1 != "ycore-libbluray" &&
   $1 != "ycore-disc-uri-source" &&
   $1 != "ycore-demux-abis" &&
   $1 != "ycore-native-aar" &&
   $1 != "ycore-native-entry" &&
+  $1 != "ycore-gpu-entry" &&
   $1 != "ycore-native-forbidden" { print }
 ' "$SOURCES_MANIFEST" > "$PROVENANCE_TEMP"
 {
@@ -179,14 +237,22 @@ awk -F= '
   echo "ycore-tone-map-source=scripts/native/ycore_tone_map.h"
   echo "ycore-software-decoder-api=2"
   echo "ycore-disc-api=1"
-  echo "ycore-gpu-api=1"
+  echo "ycore-gpu-api=2"
   echo "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp"
+  echo "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp"
+  echo "ycore-gpu-vertex-shader=scripts/native/shaders/ycore_fullscreen.vert"
+  echo "ycore-gpu-fragment-shader=scripts/native/shaders/ycore_video.frag"
   echo "ycore-gpu-capability-source=scripts/native/ycore_gpu_capability.h"
+  echo "ycore-gpu-frame-ring=3"
+  echo "ycore-gpu-import-cache=12"
+  echo "ycore-gpu-hdr10plus=per-frame-st2094-40"
+  echo "ycore-gpu-color-metadata=range,matrix,chroma,sar,rotation,crop,st2086,maxcll,maxfall"
   echo "ycore-libbluray=1.4.1"
   echo "ycore-disc-uri-source=scripts/native/ycore_disc_uri.h"
   echo "ycore-demux-abis=$(IFS=,; echo "${ABIS[*]}")"
   echo "ycore-native-aar=true"
   echo "ycore-native-entry=libycore_demux.so"
+  echo "ycore-gpu-entry=libycore_gpu.so"
   echo "ycore-native-forbidden=libmpv.so,libplayer.so,libmdk.so"
 } >> "$PROVENANCE_TEMP"
 mv -f "$PROVENANCE_TEMP" "$SOURCES_MANIFEST"
@@ -197,5 +263,13 @@ python3 "$PACKAGER" \
   "$PURE_AAR" \
   "$SOURCES_MANIFEST"
 
+python3 "$PACKAGER" \
+  --gpu-only \
+  --readelf "$TOOLCHAIN/bin/llvm-readelf" \
+  "$PURE_AAR" \
+  "$ARTIFACTS/ycore-gpu.aar" \
+  "$SOURCES_MANIFEST"
+
 echo "[ycore-demux] injected libycore_demux.so into $AAR"
 echo "[ycore-demux] packaged standalone YCore runtime into $PURE_AAR"
+echo "[ycore-demux] packaged full-app YCore GPU companion into $ARTIFACTS/ycore-gpu.aar"

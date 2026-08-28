@@ -76,6 +76,9 @@ private class SqliteCalendarScheduleStore private constructor(
                         poster_path TEXT,
                         air_time TEXT NOT NULL,
                         time_zone_id TEXT NOT NULL,
+                        origin TEXT NOT NULL DEFAULT 'Domestic',
+                        availability_region TEXT,
+                        release_mode TEXT NOT NULL DEFAULT 'Scheduled',
                         platforms_json TEXT NOT NULL,
                         access_tier TEXT NOT NULL,
                         source_url TEXT NOT NULL,
@@ -94,6 +97,8 @@ private class SqliteCalendarScheduleStore private constructor(
                         season_number INTEGER NOT NULL,
                         episode_number INTEGER NOT NULL CHECK(episode_number > 0),
                         air_date TEXT NOT NULL,
+                        release_at_utc TEXT,
+                        release_at_beijing TEXT,
                         PRIMARY KEY(
                             publication_id,
                             tmdb_id,
@@ -109,6 +114,11 @@ private class SqliteCalendarScheduleStore private constructor(
                     )
                     """.trimIndent(),
                 )
+                runCatching { statement.execute("ALTER TABLE calendar_series ADD COLUMN origin TEXT NOT NULL DEFAULT 'Domestic'") }
+                runCatching { statement.execute("ALTER TABLE calendar_series ADD COLUMN availability_region TEXT") }
+                runCatching { statement.execute("ALTER TABLE calendar_series ADD COLUMN release_mode TEXT NOT NULL DEFAULT 'Scheduled'") }
+                runCatching { statement.execute("ALTER TABLE calendar_episodes ADD COLUMN release_at_utc TEXT") }
+                runCatching { statement.execute("ALTER TABLE calendar_episodes ADD COLUMN release_at_beijing TEXT") }
                 statement.execute(
                     """
                     CREATE TABLE IF NOT EXISTS calendar_evidence (
@@ -170,6 +180,9 @@ private class SqliteCalendarScheduleStore private constructor(
                             poster_path,
                             air_time,
                             time_zone_id,
+                            origin,
+                            availability_region,
+                            release_mode,
                             platforms_json,
                             access_tier,
                             source_url,
@@ -193,8 +206,11 @@ private class SqliteCalendarScheduleStore private constructor(
                                             seasonNumber = seasonNumber,
                                             title = result.getString("title"),
                                             posterPath = result.getString("poster_path"),
-                                            airTime = result.getString("air_time"),
-                                            timeZoneId = result.getString("time_zone_id"),
+                                            airTime = result.getString("air_time").takeIf(String::isNotBlank),
+                                            timeZoneId = result.getString("time_zone_id").takeIf(String::isNotBlank),
+                                            origin = result.getString("origin"),
+                                            availabilityRegion = result.getString("availability_region"),
+                                            releaseMode = result.getString("release_mode"),
                                             platforms =
                                                 json.decodeFromString(
                                                     result.getString("platforms_json"),
@@ -297,13 +313,16 @@ private class SqliteCalendarScheduleStore private constructor(
                     poster_path,
                     air_time,
                     time_zone_id,
+                    origin,
+                    availability_region,
+                    release_mode,
                     platforms_json,
                     access_tier,
                     source_url,
                     updated_at,
                     authority,
                     confidence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { statement ->
                 statement.setLong(1, publicationId)
@@ -311,14 +330,17 @@ private class SqliteCalendarScheduleStore private constructor(
                 statement.setInt(3, schedule.seasonNumber)
                 statement.setString(4, schedule.title)
                 statement.setString(5, schedule.posterPath)
-                statement.setString(6, schedule.airTime)
-                statement.setString(7, schedule.timeZoneId)
-                statement.setString(8, json.encodeToString(schedule.platforms))
-                statement.setString(9, schedule.accessTier)
-                statement.setString(10, schedule.sourceUrl)
-                statement.setString(11, schedule.updatedAt)
-                statement.setString(12, schedule.authority)
-                statement.setInt(13, schedule.confidence)
+                statement.setString(6, schedule.airTime.orEmpty())
+                statement.setString(7, schedule.timeZoneId.orEmpty())
+                statement.setString(8, schedule.origin)
+                statement.setString(9, schedule.availabilityRegion)
+                statement.setString(10, schedule.releaseMode)
+                statement.setString(11, json.encodeToString(schedule.platforms))
+                statement.setString(12, schedule.accessTier)
+                statement.setString(13, schedule.sourceUrl)
+                statement.setString(14, schedule.updatedAt)
+                statement.setString(15, schedule.authority)
+                statement.setInt(16, schedule.confidence)
                 statement.executeUpdate()
             }
     }
@@ -335,8 +357,10 @@ private class SqliteCalendarScheduleStore private constructor(
                     tmdb_id,
                     season_number,
                     episode_number,
-                    air_date
-                ) VALUES (?, ?, ?, ?, ?)
+                    air_date,
+                    release_at_utc,
+                    release_at_beijing
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { statement ->
                 schedule.episodes.forEach { episode ->
@@ -345,6 +369,8 @@ private class SqliteCalendarScheduleStore private constructor(
                     statement.setInt(3, schedule.seasonNumber)
                     statement.setInt(4, episode.episodeNumber)
                     statement.setString(5, episode.airDate)
+                    statement.setString(6, episode.releaseAtUtc)
+                    statement.setString(7, episode.releaseAtBeijing)
                     statement.addBatch()
                 }
                 statement.executeBatch()
@@ -397,7 +423,7 @@ private class SqliteCalendarScheduleStore private constructor(
         connection
             .prepareStatement(
                 """
-                SELECT episode_number, air_date
+                SELECT episode_number, air_date, release_at_utc, release_at_beijing
                 FROM calendar_episodes
                 WHERE publication_id = ? AND tmdb_id = ? AND season_number = ?
                 ORDER BY episode_number
@@ -413,6 +439,8 @@ private class SqliteCalendarScheduleStore private constructor(
                                 CalendarEpisode(
                                     episodeNumber = result.getInt("episode_number"),
                                     airDate = result.getString("air_date"),
+                                    releaseAtUtc = result.getString("release_at_utc"),
+                                    releaseAtBeijing = result.getString("release_at_beijing"),
                                 ),
                             )
                         }

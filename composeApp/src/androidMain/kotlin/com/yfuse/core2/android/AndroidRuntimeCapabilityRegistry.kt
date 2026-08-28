@@ -180,8 +180,8 @@ internal fun runtimeVideoCapabilityKey(
         width = request.video.width,
         height = request.video.height,
         bitDepth = request.video.bitDepth,
-        hdrType = plan.outputHdrType,
-        dolbyVisionProfile = request.video.dolbyVisionProfile,
+        hdrType = plan.inputHdrType,
+        dolbyVisionProfile = request.video.dolbyVisionProfile.takeUnless { plan.usesHdrFallback },
         tunneled = plan.renderPath == YRenderPath.Tunnel,
     )
 }

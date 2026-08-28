@@ -21,7 +21,7 @@ Environment=ACCOUNT_ISSUED_INVITE_TTL_HOURS=24
 Environment=MIGRATION_RELAY_DB_PATH=/var/lib/yfuse/migration-relay.db
 EnvironmentFile=/etc/yfuse-watch/environment
 Environment=WATCH_TRUST_PROXY_HEADERS=true
-Environment="JAVA_OPTS=-Xms32m -Xmx128m"
+Environment="JAVA_OPTS=-Xms32m -Xmx256m"
 ExecStart=/opt/yfuse-watch/current/bin/watchTogetherServer
 ExecStartPost=/usr/bin/curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 --retry-max-time 30 --connect-timeout 1 http://127.0.0.1:8080/health
 Restart=on-failure
@@ -31,8 +31,8 @@ TimeoutStopSec=30
 SuccessExitStatus=143
 LimitNOFILE=16384
 TasksMax=256
-MemoryHigh=256M
-MemoryMax=384M
+MemoryHigh=384M
+MemoryMax=448M
 NoNewPrivileges=true
 CapabilityBoundingSet=
 PrivateTmp=true

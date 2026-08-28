@@ -4,7 +4,9 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaFormat
+import android.os.Build
 import android.view.Surface
+import android.view.WindowManager
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.YPlaybackRoute
@@ -31,6 +33,8 @@ import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.render.YScalingFilter
+import com.yfuse.core2.render.gpuColorPipelineConfig
 import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YPlaybackPlan
@@ -60,6 +64,8 @@ internal data class YEnhancedPlaybackSnapshot(
     val droppedFrames: Int,
     val avSyncOffsetUs: Long?,
     val subtitleCues: List<YSubtitleCue>,
+    val nativeGpuFeatureMask: Long = 0L,
+    val gpuFrameDurationNs: Long = 0L,
 )
 
 /**
@@ -82,6 +88,8 @@ internal class AndroidEnhancedPlaybackSession(
 ) {
     private val wallClock = YMediaClock()
     private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
+    private val gpuEvidenceStore = AndroidYCoreGpuEvidenceStore(context)
+    private val displayPeakNits = context.yCoreDisplayPeakNits()
 
     private var plan: YPlaybackPlan? = null
     private var sourceRemote = false
@@ -98,6 +106,7 @@ internal class AndroidEnhancedPlaybackSession(
     private var pendingSoftwareVideoOutput: YSoftwareVideoDecodeResult.Frame? = null
     private var softwareDecoder: AndroidFfmpegSoftwareDecoderNode? = null
     private val softwareVideoRenderer = AndroidSoftwareVideoRenderNode()
+    private var gpuVideoOutput: AndroidVulkanVideoOutput? = null
     private var softwareVideoActive = false
     private var softwareAudioActive = false
     private var playing = false
@@ -115,6 +124,7 @@ internal class AndroidEnhancedPlaybackSession(
     private var droppedFrames = 0
     private var audioFallbackCount = 0
     private var runtimeRenderRecorded = false
+    private var gpuEvidenceRecorded = false
     private var runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null
     private var renderCallbackGeneration = 0
 
@@ -139,7 +149,7 @@ internal class AndroidEnhancedPlaybackSession(
     ): YDemuxOpenResult {
         close()
         this.runtimeCapabilityKey = runtimeCapabilityKey
-        require(plan.route in setOf(YPlaybackRoute.NativeEnhanced, YPlaybackRoute.SoftwareFallback)) {
+        require(plan.route in setOf(YPlaybackRoute.NativeEnhanced, YPlaybackRoute.GpuEnhanced, YPlaybackRoute.SoftwareFallback)) {
             "Enhanced session requires an enhanced route"
         }
         require(plan.renderPath in setOf(YRenderPath.SurfaceDirect, YRenderPath.Gpu)) {
@@ -191,6 +201,43 @@ internal class AndroidEnhancedPlaybackSession(
                     softwareVideoRenderer.attach(surface)
                 }
             } else {
+                val decoderSurface =
+                    if (plan.route == YPlaybackRoute.GpuEnhanced) {
+                        check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            "GpuEnhanced requires Android 9 HardwareBuffer"
+                        }
+                        val sourcePeakNits =
+                            effectiveVideo.hdrStaticMetadata?.let { metadata ->
+                                maxOf(metadata.maxContentLightLevel, metadata.maxDisplayLuminance)
+                                    .takeIf { it > 0 }
+                                    ?.toFloat()
+                            }
+                        AndroidVulkanVideoOutput(
+                            width = effectiveVideo.width,
+                            height = effectiveVideo.height,
+                            target = surface,
+                            colorConfig =
+                                gpuColorPipelineConfig(
+                                    sourceHdrType = effectiveVideo.hdrType,
+                                    outputHdrType = plan.outputHdrType,
+                                    bitDepth = effectiveVideo.bitDepth,
+                                    staticPeakNits = sourcePeakNits,
+                                    displayPeakNits = displayPeakNits,
+                                    scalingFilter = YScalingFilter.Lanczos,
+                                    sourceRange = effectiveVideo.colorRange,
+                                    sourceMatrix = effectiveVideo.colorMatrix,
+                                    sourcePrimaries = effectiveVideo.colorPrimaries,
+                                    chromaLocation = effectiveVideo.chromaLocation,
+                                    geometry = effectiveVideo.geometry,
+                                    hdrStaticMetadata = effectiveVideo.hdrStaticMetadata,
+                                ),
+                        ).also {
+                            check(it.isReady) { "Vulkan swapchain/ImageReader output is unavailable" }
+                            gpuVideoOutput = it
+                        }.decoderSurface
+                    } else {
+                        surface
+                    }
                 yPlaybackStage(
                     category = YPlaybackFailureCategory.Decoder,
                     stage = YPlaybackFailureStage.VideoDecoderConfigure,
@@ -198,13 +245,13 @@ internal class AndroidEnhancedPlaybackSession(
                 ) {
                     videoDecoder.configure(
                         AndroidMediaFormatFactory.video(effectiveVideo),
-                        surface,
+                        decoderSurface,
                         plan.decoderName,
                     )
                 }
                 videoConfiguredForProbe = true
                 runtimeCapabilityKey?.let { runtimeCapabilities?.recordConfigured(it) }
-                attachVideoRenderEvidence()
+                if (plan.route != YPlaybackRoute.GpuEnhanced) attachVideoRenderEvidence()
             }
             frameRateManager.attach(surface, videoFrameRateHint(effectiveVideo.frameRate))
             audioTrack?.audio?.let { format ->
@@ -337,6 +384,10 @@ internal class AndroidEnhancedPlaybackSession(
         ) {
             if (softwareVideoActive) {
                 softwareVideoRenderer.attach(next)
+            } else if (gpuVideoOutput != null) {
+                check(requireNotNull(gpuVideoOutput).setTargetSurface(next)) {
+                    "Vulkan output Surface recreation failed"
+                }
             } else {
                 videoDecoder.setOutputSurface(next)
             }
@@ -499,12 +550,15 @@ internal class AndroidEnhancedPlaybackSession(
                 ) {
                     videoDecoder.configure(
                         AndroidMediaFormatFactory.video(requireNotNull(effectiveVideoTrack)),
-                        requireNotNull(surface).also { check(it.isValid) },
+                        gpuVideoOutput?.decoderSurface
+                            ?: requireNotNull(surface).also { check(it.isValid) },
                         requireNotNull(plan).decoderName,
                     )
                 }
                 runtimeCapabilityKey?.let { runtimeCapabilities?.recordConfigured(it) }
-                attachVideoRenderEvidence()
+                if (requireNotNull(plan).route != YPlaybackRoute.GpuEnhanced) {
+                    attachVideoRenderEvidence()
+                }
             } else {
                 videoDecoder.flush()
             }
@@ -536,20 +590,36 @@ internal class AndroidEnhancedPlaybackSession(
         didWork = drainAudio() || didWork
         didWork = drainVideo() || didWork
         didWork = feedInput() || didWork
+        check(gpuVideoOutput?.measurementFailed != true) {
+            "Vulkan decoded-frame output did not satisfy the measured presentation/P010 gate"
+        }
         if (ended()) {
             pauseAtEnd()
         }
         return didWork
     }
 
-    fun snapshot(): YEnhancedPlaybackSnapshot =
-        YEnhancedPlaybackSnapshot(
+    fun snapshot(): YEnhancedPlaybackSnapshot {
+        val gpu = gpuVideoOutput
+        val videoVerified = gpu?.outputVerified ?: firstVideoFrameRendered
+        if (videoVerified && !runtimeRenderRecorded) {
+            runtimeRenderRecorded = true
+            runtimeCapabilityKey?.let { runtimeCapabilities?.recordRendered(it) }
+        }
+        if (gpu != null && videoVerified && !gpuEvidenceRecorded) {
+            gpuEvidenceRecorded = true
+            gpuEvidenceStore.recordVerified(
+                runtimeCapabilityKey?.toGpuEvidenceKey(requireNotNull(plan)),
+                gpu.currentFeatureMask,
+            )
+        }
+        return YEnhancedPlaybackSnapshot(
             positionUs = currentPositionUs(),
             durationUs = openResult?.durationUs ?: 0L,
             playing = playing && !ended(),
-            buffering = playing && !firstVideoFrameRendered && !ended(),
+            buffering = playing && !videoVerified && !ended(),
             ended = ended(),
-            firstVideoFrameRendered = firstVideoFrameRendered,
+            firstVideoFrameRendered = videoVerified,
             outputHdrType = plan?.outputHdrType ?: YHdrType.Sdr,
             softwareVideoToneMapped = plan?.softwareVideoToneMap == true,
             videoDecoderName =
@@ -567,7 +637,10 @@ internal class AndroidEnhancedPlaybackSession(
             droppedFrames = droppedFrames,
             avSyncOffsetUs = lastAvSyncOffsetUs,
             subtitleCues = subtitleCues.toList(),
+            nativeGpuFeatureMask = gpu?.currentFeatureMask ?: 0L,
+            gpuFrameDurationNs = gpu?.lastGpuFrameDurationNs ?: 0L,
         )
+    }
 
     fun close() {
         renderCallbackGeneration++
@@ -582,6 +655,8 @@ internal class AndroidEnhancedPlaybackSession(
         runCatching(audioDecoder::release)
         runCatching(videoDecoder::release)
         runCatching(softwareVideoRenderer::release)
+        runCatching { gpuVideoOutput?.close() }
+        gpuVideoOutput = null
         runCatching { softwareDecoder?.release() }
         softwareDecoder = null
         frameRateManager.clear()
@@ -589,6 +664,7 @@ internal class AndroidEnhancedPlaybackSession(
         plan = null
         runtimeCapabilityKey = null
         runtimeRenderRecorded = false
+        gpuEvidenceRecorded = false
         sourceRemote = false
         openResult = null
         sourceVideoTrack = null
@@ -650,11 +726,15 @@ internal class AndroidEnhancedPlaybackSession(
                             requireNotNull(softwareDecoder).queueVideo(softwareSample).toCodecQueueResult()
                         }
                     } else {
-                        videoTrack.video
+                        val hdr10PlusPayload =
+                            videoTrack.video
                             ?.takeIf { it.hdrType == com.yfuse.core2.capability.YHdrType.Hdr10Plus }
                             ?.samplePacking
                             ?.let { packing -> YBitstream.hdr10PlusItuT35Payload(sample.data, packing) }
-                            ?.let(videoDecoder::setHdr10PlusMetadata)
+                        hdr10PlusPayload?.let(videoDecoder::setHdr10PlusMetadata)
+                        hdr10PlusPayload?.let { payload ->
+                            gpuVideoOutput?.queueHdr10PlusMetadata(sample.presentationTimeUs, payload)
+                        }
                         val transformed =
                             yPlaybackStage(
                                 category = YPlaybackFailureCategory.Container,
@@ -739,8 +819,8 @@ internal class AndroidEnhancedPlaybackSession(
             ) {
                 "Only HEVC Dolby Vision Profile 7/8 compatible-base fallback is executable"
             }
-            require(config.compatibleBaseHdr == currentPlan.outputHdrType) {
-                "Dolby compatible base does not match the selected output HDR route"
+            require(config.compatibleBaseHdr == currentPlan.inputHdrType) {
+                "Dolby compatible base does not match the selected pipeline input HDR route"
             }
             val packing =
                 requireNotNull(sourceTrack.samplePacking) {
@@ -799,7 +879,10 @@ internal class AndroidEnhancedPlaybackSession(
         val output =
             pendingVideoOutput ?: when (val dequeued = videoDecoder.dequeueOutput()) {
                 YCodecOutputResult.TryAgain -> return false
-                is YCodecOutputResult.FormatChanged -> return true
+                is YCodecOutputResult.FormatChanged -> {
+                    gpuVideoOutput?.updateDecodedFormat(dequeued.format)
+                    return true
+                }
                 is YCodecOutputResult.Buffer -> dequeued
             }
 
@@ -1279,13 +1362,13 @@ internal class AndroidEnhancedPlaybackSession(
             requireNotNull(source.dolbyVisionConfig) {
                 "HDR fallback route requires Dolby Vision configuration"
             }
-        require(config.profile in setOf(7, 8) && config.compatibleBaseHdr == plan.outputHdrType) {
+        require(config.profile in setOf(7, 8) && config.compatibleBaseHdr == plan.inputHdrType) {
             "Only explicit Profile 7/8 compatible-base fallback is supported"
         }
         require(source.codec == YVideoCodec.H265) { "Profile 7/8 compatible base requires HEVC" }
         return source.copy(
             mimeType = "video/hevc",
-            hdrType = plan.outputHdrType,
+            hdrType = plan.inputHdrType,
             samplePacking = YSamplePacking.AnnexB,
             dolbyVisionConfig = null,
         )
@@ -1300,6 +1383,20 @@ private fun YCompressedSample.toExtractorFlags(): Int =
     }
 
 private fun Boolean.toCodecQueueResult(): YCodecQueueResult = if (this) YCodecQueueResult.Queued else YCodecQueueResult.TryAgain
+
+private fun Context.yCoreDisplayPeakNits(): Float? =
+    runCatching {
+        val activeDisplay =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                getSystemService(WindowManager::class.java)?.defaultDisplay
+            }
+        activeDisplay
+            ?.hdrCapabilities
+            ?.desiredMaxLuminance
+            ?.takeIf { it.isFinite() && it > 0f }
+    }.getOrNull()
 
 private const val DEFAULT_INPUT_AHEAD_US = 1_500_000L
 private const val MAX_VIDEO_SCHEDULE_AHEAD_US = 250_000L

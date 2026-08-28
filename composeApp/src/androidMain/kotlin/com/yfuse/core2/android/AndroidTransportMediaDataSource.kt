@@ -25,6 +25,7 @@ internal class AndroidTransportMediaDataSource(
     cacheDirectory: File? = null,
     cacheIdentity: YCacheIdentity? = null,
     cacheMaximumBytes: Long = 0L,
+    private val onNetworkSample: ((bytes: Long, durationMs: Long) -> Unit)? = null,
 ) : MediaDataSource() {
     private val transport = createTransport()
     private val cachePlan =
@@ -109,6 +110,7 @@ internal class AndroidTransportMediaDataSource(
 
     private fun loadRemoteBlock(blockIndex: Long): ByteArray =
         runBlocking {
+            val startedNs = System.nanoTime()
             val position = blockIndex.saturatedMultiply(blockSize.toLong())
             val end = position.saturatedAdd(blockSize.toLong() - 1L)
             try {
@@ -160,6 +162,10 @@ internal class AndroidTransportMediaDataSource(
                         safeMessage = "Random-access transport ended before the accepted block range",
                     )
                 }
+                onNetworkSample?.invoke(
+                    total.toLong(),
+                    ((System.nanoTime() - startedNs) / 1_000_000L).coerceAtLeast(1L),
+                )
                 output.copyOf(total).also { block ->
                     if (block.isNotEmpty()) diskCache?.writeBlock(blockIndex, block, knownSize.takeIf { it >= 0L })
                 }

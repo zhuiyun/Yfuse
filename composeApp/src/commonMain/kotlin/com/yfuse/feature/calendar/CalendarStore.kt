@@ -18,7 +18,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
-internal const val CALENDAR_LOAD_TIMEOUT_MS = 15_000L
+internal const val CALENDAR_LOAD_TIMEOUT_MS = 45_000L
 
 internal class CalendarLoadTimeoutException : Exception("日历加载超时，请检查网络后重试")
 
@@ -167,6 +167,51 @@ data class CalendarState(
 
     /** True once the schedule has arrived but the filter leaves nothing — 我的, usually. */
     val filteredToNothing: Boolean get() = days.isNotEmpty() && visibleDays.isEmpty()
+}
+
+/** A verified/cached schedule is useful immediately; library-state enrichment may finish later. */
+internal fun CalendarState.withCalendarPreview(preview: List<CalendarDay>): CalendarState =
+    copy(
+        loading = false,
+        days = mergeCalendarPreview(if (confirmedDays.isEmpty()) days else confirmedDays, preview),
+        error = null,
+        today = currentIsoDate(),
+    )
+
+/** A later schedule preview may add titles, but it must never downgrade resolved inventory. */
+internal fun mergeCalendarPreview(
+    current: List<CalendarDay>,
+    incoming: List<CalendarDay>,
+): List<CalendarDay> {
+    if (current.isEmpty()) return incoming
+    if (incoming.isEmpty()) return current
+    val resolvedByMediaKey =
+        current
+            .flatMap(CalendarDay::entries)
+            .filterNot(CalendarEntry::availabilityStale)
+            .associateBy { it.episode.mediaKey }
+    return (incoming + current)
+        .flatMap(CalendarDay::entries)
+        .distinctBy { it.episode.mediaKey }
+        .map { candidate ->
+            if (candidate.availabilityStale) {
+                resolvedByMediaKey[candidate.episode.mediaKey] ?: candidate
+            } else {
+                candidate
+            }
+        }.groupBy { it.episode.airDate }
+        .toSortedMap()
+        .map { (date, entries) -> CalendarDay(date, entries) }
+}
+
+/** A background enrichment timeout must not turn an already visible schedule into an error. */
+internal fun CalendarState.withCalendarLoadFailure(message: String): CalendarState {
+    val retained = confirmedDays.ifEmpty { days }
+    return copy(
+        loading = false,
+        days = retained,
+        error = message.takeIf { retained.isEmpty() },
+    )
 }
 
 sealed interface CalendarIntent {
@@ -320,15 +365,7 @@ class CalendarStoreFactory(
         override fun CalendarState.reduce(msg: Msg): CalendarState =
             when (msg) {
                 Msg.Loading -> copy(loading = true, error = null)
-                is Msg.PreviewLoaded ->
-                    copy(
-                        // Keep a fully resolved result stable during refresh. A preview is used
-                        // only for the first load, before any confirmed library status exists.
-                        loading = true,
-                        days = if (confirmedDays.isEmpty()) msg.days else confirmedDays,
-                        error = null,
-                        today = currentIsoDate(),
-                    )
+                is Msg.PreviewLoaded -> withCalendarPreview(msg.days)
                 is Msg.Loaded ->
                     copy(
                         loading = false,
@@ -339,12 +376,7 @@ class CalendarStoreFactory(
                         // "today" would mark the wrong row and misjudge what has aired.
                         today = currentIsoDate(),
                     )
-                is Msg.Failed ->
-                    copy(
-                        loading = false,
-                        days = confirmedDays.ifEmpty { days },
-                        error = msg.message,
-                    )
+                is Msg.Failed -> withCalendarLoadFailure(msg.message)
                 is Msg.FilterChanged -> copy(filter = msg.filter)
                 is Msg.SectionChanged -> copy(section = msg.section)
                 is Msg.PlatformChanged -> copy(platform = msg.platform)

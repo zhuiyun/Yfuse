@@ -184,7 +184,7 @@ internal class PlaybackProgressReporter(
         val next = items.getOrNull(state.currentIndex + 1) ?: return
         if (!next.canPreloadSource) return
         if (!preloadedSources.add(next.url)) return
-        preloader.preload(next.url)
+        preloader.preload(next)
     }
 
     /**

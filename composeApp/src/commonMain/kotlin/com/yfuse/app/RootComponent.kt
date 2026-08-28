@@ -197,6 +197,16 @@ class RootComponent(
         home.openCalendarItem(serverId, itemId)
     }
 
+    /** Opens recovered playback through the same hydrated episode queue as ordinary playback. */
+    fun resumePlayback(
+        serverId: String?,
+        itemId: String,
+        positionMs: Long,
+    ) {
+        selectTab(Tab.Home)
+        home.resumePlayback(serverId, itemId, positionMs)
+    }
+
     /**
      * An invite waiting to be confirmed, or null. Held here rather than routed straight to a
      * screen because it can arrive at any moment — a cold start from a chat app, or

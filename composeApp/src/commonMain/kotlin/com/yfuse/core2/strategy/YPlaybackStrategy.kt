@@ -46,6 +46,8 @@ data class YPlaybackPlan(
     val decodePath: YDecodePath,
     val renderPath: YRenderPath,
     val outputHdrType: YHdrType,
+    /** Dynamic range entering the selected decoder/render pipeline before output conversion. */
+    val inputHdrType: YHdrType = outputHdrType,
     val decoderName: String? = null,
     val nativeAudio: Boolean = true,
     val audioPath: YAudioOutputPath = YAudioOutputPath.DecodePcm,
@@ -103,6 +105,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             when {
                 originalNativeOutput -> false
                 fallbackNativeOutput -> true
+                request.video.dolbyVisionProfile == 7 && fallbackDecoder != null -> true
                 originalDecoder != null -> false
                 fallbackDecoder != null -> true
                 else -> false
@@ -138,27 +141,6 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         ) {
             val hdrRoute = YHdrRouter.decide(selectedRequirement.hdrType, capabilities)
             val displayCanPresent = hdrRoute is YHdrRouteDecision.Native
-            if (
-                !displayCanPresent &&
-                request.enhancedDemuxSupported &&
-                !request.video.secureDecodeRequired &&
-                selectedRequirement.hdrType.supportsOwnedSoftwareToneMap()
-            ) {
-                return YPlaybackPlan(
-                    route = YPlaybackRoute.SoftwareFallback,
-                    demuxPath = YDemuxPath.Enhanced,
-                    decodePath = YDecodePath.Software,
-                    renderPath = YRenderPath.Gpu,
-                    outputHdrType = YHdrType.Sdr,
-                    nativeAudio = true,
-                    audioPath = audioPath,
-                    softwareVideoToneMap = true,
-                    usesHdrFallback = usesHdrFallback,
-                    reason =
-                        "Display cannot present ${selectedRequirement.hdrType}; " +
-                            "decode and tone-map to SDR inside YCore",
-                )
-            }
             val renderPath =
                 when {
                     !displayCanPresent -> YRenderPath.Gpu
@@ -181,6 +163,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                 demuxPath = demuxPath,
                 decodePath = decodePath,
                 renderPath = renderPath,
+                inputHdrType = selectedRequirement.hdrType,
                 outputHdrType = outputHdr,
                 decoderName = selectedDecoder.name,
                 nativeAudio = true,
@@ -222,6 +205,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                     else -> YDecodePath.PlatformSoftware
                 },
             renderPath = if (softwareVideo) YRenderPath.Gpu else YRenderPath.SurfaceDirect,
+            inputHdrType = fallbackHdrType,
             outputHdrType =
                 if (softwareVideo) YHdrType.Sdr else fallbackHdrType,
             decoderName = selectedDecoder?.name?.takeUnless { softwareVideo },

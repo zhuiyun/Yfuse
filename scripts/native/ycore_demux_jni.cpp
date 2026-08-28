@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -22,6 +23,7 @@ extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/dict.h>
 #include <libavutil/dovi_meta.h>
+#include <libavutil/display.h>
 #include <libavutil/error.h>
 #include <libavutil/mastering_display_metadata.h>
 #include <libavutil/mem.h>
@@ -367,7 +369,7 @@ void refresh_disc_title_info(BlurayIo* disc) {
     if (disc->current_title < 0 || disc->current_title >= disc->title_count) {
         disc->current_title = 0;
     }
-    disc->current_angle = std::max(0, bd_get_current_angle(disc->bd));
+    disc->current_angle = static_cast<int>(bd_get_current_angle(disc->bd));
     disc->title_info = bd_get_title_info(disc->bd, disc->current_title, disc->current_angle);
 }
 
@@ -1193,6 +1195,19 @@ jlongArray native_track_video_info(JNIEnv* env, jclass, jlong handle, jint index
         return nullptr;
     }
     const AVRational frame_rate = av_guess_frame_rate(from_handle(handle)->format, stream, nullptr);
+    const AVRational sample_aspect_ratio = av_guess_sample_aspect_ratio(
+        from_handle(handle)->format, stream, nullptr);
+    const AVPacketSideData* display_matrix_side = av_packet_side_data_get(
+        parameters->coded_side_data,
+        parameters->nb_coded_side_data,
+        AV_PKT_DATA_DISPLAYMATRIX);
+    int rotation_degrees = 0;
+    if (display_matrix_side && display_matrix_side->data &&
+        display_matrix_side->size >= 9 * sizeof(int32_t)) {
+        const double rotation = -av_display_rotation_get(
+            reinterpret_cast<const int32_t*>(display_matrix_side->data));
+        if (std::isfinite(rotation)) rotation_degrees = static_cast<int>(std::lround(rotation));
+    }
     const auto packing = sample_packing(parameters);
     const jlong values[] = {
         parameters->width,
@@ -1205,6 +1220,18 @@ jlongArray native_track_video_info(JNIEnv* env, jclass, jlong handle, jint index
         parameters->level,
         packing.first,
         packing.second,
+        parameters->color_range,
+        parameters->color_space,
+        parameters->color_primaries,
+        parameters->color_trc,
+        parameters->chroma_location,
+        sample_aspect_ratio.num > 0 ? sample_aspect_ratio.num : 1,
+        sample_aspect_ratio.den > 0 ? sample_aspect_ratio.den : 1,
+        rotation_degrees,
+        0,
+        0,
+        0,
+        0,
     };
     jlongArray result = env->NewLongArray(sizeof(values) / sizeof(values[0]));
     if (result) {

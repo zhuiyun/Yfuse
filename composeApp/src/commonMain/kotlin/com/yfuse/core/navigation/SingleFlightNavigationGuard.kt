@@ -1,6 +1,12 @@
 package com.yfuse.core.navigation
 
-/** Prevents repeated UI events from starting overlapping navigation mutations. */
+/**
+ * Prevents repeated UI events from starting overlapping navigation mutations.
+ *
+ * [complete] releases the flight after the destination route is removed (or when its push
+ * fails), not when the child is merely constructed. Child construction can precede the
+ * observable active-stack update, and releasing there leaves a short duplicate-push window.
+ */
 internal class SingleFlightNavigationGuard<T> {
     private var pending: T? = null
 

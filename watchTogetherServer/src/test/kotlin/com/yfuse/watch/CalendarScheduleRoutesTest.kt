@@ -17,6 +17,18 @@ import kotlin.test.assertTrue
 
 class CalendarScheduleRoutesTest {
     @Test
+    fun exposes_redacted_ingestion_health_without_a_signing_key() =
+        testApplication {
+            application { routing { calendarScheduleRoutes(null) } }
+
+            val response = client.get("/api/v1/calendar/ingestion/status")
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertTrue(response.bodyAsText().contains("\"state\""))
+            assertTrue(response.bodyAsText().contains("\"configuredShows\""))
+        }
+
+    @Test
     fun unavailableWithoutSigningKey() =
         testApplication {
             application { routing { calendarScheduleRoutes(null) } }

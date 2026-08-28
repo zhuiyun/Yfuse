@@ -22,8 +22,8 @@ internal data class YExtractorCryptoInfo(
         MediaCodec.CryptoInfo().apply {
             set(
                 numberOfSubSamples,
-                clearBytes?.copyOf(),
-                encryptedBytes?.copyOf(),
+                clearBytes?.copyOf() ?: IntArray(numberOfSubSamples),
+                encryptedBytes?.copyOf() ?: IntArray(numberOfSubSamples),
                 key.copyOf(),
                 initializationVector.copyOf(),
                 mode,

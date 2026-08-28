@@ -162,15 +162,13 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     if (isEmpty() || startIndex !in indices) return false
     return all { item ->
         val version = item.activeVersion
-        // Core2's current private-surface/runtime probe is not yet a safe proof for Dolby-only
-        // streams (notably DV profile 5). Vendor Dolby decoders can reject that probe even though
-        // Exo + the real display Surface works correctly. Unknown DV profiles are treated the same
-        // way until the bitstream probe has enough evidence to prove a compatible base layer.
-        val requiresProvenDolbyPipeline =
-            version?.dolbyVision == true &&
-                (version.dolbyProfile == null || version.needsDolbyDecoder)
+        // Only the profiles covered by YCore's strict Dolby router enter runtime probing. Unknown
+        // profiles remain fail-closed; a vendor decoder/private-surface rejection is recorded for
+        // the exact route and falls back without promoting the route to verified support.
+        val unsupportedDolbyProfile =
+            version?.dolbyVision == true && version.dolbyProfile !in CORE2_DOLBY_TRIAL_PROFILES
         val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
-        !requiresProvenDolbyPipeline &&
+        !unsupportedDolbyProfile &&
             (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
             item.externalSubtitleUri.isCore2SubtitleSourceSupported() &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
@@ -196,6 +194,8 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
             drm = item.drmConfiguration != null || version?.drmConfiguration != null,
             drmSupported = drmConfiguration?.let { item.supportsCore2Drm(it.scheme) } == true,
             dolbyVision = version?.dolbyVision == true,
+            dolbyVisionSupported =
+                version?.dolbyVision != true || version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
             externalSubtitleSupported = item.externalSubtitleUri.isCore2SubtitleSourceSupported(),
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
@@ -212,7 +212,7 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
             "YCore Native 当前仅验证 H.264/HEVC"
         Core2NativeBaselineBlock.Disc -> "YCore Native 尚未完成原盘导航"
         Core2NativeBaselineBlock.Drm -> "YCore Native 尚未完成 DRM"
-        Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未完成杜比视界渲染"
+        Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未验证当前杜比视界 Profile"
         Core2NativeBaselineBlock.ExternalSubtitle -> "YCore Native 不支持当前外挂字幕来源"
     }
 
@@ -225,6 +225,8 @@ private fun String.isHlsManifest(): Boolean {
     val path = substringBefore('?').substringBefore('#').lowercase()
     return path.endsWith(".m3u8")
 }
+
+private val CORE2_DOLBY_TRIAL_PROFILES = setOf(5, 7, 8)
 
 private fun String.isDashManifest(): Boolean {
     val path = substringBefore('?').substringBefore('#').lowercase()

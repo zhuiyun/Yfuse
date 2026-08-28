@@ -9,8 +9,10 @@ import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarReminderMode
 import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.OfficialScheduleChange
+import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
+import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.util.componentScope
 import com.yfuse.core.util.currentEpochMillis
 import kotlinx.coroutines.flow.collect
@@ -24,6 +26,7 @@ class CalendarComponent(
     storeFactory: StoreFactory,
     private val repository: AiringCalendarRepository,
     val followStore: CalendarFollowStore,
+    private val registry: ServerRegistry,
     val onBack: () -> Unit,
     /** Opens an episode the library already has. Absent for everything else. */
     val onOpenItem: (serverId: String?, itemId: String) -> Unit,
@@ -71,9 +74,14 @@ class CalendarComponent(
     suspend fun seriesCalendar(
         entry: CalendarEntry,
         forceRefresh: Boolean = false,
+        onPreview: (List<CalendarDay>) -> Unit = {},
     ): Result<List<CalendarDay>> {
         val current = followStore.followed.value.firstOrNull { it.tmdbId == entry.episode.showTmdbId }
-        return repository.seriesCalendar(entry.toFollowedSeries(current), forceRefresh = forceRefresh)
+        return repository.seriesCalendar(
+            entry.toFollowedSeries(current),
+            forceRefresh = forceRefresh,
+            onPreview = onPreview,
+        )
     }
 
     suspend fun enrichResourceDetails(days: List<CalendarDay>): Result<List<CalendarDay>> =
@@ -82,6 +90,22 @@ class CalendarComponent(
     fun exportCalendar(days: List<CalendarDay>): String = buildCalendarIcs(days)
 
     fun scheduleChanges(): List<OfficialScheduleChange> = repository.scheduleChanges()
+
+    /** Authenticated series artwork fallback for auto-tracked Emby titles. */
+    fun trackingPosterUrls(series: FollowedSeries): List<String> {
+        val serverId = series.serverId ?: return emptyList()
+        val itemId = series.seriesItemId ?: return emptyList()
+        val server = registry.serverById(serverId) ?: return emptyList()
+        return listOfNotNull(
+            EmbyImages.primary(
+                baseUrl = server.baseUrl,
+                itemId = itemId,
+                tag = null,
+                maxHeight = 300,
+                accessToken = server.accessToken,
+            ),
+        )
+    }
 
     fun acknowledgeScheduleChanges() {
         repository.acknowledgeScheduleChanges()
@@ -114,6 +138,15 @@ class CalendarComponent(
                         )
                     }
                 }.distinctUntilChanged()
+                .drop(1)
+                .collect {
+                    store.accept(CalendarIntent.Reload)
+                }
+        }
+        scope.launch {
+            registry.data
+                .map { data -> data.servers.map { it.id } }
+                .distinctUntilChanged()
                 .drop(1)
                 .collect {
                     store.accept(CalendarIntent.Reload)

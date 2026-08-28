@@ -121,4 +121,97 @@ class CalendarFollowStoreTest {
         assertNull(settings.getBooleanOrNull("calendar.reminder.available.seen.1399.1.2"))
         assertNull(settings.getBooleanOrNull("calendar.reminder.sent.air.1399.2026-08-25"))
     }
+
+    @Test
+    fun library_series_are_auto_followed_with_availability_reminders() {
+        val settings = MapSettings()
+        val store = CalendarFollowStore(settings)
+
+        val added =
+            store.autoFollowLibrarySeries(
+                listOf(FollowedSeries(tmdbId = 272938, title = "师兄太稳健")),
+            )
+
+        assertEquals(1, added)
+        val followed = store.followed.value.single()
+        assertEquals(CalendarTrackingOrigin.LibraryAuto, followed.trackingOrigin)
+        assertEquals(CalendarReminderMode.WhenAvailable, followed.reminderMode)
+        assertEquals(followed, CalendarFollowStore(settings).followed.value.single())
+    }
+
+    @Test
+    fun cancelling_an_auto_follow_prevents_automatic_readdition() {
+        val settings = MapSettings()
+        val store = CalendarFollowStore(settings)
+        val candidate = FollowedSeries(tmdbId = 272938, title = "师兄太稳健")
+        store.autoFollowLibrarySeries(listOf(candidate))
+
+        store.unfollow(candidate.tmdbId)
+        val addedAgain = CalendarFollowStore(settings).autoFollowLibrarySeries(listOf(candidate))
+
+        assertEquals(0, addedAgain)
+        assertFalse(CalendarFollowStore(settings).isFollowing(candidate.tmdbId))
+    }
+
+    @Test
+    fun manual_follow_stays_manual_and_later_cancel_still_blocks_auto_follow() {
+        val settings = MapSettings()
+        val store = CalendarFollowStore(settings)
+        val candidate = FollowedSeries(tmdbId = 272938, title = "师兄太稳健")
+        store.autoFollowLibrarySeries(listOf(candidate))
+        store.unfollow(candidate.tmdbId)
+
+        store.follow(candidate)
+
+        assertEquals(CalendarTrackingOrigin.Manual, store.followed.value.single().trackingOrigin)
+        store.unfollow(candidate.tmdbId)
+        assertEquals(0, store.autoFollowLibrarySeries(listOf(candidate)))
+    }
+
+    @Test
+    fun successful_server_scan_prunes_only_stale_automatic_follows() {
+        val store = CalendarFollowStore(MapSettings())
+        store.autoFollowLibrarySeries(
+            listOf(
+                FollowedSeries(tmdbId = 1, title = "继续追", serverId = "server-a"),
+                FollowedSeries(tmdbId = 2, title = "已不活跃", serverId = "server-a"),
+                FollowedSeries(tmdbId = 3, title = "失败服务器保留", serverId = "server-b"),
+            ),
+        )
+        store.follow(FollowedSeries(tmdbId = 4, title = "手动追剧", serverId = "server-a"))
+
+        val result =
+            store.reconcileAutoFollowLibrarySeries(
+                series = listOf(FollowedSeries(tmdbId = 1, title = "继续追（新标题）", serverId = "server-a")),
+                authoritativeServerIds = setOf("server-a"),
+            )
+
+        assertEquals(1, result.removed)
+        assertEquals(setOf(1, 3, 4), store.followed.value.map(FollowedSeries::tmdbId).toSet())
+        assertEquals("继续追（新标题）", store.followed.value.first { it.tmdbId == 1 }.title)
+        assertEquals(CalendarTrackingOrigin.Manual, store.followed.value.first { it.tmdbId == 4 }.trackingOrigin)
+    }
+
+    @Test
+    fun failed_server_scan_never_prunes_automatic_follows() {
+        val store = CalendarFollowStore(MapSettings())
+        store.autoFollowLibrarySeries(
+            listOf(FollowedSeries(tmdbId = 1, title = "保留剧", serverId = "server-a")),
+        )
+
+        val result = store.reconcileAutoFollowLibrarySeries(emptyList(), authoritativeServerIds = emptySet())
+
+        assertEquals(0, result.removed)
+        assertTrue(store.isFollowing(1))
+    }
+
+    @Test
+    fun automatic_refresh_timestamp_prevents_duplicate_background_scans() {
+        val store = CalendarFollowStore(MapSettings())
+
+        assertTrue(store.automaticFollowRefreshDue(nowEpochMs = 1_000_000L, maxAgeMs = 60_000L))
+        store.markAutomaticFollowRefresh(980_000L)
+        assertFalse(store.automaticFollowRefreshDue(nowEpochMs = 1_000_000L, maxAgeMs = 60_000L))
+        assertTrue(store.automaticFollowRefreshDue(nowEpochMs = 1_100_000L, maxAgeMs = 60_000L))
+    }
 }

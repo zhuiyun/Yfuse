@@ -3,6 +3,9 @@ package com.yfuse.core.data
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.AiringScheduleAuthority
+import com.yfuse.core.model.CalendarDay
+import com.yfuse.core.model.CalendarEntry
+import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.ShowOrigin
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -68,6 +71,65 @@ class OfficialAiringScheduleCatalogTest {
         val merged = mergeAiringSchedules(listOf(tmdb), listOf(official))
 
         assertEquals("/poster.jpg", merged.single { it.episodeNumber == 13 }.posterPath)
+    }
+
+    @Test
+    fun homepage_merge_prioritizes_tracked_rows_without_dropping_official_titles() {
+        val tracked =
+            CalendarEntry(
+                episode = episode(number = 16, date = "2026-08-27", poster = "/tracked.jpg"),
+                status = LibraryStatus.InProgress,
+                followed = true,
+            )
+        val sameOfficial = tracked.copy(status = LibraryStatus.Unknown, availabilityStale = true)
+        val otherOfficial =
+            CalendarEntry(
+                episode =
+                    episode(number = 1, date = "2026-08-27", poster = "/other.jpg").copy(
+                        showTmdbId = 287496,
+                        showTitle = "花开锦绣",
+                    ),
+                status = LibraryStatus.Missing,
+            )
+
+        val merged =
+            mergeCalendarDaysPreferFirst(
+                preferred = listOf(CalendarDay("2026-08-27", listOf(tracked))),
+                additional = listOf(CalendarDay("2026-08-27", listOf(sameOfficial, otherOfficial))),
+            )
+
+        assertEquals(listOf("师兄太稳健", "花开锦绣"), merged.single().entries.map { it.episode.showTitle })
+        assertEquals(LibraryStatus.InProgress, merged.single().entries.first().status)
+    }
+
+    @Test
+    fun homepage_merge_keeps_distinct_official_titles_while_tmdb_identity_is_pending() {
+        val first =
+            CalendarEntry(
+                episode =
+                    episode(number = 1, date = "2026-08-27", poster = null).copy(
+                        showTmdbId = 0,
+                        showTitle = "第一部新剧",
+                    ),
+                status = LibraryStatus.Unknown,
+            )
+        val second =
+            CalendarEntry(
+                episode =
+                    episode(number = 1, date = "2026-08-27", poster = null).copy(
+                        showTmdbId = 0,
+                        showTitle = "第二部新剧",
+                    ),
+                status = LibraryStatus.Unknown,
+            )
+
+        val merged =
+            mergeCalendarDaysPreferFirst(
+                preferred = emptyList(),
+                additional = listOf(CalendarDay("2026-08-27", listOf(first, second))),
+            )
+
+        assertEquals(listOf("第一部新剧", "第二部新剧"), merged.single().entries.map { it.episode.showTitle })
     }
 
     private fun episode(

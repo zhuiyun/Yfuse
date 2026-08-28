@@ -64,6 +64,77 @@ class YDolbyVisionRouterTest {
     }
 
     @Test
+    fun `P5 exact decoder can hand decoded frames to Vulkan without claiming native Dolby output`() {
+        val decision =
+            YDolbyVisionRouter.decide(
+                video = video(YVideoCodec.H265, profile = 5),
+                evidence = evidence(profile = 5),
+                capabilities =
+                    capabilities(
+                        decoders =
+                            listOf(
+                                decoder(
+                                    codec = YVideoCodec.H265,
+                                    hdr = setOf(YHdrType.DolbyVision),
+                                    dolbyProfiles = setOf(5),
+                                ),
+                            ),
+                        display = setOf(YHdrType.Sdr),
+                    ),
+                gpuProcessingSupported = true,
+            )
+
+        val gpu = assertIs<YDolbyVisionRouteDecision.GpuDecoded>(decision)
+        assertEquals(5, gpu.profile)
+        assertEquals(YDolbyVisionEnhancementLayerKind.None, gpu.enhancementLayerKind)
+    }
+
+    @Test
+    fun `P7 compatible HDR10 base can be presented by Vulkan on an SDR display`() {
+        val decision =
+            YDolbyVisionRouter.decide(
+                video = video(YVideoCodec.H265, profile = 7),
+                evidence = evidence(profile = 7, compatibilityId = 1, el = true),
+                capabilities =
+                    capabilities(
+                        decoders = listOf(decoder(codec = YVideoCodec.H265, hdr = setOf(YHdrType.Hdr10))),
+                        display = setOf(YHdrType.Sdr),
+                    ),
+                gpuProcessingSupported = true,
+            )
+
+        val fallback = assertIs<YDolbyVisionRouteDecision.CompatibleBase>(decision)
+        assertEquals(YHdrType.Hdr10, fallback.hdrType)
+        assertTrue(fallback.gpuProcessed)
+    }
+
+    @Test
+    fun `P7 exact decoder still prefers compatible base when Dolby display output is unavailable`() {
+        val decision =
+            YDolbyVisionRouter.decide(
+                video = video(YVideoCodec.H265, profile = 7),
+                evidence = evidence(profile = 7, compatibilityId = 1, el = true),
+                capabilities =
+                    capabilities(
+                        decoders =
+                            listOf(
+                                decoder(
+                                    codec = YVideoCodec.H265,
+                                    hdr = setOf(YHdrType.Hdr10, YHdrType.DolbyVision),
+                                    dolbyProfiles = setOf(7),
+                                ),
+                            ),
+                        display = setOf(YHdrType.Sdr),
+                    ),
+                gpuProcessingSupported = true,
+            )
+
+        val fallback = assertIs<YDolbyVisionRouteDecision.CompatibleBase>(decision)
+        assertEquals(YHdrType.Hdr10, fallback.hdrType)
+        assertTrue(fallback.gpuProcessed)
+    }
+
+    @Test
     fun `P7 falls back only to its HDR10 base layer without claiming Dolby composition`() {
         val decision =
             YDolbyVisionRouter.decide(

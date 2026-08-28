@@ -17,6 +17,7 @@ import android.media.session.MediaSession
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Rational
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -1326,4 +1327,3 @@ private fun Long.toEmbyTicks(): Long =
 private const val EMBY_TICKS_PER_MILLISECOND = 10_000L
 private const val MIN_PICTURE_IN_PICTURE_ASPECT_RATIO = 1.0 / 2.39
 private const val MAX_PICTURE_IN_PICTURE_ASPECT_RATIO = 2.39
-

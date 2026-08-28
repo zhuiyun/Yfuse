@@ -16,6 +16,10 @@ class NativeCrashIsolationTest {
             classifyNativePlaybackCrash("#00 pc libyfuse-mdk-jni.so MDKPlayer"),
         )
         assertEquals(
+            NativePlaybackComponent.YCoreGpu,
+            classifyNativePlaybackCrash("#00 pc libycore_gpu.so YCore Vulkan"),
+        )
+        assertEquals(
             NativePlaybackComponent.YCoreDemux,
             classifyNativePlaybackCrash("#00 pc libycore_demux.so demux_read"),
         )

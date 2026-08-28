@@ -111,7 +111,7 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val powerManager = context.applicationContext.getSystemService(PowerManager::class.java)
     private val audioCallbackHandler = Handler(Looper.getMainLooper())
     private val audioRouteChangeQueued = AtomicBoolean(false)
-    private val nativeGpuRuntimeProbe by lazy(AndroidYCoreGpuRuntime::probe)
+    private val nativeGpuRuntimeProbe by lazy { AndroidYCoreGpuRuntime.probe(context) }
     private val audioDeviceCallback =
         object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = queueAudioRouteChange()
@@ -401,12 +401,50 @@ internal class AndroidAdaptiveCore2YPlayer(
                         forcedPlan = plan,
                     )
                 plan.route == YPlaybackRoute.GpuEnhanced ->
-                    fallbackRouteFactory?.create(
-                        item,
-                        singleRequest,
-                        plan.withNativeGpuFallbackTruth(nativeGpuRuntimeProbe),
-                        speed,
-                    )
+                    AndroidYCoreGpuRuntime.probe(
+                        context,
+                        yCoreGpuEvidenceKey(decision.probe.playbackRequest, plan),
+                    ).let { routeGpuProbe ->
+                        if (
+                            routeGpuProbe.canAttemptNativeVulkan &&
+                            decision.probe.playbackRequest.enhancedDemuxSupported &&
+                            item.drmConfiguration == null
+                        ) {
+                            val nativeGpuPlan =
+                                plan.copy(
+                                    demuxPath = YDemuxPath.Enhanced,
+                                    reason =
+                                        buildString {
+                                            append(plan.reason)
+                                            if (plan.demuxPath != YDemuxPath.Enhanced) {
+                                                append("; Vulkan frame ownership requires YCore enhanced demux")
+                                            }
+                                            append(
+                                                if (routeGpuProbe.canClaimNativeVulkan) {
+                                                    "; native Vulkan output passed the persisted measurement gate"
+                                                } else {
+                                                    "; native Vulkan measurement trial (libplacebo remains recovery)"
+                                                },
+                                            )
+                                        },
+                                )
+                            AndroidNativeEnhancedYPlayer(
+                                context = context,
+                                request = singleRequest,
+                                routeEvaluator = routeEvaluator,
+                                allowAudioPassthrough = false,
+                                frameRateSwitchMode = frameRateSwitchMode,
+                                forcedPlan = nativeGpuPlan,
+                            )
+                        } else {
+                            fallbackRouteFactory?.create(
+                                item,
+                                singleRequest,
+                                plan.withNativeGpuFallbackTruth(routeGpuProbe),
+                                speed,
+                            )
+                        }
+                    }
                 plan.route == YPlaybackRoute.SoftwareFallback ->
                     fallbackRouteFactory?.create(item, singleRequest, plan, speed)
                 else -> null
@@ -850,7 +888,7 @@ internal fun YPlaybackFailureCategory?.allowsCore2LocalSoftwareFallback(): Boole
 
 internal fun YPlaybackPlan.toSoftwareFallbackPlan(reason: String): YPlaybackPlan {
     val needsOwnedToneMap =
-        !usesHdrFallback && outputHdrType in setOf(YHdrType.Hdr10, YHdrType.Hdr10Plus, YHdrType.Hlg)
+        !usesHdrFallback && inputHdrType in setOf(YHdrType.Hdr10, YHdrType.Hdr10Plus, YHdrType.Hlg)
     return copy(
         route = YPlaybackRoute.SoftwareFallback,
         demuxPath = YDemuxPath.Enhanced,
@@ -866,7 +904,13 @@ internal fun YPlaybackPlan.toSoftwareFallbackPlan(reason: String): YPlaybackPlan
 }
 
 private fun yCoreSoftwarePlanExecutable(plan: YPlaybackPlan): Boolean {
-    if (plan.usesHdrFallback || plan.outputHdrType == YHdrType.DolbyVision) return false
+    if (
+        plan.usesHdrFallback ||
+        plan.inputHdrType == YHdrType.DolbyVision ||
+        plan.outputHdrType == YHdrType.DolbyVision
+    ) {
+        return false
+    }
     return runCatching {
         AndroidFfmpegDemuxer().let { demuxer ->
             demuxer.available && demuxer.softwareDecodeAvailable

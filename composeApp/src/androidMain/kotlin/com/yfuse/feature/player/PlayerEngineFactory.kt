@@ -66,7 +66,11 @@ internal fun createVideoEngine(
                     AndroidNativeCrashMonitor.isYCoreDemuxBlocked(
                         decoderMode,
                         capabilitySignature,
-                    ),
+                    ) ||
+                        AndroidNativeCrashMonitor.isYCoreGpuBlocked(
+                            decoderMode,
+                            capabilitySignature,
+                        ),
             )
     val component =
         if (yCoreAllowed) {

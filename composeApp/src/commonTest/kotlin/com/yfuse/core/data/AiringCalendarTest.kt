@@ -44,12 +44,45 @@ class AiringCalendarTest {
                     ),
                 nextUpSeriesIds = setOf("next-1"),
                 recentLimit = 2,
+                recentCutoffDate = "2026-05-01",
             )
 
         assertEquals(
             listOf("next-1", "favorite-2", "recent-4", "recent-3"),
             selected.map(LibrarySeriesIdentity::itemId),
         )
+    }
+
+    @Test
+    fun automatic_recent_selection_excludes_old_rows_but_keeps_next_up_and_favourites() {
+        fun identity(
+            id: String,
+            created: String,
+            favorite: Boolean = false,
+        ) = LibrarySeriesIdentity(
+            itemId = id,
+            title = id,
+            year = 2026,
+            providerIds = mapOf("Tmdb" to id.filter(Char::isDigit).ifBlank { "1" }),
+            dateCreated = created,
+            isFavorite = favorite,
+        )
+
+        val selected =
+            selectActiveLibrarySeries(
+                catalog =
+                    listOf(
+                        identity("next-1", "2024-01-01T00:00:00Z"),
+                        identity("favorite-2", "2024-01-01T00:00:00Z", favorite = true),
+                        identity("recent-3", "2026-08-20T00:00:00Z"),
+                        identity("old-4", "2026-01-01T00:00:00Z"),
+                    ),
+                nextUpSeriesIds = setOf("next-1"),
+                recentLimit = 30,
+                recentCutoffDate = "2026-05-29",
+            )
+
+        assertEquals(listOf("next-1", "favorite-2", "recent-3"), selected.map(LibrarySeriesIdentity::itemId))
     }
 
     private fun episode(

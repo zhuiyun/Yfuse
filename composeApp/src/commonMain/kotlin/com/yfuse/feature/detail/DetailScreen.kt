@@ -26,6 +26,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -54,7 +55,6 @@ import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
-import com.yfuse.core.designsystem.rememberAnimatedDominantColor
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
@@ -176,10 +176,10 @@ fun DetailScreen(component: DetailComponent) {
     // resolved keeps items with no poster tinted from a picture that is on screen rather
     // than from one that failed to load.
     val posterUrl = detail?.let { EmbyImages.poster(baseUrl, it, accessToken = accessToken) }
-    val artworkColorUrl = posterUrl ?: resolvedHeroUrl
+    val artworkColorUrl = resolvedHeroUrl ?: posterUrl
     val artworkFallback = remember(heroIdentity) { detailArtworkFallbackColor(heroIdentity) }
-    // Page accents remain protected for broad UI use, while the primary play key receives the
-    // poster's raw extracted colour. It no longer inherits or blends with a fixed product blue.
+    // Use the image that actually resolved in the hero. Sampling a preferred poster URL even
+    // when the backdrop was on screen made the primary action look unrelated to the page.
     val detailAccent =
         rememberAnimatedArtworkAccent(
             url = artworkColorUrl,
@@ -187,12 +187,6 @@ fun DetailScreen(component: DetailComponent) {
             darkTheme = palette.isDark,
             identity = heroIdentity,
         )
-    val detailPlayColor =
-        rememberAnimatedDominantColor(
-            url = artworkColorUrl,
-            fallback = artworkFallback,
-        )
-
     var seasonPickerOpen by remember { mutableStateOf(false) }
     var overviewExpanded by remember { mutableStateOf(false) }
     // Hoisted out of the list: the hero badges what this copy is, and 媒体信息 at the foot
@@ -232,21 +226,21 @@ fun DetailScreen(component: DetailComponent) {
                     }
                 }
         }
-    // Which library, and which episode. It used to append the version name, its quality
-    // label and the resume timestamp as well, which on a long server name ran past the
-    // button and ellipsized the part that identifies the episode. The version is stated by
-    // 版本 and 媒体信息; the resume clock is now a dedicated right-aligned datum in the key.
+    // The action describes what will play. Server identity belongs to 资源; putting it here
+    // made labels such as "WordPress · S1 E3" look like episode metadata.
     val playDetailLine =
-        remember(state.playServer, state.playTarget) {
+        remember(state.playTarget) {
             val target = state.playTarget
             val coordinate =
-                listOfNotNull(
-                    target?.seasonNumber?.let { "S$it" },
-                    target?.episodeNumber?.let { "E$it" },
-                ).joinToString(" ").takeIf { it.isNotBlank() }
+                target?.episodeNumber?.let { episodeNumber ->
+                    target.seasonNumber
+                        ?.takeIf { it > 1 }
+                        ?.let { seasonNumber -> "第 $seasonNumber 季 · 第 $episodeNumber 集" }
+                        ?: "第 $episodeNumber 集"
+                }
             listOfNotNull(
-                state.playServer?.serverName,
                 coordinate,
+                target?.runtimeMinutes?.let(::runtimeLabel),
             ).joinToString(" · ").takeIf { it.isNotBlank() }
         }
 
@@ -395,7 +389,19 @@ fun DetailScreen(component: DetailComponent) {
             LaunchedEffect(sampledPageColor) {
                 sampledPageColor?.let(retainedPageColor::update)
             }
-            val detailSurface = retainedPageColor.value ?: palette.background
+            val detailSurface =
+                retainedPageColor.value
+                    ?.let { sampled ->
+                        // Keep the artwork hue without washing the entire detail page in the
+                        // sampled colour. Light pages need more neutral ground than dark pages.
+                        lerp(sampled, palette.background, if (palette.isDark) 0.18f else 0.34f)
+                    } ?: palette.background
+            val detailPlayColor =
+                remember(detailAccent, detailSurface) {
+                    // The primary key must be visibly separate from the artwork-tinted page,
+                    // not merely another rectangle of the same purple/green/blue.
+                    readableStateAccent(detailAccent, detailSurface, minimumRatio = 3.0f)
+                }
 
             ArtworkPageTheme(
                 background = detailSurface,
@@ -412,7 +418,14 @@ fun DetailScreen(component: DetailComponent) {
                         LocalAccessibilityOptions.current.reduceMotion,
                     )
                 val heroScroll = rememberHeroScroll(listState, heroHeightPx, overscrollPull)
-                val topBarProgress = rememberTopBarProgress(listState, heroHeightPx, density)
+                val topBarProgress =
+                    rememberTopBarProgress(
+                        listState = listState,
+                        heroHeightPx = heroHeightPx,
+                        density = density,
+                        // Take over before the lifted title reaches the status bar.
+                        takeoverInset = captionLift + TopBarHeight,
+                    )
                 val barSolid by remember(topBarProgress) { derivedStateOf { topBarProgress.value > 0.5f } }
 
                 StatusBarIconStyle(darkIcons = !pagePalette.isDark && (detail == null || barSolid))
@@ -531,7 +544,7 @@ fun DetailScreen(component: DetailComponent) {
                                                 .firstOrNull { it.id == state.selectedSeasonId }
                                                 ?.name
                                                 ?: "剧集",
-                                        episodeCount = state.episodes.size,
+                                        availableEpisodeCount = state.episodes.size,
                                         seasons = state.seasons.map { it.id to it.name },
                                         selectedSeasonId = state.selectedSeasonId,
                                         pickerOpen = seasonPickerOpen,

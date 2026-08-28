@@ -217,11 +217,65 @@ docker run -d --restart unless-stopped `
 `CALENDAR_DB_PATH`（默认 `/var/lib/yfuse/calendar.db`），再切换 current 指针；接口只会读到
 上一版或完整新版本，不会读到半次采集。示例见 `calendar-ingestion.example.json`。
 
+`discoveryFeeds` 可以指向平台官方日历索引或认证官微归档页。示例已内置爱奇艺电视剧、优酷、
+腾讯电视剧和芒果TV四个官方账号。采集器能同时识别普通详情链接、官微时间线中彼此分离的
+永久链接/正文/图片，以及页面内嵌 JSON，不要求渲染服务预先改写成特定 `<a>` 格式；官微
+搜索标签页不会被误当成官方证据详情。默认识别“《剧名》追剧日历”、`#剧名追剧日历#`、
+“最新追剧日历请查收”、观看指引和通关攻略等常见写法，并自动进行严格 TMDB 身份绑定，再把
+命中的详情页送入原有证据门控，因此不再要求每部新剧都手工加入 `shows`。平台出现新格式时
+仍可用 `titlePattern` 提供包含一个剧名捕获组的正则。`shows` 保留给需要固定 TMDB ID、播出
+时间或来源的重点剧集。归档首页滚动移除旧链接时，已经验签的排期会保留 45 天，不会瞬间消失。
+
+`domesticCandidates` 是国内剧的宽候选层。启用后，服务端会分页读取 TMDB `on_the_air`，只保留
+中国大陆、中文、剧情类型的在播条目，并并行读取爱奇艺、优酷、腾讯视频、芒果TV官方电视剧目录。
+这些来源只提供剧名、TMDB ID、海报和可能的平台归属，**不能直接成为排期证据**。候选必须再次在
+`verifiedAccounts` 白名单内的认证官微时间线中唯一命中具体永久帖，且正文带有日历、排期、首更、
+更新或会员等信号，才会进入原有正文解析和双 OCR 流程。这样能扩大“要找哪些新剧”的范围，又不会
+把 TMDB 预测日期、平台营销卡片或同名内容当成官方更新表。平台目录结构变化时可给单个
+`platformCatalogs` 条目配置带一个剧名捕获组的 `titlePattern`，其余证据门控不变。
+
+海外剧走独立的结构化链路，不使用中文 OCR。把示例中的 `overseas.enabled` 设为 `true` 后，
+采集器从 TVmaze full schedule 自动发现指定国家和全球流媒体的新季，只保留 Scripted/Animation
+并按 TVmaze 热度优先截取配置上限，通过 IMDb 外部 ID 严格绑定
+TMDB，再并行读取 TMDB season/episode 与 TVmaze episode 数据。两边至少一个相同分集日期一致时
+以 `Verified / 85` 发布；只有 TVmaze 时为 `Estimated / 70`，只有 TMDB 时为
+`Estimated / 65`；任一相同分集日期冲突则拒绝更新并保留上一版。该链路需要服务端环境变量
+`TMDB_TOKEN`，令牌不会进入 App。
+
+TVmaze 提供 `airstamp` 时，快照同时保存原播日期、UTC 时刻和北京时间；全球流媒体只有发布日期
+而没有时刻时，`airTime`/`timeZoneId` 保持为空，客户端只显示日期，不再伪造 00:00 或 12:00。
+每条海外排期还携带 `origin`、地区、周播/批量/仅日期模式及 TMDB/TVmaze 证据摘要。采集状态接口
+分别返回国内与海外自动发现数量，便于判断是官方归档还是海外 Provider 出现空数据。
+
+微博和部分平台使用动态渲染时，可配置 `pageRenderer`。渲染桥接服务接收
+`POST {"url":"https://官方页面"}` 并返回 `{"html":"..."}` 或 `{"content":"..."}`；令牌只
+通过 `apiKeyEnvironment` 指定的环境变量注入。原始 HTML 和内嵌 JSON 都无法发现日历时才调用
+渲染服务。渲染服务只需返回最终 DOM，不再承担平台专用解析。原始页面请求会对连接失败、429
+和 5xx 做三次短退避重试，并兼容常见图片懒加载属性；确认是日历正文后，即使图片 `alt` 没有
+“日历”字样，也会从可信图片 CDN 中提取正文图片并排除头像、图标和表情资源。
+
+仓库内 `calendarRenderer` 是已经实现的 Playwright 渲染 sidecar，不需要另找第三方渲染服务。
+复制 `renderer.environment.example` 为部署密钥文件，在部署机生成至少 24 位随机
+`YFUSE_RENDERER_TOKEN`，然后在该目录执行 `docker compose up -d --build`。sidecar 只监听宿主机
+`127.0.0.1:8091`、只接受五类白名单官方域名，并限制并发、响应体和缓存。微博当前会对纯 HTTP
+采集返回访客验证页，因此生产环境还需要把已登录会话导出的 Playwright `storage-state.json`
+放入 `calendarRenderer/renderer-state/` 并只读挂载到 sidecar，或通过部署密钥
+`YFUSE_RENDERER_WEIBO_COOKIE` 注入 Cookie；两者都不能提交
+到仓库。主服务示例已经指向 `http://127.0.0.1:8091/v1/render`，回环明文仅在本机被允许，远程
+renderer 仍强制 HTTPS。
+本地安装 renderer 依赖后可执行 `npm run capture-session`，在打开的浏览器中完成一次微博登录并
+按回车，脚本会直接写入被 Git 忽略的 `renderer-state/storage-state.json`，无需手工整理 Cookie。
+
 `GET /api/v1/calendar/schedules` 从 SQLite 读取 current revision，继续返回 Ed25519 签名载荷并
 支持 ETag/304。App 每小时检查一次 revision，只有变化时下载并验签，随后写入已有的本地日历
 缓存；用户自己的 Emby/Jellyfin 凭据、库存和观看状态仍只在客户端处理。首次升级若数据库为空，
 服务会从原有 `YFUSE_CALENDAR_SCHEDULES_JSON` / `YFUSE_CALENDAR_SCHEDULES_PATH` 或内置
 快照导入一次。文件路径仍可选配为额外的运维快照，但不再是线上接口的主数据源。
+
+`GET /api/v1/calendar/ingestion/status` 返回脱敏采集健康状态，包括运行状态、开始/结束时间、
+静态剧数、国内/海外自动发现剧数、TMDB 国内候选数、四大平台目录候选数、合并候选数、官微证据
+命中数、发布剧数和最近错误摘要，可直接接入存活检查或监控告警；响应禁止缓存，不会返回来源正文、
+OCR 密钥或 TMDB 令牌。
 
 采集器只接受四类平台官方域名（爱奇艺、优酷、腾讯视频、芒果TV）和清单中明确白名单化的
 微博认证账号。页面正文可以直接解析；图片必须经过两个独立 OCR 服务的逐集置信度门控后才

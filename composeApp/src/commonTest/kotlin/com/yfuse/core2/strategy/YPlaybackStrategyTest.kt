@@ -164,7 +164,43 @@ class YPlaybackStrategyTest {
     }
 
     @Test
-    fun `HDR10 without an HDR display uses owned SDR tone mapping`() {
+    fun `Profile 7 prefers its compatible base for GPU presentation without native Dolby output`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Matroska,
+                        video =
+                            YVideoRequirement(
+                                codec = YVideoCodec.H265,
+                                hdrType = YHdrType.DolbyVision,
+                                dolbyVisionProfile = 7,
+                                bitDepth = 10,
+                            ),
+                        platformDemuxSupported = false,
+                        fallbackHdrType = YHdrType.Hdr10,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders =
+                            listOf(
+                                decoder(
+                                    hdr = setOf(YHdrType.Sdr, YHdrType.Hdr10, YHdrType.DolbyVision),
+                                    dolbyProfiles = setOf(7),
+                                ),
+                            ),
+                        displayHdrTypes = setOf(YHdrType.Sdr),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.GpuEnhanced, plan.route)
+        assertEquals(YHdrType.Hdr10, plan.inputHdrType)
+        assertEquals(YHdrType.Sdr, plan.outputHdrType)
+        assertTrue(plan.usesHdrFallback)
+    }
+
+    @Test
+    fun `HDR10 hardware decode without an HDR display uses GPU tone mapping`() {
         val plan =
             strategy.plan(
                 request =
@@ -189,11 +225,11 @@ class YPlaybackStrategyTest {
                     ),
             )
 
-        assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
-        assertEquals(YDecodePath.Software, plan.decodePath)
+        assertEquals(YPlaybackRoute.GpuEnhanced, plan.route)
+        assertEquals(YDecodePath.Hardware, plan.decodePath)
         assertEquals(YRenderPath.Gpu, plan.renderPath)
         assertEquals(YHdrType.Sdr, plan.outputHdrType)
-        assertTrue(plan.softwareVideoToneMap)
+        assertFalse(plan.softwareVideoToneMap)
     }
 
     @Test

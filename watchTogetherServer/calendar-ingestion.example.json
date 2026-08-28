@@ -2,6 +2,26 @@
   "refreshMinutes": 30,
   "verifiedAccounts": [
     {
+      "publisherId": "1832974324",
+      "publisher": "爱奇艺电视剧",
+      "profileUrl": "https://weibo.com/u/1832974324"
+    },
+    {
+      "publisherId": "1642904381",
+      "publisher": "优酷",
+      "profileUrl": "https://weibo.com/u/1642904381"
+    },
+    {
+      "publisherId": "3752699924",
+      "publisher": "腾讯电视剧",
+      "profileUrl": "https://weibo.com/u/3752699924"
+    },
+    {
+      "publisherId": "1663088660",
+      "publisher": "芒果TV",
+      "profileUrl": "https://weibo.com/u/1663088660"
+    },
+    {
       "publisherId": "7758737065",
       "publisher": "师兄太稳健官微",
       "profileUrl": "https://weibo.com/7758737065"
@@ -18,13 +38,125 @@
       "pollTimeoutSeconds": 120
     },
     {
-      "id": "ocr-space-engine-3",
+      "id": "ocr-space-engine-2",
       "protocol": "OcrSpace",
       "endpoint": "https://api.ocr.space/parse/image",
-      "engine": 3,
-      "language": "auto",
+      "engine": 2,
+      "language": "chs",
       "apiKeyEnvironment": "YFUSE_CALENDAR_OCR_SPACE_KEY",
       "pollTimeoutSeconds": 120
+    }
+  ],
+  "pageRenderer": {
+    "endpoint": "http://127.0.0.1:8091/v1/render",
+    "apiKeyEnvironment": "YFUSE_CALENDAR_RENDERER_TOKEN"
+  },
+  "domesticCandidates": {
+    "enabled": true,
+    "maxShows": 200,
+    "tmdbOnAir": {
+      "enabled": true,
+      "endpoint": "https://api.themoviedb.org/3/tv/on_the_air",
+      "language": "zh-CN",
+      "maxPages": 3,
+      "maxShows": 120,
+      "originCountries": ["CN"],
+      "originalLanguages": ["zh"],
+      "requiredGenreIds": [18]
+    },
+    "platformCatalogs": [
+      {
+        "platform": "爱奇艺",
+        "publisher": "爱奇艺电视剧",
+        "url": "https://www.iqiyi.com/dianshiju/",
+        "maxShows": 60,
+        "render": true,
+        "accessTier": "Member"
+      },
+      {
+        "platform": "优酷",
+        "publisher": "优酷",
+        "url": "https://www.youku.com/channel/webtv/list",
+        "maxShows": 60,
+        "render": true,
+        "accessTier": "Member"
+      },
+      {
+        "platform": "腾讯视频",
+        "publisher": "腾讯电视剧",
+        "url": "https://v.qq.com/channel/tv",
+        "maxShows": 60,
+        "render": true,
+        "accessTier": "Member"
+      },
+      {
+        "platform": "芒果TV",
+        "publisher": "芒果TV",
+        "url": "https://www.mgtv.com/c/100191",
+        "maxShows": 60,
+        "render": true,
+        "accessTier": "Member"
+      }
+    ]
+  },
+  "overseas": {
+    "enabled": true,
+    "tvmazeFullScheduleUrl": "https://api.tvmaze.com/schedule/full",
+    "pastDays": 7,
+    "futureDays": 45,
+    "maxShows": 120,
+    "countryCodes": ["US", "GB", "CA", "AU", "JP", "KR"],
+    "includeGlobalStreaming": true,
+    "allowedShowTypes": ["Scripted", "Animation"]
+  },
+  "discoveryFeeds": [
+    {
+      "type": "VerifiedAccount",
+      "publisherId": "1832974324",
+      "publisher": "爱奇艺电视剧",
+      "url": "https://weibo.com/u/1832974324",
+      "seasonNumber": 1,
+      "airTime": "12:00",
+      "timeZoneId": "Asia/Shanghai",
+      "platforms": ["爱奇艺"],
+      "accessTier": "Member",
+      "maxShows": 50
+    },
+    {
+      "type": "VerifiedAccount",
+      "publisherId": "1642904381",
+      "publisher": "优酷",
+      "url": "https://weibo.com/u/1642904381",
+      "seasonNumber": 1,
+      "airTime": "12:00",
+      "timeZoneId": "Asia/Shanghai",
+      "platforms": ["优酷"],
+      "accessTier": "Member",
+      "maxShows": 50
+    },
+    {
+      "type": "VerifiedAccount",
+      "publisherId": "3752699924",
+      "publisher": "腾讯电视剧",
+      "url": "https://weibo.com/u/3752699924",
+      "seasonNumber": 1,
+      "airTime": "12:00",
+      "timeZoneId": "Asia/Shanghai",
+      "platforms": ["腾讯视频"],
+      "accessTier": "Member",
+      "maxShows": 50
+    },
+    {
+      "type": "VerifiedAccount",
+      "publisherId": "1663088660",
+      "publisher": "芒果TV",
+      "url": "https://weibo.com/u/1663088660",
+      "seasonNumber": 1,
+      "airTime": "12:00",
+      "timeZoneId": "Asia/Shanghai",
+      "platforms": ["芒果TV"],
+      "accessTier": "Member",
+      "maxShows": 50
     }
   ],
   "shows": [

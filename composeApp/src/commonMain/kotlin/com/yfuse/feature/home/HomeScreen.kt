@@ -326,16 +326,6 @@ private fun HomeContent(
                     }
                 }
 
-                if (state.nextUp.isNotEmpty()) {
-                    item(key = "next-up") {
-                        NextUpShelf(
-                            items = state.nextUp,
-                            onSeeAll = component.onOpenCalendar,
-                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
-                        )
-                    }
-                }
-
                 val calendarItems = homeCalendarPreviews(calendarState.days, state)
                 when {
                     calendarItems.isNotEmpty() -> {
@@ -944,77 +934,6 @@ private fun HomeSourceBadge(source: String) {
     )
 }
 
-@Composable
-private fun NextUpShelf(
-    items: List<HomeResumeEntry>,
-    onSeeAll: () -> Unit,
-    onClick: (HomeResumeEntry) -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Column {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal).padding(bottom = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("下一集", style = AppTypography.section.strong, color = palette.text)
-                    HomeSourceBadge("Emby")
-                }
-                Text(
-                    "继续追你正在看的剧集",
-                    style = AppTypography.caption.regular,
-                    color = palette.sub2,
-                )
-            }
-            Text(
-                "追剧中心 ›",
-                style = AppTypography.caption.strong,
-                color = accent.accent,
-                modifier =
-                    Modifier
-                        .pressable(onClickLabel = "打开追剧中心", onClick = onSeeAll)
-                        .touchTarget(),
-            )
-        }
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            items(items, key = { "next-${it.server.id}-${it.item.id}" }) { entry ->
-                val item = entry.item
-                CaptionedPoster(
-                    url =
-                        EmbyImages.primary(
-                            entry.server.baseUrl,
-                            item.posterItemId,
-                            item.posterTag,
-                            accessToken = entry.server.accessToken,
-                        ),
-                    fallbackUrls = emptyList(),
-                    title = item.title,
-                    rating = item.communityRating,
-                    year =
-                        listOfNotNull(
-                            "Emby",
-                            entry.server.serverName.takeIf(String::isNotBlank),
-                            item.subtitle ?: item.year?.toString(),
-                        ).joinToString(" · "),
-                    onClick = { onClick(entry) },
-                    sharedTransitionKey = MediaSharedElementKey(entry.server.id, item.id),
-                    modifier = Modifier.width(MediaSizing.landscapeCardWidth),
-                    posterModifier = Modifier.fillMaxWidth().height(MediaSizing.landscapeCardHeight),
-                )
-            }
-        }
-    }
-}
-
 /** 继续观看 — Forward-style still, exact resume position and progress at first glance. */
 @Composable
 private fun ContinueWatching(
@@ -1266,21 +1185,36 @@ private fun homeCalendarPreviews(
                     ?.value
                     ?.toIntOrNull()
             }.toSet()
+    fun titles(entries: List<HomeResumeEntry>): Set<String> =
+        entries.map { it.item.title.homeCalendarIdentityTitle() }.filter(String::isNotBlank).toSet()
     val favoriteIds = tmdbIds(home.favorites)
     val nextIds = tmdbIds(home.nextUp)
     val resumeIds = tmdbIds(home.resume)
+    val favoriteTitles = titles(home.favorites)
+    val nextTitles = titles(home.nextUp)
+    val resumeTitles = titles(home.resume)
+    fun matches(
+        entry: CalendarEntry,
+        ids: Set<Int>,
+        normalizedTitles: Set<String>,
+    ): Boolean =
+        entry.episode.showTmdbId.takeIf { it > 0 }?.let(ids::contains) == true ||
+            entry.episode.showTitle.homeCalendarIdentityTitle() in normalizedTitles
     return days
         .flatMap { it.entries }
-        .filter { it.inLibrary || it.followed }
-        .groupBy { it.episode.showTmdbId }
-        .mapNotNull { (tmdbId, showEntries) ->
+        .groupBy { entry ->
+            entry.episode.showTmdbId
+                .takeIf { it > 0 }
+                ?.let { "tmdb:$it" }
+                ?: "title:${entry.episode.showTitle.homeCalendarIdentityTitle()}"
+        }.mapNotNull { (_, showEntries) ->
             val ranked =
                 showEntries.sortedWith(
                     compareBy<CalendarEntry> { entry ->
                         when {
-                            entry.status == LibraryStatus.InProgress || tmdbId in resumeIds -> 0
-                            tmdbId in favoriteIds -> 1
-                            tmdbId in nextIds -> 2
+                            entry.status == LibraryStatus.InProgress || matches(entry, resumeIds, resumeTitles) -> 0
+                            matches(entry, favoriteIds, favoriteTitles) -> 1
+                            matches(entry, nextIds, nextTitles) -> 2
                             entry.status == LibraryStatus.Available -> 3
                             entry.status == LibraryStatus.Missing -> 4
                             entry.status == LibraryStatus.Unaired -> 5
@@ -1308,9 +1242,10 @@ private fun homeCalendarPreviews(
                 }
             val reason =
                 when {
-                    representative.status == LibraryStatus.InProgress || tmdbId in resumeIds -> "正在观看"
-                    tmdbId in favoriteIds -> "我的收藏"
-                    tmdbId in nextIds -> "下一集"
+                    representative.status == LibraryStatus.InProgress ||
+                        matches(representative, resumeIds, resumeTitles) -> "正在观看"
+                    matches(representative, favoriteIds, favoriteTitles) -> "我的收藏"
+                    matches(representative, nextIds, nextTitles) -> "下一集"
                     representative.status == LibraryStatus.Available -> "可播放"
                     representative.status == LibraryStatus.Missing -> "等待入库"
                     representative.status == LibraryStatus.Unaired -> "即将更新"
@@ -1330,6 +1265,8 @@ private fun homeCalendarPreviews(
             }.thenBy { it.entry.episode.airDate },
         ).take(12)
 }
+
+private fun String.homeCalendarIdentityTitle(): String = lowercase().filter(Char::isLetterOrDigit)
 
 /** Same card geometry and spacing as 热门; only the data/status line comes from the calendar. */
 @Composable
@@ -1367,7 +1304,18 @@ private fun HomeCalendarShelf(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(items, key = { "calendar:${it.entry.episode.showTmdbId}" }) { preview ->
+            items(
+                items,
+                key = { preview ->
+                    val episode = preview.entry.episode
+                    val showKey =
+                        episode.showTmdbId
+                            .takeIf { it > 0 }
+                            ?.let { "tmdb:$it" }
+                            ?: "title:${episode.showTitle.homeCalendarIdentityTitle()}"
+                    "calendar:$showKey"
+                },
+            ) { preview ->
                 val entry = preview.entry
                 CaptionedPoster(
                     url = TmdbImages.poster(entry.episode.posterPath),

@@ -189,7 +189,7 @@ class AndroidCalendarLocalStore(
         if (bindings.isEmpty()) return
         withContext(Dispatchers.IO) {
             helper.writableDatabase.transaction {
-                bindings.forEach(::insertBinding)
+                bindings.forEach { binding -> insertBinding(binding) }
             }
         }
     }
@@ -320,6 +320,7 @@ class AndroidCalendarLocalStore(
                 )
                 """.trimIndent(),
             )
+            createV2Indexes(db)
             db.execSQL(
                 """
                 CREATE TABLE $TABLE_SYNC_STATE (
@@ -337,7 +338,23 @@ class AndroidCalendarLocalStore(
             db: SQLiteDatabase,
             oldVersion: Int,
             newVersion: Int,
-        ) = Unit
+        ) {
+            var migratedVersion = oldVersion
+            if (migratedVersion < 2) {
+                createV2Indexes(db)
+                migratedVersion = 2
+            }
+            check(migratedVersion == newVersion) {
+                "Unsupported calendar database migration $oldVersion -> $newVersion"
+            }
+        }
+
+        private fun createV2Indexes(db: SQLiteDatabase) {
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS calendar_resources_server_idx " +
+                    "ON $TABLE_RESOURCES($COL_SERVER_ID, $COL_MEDIA_KEY)",
+            )
+        }
     }
 
     private inline fun <T> SQLiteDatabase.transaction(block: SQLiteDatabase.() -> T): T {
@@ -353,7 +370,7 @@ class AndroidCalendarLocalStore(
 
     private companion object {
         const val DATABASE_NAME = "airing-calendar.db"
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 2
         const val MAX_ERROR_CHARS = 500
 
         const val TABLE_EVENTS = "calendar_events"

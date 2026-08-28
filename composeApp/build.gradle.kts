@@ -38,6 +38,9 @@ val includeMdk =
             } ?: true
         )
 
+val includeYCoreGpuCompanion =
+    !nativeOnlyRuntime && layout.projectDirectory.file("libs/ycore-gpu.aar").asFile.isFile
+
 /**
  * Keeps feature code on the semantic design-system surface. These are deliberately simple
  * source checks: they catch the exact escape hatches that caused the audit drift while the
@@ -243,8 +246,18 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ycore-software-decoder-api=2",
             "ycore-tone-map-source=scripts/native/ycore_tone_map.h",
             "ycore-disc-api=1",
+            "ycore-gpu-api=2",
+            "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp",
+            "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp",
+            "ycore-gpu-vertex-shader=scripts/native/shaders/ycore_fullscreen.vert",
+            "ycore-gpu-fragment-shader=scripts/native/shaders/ycore_video.frag",
+            "ycore-gpu-capability-source=scripts/native/ycore_gpu_capability.h",
+            "ycore-gpu-frame-ring=3",
+            "ycore-gpu-import-cache=12",
+            "ycore-gpu-hdr10plus=per-frame-st2094-40",
             "ycore-libbluray=1.4.1",
             "ycore-native-aar=true",
+            "ycore-gpu-entry=libycore_gpu.so",
             "ycore-native-forbidden=libmpv.so,libplayer.so,libmdk.so",
         ).forEach { marker ->
             require(marker in provenance) { "Standalone YCore provenance is missing $marker" }
@@ -252,6 +265,9 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
         ZipFile(aarFile).use { archive ->
             require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
                 "Standalone YCore AAR is missing arm64-v8a/libycore_demux.so"
+            }
+            require(archive.getEntry("jni/arm64-v8a/libycore_gpu.so") != null) {
+                "Standalone YCore AAR is missing the isolated arm64-v8a Vulkan executor"
             }
             val nativeEntries =
                 archive
@@ -274,6 +290,90 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             val embeddedProvenance = archive.getInputStream(embedded).bufferedReader().use { it.readText() }
             require(embeddedProvenance == provenance) {
                 "Standalone YCore embedded provenance differs from its sidecar"
+            }
+        }
+    }
+}
+
+val verifyYCoreGpuCompanionArtifact by tasks.registering {
+    group = "verification"
+    description = "Verifies the GPU-only YCore companion packaged beside MPV/MDK."
+    val aar = layout.projectDirectory.file("libs/ycore-gpu.aar")
+    val checksum = layout.projectDirectory.file("libs/ycore-gpu.aar.sha256")
+    val sources = layout.projectDirectory.file("libs/ycore-gpu.sources.txt")
+    val mpv = layout.projectDirectory.file("libs/libmpv-release.aar")
+    inputs.files(aar, checksum, sources, mpv)
+
+    doLast {
+        val aarFile = aar.asFile
+        val checksumFile = checksum.asFile
+        val sourcesFile = sources.asFile
+        require(aarFile.isFile && checksumFile.isFile && sourcesFile.isFile) {
+            "Missing YCore GPU companion; build and install the YCore native artifacts"
+        }
+        val expected =
+            checksumFile
+                .readText()
+                .trim()
+                .substringBefore(' ')
+                .lowercase()
+        require(expected.matches(Regex("[0-9a-f]{64}"))) {
+            "Invalid YCore GPU companion SHA-256 sidecar"
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        aarFile.inputStream().use { input ->
+            val buffer = ByteArray(128 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        require(actual == expected) { "YCore GPU companion SHA-256 mismatch" }
+
+        val provenance = sourcesFile.readText()
+        listOf(
+            "ycore-gpu-api=2",
+            "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp",
+            "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp",
+            "ycore-gpu-entry=libycore_gpu.so",
+        ).forEach { marker ->
+            require(marker in provenance) {
+                "YCore GPU companion provenance is missing $marker"
+            }
+        }
+        ZipFile(aarFile).use { archive ->
+            require(archive.getEntry("jni/arm64-v8a/libycore_gpu.so") != null) {
+                "YCore GPU companion is missing arm64-v8a/libycore_gpu.so"
+            }
+            val nativeEntries =
+                archive
+                    .entries()
+                    .asSequence()
+                    .map { it.name }
+                    .filter { it.endsWith(".so") }
+                    .toList()
+            require(nativeEntries == listOf("jni/arm64-v8a/libycore_gpu.so")) {
+                "YCore GPU companion must contain only libycore_gpu.so: $nativeEntries"
+            }
+            val embedded =
+                archive.getEntry("META-INF/ycore-gpu-sources.txt")
+                    ?: throw GradleException("YCore GPU companion is missing embedded provenance")
+            require(archive.getEntry("META-INF/NOTICE") != null) {
+                "YCore GPU companion is missing third-party notices"
+            }
+            val embeddedProvenance = archive.getInputStream(embedded).bufferedReader().use { it.readText() }
+            require(embeddedProvenance == provenance) {
+                "YCore GPU companion embedded provenance differs from its sidecar"
+            }
+        }
+        ZipFile(mpv.asFile).use { archive ->
+            require(archive.getEntry("jni/arm64-v8a/libc++_shared.so") != null) {
+                "Full runtime must provide libc++_shared.so for libycore_gpu.so"
+            }
+            require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
+                "Full runtime must provide libycore_demux.so for the YCore GPU bridge"
             }
         }
     }
@@ -507,6 +607,9 @@ kotlin {
                 compileOnly(files("libs/libmpv-release.aar"))
             } else {
                 implementation(files("libs/libmpv-release.aar"))
+                if (includeYCoreGpuCompanion) {
+                    implementation(files("libs/ycore-gpu.aar"))
+                }
             }
             implementation(libs.androidx.palette)
             implementation(libs.androidx.work.runtime)
@@ -514,6 +617,9 @@ kotlin {
             implementation(libs.google.cast.framework)
             implementation(libs.androidx.metrics.performance)
             implementation(libs.androidx.profileinstaller)
+            // Android's platform Ed25519 provider starts at API 33. The app supports API 26,
+            // so signed calendar revisions need a bundled verifier on older devices.
+            implementation(libs.bouncycastle.provider)
         }
 
         androidUnitTest.dependencies {
@@ -685,6 +791,7 @@ android {
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
         buildConfigField("boolean", "YFUSE_MDK_INCLUDED", includeMdk.toString())
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", nativeOnlyRuntime.toString())
+        buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", includeYCoreGpuCompanion.toString())
         buildConfigField(
             "String",
             "YFUSE_PACKAGE_PROFILE",
@@ -897,7 +1004,11 @@ tasks.register<BumpVersionTask>("bumpVersion") {
 tasks.configureEach {
     if (name == "preBuild") {
         dependsOn(verifyCustomMpvArtifact)
-        if (nativeOnlyRuntime) dependsOn(verifyStandaloneYCoreArtifact)
+        if (nativeOnlyRuntime) {
+            dependsOn(verifyStandaloneYCoreArtifact)
+        } else if (includeYCoreGpuCompanion) {
+            dependsOn(verifyYCoreGpuCompanionArtifact)
+        }
         if (includeMdk) dependsOn(verifyMdkArtifact)
         dependsOn(verifyMediaTestManifest)
     }

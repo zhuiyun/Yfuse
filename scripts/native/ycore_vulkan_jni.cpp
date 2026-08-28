@@ -15,7 +15,7 @@
 
 namespace {
 
-constexpr jint kNativeGpuApiVersion = 1;
+constexpr jint kNativeGpuApiVersion = 2;
 constexpr uint32_t kProbeBufferWidth = 64;
 constexpr uint32_t kProbeBufferHeight = 64;
 
@@ -61,7 +61,8 @@ int graphics_queue_family(VkPhysicalDevice physical_device) {
     vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, properties.data());
     for (uint32_t index = 0; index < count; ++index) {
         if (properties[index].queueCount > 0 &&
-            (properties[index].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0) {
+            (properties[index].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0 &&
+            properties[index].timestampValidBits > 0) {
             return static_cast<int>(index);
         }
     }
@@ -229,7 +230,8 @@ std::uint64_t probe_gpu_features() {
         if (!has_extension(extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME) ||
             !has_extension(
                 extensions,
-                VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME)) {
+                VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME) ||
+            !has_extension(extensions, VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME)) {
             continue;
         }
         VkPhysicalDeviceProperties properties{};
@@ -237,9 +239,21 @@ std::uint64_t probe_gpu_features() {
         const bool core_ycbcr = VK_VERSION_MAJOR(properties.apiVersion) > 1 ||
             (VK_VERSION_MAJOR(properties.apiVersion) == 1 &&
              VK_VERSION_MINOR(properties.apiVersion) >= 1);
-        const bool extension_ycbcr =
-            has_extension(extensions, VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME);
-        if (!core_ycbcr && !extension_ycbcr) continue;
+        if (!core_ycbcr) continue;
+        VkPhysicalDeviceSamplerYcbcrConversionFeatures ycbcr_features{};
+        ycbcr_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES;
+        VkPhysicalDeviceFeatures2 features2{};
+        features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        features2.pNext = &ycbcr_features;
+        auto get_features2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+            vkGetInstanceProcAddr(resources.instance, "vkGetPhysicalDeviceFeatures2"));
+        if (get_features2 == nullptr) {
+            get_features2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+                vkGetInstanceProcAddr(resources.instance, "vkGetPhysicalDeviceFeatures2KHR"));
+        }
+        if (get_features2 == nullptr) continue;
+        get_features2(candidate, &features2);
+        if (ycbcr_features.samplerYcbcrConversion != VK_TRUE) continue;
         queue_family = graphics_queue_family(candidate);
         if (queue_family < 0) continue;
 
@@ -247,28 +261,8 @@ std::uint64_t probe_gpu_features() {
         enabled_device_extensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
             VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+            VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
         };
-        if (!core_ycbcr) {
-            const char* required_vulkan_10_extensions[] = {
-                VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
-                VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
-                VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
-                VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
-                VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
-            };
-            bool dependencies_available = true;
-            for (const char* name : required_vulkan_10_extensions) {
-                dependencies_available = dependencies_available && has_extension(extensions, name);
-            }
-            if (!dependencies_available) {
-                resources.physical_device = VK_NULL_HANDLE;
-                continue;
-            }
-            enabled_device_extensions.insert(
-                enabled_device_extensions.end(),
-                std::begin(required_vulkan_10_extensions),
-                std::end(required_vulkan_10_extensions));
-        }
         break;
     }
     if (resources.physical_device == VK_NULL_HANDLE) return features;
@@ -282,6 +276,10 @@ std::uint64_t probe_gpu_features() {
     queue_info.pQueuePriorities = &queue_priority;
     VkDeviceCreateInfo device_info{};
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    VkPhysicalDeviceSamplerYcbcrConversionFeatures enabled_ycbcr{};
+    enabled_ycbcr.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES;
+    enabled_ycbcr.samplerYcbcrConversion = VK_TRUE;
+    device_info.pNext = &enabled_ycbcr;
     device_info.queueCreateInfoCount = 1;
     device_info.pQueueCreateInfos = &queue_info;
     device_info.enabledExtensionCount = static_cast<uint32_t>(enabled_device_extensions.size());
@@ -291,6 +289,12 @@ std::uint64_t probe_gpu_features() {
         return features;
     }
     features |= kLogicalDevice | kHardwareBuffer;
+    features |= kBt2390Shader | kGamutMappingShader | kHighQualityScalingShader | kDebandDitherShader;
+    if (has_extension(
+            device_extensions(resources.physical_device),
+            VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME)) {
+        features |= kDisplayTiming;
+    }
     if (import_probe_hardware_buffer(&resources)) features |= kHardwareBufferImported;
     return features;
 }

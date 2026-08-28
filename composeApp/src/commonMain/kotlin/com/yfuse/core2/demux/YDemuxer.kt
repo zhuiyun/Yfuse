@@ -42,6 +42,26 @@ data class YCodecPrivateData(
     val entries: List<ByteArray> = emptyList(),
 )
 
+enum class YColorRange { Unspecified, Limited, Full }
+
+enum class YColorMatrix { Unspecified, Bt601, Bt709, Bt2020, Identity }
+
+enum class YColorPrimaries { Unspecified, Bt709, Bt2020, DisplayP3 }
+
+enum class YChromaLocation { Unspecified, Left, Center, TopLeft, Top, BottomLeft, Bottom }
+
+data class YVideoGeometry(
+    val pixelAspectRatioNumerator: Int = 1,
+    val pixelAspectRatioDenominator: Int = 1,
+    val rotationDegrees: Int = 0,
+    val cropLeft: Int = 0,
+    val cropTop: Int = 0,
+    val cropRight: Int = 0,
+    val cropBottom: Int = 0,
+) {
+    val normalizedRotationDegrees: Int = ((rotationDegrees % 360) + 360) % 360
+}
+
 data class YVideoTrackFormat(
     val codec: YVideoCodec,
     val mimeType: String,
@@ -55,6 +75,11 @@ data class YVideoTrackFormat(
     val codecPrivateData: YCodecPrivateData = YCodecPrivateData(),
     val dolbyVisionConfig: YDolbyVisionConfig? = null,
     val hdrStaticMetadata: YHdrStaticMetadata? = null,
+    val colorRange: YColorRange = YColorRange.Unspecified,
+    val colorMatrix: YColorMatrix = YColorMatrix.Unspecified,
+    val colorPrimaries: YColorPrimaries = YColorPrimaries.Unspecified,
+    val chromaLocation: YChromaLocation = YChromaLocation.Unspecified,
+    val geometry: YVideoGeometry = YVideoGeometry(),
 )
 
 data class YAudioTrackFormat(

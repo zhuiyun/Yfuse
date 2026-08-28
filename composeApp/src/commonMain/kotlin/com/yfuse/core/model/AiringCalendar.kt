@@ -24,7 +24,7 @@ enum class AiringKind { Episode, Movie }
 
 /** Authority behind a date, kept explicit so the UI never labels an estimate as official. */
 @Serializable
-enum class AiringScheduleAuthority { Tmdb, Estimated, Official }
+enum class AiringScheduleAuthority { Tmdb, Estimated, Verified, Official }
 
 /** A compact, user-verifiable record of why an official/estimated date was accepted. */
 @Serializable
@@ -68,6 +68,14 @@ data class AiringEpisode(
     val airTime: String? = null,
     /** IANA zone for [airTime], never inferred from the phone's current zone. */
     val timeZoneId: String? = null,
+    /** Exact release instant when a provider publishes one; null for date-only streaming drops. */
+    val releaseAtUtc: String? = null,
+    /** Same exact instant rendered in Asia/Shanghai by the server. */
+    val releaseAtBeijing: String? = null,
+    /** ISO country code or GLOBAL when the provider publishes a worldwide streaming date. */
+    val availabilityRegion: String? = null,
+    /** Weekly, Batch, DateOnly or Unknown. */
+    val releaseMode: String? = null,
     val platforms: List<String> = emptyList(),
     val accessTier: AiringAccessTier = AiringAccessTier.Unknown,
     /** Human-verifiable provenance for official corrections. */
@@ -89,9 +97,17 @@ data class AiringEpisode(
     val mediaKey: String
         get() =
             if (isMovie) {
-                "tmdb-movie:$showTmdbId"
+                if (showTmdbId > 0) {
+                    "tmdb-movie:$showTmdbId"
+                } else {
+                    "title-movie:${showTitle.calendarIdentityTitle()}"
+                }
             } else {
-                "tmdb:$showTmdbId/s${seasonNumber}e$episodeNumber"
+                if (showTmdbId > 0) {
+                    "tmdb:$showTmdbId/s${seasonNumber}e$episodeNumber"
+                } else {
+                    "title:${showTitle.calendarIdentityTitle()}/s${seasonNumber}e$episodeNumber"
+                }
             }
 
     /** `第 3 集` — TMDB episode titles are often absent or a bare "第 3 集" repeat. */
@@ -107,6 +123,10 @@ data class AiringEpisode(
                 ).joinToString(" · ")
             }
 }
+
+/** Stable fallback while an official source is still waiting for TMDB identity enrichment. */
+private fun String.calendarIdentityTitle(): String =
+    lowercase().filter(Char::isLetterOrDigit).ifBlank { "unknown" }
 
 /**
  * What the user's own library can do about an episode that has a broadcast date.
