@@ -2,6 +2,8 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import com.yfuse.core.data.PlaybackFrameRateMatch
+import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDrmScheme
 import com.yfuse.core.playback.detectPlaybackDiscKind
@@ -17,6 +19,8 @@ import com.yfuse.core2.release.Core2NativeBaselineBlock
 import com.yfuse.core2.release.Core2NativeBaselineSource
 import com.yfuse.core2.release.evaluateCore2NativeBaseline
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.strategy.YDecoderPreference
+import com.yfuse.core2.strategy.YOptimizationPreference
 import com.yfuse.feature.player.AndroidPlaybackHttpProxy
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
@@ -38,6 +42,8 @@ internal object AndroidCore2TrialFactory {
         startPositionMs: Long,
         startPlaybackRequested: Boolean,
         startSpeed: Float,
+        decoderMode: DecoderMode = DecoderMode.Auto,
+        optimizationMode: PlaybackOptimizationMode = PlaybackOptimizationMode.Balanced,
         autoNext: Boolean,
         customUserAgent: String,
         allowAudioPassthrough: Boolean,
@@ -117,6 +123,7 @@ internal object AndroidCore2TrialFactory {
                 AndroidMpvCore2FallbackFactory(
                     context = context,
                     sourceItems = items.associateBy(PlayerMediaItem::id),
+                    optimizationMode = optimizationMode,
                 )
             }
         val frameRateSwitchMode = frameRateMatch.toCore2Mode()
@@ -129,6 +136,8 @@ internal object AndroidCore2TrialFactory {
         val routeEvaluator =
             AndroidCore2RouteEvaluator(
                 context = context.applicationContext,
+                decoderPreference = decoderMode.toCore2Preference(),
+                optimizationPreference = optimizationMode.toCore2Preference(),
                 nativeGpuRuntimeProbe = nativeGpuRuntimeProbe,
             )
         val discFactory =
@@ -149,6 +158,7 @@ internal object AndroidCore2TrialFactory {
                     allowAudioPassthrough = allowAudioPassthrough,
                     frameRateSwitchMode = frameRateSwitchMode,
                     nativeGpuRuntimeProbe = nativeGpuRuntimeProbe,
+                    preferSoftwareDecode = decoderMode == DecoderMode.Software,
                     onRelease = {
                         cacheProxy?.close()
                         yCoreProxy?.close()
@@ -170,6 +180,21 @@ private fun PlaybackFrameRateMatch.toCore2Mode(): YFrameRateSwitchMode =
         PlaybackFrameRateMatch.Disabled -> YFrameRateSwitchMode.Disabled
         PlaybackFrameRateMatch.SeamlessOnly -> YFrameRateSwitchMode.SeamlessOnly
         PlaybackFrameRateMatch.Always -> YFrameRateSwitchMode.Always
+    }
+
+private fun DecoderMode.toCore2Preference(): YDecoderPreference =
+    when (this) {
+        DecoderMode.Hardware -> YDecoderPreference.HardwarePreferred
+        DecoderMode.Software -> YDecoderPreference.Software
+        DecoderMode.Auto -> YDecoderPreference.Automatic
+    }
+
+private fun PlaybackOptimizationMode.toCore2Preference(): YOptimizationPreference =
+    when (this) {
+        PlaybackOptimizationMode.Balanced -> YOptimizationPreference.Balanced
+        PlaybackOptimizationMode.PowerSaver -> YOptimizationPreference.PowerSaver
+        PlaybackOptimizationMode.Quality -> YOptimizationPreference.Quality
+        PlaybackOptimizationMode.Compatibility -> YOptimizationPreference.Compatibility
     }
 
 internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {

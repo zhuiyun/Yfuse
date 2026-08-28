@@ -1015,6 +1015,8 @@ class MpvVideoEngine(
 
     override fun selectAudioTrack(id: String) = selectTrack("aid", id)
 
+    override val supportsAudioDelay: Boolean = true
+
     override fun setAudioDelayMs(delayMs: Long): Boolean =
         withMpvResult { instance ->
             instance.setPropertyDouble("audio-delay", delayMs.coerceIn(-10_000L, 10_000L) / 1000.0)
@@ -1037,6 +1039,14 @@ class MpvVideoEngine(
     override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
 
     override val supportsSecondarySubtitleTrack: Boolean = true
+
+    override val supportsSubtitleOffset: Boolean = true
+
+    override val supportsSubtitleScale: Boolean = true
+
+    override val supportsSubtitleBrightness: Boolean = true
+
+    override val supportsSubtitlePosition: Boolean = true
 
     override fun selectSecondarySubtitleTrack(id: String): Boolean =
         withMpvResult { instance ->

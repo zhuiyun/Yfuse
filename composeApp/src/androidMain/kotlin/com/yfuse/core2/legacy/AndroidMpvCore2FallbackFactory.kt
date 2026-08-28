@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.StateFlow
 internal class AndroidMpvCore2FallbackFactory(
     context: Context,
     private val sourceItems: Map<String, PlayerMediaItem> = emptyMap(),
+    private val optimizationMode: PlaybackOptimizationMode = PlaybackOptimizationMode.Balanced,
 ) : AndroidCore2FallbackRouteFactory,
     AndroidCore2DiscRouteFactory {
     private val appContext = context.applicationContext
@@ -64,6 +65,7 @@ internal class AndroidMpvCore2FallbackFactory(
             request = request,
             plan = plan,
             startSpeed = startSpeed,
+            optimizationMode = optimizationMode,
         )
     }
 
@@ -84,6 +86,7 @@ internal class AndroidMpvCore2FallbackFactory(
             request = request,
             plan = plan,
             startSpeed = startSpeed,
+            optimizationMode = optimizationMode,
         )
     }
 }
@@ -95,6 +98,7 @@ private class AndroidMpvCore2FallbackPlayer(
     request: YPlayerOpenRequest,
     private val plan: YPlaybackPlan,
     startSpeed: Float,
+    optimizationMode: PlaybackOptimizationMode,
 ) : YPlayer {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val externalSubtitle =
@@ -132,7 +136,7 @@ private class AndroidMpvCore2FallbackPlayer(
                 },
             autoNext = false,
             customUserAgent = item.headers[USER_AGENT_HEADER].orEmpty(),
-            optimizationMode = PlaybackOptimizationMode.Balanced,
+            optimizationMode = optimizationMode,
             scope = scope,
         )
     private val delegate = LegacyYPlayerAdapter(engine)

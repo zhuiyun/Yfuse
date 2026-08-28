@@ -336,18 +336,14 @@ internal fun AdvancedPlaybackSettingsScreen(
         item {
             Section(title = "显示与音频输出") {
                 SettingsCard {
-                    if (engineSelection == PlaybackEngineSelection.LockMdk) {
-                        SettingRow("刷新率匹配", "MDK 暂不支持", false, {})
-                    } else {
-                        SettingSegmentRow(
-                            title = "刷新率匹配",
-                            options = listOf("关闭", "仅无缝", "始终"),
-                            selectedIndex = PlaybackFrameRateMatch.entries.indexOf(frameRateMatch),
-                            onSelect = { outputPreferences.setFrameRateMatch(PlaybackFrameRateMatch.entries[it]) },
-                            icon = AppIcons.Refresh,
-                            iconTint = SettingTint.advanced,
-                        )
-                    }
+                    SettingSegmentRow(
+                        title = "刷新率匹配",
+                        options = listOf("关闭", "仅无缝", "始终"),
+                        selectedIndex = PlaybackFrameRateMatch.entries.indexOf(frameRateMatch),
+                        onSelect = { outputPreferences.setFrameRateMatch(PlaybackFrameRateMatch.entries[it]) },
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.advanced,
+                    )
                     SettingsDivider()
                     if (engineSelection == PlaybackEngineSelection.LockMdk) {
                         SettingRow("音频直通", "MDK 暂不支持", false, {})

@@ -124,6 +124,11 @@ data class SubtitleControlState(
     val secondaryTrackId: String? = null,
     val secondarySupported: Boolean = false,
     val secondaryUnavailableReason: String? = null,
+    val offsetAvailable: Boolean = true,
+    val scaleAvailable: Boolean = true,
+    val brightnessAvailable: Boolean = true,
+    val positionAvailable: Boolean = true,
+    val unavailableReason: String? = null,
 )
 
 data class SubtitleControlActions(

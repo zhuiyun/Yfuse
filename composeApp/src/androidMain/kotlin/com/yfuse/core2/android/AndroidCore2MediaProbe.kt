@@ -25,6 +25,8 @@ import com.yfuse.core2.quirk.YDeviceQuirkRule
 import com.yfuse.core2.quirk.YTextMatch
 import com.yfuse.core2.render.YNativeGpuRuntimeProbe
 import com.yfuse.core2.strategy.DefaultYPlaybackStrategy
+import com.yfuse.core2.strategy.YDecoderPreference
+import com.yfuse.core2.strategy.YOptimizationPreference
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
@@ -193,6 +195,8 @@ internal class AndroidCore2MediaProbe(
 /** Evaluates the best current route against platform and bounded FFmpeg metadata truth. */
 internal class AndroidCore2RouteEvaluator(
     context: Context,
+    private val decoderPreference: YDecoderPreference = YDecoderPreference.Automatic,
+    private val optimizationPreference: YOptimizationPreference = YOptimizationPreference.Balanced,
     private val capabilityProvider: YCapabilityProvider = AndroidYCapabilityProvider(context),
     private val strategy: YPlaybackStrategy = DefaultYPlaybackStrategy(),
     private val enhancedProbe: AndroidEnhancedMediaProbe = AndroidEnhancedMediaProbe(),
@@ -232,6 +236,8 @@ internal class AndroidCore2RouteEvaluator(
             resolved.playbackRequest.copy(
                 preferTunnel = preferTunnel,
                 allowAudioPassthrough = allowAudioPassthrough,
+                decoderPreference = decoderPreference,
+                optimizationPreference = optimizationPreference,
             )
         val adjustment = quirkDatabase.adjust(deviceIdentity, requested, capabilityProvider.current())
         val request = adjustment.request

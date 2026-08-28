@@ -122,6 +122,22 @@ class YPlayerVideoEngineAdapterTest {
         assertTrue(player.videoOutputDetached)
     }
 
+    @Test
+    fun `Core2 presentation controls are acknowledged without a false MPV fallback`() {
+        val engine = YPlayerVideoEngineAdapter(FakeYPlayer())
+
+        assertTrue(engine.supportsSubtitleOffset)
+        assertTrue(engine.supportsSubtitleScale)
+        assertTrue(engine.supportsSubtitleBrightness)
+        assertTrue(engine.supportsSubtitlePosition)
+        assertTrue(engine.setSubtitleOffsetMs(2_000L))
+        assertTrue(engine.setSubtitleScale(1.25f))
+        assertTrue(engine.setSubtitleBrightness(0.6f))
+        assertTrue(engine.setSubtitlePosition(0.88f))
+        assertFalse(engine.supportsAudioDelay)
+        assertFalse(engine.setAudioDelayMs(500L))
+    }
+
     private class FakeYPlayer : YPlayer {
         val mutableState = MutableStateFlow(YPlayerState())
         override val state = mutableState

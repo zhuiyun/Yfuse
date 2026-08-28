@@ -51,6 +51,25 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun selectSubtitleTrack(id: String) = player.selectTrack(YTrackType.Subtitle, id)
 
+    // Core2 subtitles are presented by Core2Surface above the direct video Surface. Reporting
+    // these capabilities here prevents the legacy compatibility layer from rebuilding Core2 as
+    // MPV even though the requested presentation change has already been applied by Compose.
+    override val supportsSubtitleOffset: Boolean = true
+
+    override val supportsSubtitleScale: Boolean = true
+
+    override val supportsSubtitleBrightness: Boolean = true
+
+    override val supportsSubtitlePosition: Boolean = true
+
+    override fun setSubtitleOffsetMs(offsetMs: Long): Boolean = true
+
+    override fun setSubtitleScale(scale: Float): Boolean = true
+
+    override fun setSubtitleBrightness(brightness: Float): Boolean = true
+
+    override fun setSubtitlePosition(position: Float): Boolean = true
+
     override fun selectItem(index: Int) = player.selectItem(index)
 
     override fun selectDiscTitle(index: Int): Boolean = player.selectDiscTitle(index)

@@ -15,6 +15,11 @@ class PlayerBackendExtensionsTest {
         val extensions = PlayerBackendExtensions(engine)
 
         assertTrue(extensions.supportsSecondarySubtitleTrack)
+        assertTrue(extensions.supportsAudioDelay)
+        assertTrue(extensions.supportsSubtitleOffset)
+        assertTrue(extensions.supportsSubtitleScale)
+        assertTrue(extensions.supportsSubtitleBrightness)
+        assertTrue(extensions.supportsSubtitlePosition)
         assertTrue(extensions.setAudioDelayMs(125L))
         assertTrue(extensions.selectSecondarySubtitleTrack("7"))
         assertTrue(extensions.setSubtitleOffsetMs(-80L))
@@ -50,6 +55,11 @@ private class FakeBackendEngine : VideoEngine {
     private val mutableState = MutableStateFlow(PlaybackState())
     override val state: StateFlow<PlaybackState> = mutableState
     override val supportsSecondarySubtitleTrack: Boolean = true
+    override val supportsAudioDelay: Boolean = true
+    override val supportsSubtitleOffset: Boolean = true
+    override val supportsSubtitleScale: Boolean = true
+    override val supportsSubtitleBrightness: Boolean = true
+    override val supportsSubtitlePosition: Boolean = true
 
     var audioDelayMs: Long? = null
     var secondarySubtitleId: String? = null

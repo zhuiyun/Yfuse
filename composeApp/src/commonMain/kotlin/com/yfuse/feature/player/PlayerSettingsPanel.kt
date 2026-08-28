@@ -177,56 +177,80 @@ internal fun SettingsPanel(
                             )
                         }
                         GroupLabel("字幕样式")
-                        SubtitleStylePreset.entries
-                            .filterNot { it == SubtitleStylePreset.Custom }
-                            .forEach { preset ->
-                                OptionRow(
-                                    preset.label,
-                                    subtitleControls.stylePreset == preset,
-                                    onClick = { subtitleActions.onStylePreset(preset) },
-                                )
-                            }
+                        if (
+                            subtitleControls.scaleAvailable &&
+                            subtitleControls.brightnessAvailable &&
+                            subtitleControls.positionAvailable
+                        ) {
+                            SubtitleStylePreset.entries
+                                .filterNot { it == SubtitleStylePreset.Custom }
+                                .forEach { preset ->
+                                    OptionRow(
+                                        preset.label,
+                                        subtitleControls.stylePreset == preset,
+                                        onClick = { subtitleActions.onStylePreset(preset) },
+                                    )
+                                }
+                        } else {
+                            UnsupportedSubtitleControl(subtitleControls.unavailableReason)
+                        }
                         GroupLabel("字幕位置")
-                        listOf(0.76f to "靠上", 0.88f to "居中偏下", 0.92f to "标准", 0.96f to "靠下")
-                            .forEach { (position, label) ->
+                        if (subtitleControls.positionAvailable) {
+                            listOf(0.76f to "靠上", 0.88f to "居中偏下", 0.92f to "标准", 0.96f to "靠下")
+                                .forEach { (position, label) ->
+                                    OptionRow(
+                                        label,
+                                        subtitleControls.position == position,
+                                        onClick = { subtitleActions.onPosition(position) },
+                                    )
+                                }
+                        } else {
+                            UnsupportedSubtitleControl(subtitleControls.unavailableReason)
+                        }
+                        GroupLabel("字幕时间偏移")
+                        if (subtitleControls.offsetAvailable) {
+                            listOf(-5_000L, -2_000L, 0L, 2_000L, 5_000L).forEach { offset ->
+                                val label =
+                                    when {
+                                        offset < 0L -> "提前 ${-offset / 1000} 秒"
+                                        offset > 0L -> "延后 ${offset / 1000} 秒"
+                                        else -> "同步"
+                                    }
                                 OptionRow(
                                     label,
-                                    subtitleControls.position == position,
-                                    onClick = { subtitleActions.onPosition(position) },
+                                    subtitleControls.offsetMs == offset,
+                                    onClick = { subtitleActions.onOffset(offset) },
                                 )
                             }
-                        GroupLabel("字幕时间偏移")
-                        listOf(-5_000L, -2_000L, 0L, 2_000L, 5_000L).forEach { offset ->
-                            val label =
-                                when {
-                                    offset < 0L -> "提前 ${-offset / 1000} 秒"
-                                    offset > 0L -> "延后 ${offset / 1000} 秒"
-                                    else -> "同步"
-                                }
-                            OptionRow(
-                                label,
-                                subtitleControls.offsetMs == offset,
-                                onClick = { subtitleActions.onOffset(offset) },
-                            )
+                        } else {
+                            UnsupportedSubtitleControl(subtitleControls.unavailableReason)
                         }
                         GroupLabel("字幕大小")
-                        listOf(0.8f to "小", 1f to "标准", 1.25f to "大", 1.5f to "特大")
-                            .forEach { (scale, label) ->
-                                OptionRow(
-                                    label,
-                                    subtitleControls.scale == scale,
-                                    onClick = { subtitleActions.onScale(scale) },
-                                )
-                            }
+                        if (subtitleControls.scaleAvailable) {
+                            listOf(0.8f to "小", 1f to "标准", 1.25f to "大", 1.5f to "特大")
+                                .forEach { (scale, label) ->
+                                    OptionRow(
+                                        label,
+                                        subtitleControls.scale == scale,
+                                        onClick = { subtitleActions.onScale(scale) },
+                                    )
+                                }
+                        } else {
+                            UnsupportedSubtitleControl(subtitleControls.unavailableReason)
+                        }
                         GroupLabel("HDR 字幕亮度")
-                        listOf(0.4f to "40%", 0.6f to "60%", 0.8f to "80%", 1f to "100%")
-                            .forEach { (brightness, label) ->
-                                OptionRow(
-                                    label,
-                                    subtitleControls.brightness == brightness,
-                                    onClick = { subtitleActions.onBrightness(brightness) },
-                                )
-                            }
+                        if (subtitleControls.brightnessAvailable) {
+                            listOf(0.4f to "40%", 0.6f to "60%", 0.8f to "80%", 1f to "100%")
+                                .forEach { (brightness, label) ->
+                                    OptionRow(
+                                        label,
+                                        subtitleControls.brightness == brightness,
+                                        onClick = { subtitleActions.onBrightness(brightness) },
+                                    )
+                                }
+                        } else {
+                            UnsupportedSubtitleControl(subtitleControls.unavailableReason)
+                        }
                     } else if (trackPanelMode == TrackPanelMode.Subtitle) {
                         Text(
                             "当前版本没有可用字幕，可继续搜索第三方字幕。",
@@ -783,6 +807,15 @@ internal fun SettingsPanel(
             }
         }
     }
+}
+
+@Composable
+private fun UnsupportedSubtitleControl(reason: String?) {
+    Text(
+        reason ?: "当前播放内核不支持此字幕调节。",
+        style = AppTypography.caption.medium,
+        color = Color.White.copy(alpha = 0.68f),
+    )
 }
 
 @Composable

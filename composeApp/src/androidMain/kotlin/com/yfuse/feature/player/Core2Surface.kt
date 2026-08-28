@@ -26,6 +26,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
@@ -143,18 +144,27 @@ private fun Core2SubtitleOverlay(
                             Bitmap.Config.ARGB_8888,
                         ).asImageBitmap()
                 }
+            val bitmapScale = scale.coerceIn(0.6f, 1.8f)
+            val scaledWidth = payload.width * bitmapScale
+            val scaledHeight = payload.height * bitmapScale
+            val x = payload.x - (scaledWidth - payload.width) / 2f
+            val authoredY = payload.y - (scaledHeight - payload.height) / 2f
+            val positionDelta =
+                payload.canvasHeight *
+                    (position.coerceIn(0.60f, 0.96f) - DEFAULT_SUBTITLE_POSITION)
+            val y = authoredY + positionDelta
             Image(
                 bitmap = bitmap,
                 contentDescription = null,
                 modifier =
                     Modifier
                         .offset(
-                            x = (maxWidth.value * payload.x / payload.canvasWidth).dp,
-                            y = (maxHeight.value * payload.y / payload.canvasHeight).dp,
+                            x = (maxWidth.value * x / payload.canvasWidth).dp,
+                            y = (maxHeight.value * y / payload.canvasHeight).dp,
                         ).requiredSize(
-                            width = (maxWidth.value * payload.width / payload.canvasWidth).dp,
-                            height = (maxHeight.value * payload.height / payload.canvasHeight).dp,
-                        ),
+                            width = (maxWidth.value * scaledWidth / payload.canvasWidth).dp,
+                            height = (maxHeight.value * scaledHeight / payload.canvasHeight).dp,
+                        ).graphicsLayer(alpha = brightness.coerceIn(0.35f, 1f)),
             )
         }
         activeText.forEach { payload ->

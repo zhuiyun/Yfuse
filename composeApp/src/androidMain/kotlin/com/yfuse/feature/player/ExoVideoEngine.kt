@@ -1245,6 +1245,12 @@ class ExoVideoEngine(
 
     override val supportsSecondarySubtitleTrack: Boolean = true
 
+    override val supportsSubtitleScale: Boolean = true
+
+    override val supportsSubtitleBrightness: Boolean = true
+
+    override val supportsSubtitlePosition: Boolean = true
+
     override fun selectSecondarySubtitleTrack(id: String): Boolean {
         if (id == EngineTrack.OFF) {
             secondarySubtitles.disable()

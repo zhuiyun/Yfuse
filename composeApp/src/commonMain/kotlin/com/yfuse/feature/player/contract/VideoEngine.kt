@@ -319,6 +319,8 @@ interface VideoEngine {
 
     fun selectAudioTrack(id: String)
 
+    val supportsAudioDelay: Boolean get() = false
+
     /** Positive values delay audio; negative values play it earlier. */
     fun setAudioDelayMs(delayMs: Long): Boolean = delayMs == 0L
 
@@ -343,14 +345,22 @@ interface VideoEngine {
     /** [EngineTrack.OFF] disables the secondary subtitle. Returns false when unsupported. */
     fun selectSecondarySubtitleTrack(id: String): Boolean = false
 
+    val supportsSubtitleOffset: Boolean get() = false
+
     /** Positive values delay subtitles; negative values show them earlier. */
     fun setSubtitleOffsetMs(offsetMs: Long): Boolean = offsetMs == 0L
+
+    val supportsSubtitleScale: Boolean get() = false
 
     /** Relative subtitle text size. Engines that cannot style return false. */
     fun setSubtitleScale(scale: Float): Boolean = scale == 1f
 
+    val supportsSubtitleBrightness: Boolean get() = false
+
     /** Relative subtitle luminance, primarily useful when HDR makes white captions dazzling. */
     fun setSubtitleBrightness(brightness: Float): Boolean = brightness == 1f
+
+    val supportsSubtitlePosition: Boolean get() = false
 
     /** Fraction from the top edge, where 0 is top and 1 is bottom. */
     fun setSubtitlePosition(position: Float): Boolean = position == DEFAULT_SUBTITLE_POSITION

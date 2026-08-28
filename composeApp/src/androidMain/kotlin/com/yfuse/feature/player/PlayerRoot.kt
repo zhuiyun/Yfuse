@@ -1802,10 +1802,23 @@ internal fun PlayerRoot(
         handoverSnapshot = resume,
         scaleMode = scaleMode,
         pendingSubtitleLanguage = pendingSubtitleLanguage,
-        automaticEngineSelection = sessionEngineSelection == PlaybackEngineSelection.Auto,
+        automaticEngineSelection =
+            sessionEngineSelection == PlaybackEngineSelection.Auto && !core2NativeOnlyActive,
         onSecondarySubtitleTrackChanged = { secondarySubtitleTrackId = it },
         onPendingSubtitleLanguageApplied = { pendingSubtitleLanguage = null },
-        onRequestMpv = { switchEngine(PlayerEngine.Mpv) },
+        onRequestMpv = {
+            if (engine is YPlayerVideoEngineAdapter) {
+                // A control that Core2 cannot execute must leave the trial path for this session;
+                // changing only `kind` would immediately construct Core2 again in Auto mode.
+                capturePlaybackHandover()
+                core2DisabledForSession = true
+                sessionEngineSelection = PlaybackEngineSelection.LockMpv
+                kind = PlayerEngine.Mpv
+                engineGeneration++
+            } else {
+                selectEngineStrategy(PlaybackEngineSelection.LockMpv)
+            }
+        },
     )
 
     // Validate one replacement clock sample. A correction is issued only outside the allowed
@@ -2197,8 +2210,11 @@ internal fun PlayerRoot(
                 audioControls =
                     audioControls.copy(
                         available =
-                            kind == PlayerEngine.Mpv ||
-                                sessionEngineSelection == PlaybackEngineSelection.Auto,
+                            backendExtensions.supportsAudioDelay ||
+                                (
+                                    sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                        !core2NativeOnlyActive
+                                ),
                         unavailableReason =
                             if (
                                 kind == PlayerEngine.Mpv ||
@@ -2285,7 +2301,42 @@ internal fun PlayerRoot(
                             if (backendExtensions.supportsSecondarySubtitleTrack) {
                                 null
                             } else {
-                                "ExoPlayer 当前仅支持单字幕；切换至 MPV 或 MDK 可启用副字幕。"
+                                "当前播放管线仅支持单字幕；切换至 Exo、MPV 或 MDK 可启用副字幕。"
+                            },
+                        offsetAvailable =
+                            backendExtensions.supportsSubtitleOffset ||
+                                (
+                                    sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                        !core2NativeOnlyActive
+                                ),
+                        scaleAvailable =
+                            backendExtensions.supportsSubtitleScale ||
+                                (
+                                    sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                        !core2NativeOnlyActive
+                                ),
+                        brightnessAvailable =
+                            backendExtensions.supportsSubtitleBrightness ||
+                                (
+                                    sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                        !core2NativeOnlyActive
+                                ),
+                        positionAvailable =
+                            backendExtensions.supportsSubtitlePosition ||
+                                (
+                                    sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                        !core2NativeOnlyActive
+                                ),
+                        unavailableReason =
+                            if (
+                                sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                !core2NativeOnlyActive
+                            ) {
+                                "调整后将自动切换到支持该功能的播放内核。"
+                            } else if (core2NativeOnlyActive) {
+                                "YCore Native 纯内核模式不允许兼容内核接管此项调节。"
+                            } else {
+                                "当前锁定内核不支持此项调节，请在播放内核中选择自动或 MPV。"
                             },
                     ),
                 subtitleActions =

@@ -69,6 +69,7 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val allowAudioPassthrough: Boolean = true,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
     private val nativeGpuRuntimeProbe: YNativeGpuRuntimeProbe = AndroidYCoreGpuRuntime.probe(context),
+    private val preferSoftwareDecode: Boolean = false,
     private val failureLedger: YCore2FailureLedger =
         YCore2FailureLedger(
             store = AndroidYCore2FailureStore(context),
@@ -314,7 +315,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     item = item,
                     request = singleRequest,
                     startSpeed = speed,
-                    forceSoftwareDecode = forceSoftwareFallback,
+                    forceSoftwareDecode = forceSoftwareFallback || preferSoftwareDecode,
                 )
             }
             var decision =

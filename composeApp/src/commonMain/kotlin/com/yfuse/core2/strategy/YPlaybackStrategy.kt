@@ -28,6 +28,21 @@ enum class YRenderPath {
     Gpu,
 }
 
+/** User intent translated at the product/Core2 boundary. */
+enum class YDecoderPreference {
+    HardwarePreferred,
+    Software,
+    Automatic,
+}
+
+/** Product playback policy that must remain visible to Core2's own route planner. */
+enum class YOptimizationPreference {
+    Balanced,
+    PowerSaver,
+    Quality,
+    Compatibility,
+}
+
 data class YPlaybackRequest(
     val container: YContainer,
     val video: YVideoRequirement,
@@ -38,6 +53,8 @@ data class YPlaybackRequest(
     val fallbackHdrType: YHdrType? = null,
     val preferTunnel: Boolean = true,
     val allowAudioPassthrough: Boolean = true,
+    val decoderPreference: YDecoderPreference = YDecoderPreference.Automatic,
+    val optimizationPreference: YOptimizationPreference = YOptimizationPreference.Balanced,
 )
 
 data class YPlaybackPlan(
@@ -80,12 +97,24 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
     ): YPlaybackPlan {
         val demuxPath =
             when {
+                request.optimizationPreference == YOptimizationPreference.Compatibility &&
+                    request.enhancedDemuxSupported -> YDemuxPath.Enhanced
                 request.platformDemuxSupported -> YDemuxPath.Platform
                 request.enhancedDemuxSupported -> YDemuxPath.Enhanced
                 else -> null
             }
 
-        val originalDecoder = capabilities.bestDecoder(request.video)
+        // DRM/secure video cannot leave the protected platform decoder path. In that one case the
+        // user's software preference is safely overridden instead of creating an impossible route.
+        val forceSoftware =
+            request.decoderPreference == YDecoderPreference.Software &&
+                !request.video.secureDecodeRequired
+        val originalDecoder =
+            if (forceSoftware) {
+                null
+            } else {
+                capabilities.preferredDecoder(request.video, request.decoderPreference)
+            }
         val fallbackRequirement =
             request.fallbackHdrType
                 ?.takeIf { it != request.video.hdrType }
@@ -95,7 +124,12 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                         dolbyVisionProfile = null,
                     )
                 }
-        val fallbackDecoder = fallbackRequirement?.let(capabilities::bestDecoder)
+        val fallbackDecoder =
+            if (forceSoftware) {
+                null
+            } else {
+                fallbackRequirement?.let { capabilities.preferredDecoder(it, request.decoderPreference) }
+            }
         val originalNativeOutput =
             originalDecoder != null && capabilities.supportsDisplayHdr(request.video.hdrType)
         val fallbackNativeOutput =
@@ -104,6 +138,8 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         val usesHdrFallback =
             when {
                 originalNativeOutput -> false
+                request.optimizationPreference == YOptimizationPreference.Quality &&
+                    originalDecoder != null -> false
                 fallbackNativeOutput -> true
                 request.video.dolbyVisionProfile == 7 && fallbackDecoder != null -> true
                 originalDecoder != null -> false
@@ -228,5 +264,25 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         )
     }
 }
+
+private fun YDeviceCapabilities.preferredDecoder(
+    requirement: YVideoRequirement,
+    preference: YDecoderPreference,
+) =
+    when (preference) {
+        YDecoderPreference.HardwarePreferred ->
+            videoDecoders
+                .asSequence()
+                .filter { it.supports(requirement) }
+                .filter { it.hardwareAccelerated }
+                .sortedWith(
+                    compareByDescending<com.yfuse.core2.capability.YVideoDecoderCapability> {
+                        it.tunneledPlayback
+                    }.thenByDescending { it.adaptivePlayback },
+                ).firstOrNull()
+                ?: bestDecoder(requirement)
+        YDecoderPreference.Automatic -> bestDecoder(requirement)
+        YDecoderPreference.Software -> null
+    }
 
 private fun YHdrType.supportsOwnedSoftwareToneMap(): Boolean = this in setOf(YHdrType.Hdr10, YHdrType.Hdr10Plus, YHdrType.Hlg)

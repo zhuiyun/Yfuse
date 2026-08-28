@@ -120,6 +120,8 @@ internal fun createVideoEngine(
                 startPositionMs = startPositionMs,
                 startPlaybackRequested = startPlaybackRequested,
                 startSpeed = startSpeed,
+                decoderMode = resolvedDecoderMode,
+                optimizationMode = optimizationMode,
                 autoNext = autoNext,
                 customUserAgent = customUserAgent,
                 allowAudioPassthrough = allowAudioPassthrough,

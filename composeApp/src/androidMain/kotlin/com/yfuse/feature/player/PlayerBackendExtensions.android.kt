@@ -16,6 +16,21 @@ internal class PlayerBackendExtensions(
     val supportsSecondarySubtitleTrack: Boolean
         get() = engine.supportsSecondarySubtitleTrack
 
+    val supportsAudioDelay: Boolean
+        get() = engine.supportsAudioDelay
+
+    val supportsSubtitleOffset: Boolean
+        get() = engine.supportsSubtitleOffset
+
+    val supportsSubtitleScale: Boolean
+        get() = engine.supportsSubtitleScale
+
+    val supportsSubtitleBrightness: Boolean
+        get() = engine.supportsSubtitleBrightness
+
+    val supportsSubtitlePosition: Boolean
+        get() = engine.supportsSubtitlePosition
+
     fun setAudioDelayMs(delayMs: Long): Boolean = engine.setAudioDelayMs(delayMs)
 
     fun selectSecondarySubtitleTrack(id: String): Boolean = engine.selectSecondarySubtitleTrack(id)

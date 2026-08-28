@@ -492,6 +492,10 @@ class MdkVideoEngine(
 
     override val supportsSecondarySubtitleTrack: Boolean = true
 
+    override val supportsSubtitleScale: Boolean = true
+
+    override val supportsSubtitleBrightness: Boolean = true
+
     override fun selectSecondarySubtitleTrack(id: String): Boolean {
         val ordinal = if (id == EngineTrack.OFF) -1 else id.toIntOrNull() ?: return false
         if (ordinal >= 0 && ordinal == primarySubtitleOrdinal) return false

@@ -383,6 +383,114 @@ class YPlaybackStrategyTest {
         assertEquals(YRenderPath.SurfaceDirect, plan.renderPath)
     }
 
+    @Test
+    fun `software decoder preference bypasses available hardware`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Matroska,
+                        video = YVideoRequirement(codec = YVideoCodec.H265),
+                        platformDemuxSupported = true,
+                        enhancedDemuxSupported = true,
+                        decoderPreference = YDecoderPreference.Software,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders = listOf(decoder(hdr = setOf(YHdrType.Sdr))),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
+        assertEquals(YDecodePath.Software, plan.decodePath)
+    }
+
+    @Test
+    fun `software preference cannot bypass a required secure decoder`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Mp4,
+                        video =
+                            YVideoRequirement(
+                                codec = YVideoCodec.H265,
+                                secureDecodeRequired = true,
+                            ),
+                        platformDemuxSupported = true,
+                        decoderPreference = YDecoderPreference.Software,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders =
+                            listOf(
+                                decoder(hdr = setOf(YHdrType.Sdr)).copy(securePlayback = true),
+                            ),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.NativeDirect, plan.route)
+        assertEquals(YDecodePath.Hardware, plan.decodePath)
+    }
+
+    @Test
+    fun `quality preference preserves original Dolby stream for GPU processing`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Matroska,
+                        video =
+                            YVideoRequirement(
+                                codec = YVideoCodec.H265,
+                                hdrType = YHdrType.DolbyVision,
+                                dolbyVisionProfile = 7,
+                            ),
+                        platformDemuxSupported = false,
+                        fallbackHdrType = YHdrType.Hdr10,
+                        optimizationPreference = YOptimizationPreference.Quality,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders =
+                            listOf(
+                                decoder(
+                                    hdr = setOf(YHdrType.Sdr, YHdrType.DolbyVision),
+                                    dolbyProfiles = setOf(7),
+                                ),
+                                decoder(hdr = setOf(YHdrType.Sdr, YHdrType.Hdr10)),
+                            ),
+                        displayHdrTypes = setOf(YHdrType.Sdr),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.GpuEnhanced, plan.route)
+        assertEquals(YHdrType.DolbyVision, plan.inputHdrType)
+        assertFalse(plan.usesHdrFallback)
+    }
+
+    @Test
+    fun `compatibility preference selects enhanced demux when both demuxers work`() {
+        val plan =
+            strategy.plan(
+                request =
+                    YPlaybackRequest(
+                        container = YContainer.Matroska,
+                        video = YVideoRequirement(codec = YVideoCodec.H265),
+                        platformDemuxSupported = true,
+                        enhancedDemuxSupported = true,
+                        optimizationPreference = YOptimizationPreference.Compatibility,
+                    ),
+                capabilities =
+                    YDeviceCapabilities(
+                        videoDecoders = listOf(decoder(hdr = setOf(YHdrType.Sdr))),
+                    ),
+            )
+
+        assertEquals(YPlaybackRoute.NativeEnhanced, plan.route)
+        assertEquals(YDemuxPath.Enhanced, plan.demuxPath)
+    }
+
     private fun decoder(
         hdr: Set<YHdrType>,
         dolbyProfiles: Set<Int> = emptySet(),
