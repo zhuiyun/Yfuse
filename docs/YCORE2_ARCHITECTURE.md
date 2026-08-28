@@ -181,8 +181,9 @@ Current milestone: direct Blu-ray/ISO/BDMV items now prefer `AndroidYCoreDiscRou
 libbluray registry; libbluray selects the title and FFmpeg feeds the ordinary YCore Enhanced decode,
 clock, audio, subtitle and Surface graph. Title, chapter and angle navigation therefore no longer
 requires mpv. The compatibility executor remains only when the YCore source cannot be created.
-Interactive HDMV/BD-J menus, protected discs and physical-disc release evidence remain explicit
-future gates.
+YCore disc API v2 also owns HDMV Interactive Graphics composition, root/popup events, D-pad/back and
+authored-coordinate pointer input. BD-J, protected-disc components and physical-disc release
+evidence remain explicit external gates; an unhandled AACS/BD+ disc fails closed as Authorization.
 
 ### Phase 7 — GPU and universal fallback
 

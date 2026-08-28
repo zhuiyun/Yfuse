@@ -385,6 +385,10 @@ internal class AndroidNativeEnhancedYPlayer(
                             dolbyVisionOutput =
                                 snapshot.firstVideoFrameRendered &&
                                     snapshot.outputHdrType == com.yfuse.core2.capability.YHdrType.DolbyVision,
+                            dolbyVisionRpuApplied = snapshot.dolbyVisionRpuApplied,
+                            dolbyVisionEnhancementLayerDelivered =
+                                snapshot.dolbyVisionEnhancementLayerDelivered,
+                            dolbyVisionFelComposed = snapshot.dolbyVisionFelComposed,
                             dolbyAtmosOutput = snapshot.dolbyAtmosOutput,
                             audioUnderrunCount = snapshot.audioFallbackCount,
                             droppedFrames = snapshot.droppedFrames,

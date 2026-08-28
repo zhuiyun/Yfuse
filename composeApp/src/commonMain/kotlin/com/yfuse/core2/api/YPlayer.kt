@@ -229,6 +229,12 @@ data class YPlayerDiagnostics(
     val audioOutputVerified: Boolean = false,
     /** Verified active output claims; source metadata must not set these booleans. */
     val dolbyVisionOutput: Boolean = false,
+    /** A rendered native-DV frame followed an access unit that actually carried a P7 RPU. */
+    val dolbyVisionRpuApplied: Boolean = false,
+    /** P7 enhancement-layer NALs reached the exact Dolby decoder; this is not composition proof. */
+    val dolbyVisionEnhancementLayerDelivered: Boolean = false,
+    /** Independent output evidence only. Merely detecting or delivering EL must leave this false. */
+    val dolbyVisionFelComposed: Boolean = false,
     val dolbyAtmosOutput: Boolean = false,
     /** Video presentation timestamp minus the active audio/master clock. */
     val avSyncOffsetMs: Long? = null,

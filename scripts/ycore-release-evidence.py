@@ -110,6 +110,14 @@ def validate_observation(value: Any) -> None:
             raise EvidenceError(f"{value['caseId']}: {field} must be a boolean")
     if "serverTranscodeUsed" in value and not isinstance(value["serverTranscodeUsed"], bool):
         raise EvidenceError(f"{value['caseId']}: serverTranscodeUsed must be a boolean")
+    for field in (
+        "dolbyVisionOutput",
+        "dolbyRpuApplied",
+        "dolbyEnhancementLayerDelivered",
+        "dolbyEnhancementLayerComposed",
+    ):
+        if field in value and not isinstance(value[field], bool):
+            raise EvidenceError(f"{value['caseId']}: {field} must be a boolean")
     for field in COUNT_FIELDS:
         number = value.get(field, 0)
         if not isinstance(number, int) or isinstance(number, bool) or number < 0:
@@ -308,6 +316,11 @@ def verify_evidence(report: dict[str, Any], suite: dict[str, Any]) -> dict[str, 
         raise EvidenceError("every suite case requires a non-empty id")
     if len(case_ids) != len(cases):
         raise EvidenceError("suite case IDs must be unique")
+    suite_dolby_profiles = {
+        str(case.get("dolbyVisionProfile", "")).strip().lower()
+        for case in cases
+        if isinstance(case, dict) and case.get("dolbyVisionProfile")
+    }
 
     runs: list[dict[str, Any]] = report["runs"]
     all_observations = [observation for run in runs for observation in run["observations"]]
@@ -359,6 +372,42 @@ def verify_evidence(report: dict[str, Any], suite: dict[str, Any]) -> dict[str, 
         (item.get("queueSoakMinutes", 0) for run in healthy_runs for item in run["observations"]),
         default=0,
     )
+
+    healthy_matrix_observations = [
+        item
+        for run in healthy_runs
+        if run["profile"] == "matrix" and run["deviceIdHash"] in qualified_devices
+        for item in run["observations"]
+    ]
+
+    def dolby_profile_observations(*profiles: str) -> list[dict[str, Any]]:
+        accepted = {profile.lower() for profile in profiles}
+        return [
+            item
+            for item in healthy_matrix_observations
+            if str(item.get("dolbyVisionProfile", "")).lower() in accepted
+        ]
+
+    native_dolby = dolby_profile_observations("p5", "p8.1", "p8.4", "p10.1", "p10.4")
+    p7 = dolby_profile_observations("p7_mel", "p7_fel", "p7_unknown")
+    p7_fel = dolby_profile_observations("p7_fel")
+
+    def dolby_gate(
+        observations: list[dict[str, Any]],
+        field: str,
+        required_profiles: set[str],
+        detail: str,
+    ) -> dict[str, Any]:
+        if not (suite_dolby_profiles & required_profiles):
+            return gate(0, 0, True, True, "The selected suite does not require this Dolby variant.")
+        passed_count = sum(1 for item in observations if item.get(field) is True)
+        return gate(
+            passed_count,
+            len(observations),
+            bool(observations),
+            bool(observations) and passed_count == len(observations),
+            detail,
+        )
 
     gates = {
         "artifactBinding": gate(
@@ -431,6 +480,30 @@ def verify_evidence(report: dict[str, Any], suite: dict[str, Any]) -> dict[str, 
             queue_soak > 0,
             queue_soak >= 1440,
             "Requires one uninterrupted healthy run; shorter runs are not summed.",
+        ),
+        "dolbyVisionNativeOutput": dolby_gate(
+            native_dolby,
+            "dolbyVisionOutput",
+            {"p5", "p8.1", "p8.4", "p10.1", "p10.4"},
+            "Every qualifying P5/P8/P10 observation must render verified native Dolby Vision output.",
+        ),
+        "dolbyVisionP7Rpu": dolby_gate(
+            p7,
+            "dolbyRpuApplied",
+            {"p7_mel", "p7_fel", "p7_unknown"},
+            "RPU must enter the exact Dolby decoder and be followed by verified native-DV output.",
+        ),
+        "dolbyVisionP7EnhancementDelivery": dolby_gate(
+            p7,
+            "dolbyEnhancementLayerDelivered",
+            {"p7_mel", "p7_fel", "p7_unknown"},
+            "P7 enhancement-layer delivery is measured separately from composition.",
+        ),
+        "dolbyVisionP7FelComposition": dolby_gate(
+            p7_fel,
+            "dolbyEnhancementLayerComposed",
+            {"p7_fel"},
+            "FEL requires independent output evidence; EL presence or decoder delivery never passes this gate.",
         ),
     }
     release_ready = all(item["status"] == "Pass" for item in gates.values())
@@ -570,6 +643,32 @@ class EvidenceSelfTest(unittest.TestCase):
         result = verify_evidence(short_soaks, suite)
         self.assertFalse(result["releaseReady"])
         self.assertEqual(240, result["gates"]["continuousSoakMinutes"]["actual"])
+
+    def test_p7_fel_gate_never_promotes_layer_delivery_to_composition(self) -> None:
+        suite = {"cases": [{"id": "p7-fel", "dolbyVisionProfile": "p7_fel"}]}
+        observation = {
+            "caseId": "p7-fel",
+            "elapsedMs": 1,
+            "completed": True,
+            "timedOut": False,
+            "dolbyVisionProfile": "p7_fel",
+            "dolbyVisionOutput": True,
+            "dolbyRpuApplied": True,
+            "dolbyEnhancementLayerDelivered": True,
+            "dolbyEnhancementLayerComposed": False,
+        }
+        report = self.report([self.device_run("device-0", "matrix", "chip-0", [observation])])
+        result = verify_evidence(report, suite)
+        self.assertEqual("Pass", result["gates"]["dolbyVisionP7Rpu"]["status"])
+        self.assertEqual("Pass", result["gates"]["dolbyVisionP7EnhancementDelivery"]["status"])
+        self.assertEqual("Fail", result["gates"]["dolbyVisionP7FelComposition"]["status"])
+
+        proven = copy.deepcopy(report)
+        proven["runs"][0]["observations"][0]["dolbyEnhancementLayerComposed"] = True
+        self.assertEqual(
+            "Pass",
+            verify_evidence(proven, suite)["gates"]["dolbyVisionP7FelComposition"]["status"],
+        )
 
     @staticmethod
     def device_run(

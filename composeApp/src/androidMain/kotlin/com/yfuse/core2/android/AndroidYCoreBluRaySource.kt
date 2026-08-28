@@ -7,11 +7,15 @@ import android.system.ErrnoException
 import android.system.Os
 import com.yfuse.core.playback.PlaybackDiscChapter
 import com.yfuse.core.playback.PlaybackDiscKind
+import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.bluRayDiscRoot
 import com.yfuse.core2.api.YDiscKind
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.feature.player.HttpRangeDiscBlockSource
+import com.yfuse.feature.player.HdmvDiscSession
+import com.yfuse.feature.player.NativeBluRayOverlayFrame
+import com.yfuse.feature.player.NativeRemoteBluRaySessionRegistry
 import com.yfuse.feature.player.RemoteDiscHeaderProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,9 +37,17 @@ internal class AndroidYCoreBluRaySource private constructor(
     private val mutableNavigation =
         MutableStateFlow(PlaybackDiscNavigationState(kind = PlaybackDiscKind.BluRay))
     val navigation: StateFlow<PlaybackDiscNavigationState> = mutableNavigation.asStateFlow()
+    val menuSession: HdmvDiscSession = YCoreHdmvDiscSession()
+
+    @Volatile
+    private var nativeId = 0L
 
     @Volatile
     private var closed = false
+
+    fun bindNativeId(id: Long) {
+        nativeId = id.takeIf { it > 0L } ?: 0L
+    }
 
     /** JNI callback. A null result selects bd_open_stream() and [readBlocksNative]. */
     @Suppress("unused")
@@ -99,6 +111,8 @@ internal class AndroidYCoreBluRaySource private constructor(
         selectedChapterIndex: Int,
         angleCount: Int,
         selectedAngleIndex: Int,
+        menuSupported: Boolean,
+        menuActive: Boolean,
     ) {
         if (closed) return
         val safeTitleCount = titleCount.coerceAtLeast(0)
@@ -117,11 +131,39 @@ internal class AndroidYCoreBluRaySource private constructor(
                 selectedAngleIndex =
                     selectedAngleIndex.coerceIn(0, (safeAngleCount - 1).coerceAtLeast(0)),
                 chapters = List(safeChapterCount) { PlaybackDiscChapter(index = it) },
-                // Interactive HDMV needs a separately owned overlay/input plane. Until that plane
-                // moves into YCore, title/chapter/angle navigation remains truthful and menus stay off.
-                menuSupported = false,
-                menuActive = false,
+                menuSupported = menuSupported,
+                menuActive = menuSupported && menuActive,
             )
+        (menuSession as YCoreHdmvDiscSession).notifyNavigationChanged()
+        NativeRemoteBluRaySessionRegistry.activate(menuSession)
+    }
+
+    /** JNI callback: complete authored IG plane, published only on libbluray FLUSH. */
+    @Suppress("unused")
+    fun onNativeOverlayFrame(
+        width: Int,
+        height: Int,
+        argb: IntArray,
+    ) {
+        val pixels = width.toLong() * height.toLong()
+        if (
+            closed ||
+            width <= 0 ||
+            height <= 0 ||
+            pixels !in 1..MAX_BLURAY_OVERLAY_PIXELS ||
+            argb.size.toLong() != pixels
+        ) {
+            return
+        }
+        NativeRemoteBluRaySessionRegistry.updateOverlay(
+            menuSession,
+            NativeBluRayOverlayFrame(width = width, height = height, argb = argb.copyOf()),
+        )
+    }
+
+    @Suppress("unused")
+    fun onNativeOverlayCleared() {
+        NativeRemoteBluRaySessionRegistry.updateOverlay(menuSession, null)
     }
 
     @Synchronized
@@ -130,8 +172,48 @@ internal class AndroidYCoreBluRaySource private constructor(
         if (closed) return
         closed = true
         mutableNavigation.value = mutableNavigation.value.copy(menuSupported = false, menuActive = false)
+        (menuSession as YCoreHdmvDiscSession).notifyNavigationChanged()
+        NativeRemoteBluRaySessionRegistry.deactivate(menuSession)
         runCatching { remoteSource?.close() }
         runCatching { descriptor?.close() }
+    }
+
+    private inner class YCoreHdmvDiscSession : HdmvDiscSession {
+        @Volatile
+        private var listener: (() -> Unit)? = null
+
+        fun notifyNavigationChanged() = listener?.invoke()
+
+        override fun navigation(): PlaybackDiscNavigationState = mutableNavigation.value
+
+        override fun selectTitle(index: Int): Boolean = false
+
+        override fun selectChapter(index: Int): Boolean = false
+
+        override fun selectAngle(index: Int): Boolean =
+            !closed && FfmpegNativeBridge.selectDiscAngle(nativeId, index)
+
+        override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
+            !closed &&
+                mutableNavigation.value.menuSupported &&
+                FfmpegNativeBridge.sendDiscMenuCommand(nativeId, command.nativeMenuCode())
+
+        override fun selectMenuPoint(
+            x: Int,
+            y: Int,
+            activate: Boolean,
+        ): Boolean =
+            !closed &&
+                mutableNavigation.value.menuActive &&
+                FfmpegNativeBridge.selectDiscMenuPoint(nativeId, x, y, activate)
+
+        override fun setNavigationChangedListener(listener: (() -> Unit)?) {
+            this.listener = listener
+        }
+
+        override fun close() {
+            listener = null
+        }
     }
 
     companion object {
@@ -191,3 +273,15 @@ internal class AndroidYCoreBluRaySource private constructor(
 }
 
 private const val BLURAY_UDF_BLOCK_SIZE = 2_048
+private const val MAX_BLURAY_OVERLAY_PIXELS = 4_096L * 2_160L
+
+private fun PlaybackDiscMenuCommand.nativeMenuCode(): Int =
+    when (this) {
+        PlaybackDiscMenuCommand.ShowMenu -> 0
+        PlaybackDiscMenuCommand.Back -> 1
+        PlaybackDiscMenuCommand.Up -> 2
+        PlaybackDiscMenuCommand.Down -> 3
+        PlaybackDiscMenuCommand.Left -> 4
+        PlaybackDiscMenuCommand.Right -> 5
+        PlaybackDiscMenuCommand.Select -> 6
+    }

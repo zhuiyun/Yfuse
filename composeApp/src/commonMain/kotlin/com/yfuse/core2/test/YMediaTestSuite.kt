@@ -236,7 +236,10 @@ data class YMediaTestObservation(
     val videoOutputMode: String? = null,
     val audioOutputMode: String? = null,
     val serverTranscodeUsed: Boolean = false,
+    val dolbyVisionOutput: Boolean = false,
     val dolbyRpuApplied: Boolean = false,
+    /** EL reached the exact P7 decoder; kept separate because delivery is not composition. */
+    val dolbyEnhancementLayerDelivered: Boolean = false,
     val dolbyEnhancementLayerComposed: Boolean = false,
     /** Successfully completed stress operations in this uninterrupted instrumentation run. */
     val seekCycles: Int = 0,

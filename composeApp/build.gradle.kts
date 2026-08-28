@@ -249,7 +249,7 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ycore-demux-ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
             "ycore-software-decoder-api=2",
             "ycore-tone-map-source=scripts/native/ycore_tone_map.h",
-            "ycore-disc-api=1",
+            "ycore-disc-api=2",
             "ycore-gpu-api=2",
             "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp",
             "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp",

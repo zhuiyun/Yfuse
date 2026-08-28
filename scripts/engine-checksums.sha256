@@ -2,8 +2,8 @@
 # Yfuse playback builds require the pinned custom libmpv artifact; a stock fallback is intentionally
 # not accepted because it would silently remove Blu-ray/YCore native capabilities.
 # Permanent default release: pinned Dolby RPU/FEL + gpu-next + native Blu-ray/YCore artifact.
-074121c3fbbfd32fad74b14400c0a4c2678235f5dc818f9e4a79699ee77f3ecb  libmpv-release.aar
-074121c3fbbfd32fad74b14400c0a4c2678235f5dc818f9e4a79699ee77f3ecb  libmpv-dolby-release.aar
+ea74b0f089cca9058bbea368c5bddc8ad9e02a1063ae9d6c0bfc8a112f19ffb6  libmpv-release.aar
+ea74b0f089cca9058bbea368c5bddc8ad9e02a1063ae9d6c0bfc8a112f19ffb6  libmpv-dolby-release.aar
 # Previous Blu-ray/YCore-only stable artifact remains an explicitly authenticated fallback.
 9900fe61971e39bf4bc69f306437ffd3de1587c63821570143e142a858b6f9a9  libmpv-stable-release.aar
 87aa236840134fe3b5c3b08e813c2b4f0557d4c2fc7034679417bc598dd785ba  mdk-sdk-android.7z

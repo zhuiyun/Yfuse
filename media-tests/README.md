@@ -108,6 +108,11 @@ python3 scripts/ycore-release-evidence.py verify \
 partial matrix or insufficient count is `Fail`. Reports store only a SHA-256 hash of the adb serial,
 not the raw serial. The temporary instrumentation log remains local and is deleted after collection.
 
+Dolby gates use machine evidence, not labels. P5/P8/P10 require verified native-DV output. P7
+requires an observed RPU/EL to reach the exact Dolby decoder, then a rendered native-DV frame before
+RPU is considered applied. EL delivery is reported independently and never satisfies the P7 FEL
+gate; FEL remains `Fail`/`NotMeasured` until an independent output trace proves EL contribution.
+
 For development, the individual instrumentation methods can still be invoked directly with
 `ycoreMediaManifest`, `ycoreSmokeMedia`, or `ycoreSoakMedia`. Direct invocations are useful for
 diagnosis but do not create release evidence unless their output is passed through the collector.

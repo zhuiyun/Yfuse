@@ -53,6 +53,9 @@ class YPlayerVideoEngineAdapterTest {
                         videoOutput = "Surface 直出",
                         videoOutputVerified = true,
                         dolbyVisionOutput = true,
+                        dolbyVisionRpuApplied = true,
+                        dolbyVisionEnhancementLayerDelivered = true,
+                        dolbyVisionFelComposed = false,
                     ),
             )
 
@@ -61,6 +64,8 @@ class YPlayerVideoEngineAdapterTest {
         assertTrue(state.fallbacksExhausted)
         assertFalse(state.automaticFallbackBlocked)
         assertTrue(state.diagnostics.dolbyVisionOutput)
+        assertTrue(state.diagnostics.dolbyVisionRpuApplied)
+        assertFalse(state.diagnostics.dolbyVisionEnhancementLayerComposed)
         assertEquals("c2.vendor.hevc.decoder", state.diagnostics.decoder)
         assertEquals(8, state.discNavigation.chapterCount)
     }

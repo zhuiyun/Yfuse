@@ -66,6 +66,9 @@ internal data class YEnhancedPlaybackSnapshot(
     val subtitleCues: List<YSubtitleCue>,
     val nativeGpuFeatureMask: Long = 0L,
     val gpuFrameDurationNs: Long = 0L,
+    val dolbyVisionRpuApplied: Boolean = false,
+    val dolbyVisionEnhancementLayerDelivered: Boolean = false,
+    val dolbyVisionFelComposed: Boolean = false,
 )
 
 /**
@@ -127,6 +130,8 @@ internal class AndroidEnhancedPlaybackSession(
     private var gpuEvidenceRecorded = false
     private var runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null
     private var renderCallbackGeneration = 0
+    private var p7RpuQueued = false
+    private var p7EnhancementLayerQueued = false
 
     @Volatile
     private var lastAvSyncOffsetUs: Long? = null
@@ -639,6 +644,13 @@ internal class AndroidEnhancedPlaybackSession(
             subtitleCues = subtitleCues.toList(),
             nativeGpuFeatureMask = gpu?.currentFeatureMask ?: 0L,
             gpuFrameDurationNs = gpu?.lastGpuFrameDurationNs ?: 0L,
+            dolbyVisionRpuApplied =
+                videoVerified &&
+                    plan?.outputHdrType == YHdrType.DolbyVision &&
+                    p7RpuQueued,
+            dolbyVisionEnhancementLayerDelivered = p7EnhancementLayerQueued,
+            // No independent decoded-EL contribution trace exists in YCore yet.
+            dolbyVisionFelComposed = false,
         )
     }
 
@@ -665,6 +677,8 @@ internal class AndroidEnhancedPlaybackSession(
         runtimeCapabilityKey = null
         runtimeRenderRecorded = false
         gpuEvidenceRecorded = false
+        p7RpuQueued = false
+        p7EnhancementLayerQueued = false
         sourceRemote = false
         openResult = null
         sourceVideoTrack = null
@@ -683,6 +697,8 @@ internal class AndroidEnhancedPlaybackSession(
         firstVideoFrameRendered = false
         droppedFrames = 0
         audioFallbackCount = 0
+        p7RpuQueued = false
+        p7EnhancementLayerQueued = false
         resetEndState()
     }
 
@@ -767,6 +783,9 @@ internal class AndroidEnhancedPlaybackSession(
             pendingSample = sample
             return false
         }
+        if (sample.trackId == videoTrack.id && !softwareVideoActive) {
+            recordDolbyVisionLayerDelivery(sample.data)
+        }
         pendingSample = null
         lastQueuedUs = maxOf(lastQueuedUs, sample.presentationTimeUs)
         return true
@@ -829,6 +848,17 @@ internal class AndroidEnhancedPlaybackSession(
             return dolbyVisionHevcBaseLayerSample(data, packing)
         }
         return normalizeVideoSampleForMediaCodec(data, sourceTrack)
+    }
+
+    /** Records input to the exact Dolby decoder without inferring enhancement-layer composition. */
+    private fun recordDolbyVisionLayerDelivery(data: ByteArray) {
+        val source = sourceVideoTrack?.video ?: return
+        val config = source.dolbyVisionConfig ?: return
+        if (config.profile != 7 || plan?.usesHdrFallback == true) return
+        val packing = source.samplePacking ?: return
+        val evidence = runCatching { YBitstream.dolbyVisionEvidence(data, packing) }.getOrNull() ?: return
+        p7RpuQueued = p7RpuQueued || evidence.rpuPresent
+        p7EnhancementLayerQueued = p7EnhancementLayerQueued || evidence.enhancementLayerPresent
     }
 
     private fun drainAudio(): Boolean {

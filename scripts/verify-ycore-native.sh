@@ -68,7 +68,7 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
   fail "YCore software decoder API v2 is missing"
 [[ "$(manifest_value ycore-tone-map-source)" == "scripts/native/ycore_tone_map.h" ]] ||
   fail "YCore HDR tone-map provenance is missing"
-[[ "$(manifest_value ycore-disc-api)" == "1" ]] || fail "YCore disc API v1 is missing"
+[[ "$(manifest_value ycore-disc-api)" == "2" ]] || fail "YCore disc API v2 (HDMV overlay/input) is missing"
 [[ "$(manifest_value ycore-libbluray)" == "1.4.1" ]] || fail "unexpected libbluray revision"
 [[ "$(manifest_value ycore-disc-uri-source)" == "scripts/native/ycore_disc_uri.h" ]] ||
   fail "YCore disc URI boundary provenance is missing"

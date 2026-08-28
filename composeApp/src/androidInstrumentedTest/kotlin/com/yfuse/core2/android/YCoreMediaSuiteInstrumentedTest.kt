@@ -688,9 +688,11 @@ class YCoreMediaSuiteInstrumentedTest {
                 // Core2's device runner has no server-transcode route. A future non-local route
                 // must opt in explicitly instead of silently inheriting false.
                 serverTranscodeUsed = false,
-                // A native-DV badge/decoder name alone proves neither RPU application nor P7 EL.
-                dolbyRpuApplied = false,
-                dolbyEnhancementLayerComposed = false,
+                dolbyVisionOutput = state.diagnostics.dolbyVisionOutput,
+                dolbyRpuApplied = state.diagnostics.dolbyVisionRpuApplied,
+                dolbyEnhancementLayerDelivered =
+                    state.diagnostics.dolbyVisionEnhancementLayerDelivered,
+                dolbyEnhancementLayerComposed = state.diagnostics.dolbyVisionFelComposed,
                 seekCycles = seekCycles,
                 surfaceRecreations = surfaceRecreations,
                 queueTransitions = queueTransitions,

@@ -139,6 +139,8 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
                         else -> PlaybackOutputReadiness.Waiting
                     },
                 dolbyVisionOutput = diagnostics.dolbyVisionOutput,
+                dolbyVisionRpuApplied = diagnostics.dolbyVisionRpuApplied,
+                dolbyVisionEnhancementLayerComposed = diagnostics.dolbyVisionFelComposed,
                 dolbyAtmosOutput = diagnostics.dolbyAtmosOutput,
                 avSyncOffsetMs = diagnostics.avSyncOffsetMs,
                 avSyncMeasurement = diagnostics.avSyncMeasurement,

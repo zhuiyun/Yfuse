@@ -58,6 +58,22 @@ internal object FfmpegNativeBridge {
         index: Int,
     ): Boolean = handle > 0L && index >= 0 && nativeSelectDiscAngle(handle, index)
 
+    fun sendDiscMenuCommand(
+        handle: Long,
+        command: Int,
+    ): Boolean = handle > 0L && command in 0..6 && nativeSendDiscMenuCommand(handle, command)
+
+    fun selectDiscMenuPoint(
+        handle: Long,
+        x: Int,
+        y: Int,
+        activate: Boolean,
+    ): Boolean =
+        handle > 0L &&
+            x >= 0 &&
+            y >= 0 &&
+            nativeSelectDiscMenuPoint(handle, x, y, activate)
+
     fun open(
         uri: String,
         headers: Map<String, String>,
@@ -319,6 +335,18 @@ internal object FfmpegNativeBridge {
         index: Int,
     ): Boolean
 
+    private external fun nativeSendDiscMenuCommand(
+        handle: Long,
+        command: Int,
+    ): Boolean
+
+    private external fun nativeSelectDiscMenuPoint(
+        handle: Long,
+        x: Int,
+        y: Int,
+        activate: Boolean,
+    ): Boolean
+
     private external fun nativeConfigureSoftwareDecoder(
         handle: Long,
         trackIndex: Int,
@@ -394,5 +422,5 @@ internal const val FFMPEG_PACKING_ANNEX_B = 1L
 internal const val FFMPEG_PACKING_LENGTH_PREFIXED = 2L
 private const val LIBRARY_NAME = "ycore_demux"
 private const val SOFTWARE_DECODER_API_VERSION = 2
-private const val DISC_API_VERSION = 1
+private const val DISC_API_VERSION = 2
 private const val SOFTWARE_PACKET_ACCEPTED = 0

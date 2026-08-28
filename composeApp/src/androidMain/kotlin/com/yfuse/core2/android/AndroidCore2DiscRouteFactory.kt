@@ -65,6 +65,7 @@ internal class AndroidYCoreDiscRouteFactory(
                     source.closeNativeSource()
                     return null
                 }
+        source.bindNativeId(nativeId)
         val nativeItem =
             item.copy(
                 uri = "$YCORE_BLURAY_SCHEME://$nativeId",
@@ -136,7 +137,10 @@ private class AndroidYCoreBluRayPlayer(
         return FfmpegNativeBridge.selectDiscAngle(nativeId, index)
     }
 
-    override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean = false
+    override fun sendDiscMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
+        !released &&
+            state.value.discNavigation.menuSupported &&
+            FfmpegNativeBridge.sendDiscMenuCommand(nativeId, command.nativeMenuCode())
 
     override fun release() {
         if (released) return
@@ -148,3 +152,14 @@ private class AndroidYCoreBluRayPlayer(
 }
 
 private const val YCORE_BLURAY_SCHEME = "ycorebd"
+
+private fun PlaybackDiscMenuCommand.nativeMenuCode(): Int =
+    when (this) {
+        PlaybackDiscMenuCommand.ShowMenu -> 0
+        PlaybackDiscMenuCommand.Back -> 1
+        PlaybackDiscMenuCommand.Up -> 2
+        PlaybackDiscMenuCommand.Down -> 3
+        PlaybackDiscMenuCommand.Left -> 4
+        PlaybackDiscMenuCommand.Right -> 5
+        PlaybackDiscMenuCommand.Select -> 6
+    }

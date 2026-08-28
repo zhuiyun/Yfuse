@@ -29,6 +29,7 @@ extern "C" {
 #include <libavutil/mem.h>
 #include <libbluray/bluray.h>
 #include <libbluray/keys.h>
+#include <libbluray/overlay.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
@@ -75,10 +76,11 @@ constexpr int kSoftwareFrameData = 1;
 constexpr int kSoftwareFrameEof = 2;
 constexpr int kSoftwareFrameGrowBuffer = -1;
 constexpr int kSoftwareDecoderApiVersion = 2;
-constexpr int kDiscApiVersion = 1;
+constexpr int kDiscApiVersion = 2;
 constexpr int kDiscBlockSize = 2048;
 constexpr int kDiscAvioBufferBytes = 64 * 1024;
 constexpr int64_t kBlurayClock = 90000;
+constexpr int64_t kMaxDiscOverlayPixels = 4096LL * 2160LL;
 
 struct BlurayIo;
 
@@ -87,6 +89,8 @@ struct DiscSource {
     jobject object = nullptr;
     jmethodID read_blocks = nullptr;
     jmethodID publish_state = nullptr;
+    jmethodID overlay_frame = nullptr;
+    jmethodID overlay_cleared = nullptr;
     jmethodID close_source = nullptr;
     std::string path;
     std::mutex mutex;
@@ -103,6 +107,15 @@ struct BlurayIo {
     int title_count = 0;
     int current_title = 0;
     int current_angle = 0;
+    bool menu_supported = false;
+    bool menu_active = false;
+    bool popup_available = false;
+    bool navigation_mode = false;
+    int overlay_width = 0;
+    int overlay_height = 0;
+    bool have_palette = false;
+    BD_PG_PALETTE_ENTRY palette[256] = {};
+    std::vector<uint32_t> overlay;
 
     ~BlurayIo();
 };
@@ -195,7 +208,10 @@ BlurayIo::~BlurayIo() {
         if (source->active == this) source->active = nullptr;
     }
     if (title_info) bd_free_title_info(title_info);
-    if (bd) bd_close(bd);
+    if (bd) {
+        bd_register_overlay_proc(bd, nullptr, nullptr);
+        bd_close(bd);
+    }
 }
 
 std::shared_ptr<DiscSource> find_disc_source(int64_t source_id) {
@@ -391,18 +407,183 @@ void publish_disc_state(BlurayIo* disc) {
             static_cast<jint>(chapter_count),
             static_cast<jint>(chapter),
             static_cast<jint>(angle_count),
-            static_cast<jint>(disc->current_angle));
+            static_cast<jint>(disc->current_angle),
+            static_cast<jboolean>(disc->menu_supported),
+            static_cast<jboolean>(disc->menu_active));
         clear_java_exception(env);
     }
     if (attached) disc->source->vm->DetachCurrentThread();
 }
 
-void drain_disc_events(BlurayIo* disc) {
-    if (!disc || !disc->bd) return;
+void clear_disc_overlay(BlurayIo* disc) {
+    if (!disc || !disc->source || !disc->source->object) return;
+    bool attached = false;
+    JNIEnv* env = disc_env(disc->source->vm, &attached);
+    if (env) {
+        env->CallVoidMethod(disc->source->object, disc->source->overlay_cleared);
+        clear_java_exception(env);
+    }
+    if (attached) disc->source->vm->DetachCurrentThread();
+}
+
+void publish_disc_overlay(BlurayIo* disc) {
+    if (
+        !disc ||
+        !disc->menu_active ||
+        !disc->source ||
+        !disc->source->object ||
+        disc->overlay_width <= 0 ||
+        disc->overlay_height <= 0 ||
+        disc->overlay.empty()
+    ) {
+        clear_disc_overlay(disc);
+        return;
+    }
+    const int64_t pixels = static_cast<int64_t>(disc->overlay_width) * disc->overlay_height;
+    if (pixels <= 0 || pixels > kMaxDiscOverlayPixels || pixels != static_cast<int64_t>(disc->overlay.size())) {
+        return;
+    }
+    bool attached = false;
+    JNIEnv* env = disc_env(disc->source->vm, &attached);
+    if (env) {
+        jintArray array = env->NewIntArray(static_cast<jsize>(pixels));
+        if (array) {
+            env->SetIntArrayRegion(
+                array,
+                0,
+                static_cast<jsize>(pixels),
+                reinterpret_cast<const jint*>(disc->overlay.data()));
+            if (!env->ExceptionCheck()) {
+                env->CallVoidMethod(
+                    disc->source->object,
+                    disc->source->overlay_frame,
+                    static_cast<jint>(disc->overlay_width),
+                    static_cast<jint>(disc->overlay_height),
+                    array);
+            }
+            clear_java_exception(env);
+            env->DeleteLocalRef(array);
+        }
+    }
+    if (attached) disc->source->vm->DetachCurrentThread();
+}
+
+int clamp_disc_color(int value) {
+    return std::max(0, std::min(255, value));
+}
+
+uint32_t disc_palette_argb(const BD_PG_PALETTE_ENTRY& entry) {
+    const int c = std::max(0, static_cast<int>(entry.Y) - 16);
+    const int d = static_cast<int>(entry.Cb) - 128;
+    const int e = static_cast<int>(entry.Cr) - 128;
+    const int r = clamp_disc_color((298 * c + 459 * e + 128) >> 8);
+    const int g = clamp_disc_color((298 * c - 55 * d - 136 * e + 128) >> 8);
+    const int b = clamp_disc_color((298 * c + 541 * d + 128) >> 8);
+    return (static_cast<uint32_t>(entry.T) << 24U) |
+        (static_cast<uint32_t>(r) << 16U) |
+        (static_cast<uint32_t>(g) << 8U) |
+        static_cast<uint32_t>(b);
+}
+
+void clear_disc_overlay_rect(BlurayIo* disc, int x, int y, int width, int height) {
+    if (!disc || disc->overlay.empty()) return;
+    const int x0 = std::max(0, x);
+    const int y0 = std::max(0, y);
+    const int x1 = std::min(disc->overlay_width, x + width);
+    const int y1 = std::min(disc->overlay_height, y + height);
+    for (int row = y0; row < y1; ++row) {
+        std::fill(
+            disc->overlay.begin() + static_cast<int64_t>(row) * disc->overlay_width + x0,
+            disc->overlay.begin() + static_cast<int64_t>(row) * disc->overlay_width + x1,
+            0U);
+    }
+}
+
+void draw_disc_overlay(BlurayIo* disc, const BD_OVERLAY* event) {
+    if (!disc || disc->overlay.empty() || !event || !event->img || !disc->have_palette) return;
+    const int64_t total = static_cast<int64_t>(event->w) * event->h;
+    if (total <= 0 || total > kMaxDiscOverlayPixels) return;
+    int64_t pixel = 0;
+    int64_t elements = 0;
+    const BD_PG_RLE_ELEM* rle = event->img;
+    while (pixel < total && elements <= total) {
+        const int run = rle->len;
+        const int color = rle->color & 0xff;
+        ++rle;
+        ++elements;
+        if (run <= 0) continue;
+        const uint32_t argb = disc_palette_argb(disc->palette[color]);
+        const int64_t end = std::min(total, pixel + run);
+        while (pixel < end) {
+            const int destination_x = event->x + static_cast<int>(pixel % event->w);
+            const int destination_y = event->y + static_cast<int>(pixel / event->w);
+            if (
+                destination_x >= 0 &&
+                destination_x < disc->overlay_width &&
+                destination_y >= 0 &&
+                destination_y < disc->overlay_height
+            ) {
+                disc->overlay[static_cast<int64_t>(destination_y) * disc->overlay_width + destination_x] = argb;
+            }
+            ++pixel;
+        }
+    }
+}
+
+void disc_overlay_proc(void* handle, const BD_OVERLAY* event) {
+    auto* disc = static_cast<BlurayIo*>(handle);
+    if (!disc || !event || event->plane != BD_OVERLAY_IG) return;
+    if (event->palette) {
+        std::memcpy(disc->palette, event->palette, sizeof(disc->palette));
+        disc->have_palette = true;
+    }
+    switch (event->cmd) {
+        case BD_OVERLAY_INIT: {
+            const int64_t pixels = static_cast<int64_t>(event->w) * event->h;
+            if (pixels <= 0 || pixels > kMaxDiscOverlayPixels) break;
+            disc->overlay.assign(static_cast<size_t>(pixels), 0U);
+            disc->overlay_width = event->w;
+            disc->overlay_height = event->h;
+            break;
+        }
+        case BD_OVERLAY_CLOSE:
+            disc->overlay.clear();
+            disc->overlay_width = 0;
+            disc->overlay_height = 0;
+            clear_disc_overlay(disc);
+            break;
+        case BD_OVERLAY_CLEAR:
+        case BD_OVERLAY_HIDE:
+            std::fill(disc->overlay.begin(), disc->overlay.end(), 0U);
+            if (event->cmd == BD_OVERLAY_HIDE) clear_disc_overlay(disc);
+            break;
+        case BD_OVERLAY_DRAW:
+            draw_disc_overlay(disc, event);
+            break;
+        case BD_OVERLAY_WIPE:
+            clear_disc_overlay_rect(disc, event->x, event->y, event->w, event->h);
+            break;
+        case BD_OVERLAY_FLUSH:
+            publish_disc_overlay(disc);
+            break;
+        default:
+            break;
+    }
+}
+
+bool handle_disc_event(BlurayIo* disc, const BD_EVENT& event) {
+    if (!disc || !disc->bd) return false;
     bool changed = false;
-    BD_EVENT event = {};
-    while (bd_get_event(disc->bd, &event)) {
-        switch (event.event) {
+    switch (event.event) {
+            case BD_EVENT_MENU:
+                disc->menu_active = event.param != 0;
+                changed = true;
+                if (!disc->menu_active) clear_disc_overlay(disc);
+                break;
+            case BD_EVENT_POPUP:
+                disc->popup_available = event.param != 0;
+                changed = true;
+                break;
             case BD_EVENT_TITLE:
             case BD_EVENT_PLAYLIST:
                 refresh_disc_title_info(disc);
@@ -419,9 +600,24 @@ void drain_disc_events(BlurayIo* disc) {
             case BD_EVENT_STILL_TIME:
                 bd_read_skip_still(disc->bd);
                 break;
+            case BD_EVENT_ERROR:
+            case BD_EVENT_ENCRYPTED:
+                disc->menu_active = false;
+                changed = true;
+                clear_disc_overlay(disc);
+                break;
             default:
                 break;
-        }
+    }
+    return changed;
+}
+
+void drain_disc_events(BlurayIo* disc) {
+    if (!disc || !disc->bd) return;
+    bool changed = false;
+    BD_EVENT event = {};
+    while (bd_get_event(disc->bd, &event)) {
+        changed = handle_disc_event(disc, event) || changed;
     }
     if (changed) publish_disc_state(disc);
 }
@@ -431,9 +627,20 @@ int disc_avio_read(void* opaque, uint8_t* destination, int size) {
     if (!disc || !disc->source || !disc->bd || !destination || size <= 0) return AVERROR(EINVAL);
     std::lock_guard<std::mutex> lock(disc->source->mutex);
     drain_disc_events(disc);
-    const int result = bd_read(disc->bd, destination, size);
-    drain_disc_events(disc);
-    return result < 0 ? AVERROR(EIO) : result;
+    if (!disc->navigation_mode) {
+        const int result = bd_read(disc->bd, destination, size);
+        drain_disc_events(disc);
+        return result < 0 ? AVERROR(EIO) : result;
+    }
+    for (int attempts = 0; attempts < 64; ++attempts) {
+        BD_EVENT event = {};
+        const int result = bd_read_ext(disc->bd, destination, size, &event);
+        if (event.event != BD_EVENT_NONE && handle_disc_event(disc, event)) publish_disc_state(disc);
+        drain_disc_events(disc);
+        if (result != 0) return result < 0 ? AVERROR(EIO) : result;
+        if (event.event == BD_EVENT_NONE || event.event == BD_EVENT_END_OF_TITLE) return 0;
+    }
+    return 0;
 }
 
 int64_t disc_avio_seek(void* opaque, int64_t offset, int whence) {
@@ -481,6 +688,8 @@ int open_bluray_demux(
     ) {
         return AVERROR(EACCES);
     }
+    disc->menu_supported = !info->no_menu_support && info->num_hdmv_titles > 0;
+    bd_register_overlay_proc(disc->bd, disc.get(), disc_overlay_proc);
     disc->title_count = static_cast<int>(bd_get_titles(disc->bd, TITLES_RELEVANT, 0));
     if (disc->title_count <= 0) return AVERROR_INVALIDDATA;
     bd_get_event(disc->bd, nullptr);
@@ -952,13 +1161,17 @@ jlong native_register_bluray_source(JNIEnv* env, jclass, jobject source_object) 
     auto source = std::make_shared<DiscSource>();
     env->GetJavaVM(&source->vm);
     source->read_blocks = env->GetMethodID(source_class, "readBlocksNative", "(II[BI)I");
-    source->publish_state = env->GetMethodID(source_class, "onNativeDiscState", "(IIIIII)V");
+    source->publish_state = env->GetMethodID(source_class, "onNativeDiscState", "(IIIIIIZZ)V");
+    source->overlay_frame = env->GetMethodID(source_class, "onNativeOverlayFrame", "(II[I)V");
+    source->overlay_cleared = env->GetMethodID(source_class, "onNativeOverlayCleared", "()V");
     source->close_source = env->GetMethodID(source_class, "closeNativeSource", "()V");
     const jmethodID path_method =
         env->GetMethodID(source_class, "discPathNative", "()Ljava/lang/String;");
     if (
         !source->read_blocks ||
         !source->publish_state ||
+        !source->overlay_frame ||
+        !source->overlay_cleared ||
         !source->close_source ||
         !path_method ||
         env->ExceptionCheck()
@@ -1054,6 +1267,79 @@ jboolean native_select_disc_angle(JNIEnv*, jclass, jlong source_id, jint index) 
     refresh_disc_title_info(disc);
     publish_disc_state(disc);
     return JNI_TRUE;
+}
+
+bool ensure_disc_navigation(BlurayIo* disc) {
+    if (!disc || !disc->bd || !disc->menu_supported) return false;
+    if (disc->navigation_mode) return true;
+    if (!bd_play(disc->bd)) return false;
+    disc->navigation_mode = true;
+    return true;
+}
+
+jboolean native_send_disc_menu_command(JNIEnv*, jclass, jlong source_id, jint command) {
+    const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
+    if (!source) return JNI_FALSE;
+    std::lock_guard<std::mutex> lock(source->mutex);
+    BlurayIo* disc = source->active;
+    if (!ensure_disc_navigation(disc)) return JNI_FALSE;
+    const int64_t pts = static_cast<int64_t>(bd_tell_time(disc->bd));
+    int result = -1;
+    switch (command) {
+        case 0:
+            result = bd_menu_call(disc->bd, pts);
+            break;
+        case 1:
+            result = bd_user_input(
+                disc->bd,
+                pts,
+                disc->popup_available ? BD_VK_POPUP : BD_VK_ROOT_MENU);
+            break;
+        case 2:
+            result = bd_user_input(disc->bd, pts, BD_VK_UP);
+            break;
+        case 3:
+            result = bd_user_input(disc->bd, pts, BD_VK_DOWN);
+            break;
+        case 4:
+            result = bd_user_input(disc->bd, pts, BD_VK_LEFT);
+            break;
+        case 5:
+            result = bd_user_input(disc->bd, pts, BD_VK_RIGHT);
+            break;
+        case 6:
+            result = bd_user_input(disc->bd, pts, BD_VK_ENTER);
+            break;
+        default:
+            return JNI_FALSE;
+    }
+    drain_disc_events(disc);
+    return result >= 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+jboolean native_select_disc_menu_point(
+    JNIEnv*,
+    jclass,
+    jlong source_id,
+    jint x,
+    jint y,
+    jboolean activate) {
+    if (x < 0 || y < 0 || x > UINT16_MAX || y > UINT16_MAX) return JNI_FALSE;
+    const std::shared_ptr<DiscSource> source = find_disc_source(source_id);
+    if (!source) return JNI_FALSE;
+    std::lock_guard<std::mutex> lock(source->mutex);
+    BlurayIo* disc = source->active;
+    if (!ensure_disc_navigation(disc)) return JNI_FALSE;
+    const int64_t pts = static_cast<int64_t>(bd_tell_time(disc->bd));
+    int selected = bd_mouse_select(
+        disc->bd,
+        pts,
+        static_cast<uint16_t>(x),
+        static_cast<uint16_t>(y));
+    if (selected <= 0) return JNI_FALSE;
+    if (activate) selected = bd_user_input(disc->bd, pts, BD_VK_MOUSE_ACTIVATE);
+    drain_disc_events(disc);
+    return selected >= 0 ? JNI_TRUE : JNI_FALSE;
 }
 
 jlong native_open(
@@ -1932,6 +2218,8 @@ static const JNINativeMethod kMethods[] = {
     {"nativeSelectDiscTitle", "(JI)Z", reinterpret_cast<void*>(native_select_disc_title)},
     {"nativeDiscChapterStartMs", "(JI)J", reinterpret_cast<void*>(native_disc_chapter_start_ms)},
     {"nativeSelectDiscAngle", "(JI)Z", reinterpret_cast<void*>(native_select_disc_angle)},
+    {"nativeSendDiscMenuCommand", "(JI)Z", reinterpret_cast<void*>(native_send_disc_menu_command)},
+    {"nativeSelectDiscMenuPoint", "(JIIZ)Z", reinterpret_cast<void*>(native_select_disc_menu_point)},
     {"nativeOpen", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)J", reinterpret_cast<void*>(native_open)},
     {"nativeClose", "(J)V", reinterpret_cast<void*>(native_close)},
     {"nativeTrackCount", "(J)I", reinterpret_cast<void*>(native_track_count)},
