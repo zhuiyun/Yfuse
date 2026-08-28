@@ -25,6 +25,36 @@ internal data class PlayerSkipController(
 /** Movies have no series id, so intro/outro controls and automatic skipping are episode-only. */
 internal fun skipSegmentsAvailableFor(seriesId: String?): Boolean = !seriesId.isNullOrBlank()
 
+/**
+ * A resume position can already be inside the credits. Treating that as a newly reached segment
+ * immediately selects the next episode; repeating the same rule on every resumed item can walk
+ * the whole queue without the viewer watching anything. Credits therefore auto-skip only after
+ * this playback session has first been observed outside them. Intro skipping remains available at
+ * position zero, but neither segment starts its countdown while the engine is still buffering.
+ */
+internal fun canArmAutomaticSkip(
+    segmentType: PlaybackSegmentType?,
+    playbackReady: Boolean,
+    creditsEnteredFromPlayback: Boolean,
+): Boolean =
+    playbackReady &&
+        when (segmentType) {
+            PlaybackSegmentType.Intro -> true
+            PlaybackSegmentType.Credits -> creditsEnteredFromPlayback
+            null -> false
+        }
+
+internal fun observedForwardPlaybackOutsideCredits(
+    previousPositionMs: Long?,
+    positionMs: Long,
+    segmentType: PlaybackSegmentType?,
+    playbackReady: Boolean,
+): Boolean =
+    playbackReady &&
+        segmentType != PlaybackSegmentType.Credits &&
+        previousPositionMs != null &&
+        positionMs > previousPositionMs
+
 /** Owns segment detection, the automatic countdown and the persisted per-series boundaries. */
 @Composable
 internal fun rememberPlayerSkipController(
@@ -68,12 +98,42 @@ internal fun rememberPlayerSkipController(
 
     // An occurrence stays settled after a cancel or skip, even if the viewer rewinds into it.
     val settled = remember { mutableStateOf<Pair<String, PlaybackSegmentType>?>(null) }
+    var creditsEnteredFromPlayback by remember(currentItem?.id) { mutableStateOf(false) }
+    var lastOutsideCreditsPositionMs by remember(currentItem?.id) { mutableStateOf<Long?>(null) }
     var countdownSeconds by remember { mutableStateOf<Int?>(null) }
     val occurrence = activeSegment?.let { segment -> currentItem?.id?.let { it to segment.type } }
+    LaunchedEffect(
+        currentItem?.id,
+        activeSegment?.type,
+        playbackState.playing,
+        playbackState.buffering,
+        playbackState.positionMs,
+    ) {
+        if (currentItem == null) return@LaunchedEffect
+        val playbackReady = playbackState.playing && !playbackState.buffering
+        if (
+            observedForwardPlaybackOutsideCredits(
+                previousPositionMs = lastOutsideCreditsPositionMs,
+                positionMs = playbackState.positionMs,
+                segmentType = activeSegment?.type,
+                playbackReady = playbackReady,
+            )
+        ) {
+            creditsEnteredFromPlayback = true
+        }
+        if (playbackReady && activeSegment?.type != PlaybackSegmentType.Credits) {
+            lastOutsideCreditsPositionMs = playbackState.positionMs
+        }
+    }
     val armed =
         occurrence != null &&
             mode == SkipMode.Auto &&
             !watchGuest &&
+            canArmAutomaticSkip(
+                segmentType = activeSegment?.type,
+                playbackReady = playbackState.playing && !playbackState.buffering,
+                creditsEnteredFromPlayback = creditsEnteredFromPlayback,
+            ) &&
             occurrence != settled.value
     val latestSkipSegment by rememberUpdatedState(skipSegment)
     LaunchedEffect(occurrence, armed) {

@@ -6,9 +6,11 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -50,8 +52,6 @@ import kotlin.math.abs
 private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
-private val PLAYER_TOUCH_SAFE_HORIZONTAL = 24.dp
-private val PLAYER_TOUCH_SAFE_VERTICAL = 8.dp
 
 /**
  * How long the volume slider stays up after the last press or drag.
@@ -487,13 +487,9 @@ internal fun PlayerControls(
     Box(
         modifier
             .fillMaxSize()
-            // The video Surface stays edge-to-edge. Only chrome and gesture capture move inward,
-            // leaving a fixed dead zone even when a device reports zero system safe insets.
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(
-                horizontal = PLAYER_TOUCH_SAFE_HORIZONTAL,
-                vertical = PLAYER_TOUCH_SAFE_VERTICAL,
-            ).onFocusChanged { controlsHaveFocus = it.hasFocus }
+            // Keep controls clear of a real display cutout without inventing a fixed dead zone.
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+            .onFocusChanged { controlsHaveFocus = it.hasFocus }
             .focusGroup(),
     ) {
         if (watch.connected) {
