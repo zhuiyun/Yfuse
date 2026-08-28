@@ -5,15 +5,18 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.safeGestures
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,9 +33,12 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -52,6 +58,63 @@ private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
 private val PLAYER_TOUCH_SAFE_HORIZONTAL = 24.dp
 private val PLAYER_TOUCH_SAFE_VERTICAL = 8.dp
+private const val PLAYER_DRAG_AXIS_LOCK_RATIO = 1.2f
+
+internal enum class PlayerDragAxis {
+    Pending,
+    Horizontal,
+    Vertical,
+}
+
+internal fun playerGestureInputEnabled(
+    locked: Boolean,
+    hasError: Boolean,
+): Boolean = !locked && !hasError
+
+internal fun resolvePlayerDragAxis(
+    current: PlayerDragAxis,
+    totalX: Float,
+    totalY: Float,
+): PlayerDragAxis {
+    if (current != PlayerDragAxis.Pending) return current
+    val horizontal = abs(totalX)
+    val vertical = abs(totalY)
+    return when {
+        horizontal > vertical * PLAYER_DRAG_AXIS_LOCK_RATIO -> PlayerDragAxis.Horizontal
+        vertical > horizontal * PLAYER_DRAG_AXIS_LOCK_RATIO -> PlayerDragAxis.Vertical
+        else -> PlayerDragAxis.Pending
+    }
+}
+
+private fun playerEdgePadding(
+    layoutDirection: LayoutDirection,
+    horizontalMinimum: Dp,
+    verticalMinimum: Dp,
+    insets: List<PaddingValues>,
+): PaddingValues {
+    val left =
+        insets.fold(horizontalMinimum) { current, inset ->
+            maxOf(current, inset.calculateLeftPadding(layoutDirection))
+        }
+    val right =
+        insets.fold(horizontalMinimum) { current, inset ->
+            maxOf(current, inset.calculateRightPadding(layoutDirection))
+        }
+    val top =
+        insets.fold(verticalMinimum) { current, inset ->
+            maxOf(current, inset.calculateTopPadding())
+        }
+    val bottom =
+        insets.fold(verticalMinimum) { current, inset ->
+            maxOf(current, inset.calculateBottomPadding())
+        }
+    return PaddingValues(
+        start = if (layoutDirection == LayoutDirection.Ltr) left else right,
+        top = top,
+        end = if (layoutDirection == LayoutDirection.Ltr) right else left,
+        bottom = bottom,
+    )
+}
 
 /**
  * How long the volume slider stays up after the last press or drag.
@@ -186,10 +249,11 @@ internal fun PlayerControls(
     skipActions: SkipSegmentActions = SkipSegmentActions(),
     watch: WatchRoomState = WatchRoomState(),
     watchActions: WatchRoomActions = WatchRoomActions(),
+    locked: Boolean = false,
+    onLockedChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(true) }
-    var locked by remember { mutableStateOf(false) }
     var settingsPanelKind by remember { mutableStateOf<SettingsPanelKind?>(null) }
     var trackPanelMode by remember { mutableStateOf(TrackPanelMode.Subtitle) }
     var quickPopup by remember { mutableStateOf<QuickPopup?>(null) }
@@ -484,18 +548,33 @@ internal fun PlayerControls(
         volumeSliderVisible = false
     }
 
-    Box(
+    BoxWithConstraints(
         modifier
             .fillMaxSize()
-            // The video Surface stays edge-to-edge. Only chrome and gesture capture move inward,
-            // leaving a fixed dead zone even when a device reports zero system safe insets.
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(
-                horizontal = PLAYER_TOUCH_SAFE_HORIZONTAL,
-                vertical = PLAYER_TOUCH_SAFE_VERTICAL,
-            ).onFocusChanged { controlsHaveFocus = it.hasFocus }
+            .onFocusChanged { controlsHaveFocus = it.hasFocus }
             .focusGroup(),
     ) {
+        val layoutDirection = LocalLayoutDirection.current
+        val horizontalMinimum =
+            if (maxWidth > maxHeight) PLAYER_TOUCH_SAFE_HORIZONTAL else 0.dp
+        val gestureInsets = WindowInsets.safeGestures.asPaddingValues()
+        val drawingInsets = WindowInsets.safeDrawing.asPaddingValues()
+        // Landscape always keeps the fixed dead zone requested by the player design. System
+        // gesture insets can only enlarge it; they never replace or shrink it.
+        val touchSafePadding =
+            playerEdgePadding(
+                layoutDirection = layoutDirection,
+                horizontalMinimum = horizontalMinimum,
+                verticalMinimum = PLAYER_TOUCH_SAFE_VERTICAL,
+                insets = listOf(gestureInsets),
+            )
+        val chromeSafePadding =
+            playerEdgePadding(
+                layoutDirection = layoutDirection,
+                horizontalMinimum = horizontalMinimum,
+                verticalMinimum = PLAYER_TOUCH_SAFE_VERTICAL,
+                insets = listOf(gestureInsets, drawingInsets),
+            )
         if (watch.connected) {
             WatchChatDanmakuOverlay(
                 roomCode = watch.roomCode,
@@ -518,152 +597,168 @@ internal fun PlayerControls(
             )
         }
 
-        // Tap catcher sits below the controls, so buttons win the gesture.
-        Box(
-            Modifier
-                .fillMaxSize()
-                // Keyed on nothing: `settingsPanelKind`, `drawerOpen` and `visible` are read
-                // through their state delegates below, so the detector already sees the
-                // current values without being torn down. Keying on them meant any of
-                // them changing restarted the gesture stream mid-press — which the hold
-                // to fast-forward cannot survive, since it is the release that lands the
-                // seek and `poke()` flips `visible` the moment the hold starts.
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = {
-                            // The engine is already following every held tick; release only stops it.
-                            tryAwaitRelease()
-                            if (holdSeekDirection != 0) {
-                                holdSeekDirection = 0
-                                poke()
-                            }
-                        },
-                        onTap = {
-                            when {
-                                watchChatOpen -> watchChatOpen = false
-                                danmakuSendOpen -> danmakuSendOpen = false
-                                danmakuSearchOpen -> danmakuSearchOpen = false
-                                quickPopup != null -> quickPopup = null
-                                settingsPanelKind != null -> settingsPanelKind = null
-                                drawerOpen -> drawerOpen = false
-                                visible -> visible = false
-                                else -> poke()
-                            }
-                        },
-                        onDoubleTap = { offset ->
-                            if (latestWatchLocked) {
-                                gestureHud = "房主控制播放"
-                                haptics.play(HapticSignal.Reject)
-                            } else {
-                                when {
-                                    offset.x < size.width / 3f -> {
-                                        latestOnSeek(
-                                            (latestPosition - 10_000L)
-                                                .coerceIn(0L, latestDuration),
-                                        )
-                                        gestureHud = "快退 10 秒"
-                                    }
-                                    offset.x > size.width * 2f / 3f -> {
-                                        latestOnSeek(
-                                            (latestPosition + 10_000L)
-                                                .coerceIn(0L, latestDuration),
-                                        )
-                                        gestureHud = "快进 10 秒"
-                                    }
-                                    else -> {
-                                        latestOnPlayPause()
-                                        gestureHud = if (state.playing) "暂停" else "播放"
-                                    }
+        // The gesture surface itself is inset. A touch that starts in a dead zone is never
+        // hit-tested into the player, while a gesture that starts inside remains owned by the
+        // player even if the finger later crosses an edge.
+        if (playerGestureInputEnabled(locked = locked, hasError = state.error != null)) {
+            // Tap catcher sits below the controls, so buttons win the gesture.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(touchSafePadding)
+                    // Keyed on nothing: `settingsPanelKind`, `drawerOpen` and `visible` are read
+                    // through their state delegates below, so the detector already sees the
+                    // current values without being torn down. Keying on them meant any of
+                    // them changing restarted the gesture stream mid-press — which the hold
+                    // to fast-forward cannot survive, since it is the release that lands the
+                    // seek and `poke()` flips `visible` the moment the hold starts.
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onPress = {
+                                // The engine is already following every held tick; release only stops it.
+                                tryAwaitRelease()
+                                if (holdSeekDirection != 0) {
+                                    holdSeekDirection = 0
+                                    poke()
                                 }
-                                haptics.play(HapticSignal.Confirm)
-                            }
-                            poke()
-                        },
-                        onLongPress = { offset ->
-                            // Left half rewinds, right half fast-forwards — the same split
-                            // the double tap already uses, so one gesture explains the other.
-                            when {
-                                latestWatchLocked -> {
+                            },
+                            onTap = {
+                                when {
+                                    watchChatOpen -> watchChatOpen = false
+                                    danmakuSendOpen -> danmakuSendOpen = false
+                                    danmakuSearchOpen -> danmakuSearchOpen = false
+                                    quickPopup != null -> quickPopup = null
+                                    settingsPanelKind != null -> settingsPanelKind = null
+                                    drawerOpen -> drawerOpen = false
+                                    visible -> visible = false
+                                    else -> poke()
+                                }
+                            },
+                            onDoubleTap = { offset ->
+                                if (latestWatchLocked) {
                                     gestureHud = "房主控制播放"
                                     haptics.play(HapticSignal.Reject)
-                                }
-                                latestDuration <= 0L -> Unit
-                                else -> {
-                                    holdSeekTarget = latestPosition
-                                    holdSeekDirection = if (offset.x < size.width / 2f) -1 else 1
-                                    // A hold that has taken hold — the same signal a long
-                                    // press gets everywhere else in the app.
+                                } else {
+                                    when {
+                                        offset.x < size.width / 3f -> {
+                                            latestOnSeek(
+                                                (latestPosition - 10_000L)
+                                                    .coerceIn(0L, latestDuration),
+                                            )
+                                            gestureHud = "快退 10 秒"
+                                        }
+                                        offset.x > size.width * 2f / 3f -> {
+                                            latestOnSeek(
+                                                (latestPosition + 10_000L)
+                                                    .coerceIn(0L, latestDuration),
+                                            )
+                                            gestureHud = "快进 10 秒"
+                                        }
+                                        else -> {
+                                            latestOnPlayPause()
+                                            gestureHud = if (state.playing) "暂停" else "播放"
+                                        }
+                                    }
                                     haptics.play(HapticSignal.Confirm)
                                 }
-                            }
-                            poke()
-                        },
-                    )
-                }.pointerInput(
-                    state.currentIndex,
-                ) {
-                    var totalX = 0f
-                    var totalY = 0f
-                    var startX = 0f
-                    var seekTarget = latestPosition
-                    var volumeAtDragStart = latestVolume
-                    var brightnessAtDragStart = latestBrightness
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            startX = offset.x
-                            totalX = 0f
-                            totalY = 0f
-                            seekTarget = latestPosition
-                            volumeAtDragStart = latestVolume
-                            brightnessAtDragStart = latestBrightness
-                        },
-                        onDragEnd = {
-                            if (
-                                holdSeekDirection == 0 &&
-                                abs(totalX) > abs(totalY) &&
-                                latestDuration > 0 &&
-                                !latestWatchLocked
-                            ) {
-                                latestOnSeek(seekTarget)
-                            }
-                            poke()
-                        },
-                        onDragCancel = { gestureHud = null },
-                    ) { change, amount ->
-                        change.consume()
-                        // A finger that drifts while held is still holding, not scrubbing:
-                        // the hold owns the timeline until it lets go.
-                        if (holdSeekDirection != 0) return@detectDragGestures
-                        totalX += amount.x
-                        totalY += amount.y
-                        if (abs(totalX) > abs(totalY)) {
-                            // Brightness/volume drags stay available to guests; only the
-                            // horizontal scrub is the host's to make.
-                            if (latestWatchLocked) {
-                                gestureHud = "房主控制播放"
-                                return@detectDragGestures
-                            }
-                            val span = latestDuration.coerceAtLeast(1L)
-                            seekTarget =
-                                (
-                                    latestPosition + totalX / size.width * span * 0.45f
-                                ).toLong().coerceIn(0L, span)
-                            gestureHud = "${seekTarget.asClock()} / ${span.asClock()}"
-                        } else {
-                            val delta = -totalY / size.height
-                            if (startX < size.width / 2f) {
-                                val target = (brightnessAtDragStart + delta).coerceIn(0.02f, 1f)
-                                latestOnBrightness(target)
-                                gestureHud = "亮度 ${(target * 100).toInt()}%"
-                            } else {
-                                val target = (volumeAtDragStart + delta).coerceIn(0f, 1f)
-                                latestOnVolume(target)
-                                gestureHud = "音量 ${(target * 100).toInt()}%"
+                                poke()
+                            },
+                            onLongPress = { offset ->
+                                // Left half rewinds, right half fast-forwards — the same split
+                                // the double tap already uses, so one gesture explains the other.
+                                when {
+                                    latestWatchLocked -> {
+                                        gestureHud = "房主控制播放"
+                                        haptics.play(HapticSignal.Reject)
+                                    }
+                                    latestDuration <= 0L -> Unit
+                                    else -> {
+                                        holdSeekTarget = latestPosition
+                                        holdSeekDirection = if (offset.x < size.width / 2f) -1 else 1
+                                        // A hold that has taken hold — the same signal a long
+                                        // press gets everywhere else in the app.
+                                        haptics.play(HapticSignal.Confirm)
+                                    }
+                                }
+                                poke()
+                            },
+                        )
+                    }.pointerInput(
+                        state.currentIndex,
+                    ) {
+                        var totalX = 0f
+                        var totalY = 0f
+                        var dragAxis = PlayerDragAxis.Pending
+                        var startX = 0f
+                        var seekTarget = latestPosition
+                        var volumeAtDragStart = latestVolume
+                        var brightnessAtDragStart = latestBrightness
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                startX = offset.x
+                                totalX = 0f
+                                totalY = 0f
+                                dragAxis = PlayerDragAxis.Pending
+                                seekTarget = latestPosition
+                                volumeAtDragStart = latestVolume
+                                brightnessAtDragStart = latestBrightness
+                            },
+                            onDragEnd = {
+                                if (
+                                    holdSeekDirection == 0 &&
+                                    dragAxis == PlayerDragAxis.Horizontal &&
+                                    latestDuration > 0 &&
+                                    !latestWatchLocked
+                                ) {
+                                    latestOnSeek(seekTarget)
+                                }
+                                poke()
+                            },
+                            onDragCancel = { gestureHud = null },
+                        ) { change, amount ->
+                            change.consume()
+                            // A finger that drifts while held is still holding, not scrubbing:
+                            // the hold owns the timeline until it lets go.
+                            if (holdSeekDirection != 0) return@detectDragGestures
+                            totalX += amount.x
+                            totalY += amount.y
+                            dragAxis = resolvePlayerDragAxis(dragAxis, totalX, totalY)
+                            when (dragAxis) {
+                                PlayerDragAxis.Horizontal -> {
+                                    // Brightness/volume drags stay available to guests; only the
+                                    // horizontal scrub is the host's to make.
+                                    if (latestWatchLocked) {
+                                        gestureHud = "房主控制播放"
+                                        return@detectDragGestures
+                                    }
+                                    val span = latestDuration.coerceAtLeast(1L)
+                                    seekTarget =
+                                        (
+                                            latestPosition + totalX / size.width * span * 0.45f
+                                        ).toLong().coerceIn(0L, span)
+                                    gestureHud = "${seekTarget.asClock()} / ${span.asClock()}"
+                                }
+
+                                PlayerDragAxis.Vertical -> {
+                                    val delta = -totalY / size.height
+                                    if (startX < size.width / 2f) {
+                                        val target =
+                                            (brightnessAtDragStart + delta).coerceIn(0.02f, 1f)
+                                        latestOnBrightness(target)
+                                        gestureHud = "亮度 ${(target * 100).toInt()}%"
+                                    } else {
+                                        val target = (volumeAtDragStart + delta).coerceIn(0f, 1f)
+                                        latestOnVolume(target)
+                                        gestureHud = "音量 ${(target * 100).toInt()}%"
+                                    }
+                                }
+
+                                PlayerDragAxis.Pending -> Unit
                             }
                         }
-                    }
-                },
-        )
+                    },
+            )
+        }
 
         state.error?.let { message ->
             PlaybackErrorOverlay(
@@ -671,22 +766,25 @@ internal fun PlayerControls(
                 onRetry = onRetry,
                 onBack = onBack,
             )
-            return@Box
+            return@BoxWithConstraints
         }
 
         if (locked) {
             LockedOverlay(onUnlock = {
-                locked = false
+                onLockedChange(false)
                 poke()
             })
-            return@Box
+            return@BoxWithConstraints
         }
 
         // Top-level actions (投屏/更多) live with the title; media navigation stays below.
         ChromeVisibility(
             visible = visible,
             edge = ChromeEdge.Top,
-            modifier = Modifier.align(Alignment.TopCenter),
+            modifier =
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(chromeSafePadding),
         ) {
             RefinedTopBar(
                 title = episodes.getOrNull(state.currentIndex)?.title.orEmpty(),
@@ -714,7 +812,10 @@ internal fun PlayerControls(
         ChromeVisibility(
             visible = visible,
             edge = ChromeEdge.Bottom,
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(chromeSafePadding),
         ) {
             RefinedBottomBar(
                 state = state,
@@ -771,6 +872,7 @@ internal fun PlayerControls(
                 modifier =
                     Modifier
                         .align(Alignment.BottomEnd)
+                        .padding(chromeSafePadding)
                         .padding(
                             end = 22.dp,
                             bottom = if (visible) 84.dp else 24.dp,
@@ -794,6 +896,7 @@ internal fun PlayerControls(
                 modifier =
                     Modifier
                         .align(Alignment.BottomEnd)
+                        .padding(chromeSafePadding)
                         .padding(end = 22.dp, bottom = 92.dp),
             )
         }
@@ -803,6 +906,7 @@ internal fun PlayerControls(
         val functionPopupModifier =
             Modifier
                 .align(Alignment.BottomEnd)
+                .padding(chromeSafePadding)
                 .padding(end = 18.dp, bottom = 70.dp)
 
         settingsPanelKind?.let { kind ->
@@ -871,7 +975,8 @@ internal fun PlayerControls(
                     onStopCast = onStopCast,
                     onLock = {
                         settingsPanelKind = null
-                        locked = true
+                        holdSeekDirection = 0
+                        onLockedChange(true)
                         visible = true
                     },
                     onOpenGestureHelp = {
@@ -975,7 +1080,10 @@ internal fun PlayerControls(
                     onClearError = room.onClearChatError,
                     onToggleDanmaku = room.onToggleChatDanmaku,
                     onDismiss = closeWatchChat,
-                    modifier = Modifier.align(Alignment.CenterEnd),
+                    modifier =
+                        Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(chromeSafePadding),
                 )
             }
         }
@@ -989,6 +1097,7 @@ internal fun PlayerControls(
             modifier =
                 Modifier
                     .align(Alignment.TopEnd)
+                    .padding(chromeSafePadding)
                     .padding(top = if (visible) 70.dp else 18.dp, end = 22.dp),
         ) {
             WatchChatPreview(
@@ -1029,7 +1138,10 @@ internal fun PlayerControls(
                             }
                         },
                     onDismiss = { drawerOpen = false },
-                    modifier = Modifier.align(Alignment.BottomCenter),
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(chromeSafePadding),
                 )
             }
         }
@@ -1050,7 +1162,10 @@ internal fun PlayerControls(
                             },
                         ),
                     onDismiss = { danmakuSearchOpen = false },
-                    modifier = Modifier.align(Alignment.CenterEnd),
+                    modifier =
+                        Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(chromeSafePadding),
                 )
             }
         }
@@ -1084,6 +1199,7 @@ internal fun PlayerControls(
                 modifier =
                     Modifier
                         .align(Alignment.TopCenter)
+                        .padding(chromeSafePadding)
                         .padding(top = 74.dp)
                         .glass(
                             shape = GlassShapes.chip,
@@ -1173,6 +1289,7 @@ internal fun PlayerControls(
                 modifier =
                     Modifier
                         .align(Alignment.CenterEnd)
+                        .padding(chromeSafePadding)
                         .padding(end = 26.dp),
             )
         }
@@ -1194,6 +1311,7 @@ internal fun PlayerControls(
                     modifier =
                         Modifier
                             .align(Alignment.BottomEnd)
+                            .padding(chromeSafePadding)
                             .padding(end = 22.dp, bottom = 96.dp),
                 )
             }
