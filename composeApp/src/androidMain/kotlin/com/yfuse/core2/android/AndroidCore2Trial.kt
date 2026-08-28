@@ -238,8 +238,8 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
             dolbyVision = version?.dolbyVision == true,
             dolbyVisionSupported =
                 version?.dolbyVision != true ||
-                    version.dolbyProfile == null ||
-                    version.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
+                    version?.dolbyProfile == null ||
+                    version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
             externalSubtitleSupported = item.externalSubtitleUri.isCore2SubtitleSourceSupported(),
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
