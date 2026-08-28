@@ -105,11 +105,31 @@ data class YMediaItem(
     val cacheMaximumBytes: Long = 0L,
     /** Credential-bearing DRM configuration; its own toString is redacted. */
     val drmConfiguration: PlaybackDrmConfiguration? = null,
+    /**
+     * Backend-neutral source facts supplied by the server/UI layer.
+     *
+     * These are hints, not decoder proof. Core2 uses them to decide when a local deep probe is
+     * mandatory (notably extension-less remote Matroska Dolby Vision URLs), but it never claims
+     * active Dolby output from these values alone.
+     */
+    val sourceHints: YMediaSourceHints? = null,
 ) {
     init {
         require(cacheMaximumBytes >= 0L)
     }
 }
+
+data class YMediaSourceHints(
+    val container: String? = null,
+    val videoCodec: String? = null,
+    val dynamicRange: String? = null,
+    val dolbyVision: Boolean = false,
+    val dolbyVisionProfile: Int? = null,
+    val dolbyRpuPresent: Boolean? = null,
+    val dolbyEnhancementLayerPresent: Boolean? = null,
+    val dolbyBaseLayerPresent: Boolean? = null,
+    val dolbyBaseLayerCompatibilityId: Int? = null,
+)
 
 data class YExternalSubtitleSource(
     val uri: String,

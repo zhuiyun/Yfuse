@@ -11,6 +11,7 @@ import com.yfuse.core2.api.YDiscKind
 import com.yfuse.core2.api.YDiscMedia
 import com.yfuse.core2.api.YExternalSubtitleSource
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.legacy.AndroidMpvCore2FallbackFactory
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
@@ -351,11 +352,28 @@ private fun PlayerMediaItem.toCore2MediaItem(
                 },
             ),
         title = title,
+        mimeType = if (usingServerTranscode) null else version?.container.toCore2ContainerMimeType(),
         headers = headers,
         providerKey = serverId,
         cacheIdentity = yCoreCacheIdentity(),
         cacheMaximumBytes = cacheMaximumBytes.coerceAtLeast(0L),
         drmConfiguration = drmConfiguration ?: version?.drmConfiguration,
+        sourceHints =
+            version
+                ?.takeUnless { usingServerTranscode }
+                ?.let { source ->
+                    YMediaSourceHints(
+                        container = source.container,
+                        videoCodec = source.sourceVideoCodec,
+                        dynamicRange = source.sourceDynamicRange,
+                        dolbyVision = source.dolbyVision,
+                        dolbyVisionProfile = source.dolbyProfile,
+                        dolbyRpuPresent = source.sourceDolbyRpuPresent,
+                        dolbyEnhancementLayerPresent = source.sourceDolbyEnhancementLayerPresent,
+                        dolbyBaseLayerPresent = source.sourceDolbyBaseLayerPresent,
+                        dolbyBaseLayerCompatibilityId = source.sourceDolbyBaseLayerCompatibility,
+                    )
+                },
         externalSubtitle =
             externalSubtitleUri
                 ?.takeIf(String::isNotBlank)
@@ -382,6 +400,16 @@ private fun PlayerMediaItem.toCore2MediaItem(
             },
     )
 }
+
+private fun String?.toCore2ContainerMimeType(): String? =
+    when (orEmpty().trim().lowercase()) {
+        "mkv", "matroska" -> "video/x-matroska"
+        "webm" -> "video/webm"
+        "mp4", "m4v" -> "video/mp4"
+        "mov", "quicktime" -> "video/quicktime"
+        "ts", "mpegts", "mpeg-ts", "m2ts", "mts" -> "video/mp2t"
+        else -> null
+    }
 
 private fun PlayerMediaItem.yCoreCacheIdentity(): YCacheIdentity? =
     serverId

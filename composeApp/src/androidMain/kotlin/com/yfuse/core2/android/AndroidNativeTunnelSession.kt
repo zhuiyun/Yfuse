@@ -7,6 +7,7 @@ import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.yPlaybackStage
+import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.sync.YMediaClock
@@ -78,6 +79,7 @@ internal class AndroidNativeTunnelSession(
         startPositionUs: Long = 0L,
         decoderName: String? = null,
         runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null,
+        dolbyVisionConfig: YDolbyVisionConfig? = null,
     ) {
         close()
         this.runtimeCapabilityKey = runtimeCapabilityKey
@@ -112,6 +114,9 @@ internal class AndroidNativeTunnelSession(
                     safeDetail = "Tunnel source has no audio track",
                 )
         val originalVideoFormat = demuxer.trackFormat(videoIndex)
+        dolbyVisionConfig?.let { config ->
+            originalVideoFormat.applyDolbyVisionConfiguration(config)
+        }
         val videoFormat = tunnelConfig.configureVideoFormat(originalVideoFormat)
         val audioFormat = demuxer.trackFormat(audioIndex)
 

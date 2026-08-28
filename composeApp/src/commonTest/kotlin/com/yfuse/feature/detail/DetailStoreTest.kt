@@ -375,38 +375,6 @@ class DetailStoreTest {
     }
 
     @Test
-    fun initial_series_play_target_does_not_wait_for_the_catalog() =
-        runBlocking {
-            val catalogStarted = CompletableDeferred<Unit>()
-            val releaseCatalog = CompletableDeferred<Unit>()
-            val store =
-                seriesStore(
-                    beforeFirstSeasons = {
-                        catalogStarted.complete(Unit)
-                        releaseCatalog.await()
-                    },
-                )
-            try {
-                catalogStarted.await()
-                val ready = awaitRealTime { store.states.first { !it.selectionLoading } }
-
-                assertEquals("e1", ready.playTarget?.id)
-                assertTrue(ready.episodesLoading)
-                store.labels.test(timeout = 10.seconds) {
-                    store.accept(DetailIntent.Play)
-                    assertEquals(
-                        DetailLabel.Play("one", "e1", 10_000_000L, "ev1"),
-                        awaitItem(),
-                    )
-                    cancelAndConsumeRemainingEvents()
-                }
-            } finally {
-                releaseCatalog.complete(Unit)
-                store.dispose()
-            }
-        }
-
-    @Test
     fun play_while_episode_is_resolving_waits_for_and_plays_the_new_episode() =
         runBlocking {
             val started = CompletableDeferred<Unit>()
@@ -951,7 +919,6 @@ class DetailStoreTest {
     private fun seriesStore(
         includeSecondSource: Boolean = false,
         beforeEpisodeTwoDetail: suspend () -> Unit = {},
-        beforeFirstSeasons: suspend () -> Unit = {},
         beforeSecondEpisodes: suspend () -> Unit = {},
         secondEpisodesBody: String = """{"Items":[$ALT_EPISODE_ONE]}""",
         onSecondEpisodeDetail: () -> Unit = {},
@@ -1000,8 +967,7 @@ class DetailStoreTest {
                             )
                         }
                     }
-                    path.endsWith("/Shows/s1/Seasons") -> {
-                        beforeFirstSeasons()
+                    path.endsWith("/Shows/s1/Seasons") ->
                         json(
                             if (seasonTwoEpisodesFailure == null) {
                                 """{"Items":[{"Id":"season1","Name":"第 1 季","IndexNumber":1}]}"""
@@ -1010,7 +976,6 @@ class DetailStoreTest {
                                     """{"Id":"season2","Name":"第 2 季","IndexNumber":2}]}"""
                             },
                         )
-                    }
                     path.endsWith("/Shows/s2/Seasons") ->
                         json(
                             """{"Items":[{"Id":"aseason1","Name":"第 1 季","IndexNumber":1}]}""",

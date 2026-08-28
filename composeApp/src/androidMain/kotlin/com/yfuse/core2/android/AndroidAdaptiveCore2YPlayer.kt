@@ -256,6 +256,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         var pendingPositionMs = request.startPositionMs
         var allowTunnel = true
         var forceSoftwareFallback = false
+        var bypassLearnedRouteMemoryOnce = false
         var pendingFailureKey: YCore2FailureKey? = null
         var finalizeChildLearning: (() -> Unit)? = null
         val sameRouteRecoveryAttempts = mutableMapOf<RouteRecoveryKey, Int>()
@@ -279,7 +280,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                     playing = false,
                     playbackRequested = requestedPlay,
                     buffering = false,
-                    error = "YCore 2.0 当前没有可证明安全的本地路径，已停止播放",
+                    error =
+                        if (fallbackRouteFactory == null) {
+                            "YCore 2.0 无法确认当前片源的安全播放路径；请重试或切换兼容内核"
+                        } else {
+                            "YCore 2.0 无法确认当前片源的安全播放路径，正在交给兼容内核"
+                        },
                     errorCategory = YPlaybackFailureCategory.Unknown,
                     diagnostics =
                         it.diagnostics.copy(
@@ -296,6 +302,8 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         fun createChild(positionMs: Long): YPlayer? {
             pendingFailureKey = null
+            val bypassLearnedRouteMemory = bypassLearnedRouteMemoryOnce
+            bypassLearnedRouteMemoryOnce = false
             val item = queueItems[currentIndex]
             val tunnelAllowed =
                 allowTunnel &&
@@ -325,13 +333,14 @@ internal class AndroidAdaptiveCore2YPlayer(
                     allowAudioPassthrough = allowAudioPassthrough,
                 ) ?: return null
             if (
-                !forceSoftwareFallback &&
-                decision.plan.route == YPlaybackRoute.NativeTunnel &&
-                (
-                    failureLedger.isBlocked(decision.toFailureKey()) ||
-                        learningEngine.advice(decision.toFailureKey().toLearningKey()) !=
-                        YLearnedRouteAdvice.Allow
-                )
+                !bypassLearnedRouteMemory &&
+                    !forceSoftwareFallback &&
+                    decision.plan.route == YPlaybackRoute.NativeTunnel &&
+                    (
+                        failureLedger.isBlocked(decision.toFailureKey()) ||
+                            learningEngine.advice(decision.toFailureKey().toLearningKey()) !=
+                            YLearnedRouteAdvice.Allow
+                    )
             ) {
                 decision =
                     routeEvaluator.evaluate(
@@ -342,9 +351,12 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
             val learnedAdvice = learningEngine.advice(decision.toFailureKey().toLearningKey())
             if (
-                forceSoftwareFallback ||
-                failureLedger.isBlocked(decision.toFailureKey()) ||
-                learnedAdvice == YLearnedRouteAdvice.Avoid
+                !bypassLearnedRouteMemory &&
+                    (
+                        forceSoftwareFallback ||
+                            failureLedger.isBlocked(decision.toFailureKey()) ||
+                            learnedAdvice == YLearnedRouteAdvice.Avoid
+                    )
             ) {
                 decision =
                     decision.copy(
@@ -358,7 +370,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             ),
                     )
             }
-            if (failureLedger.isBlocked(decision.toFailureKey())) return null
+            if (!bypassLearnedRouteMemory && failureLedger.isBlocked(decision.toFailureKey())) return null
             val plan = decision.plan
             pendingFailureKey = decision.toFailureKey()
             return when {
@@ -380,6 +392,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         decision.runtimeCapabilityKey(),
                         decision.plan.audioPath,
                         frameRateSwitchMode,
+                        decision.probe.dolbyVisionConfig,
                     )
                 !forceSoftwareFallback && decision.nativeEnhancedExecutable ->
                     AndroidNativeEnhancedYPlayer(
@@ -621,6 +634,9 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
 
         fun rebuild(positionMs: Long) {
+            // MediaCodec instances are scarce on vendor builds. Release the failed/old graph
+            // before probing and constructing its replacement so Retry cannot contend with it.
+            stopChild()
             mutableState.updateState {
                 it.copy(
                     phase = YPlaybackPhase.Preparing,
@@ -771,8 +787,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                         Command.Retry -> {
                             sameRouteRecoveryAttempts.keys.removeAll { it.itemIndex == currentIndex }
                             codecResetCounts.remove(currentIndex)
+                            allowTunnel = true
                             forceSoftwareFallback = false
-                            rebuild(mutableState.value.positionMs)
+                            bypassLearnedRouteMemoryOnce = true
+                            pendingFailureKey = null
+                            pendingPositionMs =
+                                mutableState.value
+                                    .takeIf { it.currentIndex == currentIndex }
+                                    ?.positionMs
+                                    ?.coerceAtLeast(0L)
+                                    ?: pendingPositionMs
+                            rebuild(pendingPositionMs)
                         }
                     }
                 } catch (_: Throwable) {

@@ -18,6 +18,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackSegment
+import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.EmbyImages
@@ -774,6 +775,7 @@ class PlayerStoreFactory(
 
                 var negotiatedVersions: List<MediaVersion> = emptyList()
                 var negotiatedSessionId: String? = null
+                var negotiatedTrickplay: TrickplayInfo? = null
 
                 fun itemOf(
                     id: String,
@@ -868,6 +870,25 @@ class PlayerStoreFactory(
                                 unqualified.discSource &&
                                     unqualified.playMethod == PlaybackMethod.Transcode
                             },
+                        trickplay =
+                            (if (id == effectiveItemId) negotiatedTrickplay else null)?.let { info ->
+                                TrickplayStoryboard(
+                                    urlPattern =
+                                        EmbyStream.trickplayTilePattern(
+                                            baseUrl = server.baseUrl,
+                                            itemId = id,
+                                            mediaSourceId = unqualified.id,
+                                            width = info.width,
+                                            token = server.accessToken,
+                                        ),
+                                    width = info.width,
+                                    height = info.height,
+                                    tileColumns = info.tileColumns,
+                                    tileRows = info.tileRows,
+                                    intervalMs = info.intervalMs,
+                                    thumbnailCount = info.thumbnailCount,
+                                )
+                            },
                         serverId = server.id,
                         playbackSegments = playbackSegments,
                         seasonNumber = seasonNumber,
@@ -923,29 +944,6 @@ class PlayerStoreFactory(
                     )
                 }
                 val detail = detailResult.getOrNull()
-                val seriesId = detail?.seriesId
-                // Queue artwork and sibling episodes are independent of PlaybackInfo. Starting
-                // them together keeps first launch latency to the slowest required request instead
-                // of adding three server round trips before the activity can open.
-                val seriesDetailDeferred =
-                    if (detail?.type == "Episode" && seriesId != null) {
-                        async { repo.itemDetail(server, seriesId) }
-                    } else {
-                        null
-                    }
-                val episodesDeferred =
-                    if (detail?.type == "Episode" && seriesId != null) {
-                        async {
-                            repo.episodes(
-                                server,
-                                seriesId,
-                                null,
-                                includeMediaSources = true,
-                            )
-                        }
-                    } else {
-                        null
-                    }
                 val requestedSessionId = EmbyStream.newPlaySessionId()
                 var selectedSourceMismatch: PlaybackSourceMismatch? = null
                 val playbackInfoResult =
@@ -1032,25 +1030,23 @@ class PlayerStoreFactory(
                             ),
                     )
                     dispatch(PlayerMsg.Failed("所选资源与服务器返回不一致，请刷新详情后重试"))
-                    seriesDetailDeferred?.cancel()
-                    episodesDeferred?.cancel()
                     return@launch
                 }
-                // Trickplay is intentionally absent here: PlayerRoot already loads it lazily once
-                // playback is visible, so a preview strip can never delay the first frame.
-                val serverFallbacksDeferred =
+                // The shared Ktor client already enforces a request timeout. Wrapping a second
+                // request in a coroutine timeout here can strand MockEngine/UI continuations
+                // on the caller dispatcher, so the optional metadata relies on that budget.
+                negotiatedTrickplay = repo.trickplayInfo(server, effectiveItemId).getOrNull()
+                val seriesId = detail?.seriesId
+                val serverFallbacks =
                     failoverPlan
                         ?.let { plan ->
-                            async {
-                                resolveServerFallbacks(
-                                    serverIds = remainingFallbackServerIds,
-                                    mediaKey = plan.mediaKey,
-                                    startPositionTicks = effectiveStartPositionTicks,
-                                    titleFallback = detail?.title.orEmpty(),
-                                )
-                            }
-                        }
-                val serverFallbacks = serverFallbacksDeferred?.await().orEmpty()
+                            resolveServerFallbacks(
+                                serverIds = remainingFallbackServerIds,
+                                mediaKey = plan.mediaKey,
+                                startPositionTicks = effectiveStartPositionTicks,
+                                titleFallback = detail?.title.orEmpty(),
+                            )
+                        }.orEmpty()
                 if (serverFallbacks.isNotEmpty()) {
                     AppLog.info(
                         category = "feature.player",
@@ -1069,7 +1065,7 @@ class PlayerStoreFactory(
                     // episode recognisable on someone else's server (see episodeWatchKey).
                     // One extra request per queue, and a miss only costs the cross-server
                     // half of watch-together.
-                    val seriesDetail = requireNotNull(seriesDetailDeferred).await().getOrNull()
+                    val seriesDetail = repo.itemDetail(server, seriesId).getOrNull()
                     val seriesProviderIds = seriesDetail?.providerIds.orEmpty()
                     val seriesPosterUrl =
                         EmbyImages.primary(
@@ -1079,7 +1075,13 @@ class PlayerStoreFactory(
                             maxHeight = 360,
                             accessToken = server.accessToken,
                         )
-                    val episodesResult = requireNotNull(episodesDeferred).await()
+                    val episodesResult =
+                        repo.episodes(
+                            server,
+                            seriesId,
+                            null,
+                            includeMediaSources = true,
+                        )
                     episodesResult.onFailure {
                         AppLog.warning(
                             category = "feature.player",

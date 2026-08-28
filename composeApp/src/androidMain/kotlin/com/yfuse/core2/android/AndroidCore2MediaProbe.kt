@@ -213,22 +213,32 @@ internal class AndroidCore2RouteEvaluator(
         preferTunnel: Boolean = true,
         allowAudioPassthrough: Boolean = true,
     ): YCore2RouteDecision? {
-        val platform = platformProbe.probe(item) as? YCore2ProbeResult.Success
+        val platform =
+            (platformProbe.probe(item) as? YCore2ProbeResult.Success)
+                ?.withConfirmedDolbyVisionSourceHint(item)
+        val sourceClaimsDolbyVision = item.sourceHints?.dolbyVision == true
         val resolved =
             when {
                 platform == null && item.drmConfiguration != null -> null
-                platform == null -> enhancedProbe.probe(item) as? YCore2ProbeResult.Success
-                item.drmConfiguration != null -> platform
-                platform.requiresEnhancedTruthProbe() -> {
+                platform == null ->
+                    (enhancedProbe.probe(item) as? YCore2ProbeResult.Success)
+                        ?.takeUnless { sourceClaimsDolbyVision && it.dolbyVisionConfig == null }
+                item.drmConfiguration != null ->
+                    platform.takeUnless {
+                        sourceClaimsDolbyVision && platform.dolbyVisionConfig == null
+                    }
+                platform.requiresEnhancedTruthProbe(item) -> {
                     val requiresDolbyProfileTruth =
-                        platform.playbackRequest.video.hdrType == YHdrType.DolbyVision &&
-                            platform.dolbyVisionConfig == null
+                        sourceClaimsDolbyVision ||
+                            platform.playbackRequest.video.hdrType == YHdrType.DolbyVision &&
+                                platform.dolbyVisionConfig == null
                     val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
                     when {
+                        deep?.dolbyVisionConfig != null -> deep
                         // The platform identified Dolby Vision but did not expose its configuration.
                         // Do not let a generic HEVC plan bypass the exact-profile Dolby router.
                         requiresDolbyProfileTruth ->
-                            deep?.takeIf { it.dolbyVisionConfig != null } ?: return null
+                            platform.takeIf { it.dolbyVisionConfig != null } ?: return null
                         deep != null &&
                             (deep.materiallyOverrides(platform) ||
                                 deep.dolbyVisionStreamEvidence != null) -> deep
@@ -408,6 +418,46 @@ private fun YMediaItem.toProbeSource(): YAndroidMediaSource =
         cacheMaximumBytes = cacheMaximumBytes,
     )
 
+/**
+ * A server-confirmed P5 tag is sufficient to prevent the platform extractor from silently
+ * downgrading the track to generic HEVC. Other profiles still require full local container truth
+ * because their enhancement/base-layer shape cannot be inferred from a profile number alone.
+ */
+internal fun YCore2ProbeResult.Success.withConfirmedDolbyVisionSourceHint(
+    item: YMediaItem,
+): YCore2ProbeResult.Success {
+    val hints = item.sourceHints ?: return this
+    if (!hints.dolbyVision || hints.dolbyVisionProfile != 5 || dolbyVisionConfig != null) return this
+    val config =
+        YDolbyVisionConfig(
+            versionMajor = 1,
+            versionMinor = 0,
+            profile = 5,
+            level = 0,
+            rpuPresent = hints.dolbyRpuPresent != false,
+            enhancementLayerPresent = false,
+            baseLayerPresent = hints.dolbyBaseLayerPresent != false,
+            baseLayerCompatibilityId = 0,
+            metadataCompression = 0,
+        )
+    return copy(
+        playbackRequest =
+            playbackRequest.copy(
+                video =
+                    playbackRequest.video.copy(
+                        codec = YVideoCodec.H265,
+                        bitDepth = maxOf(playbackRequest.video.bitDepth, 10),
+                        hdrType = YHdrType.DolbyVision,
+                        dolbyVisionProfile = 5,
+                    ),
+                fallbackHdrType = null,
+            ),
+        videoMime = MIME_DOLBY_VISION,
+        dolbyVisionConfig = config,
+        dolbyVisionStreamEvidence = YDolbyVisionStreamEvidence(config),
+    )
+}
+
 private fun String.toCore2VideoCodec(
     format: MediaFormat,
     dolbyVisionConfig: YDolbyVisionConfig?,
@@ -440,12 +490,33 @@ private fun MediaFormat.dolbyVisionCodecFromPlatformProfile(): YVideoCodec {
 
 /** AOSP MP4 extraction exposes dvcC/dvvC/dvwC as the opaque `csd-2` MediaFormat buffer. */
 private fun MediaFormat.dolbyVisionConfigOrNull(mime: String): YDolbyVisionConfig? {
-    if (mime != "video/dolby-vision" || !containsKey(CSD_2)) return null
-    val source = runCatching { getByteBuffer(CSD_2) }.getOrNull() ?: return null
-    val copy = source.duplicate()
-    val bytes = ByteArray(copy.remaining())
-    copy.get(bytes)
-    return runCatching { YDolbyVisionConfig.parse(bytes) }.getOrNull()
+    if (mime != MIME_DOLBY_VISION) return null
+    if (containsKey(CSD_2)) {
+        val parsed =
+            runCatching {
+                val source = checkNotNull(getByteBuffer(CSD_2)).duplicate()
+                val bytes = ByteArray(source.remaining())
+                source.get(bytes)
+                YDolbyVisionConfig.parse(bytes)
+            }.getOrNull()
+        if (parsed != null) return parsed
+    }
+    // Matroska extractors on several Android builds expose the semantic profile in KEY_PROFILE
+    // but omit dvcC/dvvC. P5 is single-layer and has no compatible ordinary-HEVC fallback, so its
+    // minimal configuration can be reconstructed without inventing EL/FEL facts.
+    val profile = intOrZero(MediaFormat.KEY_PROFILE).toSemanticDolbyVisionProfile()
+    if (profile != 5) return null
+    return YDolbyVisionConfig(
+        versionMajor = 1,
+        versionMinor = 0,
+        profile = profile,
+        level = 0,
+        rpuPresent = true,
+        enhancementLayerPresent = false,
+        baseLayerPresent = true,
+        baseLayerCompatibilityId = 0,
+        metadataCompression = 0,
+    )
 }
 
 private fun MediaFormat.intOrZero(key: String): Int = if (containsKey(key)) runCatching { getInteger(key) }.getOrDefault(0) else 0
@@ -537,6 +608,15 @@ internal fun YMediaItem.containerHint(): YContainer {
     }
 }
 
+internal fun MediaFormat.applyDolbyVisionConfiguration(config: YDolbyVisionConfig): MediaFormat =
+    apply {
+        setString(MediaFormat.KEY_MIME, MIME_DOLBY_VISION)
+        config.profile.toAndroidDolbyVisionProfile()?.let { setInteger(MediaFormat.KEY_PROFILE, it) }
+        // Preserve an extractor-provided dvcC/dvvC record verbatim. When it is absent, MIME and
+        // exact KEY_PROFILE are enough to select the Dolby decoder without fabricating a level.
+    }
+
+private const val MIME_DOLBY_VISION = "video/dolby-vision"
 private const val CSD_2 = "csd-2"
 private const val COLOR_TRANSFER_ST2084 = 6
 private const val COLOR_TRANSFER_HLG = 7
