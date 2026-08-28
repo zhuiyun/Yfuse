@@ -1,22 +1,70 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.capability.YContainer
+import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.capability.YVideoCodec
+import com.yfuse.core2.capability.YVideoRequirement
+import com.yfuse.core2.strategy.YPlaybackRequest
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
 import kotlin.test.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidCore2DolbyTrialGuardTest {
     @Test
-    fun unknown_dolby_profile_stays_on_legacy_even_when_old_metadata_marked_it_safe() {
-        assertFalse(
+    fun unknown_dolby_profile_enters_local_truth_probe() {
+        val queue =
             listOf(
                 item(
                     dolbyProfile = null,
                     needsDolbyDecoder = false,
                 ),
+            )
+
+        assertTrue(queue.canUseCore2Trial(startIndex = 0))
+        assertNull(queue.core2NativeBaselineBlockReason(startIndex = 0))
+    }
+
+    @Test
+    fun known_unsupported_dolby_profile_remains_blocked() {
+        assertFalse(
+            listOf(
+                item(
+                    dolbyProfile = 6,
+                    needsDolbyDecoder = true,
+                ),
             ).canUseCore2Trial(startIndex = 0),
         )
+    }
+
+    @Test
+    fun platform_dolby_without_configuration_requires_enhanced_truth_probe() {
+        val platform =
+            YCore2ProbeResult.Success(
+                playbackRequest =
+                    YPlaybackRequest(
+                        container = YContainer.Matroska,
+                        video =
+                            YVideoRequirement(
+                                codec = YVideoCodec.H265,
+                                width = 3840,
+                                height = 2160,
+                                frameRate = 24f,
+                                bitDepth = 10,
+                                hdrType = YHdrType.DolbyVision,
+                                dolbyVisionProfile = null,
+                            ),
+                        platformDemuxSupported = true,
+                        enhancedDemuxSupported = true,
+                    ),
+                videoMime = "video/dolby-vision",
+                audioMime = null,
+                durationMs = 60_000L,
+            )
+
+        assertTrue(platform.requiresEnhancedTruthProbe())
     }
 
     @Test
@@ -68,6 +116,8 @@ class AndroidCore2DolbyTrialGuardTest {
                 url = url,
                 transcodeUrl = "",
                 fallbackTranscodeUrl = "",
+                container = "mkv",
+                sourceVideoCodec = "hevc",
                 dolbyVision = true,
                 dolbyProfile = dolbyProfile,
                 needsDolbyDecoder = needsDolbyDecoder,

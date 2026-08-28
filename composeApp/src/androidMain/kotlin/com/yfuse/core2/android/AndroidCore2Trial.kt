@@ -201,13 +201,15 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
     if (isEmpty() || startIndex !in indices) return false
     return all { item ->
         val version = item.activeVersion
-        // Only the profiles covered by YCore's strict Dolby router enter runtime probing. Unknown
-        // profiles remain fail-closed; a vendor decoder/private-surface rejection is recorded for
-        // the exact route and falls back without promoting the route to verified support.
-        val unsupportedDolbyProfile =
-            version?.dolbyVision == true && version.dolbyProfile !in CORE2_DOLBY_TRIAL_PROFILES
+        // Unknown server metadata is not evidence that the stream is unsupported. Let it reach
+        // YCore's local MediaExtractor/FFmpeg truth probe, then keep routing fail-closed if that
+        // probe still cannot identify a supported Dolby Vision profile.
+        val knownUnsupportedDolbyProfile =
+            version?.dolbyVision == true &&
+                version.dolbyProfile != null &&
+                version.dolbyProfile !in CORE2_DOLBY_TRIAL_PROFILES
         val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
-        !unsupportedDolbyProfile &&
+        !knownUnsupportedDolbyProfile &&
             (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
             item.externalSubtitleUri.isCore2SubtitleSourceSupported() &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
@@ -235,7 +237,9 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
             drmSupported = drmConfiguration?.let { item.supportsCore2Drm(it.scheme) } == true,
             dolbyVision = version?.dolbyVision == true,
             dolbyVisionSupported =
-                version?.dolbyVision != true || version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
+                version?.dolbyVision != true ||
+                    version?.dolbyProfile == null ||
+                    version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
             externalSubtitleSupported = item.externalSubtitleUri.isCore2SubtitleSourceSupported(),
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()

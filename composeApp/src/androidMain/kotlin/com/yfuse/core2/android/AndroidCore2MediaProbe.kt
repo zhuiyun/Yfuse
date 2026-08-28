@@ -220,14 +220,19 @@ internal class AndroidCore2RouteEvaluator(
                 platform == null -> enhancedProbe.probe(item) as? YCore2ProbeResult.Success
                 item.drmConfiguration != null -> platform
                 platform.requiresEnhancedTruthProbe() -> {
+                    val requiresDolbyProfileTruth =
+                        platform.playbackRequest.video.hdrType == YHdrType.DolbyVision &&
+                            platform.dolbyVisionConfig == null
                     val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
-                    if (
+                    when {
+                        // The platform identified Dolby Vision but did not expose its configuration.
+                        // Do not let a generic HEVC plan bypass the exact-profile Dolby router.
+                        requiresDolbyProfileTruth ->
+                            deep?.takeIf { it.dolbyVisionConfig != null } ?: return null
                         deep != null &&
-                        (deep.materiallyOverrides(platform) || deep.dolbyVisionStreamEvidence != null)
-                    ) {
-                        deep
-                    } else {
-                        platform
+                            (deep.materiallyOverrides(platform) ||
+                                deep.dolbyVisionStreamEvidence != null) -> deep
+                        else -> platform
                     }
                 }
                 else -> platform
@@ -252,6 +257,9 @@ internal class AndroidCore2RouteEvaluator(
                     gpuProcessingSupported = nativeGpuRuntimeProbe.canAttemptNativeVulkan,
                 )
             }
+        // Dolby routing is authoritative, not a diagnostic decoration. A profile/display/decoder
+        // mismatch must not fall through to the generic HEVC planner and produce a green picture.
+        if (dolbyDecision is YDolbyVisionRouteDecision.Unsupported) return null
         var plan = strategy.plan(request, capabilities)
         val unseenRuntimeKey = runtimeVideoCapabilityKey(request, plan)
         if (
