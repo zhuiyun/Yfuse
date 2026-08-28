@@ -38,7 +38,7 @@ class PlayerStoreTest {
 
     @Test
     fun retry_after_initial_load_failure_enters_loading_and_recovers() =
-        runTest {
+        runBlocking {
             val registry = testRegistry()
             val allowSuccessfulLoad = CompletableDeferred<Unit>()
             val successfulLoadStarted = CompletableDeferred<Unit>()
