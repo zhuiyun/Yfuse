@@ -70,6 +70,28 @@ class PlaybackTruthTest {
         )
     }
 
+    @Test
+    fun native_dual_dolby_requires_both_live_output_readiness_signals() {
+        val outputClaims =
+            PlaybackDiagnostics(
+                dolbyVisionOutput = true,
+                dolbyAtmosOutput = true,
+            )
+
+        assertFalse(outputClaims.hasNativeDualDolbyOutput())
+        assertFalse(
+            outputClaims.copy(
+                videoReadiness = PlaybackOutputReadiness.Rendering,
+            ).hasNativeDualDolbyOutput(),
+        )
+        assertTrue(
+            outputClaims.copy(
+                videoReadiness = PlaybackOutputReadiness.Rendering,
+                audioReadiness = PlaybackOutputReadiness.Rendering,
+            ).hasNativeDualDolbyOutput(),
+        )
+    }
+
     /**
      * A badge is a claim made to the viewer about their hardware, so it must not be reachable
      * by wording. These were recovered by substring-matching the diagnostic labels — 首帧已输出,

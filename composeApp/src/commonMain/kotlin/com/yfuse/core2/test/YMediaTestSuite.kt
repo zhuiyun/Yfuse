@@ -234,8 +234,11 @@ data class YMediaTestObservation(
     /** Structured Dolby trace emitted in place of a manual true-device checklist. */
     val dolbyVisionProfile: String? = null,
     val videoOutputMode: String? = null,
+    val audioCodec: String? = null,
     val audioOutputMode: String? = null,
     val serverTranscodeUsed: Boolean = false,
+    val audioOutputVerified: Boolean = false,
+    val dolbyAtmosOutput: Boolean = false,
     val dolbyVisionOutput: Boolean = false,
     val dolbyRpuApplied: Boolean = false,
     /** EL reached the exact P7 decoder; kept separate because delivery is not composition. */

@@ -241,7 +241,18 @@ data class YPlayerDiagnostics(
     val avSyncMeasured: Boolean = avSyncOffsetMs != null,
     val avSyncMeasurement: String = "当前内核不可测",
     val reason: String? = null,
-)
+) {
+    /**
+     * True only when one active playback session has independently verified native Dolby Vision
+     * video output and encoded Dolby Atmos audio output. Source metadata must never set this.
+     */
+    val nativeDualDolbyOutput: Boolean
+        get() =
+            videoOutputVerified &&
+                audioOutputVerified &&
+                dolbyVisionOutput &&
+                dolbyAtmosOutput
+}
 
 data class YPlayerState(
     val phase: YPlaybackPhase = YPlaybackPhase.Idle,

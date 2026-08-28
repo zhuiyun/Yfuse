@@ -186,6 +186,13 @@ internal fun PlaybackDiagnostics.hasActiveDolbyVisionOutput(): Boolean = dolbyVi
 
 internal fun PlaybackDiagnostics.hasActiveDolbyAtmosOutput(): Boolean = dolbyAtmosOutput
 
+/** Both native outputs must be live in this exact playback session; source flags do not qualify. */
+internal fun PlaybackDiagnostics.hasNativeDualDolbyOutput(): Boolean =
+    videoReadiness == PlaybackOutputReadiness.Rendering &&
+        audioReadiness == PlaybackOutputReadiness.Rendering &&
+        dolbyVisionOutput &&
+        dolbyAtmosOutput
+
 internal fun PlayerMediaItem.sourceDynamicRange(transcoding: Boolean): String =
     activeVersion
         ?.sourceDynamicRange

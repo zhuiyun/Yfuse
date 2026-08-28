@@ -994,6 +994,8 @@ internal fun PlayerRoot(
                 "audioOutput" to state.diagnostics.audioOutput,
                 "dolbyVisionOutput" to state.diagnostics.dolbyVisionOutput.toString(),
                 "dolbyAtmosBitstreamOutput" to state.diagnostics.dolbyAtmosOutput.toString(),
+                "nativeDualDolbyOutput" to
+                    state.diagnostics.hasNativeDualDolbyOutput().toString(),
                 "p7OutputEvidence" to p7.evidence.name,
                 "felClaimAllowed" to p7.canClaimFel.toString(),
                 "serverTranscode" to state.transcoding.toString(),

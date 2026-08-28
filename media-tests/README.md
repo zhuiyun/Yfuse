@@ -113,6 +113,11 @@ requires an observed RPU/EL to reach the exact Dolby decoder, then a rendered na
 RPU is considered applied. EL delivery is reported independently and never satisfies the P7 FEL
 gate; FEL remains `Fail`/`NotMeasured` until an independent output trace proves EL contribution.
 
+Atmos and dual-Dolby gates are equally strict. E-AC3 JOC and TrueHD Atmos cases must report a
+verified encoded `AudioTrack` output, not just an Atmos source codec. A dual-Dolby case passes only
+when that Atmos evidence and verified native Dolby Vision output occur in the same healthy,
+non-transcoded observation. Separate successful video and audio runs are never combined.
+
 For development, the individual instrumentation methods can still be invoked directly with
 `ycoreMediaManifest`, `ycoreSmokeMedia`, or `ycoreSoakMedia`. Direct invocations are useful for
 diagnosis but do not create release evidence unless their output is passed through the collector.

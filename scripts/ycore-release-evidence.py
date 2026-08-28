@@ -13,7 +13,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 
 SCHEMA_VERSION = 1
@@ -108,9 +108,12 @@ def validate_observation(value: Any) -> None:
     for field in ("completed", "timedOut"):
         if not isinstance(value.get(field), bool):
             raise EvidenceError(f"{value['caseId']}: {field} must be a boolean")
-    if "serverTranscodeUsed" in value and not isinstance(value["serverTranscodeUsed"], bool):
-        raise EvidenceError(f"{value['caseId']}: serverTranscodeUsed must be a boolean")
+    if "audioCodec" in value and value["audioCodec"] is not None and not isinstance(value["audioCodec"], str):
+        raise EvidenceError(f"{value['caseId']}: audioCodec must be a string or null")
     for field in (
+        "serverTranscodeUsed",
+        "audioOutputVerified",
+        "dolbyAtmosOutput",
         "dolbyVisionOutput",
         "dolbyRpuApplied",
         "dolbyEnhancementLayerDelivered",
@@ -322,6 +325,23 @@ def verify_evidence(report: dict[str, Any], suite: dict[str, Any]) -> dict[str, 
         if isinstance(case, dict) and case.get("dolbyVisionProfile")
     }
 
+    def normalized_audio_codec(value: Any) -> str:
+        return str(value or "").strip().lower().replace("_", "-")
+
+    atmos_case_ids = {
+        case["id"]
+        for case in cases
+        if isinstance(case, dict)
+        and normalized_audio_codec(case.get("audioCodec")) in {"eac3-joc", "truehd-atmos"}
+    }
+    dual_dolby_case_ids = {
+        case["id"]
+        for case in cases
+        if isinstance(case, dict)
+        and case.get("dolbyVisionProfile")
+        and normalized_audio_codec(case.get("audioCodec")) in {"eac3-joc", "truehd-atmos"}
+    }
+
     runs: list[dict[str, Any]] = report["runs"]
     all_observations = [observation for run in runs for observation in run["observations"]]
     instrumentation_ok = bool(runs) and all(run["instrumentationSucceeded"] for run in runs)
@@ -391,6 +411,12 @@ def verify_evidence(report: dict[str, Any], suite: dict[str, Any]) -> dict[str, 
     native_dolby = dolby_profile_observations("p5", "p8.1", "p8.4", "p10.1", "p10.4")
     p7 = dolby_profile_observations("p7_mel", "p7_fel", "p7_unknown")
     p7_fel = dolby_profile_observations("p7_fel")
+    atmos_observations = [
+        item for item in healthy_matrix_observations if item.get("caseId") in atmos_case_ids
+    ]
+    dual_dolby_observations = [
+        item for item in healthy_matrix_observations if item.get("caseId") in dual_dolby_case_ids
+    ]
 
     def dolby_gate(
         observations: list[dict[str, Any]],
@@ -401,6 +427,23 @@ def verify_evidence(report: dict[str, Any], suite: dict[str, Any]) -> dict[str, 
         if not (suite_dolby_profiles & required_profiles):
             return gate(0, 0, True, True, "The selected suite does not require this Dolby variant.")
         passed_count = sum(1 for item in observations if item.get(field) is True)
+        return gate(
+            passed_count,
+            len(observations),
+            bool(observations),
+            bool(observations) and passed_count == len(observations),
+            detail,
+        )
+
+    def case_gate(
+        observations: list[dict[str, Any]],
+        required_case_ids: set[str],
+        predicate: Callable[[dict[str, Any]], bool],
+        detail: str,
+    ) -> dict[str, Any]:
+        if not required_case_ids:
+            return gate(0, 0, True, True, "The selected suite does not require this output path.")
+        passed_count = sum(1 for item in observations if predicate(item))
         return gate(
             passed_count,
             len(observations),
@@ -480,6 +523,21 @@ def verify_evidence(report: dict[str, Any], suite: dict[str, Any]) -> dict[str, 
             queue_soak > 0,
             queue_soak >= 1440,
             "Requires one uninterrupted healthy run; shorter runs are not summed.",
+        ),
+        "dolbyAtmosPassthrough": case_gate(
+            atmos_observations,
+            atmos_case_ids,
+            lambda item: item.get("audioOutputVerified") is True
+            and item.get("dolbyAtmosOutput") is True,
+            "Every Atmos case must produce verified encoded AudioTrack output; a source codec label is insufficient.",
+        ),
+        "nativeDualDolbyOutput": case_gate(
+            dual_dolby_observations,
+            dual_dolby_case_ids,
+            lambda item: item.get("dolbyVisionOutput") is True
+            and item.get("audioOutputVerified") is True
+            and item.get("dolbyAtmosOutput") is True,
+            "Dolby Vision video and encoded Atmos audio must be verified in the same healthy playback observation.",
         ),
         "dolbyVisionNativeOutput": dolby_gate(
             native_dolby,
@@ -669,6 +727,38 @@ class EvidenceSelfTest(unittest.TestCase):
             "Pass",
             verify_evidence(proven, suite)["gates"]["dolbyVisionP7FelComposition"]["status"],
         )
+
+    def test_native_dual_dolby_requires_video_and_audio_evidence_in_one_observation(self) -> None:
+        suite = {
+            "cases": [
+                {
+                    "id": "p8-atmos",
+                    "dolbyVisionProfile": "p8.1",
+                    "audioCodec": "eac3-joc",
+                }
+            ]
+        }
+        observation = {
+            "caseId": "p8-atmos",
+            "elapsedMs": 1,
+            "completed": True,
+            "timedOut": False,
+            "dolbyVisionProfile": "p8.1",
+            "audioCodec": "eac3-joc",
+            "dolbyVisionOutput": True,
+            "audioOutputVerified": True,
+            "dolbyAtmosOutput": False,
+        }
+        report = self.report([self.device_run("device-0", "matrix", "chip-0", [observation])])
+        result = verify_evidence(report, suite)
+        self.assertEqual("Fail", result["gates"]["dolbyAtmosPassthrough"]["status"])
+        self.assertEqual("Fail", result["gates"]["nativeDualDolbyOutput"]["status"])
+
+        proven = copy.deepcopy(report)
+        proven["runs"][0]["observations"][0]["dolbyAtmosOutput"] = True
+        result = verify_evidence(proven, suite)
+        self.assertEqual("Pass", result["gates"]["dolbyAtmosPassthrough"]["status"])
+        self.assertEqual("Pass", result["gates"]["nativeDualDolbyOutput"]["status"])
 
     @staticmethod
     def device_run(

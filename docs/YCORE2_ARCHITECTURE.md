@@ -110,6 +110,14 @@ Planned handling:
 - unsupported native HDR output: hardware decode plus GPU tone mapping only where that representation
   is technically valid.
 
+## Native dual-Dolby truth
+
+“Native dual Dolby” is a same-session output result, not a media badge. YCore reports it only after
+the active video decoder presents a verified native Dolby Vision frame and the active encoded
+`AudioTrack` establishes a verified E-AC3 JOC or TrueHD Atmos output clock. A decoded PCM path,
+server transcode, HDR-compatible-base fallback, missing display capability, or rejected audio route
+keeps the combined state false while preserving the two independent fallback reasons.
+
 ## Migration phases
 
 ### Phase 0 — Foundation (this branch)

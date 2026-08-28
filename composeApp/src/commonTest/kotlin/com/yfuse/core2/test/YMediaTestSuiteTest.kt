@@ -22,8 +22,11 @@ class YMediaTestSuiteTest {
                 batteryDeltaPermille = -10,
                 dolbyVisionProfile = "p8.1",
                 videoOutputMode = "native_dolby_vision",
+                audioCodec = "eac3-joc",
                 audioOutputMode = "eac3_joc_passthrough",
                 serverTranscodeUsed = false,
+                audioOutputVerified = true,
+                dolbyAtmosOutput = true,
                 dolbyRpuApplied = true,
                 seekCycles = 1_000,
                 surfaceRecreations = 1_000,
@@ -36,7 +39,10 @@ class YMediaTestSuiteTest {
         assertEquals(2, observation.droppedFrames)
         assertEquals(3L, observation.maximumAbsoluteAvDriftMs)
         assertEquals(2, observation.maximumThermalStatus)
+        assertEquals("eac3-joc", observation.audioCodec)
         assertEquals("eac3_joc_passthrough", observation.audioOutputMode)
+        assertTrue(observation.audioOutputVerified)
+        assertTrue(observation.dolbyAtmosOutput)
         assertTrue(observation.dolbyRpuApplied)
         assertTrue(!observation.serverTranscodeUsed)
         assertEquals(1_000, observation.seekCycles)

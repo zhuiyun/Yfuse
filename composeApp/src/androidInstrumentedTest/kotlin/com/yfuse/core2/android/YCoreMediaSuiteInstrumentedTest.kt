@@ -684,10 +684,13 @@ class YCoreMediaSuiteInstrumentedTest {
                     },
                 dolbyVisionProfile = testCase.dolbyVisionProfile,
                 videoOutputMode = state.diagnostics.videoOutput.takeIf(String::isNotBlank),
+                audioCodec = testCase.audioCodec,
                 audioOutputMode = state.diagnostics.audioOutput.takeIf(String::isNotBlank),
                 // Core2's device runner has no server-transcode route. A future non-local route
                 // must opt in explicitly instead of silently inheriting false.
                 serverTranscodeUsed = false,
+                audioOutputVerified = state.diagnostics.audioOutputVerified,
+                dolbyAtmosOutput = state.diagnostics.dolbyAtmosOutput,
                 dolbyVisionOutput = state.diagnostics.dolbyVisionOutput,
                 dolbyRpuApplied = state.diagnostics.dolbyVisionRpuApplied,
                 dolbyEnhancementLayerDelivered =
