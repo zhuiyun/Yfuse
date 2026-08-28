@@ -57,34 +57,46 @@ internal fun createVideoEngine(
     val resolvedNativeOnly = packagedNativeOnly || core2NativeOnlyEnabled
     val resolvedDecoderMode =
         AndroidNativeCrashMonitor.safeDecoderMode(kind, decoderMode, capabilitySignature)
+    val remoteYCoreBlocked =
+        PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.YCoreAll) ||
+            PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.YCoreDemux)
+    val yCoreGpuBlocked =
+        AndroidNativeCrashMonitor.isYCoreGpuBlocked(
+            decoderMode,
+            capabilitySignature,
+        ) || PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.YCoreGpu)
+    val yCoreDemuxBlocked =
+        AndroidNativeCrashMonitor.isYCoreDemuxBlocked(
+            decoderMode,
+            capabilitySignature,
+        )
     val yCoreAllowed =
-        packagedNativeOnly ||
+        !remoteYCoreBlocked && !yCoreDemuxBlocked &&
+            (packagedNativeOnly ||
             shouldUseCore2Trial(
                 enabled = core2TrialEnabled,
                 engineSelection = engineSelection,
-                crashBlocked =
-                    AndroidNativeCrashMonitor.isYCoreDemuxBlocked(
-                        decoderMode,
-                        capabilitySignature,
-                    ) ||
-                        AndroidNativeCrashMonitor.isYCoreGpuBlocked(
-                            decoderMode,
-                            capabilitySignature,
-                        ),
-            )
+                crashBlocked = false,
+            ))
     val component =
         if (yCoreAllowed) {
             NativePlaybackComponent.YCoreDemux
         } else {
             when (kind) {
-                PlayerEngine.Mpv -> NativePlaybackComponent.Mpv
-                PlayerEngine.Mdk -> NativePlaybackComponent.Mdk
+                PlayerEngine.Mpv ->
+                    NativePlaybackComponent.Mpv.takeUnless {
+                        PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.Mpv)
+                    } ?: NativePlaybackComponent.Unknown
+                PlayerEngine.Mdk ->
+                    NativePlaybackComponent.Mdk.takeUnless {
+                        PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.Mdk)
+                    } ?: NativePlaybackComponent.Unknown
                 PlayerEngine.Exo -> NativePlaybackComponent.Unknown
             }
         }
     AndroidNativeCrashMonitor.arm(
         component = component,
-        engine = kind,
+        engine = if (yCoreAllowed) PlayerEngine.Exo else kind,
         decoderMode = resolvedDecoderMode,
         capabilitySignature = capabilitySignature,
         media = items.getOrNull(startIndex),
@@ -114,6 +126,7 @@ internal fun createVideoEngine(
                 frameRateMatch = frameRateMatch,
                 videoCacheBytes = videoCacheBytes,
                 nativeOnly = resolvedNativeOnly,
+                allowNativeGpu = !yCoreGpuBlocked,
             )?.let { return it }
         if (resolvedNativeOnly) {
             return MissingNativeCapabilityVideoEngine(
@@ -124,10 +137,26 @@ internal fun createVideoEngine(
             )
         }
     }
+    if (resolvedNativeOnly) {
+        return MissingNativeCapabilityVideoEngine(
+            message =
+                if (remoteYCoreBlocked) {
+                    "YCore Native 当前被远程安全策略临时停用"
+                } else {
+                    "YCore Native 当前解封装＋解码器组合已因连续 native 崩溃被隔离"
+                },
+            startIndex = startIndex,
+            itemCount = items.size,
+            startPositionMs = startPositionMs,
+        )
+    }
 
     return when (kind) {
         PlayerEngine.Mdk ->
-            if (BuildConfig.YFUSE_MDK_INCLUDED) {
+            if (
+                BuildConfig.YFUSE_MDK_INCLUDED &&
+                !PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.Mdk)
+            ) {
                 MdkVideoEngine(
                     items = items,
                     context = context,
@@ -161,6 +190,32 @@ internal fun createVideoEngine(
             }
 
         PlayerEngine.Mpv -> {
+            if (PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.Mpv)) {
+                val discCapability = missingNativeBluRayCapability(items, startIndex)
+                if (discCapability != null || items.getOrNull(startIndex)?.activeVersion?.discSource == true) {
+                    return MissingNativeCapabilityVideoEngine(
+                        message = "MPV 已被远程安全策略临时停用，原盘路径不会降级为不兼容内核",
+                        startIndex = startIndex,
+                        itemCount = items.size,
+                        startPositionMs = startPositionMs,
+                    )
+                }
+                return ExoVideoEngine(
+                    context = context,
+                    items = items,
+                    startIndex = startIndex,
+                    startPositionMs = startPositionMs,
+                    startPlaybackRequested = startPlaybackRequested,
+                    startSpeed = startSpeed,
+                    scope = scope,
+                    decoderMode = resolvedDecoderMode,
+                    optimizationMode = optimizationMode,
+                    autoNext = autoNext,
+                    customUserAgent = customUserAgent,
+                    videoCacheBytes = videoCacheBytes,
+                    stopEncoding = stopEncoding,
+                )
+            }
             val missingDiscCapability = missingNativeBluRayCapability(items, startIndex)
             if (missingDiscCapability != null) {
                 MissingNativeCapabilityVideoEngine(

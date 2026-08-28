@@ -1,0 +1,157 @@
+package com.yfuse.feature.player
+
+import android.content.Context
+import com.yfuse.core.logging.AppLog
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.atomic.AtomicReference
+
+/**
+ * Restrict-only playback policy used to stop a known-bad native path without shipping a new APK.
+ *
+ * The server cannot enable a build-time-disabled capability, select an arbitrary library, or
+ * change a media URL. Revisions are monotonic and retained after expiry so an older policy cannot
+ * be replayed. An unavailable or malformed endpoint leaves the locally packaged behavior intact.
+ */
+internal object PlaybackRemotePolicyRegistry {
+    private const val PREFS = "yfuse_playback_remote_policy_v1"
+    private const val POLICY_URL = "https://47.112.219.60/yfuse/playback-policy-v1.json"
+    private const val MAX_POLICY_BYTES = 32 * 1024
+    private val json = Json { ignoreUnknownKeys = true }
+    private val active = AtomicReference(PlaybackRemotePolicyState())
+    private lateinit var appContext: Context
+
+    @Synchronized
+    fun initialize(context: Context, nowEpochMs: Long = System.currentTimeMillis()) {
+        appContext = context.applicationContext
+        val preferences = prefs()
+        val revision = preferences.getLong("revision", 0L)
+        val expiresAt = preferences.getLong("expiresAtEpochMs", 0L)
+        val disabled =
+            preferences
+                .getStringSet("disabledPaths", emptySet())
+                .orEmpty()
+                .mapNotNull(PlaybackRemotePath::fromWireValue)
+                .toSet()
+        active.set(
+            PlaybackRemotePolicyState(
+                revision = revision,
+                expiresAtEpochMs = expiresAt,
+                disabledPaths = disabled.takeIf { expiresAt > nowEpochMs }.orEmpty(),
+            ),
+        )
+    }
+
+    fun isDisabled(path: PlaybackRemotePath, nowEpochMs: Long = System.currentTimeMillis()): Boolean {
+        val state = active.get()
+        return state.expiresAtEpochMs > nowEpochMs && path in state.disabledPaths
+    }
+
+    /** Called from the update manager's IO dispatcher; update checking still succeeds on failure. */
+    fun refreshFromNetwork(nowEpochMs: Long = System.currentTimeMillis()) {
+        val connection =
+            (URL(POLICY_URL).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 5_000
+                readTimeout = 5_000
+                useCaches = false
+                instanceFollowRedirects = false
+            }
+        try {
+            check(connection.responseCode == HttpURLConnection.HTTP_OK) {
+                "Playback policy HTTP ${connection.responseCode}"
+            }
+            check(connection.contentLengthLong < 0L || connection.contentLengthLong <= MAX_POLICY_BYTES) {
+                "Playback policy is too large"
+            }
+            val bytes = connection.inputStream.use { it.readNBytes(MAX_POLICY_BYTES + 1) }
+            check(bytes.size <= MAX_POLICY_BYTES) { "Playback policy is too large" }
+            apply(json.decodeFromString<PlaybackRemotePolicyDocument>(bytes.decodeToString()), nowEpochMs)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    @Synchronized
+    internal fun apply(
+        document: PlaybackRemotePolicyDocument,
+        nowEpochMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val currentRevision = prefs().getLong("revision", 0L)
+        val sanitized = sanitizePlaybackRemotePolicy(document, currentRevision, nowEpochMs) ?: return false
+        prefs()
+            .edit()
+            .putLong("revision", sanitized.revision)
+            .putLong("expiresAtEpochMs", sanitized.expiresAtEpochMs)
+            .putStringSet("disabledPaths", sanitized.disabledPaths.mapTo(mutableSetOf()) { it.wireValue })
+            .apply()
+        active.set(sanitized)
+        AppLog.warning(
+            category = "player.remote_policy",
+            event = "policy_applied",
+            message = "A newer restrict-only playback policy was applied",
+            attributes =
+                mapOf(
+                    "revision" to sanitized.revision.toString(),
+                    "disabledPaths" to sanitized.disabledPaths.joinToString(",") { it.wireValue },
+                ),
+        )
+        return true
+    }
+
+    fun diagnosticSummary(nowEpochMs: Long = System.currentTimeMillis()): String {
+        val state = active.get()
+        val effective = state.disabledPaths.takeIf { state.expiresAtEpochMs > nowEpochMs }.orEmpty()
+        return buildString {
+            appendLine("remotePolicy.revision=${state.revision}")
+            appendLine("remotePolicy.expiresAtEpochMs=${state.expiresAtEpochMs}")
+            appendLine("remotePolicy.disabled=${effective.joinToString(",") { it.wireValue }}")
+        }
+    }
+
+    private fun prefs() = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}
+
+internal enum class PlaybackRemotePath(val wireValue: String) {
+    YCoreAll("ycore.all"),
+    YCoreDemux("ycore.demux"),
+    YCoreGpu("ycore.gpu"),
+    Mpv("mpv"),
+    Mdk("mdk"),
+    ;
+
+    companion object {
+        fun fromWireValue(value: String): PlaybackRemotePath? = entries.firstOrNull { it.wireValue == value }
+    }
+}
+
+@Serializable
+internal data class PlaybackRemotePolicyDocument(
+    val revision: Long,
+    val expiresAtEpochMs: Long,
+    val disabledPaths: Set<String> = emptySet(),
+)
+
+internal data class PlaybackRemotePolicyState(
+    val revision: Long = 0L,
+    val expiresAtEpochMs: Long = 0L,
+    val disabledPaths: Set<PlaybackRemotePath> = emptySet(),
+)
+
+internal fun sanitizePlaybackRemotePolicy(
+    document: PlaybackRemotePolicyDocument,
+    currentRevision: Long,
+    nowEpochMs: Long,
+): PlaybackRemotePolicyState? {
+    if (document.revision <= currentRevision || document.revision <= 0L) return null
+    if (document.expiresAtEpochMs <= nowEpochMs) return null
+    if (document.expiresAtEpochMs - nowEpochMs > MAX_PLAYBACK_POLICY_LIFETIME_MS) return null
+    return PlaybackRemotePolicyState(
+        revision = document.revision,
+        expiresAtEpochMs = document.expiresAtEpochMs,
+        disabledPaths = document.disabledPaths.mapNotNull(PlaybackRemotePath::fromWireValue).toSet(),
+    )
+}
+
+private const val MAX_PLAYBACK_POLICY_LIFETIME_MS = 31L * 24L * 60L * 60L * 1_000L

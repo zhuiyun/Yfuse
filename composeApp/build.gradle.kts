@@ -41,6 +41,10 @@ val includeMdk =
 val includeYCoreGpuCompanion =
     !nativeOnlyRuntime && layout.projectDirectory.file("libs/ycore-gpu.aar").asFile.isFile
 
+// Native-only packages carry libycore_gpu.so inside ycore-native.aar. Legacy/full packages use
+// the isolated companion so MPV, MDK, and YCore never contribute duplicate JNI libraries.
+val packagedYCoreGpu = nativeOnlyRuntime || includeYCoreGpuCompanion
+
 /**
  * Keeps feature code on the semantic design-system surface. These are deliberately simple
  * source checks: they catch the exact escape hatches that caused the audit drift while the
@@ -375,6 +379,21 @@ val verifyYCoreGpuCompanionArtifact by tasks.registering {
             require(archive.getEntry("jni/arm64-v8a/libycore_demux.so") != null) {
                 "Full runtime must provide libycore_demux.so for the YCore GPU bridge"
             }
+        }
+    }
+}
+
+val verifyProductionYCoreGpu by tasks.registering {
+    group = "verification"
+    description = "Fails release packaging when the selected profile has no YCore Vulkan runtime."
+    if (nativeOnlyRuntime) {
+        dependsOn(verifyStandaloneYCoreArtifact)
+    } else {
+        dependsOn(verifyYCoreGpuCompanionArtifact)
+    }
+    doLast {
+        require(packagedYCoreGpu) {
+            "Release builds require the YCore GPU runtime; run scripts/install-ycore-native.sh first"
         }
     }
 }
@@ -791,7 +810,7 @@ android {
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
         buildConfigField("boolean", "YFUSE_MDK_INCLUDED", includeMdk.toString())
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", nativeOnlyRuntime.toString())
-        buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", includeYCoreGpuCompanion.toString())
+        buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", packagedYCoreGpu.toString())
         buildConfigField(
             "String",
             "YFUSE_PACKAGE_PROFILE",
@@ -1018,5 +1037,6 @@ tasks.configureEach {
     if (releasePackagingTask) {
         dependsOn(verifyReleaseSigning)
         dependsOn(verifyProductionMdkRights)
+        dependsOn(verifyProductionYCoreGpu)
     }
 }

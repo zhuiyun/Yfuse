@@ -106,6 +106,17 @@ class YPlayerVideoEngineAdapterTest {
         assertEquals(PlaybackDiscMenuCommand.ShowMenu, player.discCommand)
     }
 
+    @Test
+    fun `handover pauses and detaches the outgoing Core2 output`() {
+        val player = FakeYPlayer().also { it.playCalled = true }
+        val engine = YPlayerVideoEngineAdapter(player)
+
+        engine.prepareForHandover()
+
+        assertFalse(player.playCalled)
+        assertTrue(player.videoOutputDetached)
+    }
+
     private class FakeYPlayer : YPlayer {
         val mutableState = MutableStateFlow(YPlayerState())
         override val state = mutableState
@@ -117,8 +128,12 @@ class YPlayerVideoEngineAdapterTest {
         var discTitle: Int? = null
         var discChapter: Int? = null
         var discCommand: PlaybackDiscMenuCommand? = null
+        var videoOutputDetached = false
 
-        override fun setVideoOutput(output: YVideoOutput?): Boolean = true
+        override fun setVideoOutput(output: YVideoOutput?): Boolean {
+            videoOutputDetached = output == null
+            return true
+        }
 
         override fun play() {
             playCalled = true

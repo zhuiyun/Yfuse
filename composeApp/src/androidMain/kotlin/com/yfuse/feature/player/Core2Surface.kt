@@ -53,6 +53,7 @@ import kotlin.math.roundToInt
 @Composable
 internal fun Core2Surface(
     engine: YPlayerVideoEngineAdapter,
+    protectedContent: Boolean,
     scaleMode: VideoScaleMode,
     videoWidth: Int,
     videoHeight: Int,
@@ -86,10 +87,12 @@ internal fun Core2Surface(
             modifier = surfaceModifier,
             factory = { context ->
                 Core2SurfaceView(context).apply {
+                    setProtectedContent(protectedContent)
                     bind(engine.player)
                 }
             },
             update = { view ->
+                view.setProtectedContent(protectedContent)
                 view.bind(engine.player)
             },
             onRelease = Core2SurfaceView::unbind,
@@ -251,6 +254,7 @@ private class Core2SurfaceView(
 ) : SurfaceView(context),
     SurfaceHolder.Callback {
     private var player: YPlayer? = null
+    private var protectedContent = false
 
     init {
         holder.addCallback(this)
@@ -260,6 +264,14 @@ private class Core2SurfaceView(
         if (player === next) return
         player?.setVideoOutput(null)
         player = next
+        attachCurrentSurface()
+    }
+
+    fun setProtectedContent(required: Boolean) {
+        if (protectedContent == required) return
+        player?.setVideoOutput(null)
+        protectedContent = required
+        setSecure(required)
         attachCurrentSurface()
     }
 
@@ -289,7 +301,12 @@ private class Core2SurfaceView(
     private fun attachCurrentSurface() {
         val surface = holder.surface
         if (!surface.isValid) return
-        player?.setVideoOutput(AndroidSurfaceVideoOutput(surface))
+        player?.setVideoOutput(
+            AndroidSurfaceVideoOutput(
+                surface = surface,
+                protectedContent = protectedContent,
+            ),
+        )
     }
 }
 

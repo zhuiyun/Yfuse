@@ -64,24 +64,28 @@ internal object AndroidNativeCrashMonitor {
         decoderMode: DecoderMode,
         capabilitySignature: String,
     ): Boolean =
-        isBlocked(
-            NativePlaybackComponent.YCoreDemux,
-            PlayerEngine.Exo,
-            decoderMode,
-            capabilitySignature,
-        )
+        PlayerEngine.entries.any { engine ->
+            isBlocked(
+                NativePlaybackComponent.YCoreDemux,
+                engine,
+                decoderMode,
+                capabilitySignature,
+            )
+        }
 
     @Synchronized
     fun isYCoreGpuBlocked(
         decoderMode: DecoderMode,
         capabilitySignature: String,
     ): Boolean =
-        isBlocked(
-            NativePlaybackComponent.YCoreGpu,
-            PlayerEngine.Exo,
-            decoderMode,
-            capabilitySignature,
-        )
+        PlayerEngine.entries.any { engine ->
+            isBlocked(
+                NativePlaybackComponent.YCoreGpu,
+                engine,
+                decoderMode,
+                capabilitySignature,
+            )
+        }
 
     /** Must run before native construction so a constructor crash still leaves useful context. */
     @Synchronized
@@ -116,6 +120,25 @@ internal object AndroidNativeCrashMonitor {
         val preferences = prefs()
         if (successful) activeKey(preferences)?.let { preferences.edit().remove(countKey(it)).apply() }
         preferences.edit().removeActiveContext().apply()
+    }
+
+    @Synchronized
+    fun diagnosticSummary(): String {
+        val totals = mutableMapOf<NativePlaybackComponent, Int>()
+        prefs().all.forEach { (key, value) ->
+            if (!key.startsWith("count.") || value !is Int) return@forEach
+            val component =
+                key.substringAfter("count.").substringBefore('.')
+                    .enumOrNull<NativePlaybackComponent>() ?: return@forEach
+            totals[component] = (totals[component] ?: 0) + value
+        }
+        return buildString {
+            NativePlaybackComponent.entries
+                .filter { it != NativePlaybackComponent.Unknown }
+                .forEach { component ->
+                    appendLine("nativeCrash.${component.name}.count=${totals[component] ?: 0}")
+                }
+        }
     }
 
     private fun consumePreviousNativeExit() {

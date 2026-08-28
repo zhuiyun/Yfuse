@@ -35,7 +35,13 @@ data class OpticalPlaybackValidationInput(
     val hdr10Verified: Boolean? = null,
     val hdr10PlusVerified: Boolean? = null,
     val hlgVerified: Boolean? = null,
+    /** Legacy aggregate retained for old evidence importers; new claims use the profile gates below. */
     val dolbyVisionVerified: Boolean? = null,
+    val dolbyVisionP5NativeVerified: Boolean? = null,
+    val dolbyVisionP8NativeVerified: Boolean? = null,
+    val dolbyVisionP7BaseLayerVerified: Boolean? = null,
+    val dolbyVisionP7RpuVerified: Boolean? = null,
+    val dolbyVisionP7FelVerified: Boolean? = null,
     val trueHdAtmosVerified: Boolean? = null,
     val dtsHdVerified: Boolean? = null,
     val pgsVerified: Boolean? = null,
@@ -82,7 +88,17 @@ fun evaluateOpticalPlaybackRelease(input: OpticalPlaybackValidationInput): Optic
                 "hdr10" to input.hdr10Verified.check("HDR10 output"),
                 "hdr10Plus" to input.hdr10PlusVerified.check("HDR10+ output"),
                 "hlg" to input.hlgVerified.check("HLG output"),
-                "dolbyVision" to input.dolbyVisionVerified.check("Dolby Vision device/output route"),
+                "dolbyVision" to input.dolbyVisionVerified.check("legacy aggregate Dolby Vision route"),
+                "dolbyVisionP5Native" to
+                    input.dolbyVisionP5NativeVerified.check("P5 MediaCodec native Dolby Vision output"),
+                "dolbyVisionP8Native" to
+                    input.dolbyVisionP8NativeVerified.check("P8 MediaCodec native Dolby Vision output"),
+                "dolbyVisionP7Base" to
+                    input.dolbyVisionP7BaseLayerVerified.check("P7 HDR10 compatible base output"),
+                "dolbyVisionP7Rpu" to
+                    input.dolbyVisionP7RpuVerified.check("P7 RPU applied by measured MPV output"),
+                "dolbyVisionP7Fel" to
+                    input.dolbyVisionP7FelVerified.check("P7 FEL composed by measured MPV output"),
                 "trueHdAtmos" to input.trueHdAtmosVerified.check("TrueHD/Atmos HDMI/eARC"),
                 "dtsHd" to input.dtsHdVerified.check("DTS-HD HDMI/eARC"),
                 "pgs" to input.pgsVerified.check("PGS select/render/seek"),

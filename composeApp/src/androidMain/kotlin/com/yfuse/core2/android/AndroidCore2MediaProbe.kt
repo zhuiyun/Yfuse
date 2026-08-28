@@ -23,6 +23,7 @@ import com.yfuse.core2.quirk.YDeviceQuirkAction
 import com.yfuse.core2.quirk.YDeviceQuirkDatabase
 import com.yfuse.core2.quirk.YDeviceQuirkRule
 import com.yfuse.core2.quirk.YTextMatch
+import com.yfuse.core2.render.YNativeGpuRuntimeProbe
 import com.yfuse.core2.strategy.DefaultYPlaybackStrategy
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
@@ -199,11 +200,10 @@ internal class AndroidCore2RouteEvaluator(
     private val deviceIdentity: YDeviceIdentity = androidDeviceIdentity(),
     private val codecConfigurationProbe: AndroidCodecConfigurationProbe = AndroidCodecConfigurationProbe(),
     private val codecSampleProbe: AndroidCodecSampleProbe = AndroidCodecSampleProbe(context),
+    private val nativeGpuRuntimeProbe: YNativeGpuRuntimeProbe = AndroidYCoreGpuRuntime.probe(context),
 ) {
     private val platformProbe = AndroidCore2MediaProbe(context)
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
-    private val nativeGpuRuntimeProbe = AndroidYCoreGpuRuntime.probe(context)
-
     fun evaluate(
         item: YMediaItem,
         preferTunnel: Boolean = true,

@@ -14,6 +14,7 @@ import androidx.core.content.FileProvider
 import com.russhwolf.settings.Settings
 import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
+import com.yfuse.feature.player.PlaybackRemotePolicyRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -745,6 +746,15 @@ class AppUpdateManager(
                 )
                 runCatching {
                     withContext(Dispatchers.IO) {
+                        runCatching { PlaybackRemotePolicyRegistry.refreshFromNetwork() }
+                            .onFailure { error ->
+                                AppLog.warning(
+                                    category = "player.remote_policy",
+                                    event = "refresh_failed",
+                                    message = "Playback policy refresh failed; packaged behavior remains active",
+                                    throwable = error,
+                                )
+                            }
                         val connection =
                             (URL(UPDATE_MANIFEST).openConnection() as HttpURLConnection).apply {
                                 connectTimeout = 8_000

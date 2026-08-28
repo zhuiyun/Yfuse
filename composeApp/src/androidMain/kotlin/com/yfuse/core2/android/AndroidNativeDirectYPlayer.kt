@@ -1187,6 +1187,14 @@ internal class AndroidNativeDirectYPlayer(
 
         private fun configureVideoDecoder(surface: Surface) {
             val format = requireNotNull(videoFormat)
+            check(
+                secureSurfaceRequirementSatisfied(
+                    protectedContent = drmBinding != null,
+                    outputSecure = surfaceOutput?.protectedContent == true,
+                ),
+            ) {
+                "Protected playback requires a secure SurfaceView output"
+            }
             try {
                 videoDecoder.configure(
                     format = format,
@@ -1418,6 +1426,11 @@ internal class AndroidNativeDirectYPlayer(
         ) : Command
     }
 }
+
+internal fun secureSurfaceRequirementSatisfied(
+    protectedContent: Boolean,
+    outputSecure: Boolean,
+): Boolean = !protectedContent || outputSecure
 
 /**
  * Drops superseded control work before it reaches MediaExtractor/MediaCodec. This turns a scrub

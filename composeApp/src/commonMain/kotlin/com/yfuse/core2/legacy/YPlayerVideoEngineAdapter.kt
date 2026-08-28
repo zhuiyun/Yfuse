@@ -36,6 +36,13 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun pause() = player.pause()
 
+    override fun prepareForHandover() {
+        player.pause()
+        // Detach before Compose creates the replacement so the outgoing codec cannot retain an old
+        // frame or keep an AudioTrack/video Surface active beside the next backend.
+        player.setVideoOutput(null)
+    }
+
     override fun seekTo(positionMs: Long) = player.seekTo(positionMs)
 
     override fun setSpeed(speed: Float) = player.setSpeed(speed)

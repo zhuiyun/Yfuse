@@ -68,6 +68,7 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val discRouteFactory: AndroidCore2DiscRouteFactory? = null,
     private val allowAudioPassthrough: Boolean = true,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+    private val nativeGpuRuntimeProbe: YNativeGpuRuntimeProbe = AndroidYCoreGpuRuntime.probe(context),
     private val failureLedger: YCore2FailureLedger =
         YCore2FailureLedger(
             store = AndroidYCore2FailureStore(context),
@@ -111,7 +112,6 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val powerManager = context.applicationContext.getSystemService(PowerManager::class.java)
     private val audioCallbackHandler = Handler(Looper.getMainLooper())
     private val audioRouteChangeQueued = AtomicBoolean(false)
-    private val nativeGpuRuntimeProbe by lazy { AndroidYCoreGpuRuntime.probe(context) }
     private val audioDeviceCallback =
         object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = queueAudioRouteChange()

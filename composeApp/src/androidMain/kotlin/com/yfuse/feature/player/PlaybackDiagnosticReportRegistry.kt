@@ -23,6 +23,8 @@ internal object PlaybackDiagnosticReportRegistry {
                 appendLine("app.version=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                 append(latest.get())
                 appendLine()
+                append(PlaybackRemotePolicyRegistry.diagnosticSummary())
+                append(AndroidNativeCrashMonitor.diagnosticSummary())
                 append(nativeLibraryReport())
             }
         }
@@ -82,6 +84,8 @@ internal object PlaybackDiagnosticReportRegistry {
             appendLine("native.libbluray.revision=${capabilities.libblurayRevision ?: "unknown"}")
             appendLine("native.libudfread.revision=${capabilities.libudfreadRevision ?: "unknown"}")
             appendLine("native.mdk.compile.version=$MDK_SDK_COMPILE_VERSION")
+            appendLine("native.ycore.gpu.packaged=${BuildConfig.YFUSE_YCORE_GPU_INCLUDED}")
+            appendLine("native.package.profile=${BuildConfig.YFUSE_PACKAGE_PROFILE}")
             nativeLibraryFingerprints().forEach { (name, hash) ->
                 appendLine("native.$name.sha256=$hash")
             }
@@ -89,7 +93,14 @@ internal object PlaybackDiagnosticReportRegistry {
     }
 
     private fun nativeLibraryFingerprints(): Map<String, String> {
-        val wanted = setOf("libmpv.so", "libmdk.so", "libyfuse-mdk-jni.so", "libycore_demux.so")
+        val wanted =
+            setOf(
+                "libmpv.so",
+                "libmdk.so",
+                "libyfuse-mdk-jni.so",
+                "libycore_demux.so",
+                "libycore_gpu.so",
+            )
         val result = sortedMapOf<String, String>()
         val nativeDirectory = File(appContext.applicationInfo.nativeLibraryDir.orEmpty())
         wanted.forEach { name ->

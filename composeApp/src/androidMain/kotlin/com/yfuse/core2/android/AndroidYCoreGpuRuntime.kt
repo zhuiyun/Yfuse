@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.hardware.HardwareBuffer
 import android.view.Surface
+import com.yfuse.BuildConfig
 import com.yfuse.core2.render.YGpuColorPipelineConfig
 import com.yfuse.core2.render.YGpuColorTransfer
 import com.yfuse.core2.render.MIN_ANDROID_HARDWARE_BUFFER_API
@@ -17,10 +18,13 @@ import com.yfuse.core2.render.YNativeGpuRuntimeProbe
  * real decoded frame, swapchain presentation, and measured output evidence.
  */
 internal object AndroidYCoreGpuRuntime {
+    fun disabledProbe(): YNativeGpuRuntimeProbe = unavailableProbe()
+
     fun probe(
         context: Context? = null,
         evidenceKey: YCoreGpuEvidenceKey? = null,
     ): YNativeGpuRuntimeProbe {
+        if (!BuildConfig.YFUSE_YCORE_GPU_INCLUDED) return unavailableProbe()
         if (Build.VERSION.SDK_INT < MIN_ANDROID_HARDWARE_BUFFER_API) return unavailableProbe()
         val apiVersion = AndroidYCoreGpuNativeBridge.apiVersionOrZero()
         val staticFeatures =

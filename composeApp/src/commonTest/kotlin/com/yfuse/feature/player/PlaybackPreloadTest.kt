@@ -161,8 +161,9 @@ class PlaybackPreloadTest {
     private class RecordingPreloader : PlaybackSourcePreloader {
         val urls = mutableListOf<String>()
 
-        override fun preload(url: String) {
-            urls += url
+        override fun preload(item: PlayerMediaItem): PlaybackSourcePreload {
+            urls += item.url
+            return noOpPlaybackSourcePreload()
         }
     }
 

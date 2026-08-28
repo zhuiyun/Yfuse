@@ -498,7 +498,11 @@ internal fun PlayerRoot(
                 currentPositionMs = player.currentPositionMs(),
                 playbackRequested = player.playbackRequested,
                 requestedSpeed = requestedPlaybackSpeed,
+                secondarySubtitle = secondarySubtitleRestore,
+                subtitleDelayMs = subtitleControls.offsetMs,
+                audioDelayMs = audioControls.delayMs,
             )
+        backendExtensions.prepareForHandover()
         core2DisabledForSession = true
         engineGeneration++
         AppLog.warning(
@@ -570,7 +574,11 @@ internal fun PlayerRoot(
                 currentPositionMs = player.currentPositionMs(),
                 playbackRequested = player.playbackRequested,
                 requestedSpeed = requestedPlaybackSpeed,
+                secondarySubtitle = secondarySubtitleRestore,
+                subtitleDelayMs = subtitleControls.offsetMs,
+                audioDelayMs = audioControls.delayMs,
             )
+        backendExtensions.prepareForHandover()
         kind = targetEngine
         effectiveDecoderMode = targetDecoder
         engineGeneration++
@@ -837,7 +845,11 @@ internal fun PlayerRoot(
                     currentPositionMs = player.currentPositionMs(),
                     playbackRequested = player.playbackRequested,
                     requestedSpeed = requestedPlaybackSpeed,
+                    secondarySubtitle = secondarySubtitleRestore,
+                    subtitleDelayMs = subtitleControls.offsetMs,
+                    audioDelayMs = audioControls.delayMs,
                 )
+            backendExtensions.prepareForHandover()
             kind = activePlan.primaryEngine
             effectiveDecoderMode = activePlan.decoderMode
             engineGeneration++
@@ -1728,7 +1740,11 @@ internal fun PlayerRoot(
                     currentPositionMs = player.currentPositionMs(),
                     playbackRequested = player.playbackRequested,
                     requestedSpeed = requestedPlaybackSpeed,
+                    secondarySubtitle = secondarySubtitleRestore,
+                    subtitleDelayMs = subtitleControls.offsetMs,
+                    audioDelayMs = audioControls.delayMs,
                 )
+            backendExtensions.prepareForHandover()
             core2DisabledForSession = true
             engineGeneration++
             AppLog.warning(
@@ -2032,6 +2048,10 @@ internal fun PlayerRoot(
             is YPlayerVideoEngineAdapter ->
                 Core2Surface(
                     engine = engine,
+                    protectedContent =
+                        currentItem?.let { item ->
+                            item.drmConfiguration != null || item.activeVersion?.drmConfiguration != null
+                        } == true,
                     scaleMode = scaleMode,
                     videoWidth =
                         state.diagnostics.videoWidth.takeIf { it > 0 }

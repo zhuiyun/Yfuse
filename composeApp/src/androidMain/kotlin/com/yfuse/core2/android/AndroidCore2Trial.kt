@@ -44,6 +44,7 @@ internal object AndroidCore2TrialFactory {
         frameRateMatch: PlaybackFrameRateMatch,
         videoCacheBytes: Long = 0L,
         nativeOnly: Boolean = false,
+        allowNativeGpu: Boolean = true,
     ): VideoEngine? {
         if (!items.canUseCore2Trial(startIndex)) return null
         val cacheProxy =
@@ -119,6 +120,17 @@ internal object AndroidCore2TrialFactory {
                 )
             }
         val frameRateSwitchMode = frameRateMatch.toCore2Mode()
+        val nativeGpuRuntimeProbe =
+            if (allowNativeGpu) {
+                AndroidYCoreGpuRuntime.probe(context.applicationContext)
+            } else {
+                AndroidYCoreGpuRuntime.disabledProbe()
+            }
+        val routeEvaluator =
+            AndroidCore2RouteEvaluator(
+                context = context.applicationContext,
+                nativeGpuRuntimeProbe = nativeGpuRuntimeProbe,
+            )
         val discFactory =
             AndroidYCoreDiscRouteFactory(
                 context = context,
@@ -131,10 +143,12 @@ internal object AndroidCore2TrialFactory {
                 AndroidAdaptiveCore2YPlayer(
                     context = context.applicationContext,
                     request = request,
+                    routeEvaluator = routeEvaluator,
                     fallbackRouteFactory = compatibilityFactory,
                     discRouteFactory = discFactory,
                     allowAudioPassthrough = allowAudioPassthrough,
                     frameRateSwitchMode = frameRateSwitchMode,
+                    nativeGpuRuntimeProbe = nativeGpuRuntimeProbe,
                     onRelease = {
                         cacheProxy?.close()
                         yCoreProxy?.close()
@@ -191,6 +205,7 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
             adaptiveManifest = item.url.isAdaptiveManifest() || version?.container.isAdaptiveContainer(),
             adaptiveManifestSupported = hlsManifest || dashManifest,
             disc = version?.discSource == true,
+            discSupported = item.supportsYCoreNativeBluRay(version),
             drm = item.drmConfiguration != null || version?.drmConfiguration != null,
             drmSupported = drmConfiguration?.let { item.supportsCore2Drm(it.scheme) } == true,
             dolbyVision = version?.dolbyVision == true,
@@ -210,8 +225,8 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
         Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 当前仅验证 MP4/MKV"
         Core2NativeBaselineBlock.UnsupportedVideoCodec ->
             "YCore Native 当前仅验证 H.264/HEVC"
-        Core2NativeBaselineBlock.Disc -> "YCore Native 尚未完成原盘导航"
-        Core2NativeBaselineBlock.Drm -> "YCore Native 尚未完成 DRM"
+        Core2NativeBaselineBlock.Disc -> "YCore Native 当前只支持可寻址的 Blu-ray / BDMV / Blu-ray ISO"
+        Core2NativeBaselineBlock.Drm -> "YCore Native 当前只支持已验证容器中的 Widevine DRM"
         Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未验证当前杜比视界 Profile"
         Core2NativeBaselineBlock.ExternalSubtitle -> "YCore Native 不支持当前外挂字幕来源"
     }
@@ -227,6 +242,27 @@ private fun String.isHlsManifest(): Boolean {
 }
 
 private val CORE2_DOLBY_TRIAL_PROFILES = setOf(5, 7, 8)
+
+private fun PlayerMediaItem.supportsYCoreNativeBluRay(version: com.yfuse.feature.player.PlayerMediaVersion?): Boolean {
+    if (version?.discSource != true || !FfmpegNativeBridge.discNavigationAvailable) return false
+    val kind =
+        detectPlaybackDiscKind(
+            container = version.container,
+            labelHint = version.label,
+            declaredDiscSource = true,
+        )
+    val scheme = url.substringBefore(':').lowercase()
+    return when (kind) {
+        PlaybackDiscKind.BluRay,
+        PlaybackDiscKind.Iso,
+        -> scheme in setOf("file", "content", "http", "https")
+        PlaybackDiscKind.Bdmv -> scheme == "file"
+        PlaybackDiscKind.Dvd,
+        PlaybackDiscKind.None,
+        PlaybackDiscKind.Unknown,
+        -> false
+    }
+}
 
 private fun String.isDashManifest(): Boolean {
     val path = substringBefore('?').substringBefore('#').lowercase()

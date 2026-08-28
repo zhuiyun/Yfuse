@@ -30,6 +30,7 @@ import com.yfuse.feature.calendar.scheduleCalendarSyncWork
 import com.yfuse.feature.player.AndroidNativeCrashMonitor
 import com.yfuse.feature.player.AndroidPlaybackSourcePreloader
 import com.yfuse.feature.player.PlaybackDiagnosticReportRegistry
+import com.yfuse.feature.player.PlaybackRemotePolicyRegistry
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.player.PlaybackSourcePreloader
 import com.yfuse.feature.player.notifyPlaybackAppBackground
@@ -69,6 +70,7 @@ class YfuseApp :
         // Native tombstones are available only after the dead process restarts. Consume the
         // previous exit before constructing any new playback backend.
         AndroidNativeCrashMonitor.initialize(this)
+        PlaybackRemotePolicyRegistry.initialize(this)
         PlaybackDiagnosticReportRegistry.initialize(this)
         AppLog.info("app", "initializing", "Initializing application dependencies")
         val koinApplication =
