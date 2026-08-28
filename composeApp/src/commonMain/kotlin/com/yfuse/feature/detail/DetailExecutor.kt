@@ -256,7 +256,7 @@ internal class DetailExecutor(
         detail: MediaDetail,
     ) {
         scope.launch {
-            resolvePlaybackSelection(server, detail, preferredEpisode = null)
+            resolveInitialPlaybackSelection(server, detail)
                 .onSuccess { selection ->
                     // Initial enrichment may finish after the user starts or completes a
                     // cross-server switch. It must never overwrite that newer choice.
@@ -266,6 +266,7 @@ internal class DetailExecutor(
                         state().playSourceDetail?.id == detail.id
                     ) {
                         dispatchPlaybackSelection(selection)
+                        loadInitialSeriesCatalog(selection)
                     }
                 }.onFailure {
                     // Comparison remains useful even when resolving the initial episode
@@ -289,6 +290,77 @@ internal class DetailExecutor(
                 }
         }
     }
+
+    /**
+     * Resolves only the concrete item required to start playback. Season and episode
+     * lists are useful detail-page enrichment, but a slow catalog endpoint must not
+     * keep the play button spinning after its target is already known.
+     */
+    private suspend fun resolveInitialPlaybackSelection(
+        server: SavedServer,
+        sourceDetail: MediaDetail,
+    ): Result<ResolvedPlaybackSelection> =
+        cancellableResult {
+            if (sourceDetail.type != "Series") {
+                return@cancellableResult ResolvedPlaybackSelection(
+                    server = server,
+                    sourceDetail = sourceDetail,
+                    target = sourceDetail,
+                    positionTicks = sourceDetail.resumePositionTicks ?: 0L,
+                )
+            }
+
+            val resolvedTarget = repo.resolvePlayTarget(server, sourceDetail).getOrThrow()
+            val targetDetail = repo.itemDetail(server, resolvedTarget.itemId).getOrThrow()
+            ResolvedPlaybackSelection(
+                server = server,
+                sourceDetail = sourceDetail,
+                target = targetDetail,
+                positionTicks = resolvedTarget.startPositionTicks,
+            )
+        }
+
+    /** Loads the series picker after the play target has already made the button usable. */
+    private fun loadInitialSeriesCatalog(selection: ResolvedPlaybackSelection) {
+        val seriesId = seriesIdOf(selection.sourceDetail) ?: return
+        dispatch(DetailMsg.EpisodesLoading)
+        scope.launch {
+            cancellableResult {
+                loadSeriesCatalog(
+                    server = selection.server,
+                    seriesId = seriesId,
+                    target = selection.target,
+                    allEpisodes = null,
+                )
+            }.onSuccess { catalog ->
+                if (isCurrentInitialSelection(selection)) {
+                    dispatch(DetailMsg.SeasonsLoaded(catalog.seasons, catalog.selectedSeasonId))
+                    dispatch(DetailMsg.EpisodesLoaded(catalog.episodes))
+                }
+            }.onFailure {
+                if (isCurrentInitialSelection(selection)) {
+                    dispatch(DetailMsg.EpisodesLoadingFinished)
+                    AppLog.warning(
+                        category = "feature.detail",
+                        event = "initial_series_catalog_failed",
+                        message = "Series catalog could not be loaded after playback became ready",
+                        throwable = it,
+                        attributes =
+                            mapOf(
+                                "serverId" to selection.server.id,
+                                "seriesId" to seriesId,
+                            ),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun isCurrentInitialSelection(selection: ResolvedPlaybackSelection): Boolean =
+        pendingSourceServerId == null &&
+            state().playServer?.id == selection.server.id &&
+            state().playSourceDetail?.id == selection.sourceDetail.id &&
+            state().playTarget?.id == selection.target.id
 
     /** Fans the title out across every saved server; failures degrade per-server. */
     private fun loadSources(
@@ -835,7 +907,7 @@ internal class DetailExecutor(
         val current = state()
         val server = current.playServer ?: return
         if (current.resolvingPlay) return
-        if (current.selectionLoading || current.episodesLoading) {
+        if (current.selectionLoading) {
             queuePlayAfterSelection(fromStart)
             return
         }
