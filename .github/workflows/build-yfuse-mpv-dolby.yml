@@ -105,6 +105,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p composeApp/libs
           install -m 0644 .native-build/artifacts/ycore-native.aar \
             composeApp/libs/ycore-native.aar
           install -m 0644 .native-build/artifacts/ycore-native.aar.sha256 \
