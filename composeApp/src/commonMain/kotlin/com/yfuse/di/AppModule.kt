@@ -190,6 +190,7 @@ fun appModule(
             crypto = get(),
             registry = get(),
             theme = get(),
+            userAgent = get(),
             watch = get(),
             danmaku = get(),
             skip = get(),

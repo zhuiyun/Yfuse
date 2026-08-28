@@ -6,6 +6,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.security.CryptoPrimitives
 import com.yfuse.core.security.SecureStore
@@ -472,6 +473,7 @@ private fun accountRepository(
         crypto = VaultCrypto(FastAccountCryptoPrimitives()),
         registry = registry,
         theme = ThemePreferences(settings),
+        userAgent = UserAgentPreferences(settings),
         watch = WatchTogetherPreferences(settings),
         danmaku = DanmakuPreferences(settings),
         skip = SkipSegmentPreferences(settings),

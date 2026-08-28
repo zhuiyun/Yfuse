@@ -4,11 +4,13 @@ import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuSyncSnapshot
 import com.yfuse.core.data.FollowedSeries
+import com.yfuse.core.data.MAX_CUSTOM_USER_AGENT_CHARS
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipMode
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
@@ -21,6 +23,7 @@ data class CloudSyncSnapshotV1(
     val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
     val servers: ServersData = ServersData(),
     val appearance: CloudAppearanceSettings = CloudAppearanceSettings(),
+    val network: CloudNetworkSettings = CloudNetworkSettings(),
     val watchProfile: CloudWatchProfile = CloudWatchProfile(),
     val danmaku: DanmakuSyncSnapshot = DanmakuSyncSnapshot(),
     val serverSync: CloudServerSyncSettings = CloudServerSyncSettings(),
@@ -45,6 +48,12 @@ data class CloudAppearanceSettings(
 )
 
 @Serializable
+data class CloudNetworkSettings(
+    /** Blank means the stock application User-Agent. */
+    val customUserAgent: String = "",
+)
+
+@Serializable
 data class CloudWatchProfile(
     val chatPreviewEnabled: Boolean = true,
     val chatDanmakuEnabled: Boolean = true,
@@ -63,6 +72,7 @@ data class CloudServerSyncSettings(
 fun captureCloudSyncSnapshot(
     registry: ServerRegistry,
     theme: ThemePreferences,
+    userAgent: UserAgentPreferences,
     watch: WatchTogetherPreferences,
     danmaku: DanmakuPreferences,
     skip: SkipSegmentPreferences,
@@ -81,6 +91,7 @@ fun captureCloudSyncSnapshot(
                 splashAnimation = theme.splashAnimation.value,
                 splashVariant = theme.splashVariant.value.name,
             ),
+        network = CloudNetworkSettings(customUserAgent = userAgent.customValue.value),
         watchProfile =
             CloudWatchProfile(
                 chatPreviewEnabled = watch.chatPreviewEnabled.value,
@@ -105,6 +116,7 @@ fun applyCloudSyncSnapshot(
     snapshot: CloudSyncSnapshotV1,
     registry: ServerRegistry,
     theme: ThemePreferences,
+    userAgent: UserAgentPreferences,
     watch: WatchTogetherPreferences,
     danmaku: DanmakuPreferences,
     skip: SkipSegmentPreferences,
@@ -119,6 +131,12 @@ fun applyCloudSyncSnapshot(
         require(snapshot.calendarFollows.size <= 500) { "追剧同步数据过多" }
         require(snapshot.skipTimesBySeries.keys.all { it.isNotBlank() && it.length <= 512 }) {
             "片头片尾同步数据无效"
+        }
+        require(snapshot.network.customUserAgent.length <= MAX_CUSTOM_USER_AGENT_CHARS) {
+            "自定义 User-Agent 同步数据过长"
+        }
+        require('\r' !in snapshot.network.customUserAgent && '\n' !in snapshot.network.customUserAgent) {
+            "自定义 User-Agent 同步数据无效"
         }
 
         val mode = ThemeMode.entries.named(snapshot.appearance.themeMode, ThemeMode.Light)
@@ -138,6 +156,7 @@ fun applyCloudSyncSnapshot(
         theme.setReduceMotion(snapshot.appearance.reduceMotion)
         theme.setSplashAnimation(snapshot.appearance.splashAnimation)
         theme.setSplashVariant(splash)
+        userAgent.setUserAgent(snapshot.network.customUserAgent)
         watch.setChatPreviewEnabled(snapshot.watchProfile.chatPreviewEnabled)
         watch.setChatDanmakuEnabled(snapshot.watchProfile.chatDanmakuEnabled)
         danmaku.applySnapshot(normalizedDanmaku).getOrThrow()

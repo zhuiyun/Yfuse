@@ -6,6 +6,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.security.SecureStore
@@ -113,6 +114,8 @@ class AccountRepositoryTest {
             )
             val danmakuUrl = "https://danmaku.example/api/v2?token=danmaku-secret"
             assertNotNull(first.danmaku.addSource("私有弹幕源", danmakuUrl))
+            val customUserAgent = "Yfuse-Private-Device/2.0"
+            first.userAgent.setUserAgent(customUserAgent)
             val firstRepository = first.repository(api)
 
             assertTrue(
@@ -130,6 +133,7 @@ class AccountRepositoryTest {
             assertNotNull(storedSync)
             assertFalse(rawSyncRequest.contains(embyToken))
             assertFalse(rawSyncRequest.contains(danmakuUrl))
+            assertFalse(rawSyncRequest.contains(customUserAgent))
             assertFalse(rawSyncRequest.contains("correct horse battery"))
             assertFalse(rawSyncRequest.contains("家庭媒体库"))
 
@@ -147,6 +151,7 @@ class AccountRepositoryTest {
                 second.danmaku.sources.value
                     .isEmpty(),
             )
+            assertEquals("", second.userAgent.customValue.value)
             assertTrue(secondRepository.downloadNow().isSuccess)
 
             assertEquals(embyToken, second.registry.defaultServer?.accessToken)
@@ -157,6 +162,7 @@ class AccountRepositoryTest {
                     .single()
                     .url,
             )
+            assertEquals(customUserAgent, second.userAgent.customValue.value)
             val signedIn = assertIs<AccountState.SignedIn>(secondRepository.state.value)
             assertEquals(1, signedIn.syncVersion)
 
@@ -227,6 +233,7 @@ class AccountRepositoryTest {
         val settings: MapSettings,
         val registry: ServerRegistry,
         val theme: ThemePreferences,
+        val userAgent: UserAgentPreferences,
         val watch: WatchTogetherPreferences,
         val danmaku: DanmakuPreferences,
         val skip: SkipSegmentPreferences,
@@ -240,6 +247,7 @@ class AccountRepositoryTest {
                 crypto = VaultCrypto(),
                 registry = registry,
                 theme = theme,
+                userAgent = userAgent,
                 watch = watch,
                 danmaku = danmaku,
                 skip = skip,
@@ -255,6 +263,7 @@ class AccountRepositoryTest {
             settings = settings,
             registry = registry,
             theme = ThemePreferences(settings),
+            userAgent = UserAgentPreferences(settings),
             watch = WatchTogetherPreferences(settings),
             danmaku = DanmakuPreferences(settings),
             skip = SkipSegmentPreferences(settings),

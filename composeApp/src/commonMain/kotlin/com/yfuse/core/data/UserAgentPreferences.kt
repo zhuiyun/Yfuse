@@ -36,7 +36,7 @@ class UserAgentPreferences(
                 .trim()
                 .replace("\r", "")
                 .replace("\n", "")
-                .take(512)
+                .take(MAX_CUSTOM_USER_AGENT_CHARS)
         _customValue.value = normalized
         _userAgent.value = normalized.effectiveUserAgent()
         if (normalized.isEmpty()) settings.remove(KEY) else settings.putString(KEY, normalized)
@@ -44,3 +44,5 @@ class UserAgentPreferences(
 
     private fun String.effectiveUserAgent(): String = trim().ifBlank { DEFAULT_EMBY_USER_AGENT }
 }
+
+internal const val MAX_CUSTOM_USER_AGENT_CHARS: Int = 512

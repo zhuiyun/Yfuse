@@ -5,6 +5,7 @@ import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
+import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.security.AesGcmPayload
 import com.yfuse.core.security.RecoveryKeyEnvelope
@@ -47,6 +48,7 @@ class AccountRepository(
     private val crypto: VaultCrypto,
     private val registry: ServerRegistry,
     private val theme: ThemePreferences,
+    private val userAgent: UserAgentPreferences,
     private val watch: WatchTogetherPreferences,
     private val danmaku: DanmakuPreferences,
     private val skip: SkipSegmentPreferences,
@@ -669,6 +671,7 @@ class AccountRepository(
                     snapshot,
                     registry,
                     theme,
+                    userAgent,
                     watch,
                     danmaku,
                     skip,
@@ -867,7 +870,16 @@ class AccountRepository(
         // too would block the main thread for the whole encode, which janks the sync screen.
         val snapshot =
             withContext(mutationDispatcher) {
-                captureCloudSyncSnapshot(registry, theme, watch, danmaku, skip, serverSync, calendarFollows)
+                captureCloudSyncSnapshot(
+                    registry,
+                    theme,
+                    userAgent,
+                    watch,
+                    danmaku,
+                    skip,
+                    serverSync,
+                    calendarFollows,
+                )
             }
         return withContext(cryptoDispatcher) { json.encodeToString(snapshot) }
     }
@@ -877,6 +889,7 @@ class AccountRepository(
             captureCloudSyncSnapshot(
                 registry,
                 theme,
+                userAgent,
                 watch,
                 danmaku,
                 skip,
