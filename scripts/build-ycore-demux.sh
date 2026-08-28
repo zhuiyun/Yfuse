@@ -52,6 +52,7 @@ fi
 [[ -f "$VERTEX_SHADER_SOURCE" ]] || fail "missing Vulkan vertex shader: $VERTEX_SHADER_SOURCE"
 [[ -f "$FRAGMENT_SHADER_SOURCE" ]] || fail "missing Vulkan fragment shader: $FRAGMENT_SHADER_SOURCE"
 [[ -f "$PACKAGER" ]] || fail "missing standalone AAR packager: $PACKAGER"
+command -v pkg-config >/dev/null 2>&1 || fail "pkg-config is required to resolve static libbluray dependencies"
 [[ -d "$UPSTREAM/buildscripts/prefix" ]] || fail "missing upstream FFmpeg prefix tree: $UPSTREAM/buildscripts/prefix"
 FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$FFMPEG_REVISION" =~ ^[0-9a-f]{40}$ ]] || fail "native provenance has no pinned FFmpeg commit"
@@ -119,6 +120,15 @@ for ABI in "${ABIS[@]}"; do
   [[ -f "$PREFIX/lib/libswresample.so" ]] || fail "missing FFmpeg libswresample for $ABI"
   [[ -f "$PREFIX/lib/libbluray.so" || -f "$PREFIX/lib/libbluray.a" ]] ||
     fail "missing libbluray for $ABI"
+  BLURAY_PC_DIR="$PREFIX/lib/pkgconfig"
+  [[ -f "$BLURAY_PC_DIR/libbluray.pc" ]] ||
+    fail "missing libbluray pkg-config metadata for $ABI"
+  BLURAY_LINK_FLAGS="$(
+    PKG_CONFIG_LIBDIR="$BLURAY_PC_DIR" pkg-config --static --libs libbluray
+  )"
+  read -r -a BLURAY_LINK_ARGS <<<"$BLURAY_LINK_FLAGS"
+  [[ ${#BLURAY_LINK_ARGS[@]} -gt 0 ]] ||
+    fail "libbluray pkg-config returned no linker flags for $ABI"
   CXX="$TOOLCHAIN/bin/$(compiler_for_abi "$ABI")"
   [[ -x "$CXX" ]] || fail "missing compiler for $ABI: $CXX"
 
@@ -144,7 +154,7 @@ for ABI in "${ABIS[@]}"; do
     -lswscale \
     -lswresample \
     -lavutil \
-    -lbluray \
+    "${BLURAY_LINK_ARGS[@]}" \
     -o "$OUT"
 
   echo "[ycore-gpu] compiling isolated Vulkan executor for $ABI"
