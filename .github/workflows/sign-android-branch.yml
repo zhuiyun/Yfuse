@@ -13,6 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -79,6 +80,36 @@ jobs:
           scripts/fetch-engines.sh
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+
+      - name: Install validated YCore GPU runtime
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YCORE_NATIVE_RUN_ID: "33172058930"
+          YCORE_NATIVE_HEAD_SHA: "a9db37bd7a478511b881f569029e118ddf4bef34"
+        run: |
+          set -euo pipefail
+          run_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$YCORE_NATIVE_RUN_ID" --jq .head_sha)"
+          run_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$YCORE_NATIVE_RUN_ID" --jq .conclusion)"
+          [[ "$run_sha" == "$YCORE_NATIVE_HEAD_SHA" ]]
+          [[ "$run_conclusion" == "success" ]]
+          stage="$RUNNER_TEMP/ycore-native"
+          mkdir -p "$stage" composeApp/libs
+          gh run download "$YCORE_NATIVE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name ycore-native-arm64 \
+            --dir "$stage"
+          bash scripts/verify-ycore-native.sh \
+            "$stage/ycore-native.aar" \
+            "$stage/ycore-native.aar.sha256" \
+            "$stage/NATIVE-SOURCES.txt"
+          (
+            cd "$stage"
+            sha256sum -c ycore-gpu.aar.sha256
+          )
+          install -m 0644 "$stage/ycore-gpu.aar" composeApp/libs/ycore-gpu.aar
+          install -m 0644 "$stage/ycore-gpu.aar.sha256" composeApp/libs/ycore-gpu.aar.sha256
+          install -m 0644 "$stage/NATIVE-SOURCES.txt" composeApp/libs/ycore-gpu.sources.txt
 
       - name: Configure production signing
         shell: bash
