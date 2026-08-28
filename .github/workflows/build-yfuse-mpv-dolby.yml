@@ -118,6 +118,15 @@ jobs:
             composeApp/libs/libmpv-release.aar.sha256
           install -m 0644 .native-build/artifacts/NATIVE-SOURCES.txt \
             composeApp/libs/libmpv-release.sources.txt
+          generated_mpv_checksum="$(
+            awk '{ print $1 }' .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
+          )"
+          [[ "$generated_mpv_checksum" =~ ^[0-9a-f]{64}$ ]]
+          sed -Ei \
+            "s|^[0-9a-f]{64}  libmpv-dolby-release\\.aar$|$generated_mpv_checksum  libmpv-dolby-release.aar|" \
+            scripts/engine-checksums.sha256
+          grep -Fq "$generated_mpv_checksum  libmpv-dolby-release.aar" \
+            scripts/engine-checksums.sha256
           ./gradlew --no-daemon --max-workers=2 \
             :composeApp:assembleDebug :composeApp:assembleDebugAndroidTest \
             -PyfuseNativeOnlyRuntime=true \
@@ -154,6 +163,8 @@ jobs:
           path: |
             .native-build/artifacts/ycore-native.aar
             .native-build/artifacts/ycore-native.aar.sha256
+            .native-build/artifacts/ycore-gpu.aar
+            .native-build/artifacts/ycore-gpu.aar.sha256
             .native-build/artifacts/NATIVE-SOURCES.txt
             .native-build/artifacts/BUILD-MANIFEST.txt
           if-no-files-found: error
