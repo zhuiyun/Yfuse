@@ -13,6 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -79,6 +80,31 @@ jobs:
           scripts/fetch-engines.sh
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+
+      - name: Download verified YCore GPU companion
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ycore-native-arm64
+          path: .native-build/artifacts
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 33172058930
+
+      - name: Verify and install YCore GPU companion
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifacts=.native-build/artifacts
+          test -s "$artifacts/ycore-native.aar"
+          test -s "$artifacts/ycore-native.aar.sha256"
+          test -s "$artifacts/ycore-gpu.aar"
+          test -s "$artifacts/ycore-gpu.aar.sha256"
+          test -s "$artifacts/NATIVE-SOURCES.txt"
+          bash scripts/verify-ycore-native.sh \
+            "$artifacts/ycore-native.aar" \
+            "$artifacts/ycore-native.aar.sha256" \
+            "$artifacts/NATIVE-SOURCES.txt"
+          bash scripts/install-ycore-native.sh "$artifacts"
 
       - name: Configure production signing
         shell: bash
