@@ -4,6 +4,7 @@ import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YDolbyVisionNalEvidence
 import com.yfuse.core2.capability.YAudioRequirement
+import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
@@ -105,6 +106,10 @@ private const val DOLBY_PROBE_SAMPLE_LIMIT = 24
 
 internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
     val request = playbackRequest
+    // Some platform extractors report video/dolby-vision but omit dvcC/dvvC/dvwC, especially for
+    // Matroska and MPEG-TS. Never treat that missing container metadata as an unsupported profile:
+    // require YCore's bounded FFmpeg truth probe before the route planner sees the stream.
+    if (request.video.hdrType == YHdrType.DolbyVision && dolbyVisionConfig == null) return true
     return shouldRequestEnhancedProbe(
         container = request.container,
         videoCodec = request.video.codec,
