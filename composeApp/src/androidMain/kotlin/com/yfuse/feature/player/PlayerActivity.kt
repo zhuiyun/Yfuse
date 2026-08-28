@@ -1317,7 +1317,16 @@ internal fun pictureInPictureAspectRatioDimensions(
     return when {
         ratio < MIN_PICTURE_IN_PICTURE_ASPECT_RATIO -> 100 to 239
         ratio > MAX_PICTURE_IN_PICTURE_ASPECT_RATIO -> 239 to 100
-        else -> width to height
+        else -> {
+            var left = width
+            var right = height
+            while (right != 0) {
+                val remainder = left % right
+                left = right
+                right = remainder
+            }
+            width / left to height / left
+        }
     }
 }
 

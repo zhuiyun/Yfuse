@@ -2,6 +2,15 @@ package com.yfuse.core2.android
 
 import android.media.MediaCodec
 
+internal data class YMediaCodecCryptoSnapshot(
+    val numberOfSubSamples: Int,
+    val clearBytes: IntArray,
+    val encryptedBytes: IntArray,
+    val key: ByteArray,
+    val iv: ByteArray,
+    val mode: Int,
+)
+
 internal data class YExtractorCryptoInfo(
     val numberOfSubSamples: Int,
     val clearBytes: IntArray?,
@@ -18,17 +27,29 @@ internal data class YExtractorCryptoInfo(
         require(mode == MediaCodec.CRYPTO_MODE_AES_CTR) { "Only CENC AES-CTR samples are executable" }
     }
 
-    fun toMediaCodecCryptoInfo(): MediaCodec.CryptoInfo =
-        MediaCodec.CryptoInfo().apply {
+    internal fun toMediaCodecCryptoSnapshot(): YMediaCodecCryptoSnapshot =
+        YMediaCodecCryptoSnapshot(
+            numberOfSubSamples = numberOfSubSamples,
+            clearBytes = clearBytes?.copyOf() ?: IntArray(numberOfSubSamples),
+            encryptedBytes = encryptedBytes?.copyOf() ?: IntArray(numberOfSubSamples),
+            key = key.copyOf(),
+            iv = initializationVector.copyOf(),
+            mode = mode,
+        )
+
+    fun toMediaCodecCryptoInfo(): MediaCodec.CryptoInfo {
+        val snapshot = toMediaCodecCryptoSnapshot()
+        return MediaCodec.CryptoInfo().apply {
             set(
-                numberOfSubSamples,
-                clearBytes?.copyOf() ?: IntArray(numberOfSubSamples),
-                encryptedBytes?.copyOf() ?: IntArray(numberOfSubSamples),
-                key.copyOf(),
-                initializationVector.copyOf(),
-                mode,
+                snapshot.numberOfSubSamples,
+                snapshot.clearBytes,
+                snapshot.encryptedBytes,
+                snapshot.key,
+                snapshot.iv,
+                snapshot.mode,
             )
         }
+    }
 
     override fun toString(): String = "YExtractorCryptoInfo(subSamples=$numberOfSubSamples, mode=$mode, key=<redacted>, iv=<redacted>)"
 }

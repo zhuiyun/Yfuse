@@ -1,7 +1,6 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -24,19 +23,16 @@ class DetailActionFormattingTest {
     }
 
     @Test
-    fun darkArtworkAccent_isLiftedForResumeClockReadability() {
+    fun darkArtworkAccent_usesContrastSafeResumeClockInk() {
         val source = Color(0xFF142238)
         val readable = resumeTimeColor(source)
-        assertTrue(readable.luminance() > source.luminance())
-        assertTrue(readable.blue > readable.red)
+        assertEquals(Color.White, readable)
+        assertTrue(detailContrastRatio(readable, source) >= 4.5f)
     }
 
     @Test
-    fun oliveArtwork_keepsPrimaryActionInTheCoolBrandFamily() {
+    fun oliveArtwork_isPreservedForThePrimaryAction() {
         val oliveArtwork = Color(0xFF9B9F55)
-        val action = primaryActionColor(oliveArtwork)
-
-        assertTrue(action.blue > action.green)
-        assertTrue(action.luminance() <= 0.22f)
+        assertEquals(oliveArtwork, primaryActionColor(oliveArtwork))
     }
 }

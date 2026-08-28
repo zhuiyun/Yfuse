@@ -229,6 +229,7 @@ class AndroidCore2TrialTest {
             mediaItem(version.url).copy(
                 versions = listOf(version),
                 versionId = version.id,
+                rawDiscUri = "file:///storage/movie",
             )
 
         val mapped =

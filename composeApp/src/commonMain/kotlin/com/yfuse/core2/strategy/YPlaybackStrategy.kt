@@ -109,11 +109,20 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         val forceSoftware =
             request.decoderPreference == YDecoderPreference.Software &&
                 !request.video.secureDecodeRequired
+        val effectiveDecoderPreference =
+            if (
+                request.video.secureDecodeRequired &&
+                request.decoderPreference == YDecoderPreference.Software
+            ) {
+                YDecoderPreference.HardwarePreferred
+            } else {
+                request.decoderPreference
+            }
         val originalDecoder =
             if (forceSoftware) {
                 null
             } else {
-                capabilities.preferredDecoder(request.video, request.decoderPreference)
+                capabilities.preferredDecoder(request.video, effectiveDecoderPreference)
             }
         val fallbackRequirement =
             request.fallbackHdrType
@@ -128,7 +137,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
             if (forceSoftware) {
                 null
             } else {
-                fallbackRequirement?.let { capabilities.preferredDecoder(it, request.decoderPreference) }
+                fallbackRequirement?.let { capabilities.preferredDecoder(it, effectiveDecoderPreference) }
             }
         val originalNativeOutput =
             originalDecoder != null && capabilities.supportsDisplayHdr(request.video.hdrType)

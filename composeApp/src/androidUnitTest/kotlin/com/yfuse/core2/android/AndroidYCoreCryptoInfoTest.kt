@@ -20,7 +20,7 @@ class AndroidYCoreCryptoInfoTest {
                 initializationVector = iv,
                 mode = MediaCodec.CRYPTO_MODE_AES_CTR,
             )
-        val platform = snapshot.toMediaCodecCryptoInfo()
+        val platform = snapshot.toMediaCodecCryptoSnapshot()
         key.fill(0)
         iv.fill(0)
 

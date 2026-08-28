@@ -521,9 +521,15 @@ internal fun actionKeyBrush(accent: Color): Brush {
 internal fun primaryActionColor(accent: Color): Color = accent.copy(alpha = 1f)
 
 internal fun detailArtworkFallbackColor(identity: Any?): Color {
-    val seed = identity?.hashCode() ?: 0
+    val seed =
+        identity
+            ?.toString()
+            .orEmpty()
+            .fold(2_166_136_261u) { hash, character ->
+                (hash xor character.code.toUInt()) * 16_777_619u
+            }
     fun channel(shift: Int): Float =
-        0.24f + (((seed ushr shift) and 0xff) / 255f) * 0.52f
+        0.24f + (((seed shr shift) and 0xffu).toFloat() / 255f) * 0.52f
     return Color(
         red = channel(16),
         green = channel(8),

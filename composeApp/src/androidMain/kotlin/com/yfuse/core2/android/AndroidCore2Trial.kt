@@ -312,6 +312,7 @@ private fun PlayerMediaItem.supportsCore2Drm(scheme: PlaybackDrmScheme): Boolean
             .orEmpty()
             .trim()
             .lowercase()
+    if (url.isHlsManifest()) return false
     return url.isDashManifest() || container in setOf("dash", "mpd", "mp4", "m4v")
 }
 
@@ -343,6 +344,8 @@ private fun PlayerMediaItem.toCore2MediaItem(
                 this,
                 if (usingServerTranscode) {
                     transcodeUrl.ifBlank { fallbackTranscodeUrl }
+                } else if (version?.discSource == true) {
+                    rawDiscUri?.takeIf(String::isNotBlank) ?: url
                 } else {
                     url
                 },

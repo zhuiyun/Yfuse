@@ -418,7 +418,7 @@ class LibraryStoreTest {
             val store =
                 LibraryStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { json("{") },
+                    testRepo { throw IOException("offline") },
                     registry,
                     cache,
                     mainContext = UnconfinedTestDispatcher(testScheduler),
