@@ -349,7 +349,7 @@ internal class EmbyBrowseService(
                         applyServerResolutionFilter(resolution)
                         parameter(
                             "Fields",
-                            "ProductionYear,SeriesId,MediaSources,ProviderIds,SeriesPrimaryImageTag",
+                            "ProductionYear,CommunityRating,SeriesId,MediaSources,ProviderIds,SeriesPrimaryImageTag",
                         )
                         if (rawStartIndex > 0) parameter("StartIndex", rawStartIndex)
                         parameter("Limit", RESOLUTION_SCAN_PAGE_SIZE)
@@ -393,7 +393,7 @@ internal class EmbyBrowseService(
                     parameter("IncludeItemTypes", "Movie,Series")
                     parameter(
                         "Fields",
-                        "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+                        "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
                             "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")
@@ -576,7 +576,7 @@ internal class EmbyBrowseService(
         val fields =
             buildString {
                 append(
-                    "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+                    "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
                         "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks",
                 )
                 if (includePlaylistItemId) append(",PlaylistItemId")
@@ -595,7 +595,7 @@ internal class EmbyBrowseService(
     ) {
         parameter(
             "Fields",
-            "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+            "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
                 "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks",
         )
         parameter("EnableImageTypes", "Primary,Backdrop")
@@ -671,7 +671,7 @@ internal class EmbyBrowseService(
     ) {
         parameter(
             "Fields",
-            "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+            "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
                 "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData,RunTimeTicks",
         )
         parameter("EnableImageTypes", "Primary,Backdrop")

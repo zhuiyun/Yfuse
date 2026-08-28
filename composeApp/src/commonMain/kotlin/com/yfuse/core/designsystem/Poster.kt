@@ -3,15 +3,19 @@ package com.yfuse.core.designsystem
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.decode.DataSource
+import kotlin.math.roundToInt
 
 /** Large artwork may resolve cinematically, but should never hold the image soft for 550ms. */
 private const val ArtworkRevealDurationMs = 400
@@ -220,6 +225,8 @@ fun Poster(
     title: String? = null,
     year: String? = null,
     shape: Shape = GlassShapes.poster,
+    /** Community score rendered as a compact badge at the artwork's top-left. */
+    rating: Double? = null,
     /** 0f..1f — draws the 3px `#5B7FD1` resume bar along the bottom edge. */
     progress: Float? = null,
     contentDescription: String? = title,
@@ -290,6 +297,33 @@ fun Poster(
         )
 
         overlay()
+
+        mediaRatingLabel(rating)?.let { label ->
+            Row(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(7.dp)
+                    .clip(GlassShapes.chip)
+                    .background(Color.Black.copy(alpha = 0.64f))
+                    .semantics { contentDescription = "评分 $label" }
+                    .padding(horizontal = 7.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    AppIcons.StarFilled,
+                    contentDescription = null,
+                    tint = Brand.Imdb,
+                    modifier = Modifier.size(11.dp),
+                )
+                Text(
+                    label,
+                    style = AppTypography.caption.strong,
+                    color = Color.White,
+                    maxLines = 1,
+                )
+            }
+        }
 
         if (title != null) {
             Box(
@@ -376,6 +410,7 @@ fun CaptionedPoster(
     year: String?,
     modifier: Modifier = Modifier,
     posterModifier: Modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+    rating: Double? = null,
     progress: Float? = null,
     onClick: (() -> Unit)? = null,
     sharedTransitionKey: MediaSharedElementKey? = null,
@@ -403,6 +438,7 @@ fun CaptionedPoster(
             url = url,
             fallbackUrl = fallbackUrl,
             fallbackUrls = fallbackUrls,
+            rating = rating,
             progress = progress,
             contentDescription = title,
             modifier = posterModifier,
@@ -434,4 +470,10 @@ fun CaptionedPoster(
             Spacer(Modifier.height(15.dp))
         }
     }
+}
+
+/** Stable one-decimal score label; invalid and absent ratings do not reserve badge space. */
+internal fun mediaRatingLabel(rating: Double?): String? {
+    val value = rating?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+    return ((value.coerceAtMost(10.0) * 10.0).roundToInt() / 10.0).toString()
 }

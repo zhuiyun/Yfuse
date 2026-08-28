@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -46,6 +47,7 @@ class PlaybackSyncManager(
     private val accessTokens: AccountAccessTokenSource,
     repo: EmbyRepository,
     registry: ServerRegistry,
+    private val progressSyncEnabled: StateFlow<Boolean> = MutableStateFlow(true),
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -71,8 +73,20 @@ class PlaybackSyncManager(
         if (started) return
         started = true
         scope.launch {
-            accessTokens.sessionAvailable.collectLatest { available ->
-                if (!available) return@collectLatest
+            combine(
+                accessTokens.sessionAvailable,
+                progressSyncEnabled,
+            ) { sessionAvailable, enabled ->
+                sessionAvailable && enabled
+            }.collectLatest { active ->
+                if (!active) {
+                    debounceJob?.cancel()
+                    debounceJob = null
+                    urgentJob?.cancel()
+                    urgentJob = null
+                    _state.value = _state.value.copy(syncing = false)
+                    return@collectLatest
+                }
                 val userId = cipher.currentUserId() ?: return@collectLatest
                 if (store.bindAccount(userId)) updatePendingState()
                 syncNow()
@@ -198,6 +212,10 @@ class PlaybackSyncManager(
 
     suspend fun syncNow() {
         syncMutex.withLock {
+            if (!progressSyncEnabled.value) {
+                _state.value = _state.value.copy(syncing = false)
+                return
+            }
             val userId = cipher.currentUserId() ?: return
             if (store.bindAccount(userId)) updatePendingState()
             drainServerApplyQueue()
@@ -248,8 +266,11 @@ class PlaybackSyncManager(
     }
 
     private suspend fun syncWithToken(accessToken: String) {
+        if (!progressSyncEnabled.value) return
         pullAll(accessToken)
+        if (!progressSyncEnabled.value) return
         pushPending(accessToken)
+        if (!progressSyncEnabled.value) return
         drainServerApplyQueue()
     }
 
@@ -409,6 +430,7 @@ class PlaybackSyncManager(
     private fun registryServerMissing(serverId: String): Boolean = serverApplier.serverMissing(serverId)
 
     private fun scheduleCloudSync(immediate: Boolean) {
+        if (!progressSyncEnabled.value) return
         if (cloudPlaybackEndpointUnavailable) return
         if (!accessTokens.sessionAvailable.value) return
         if (immediate) {

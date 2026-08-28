@@ -16,6 +16,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /** One bounded pass over every server lane, suitable for a network-constrained background job. */
@@ -37,14 +40,28 @@ class PlaybackReportingCoordinator(
      * 服务器 grid simply has no 「上次观看」 to show.
      */
     private val activity: ServerActivityStore? = null,
+    private val progressSyncEnabled: StateFlow<Boolean>? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ) {
     private val jobsLock = Any()
     private val jobs = mutableMapOf<String, Job>()
 
+    init {
+        // Stop active delivery promptly when consent is withdrawn. Re-enabling resumes durable
+        // reports retained while disabled; startup handles the first value to avoid duplicate wakes.
+        progressSyncEnabled?.let { enabled ->
+            scope.launch {
+                enabled.drop(1).collect { isEnabled ->
+                    if (isEnabled) flushPending() else pauseDelivery()
+                }
+            }
+        }
+    }
+
     /** Called once at application startup; server queues stay isolated during replay. */
     fun flushPending() {
+        if (!remoteProgressSyncEnabled()) return
         if (outbox.pendingServerIds().isNotEmpty()) schedulePlaybackOutboxFlush()
         outbox.pendingServerIds().forEach(::wake)
     }
@@ -57,36 +74,47 @@ class PlaybackReportingCoordinator(
      * overlap a foreground [runLoop] without delivering the same payload twice.
      */
     internal suspend fun flushPendingOnce(): PlaybackOutboxFlushSummary =
-        coroutineScope {
-            val attempts =
-                outbox
-                    .pendingServerIds()
-                    .map { serverId ->
-                        async {
-                            val result = flushServerOnce(serverId)
-                            ServerFlushAttempt(
-                                available = result != null,
-                                result = result,
-                            )
-                        }
-                    }.awaitAll()
-            // Re-read durable heads after the pass so the worker can report whether another
-            // WorkManager attempt is needed without waiting inside this process.
-            val remainingEvents = outbox.events.value
-            val remainingHeads =
-                remainingEvents
-                    .groupBy(PlaybackOutboxEvent::serverId)
-                    .mapValues { (_, events) -> events.minBy(PlaybackOutboxEvent::order) }
+        if (!remoteProgressSyncEnabled()) {
+            val pending = outbox.events.value
             PlaybackOutboxFlushSummary(
-                deliveredCount = attempts.sumOf { it.result?.deliveredCount ?: 0 },
-                pendingCount = remainingEvents.size,
-                authenticationRequired = remainingHeads.values.any { it.authenticationRequired },
-                unavailableServer = remainingHeads.keys.any { registry.serverById(it) == null },
-                hasRetryablePending =
-                    remainingHeads.any { (serverId, head) ->
-                        registry.serverById(serverId) != null && !head.authenticationRequired
-                    },
+                deliveredCount = 0,
+                pendingCount = pending.size,
+                authenticationRequired = pending.any { it.authenticationRequired },
+                unavailableServer = pending.any { registry.serverById(it.serverId) == null },
+                hasRetryablePending = false,
             )
+        } else {
+            coroutineScope {
+                val attempts =
+                    outbox
+                        .pendingServerIds()
+                        .map { serverId ->
+                            async {
+                                val result = flushServerOnce(serverId)
+                                ServerFlushAttempt(
+                                    available = result != null,
+                                    result = result,
+                                )
+                            }
+                        }.awaitAll()
+                // Re-read durable heads after the pass so the worker can report whether another
+                // WorkManager attempt is needed without waiting inside this process.
+                val remainingEvents = outbox.events.value
+                val remainingHeads =
+                    remainingEvents
+                        .groupBy(PlaybackOutboxEvent::serverId)
+                        .mapValues { (_, events) -> events.minBy(PlaybackOutboxEvent::order) }
+                PlaybackOutboxFlushSummary(
+                    deliveredCount = attempts.sumOf { it.result?.deliveredCount ?: 0 },
+                    pendingCount = remainingEvents.size,
+                    authenticationRequired = remainingHeads.values.any { it.authenticationRequired },
+                    unavailableServer = remainingHeads.keys.any { registry.serverById(it) == null },
+                    hasRetryablePending =
+                        remainingHeads.any { (serverId, head) ->
+                            registry.serverById(serverId) != null && !head.authenticationRequired
+                        },
+                )
+            }
         }
 
     /** Successful server authentication is the user-controlled exit from an auth-blocked lane. */
@@ -116,6 +144,7 @@ class PlaybackReportingCoordinator(
             outbox = outbox,
             directSink = direct,
             wakeDelivery = ::wake,
+            progressSyncEnabled = ::remoteProgressSyncEnabled,
         ).also { wake(serverId) }
     }
 
@@ -125,6 +154,7 @@ class PlaybackReportingCoordinator(
         }
 
     private fun wake(serverId: String) {
+        if (!remoteProgressSyncEnabled()) return
         // WorkManager KEEP semantics coalesce frequent progress wakes into one unique job. While
         // this process is alive, the foreground lane below remains the immediate delivery path.
         schedulePlaybackOutboxFlush()
@@ -150,8 +180,16 @@ class PlaybackReportingCoordinator(
         }
     }
 
+    private fun pauseDelivery() {
+        val activeJobs =
+            synchronized(jobsLock) {
+                jobs.values.toList().also { jobs.clear() }
+            }
+        activeJobs.forEach { it.cancel() }
+    }
+
     private suspend fun runLoop(serverId: String) {
-        while (true) {
+        while (remoteProgressSyncEnabled()) {
             val result = flushServerOnce(serverId) ?: return
             if (result.pendingCount == 0 || result.authenticationRequired) return
             val nextAttempt = result.nextAttemptAtEpochMs ?: return
@@ -160,18 +198,24 @@ class PlaybackReportingCoordinator(
     }
 
     private suspend fun flushServerOnce(serverId: String) =
-        registry.serverById(serverId)?.let { server ->
-            val sink = EmbyPlaybackEventSink(repository, server)
-            outbox.flush(serverId) { event -> deliver(sink, event) }
-        } ?: run {
-            AppLog.warning(
-                category = "playback.outbox",
-                event = "server_missing",
-                message = "Playback reports are waiting for a removed server",
-                attributes = mapOf("serverId" to serverId),
-            )
+        if (!remoteProgressSyncEnabled()) {
             null
+        } else {
+            registry.serverById(serverId)?.let { server ->
+                val sink = EmbyPlaybackEventSink(repository, server)
+                outbox.flush(serverId) { event -> deliver(sink, event) }
+            } ?: run {
+                AppLog.warning(
+                    category = "playback.outbox",
+                    event = "server_missing",
+                    message = "Playback reports are waiting for a removed server",
+                    attributes = mapOf("serverId" to serverId),
+                )
+                null
+            }
         }
+
+    private fun remoteProgressSyncEnabled(): Boolean = progressSyncEnabled?.value != false
 
     private data class ServerFlushAttempt(
         val available: Boolean,

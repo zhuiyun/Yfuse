@@ -71,6 +71,7 @@ internal fun RelatedSection(
                                 accessToken = accessToken,
                             ),
                         shape = GlassShapes.poster,
+                        rating = item.communityRating,
                         sharedTransitionKey = sharedKey,
                         modifier = Modifier.fillMaxWidth().height(140.dp),
                     )
@@ -84,8 +85,7 @@ internal fun RelatedSection(
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
-                        item.communityRating?.let { ((it * 10).toInt() / 10.0).toString() }
-                            ?: item.year?.toString().orEmpty(),
+                        item.year?.toString().orEmpty(),
                         style = AppTypography.caption.strong,
                         color = accent,
                         maxLines = 1,

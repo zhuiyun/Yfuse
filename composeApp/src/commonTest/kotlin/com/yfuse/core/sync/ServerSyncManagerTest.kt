@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ServerSyncManagerTest {
@@ -83,6 +84,44 @@ class ServerSyncManagerTest {
                     .single()
             assertEquals(false, status.online)
             assertTrue(status.error.orEmpty().contains("编辑或移除"))
+        }
+
+    @Test
+    fun disabledProgressSyncDoesNotWritePlayedStateToEmby() =
+        runTest {
+            val settings = MapSettings()
+            val savedServer = server("https://emby.test")
+            val registry =
+                ServerRegistry(settings, TestSecureStore()).apply {
+                    addOrUpdate(savedServer)
+                }
+            var requests = 0
+            val manager =
+                ServerSyncManager(
+                    repo =
+                        testRepo {
+                            requests++
+                            error("Disabled progress sync must not reach HTTP")
+                        },
+                    registry = registry,
+                    settings = settings,
+                )
+            manager.setProgress(false)
+
+            val result =
+                manager.setPlayed(
+                    server = savedServer,
+                    itemId = "movie",
+                    title = "Movie",
+                    value = true,
+                )
+
+            val recreated = ServerSyncManager(testRepo { json("{}") }, registry, settings)
+
+            assertTrue(result.isSuccess)
+            assertFalse(manager.syncProgress.value)
+            assertFalse(recreated.syncProgress.value)
+            assertEquals(0, requests)
         }
 
     @Test

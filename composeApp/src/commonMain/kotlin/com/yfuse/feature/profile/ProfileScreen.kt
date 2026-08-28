@@ -61,11 +61,10 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.account.AccountState
+import com.yfuse.core.account.canUseMediaDiscovery
 import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.MediaVersionPreference
-import com.yfuse.core.data.PlaybackRecoverySnapshot
-import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.VideoCacheSize
 import com.yfuse.core.data.activeOr
@@ -110,8 +109,6 @@ import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.offlinePlaybackUri
 import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackOptimizationMode
-import com.yfuse.core.sync.ServerSyncManager
-import com.yfuse.core.sync.SyncMutationKind
 import com.yfuse.feature.player.PlayerLauncher
 import com.yfuse.feature.player.PlayerMediaItem
 import kotlinx.coroutines.launch
@@ -150,7 +147,6 @@ private enum class ProfilePage {
     MediaDiscovery,
     DataAndDiagnostics,
     Downloads,
-    Recovery,
     Splash,
 }
 
@@ -192,8 +188,8 @@ private val SettingsSearchDestinations =
         ),
         SettingsSearchDestination(
             "播放",
-            "版本偏好、画质、引擎、续播与跳过片头",
-            "播放 版本 HDR 杜比 画质 解码 引擎 续播",
+            "版本偏好、画质、引擎、进度同步与跳过片头",
+            "播放 版本 HDR 杜比 画质 解码 引擎 续播 进度 同步",
             ProfilePage.Playback,
             icon = AppIcons.Play,
             tint = SettingTint.playback,
@@ -213,14 +209,6 @@ private val SettingsSearchDestinations =
             ProfilePage.Downloads,
             icon = AppIcons.Download,
             tint = SettingTint.downloads,
-        ),
-        SettingsSearchDestination(
-            "播放恢复与同步",
-            "断点恢复、冲突与立即同步",
-            "恢复 进度 同步 冲突",
-            ProfilePage.Recovery,
-            icon = AppIcons.Refresh,
-            tint = SettingTint.sync,
         ),
         SettingsSearchDestination(
             "影视发现与追剧日历",
@@ -263,7 +251,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
     val smartCrossServerSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
     val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
-    val resumePrompt by component.playbackPreferences.resumePrompt.collectAsState()
+    val progressSyncEnabled by component.dependencies.serverSyncManager.syncProgress.collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
@@ -278,11 +266,10 @@ fun ProfileScreen(component: ProfileComponent) {
     val skipMode by component.skipSegmentPreferences.skipMode.collectAsState()
     val customUserAgent by component.userAgentPreferences.customValue.collectAsState()
     val offlineItems by component.offlineMedia.items.collectAsState()
-    val recoverySnapshot by component.playbackRecovery.snapshot.collectAsState()
-    val syncState by component.syncManager.state.collectAsState()
     val accountState by component.account.state.collectAsState()
     val discoverySettingsRequest by component.tgtoMediaPreferences.openSettingsRequest.collectAsState()
     val watchAvailable = accountState.canUseWatchTogether()
+    val discoveryAvailable = accountState.canUseMediaDiscovery()
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
@@ -291,9 +278,6 @@ fun ProfileScreen(component: ProfileComponent) {
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var settingsQuery by rememberSaveable { mutableStateOf("") }
     var offlineToPlay by remember { mutableStateOf<OfflineMedia?>(null) }
-    var recoveryToPlay by remember {
-        mutableStateOf<Pair<PlayerMediaItem, PlaybackRecoverySnapshot>?>(null)
-    }
     val palette = LocalPalette.current
     val mainListState = rememberLazyListState()
     val rootBottomContentInset = floatingNavigationContentInset()
@@ -318,9 +302,24 @@ fun ProfileScreen(component: ProfileComponent) {
         }
     }
 
-    LaunchedEffect(discoverySettingsRequest) {
+    LaunchedEffect(discoveryAvailable, accountState) {
+        if (
+            accountState !is AccountState.Restoring &&
+            !discoveryAvailable &&
+            pageStack.lastOrNull() == ProfilePage.MediaDiscovery.name
+        ) {
+            closePage()
+        }
+    }
+
+    LaunchedEffect(discoverySettingsRequest, discoveryAvailable) {
         if (discoverySettingsRequest > 0L) {
-            if (pageStack.lastOrNull() != ProfilePage.MediaDiscovery.name) openPage(ProfilePage.MediaDiscovery)
+            if (
+                discoveryAvailable &&
+                pageStack.lastOrNull() != ProfilePage.MediaDiscovery.name
+            ) {
+                openPage(ProfilePage.MediaDiscovery)
+            }
             component.tgtoMediaPreferences.consumeOpenSettingsRequest()
         }
     }
@@ -360,8 +359,8 @@ fun ProfileScreen(component: ProfileComponent) {
                         mediaVersionPreference = mediaVersionPreference,
                         autoNext = autoNext,
                         smartCrossServerSource = smartCrossServerSource,
+                        progressSyncEnabled = progressSyncEnabled,
                         anonymousQoeSharing = anonymousQoeSharing,
-                        resumePrompt = resumePrompt,
                         videoCacheSize = videoCacheSize,
                         skipSegments =
                             if (skipTimesBySeries.isEmpty()) {
@@ -374,8 +373,8 @@ fun ProfileScreen(component: ProfileComponent) {
                         onOpenAdvanced = { openPage(ProfilePage.AdvancedPlayback) },
                         onAutoNext = prefs::setAutoNext,
                         onSmartCrossServerSource = component.playbackPreferences::setSmartCrossServerSource,
+                        onProgressSync = component.dependencies.serverSyncManager::setProgress,
                         onAnonymousQoeSharing = component.playbackPreferences::setAnonymousQoeSharing,
-                        onResumePrompt = component.playbackPreferences::setResumePrompt,
                         onVideoCache = { sheet = Sheet.VideoCache },
                         onSkipSegments = { sheet = Sheet.SkipSegments },
                     )
@@ -458,11 +457,19 @@ fun ProfileScreen(component: ProfileComponent) {
                     )
 
                 ProfilePage.MediaDiscovery ->
-                    MediaDiscoverySettingsScreen(
-                        repository = component.tgtoMedia,
-                        preferences = component.tgtoMediaPreferences,
-                        onBack = ::closePage,
-                    )
+                    if (discoveryAvailable) {
+                        MediaDiscoverySettingsScreen(
+                            repository = component.tgtoMedia,
+                            preferences = component.tgtoMediaPreferences,
+                            onBack = ::closePage,
+                        )
+                    } else {
+                        AccountSettingsScreen(
+                            account = component.account,
+                            onBack = ::closePage,
+                            onOpenSessions = { openPage(ProfilePage.AccountSessions) },
+                        )
+                    }
 
                 ProfilePage.DataAndDiagnostics ->
                     DataAndDiagnosticsScreen(
@@ -489,22 +496,14 @@ fun ProfileScreen(component: ProfileComponent) {
                         onPlay = { offlineToPlay = it },
                     )
 
-                ProfilePage.Recovery,
-                ProfilePage.Splash,
-                ->
-                    ProfileUtilityScreen(
-                        page = activePage,
+                ProfilePage.Splash ->
+                    BrandAndSplashScreen(
                         onBack = ::closePage,
-                        syncManager = component.syncManager,
-                        playbackRecovery = component.playbackRecovery,
-                        themePreferences = prefs,
+                        prefs = prefs,
                         appIcon = appIcon,
                         onAppIcon = { chosen ->
                             setAppIconVariant(chosen)
                             appIcon = chosen
-                        },
-                        onResumePlayback = { snapshot ->
-                            component.recoveryItem(snapshot)?.let { recoveryToPlay = it to snapshot }
                         },
                     )
 
@@ -527,6 +526,7 @@ fun ProfileScreen(component: ProfileComponent) {
                             item(key = "settings-search-results") {
                                 SettingsSearchResults(
                                     query = settingsQuery,
+                                    includeMediaDiscovery = discoveryAvailable,
                                     onOpen = ::openPage,
                                     onOpenServers = component.onOpenServers,
                                 )
@@ -672,30 +672,17 @@ fun ProfileScreen(component: ProfileComponent) {
                         item {
                             Section(title = "同步与数据") {
                                 SettingsCard {
-                                    SettingRow(
-                                        icon = AppIcons.Refresh,
-                                        iconTint = SettingTint.sync,
-                                        title = "播放恢复与同步",
-                                        value =
-                                            when {
-                                                syncState.conflicts.isNotEmpty() -> "${syncState.conflicts.size} 个冲突 ›"
-                                                syncState.pendingCount > 0 -> "${syncState.pendingCount} 项待同步 ›"
-                                                recoverySnapshot != null -> "可继续播放 ›"
-                                                else -> "状态正常 ›"
-                                            },
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.Recovery) },
-                                    )
-                                    SettingsDivider()
-                                    SettingRow(
-                                        "影视发现",
-                                        "榜单 · 追剧日历 · 123 转存 ›",
-                                        embedded = true,
-                                        onClick = { openPage(ProfilePage.MediaDiscovery) },
-                                        icon = AppIcons.Cloud,
-                                        iconTint = SettingTint.sync,
-                                    )
-                                    SettingsDivider()
+                                    if (discoveryAvailable) {
+                                        SettingRow(
+                                            "影视发现",
+                                            "榜单 · 追剧日历 · 123 转存 ›",
+                                            embedded = true,
+                                            onClick = { openPage(ProfilePage.MediaDiscovery) },
+                                            icon = AppIcons.Cloud,
+                                            iconTint = SettingTint.sync,
+                                        )
+                                        SettingsDivider()
+                                    }
                                     SettingRow(
                                         "高级设置",
                                         "网络兼容 · 备份 · 缓存 · 诊断 ›",
@@ -736,15 +723,6 @@ fun ProfileScreen(component: ProfileComponent) {
                 startIndex = 0,
                 startPositionMs = 0L,
                 onLaunched = { offlineToPlay = null },
-            )
-        }
-
-        recoveryToPlay?.let { (item, snapshot) ->
-            PlayerLauncher(
-                items = listOf(item),
-                startIndex = 0,
-                startPositionMs = snapshot.positionMs,
-                onLaunched = { recoveryToPlay = null },
             )
         }
 
@@ -1177,16 +1155,19 @@ internal fun Section(
 @Composable
 private fun SettingsSearchResults(
     query: String,
+    includeMediaDiscovery: Boolean,
     onOpen: (ProfilePage) -> Unit,
     onOpenServers: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val needle = query.trim().lowercase()
     val results =
-        SettingsSearchDestinations.filter { destination ->
-            listOf(destination.title, destination.summary, destination.keywords)
-                .any { needle in it.lowercase() }
-        }
+        SettingsSearchDestinations
+            .filter { includeMediaDiscovery || it.page != ProfilePage.MediaDiscovery }
+            .filter { destination ->
+                listOf(destination.title, destination.summary, destination.keywords)
+                    .any { needle in it.lowercase() }
+            }
     Section(title = "搜索结果") {
         SettingsCard {
             if (results.isEmpty()) {
@@ -1469,6 +1450,7 @@ internal fun SwitchRow(
     embedded: Boolean = false,
     icon: ImageVector? = null,
     iconTint: Color = Color.Unspecified,
+    description: String? = null,
     onChange: (Boolean) -> Unit,
 ) {
     val palette = LocalPalette.current
@@ -1489,13 +1471,23 @@ internal fun SwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) SettingIconTile(icon, iconTint)
-        Text(
-            title,
-            style = AppTypography.body.medium,
-            color = palette.text,
-            maxLines = 2,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = AppTypography.body.medium,
+                color = palette.text,
+                maxLines = 2,
+            )
+            description?.takeIf(String::isNotBlank)?.let { copy ->
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    copy,
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    maxLines = 3,
+                )
+            }
+        }
         PillSwitch(checked)
     }
 }
@@ -1718,245 +1710,6 @@ private fun DescribedSwitchRow(
 }
 
 @Composable
-private fun ProfileUtilityScreen(
-    page: ProfilePage,
-    onBack: () -> Unit,
-    syncManager: ServerSyncManager,
-    playbackRecovery: PlaybackRecoveryStore,
-    themePreferences: ThemePreferences,
-    appIcon: AppIconVariant,
-    onAppIcon: (AppIconVariant) -> Unit,
-    onResumePlayback: (PlaybackRecoverySnapshot) -> Unit,
-) {
-    if (page == ProfilePage.Splash) {
-        BrandAndSplashScreen(onBack = onBack, prefs = themePreferences, appIcon = appIcon, onAppIcon = onAppIcon)
-        return
-    }
-    if (page == ProfilePage.Recovery) {
-        RecoveryCenterScreen(
-            onBack = onBack,
-            syncManager = syncManager,
-            playbackRecovery = playbackRecovery,
-            onResumePlayback = onResumePlayback,
-        )
-        return
-    }
-}
-
-@Composable
-private fun RecoveryCenterScreen(
-    onBack: () -> Unit,
-    syncManager: ServerSyncManager,
-    playbackRecovery: PlaybackRecoveryStore,
-    onResumePlayback: (PlaybackRecoverySnapshot) -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    val sync by syncManager.state.collectAsState()
-    val snapshot by playbackRecovery.snapshot.collectAsState()
-    val scope = rememberCoroutineScope()
-    val bottomContentInset = systemNavigationContentInset()
-
-    LaunchedEffect(syncManager) { syncManager.syncAll() }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding =
-            PaddingValues(
-                top = SettingsHeaderTop,
-                bottom = bottomContentInset,
-                start = Dimens.pageHorizontal,
-                end = Dimens.pageHorizontal,
-            ),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        item {
-            Row(
-                Modifier.fillMaxWidth().offset(x = SettingsBackInset - Dimens.pageHorizontal),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SettingsBackButton(onBack)
-                Column(Modifier.padding(start = 10.dp)) {
-                    Text("播放恢复中心", style = AppTypography.section.strong, color = palette.text)
-                    Text("本地断点、服务器同步与冲突处理", style = AppTypography.caption.regular, color = palette.sub2)
-                }
-            }
-        }
-        item {
-            RecoverySectionCard("继续播放") {
-                val current = snapshot
-                if (current == null) {
-                    Text("暂无可恢复的播放记录", style = AppTypography.caption.regular, color = palette.sub2)
-                } else {
-                    Text(
-                        current.title.ifBlank {
-                            "未命名视频"
-                        },
-                        style = AppTypography.body.strong,
-                        color = palette.text,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        "${current.positionMs.asRecoveryClock()} / ${current.durationMs.asRecoveryClock()} · ${current.engine}",
-                        style = AppTypography.caption.regular,
-                        color = palette.sub2,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RecoveryAction("继续播放") { onResumePlayback(current) }
-                        RecoveryAction("清除") { playbackRecovery.clear() }
-                    }
-                }
-            }
-        }
-        item {
-            RecoverySectionCard("服务器同步") {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "${sync.statuses.size} 台服务器 · ${sync.pendingCount} 项待同步",
-                        style = AppTypography.caption.medium,
-                        color = palette.sub2,
-                    )
-                    RecoveryAction("立即同步") { scope.launch { syncManager.syncAll(force = true) } }
-                }
-                if (sync.statuses.isEmpty()) {
-                    Text(
-                        "正在读取服务器状态…",
-                        style = AppTypography.caption.regular,
-                        color = palette.hint,
-                    )
-                }
-                sync.statuses.sortedBy { it.serverName }.forEach { status ->
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(status.serverName, style = AppTypography.body.strong, color = palette.text)
-                            Text(
-                                status.error ?: when {
-                                    status.syncing -> "同步中…"
-                                    status.online == true -> "${status.itemCount} 条用户状态 · 已连接"
-                                    status.online == false -> "离线"
-                                    else -> "等待同步"
-                                },
-                                style = AppTypography.caption.regular,
-                                color = if (status.error != null) palette.error else palette.sub2,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Text(
-                            when {
-                                status.syncing -> "同步中"
-                                status.online == true -> "正常"
-                                status.online == false -> "离线"
-                                else -> "未知"
-                            },
-                            style = AppTypography.caption.strong,
-                            color = if (status.online == false) palette.error else accent.accent,
-                        )
-                    }
-                }
-            }
-        }
-        if (sync.pendingOperations.isNotEmpty()) {
-            item {
-                RecoverySectionCard("待同步操作") {
-                    sync.pendingOperations.forEach { operation ->
-                        Text(
-                            "${operation.title} · ${when (operation.kind) {
-                                SyncMutationKind.Favorite -> "收藏"
-                                SyncMutationKind.Played -> "已播放"
-                            }} → ${if (operation.desired) "开启" else "关闭"}",
-                            style = AppTypography.caption.medium,
-                            color = palette.text,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-        }
-        if (sync.conflicts.isNotEmpty()) {
-            item {
-                RecoverySectionCard("冲突处理") {
-                    sync.conflicts.forEach { conflict ->
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(conflict.mutation.title, style = AppTypography.body.strong, color = palette.text)
-                            Text(
-                                "本地：${if (conflict.mutation.desired) "开启" else "关闭"} · 服务器：${if (conflict.serverValue) "开启" else "关闭"}",
-                                style = AppTypography.caption.regular,
-                                color = palette.sub2,
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                RecoveryAction("保留本地") { scope.launch { syncManager.resolveConflict(conflict, true) } }
-                                RecoveryAction(
-                                    "采用服务器",
-                                ) { scope.launch { syncManager.resolveConflict(conflict, false) } }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecoverySectionCard(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val palette = LocalPalette.current
-    Column(
-        Modifier.fillMaxWidth().glass(GlassShapes.card, palette.card, palette.border).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp),
-    ) {
-        Text(title, style = AppTypography.body.strong, color = palette.text)
-        content()
-    }
-}
-
-@Composable
-private fun RecoveryAction(
-    label: String,
-    onClick: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val accent = LocalAccentColors.current
-    Text(
-        label,
-        style = AppTypography.caption.strong,
-        color = accent.accent,
-        modifier =
-            Modifier
-                .pressable(onClick = onClick)
-                .touchTarget()
-                .liquidGlass(
-                    shape = GlassShapes.chip,
-                    fill = palette.card2,
-                    border = palette.border,
-                    over = palette.background,
-                    sheen = 0.58f,
-                ).padding(horizontal = 11.dp, vertical = 7.dp),
-    )
-}
-
-private fun Long.asRecoveryClock(): String {
-    if (this <= 0L) return "--:--"
-    val total = this / 1000L
-    val minutes = total / 60L
-    val seconds = total % 60L
-    return "$minutes:${seconds.toString().padStart(2, '0')}"
-}
-
-@Composable
 private fun PillSwitch(checked: Boolean) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -2018,3 +1771,4 @@ private fun OptionSheet(
         }
     }
 }
+

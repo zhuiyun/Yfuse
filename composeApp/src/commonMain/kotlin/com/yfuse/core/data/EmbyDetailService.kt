@@ -111,7 +111,7 @@ internal class EmbyDetailService(
                         parameter("Limit", limit)
                         parameter(
                             "Fields",
-                            "ProductionYear,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
+                            "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
                                 "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
                         )
                         parameter("EnableImageTypes", "Primary,Backdrop")

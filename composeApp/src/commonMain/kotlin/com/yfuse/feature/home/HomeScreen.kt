@@ -106,7 +106,6 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 /**
  * The hero artwork changes every few seconds, while the status-bar ink stays white.
@@ -999,6 +998,7 @@ private fun NextUpShelf(
                         ),
                     fallbackUrls = emptyList(),
                     title = item.title,
+                    rating = item.communityRating,
                     year =
                         listOfNotNull(
                             "Emby",
@@ -1083,6 +1083,7 @@ private fun ContinueWatchingCard(
                     item,
                     accessToken = entry.server.accessToken,
                 ),
+            rating = item.communityRating,
             progress = item.playedPercentage?.let { (it / 100.0).toFloat() },
             contentDescription = "继续观看 ${item.title}${item.subtitle?.let { "，$it" }.orEmpty()}",
             onClick = onClick,
@@ -1147,7 +1148,6 @@ internal fun compactLastPlayedDate(value: String?): String? {
 private fun LibraryMediaShelf(
     title: String,
     items: List<HomeResumeEntry>,
-    showRating: Boolean = false,
     onSeeAll: () -> Unit,
     onClick: (HomeResumeEntry) -> Unit,
 ) {
@@ -1167,12 +1167,10 @@ private fun LibraryMediaShelf(
                             accessToken = entry.server.accessToken,
                         ),
                     title = item.title,
+                    rating = item.communityRating,
                     year =
                         listOfNotNull(
                             item.year?.toString(),
-                            item.communityRating
-                                ?.takeIf { showRating }
-                                ?.let { "评分 ${((it * 10.0).roundToInt() / 10.0)}" },
                             entry.server.serverName.takeIf(String::isNotBlank),
                         ).joinToString(" · "),
                     onClick = { onClick(entry) },
@@ -1441,6 +1439,7 @@ private fun Recommended(
                             TmdbImages.media(item.backdropPath, "original"),
                         ),
                     title = item.title,
+                    rating = item.rating,
                     year =
                         "TMDB · " +
                             if (showReleaseDate) {
@@ -1502,6 +1501,7 @@ private fun RecentAdded(
                                 TmdbImages.media(item.backdropPath, "w780"),
                             ),
                         title = item.title,
+                        rating = item.rating,
                         onClick = { onClick(item) },
                         modifier = Modifier.weight(1f).aspectRatio(2f / 3f),
                     )

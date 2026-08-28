@@ -27,7 +27,6 @@ import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerActivityStore
@@ -99,7 +98,6 @@ fun appModule(
     single { ThemePreferences(get()) }
     single { PlaybackPreferences(get()) }
     single { PlaybackFailoverRequest() }
-    single { PlaybackRecoveryStore(get()) }
     single { PlaybackEventOutbox(get()) }
     single { PlaybackSyncStore(get()) }
     single { ServerActivityStore(get()) }
@@ -153,7 +151,15 @@ fun appModule(
         )
     }
     single<OfflineMediaManager> { createOfflineMediaManager(get(), get(), get()) }
-    single { PlaybackReportingCoordinator(get(), get(), get(), get()) }
+    single {
+        PlaybackReportingCoordinator(
+            repository = get(),
+            registry = get(),
+            outbox = get(),
+            activity = get(),
+            progressSyncEnabled = get<ServerSyncManager>().syncProgress,
+        )
+    }
     single { ServerHealthMonitor(get(), get()) }
     single { AiringScheduleCache(get()) }
     single { CalendarFollowStore(get()) }
@@ -203,6 +209,7 @@ fun appModule(
             accessTokens = get(),
             repo = get(),
             registry = get(),
+            progressSyncEnabled = get<ServerSyncManager>().syncProgress,
         )
     }
     // Own client (different host + bearer auth), built inline so Koin keeps a

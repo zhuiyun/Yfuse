@@ -171,8 +171,8 @@ internal fun PlaybackSettingsScreen(
     mediaVersionPreference: MediaVersionPreference,
     autoNext: Boolean,
     smartCrossServerSource: Boolean,
+    progressSyncEnabled: Boolean,
     anonymousQoeSharing: Boolean,
-    resumePrompt: Boolean,
     videoCacheSize: VideoCacheSize,
     skipSegments: String,
     onPlaybackMode: () -> Unit,
@@ -180,8 +180,8 @@ internal fun PlaybackSettingsScreen(
     onOpenAdvanced: () -> Unit,
     onAutoNext: (Boolean) -> Unit,
     onSmartCrossServerSource: (Boolean) -> Unit,
+    onProgressSync: (Boolean) -> Unit,
     onAnonymousQoeSharing: (Boolean) -> Unit,
-    onResumePrompt: (Boolean) -> Unit,
     onVideoCache: () -> Unit,
     onSkipSegments: () -> Unit,
 ) {
@@ -190,6 +190,24 @@ internal fun PlaybackSettingsScreen(
         subtitle = "播放行为、性能与兼容性",
         onBack = onBack,
     ) {
+        item {
+            Section(title = "播放进度") {
+                SettingsCard {
+                    SwitchRow(
+                        title = "进度同步",
+                        checked = progressSyncEnabled,
+                        embedded = true,
+                        description =
+                            if (progressSyncEnabled) {
+                                "同步到 Emby/Jellyfin 与 Yfuse 云端，支持跨设备续播"
+                            } else {
+                                "仅保留本机进度，不向 Emby/Jellyfin 或 Yfuse 云端上报"
+                            },
+                        onChange = onProgressSync,
+                    )
+                }
+            }
+        }
         item {
             Section(title = "播放行为") {
                 SettingsCard {
@@ -201,8 +219,6 @@ internal fun PlaybackSettingsScreen(
                         true,
                         onChange = onSmartCrossServerSource,
                     )
-                    SettingsDivider()
-                    SwitchRow("启动时询问继续播放", resumePrompt, true, onChange = onResumePrompt)
                     SettingsDivider()
                     SettingRow("视频缓存大小", "${videoCacheSize.label} ›", true, onVideoCache)
                     SettingsDivider()

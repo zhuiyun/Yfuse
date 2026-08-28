@@ -195,6 +195,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                             ) {
                                 Poster(
                                     url = TmdbImages.poster(item.posterPath),
+                                    rating = item.rating,
                                     fallbackUrls =
                                         listOfNotNull(
                                             TmdbImages.media(item.posterPath),
@@ -229,21 +230,6 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    item.rating?.let { rating ->
-                                        Spacer(Modifier.height(7.dp))
-                                        Text(
-                                            "TMDB ${(rating * 10).toInt() / 10.0}",
-                                            style = AppTypography.caption.strong,
-                                            color = Brand.Imdb,
-                                            modifier =
-                                                Modifier
-                                                    .solidGlass(
-                                                        shape = GlassShapes.thumb,
-                                                        fill = Brand.Imdb.copy(alpha = 0.14f),
-                                                        border = Brand.Imdb.copy(alpha = 0.24f),
-                                                    ).padding(horizontal = 7.dp, vertical = 3.dp),
-                                        )
-                                    }
                                 }
                             }
                         }

@@ -8,6 +8,7 @@ import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -76,6 +77,56 @@ class PlaybackReportingCoordinatorTest {
             assertTrue(summary.unavailableServer)
             assertFalse(summary.hasRetryablePending)
             assertEquals(1, outbox.events.value.size)
+        }
+
+    @Test
+    fun disabledProgressSyncKeepsRemoteReportsLocalOnly() =
+        runTest {
+            var requests = 0
+            val repo =
+                testRepo {
+                    requests++
+                    error("Disabled progress sync must not reach HTTP")
+                }
+            val registry = testRegistry()
+            registry.addOrUpdate(
+                SavedServer(
+                    id = "server",
+                    baseUrl = "https://emby.example",
+                    serverName = "Emby",
+                    userId = "user",
+                    userName = "User",
+                    accessToken = "token",
+                ),
+            )
+            val outbox = PlaybackEventOutbox(MapSettings())
+            val coordinator =
+                PlaybackReportingCoordinator(
+                    repository = repo,
+                    registry = registry,
+                    outbox = outbox,
+                    progressSyncEnabled = MutableStateFlow(false),
+                )
+
+            coordinator
+                .sinkFor("server")!!
+                .progress(
+                    itemId = "item",
+                    sessionId = "session",
+                    positionTicks = 20L,
+                    isPaused = false,
+                )
+
+            assertTrue(outbox.events.value.isEmpty())
+            assertEquals(0, requests)
+
+            enqueue(outbox, PlaybackOutboxEventKind.Progress, positionTicks = 30L)
+            val summary = coordinator.flushPendingOnce()
+
+            assertEquals(1, summary.pendingCount)
+            assertFalse(summary.hasRetryablePending)
+            assertEquals(1, outbox.events.value.size)
+            assertEquals(0, requests)
         }
 
     private fun enqueue(

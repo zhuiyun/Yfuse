@@ -863,6 +863,7 @@ private fun ResultRow(
     ) {
         Poster(
             url = EmbyImages.poster(baseUrl, item, maxHeight = 360, accessToken = accessToken),
+            rating = item.communityRating,
             // Results are grouped per server, and the same server added under two
             // accounts is two groups holding the same item ids. A shared-element key
             // repeated within one screen leaves one of its copies undrawn, so the group

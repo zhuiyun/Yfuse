@@ -38,7 +38,6 @@ import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.PlaybackPreferences
-import com.yfuse.core.data.PlaybackRecoveryStore
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
@@ -371,7 +370,6 @@ class PlayerActivity : ComponentActivity() {
         val danmakuPreferences = koin.get<DanmakuPreferences>()
         val skipSegmentPreferences = koin.get<SkipSegmentPreferences>()
         val danmakuRepository = koin.get<DanmakuRepository>()
-        val playbackRecovery = koin.get<PlaybackRecoveryStore>()
         val offlineMediaManager = koin.get<OfflineMediaManager>()
         playbackPreferences = koin.get()
         val videoCacheBytes = playbackPreferences.videoCacheSize.value.bytes
@@ -461,7 +459,6 @@ class PlayerActivity : ComponentActivity() {
                     skipSegmentPreferences = skipSegmentPreferences,
                     volumeKeyPresses = volumeKeyPresses,
                     danmakuRepository = danmakuRepository,
-                    playbackRecovery = playbackRecovery,
                     customUserAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
                     watchTogether = watchTogether,
@@ -1329,3 +1326,4 @@ private fun Long.toEmbyTicks(): Long =
 private const val EMBY_TICKS_PER_MILLISECOND = 10_000L
 private const val MIN_PICTURE_IN_PICTURE_ASPECT_RATIO = 1.0 / 2.39
 private const val MAX_PICTURE_IN_PICTURE_ASPECT_RATIO = 2.39
+
