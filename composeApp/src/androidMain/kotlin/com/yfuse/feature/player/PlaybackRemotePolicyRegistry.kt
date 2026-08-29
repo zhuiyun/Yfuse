@@ -4,6 +4,7 @@ import android.content.Context
 import com.yfuse.core.logging.AppLog
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicReference
@@ -65,7 +66,7 @@ internal object PlaybackRemotePolicyRegistry {
             check(connection.contentLengthLong < 0L || connection.contentLengthLong <= MAX_POLICY_BYTES) {
                 "Playback policy is too large"
             }
-            val bytes = connection.inputStream.use { it.readNBytes(MAX_POLICY_BYTES + 1) }
+            val bytes = connection.inputStream.use { it.readAtMost(MAX_POLICY_BYTES + 1) }
             check(bytes.size <= MAX_POLICY_BYTES) { "Playback policy is too large" }
             apply(json.decodeFromString<PlaybackRemotePolicyDocument>(bytes.decodeToString()), nowEpochMs)
         } finally {
@@ -155,3 +156,21 @@ internal fun sanitizePlaybackRemotePolicy(
 }
 
 private const val MAX_PLAYBACK_POLICY_LIFETIME_MS = 31L * 24L * 60L * 60L * 1_000L
+
+private fun InputStream.readAtMost(limit: Int): ByteArray {
+    require(limit > 0) { "Read limit must be positive" }
+    val buffer = ByteArray(limit)
+    var offset = 0
+    while (offset < limit) {
+        val read = read(buffer, offset, limit - offset)
+        if (read < 0) break
+        if (read == 0) {
+            val next = read()
+            if (next < 0) break
+            buffer[offset++] = next.toByte()
+        } else {
+            offset += read
+        }
+    }
+    return buffer.copyOf(offset)
+}
