@@ -1521,4 +1521,79 @@
         <error line="274" column="1" source="standard:blank-line-before-declaration" />
         <error line="275" column="1" source="standard:blank-line-before-declaration" />
     </file>
+    <file name="src/test/kotlin/com/yfuse/watch/CalendarIngestionTest.kt">
+        <error line="35" column="63" source="standard:chain-method-continuation" />
+        <error line="35" column="72" source="standard:chain-method-continuation" />
+        <error line="35" column="80" source="standard:chain-method-continuation" />
+        <error line="35" column="89" source="standard:chain-method-continuation" />
+        <error line="91" column="72" source="standard:chain-method-continuation" />
+        <error line="91" column="81" source="standard:chain-method-continuation" />
+        <error line="91" column="89" source="standard:chain-method-continuation" />
+        <error line="91" column="98" source="standard:chain-method-continuation" />
+        <error line="94" column="18" source="standard:chain-method-continuation" />
+        <error line="94" column="27" source="standard:chain-method-continuation" />
+        <error line="94" column="35" source="standard:chain-method-continuation" />
+        <error line="94" column="44" source="standard:chain-method-continuation" />
+        <error line="130" column="69" source="standard:chain-method-continuation" />
+        <error line="130" column="78" source="standard:chain-method-continuation" />
+        <error line="130" column="86" source="standard:chain-method-continuation" />
+        <error line="130" column="95" source="standard:chain-method-continuation" />
+        <error line="133" column="18" source="standard:chain-method-continuation" />
+        <error line="133" column="27" source="standard:chain-method-continuation" />
+        <error line="133" column="35" source="standard:chain-method-continuation" />
+        <error line="133" column="44" source="standard:chain-method-continuation" />
+        <error line="355" column="55" source="standard:chain-method-continuation" />
+        <error line="355" column="71" source="standard:chain-method-continuation" />
+        <error line="355" column="100" source="standard:chain-method-continuation" />
+        <error line="520" column="47" source="standard:function-literal" />
+        <error line="520" column="51" source="standard:chain-method-continuation" />
+        <error line="520" column="57" source="standard:argument-list-wrapping" />
+        <error line="520" column="94" source="standard:argument-list-wrapping" />
+        <error line="520" column="111" source="standard:chain-method-continuation" />
+        <error line="520" column="119" source="standard:argument-list-wrapping" />
+        <error line="520" column="121" source="standard:argument-list-wrapping" />
+        <error line="520" column="121" source="standard:max-line-length" />
+        <error line="520" column="122" source="standard:argument-list-wrapping" />
+        <error line="520" column="124" source="standard:function-literal" />
+        <error line="821" column="42" source="standard:argument-list-wrapping" />
+        <error line="821" column="58" source="standard:argument-list-wrapping" />
+        <error line="821" column="66" source="standard:argument-list-wrapping" />
+        <error line="821" column="101" source="standard:argument-list-wrapping" />
+        <error line="821" column="107" source="standard:argument-list-wrapping" />
+        <error line="821" column="113" source="standard:argument-list-wrapping" />
+        <error line="821" column="119" source="standard:argument-list-wrapping" />
+        <error line="821" column="119" source="standard:binary-expression-wrapping" />
+        <error line="821" column="121" source="standard:max-line-length" />
+        <error line="821" column="123" source="standard:binary-expression-wrapping" />
+        <error line="821" column="140" source="standard:argument-list-wrapping" />
+        <error line="821" column="143" source="standard:argument-list-wrapping" />
+        <error line="821" column="155" source="standard:argument-list-wrapping" />
+        <error line="821" column="156" source="standard:argument-list-wrapping" />
+        <error line="821" column="157" source="standard:argument-list-wrapping" />
+        <error line="822" column="42" source="standard:argument-list-wrapping" />
+        <error line="822" column="60" source="standard:argument-list-wrapping" />
+        <error line="822" column="70" source="standard:argument-list-wrapping" />
+        <error line="822" column="104" source="standard:argument-list-wrapping" />
+        <error line="822" column="110" source="standard:argument-list-wrapping" />
+        <error line="822" column="116" source="standard:argument-list-wrapping" />
+        <error line="822" column="121" source="standard:max-line-length" />
+        <error line="822" column="122" source="standard:argument-list-wrapping" />
+        <error line="822" column="122" source="standard:binary-expression-wrapping" />
+        <error line="822" column="126" source="standard:binary-expression-wrapping" />
+        <error line="822" column="143" source="standard:argument-list-wrapping" />
+        <error line="822" column="146" source="standard:argument-list-wrapping" />
+        <error line="822" column="158" source="standard:argument-list-wrapping" />
+        <error line="822" column="159" source="standard:argument-list-wrapping" />
+        <error line="822" column="160" source="standard:argument-list-wrapping" />
+    </file>
+    <file name="src/test/kotlin/com/yfuse/watch/DomesticCalendarDiscoveryTest.kt">
+        <error line="121" column="69" source="standard:chain-method-continuation" />
+        <error line="121" column="78" source="standard:chain-method-continuation" />
+        <error line="121" column="86" source="standard:chain-method-continuation" />
+        <error line="121" column="95" source="standard:chain-method-continuation" />
+        <error line="124" column="18" source="standard:chain-method-continuation" />
+        <error line="124" column="27" source="standard:chain-method-continuation" />
+        <error line="124" column="35" source="standard:chain-method-continuation" />
+        <error line="124" column="44" source="standard:chain-method-continuation" />
+    </file>
 </baseline>
