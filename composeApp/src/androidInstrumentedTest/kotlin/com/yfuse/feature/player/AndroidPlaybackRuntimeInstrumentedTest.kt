@@ -48,16 +48,14 @@ class AndroidPlaybackRuntimeInstrumentedTest {
                         .Builder()
                         .setLegacyStreamType(AudioManager.STREAM_MUSIC)
                         .build(),
-                )
-                .setAudioFormat(
+                ).setAudioFormat(
                     AudioFormat
                         .Builder()
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                         .setSampleRate(SAMPLE_RATE_HZ)
                         .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                         .build(),
-                )
-                .setBufferSizeInBytes(minBufferBytes)
+                ).setBufferSizeInBytes(minBufferBytes)
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
 
