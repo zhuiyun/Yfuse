@@ -270,7 +270,12 @@ internal class AndroidAdaptiveCore2YPlayer(
         return if (percent in 0..100) percent * 10 else -1
     }
 
-    private fun currentThermalStatus(): Int = if (Build.VERSION.SDK_INT >= 29) powerManager?.currentThermalStatus ?: 0 else 0
+    private fun currentThermalStatus(): Int =
+        if (Build.VERSION.SDK_INT >= 29) {
+            powerManager?.currentThermalStatus ?: 0
+        } else {
+            0
+        }
 
     private suspend fun runLoop() {
         var currentIndex = request.startIndex
@@ -366,12 +371,12 @@ internal class AndroidAdaptiveCore2YPlayer(
             if (
                 !bypassLearnedRouteMemory &&
                     !forceSoftwareFallback &&
-                    decision.plan.route == YPlaybackRoute.NativeTunnel &&
-                    (
-                        failureLedger.isBlocked(decision.toFailureKey()) ||
-                            learningEngine.advice(decision.toFailureKey().toLearningKey()) !=
-                            YLearnedRouteAdvice.Allow
-                    )
+                decision.plan.route == YPlaybackRoute.NativeTunnel &&
+                (
+                    failureLedger.isBlocked(decision.toFailureKey()) ||
+                        learningEngine.advice(decision.toFailureKey().toLearningKey()) !=
+                        YLearnedRouteAdvice.Allow
+                )
             ) {
                 decision =
                     routeEvaluator.evaluate(
@@ -384,11 +389,11 @@ internal class AndroidAdaptiveCore2YPlayer(
             val learnedAdvice = learningEngine.advice(decision.toFailureKey().toLearningKey())
             if (
                 !bypassLearnedRouteMemory &&
-                    (
-                        forceSoftwareFallback ||
-                            failureLedger.isBlocked(decision.toFailureKey()) ||
-                            learnedAdvice == YLearnedRouteAdvice.Avoid
-                    )
+                (
+                    forceSoftwareFallback ||
+                        failureLedger.isBlocked(decision.toFailureKey()) ||
+                        learnedAdvice == YLearnedRouteAdvice.Avoid
+                )
             ) {
                 decision =
                     decision.copy(
@@ -447,10 +452,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                         forcedPlan = plan,
                     )
                 plan.route == YPlaybackRoute.GpuEnhanced ->
-                    AndroidYCoreGpuRuntime.probe(
-                        context,
-                        yCoreGpuEvidenceKey(decision.probe.playbackRequest, plan),
-                    ).let { routeGpuProbe ->
+                    AndroidYCoreGpuRuntime
+                        .probe(
+                            context,
+                            yCoreGpuEvidenceKey(decision.probe.playbackRequest, plan),
+                        ).let { routeGpuProbe ->
                         if (
                             routeGpuProbe.canAttemptNativeVulkan &&
                             decision.probe.playbackRequest.enhancedDemuxSupported &&
@@ -781,7 +787,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                             }
                         }
                         Command.ThermalPressure -> {
-                            val activeRoute = child?.state?.value?.diagnostics?.route
+                            val activeRoute =
+                                child
+                                    ?.state
+                                    ?.value
+                                    ?.diagnostics
+                                    ?.route
                             if (
                                 activeRoute == YPlaybackRoute.GpuEnhanced ||
                                 activeRoute == YPlaybackRoute.SoftwareFallback

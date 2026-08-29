@@ -63,7 +63,12 @@ internal class AndroidNativeEnhancedYPlayer(
                     YPlayerDiagnostics(
                         route = forcedPlan?.route ?: YPlaybackRoute.NativeEnhanced,
                         demuxer = "FFmpeg 8.1 / libavformat",
-                        renderer = if (forcedPlan?.route == YPlaybackRoute.GpuEnhanced) "Vulkan + AudioTrack" else "Surface + AudioTrack",
+                        renderer =
+                            if (forcedPlan?.route == YPlaybackRoute.GpuEnhanced) {
+                                "Vulkan + AudioTrack"
+                            } else {
+                                "Surface + AudioTrack"
+                            },
                         reason = "YCore 2.0 NativeEnhanced opt-in path",
                     ),
             ),
@@ -704,12 +709,12 @@ private fun nativeGpuOutputLabel(
     return when {
         plan?.usesHdrFallback == true ->
             "DV P${dolbyProfile ?: "7/8"} 兼容基层 ${plan.inputHdrType} → ${plan.outputHdrType} · " +
-                "Vulkan ${duration} ms"
+                "Vulkan $duration ms"
         plan?.inputHdrType == YHdrType.DolbyVision ->
-            "DV P${dolbyProfile ?: "5/8"} MediaCodec → Vulkan（非原生 DV 输出）· ${duration} ms"
+            "DV P${dolbyProfile ?: "5/8"} MediaCodec → Vulkan（非原生 DV 输出）· $duration ms"
         plan != null && plan.inputHdrType != plan.outputHdrType ->
-            "${plan.inputHdrType} → ${plan.outputHdrType} · Vulkan ${duration} ms"
-        else -> "Vulkan Swapchain · GPU ${duration} ms"
+            "${plan.inputHdrType} → ${plan.outputHdrType} · Vulkan $duration ms"
+        else -> "Vulkan Swapchain · GPU $duration ms"
     }
 }
 

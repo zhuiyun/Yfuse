@@ -158,7 +158,14 @@ internal class AndroidEnhancedPlaybackSession(
     ): YDemuxOpenResult {
         close()
         this.runtimeCapabilityKey = runtimeCapabilityKey
-        require(plan.route in setOf(YPlaybackRoute.NativeEnhanced, YPlaybackRoute.GpuEnhanced, YPlaybackRoute.SoftwareFallback)) {
+        require(
+            plan.route in
+                setOf(
+                    YPlaybackRoute.NativeEnhanced,
+                    YPlaybackRoute.GpuEnhanced,
+                    YPlaybackRoute.SoftwareFallback,
+                ),
+        ) {
             "Enhanced session requires an enhanced route"
         }
         require(plan.renderPath in setOf(YRenderPath.SurfaceDirect, YRenderPath.Gpu)) {
@@ -762,9 +769,9 @@ internal class AndroidEnhancedPlaybackSession(
                     } else {
                         val hdr10PlusPayload =
                             videoTrack.video
-                            ?.takeIf { it.hdrType == com.yfuse.core2.capability.YHdrType.Hdr10Plus }
-                            ?.samplePacking
-                            ?.let { packing -> YBitstream.hdr10PlusItuT35Payload(sample.data, packing) }
+                                ?.takeIf { it.hdrType == com.yfuse.core2.capability.YHdrType.Hdr10Plus }
+                                ?.samplePacking
+                                ?.let { packing -> YBitstream.hdr10PlusItuT35Payload(sample.data, packing) }
                         hdr10PlusPayload?.let(videoDecoder::setHdr10PlusMetadata)
                         hdr10PlusPayload?.let { payload ->
                             gpuVideoOutput?.queueHdr10PlusMetadata(sample.presentationTimeUs, payload)
@@ -1430,7 +1437,8 @@ private fun YCompressedSample.toExtractorFlags(): Int =
         else -> 0
     }
 
-private fun Boolean.toCodecQueueResult(): YCodecQueueResult = if (this) YCodecQueueResult.Queued else YCodecQueueResult.TryAgain
+private fun Boolean.toCodecQueueResult(): YCodecQueueResult =
+    if (this) YCodecQueueResult.Queued else YCodecQueueResult.TryAgain
 
 private fun Context.yCoreDisplayPeakNits(): Float? =
     runCatching {

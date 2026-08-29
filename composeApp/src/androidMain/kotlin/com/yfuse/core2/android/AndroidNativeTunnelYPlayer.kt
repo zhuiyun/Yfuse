@@ -254,7 +254,7 @@ internal class AndroidNativeTunnelYPlayer(
             }
             nativeDolbyVisionRoute =
                 decision.probe.dolbyVisionConfig != null &&
-                    decision.plan.outputHdrType == com.yfuse.core2.capability.YHdrType.DolbyVision
+                decision.plan.outputHdrType == com.yfuse.core2.capability.YHdrType.DolbyVision
             session.open(
                 source = item.toAndroidTunnelSource(),
                 surface = surface,
