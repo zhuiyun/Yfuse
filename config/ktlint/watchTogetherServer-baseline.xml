@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 31233)
-Total output lines: 1524
-
 <?xml version="1.0" encoding="utf-8"?>
 <baseline version="1.0">
     <file name="src/main/kotlin/com/yfuse/watch/Application.kt">
@@ -738,7 +735,65 @@ Total output lines: 1524
         <error line="928" column="1" source="standard:indent" />
         <error line="929" column="1" source="standard:indent" />
         <error line="935" column="24" source="standard:multiline-expression-wrapping" />
-        <error line="951" column="25" source="standard:multiline-expression-wrapping" />…1233 tokens truncated… />
+        <error line="951" column="25" source="standard:multiline-expression-wrapping" />
+        <error line="954" column="26" source="standard:argument-list-wrapping" />
+        <error line="954" column="121" source="standard:argument-list-wrapping" />
+        <error line="954" column="121" source="standard:max-line-length" />
+        <error line="979" column="52" source="standard:multiline-expression-wrapping" />
+        <error line="979" column="52" source="standard:function-signature" />
+        <error line="981" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="989" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="997" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="1026" column="77" source="standard:multiline-expression-wrapping" />
+        <error line="1026" column="77" source="standard:function-signature" />
+        <error line="1028" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="1036" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="1063" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="1067" column="22" source="standard:argument-list-wrapping" />
+        <error line="1067" column="121" source="standard:max-line-length" />
+        <error line="1067" column="127" source="standard:argument-list-wrapping" />
+        <error line="1073" column="28" source="standard:chain-method-continuation" />
+        <error line="1073" column="37" source="standard:chain-method-continuation" />
+        <error line="1073" column="56" source="standard:chain-method-continuation" />
+        <error line="1073" column="71" source="standard:chain-method-continuation" />
+        <error line="1086" column="68" source="standard:multiline-expression-wrapping" />
+        <error line="1086" column="68" source="standard:function-signature" />
+        <error line="1088" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="1095" column="20" source="standard:multiline-expression-wrapping" />
+        <error line="1097" column="22" source="standard:argument-list-wrapping" />
+        <error line="1097" column="121" source="standard:max-line-length" />
+        <error line="1097" column="127" source="standard:argument-list-wrapping" />
+        <error line="1100" column="36" source="standard:multiline-expression-wrapping" />
+        <error line="1130" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="1134" column="22" source="standard:argument-list-wrapping" />
+        <error line="1134" column="121" source="standard:max-line-length" />
+        <error line="1134" column="127" source="standard:argument-list-wrapping" />
+        <error line="1146" column="66" source="standard:multiline-expression-wrapping" />
+        <error line="1146" column="66" source="standard:function-signature" />
+        <error line="1148" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="1168" column="30" source="standard:wrapping" />
+        <error line="1168" column="32" source="standard:multiline-expression-wrapping" />
+        <error line="1178" column="62" source="standard:multiline-expression-wrapping" />
+        <error line="1178" column="62" source="standard:function-signature" />
+        <error line="1180" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="1185" column="18" source="standard:argument-list-wrapping" />
+        <error line="1185" column="121" source="standard:max-line-length" />
+        <error line="1185" column="125" source="standard:argument-list-wrapping" />
+        <error line="1203" column="32" source="standard:multiline-expression-wrapping" />
+        <error line="1247" column="76" source="standard:multiline-expression-wrapping" />
+        <error line="1247" column="76" source="standard:function-signature" />
+        <error line="1249" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="1257" column="51" source="standard:chain-method-continuation" />
+        <error line="1257" column="62" source="standard:chain-method-continuation" />
+        <error line="1258" column="36" source="standard:chain-method-continuation" />
+        <error line="1264" column="51" source="standard:chain-method-continuation" />
+        <error line="1264" column="62" source="standard:chain-method-continuation" />
+        <error line="1265" column="36" source="standard:chain-method-continuation" />
+        <error line="1277" column="51" source="standard:chain-method-continuation" />
+        <error line="1277" column="62" source="standard:chain-method-continuation" />
+        <error line="1278" column="36" source="standard:chain-method-continuation" />
+        <error line="1284" column="51" source="standard:chain-method-continuation" />
+        <error line="1284" column="62" source="standard:chain-method-continuation" />
         <error line="1285" column="36" source="standard:chain-method-continuation" />
         <error line="1308" column="74" source="standard:multiline-expression-wrapping" />
         <error line="1308" column="74" source="standard:function-signature" />
