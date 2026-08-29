@@ -12,6 +12,7 @@ EXPECTED_MPV="fcf6745703dc1265bca88f12fee8fc355ddf251e"
 EXPECTED_ANDROID_GRADLE_PLUGIN="8.11.1"
 EXPECTED_BLURAY="7d94f2660af5bfc16015291a03539329135c18f1"
 EXPECTED_UDFREAD="139a2194525f2745b98a98e4d8fa627d07440176"
+EXPECTED_MPV_FACADE_CLASS="dev/jdtech/mpv/MPVLib.class"
 EXPECTED_CAPABILITY_CLASS="dev/yfuse/mpv/YfuseMpvCapabilities.class"
 EXPECTED_REGISTRY_CLASS="dev/yfuse/mpv/YfuseBluRayRegistry.class"
 EXPECTED_BDMV_REGISTRY_CLASS="dev/yfuse/mpv/YfuseBdmvRegistry.class"
@@ -89,7 +90,7 @@ unzip -q "$AAR" -d "$staging/aar"
 # SIGPIPE after grep exits on the first match, turning a successful capability match into a false
 # release-gate failure. Materialize diagnostics once and grep the files instead.
 unzip -l "$staging/aar/classes.jar" > "$staging/classes-list.txt"
-for required_class in "$EXPECTED_CAPABILITY_CLASS" "$EXPECTED_REGISTRY_CLASS" "$EXPECTED_BDMV_REGISTRY_CLASS"; do
+for required_class in "$EXPECTED_MPV_FACADE_CLASS" "$EXPECTED_CAPABILITY_CLASS" "$EXPECTED_REGISTRY_CLASS" "$EXPECTED_BDMV_REGISTRY_CLASS"; do
   grep -F "$required_class" "$staging/classes-list.txt" >/dev/null ||
     die "AAR classes.jar is missing $required_class"
 done
