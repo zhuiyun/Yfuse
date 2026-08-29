@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -63,7 +62,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -100,17 +98,6 @@ private val LiquidProgressBlue = Color(0xFF4F8DFF)
 private val LiquidProgressViolet = Color(0xFF7D5FF6)
 
 @Composable
-private fun PlayerTouchBlocker() {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTapGestures(onPress = { tryAwaitRelease() })
-            },
-    )
-}
-
-@Composable
 internal fun PlaybackErrorOverlay(
     message: String,
     onRetry: () -> Unit,
@@ -122,7 +109,6 @@ internal fun PlaybackErrorOverlay(
             .background(Color.Black.copy(alpha = 0.72f)),
         contentAlignment = Alignment.Center,
     ) {
-        PlayerTouchBlocker()
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1408,17 +1394,11 @@ private val ControlTouchPadding = 7.dp
 
 /**
  * Lock screen — a 52px circle over `屏幕已锁定` at `gap:14px`, with the
- * `长按解锁` pill at `right:22px; bottom:40px`.
+ * `解锁` pill at `right:22px; bottom:40px`.
  */
 @Composable
-internal fun LockedOverlay(
-    onUnlock: () -> Unit,
-    contentPadding: PaddingValues = PaddingValues(0.dp),
-) {
-    val haptics = LocalHaptics.current
-    val latestOnUnlock by rememberUpdatedState(onUnlock)
+internal fun LockedOverlay(onUnlock: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
-        PlayerTouchBlocker()
         Column(
             Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1440,32 +1420,19 @@ internal fun LockedOverlay(
         }
 
         Text(
-            "长按解锁",
+            "解锁",
             style = AppTypography.body.medium,
             color = Color.White,
             modifier =
                 Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(contentPadding)
                     .padding(end = 22.dp, bottom = 40.dp)
                     .glass(
                         shape = AppShapes.pill,
                         fill = Color.White.copy(alpha = 0.10f),
                         border = Color.White.copy(alpha = 0.28f),
-                    ).pointerInput(Unit) {
-                        detectTapGestures(
-                            onLongPress = {
-                                haptics.play(HapticSignal.Confirm)
-                                latestOnUnlock()
-                            },
-                        )
-                    }.semantics {
-                        onLongClick(label = "解锁") {
-                            haptics.play(HapticSignal.Confirm)
-                            latestOnUnlock()
-                            true
-                        }
-                    }.padding(horizontal = 18.dp, vertical = 9.dp),
+                    ).noRippleClickable(onUnlock)
+                    .padding(horizontal = 18.dp, vertical = 9.dp),
         )
     }
 }

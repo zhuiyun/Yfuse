@@ -3,7 +3,6 @@ package com.yfuse.feature.player
 import android.graphics.Rect
 import android.os.SystemClock
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -21,7 +20,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -128,10 +126,6 @@ internal fun PlayerRoot(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var controlsLocked by
-        rememberSaveable(items.firstOrNull()?.id, startIndex) {
-            mutableStateOf(false)
-        }
     val playbackNetworkFlow = remember { playbackNetworkClasses() }
     val playbackNetworkClass by
         playbackNetworkFlow.collectAsState(initial = currentPlaybackNetworkClass())
@@ -2142,13 +2136,8 @@ internal fun PlayerRoot(
         }
 
         if (!inPictureInPicture) {
-            BackHandler(enabled = controlsLocked && state.error == null) {
-                Toast.makeText(context, "请先长按解锁", Toast.LENGTH_SHORT).show()
-            }
             PlayerControls(
                 state = state,
-                locked = controlsLocked,
-                onLockedChange = { controlsLocked = it },
                 episodes = activeItems.toEpisodeCards(),
                 filled = scaleMode != VideoScaleMode.Fit,
                 onBack = onBack,
