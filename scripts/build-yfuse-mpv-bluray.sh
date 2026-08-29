@@ -76,6 +76,7 @@ git -C "$WORK_ROOT/source" checkout -q --detach FETCH_HEAD
 
 SOURCE="$WORK_ROOT/source"
 GRADLE_VERSION_CATALOG="$SOURCE/gradle/libs.versions.toml"
+GRADLE_MODULE_BUILD="$SOURCE/libmpv/build.gradle.kts"
 DEPINFO="$SOURCE/buildscripts/include/depinfo.sh"
 DOWNLOAD_DEPS="$SOURCE/buildscripts/include/download-deps.sh"
 LIBBLURAY_BUILD="$SOURCE/buildscripts/scripts/libbluray.sh"
@@ -97,6 +98,34 @@ anchor = 'android-plugin = "9.1.0"'
 if text.count(anchor) != 1:
     raise SystemExit("unexpected upstream version catalog: Android plugin anchor missing or duplicated")
 catalog.write_text(text.replace(anchor, f'android-plugin = "{version}"', 1))
+PY
+
+# This builder assembles a checksum-bound local AAR and never publishes to Maven Central. The
+# upstream publishing plugin deliberately requires a newer AGP than the pinned assembly toolchain,
+# so remove only its imports, application and terminal publishing block from the pinned checkout.
+python3 - "$GRADLE_MODULE_BUILD" <<'PY'
+from pathlib import Path
+import sys
+
+module = Path(sys.argv[1])
+text = module.read_text()
+for import_line in (
+    "import com.vanniktech.maven.publish.AndroidSingleVariantLibrary\n",
+    "import com.vanniktech.maven.publish.JavadocJar\n",
+    "import com.vanniktech.maven.publish.SourcesJar\n",
+):
+    if text.count(import_line) != 1:
+        raise SystemExit("unexpected upstream module build: publishing import anchor drift")
+    text = text.replace(import_line, "", 1)
+plugin_line = "    alias(libs.plugins.maven.publish)\n"
+if text.count(plugin_line) != 1:
+    raise SystemExit("unexpected upstream module build: publishing plugin anchor drift")
+text = text.replace(plugin_line, "", 1)
+publishing_block = "\nmavenPublishing {\n"
+if text.count(publishing_block) != 1:
+    raise SystemExit("unexpected upstream module build: publishing block anchor drift")
+text = text[: text.index(publishing_block)].rstrip() + "\n"
+module.write_text(text)
 PY
 
 if [[ -n "$REQUESTED_ABI" ]]; then
