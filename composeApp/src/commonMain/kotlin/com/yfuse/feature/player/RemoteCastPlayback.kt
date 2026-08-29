@@ -2,9 +2,6 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.cast.CastPlaybackStatus
 import com.yfuse.core.cast.CastState
-import com.yfuse.feature.player.contract.PlaybackEvidenceConfidence
-import com.yfuse.feature.player.contract.PlaybackOutputEvidence
-import com.yfuse.feature.player.contract.PlaybackOutputReadiness
 
 /** Projects confirmed receiver facts into the existing engine-neutral control state. */
 internal fun PlaybackState.withRemoteCast(
