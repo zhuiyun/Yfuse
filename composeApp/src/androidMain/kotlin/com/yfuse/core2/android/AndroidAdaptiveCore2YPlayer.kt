@@ -370,7 +370,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 ) ?: return null
             if (
                 !bypassLearnedRouteMemory &&
-                    !forceSoftwareFallback &&
+                !forceSoftwareFallback &&
                 decision.plan.route == YPlaybackRoute.NativeTunnel &&
                 (
                     failureLedger.isBlocked(decision.toFailureKey()) ||
@@ -451,52 +451,52 @@ internal class AndroidAdaptiveCore2YPlayer(
                         frameRateSwitchMode = frameRateSwitchMode,
                         forcedPlan = plan,
                     )
-                plan.route == YPlaybackRoute.GpuEnhanced ->
-                    AndroidYCoreGpuRuntime
-                        .probe(
+                plan.route == YPlaybackRoute.GpuEnhanced -> {
+                    val routeGpuProbe =
+                        AndroidYCoreGpuRuntime.probe(
                             context,
                             yCoreGpuEvidenceKey(decision.probe.playbackRequest, plan),
-                        ).let { routeGpuProbe ->
-                        if (
-                            routeGpuProbe.canAttemptNativeVulkan &&
-                            decision.probe.playbackRequest.enhancedDemuxSupported &&
-                            item.drmConfiguration == null
-                        ) {
-                            val nativeGpuPlan =
-                                plan.copy(
-                                    demuxPath = YDemuxPath.Enhanced,
-                                    reason =
-                                        buildString {
-                                            append(plan.reason)
-                                            if (plan.demuxPath != YDemuxPath.Enhanced) {
-                                                append("; Vulkan frame ownership requires YCore enhanced demux")
-                                            }
-                                            append(
-                                                if (routeGpuProbe.canClaimNativeVulkan) {
-                                                    "; native Vulkan output passed the persisted measurement gate"
-                                                } else {
-                                                    "; native Vulkan measurement trial (libplacebo remains recovery)"
-                                                },
-                                            )
-                                        },
-                                )
-                            AndroidNativeEnhancedYPlayer(
-                                context = context,
-                                request = singleRequest,
-                                routeEvaluator = routeEvaluator,
-                                allowAudioPassthrough = false,
-                                frameRateSwitchMode = frameRateSwitchMode,
-                                forcedPlan = nativeGpuPlan,
+                        )
+                    if (
+                        routeGpuProbe.canAttemptNativeVulkan &&
+                        decision.probe.playbackRequest.enhancedDemuxSupported &&
+                        item.drmConfiguration == null
+                    ) {
+                        val nativeGpuPlan =
+                            plan.copy(
+                                demuxPath = YDemuxPath.Enhanced,
+                                reason =
+                                    buildString {
+                                        append(plan.reason)
+                                        if (plan.demuxPath != YDemuxPath.Enhanced) {
+                                            append("; Vulkan frame ownership requires YCore enhanced demux")
+                                        }
+                                        append(
+                                            if (routeGpuProbe.canClaimNativeVulkan) {
+                                                "; native Vulkan output passed the persisted measurement gate"
+                                            } else {
+                                                "; native Vulkan measurement trial (libplacebo remains recovery)"
+                                            },
+                                        )
+                                    },
                             )
-                        } else {
-                            fallbackRouteFactory?.create(
-                                item,
-                                singleRequest,
-                                plan.withNativeGpuFallbackTruth(routeGpuProbe),
-                                speed,
-                            )
-                        }
+                        AndroidNativeEnhancedYPlayer(
+                            context = context,
+                            request = singleRequest,
+                            routeEvaluator = routeEvaluator,
+                            allowAudioPassthrough = false,
+                            frameRateSwitchMode = frameRateSwitchMode,
+                            forcedPlan = nativeGpuPlan,
+                        )
+                    } else {
+                        fallbackRouteFactory?.create(
+                            item,
+                            singleRequest,
+                            plan.withNativeGpuFallbackTruth(routeGpuProbe),
+                            speed,
+                        )
                     }
+                }
                 plan.route == YPlaybackRoute.SoftwareFallback ->
                     fallbackRouteFactory?.create(item, singleRequest, plan, speed)
                 else -> null
