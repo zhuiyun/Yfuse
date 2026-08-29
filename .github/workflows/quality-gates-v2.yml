@@ -50,6 +50,20 @@ jobs:
           scripts/fetch-engines.sh
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+      - name: Reject new ktlint violations
+        shell: bash
+        run: |
+          set +e
+          ./gradlew ktlintCheck --no-daemon
+          ktlint_status=$?
+          set -e
+          if (( ktlint_status != 0 )); then
+            while IFS= read -r report; do
+              echo "===== $report ====="
+              cat "$report"
+            done < <(find . -path '*/build/reports/ktlint/*/*.txt' -type f | sort)
+            exit "$ktlint_status"
+          fi
       - name: Compile and run unit tests
         run: ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
       - name: Compile startup and frame-time Macrobenchmark APK
@@ -67,20 +81,6 @@ jobs:
             report="composeApp/build/reports/lint-results-debug.txt"
             if [[ -f "$report" ]]; then cat "$report"; fi
             exit "$lint_status"
-          fi
-      - name: Reject new ktlint violations
-        shell: bash
-        run: |
-          set +e
-          ./gradlew ktlintCheck --no-daemon
-          ktlint_status=$?
-          set -e
-          if (( ktlint_status != 0 )); then
-            while IFS= read -r report; do
-              echo "===== $report ====="
-              cat "$report"
-            done < <(find . -path '*/build/reports/ktlint/*/*.txt' -type f | sort)
-            exit "$ktlint_status"
           fi
       - name: Build and install current YCore GPU companion
         shell: bash
