@@ -39,7 +39,11 @@ val includeMdk =
         )
 
 val includeYCoreGpuCompanion =
-    !nativeOnlyRuntime && layout.projectDirectory.file("libs/ycore-gpu.aar").asFile.isFile
+    !nativeOnlyRuntime &&
+        layout.projectDirectory
+            .file("libs/ycore-gpu.aar")
+            .asFile
+            .isFile
 
 // Native-only packages carry libycore_gpu.so inside ycore-native.aar. Legacy/full packages use
 // the isolated companion so MPV, MDK, and YCore never contribute duplicate JNI libraries.
@@ -498,7 +502,21 @@ val verifyMediaTestManifest by tasks.registering {
         require(values("dolbyVisionProfile").containsAll(setOf("p5", "p7_mel", "p7_fel", "p8.1", "p8.4"))) {
             "YCore media manifest is missing a Dolby Vision profile"
         }
-        require(values("container").containsAll(setOf("mp4", "mkv", "ts", "m2ts", "iso", "mov", "webm", "hls", "dash"))) {
+        require(
+            values("container").containsAll(
+                setOf(
+                    "mp4",
+                    "mkv",
+                    "ts",
+                    "m2ts",
+                    "iso",
+                    "mov",
+                    "webm",
+                    "hls",
+                    "dash",
+                ),
+            ),
+        ) {
             "YCore media manifest is missing a required container"
         }
         require(
