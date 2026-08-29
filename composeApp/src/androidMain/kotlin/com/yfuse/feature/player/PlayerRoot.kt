@@ -44,6 +44,7 @@ import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SeriesPlaybackPreference
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
+import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
@@ -126,6 +127,7 @@ internal fun PlayerRoot(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val themePreferences = remember { GlobalContext.get().get<ThemePreferences>() }
     val playbackNetworkFlow = remember { playbackNetworkClasses() }
     val playbackNetworkClass by
         playbackNetworkFlow.collectAsState(initial = currentPlaybackNetworkClass())
@@ -2515,7 +2517,11 @@ internal fun PlayerRoot(
                         label to (selection == sessionEngineSelection)
                     },
                 onSelectEngine = { index ->
-                    PlaybackEngineSelection.selectable.getOrNull(index)?.let(::selectEngineStrategy)
+                    PlaybackEngineSelection.selectable.getOrNull(index)?.let { selection ->
+                        playbackPreferences.setEngineSelection(selection)
+                        selection.lockedEngine?.let(themePreferences::setEngine)
+                        selectEngineStrategy(selection)
+                    }
                 },
                 // Manual escape hatch when the picture is black but audio plays. Offered on
                 // every engine now — it used to be ExoPlayer-only, which left the native

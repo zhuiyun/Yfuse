@@ -512,11 +512,7 @@ internal fun SettingsPanel(
                             PopupMenuRow(
                                 icon = AppIcons.PlaybackSource,
                                 title = "播放内核",
-                                subtitle =
-                                    "当前：${
-                                        engineOptions.firstOrNull { it.second }?.first
-                                            ?: diagnostics.engine.ifBlank { "默认" }
-                                    }",
+                                subtitle = "当前：${diagnostics.engine.ifBlank { "等待内核" }}",
                                 onClick = { advancedPage = AdvancedPage.Engine },
                             )
                             PopupDivider()

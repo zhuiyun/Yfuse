@@ -56,17 +56,17 @@ internal fun PlaybackEngineSelection.playbackOptionCopy(): PlaybackOptionCopy =
         PlaybackEngineSelection.LockExo ->
             PlayerEngine.Exo.playbackOptionCopy().copy(
                 label = "系统兼容模式",
-                description = "固定使用系统 Media3 内核；仅受保护内容安全规则可覆盖选择",
+                description = "固定使用系统 Media3 内核，不进行常规内核切换",
             )
         PlaybackEngineSelection.LockMpv ->
             PlayerEngine.Mpv.playbackOptionCopy().copy(
                 label = "格式兼容模式",
-                description = "固定使用 MPV 内核，适合特殊封装和字幕格式",
+                description = "固定使用 MPV；DRM 或系统 Dolby 安全路径会临时使用 Media3",
             )
         PlaybackEngineSelection.LockMdk ->
             PlayerEngine.Mdk.playbackOptionCopy().copy(
                 label = "实验原生模式",
-                description = "固定使用 MDK 原生内核，供高级兼容性排查",
+                description = "固定使用 MDK；DRM 或系统 Dolby 安全路径会临时使用 Media3",
             )
     }
 
@@ -311,16 +311,16 @@ internal fun AdvancedPlaybackSettingsScreen(
                     )
                     SettingsDivider()
                     SwitchRow(
-                        "YCore 2.0 播放内核",
+                        "YCore 2.0 播放内核（仅自动模式）",
                         core2TrialEnabled,
                         true,
                         onChange = outputPreferences::setCore2TrialEnabled,
                     )
                     SettingsDivider()
                     SwitchRow(
-                        "YCore Native 纯内核（开发中）",
+                        "YCore Native 纯内核（自动模式/开发中）",
                         core2NativeOnlyEnabled,
-                        core2TrialEnabled,
+                        core2TrialEnabled && engineSelection == PlaybackEngineSelection.Auto,
                         onChange = outputPreferences::setCore2NativeOnlyEnabled,
                     )
                     SettingsDivider()
