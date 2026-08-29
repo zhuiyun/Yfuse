@@ -237,6 +237,25 @@ class EmbyRepositoryTest {
         }
 
     @Test
+    fun localOnlyRepositoryHardStopsEveryEmbyProgressWrite() =
+        runTest {
+            var requests = 0
+            val repo =
+                testRepo(
+                    progressProjection = PlaybackProgressProjection(progressSyncEnabled = { false }),
+                ) {
+                    requests++
+                    json("{}")
+                }
+
+            assertTrue(repo.setPlayed(server, "m1", true).isSuccess)
+            assertTrue(repo.reportPlaybackStarted(server, "m1", "s1", 10L, false).isSuccess)
+            assertTrue(repo.reportPlaybackProgress(server, "m1", "s1", 20L, false).isSuccess)
+            assertTrue(repo.reportPlaybackStopped(server, "m1", "s1", 30L, false).isSuccess)
+            assertEquals(0, requests)
+        }
+
+    @Test
     fun homeContent_aggregates_resume_latest_and_featured() =
         runTest {
             val repo =
@@ -290,6 +309,24 @@ class EmbyRepositoryTest {
             assertTrue(result.isSuccess, result.toString())
             assertTrue(result.getOrThrow().rows.isNotEmpty())
             assertEquals(null, result.getOrThrow().counts)
+        }
+
+    @Test
+    fun localOnlyHomeNeverRequestsEmbysResumeShelf() =
+        runTest {
+            val paths = mutableListOf<String>()
+            val repo =
+                testRepo(
+                    progressProjection = PlaybackProgressProjection(progressSyncEnabled = { false }),
+                ) { request ->
+                    paths += request.url.encodedPath
+                    homeRoutes(request)
+                }
+
+            val content = repo.homeContent(server).getOrThrow()
+
+            assertTrue(content.resume.isEmpty())
+            assertTrue(paths.none { it.contains("/Items/Resume") }, paths.toString())
         }
 
     @Test
@@ -1163,6 +1200,27 @@ class EmbyRepositoryTest {
         }
 
     @Test
+    fun localOnlySeriesResolutionNeverUsesEmbysNextUpOrRemoteResume() =
+        runTest {
+            val paths = mutableListOf<String>()
+            val repo =
+                testRepo(
+                    progressProjection = PlaybackProgressProjection(progressSyncEnabled = { false }),
+                ) { request ->
+                    paths += request.url.encodedPath
+                    json(
+                        """{"Items":[{"Id":"e1","Type":"Episode","UserData":{"Played":true,"PlaybackPositionTicks":999}}]}""",
+                    )
+                }
+
+            val target = repo.resolvePlayTarget(server, detail("s1", "Series")).getOrThrow()
+
+            assertEquals("e1", target.itemId)
+            assertEquals(0L, target.startPositionTicks)
+            assertTrue(paths.none { it.contains("NextUp") }, paths.toString())
+        }
+
+    @Test
     fun episode_detail_falls_back_to_series_backdrop_and_cast() =
         runTest {
             val repo =
@@ -1392,6 +1450,29 @@ class EmbyRepositoryTest {
                     .orEmpty()
                     .contains("分页未前进"),
             )
+        }
+
+    @Test
+    fun favoriteOnlySnapshotNeverQueriesOrAdoptsServerProgress() =
+        runTest {
+            val queries = mutableListOf<String>()
+            val repo =
+                testRepo { request ->
+                    queries += request.url.encodedQuery
+                    json(
+                        """{"Items":[{"Id":"m1","Name":"M","UserData":{"IsFavorite":true,"Played":true,"PlaybackPositionTicks":999}}],"TotalRecordCount":1}""",
+                    )
+                }
+
+            val item = repo.userLibrarySnapshot(server, includeProgress = false).getOrThrow().single()
+
+            assertEquals(1, queries.size)
+            assertTrue(queries.single().contains("Filters=IsFavorite"), queries.single())
+            assertFalse(queries.single().contains("IsResumable"), queries.single())
+            assertFalse(queries.single().contains("IsPlayed"), queries.single())
+            assertTrue(item.favorite)
+            assertFalse(item.played)
+            assertEquals(0L, item.positionTicks)
         }
 
     @Test

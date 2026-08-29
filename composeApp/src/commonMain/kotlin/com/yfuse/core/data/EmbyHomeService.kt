@@ -24,6 +24,7 @@ internal class EmbyHomeService(
     private val client: HttpClient,
     private val libraryService: EmbyLibraryService,
     private val browseService: EmbyBrowseService,
+    private val progress: PlaybackProgressProjection = PlaybackProgressProjection(),
 ) {
     /** Aggregates the home screen: continue-watching, latest-per-library, featured. */
     suspend fun homeContent(server: SavedServer): Result<HomeContent> =
@@ -255,6 +256,34 @@ internal class EmbyHomeService(
     }
 
     private suspend fun fetchResume(server: SavedServer): List<MediaItem> {
+        if (progress.localOnly) {
+            val ids =
+                progress
+                    .localStates(server)
+                    .asSequence()
+                    .filter { !it.played && it.positionMs > 0L }
+                    .mapNotNull { it.serverItemId }
+                    .distinct()
+                    .take(12)
+                    .toList()
+            if (ids.isEmpty()) return emptyList()
+            val localItems: ItemsResponseDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Ids", ids.joinToString(","))
+                        parameter(
+                            "Fields",
+                            "BackdropImageTags,UserData,Overview,CommunityRating,ParentBackdropItemId," +
+                                "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks,ProviderIds",
+                        )
+                        parameter("EnableImageTypes", "Primary,Backdrop")
+                        parameter("ImageTypeLimit", 2)
+                        parameter("Limit", ids.size)
+                    }.body()
+            val byId = localItems.Items.associateBy(BaseItemDto::Id)
+            return ids.mapNotNull(byId::get).map { progress.project(server, it).toMediaItem() }
+        }
         val dto: ItemsResponseDto =
             client
                 .get("${server.baseUrl}/Users/${server.userId}/Items/Resume") {
@@ -271,7 +300,7 @@ internal class EmbyHomeService(
                     parameter("EnableImageTypes", "Primary,Backdrop")
                     parameter("ImageTypeLimit", 2)
                 }.body()
-        return dto.Items.map { it.toMediaItem() }
+        return dto.Items.map { progress.project(server, it).toMediaItem() }
     }
 
     private suspend fun fetchLatest(
@@ -293,6 +322,6 @@ internal class EmbyHomeService(
                     parameter("EnableImageTypes", "Primary,Backdrop")
                     parameter("ImageTypeLimit", 2)
                 }.body()
-        return items.map { it.toMediaItem() }
+        return items.map { progress.project(server, it).toMediaItem() }
     }
 }

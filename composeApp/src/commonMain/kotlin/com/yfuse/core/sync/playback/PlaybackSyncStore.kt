@@ -145,6 +145,32 @@ class PlaybackSyncStore(
             findIndexLocked(mediaKey, aliases, serverId).takeIf { it >= 0 }?.let(documents::get)
         }
 
+    /** Device-local playback state for one concrete item on one media server. */
+    fun stateForServerItem(
+        serverId: String,
+        itemId: String,
+    ): PlaybackStateRecord? =
+        synchronized(lock) {
+            documents
+                .asReversed()
+                .firstOrNull {
+                    it.document.state.serverId == serverId &&
+                        it.document.state.serverItemId == itemId
+                }?.document
+                ?.state
+        }
+
+    /** Snapshot used to build local-only resume and next-up shelves. */
+    fun statesForServer(serverId: String): List<PlaybackStateRecord> =
+        synchronized(lock) {
+            documents
+                .asSequence()
+                .map { it.document.state }
+                .filter { it.serverId == serverId && !it.serverItemId.isNullOrBlank() }
+                .sortedByDescending(PlaybackStateRecord::lastPlayedAtEpochMs)
+                .toList()
+        }
+
     fun pending(limit: Int = 64): List<StoredPlaybackDocument> =
         synchronized(lock) {
             documents.filter(StoredPlaybackDocument::dirty).take(limit.coerceIn(1, 128))

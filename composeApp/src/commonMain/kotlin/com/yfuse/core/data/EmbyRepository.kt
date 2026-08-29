@@ -205,17 +205,18 @@ class EmbyRepository(
     capabilitiesProvider: PlaybackDeviceCapabilitiesProvider =
         PlaybackDeviceCapabilitiesProvider { PlaybackDeviceCapabilities.conservative() },
     audioPassthroughEnabled: () -> Boolean = { false },
+    private val progressProjection: PlaybackProgressProjection = PlaybackProgressProjection(),
 ) {
     private val authService = EmbyAuthService(client)
-    private val detailService = EmbyDetailService(client)
+    private val detailService = EmbyDetailService(client, progressProjection)
     private val sourceService = EmbySourceService(client, detailService)
     private val libraryService = EmbyLibraryService(client)
-    private val browseService = EmbyBrowseService(client)
-    private val homeService = EmbyHomeService(client, libraryService, browseService)
-    private val lookupService = EmbyLookupService(client)
+    private val browseService = EmbyBrowseService(client, progressProjection)
+    private val homeService = EmbyHomeService(client, libraryService, browseService, progressProjection)
+    private val lookupService = EmbyLookupService(client, progressProjection)
     private val playbackService =
         EmbyPlaybackService(client, capabilitiesProvider, audioPassthroughEnabled)
-    private val searchService = EmbySearchService(client)
+    private val searchService = EmbySearchService(client, progressProjection)
     private val serverService = EmbyServerService(client)
     private val subtitleService = EmbySubtitleService(client)
     private val userDataService = EmbyUserDataService(client)
@@ -251,7 +252,12 @@ class EmbyRepository(
         server: SavedServer,
         itemId: String,
         played: Boolean,
-    ): Result<Unit> = userDataService.setPlayed(server, itemId, played)
+    ): Result<Unit> =
+        if (progressProjection.localOnly) {
+            Result.success(Unit)
+        } else {
+            userDataService.setPlayed(server, itemId, played)
+        }
 
     suspend fun addItemToMediaContainer(
         server: SavedServer,
@@ -298,14 +304,18 @@ class EmbyRepository(
         isPaused: Boolean,
         playMethod: String = "DirectPlay",
     ): Result<Unit> =
-        playbackService.reportStarted(
-            server = server,
-            itemId = itemId,
-            playSessionId = playSessionId,
-            positionTicks = positionTicks,
-            isPaused = isPaused,
-            playMethod = playMethod,
-        )
+        if (progressProjection.localOnly) {
+            Result.success(Unit)
+        } else {
+            playbackService.reportStarted(
+                server = server,
+                itemId = itemId,
+                playSessionId = playSessionId,
+                positionTicks = positionTicks,
+                isPaused = isPaused,
+                playMethod = playMethod,
+            )
+        }
 
     suspend fun reportPlaybackProgress(
         server: SavedServer,
@@ -315,14 +325,18 @@ class EmbyRepository(
         isPaused: Boolean,
         playMethod: String = "DirectPlay",
     ): Result<Unit> =
-        playbackService.reportProgress(
-            server = server,
-            itemId = itemId,
-            playSessionId = playSessionId,
-            positionTicks = positionTicks,
-            isPaused = isPaused,
-            playMethod = playMethod,
-        )
+        if (progressProjection.localOnly) {
+            Result.success(Unit)
+        } else {
+            playbackService.reportProgress(
+                server = server,
+                itemId = itemId,
+                playSessionId = playSessionId,
+                positionTicks = positionTicks,
+                isPaused = isPaused,
+                playMethod = playMethod,
+            )
+        }
 
     suspend fun reportPlaybackStopped(
         server: SavedServer,
@@ -332,14 +346,18 @@ class EmbyRepository(
         isPaused: Boolean,
         playMethod: String = "DirectPlay",
     ): Result<Unit> =
-        playbackService.reportStopped(
-            server = server,
-            itemId = itemId,
-            playSessionId = playSessionId,
-            positionTicks = positionTicks,
-            isPaused = isPaused,
-            playMethod = playMethod,
-        )
+        if (progressProjection.localOnly) {
+            Result.success(Unit)
+        } else {
+            playbackService.reportStopped(
+                server = server,
+                itemId = itemId,
+                playSessionId = playSessionId,
+                positionTicks = positionTicks,
+                isPaused = isPaused,
+                playMethod = playMethod,
+            )
+        }
 
     /**
      * Negotiates the actual source URL and playback method with the server.
@@ -477,8 +495,10 @@ class EmbyRepository(
     ): Result<List<MediaItem>> = searchService.itemsByPerson(server, personId, limit)
 
     /** Complete paged user-state snapshot used by the multi-server sync coordinator. */
-    suspend fun userLibrarySnapshot(server: SavedServer): Result<List<SyncedUserItem>> =
-        userDataService.snapshot(server)
+    suspend fun userLibrarySnapshot(
+        server: SavedServer,
+        includeProgress: Boolean = true,
+    ): Result<List<SyncedUserItem>> = userDataService.snapshot(server, includeProgress)
 
     /**
      * Asks the server to end the encoding started for [playSessionId] on this device.

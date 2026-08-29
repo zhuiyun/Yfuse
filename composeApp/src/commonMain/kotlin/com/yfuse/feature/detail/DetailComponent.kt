@@ -90,6 +90,8 @@ class DetailComponent(
                     DetailIntent.Play -> explicitFromStartPending = false
                     DetailIntent.PlayFromStart -> explicitFromStartPending = true
                     DetailIntent.TogglePlayed -> mirrorManualPlayed(delegateStore.state)
+                    is DetailIntent.ApplyEpisodeProgress ->
+                        mirrorEpisodeProgress(delegateStore.state, intent.action)
                     else -> Unit
                 }
                 delegateStore.accept(intent)
@@ -403,6 +405,41 @@ class DetailComponent(
             serverId = server.id,
             serverItemId = detail.id,
         )
+    }
+
+    /** Bulk progress actions share the same durable device-local path as a single toggle. */
+    private fun mirrorEpisodeProgress(
+        state: DetailState,
+        action: EpisodeProgressAction,
+    ) {
+        val server = state.playServer ?: state.server ?: return
+        val selected = state.progressSelection
+        if (selected.isEmpty()) return
+        val seriesProviderIds =
+            state.playSourceDetail
+                ?.takeIf { it.type == "Series" }
+                ?.providerIds
+                .orEmpty()
+        val watched = action == EpisodeProgressAction.MarkWatched
+        state.episodes
+            .asSequence()
+            .filter { it.id in selected }
+            .forEach { episode ->
+                playbackSync?.markWatched(
+                    mediaKey = episode.providerIds.watchKey(episode.id),
+                    aliases =
+                        watchMatchKeys(
+                            ownProviderIds = episode.providerIds,
+                            seriesProviderIds = seriesProviderIds,
+                            seasonNumber = episode.seasonNumber,
+                            episodeNumber = episode.indexNumber,
+                            fallbackId = episode.id,
+                        ),
+                    watched = watched,
+                    serverId = server.id,
+                    serverItemId = episode.id,
+                )
+            }
     }
 
     private data class PlaybackIdentity(
