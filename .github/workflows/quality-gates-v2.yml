@@ -93,7 +93,19 @@ jobs:
           apk_size="$(stat -c '%s' "$apk")"
           (( apk_size <= APK_SIZE_BUDGET_BYTES ))
       - name: Reject new ktlint violations
-        run: ./gradlew ktlintCheck --no-daemon
+        shell: bash
+        run: |
+          set +e
+          ./gradlew ktlintCheck --no-daemon
+          ktlint_status=$?
+          set -e
+          if (( ktlint_status != 0 )); then
+            while IFS= read -r report; do
+              echo "===== $report ====="
+              cat "$report"
+            done < <(find . -path '*/build/reports/ktlint/*/*.txt' -type f | sort)
+            exit "$ktlint_status"
+          fi
       - name: Check patch whitespace
         shell: bash
         env:
