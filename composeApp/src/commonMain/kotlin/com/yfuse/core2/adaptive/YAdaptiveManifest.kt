@@ -19,6 +19,12 @@ data class YAdaptiveVariant(
     val height: Int? = null,
     val frameRate: Double? = null,
     val codecs: List<String> = emptyList(),
+    val audioGroupId: String? = null,
+    val videoGroupId: String? = null,
+    val subtitleGroupId: String? = null,
+    val closedCaptionsGroupId: String? = null,
+    val videoRange: YHlsVideoRange = YHlsVideoRange.Unknown,
+    val stableVariantId: String? = null,
 ) {
     init {
         require(id.isNotBlank())
@@ -32,6 +38,46 @@ data class YAdaptiveVariant(
 
     val selectionBandwidthBitsPerSecond: Long
         get() = averageBandwidthBitsPerSecond ?: bandwidthBitsPerSecond
+
+    val isDolbyVision: Boolean
+        get() = codecs.any(String::isDolbyVisionHlsCodec)
+}
+
+enum class YHlsVideoRange {
+    Sdr,
+    Pq,
+    Hlg,
+    Unknown,
+}
+
+enum class YHlsRenditionType {
+    Audio,
+    Video,
+    Subtitles,
+    ClosedCaptions,
+    Unknown,
+}
+
+data class YHlsRendition(
+    val type: YHlsRenditionType,
+    val groupId: String,
+    val name: String,
+    val uri: String? = null,
+    val language: String? = null,
+    val default: Boolean = false,
+    val autoselect: Boolean = false,
+    val forced: Boolean = false,
+    val channels: String? = null,
+    val characteristics: List<String> = emptyList(),
+) {
+    init {
+        require(groupId.isNotBlank())
+        require(name.isNotBlank())
+    }
+
+    /** Apple HLS marks Dolby Digital Plus JOC (Atmos) with a /JOC CHANNELS suffix. */
+    val isDolbyAtmos: Boolean
+        get() = type == YHlsRenditionType.Audio && channels.orEmpty().contains("/JOC", ignoreCase = true)
 }
 
 enum class YAdaptiveEncryptionMethod {
@@ -74,6 +120,7 @@ data class YAdaptiveSegment(
 sealed interface YHlsPlaylist {
     data class Master(
         val variants: List<YAdaptiveVariant>,
+        val renditions: List<YHlsRendition> = emptyList(),
     ) : YHlsPlaylist {
         init {
             require(variants.isNotEmpty())
@@ -92,6 +139,14 @@ sealed interface YHlsPlaylist {
             require(segments.isNotEmpty())
         }
     }
+}
+
+private fun String.isDolbyVisionHlsCodec(): Boolean {
+    val normalized = trim().lowercase()
+    return normalized.startsWith("dvhe") ||
+        normalized.startsWith("dvh1") ||
+        normalized.startsWith("dvav") ||
+        normalized.startsWith("dva1")
 }
 
 enum class YDashContentType {

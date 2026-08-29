@@ -30,6 +30,7 @@ on:
       - scripts/build-yfuse-mpv-bluray.sh
       - scripts/build-ycore-native.sh
       - scripts/build-ycore-demux.sh
+      - scripts/build-ycore-gpu-companion.sh
       - scripts/install-yfuse-mpv-bluray.sh
       - scripts/verify-yfuse-mpv-bluray-aar.sh
       - scripts/verify-ycore-native.sh
@@ -48,6 +49,7 @@ on:
       - scripts/build-yfuse-mpv-bluray.sh
       - scripts/build-ycore-native.sh
       - scripts/build-ycore-demux.sh
+      - scripts/build-ycore-gpu-companion.sh
       - scripts/install-yfuse-mpv-bluray.sh
       - scripts/verify-yfuse-mpv-bluray-aar.sh
       - scripts/verify-ycore-native.sh

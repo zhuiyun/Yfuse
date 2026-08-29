@@ -39,7 +39,11 @@ val includeMdk =
         )
 
 val includeYCoreGpuCompanion =
-    !nativeOnlyRuntime && layout.projectDirectory.file("libs/ycore-gpu.aar").asFile.isFile
+    !nativeOnlyRuntime &&
+        layout.projectDirectory
+            .file("libs/ycore-gpu.aar")
+            .asFile
+            .isFile
 
 // Native-only packages carry libycore_gpu.so inside ycore-native.aar. Legacy/full packages use
 // the isolated companion so MPV, MDK, and YCore never contribute duplicate JNI libraries.
@@ -498,7 +502,21 @@ val verifyMediaTestManifest by tasks.registering {
         require(values("dolbyVisionProfile").containsAll(setOf("p5", "p7_mel", "p7_fel", "p8.1", "p8.4"))) {
             "YCore media manifest is missing a Dolby Vision profile"
         }
-        require(values("container").containsAll(setOf("mp4", "mkv", "ts", "m2ts", "iso", "mov", "webm", "hls", "dash"))) {
+        require(
+            values("container").containsAll(
+                setOf(
+                    "mp4",
+                    "mkv",
+                    "ts",
+                    "m2ts",
+                    "iso",
+                    "mov",
+                    "webm",
+                    "hls",
+                    "dash",
+                ),
+            ),
+        ) {
             "YCore media manifest is missing a required container"
         }
         require(
@@ -779,6 +797,17 @@ val buildApplicationId =
         }
         normalized
     } ?: "com.yfuse"
+val yfuseCastReceiverApplicationId =
+    providers
+        .gradleProperty("yfuseCastReceiverApplicationId")
+        .orNull
+        ?.let { rawValue ->
+            val normalized = rawValue.trim()
+            require(normalized.matches(Regex("[A-Fa-f0-9]{8}"))) {
+                "yfuseCastReceiverApplicationId must be the 8-character Cast receiver application id"
+            }
+            normalized.uppercase()
+        }.orEmpty()
 
 android {
     namespace = "com.yfuse"
@@ -811,6 +840,11 @@ android {
         buildConfigField("boolean", "YFUSE_MDK_INCLUDED", includeMdk.toString())
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", nativeOnlyRuntime.toString())
         buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", packagedYCoreGpu.toString())
+        buildConfigField(
+            "String",
+            "YFUSE_CAST_RECEIVER_APPLICATION_ID",
+            "\"$yfuseCastReceiverApplicationId\"",
+        )
         buildConfigField(
             "String",
             "YFUSE_PACKAGE_PROFILE",

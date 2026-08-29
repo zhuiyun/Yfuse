@@ -137,6 +137,7 @@ class YPlaybackLearningEngine(
                 record.codecResets >= CODEC_RESETS_TO_AVOID ||
                     record.audioUnderruns >= UNDERRUNS_TO_AVOID ||
                     record.maximumAbsoluteAvDriftMs >= AV_DRIFT_TO_AVOID_MS ||
+                    record.maximumThermalStatus >= THERMAL_STATUS_SEVERE ||
                     (
                         record.playedDurationMs >= QUALITY_DURATION_TO_AVOID_MS &&
                             dropRate >= DROPPED_FRAMES_PER_SECOND_TO_AVOID
@@ -149,6 +150,7 @@ class YPlaybackLearningEngine(
             record.codecResets > 0L ||
             record.audioUnderruns >= UNDERRUNS_TO_PENALIZE ||
             record.maximumAbsoluteAvDriftMs >= AV_DRIFT_TO_PENALIZE_MS ||
+            record.maximumThermalStatus >= THERMAL_STATUS_SEVERE ||
             dropRate >= DROPPED_FRAMES_PER_SECOND_TO_PENALIZE
         ) {
             YLearnedRouteAdvice.Penalize
@@ -173,3 +175,7 @@ private const val AV_DRIFT_TO_AVOID_MS = 1_000L
 private const val DROPPED_FRAMES_PER_SECOND_TO_PENALIZE = 1.0
 private const val DROPPED_FRAMES_PER_SECOND_TO_AVOID = 3.0
 private const val QUALITY_DURATION_TO_AVOID_MS = 180_000L
+// Mirrors Android's stable PowerManager.THERMAL_STATUS_SEVERE integer without making common code
+// depend on the Android SDK. A severe route is penalized immediately and avoided after the same
+// three-observation confidence gate used by the other quality signals.
+private const val THERMAL_STATUS_SEVERE = 3

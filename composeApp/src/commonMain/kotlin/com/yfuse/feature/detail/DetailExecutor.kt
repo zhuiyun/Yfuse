@@ -49,6 +49,9 @@ internal class DetailExecutor(
 
     /** Prevents an older episode response from committing after a newer selection flow. */
     private var episodeSelectionOperation = 0L
+    private var episodeSelectionJob: Job? = null
+    private var initialCatalogOperation = 0L
+    private var initialCatalogJob: Job? = null
     private var pendingSourceServerId: String? = null
     private var pendingSourceItemId: String? = null
     private var playWhenSelectionReady = false
@@ -256,7 +259,7 @@ internal class DetailExecutor(
         detail: MediaDetail,
     ) {
         scope.launch {
-            resolvePlaybackSelection(server, detail, preferredEpisode = null)
+            resolveInitialPlaybackSelection(server, detail)
                 .onSuccess { selection ->
                     // Initial enrichment may finish after the user starts or completes a
                     // cross-server switch. It must never overwrite that newer choice.
@@ -266,6 +269,7 @@ internal class DetailExecutor(
                         state().playSourceDetail?.id == detail.id
                     ) {
                         dispatchPlaybackSelection(selection)
+                        loadInitialSeriesCatalog(selection)
                     }
                 }.onFailure {
                     // Comparison remains useful even when resolving the initial episode
@@ -289,6 +293,100 @@ internal class DetailExecutor(
                 }
         }
     }
+
+    /**
+     * Resolves only the concrete item required to start playback. Season and episode
+     * lists are useful detail-page enrichment, but a slow catalog endpoint must not
+     * keep the play button spinning after its target is already known.
+     */
+    private suspend fun resolveInitialPlaybackSelection(
+        server: SavedServer,
+        sourceDetail: MediaDetail,
+    ): Result<ResolvedPlaybackSelection> =
+        cancellableResult {
+            if (sourceDetail.type != "Series") {
+                return@cancellableResult ResolvedPlaybackSelection(
+                    server = server,
+                    sourceDetail = sourceDetail,
+                    target = sourceDetail,
+                    positionTicks = sourceDetail.resumePositionTicks ?: 0L,
+                )
+            }
+
+            val resolvedTarget = repo.resolvePlayTarget(server, sourceDetail).getOrThrow()
+            val targetDetail = repo.itemDetail(server, resolvedTarget.itemId).getOrThrow()
+            ResolvedPlaybackSelection(
+                server = server,
+                sourceDetail = sourceDetail,
+                target = targetDetail,
+                positionTicks = resolvedTarget.startPositionTicks,
+            )
+        }
+
+    /** Loads the series picker after the play target has already made the button usable. */
+    private fun loadInitialSeriesCatalog(selection: ResolvedPlaybackSelection) {
+        val seriesId = seriesIdOf(selection.sourceDetail) ?: return
+        cancelInitialCatalogLoad()
+        val operation = ++initialCatalogOperation
+        dispatch(DetailMsg.EpisodesLoading)
+        initialCatalogJob =
+            scope.launch {
+                try {
+                    cancellableResult {
+                        loadSeriesCatalog(
+                            server = selection.server,
+                            seriesId = seriesId,
+                            target = selection.target,
+                            allEpisodes = null,
+                        )
+                    }.onSuccess { catalog ->
+                        if (
+                            operation == initialCatalogOperation &&
+                            isCurrentInitialSelection(selection)
+                        ) {
+                            dispatch(DetailMsg.SeasonsLoaded(catalog.seasons, catalog.selectedSeasonId))
+                            dispatch(DetailMsg.EpisodesLoaded(catalog.episodes))
+                        }
+                    }.onFailure {
+                        if (
+                            operation == initialCatalogOperation &&
+                            isCurrentInitialSelection(selection)
+                        ) {
+                            AppLog.warning(
+                                category = "feature.detail",
+                                event = "initial_series_catalog_failed",
+                                message = "Series catalog could not be loaded after playback became ready",
+                                throwable = it,
+                                attributes =
+                                    mapOf(
+                                        "serverId" to selection.server.id,
+                                        "seriesId" to seriesId,
+                                    ),
+                            )
+                        }
+                    }
+                } finally {
+                    if (operation == initialCatalogOperation) {
+                        initialCatalogJob = null
+                        dispatch(DetailMsg.EpisodesLoadingFinished)
+                    }
+                }
+            }
+    }
+
+    private fun cancelInitialCatalogLoad() {
+        val job = initialCatalogJob ?: return
+        initialCatalogOperation++
+        initialCatalogJob = null
+        job.cancel()
+        dispatch(DetailMsg.EpisodesLoadingFinished)
+    }
+
+    private fun isCurrentInitialSelection(selection: ResolvedPlaybackSelection): Boolean =
+        pendingSourceServerId == null &&
+            state().playServer?.id == selection.server.id &&
+            state().playSourceDetail?.id == selection.sourceDetail.id &&
+            state().playTarget?.id == selection.target.id
 
     /** Fans the title out across every saved server; failures degrade per-server. */
     private fun loadSources(
@@ -514,6 +612,7 @@ internal class DetailExecutor(
         preferredVersionId: String? = null,
     ) {
         val server = registry.serverById(serverId) ?: return
+        cancelInitialCatalogLoad()
         val current = state()
         // EpisodeSelected is committed before its detail request completes. If the user
         // switches server during that request, carry the episode they just chose rather
@@ -529,6 +628,8 @@ internal class DetailExecutor(
         // the old server is stale from this point onward, even while the new server is
         // still resolving and the committed play target remains visible underneath.
         episodeSelectionOperation++
+        episodeSelectionJob?.cancel()
+        episodeSelectionJob = null
         val operation = ++sourceSelectionOperation
         sourceSelectionJob?.cancel()
         pendingSourceServerId = serverId
@@ -626,86 +727,103 @@ internal class DetailExecutor(
         val playServerId = server.id
         val playSourceItemId = sourceDetail.id
         val operation = ++episodeSelectionOperation
+        episodeSelectionJob?.cancel()
+        cancelInitialCatalogLoad()
         dispatch(DetailMsg.EpisodeSelected(episodeId))
         dispatch(DetailMsg.SelectionLoading(true))
-        scope.launch {
-            val result =
-                retryTransientDetailRequest(
-                    event = "episode_selection_retry",
-                    attributes =
-                        mapOf(
-                            "serverId" to server.id,
-                            "itemId" to episodeId,
-                        ),
-                    stillCurrent = {
-                        operation == episodeSelectionOperation &&
-                            pendingSourceServerId == null &&
-                            !state().episodesLoading &&
-                            state().selectedEpisodeId == episodeId &&
-                            state().playServer?.id == playServerId &&
-                            state().playSourceDetail?.id == playSourceItemId
-                    },
-                ) {
-                    repo.itemDetail(server, episodeId).fold(
-                        onSuccess = { target ->
-                            cancellableResult {
-                                val currentSeasonNumber =
-                                    state()
-                                        .seasons
-                                        .firstOrNull { it.id == state().selectedSeasonId }
-                                        ?.indexNumber
-                                val catalog =
-                                    if (
-                                        target.type == "Episode" &&
-                                        target.seasonNumber != currentSeasonNumber
-                                    ) {
-                                        seriesIdOf(sourceDetail)?.let { seriesId ->
-                                            loadSeriesCatalog(
-                                                server,
-                                                seriesId,
-                                                target,
-                                                allEpisodes = null,
+        episodeSelectionJob =
+            scope.launch {
+                try {
+                    val result =
+                        withTimeoutOrNull(sourceSelectionTimeoutMs) {
+                            retryTransientDetailRequest(
+                                event = "episode_selection_retry",
+                                attributes =
+                                    mapOf(
+                                        "serverId" to server.id,
+                                        "itemId" to episodeId,
+                                    ),
+                                stillCurrent = {
+                                    operation == episodeSelectionOperation &&
+                                        pendingSourceServerId == null &&
+                                        state().selectedEpisodeId == episodeId &&
+                                        state().playServer?.id == playServerId &&
+                                        state().playSourceDetail?.id == playSourceItemId
+                                },
+                            ) {
+                                repo.itemDetail(server, episodeId).fold(
+                                    onSuccess = { target ->
+                                        cancellableResult {
+                                            val currentSeasonNumber =
+                                                state()
+                                                    .seasons
+                                                    .firstOrNull { it.id == state().selectedSeasonId }
+                                                    ?.indexNumber
+                                            val catalog =
+                                                if (
+                                                    target.type == "Episode" &&
+                                                    target.seasonNumber != currentSeasonNumber
+                                                ) {
+                                                    seriesIdOf(sourceDetail)?.let { seriesId ->
+                                                        loadSeriesCatalog(
+                                                            server,
+                                                            seriesId,
+                                                            target,
+                                                            allEpisodes = null,
+                                                        )
+                                                    }
+                                                } else {
+                                                    null
+                                                }
+                                            ResolvedPlaybackSelection(
+                                                server = server,
+                                                sourceDetail = sourceDetail,
+                                                target = target,
+                                                positionTicks =
+                                                    target.resumePositionTicks
+                                                        ?: startPositionTicks,
+                                                seasons = catalog?.seasons,
+                                                selectedSeasonId = catalog?.selectedSeasonId,
+                                                episodes = catalog?.episodes,
                                             )
                                         }
-                                    } else {
-                                        null
-                                    }
-                                ResolvedPlaybackSelection(
-                                    server = server,
-                                    sourceDetail = sourceDetail,
-                                    target = target,
-                                    positionTicks =
-                                        target.resumePositionTicks
-                                            ?: startPositionTicks,
-                                    seasons = catalog?.seasons,
-                                    selectedSeasonId = catalog?.selectedSeasonId,
-                                    episodes = catalog?.episodes,
+                                    },
+                                    onFailure = { Result.failure(it) },
                                 )
                             }
-                        },
-                        onFailure = { Result.failure(it) },
-                    )
+                        } ?: Result.failure(EpisodeSelectionTimeoutException())
+                    if (
+                        operation != episodeSelectionOperation ||
+                        pendingSourceServerId != null ||
+                        state().selectedEpisodeId != episodeId ||
+                        state().playServer?.id != playServerId ||
+                        state().playSourceDetail?.id != playSourceItemId
+                    ) {
+                        return@launch
+                    }
+                    result
+                        .onSuccess { selection ->
+                            dispatchPlaybackSelection(selection, preferredVersionId)
+                        }.onFailure {
+                            clearQueuedPlay()
+                            previousEpisodeId?.let { dispatch(DetailMsg.EpisodeSelected(it)) }
+                            dispatch(
+                                DetailMsg.ActionMessage(
+                                    if (it is EpisodeSelectionTimeoutException) {
+                                        "剧集切换等待超时，请检查网络后重试"
+                                    } else {
+                                        it.toUserMessage("剧集切换失败，请重试")
+                                    },
+                                ),
+                            )
+                        }
+                } finally {
+                    if (operation == episodeSelectionOperation) {
+                        episodeSelectionJob = null
+                        dispatch(DetailMsg.SelectionLoading(false))
+                    }
                 }
-            if (
-                operation != episodeSelectionOperation ||
-                pendingSourceServerId != null ||
-                state().episodesLoading ||
-                state().selectedEpisodeId != episodeId ||
-                state().playServer?.id != playServerId ||
-                state().playSourceDetail?.id != playSourceItemId
-            ) {
-                return@launch
             }
-            result
-                .onSuccess { selection ->
-                    dispatchPlaybackSelection(selection, preferredVersionId)
-                }.onFailure {
-                    clearQueuedPlay()
-                    dispatch(DetailMsg.SelectionLoading(false))
-                    previousEpisodeId?.let { dispatch(DetailMsg.EpisodeSelected(it)) }
-                    dispatch(DetailMsg.ActionMessage(it.toUserMessage("剧集切换失败，请重试")))
-                }
-        }
     }
 
     private fun selectSeason(seasonId: String) {
@@ -714,11 +832,15 @@ internal class DetailExecutor(
         val server = current.playServer ?: return
         val seriesId = seriesIdOf(sourceDetail) ?: return
         episodeSelectionOperation++
+        episodeSelectionJob?.cancel()
+        episodeSelectionJob = null
+        cancelInitialCatalogLoad()
         val playServerId = server.id
         val playSourceItemId = sourceDetail.id
         val previousSeasonId = current.selectedSeasonId
         dispatch(DetailMsg.SeasonsLoaded(current.seasons, seasonId))
         dispatch(DetailMsg.EpisodesLoading)
+        dispatch(DetailMsg.SelectionLoading(true))
         scope.launch {
             retryTransientDetailRequest(
                 event = "season_episodes_retry",
@@ -754,6 +876,7 @@ internal class DetailExecutor(
                         ?: episodes.firstOrNull()
                         ?: run {
                             clearQueuedPlay()
+                            dispatch(DetailMsg.SelectionLoading(false))
                             return@onSuccess
                         }
                 selectEpisode(selected.id, selected.resumePositionTicks ?: 0L)
@@ -767,6 +890,7 @@ internal class DetailExecutor(
                 }
                 dispatch(DetailMsg.SeasonsLoaded(state().seasons, previousSeasonId))
                 dispatch(DetailMsg.EpisodesLoadingFinished)
+                dispatch(DetailMsg.SelectionLoading(false))
                 restoreCommittedEpisodeSelection()
                 clearQueuedPlay()
                 dispatch(DetailMsg.ActionMessage(it.toUserMessage("剧集加载失败，请重试")))
@@ -835,7 +959,7 @@ internal class DetailExecutor(
         val current = state()
         val server = current.playServer ?: return
         if (current.resolvingPlay) return
-        if (current.selectionLoading || current.episodesLoading) {
+        if (current.selectionLoading) {
             queuePlayAfterSelection(fromStart)
             return
         }

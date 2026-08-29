@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import com.yfuse.core.model.PlaybackMethod
+import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.playback.PlaybackDrmScheme
 import com.yfuse.feature.player.PlayerMediaItem
@@ -11,6 +12,15 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AndroidCore2TrialTest {
+    @Test
+    fun native_disc_source_matrix_admits_saf_bdmv_but_not_remote_directory_trees() {
+        assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Bdmv, "file"))
+        assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Bdmv, "content"))
+        assertFalse(supportsYCoreNativeDiscSource(PlaybackDiscKind.Bdmv, "https"))
+        assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Iso, "https"))
+        assertFalse(supportsYCoreNativeDiscSource(PlaybackDiscKind.Dvd, "file"))
+    }
+
     @Test
     fun supported_file_and_native_disc_schemes_are_trial_eligible() {
         val items =

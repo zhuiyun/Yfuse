@@ -185,10 +185,12 @@ keeps the combined state false while preserving the two independent fallback rea
 - keep BD-J and licensed/protected-disc runtime as explicit capability boundaries.
 
 Current milestone: direct Blu-ray/ISO/BDMV items now prefer `AndroidYCoreDiscRouteFactory`.
-`AndroidYCoreBluRaySource` exposes local, content-URI or authenticated range blocks to the private
-libbluray registry; libbluray selects the title and FFmpeg feeds the ordinary YCore Enhanced decode,
-clock, audio, subtitle and Surface graph. Title, chapter and angle navigation therefore no longer
-requires mpv. The compatibility executor remains only when the YCore source cannot be created.
+`AndroidYCoreBluRaySource` exposes local paths, content-URI or authenticated range blocks to the
+private libbluray registry. Persisted SAF BDMV trees use YCore's read-only `bd_open_files` JNI VFS;
+absolute/traversal paths and filesystem escapes are rejected before I/O. Libbluray selects the title
+and FFmpeg feeds the ordinary YCore Enhanced decode, clock, audio, subtitle and Surface graph. Title,
+chapter and angle navigation therefore no longer requires mpv. The compatibility executor remains
+only when the YCore source cannot be created.
 YCore disc API v2 also owns HDMV Interactive Graphics composition, root/popup events, D-pad/back and
 authored-coordinate pointer input. BD-J, protected-disc components and physical-disc release
 evidence remain explicit external gates; an unhandled AACS/BD+ disc fails closed as Authorization.
@@ -200,14 +202,13 @@ evidence remain explicit external gates; an unhandled AACS/BD+ disc fails closed
 - tone mapping, gamut mapping, dithering/debanding;
 - FFmpeg software decode fallback only after native routes are exhausted.
 
-Current compatibility milestone: ordinary non-DRM `SoftwareFallback` now executes inside YCore's
-own enhanced session through the bundled FFmpeg software decoder, PCM path and hardware-Canvas
-Surface presenter. HDR10/HDR10+/HLG software fallback is explicitly tone-mapped to SDR. Dolby
-Vision compatible-base/FEL cases and `GpuEnhanced` still use the pinned libmpv/libplacebo bridge
-until the native AHardwareBuffer/Vulkan compositor can prove equivalent output. The first native
-GPU increment now probes the Vulkan loader/device, swapchain and sampler-YCbCr requirements and
-performs a real Vulkan import of a GPU AHardwareBuffer. Import capability alone is warm-up evidence:
-the route remains disabled until a decoded frame reaches a swapchain and measured output passes.
+Current compatibility milestone: ordinary non-DRM `SoftwareFallback` executes inside YCore's own
+enhanced session through the bundled FFmpeg software decoder, PCM path and Surface presenter.
+HDR10/HDR10+/HLG software fallback is explicitly tone-mapped to SDR. `GpuEnhanced` first attempts
+YCore's AHardwareBuffer/Vulkan compositor when loader, device, swapchain, sampler-YCbCr, decoded-frame
+presentation and persisted measurement gates allow it; the pinned libmpv/libplacebo bridge remains
+the recovery executor when that proof is absent. Dolby Vision compatible-base and Profile 7 FEL
+composition remain explicit truth gates: base-layer presentation is never reported as FEL support.
 
 ### Phase 8 — Device intelligence and retirement of Legacy
 
@@ -237,7 +238,7 @@ A Core2 change may merge only when:
 `YCore 2.0 播放内核` in advanced playback settings. The switch is persisted separately from the selected
 Legacy engine so disabling or failing the trial never changes the user's Exo/mpv/MDK preference.
 
-As of 2026-08-19, the opt-in path has these production boundaries:
+As of 2026-08-29, the opt-in path has these production boundaries:
 
 - `PlayerRoot` can construct Core2 through the temporary `YPlayerVideoEngineAdapter` and renders its
   direct Android `Surface` through `Core2Surface`;

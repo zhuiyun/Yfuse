@@ -1,6 +1,8 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import com.yfuse.core.data.PlaybackNetworkClass
+import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core2.adaptive.YAdaptiveBandwidthEstimator
 import com.yfuse.core2.adaptive.YAdaptiveEncryptionMethod
 import com.yfuse.core2.adaptive.YAdaptiveSelectionConditions
@@ -9,16 +11,19 @@ import com.yfuse.core2.adaptive.YAdaptiveVariantSelector
 import com.yfuse.core2.adaptive.YDashRepresentation
 import com.yfuse.core2.adaptive.YDashResourceKind
 import com.yfuse.core2.adaptive.YHlsAlignedSegment
+import com.yfuse.core2.adaptive.YHlsPlaybackCapabilities
 import com.yfuse.core2.adaptive.YHlsPlaylist
 import com.yfuse.core2.adaptive.YHlsResourceKind
 import com.yfuse.core2.adaptive.YHlsVariantMediaPlaylist
 import com.yfuse.core2.adaptive.alignYHlsVariantSegments
 import com.yfuse.core2.adaptive.buildYDashPlaybackManifest
+import com.yfuse.core2.adaptive.buildYHlsPlaybackMaster
 import com.yfuse.core2.adaptive.parseYDashManifest
 import com.yfuse.core2.adaptive.parseYHlsPlaylist
 import com.yfuse.core2.adaptive.renderDashTemplate
 import com.yfuse.core2.adaptive.rewriteYHlsResourceUris
 import com.yfuse.core2.adaptive.selectYDashPlaybackRepresentations
+import com.yfuse.core2.adaptive.selectYHlsPlaybackSet
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
@@ -52,6 +57,9 @@ internal class AndroidYCoreHttpProxy(
     private val userAgent: String,
     private val cacheMaximumBytes: Long,
     private val createTransport: () -> YMediaTransport = ::AndroidHttpMediaTransport,
+    private val isMeteredNetwork: () -> Boolean = {
+        currentPlaybackNetworkClass() == PlaybackNetworkClass.Metered
+    },
 ) : Closeable {
     private data class Route(
         val upstreamUri: String,
@@ -62,6 +70,8 @@ internal class AndroidYCoreHttpProxy(
         val hlsManifest: Boolean,
         val dashManifest: Boolean,
         val drmProtected: Boolean,
+        val allowDolbyVisionHls: Boolean,
+        val allowDolbyAtmosHls: Boolean,
         val dashTemplate: DashTemplateRoute? = null,
         val hlsAbrResource: HlsAbrResourceRoute? = null,
     )
@@ -90,6 +100,7 @@ internal class AndroidYCoreHttpProxy(
 
     private class HlsAbrSession(
         initialVariantId: String,
+        private val isMeteredNetwork: () -> Boolean,
     ) {
         private val bandwidthEstimator = YAdaptiveBandwidthEstimator()
         private var currentVariantId = initialVariantId
@@ -114,6 +125,7 @@ internal class AndroidYCoreHttpProxy(
                                 bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
                                     ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
                             bufferedDurationUs = bufferedDurationUs,
+                            metered = isMeteredNetwork(),
                         ),
                     currentVariantId = currentForSegment,
                 )
@@ -177,6 +189,8 @@ internal class AndroidYCoreHttpProxy(
         hlsManifest: Boolean = upstreamUri.isHlsManifestUri(),
         dashManifest: Boolean = upstreamUri.isDashManifestUri(),
         drmProtected: Boolean = false,
+        allowDolbyVisionHls: Boolean = false,
+        allowDolbyAtmosHls: Boolean = false,
     ): String {
         if (closed.get() || upstreamUri.sourceProtocolOrNull() == null) return upstreamUri
         val route =
@@ -189,6 +203,8 @@ internal class AndroidYCoreHttpProxy(
                 hlsManifest = hlsManifest,
                 dashManifest = dashManifest,
                 drmProtected = drmProtected,
+                allowDolbyVisionHls = allowDolbyVisionHls,
+                allowDolbyAtmosHls = allowDolbyAtmosHls,
             )
         val syntheticPath =
             when {
@@ -290,7 +306,12 @@ internal class AndroidYCoreHttpProxy(
                 .matchEntire(pathSuffix)
                 ?: return null
         val first = match.groupValues[1].toLongOrNull() ?: return null
-        val number = if (templateRoute.usesNumber) first else templateRoute.representation.segmentTemplate?.startNumber ?: 1L
+        val number =
+            if (templateRoute.usesNumber) {
+                first
+            } else {
+                templateRoute.representation.segmentTemplate?.startNumber ?: 1L
+            }
         val time =
             when {
                 templateRoute.usesNumber && templateRoute.usesTime -> match.groupValues[2].toLongOrNull()
@@ -343,10 +364,55 @@ internal class AndroidYCoreHttpProxy(
         val rootText = loadBounded(route.upstreamUri, MAX_HLS_MANIFEST_BYTES).decodeToString()
         require(!rootText.hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
         val root = parseYHlsPlaylist(rootText, route.upstreamUri)
+        if (root is YHlsPlaylist.Master && rootText.hasSeparateYCoreHlsRenditions()) {
+            val conditions =
+                YAdaptiveSelectionConditions(
+                    estimatedBandwidthBitsPerSecond = INITIAL_BANDWIDTH_BITS_PER_SECOND,
+                    bufferedDurationUs = STARTUP_BUFFER_US,
+                    maximumWidth = route.maximumWidth,
+                    maximumHeight = route.maximumHeight,
+                    metered = isMeteredNetwork(),
+                )
+            val playback =
+                selectYHlsPlaybackSet(
+                    master = root,
+                    conditions = conditions,
+                    capabilities =
+                        YHlsPlaybackCapabilities(
+                            dolbyVisionOutput = route.allowDolbyVisionHls,
+                            dolbyAtmosOutput = route.allowDolbyAtmosHls,
+                        ),
+                )
+            val localizedMaster =
+                buildYHlsPlaybackMaster(playback) { upstreamUri, _ ->
+                    localUrl(
+                        upstreamUri = upstreamUri,
+                        cacheable = false,
+                        cacheIdentity = route.cacheIdentity?.forAdaptiveResource(upstreamUri),
+                        maximumWidth = route.maximumWidth,
+                        maximumHeight = route.maximumHeight,
+                        hlsManifest = true,
+                        dashManifest = false,
+                        drmProtected = route.drmProtected,
+                        allowDolbyVisionHls = route.allowDolbyVisionHls,
+                        allowDolbyAtmosHls = route.allowDolbyAtmosHls,
+                    )
+                }.encodeToByteArray()
+            writeHeaders(
+                socket = socket,
+                status = 200,
+                reason = "OK",
+                contentType = HLS_CONTENT_TYPE,
+                contentLength = localizedMaster.size.toLong(),
+            )
+            if (method == "GET") socket.getOutputStream().write(localizedMaster)
+            socket.getOutputStream().flush()
+            return
+        }
         val playback =
             when (root) {
                 is YHlsPlaylist.Media -> HlsPlaybackManifest(rootText, route.upstreamUri, root)
-                is YHlsPlaylist.Master -> loadHlsPlaybackManifest(rootText, root, route)
+                is YHlsPlaylist.Master -> loadHlsPlaybackManifest(root, route)
             }
         require(
             playback.media.segments.none { segment ->
@@ -398,11 +464,9 @@ internal class AndroidYCoreHttpProxy(
     }
 
     private fun loadHlsPlaybackManifest(
-        rootText: String,
         root: YHlsPlaylist.Master,
         route: Route,
     ): HlsPlaybackManifest {
-        require(!rootText.hasSeparateHlsRenditions()) { "Separate HLS rendition groups are not executable yet" }
         val selected =
             YAdaptiveVariantSelector.select(
                 variants = root.variants,
@@ -412,6 +476,7 @@ internal class AndroidYCoreHttpProxy(
                         bufferedDurationUs = STARTUP_BUFFER_US,
                         maximumWidth = route.maximumWidth,
                         maximumHeight = route.maximumHeight,
+                        metered = isMeteredNetwork(),
                     ),
             )
         val selectedText = loadBounded(selected.uri, MAX_HLS_MANIFEST_BYTES).decodeToString()
@@ -436,7 +501,9 @@ internal class AndroidYCoreHttpProxy(
                 }
             }.filterNotNull()
         val aligned = alignYHlsVariantSegments(variantMedia, selected.id)
-        val session = HlsAbrSession(selected.id).takeIf { aligned.any { it.resources.size > 1 } }
+        val session =
+            HlsAbrSession(selected.id, isMeteredNetwork)
+                .takeIf { aligned.any { it.resources.size > 1 } }
         return HlsPlaybackManifest(
             text = selectedText,
             uri = selected.uri,
@@ -502,6 +569,7 @@ internal class AndroidYCoreHttpProxy(
                         bufferedDurationUs = STARTUP_BUFFER_US,
                         maximumWidth = route.maximumWidth,
                         maximumHeight = route.maximumHeight,
+                        metered = isMeteredNetwork(),
                     ),
             )
         val rewritten =
@@ -846,7 +914,7 @@ private fun String.isDashManifestUri(): Boolean =
             .endsWith(".mpd")
     }.getOrDefault(false)
 
-private fun String.hasSeparateHlsRenditions(): Boolean =
+internal fun String.hasSeparateYCoreHlsRenditions(): Boolean =
     lineSequence().any { line ->
         val normalized = line.trim().uppercase()
         normalized.startsWith("#EXT-X-MEDIA:") ||
@@ -854,7 +922,13 @@ private fun String.hasSeparateHlsRenditions(): Boolean =
             ("AUDIO=" in normalized || "VIDEO=" in normalized || "SUBTITLES=" in normalized)
     }
 
-private fun String.hasHlsSessionKey(): Boolean = lineSequence().any { line -> line.trim().uppercase().startsWith("#EXT-X-SESSION-KEY:") }
+private fun String.hasHlsSessionKey(): Boolean =
+    lineSequence().any { line ->
+        line
+            .trim()
+            .uppercase()
+            .startsWith("#EXT-X-SESSION-KEY:")
+    }
 
 private fun String.hasLowLatencyHlsParts(): Boolean =
     lineSequence().any { line ->

@@ -212,6 +212,7 @@ internal class AndroidCore2RouteEvaluator(
         item: YMediaItem,
         preferTunnel: Boolean = true,
         allowAudioPassthrough: Boolean = true,
+        forcePowerSaver: Boolean = false,
     ): YCore2RouteDecision? {
         val platform =
             (platformProbe.probe(item) as? YCore2ProbeResult.Success)
@@ -251,8 +252,18 @@ internal class AndroidCore2RouteEvaluator(
             resolved.playbackRequest.copy(
                 preferTunnel = preferTunnel,
                 allowAudioPassthrough = allowAudioPassthrough,
-                decoderPreference = decoderPreference,
-                optimizationPreference = optimizationPreference,
+                decoderPreference =
+                    if (forcePowerSaver) {
+                        YDecoderPreference.HardwarePreferred
+                    } else {
+                        decoderPreference
+                    },
+                optimizationPreference =
+                    if (forcePowerSaver) {
+                        YOptimizationPreference.PowerSaver
+                    } else {
+                        optimizationPreference
+                    },
             )
         val adjustment = quirkDatabase.adjust(deviceIdentity, requested, capabilityProvider.current())
         val request = adjustment.request
@@ -335,6 +346,9 @@ internal class AndroidCore2RouteEvaluator(
                 plan.copy(
                     reason = "${plan.reason}; $dolbyLabel",
                 )
+        }
+        if (forcePowerSaver) {
+            plan = plan.copy(reason = "${plan.reason}; severe thermal power-saver override")
         }
         return YCore2RouteDecision(normalizedProbe, plan)
     }

@@ -16,7 +16,8 @@ below. CI cannot replace these measurements.
 
 ## Corpus lanes
 
-- Containers: MP4/MOV, MKV, MPEG-TS, WebM, AVI, FLV, ISO, DVD and BDMV.
+- Containers: MP4/MOV, MKV, MPEG-TS, WebM, AVI, FLV, ISO and BDMV. DVD is an explicit
+  unsupported-route/fallback assertion until YCore owns a verified DVD navigation runtime.
 - Video: H.264 8/10-bit, HEVC Main/Main10, VP9, AV1, MPEG-2, ProRes 10/12-bit and VC-1 where available.
 - Dynamic range: SDR, HDR10, HDR10+, HLG and every Dolby Vision profile the device advertises.
 - Audio: AAC, MP3, FLAC, Opus, AC-3, E-AC3/JOC, DTS variants, TrueHD/Atmos and PCM 16/24-bit.
@@ -57,7 +58,8 @@ output and allowed fallback. Media URLs, tokens, account ids and server ids must
 - A known local Blu-ray/BDMV source without libbluray must fail fast instead of entering mpv and timing
   out. Generic ISO must remain unclassified until the bounded image inspector knows Blu-ray vs DVD.
 - A `content://` Blu-ray ISO additionally requires the random-block/JNI bridge. A `content://` BDMV
-  tree additionally requires `BDMV_VFS`; an older custom AAR containing only libbluray is not enough.
+  tree requires YCore's `bd_open_files` JNI VFS (or `BDMV_VFS` on the compatibility runtime); an
+  older native binary containing only libbluray is not enough.
 - Local Blu-ray ISO must start on the selected main feature and allow direct non-adjacent title/chapter
   navigation. Extracted BDMV must expose equivalent navigation/menu state through the same isolated
   HDMV provider contract.
@@ -160,23 +162,23 @@ native remote ISO is release-enabled, the following must pass:
 | Rebuffer ratio | below 1% when measured throughput is at least 1.5x media bitrate |
 | Handover | preserves pause, speed, position within 250 ms, audio and subtitle intent |
 | Power | no regression above 5% versus the same Media3 hardware path; power mode target is 10% lower |
-| Soak | 8-hour queue and 24-hour single-item runs without leak, ANR or thermal runaway |
+| Soak | 8-hour continuous single-item and 24-hour queue runs without leak, ANR or thermal runaway |
 
 The instrumented soak lane is opt-in and never pretends that CI/emulator time is device evidence.
 Push a legally usable sample to the device, then run the same test once for each required duration:
 
 ```bash
-# 24-hour single-item lane
+# 8-hour continuous single-item lane
 ./gradlew :composeApp:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#configured_long_running_soak_keeps_output_and_health_stable \
   -Pandroid.testInstrumentationRunnerArguments.ycoreSoakMedia=/sdcard/Download/ycore-soak.mkv \
-  -Pandroid.testInstrumentationRunnerArguments.ycoreSoakDurationMinutes=1440
+  -Pandroid.testInstrumentationRunnerArguments.ycoreSoakDurationMinutes=480
 
-# 8-hour queue/handover lane
+# 24-hour queue/handover lane
 ./gradlew :composeApp:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=com.yfuse.core2.android.YCoreMediaSuiteInstrumentedTest#configured_long_running_soak_keeps_output_and_health_stable \
   -Pandroid.testInstrumentationRunnerArguments.ycoreSoakMedia=/sdcard/Download/ycore-soak.mkv \
-  -Pandroid.testInstrumentationRunnerArguments.ycoreSoakDurationMinutes=480 \
+  -Pandroid.testInstrumentationRunnerArguments.ycoreSoakDurationMinutes=1440 \
   -Pandroid.testInstrumentationRunnerArguments.ycoreSoakQueue=true
 ```
 
@@ -209,5 +211,8 @@ Widevine-license-server, native libbluray build, power, thermal or 8/24-hour soa
   certification. YCore only preserves secure routing and safe fallback.
 - HDMV navigation requires a real libbluray-backed provider; BD-J additionally requires a verified
   Java runtime. Unsupported menu commands remain explicit instead of being simulated.
+- DVD navigation remains outside YCore until a separately pinned and verified DVD runtime exists;
+  an unsupported DVD must fail closed or use the explicit compatibility route, never masquerade as
+  Blu-ray support.
 - A backend may be enabled only when its bundled build, license notice, native symbols, capability
   marker, registry ABI and ABI/page-size checks pass the release workflow.

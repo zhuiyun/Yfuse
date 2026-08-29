@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import android.annotation.SuppressLint
 import android.graphics.ImageFormat
 import android.hardware.HardwareBuffer
 import android.media.ImageReader
@@ -27,8 +28,8 @@ import com.yfuse.core2.hdr.YHdr10PlusParser
  * MediaCodec writes ImageReader PRIVATE images, Vulkan imports their HardwareBuffer and presents
  * them to the app Surface. No plane is mapped or copied through the CPU.
  */
-@RequiresApi(Build.VERSION_CODES.P)
-internal class AndroidVulkanVideoOutput(
+@SuppressLint("NewApi")
+internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) constructor(
     private val width: Int,
     private val height: Int,
     target: Surface,

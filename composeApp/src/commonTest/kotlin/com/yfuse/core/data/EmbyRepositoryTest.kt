@@ -1,5 +1,6 @@
 package com.yfuse.core.data
 
+import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.dto.PlaybackInfoRequestDto
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
@@ -15,6 +16,9 @@ import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackVideoCodec
+import com.yfuse.core.sync.playback.PlaybackMutationKind
+import com.yfuse.core.sync.playback.PlaybackSyncStore
+import com.yfuse.core.sync.playback.PlaybackSyncTrigger
 import com.yfuse.feature.authRoutes
 import com.yfuse.feature.homeRoutes
 import com.yfuse.feature.json
@@ -237,14 +241,54 @@ class EmbyRepositoryTest {
         }
 
     @Test
+    fun localOnlyRepositoryHardStopsEveryEmbyProgressWrite() =
+        runTest {
+            var requests = 0
+            val repo =
+                testRepo(
+                    progressProjection = PlaybackProgressProjection(progressSyncEnabled = { false }),
+                ) {
+                    requests++
+                    json("{}")
+                }
+
+            assertTrue(repo.setPlayed(server, "m1", true).isSuccess)
+            assertTrue(repo.reportPlaybackStarted(server, "m1", "s1", 10L, false).isSuccess)
+            assertTrue(repo.reportPlaybackProgress(server, "m1", "s1", 20L, false).isSuccess)
+            assertTrue(repo.reportPlaybackStopped(server, "m1", "s1", 30L, false).isSuccess)
+            assertEquals(0, requests)
+        }
+
+    @Test
     fun homeContent_aggregates_resume_latest_and_featured() =
         runTest {
+            val progressStore = PlaybackSyncStore(MapSettings()) { 1_000L }
+            progressStore.updatePlayback(
+                mediaKey = "emby:e1",
+                aliases = emptyList(),
+                positionMs = 30_000L,
+                durationMs = 100_000L,
+                played = false,
+                sessionId = "local",
+                serverId = server.id,
+                serverItemId = "e1",
+                mutationKind = PlaybackMutationKind.AutoProgress,
+                trigger = PlaybackSyncTrigger.Periodic,
+            )
             val repo =
-                testRepo {
+                testRepo(
+                    progressProjection = PlaybackProgressProjection(progressStore) { true },
+                ) {
                     if (it.url.encodedPath.endsWith("/Items/Counts")) {
                         assertEquals("u1", it.url.parameters["UserId"])
                     }
-                    homeRoutes(it)
+                    if (it.url.parameters["Ids"] == "e1") {
+                        json(
+                            """{"Items":[{"Id":"e1","Name":"第1集","Type":"Episode","SeriesName":"某剧","SeriesId":"s1","SeriesPrimaryImageTag":"stag","RunTimeTicks":1000000000}]}""",
+                        )
+                    } else {
+                        homeRoutes(it)
+                    }
                 }
 
             val res = repo.homeContent(server)
@@ -290,6 +334,24 @@ class EmbyRepositoryTest {
             assertTrue(result.isSuccess, result.toString())
             assertTrue(result.getOrThrow().rows.isNotEmpty())
             assertEquals(null, result.getOrThrow().counts)
+        }
+
+    @Test
+    fun localOnlyHomeNeverRequestsEmbysResumeShelf() =
+        runTest {
+            val paths = mutableListOf<String>()
+            val repo =
+                testRepo(
+                    progressProjection = PlaybackProgressProjection(progressSyncEnabled = { false }),
+                ) { request ->
+                    paths += request.url.encodedPath
+                    homeRoutes(request)
+                }
+
+            val content = repo.homeContent(server).getOrThrow()
+
+            assertTrue(content.resume.isEmpty())
+            assertTrue(paths.none { it.contains("/Items/Resume") }, paths.toString())
         }
 
     @Test
@@ -860,7 +922,7 @@ class EmbyRepositoryTest {
             val repo =
                 testRepo { request ->
                     when {
-                        request.url.encodedPath.contains("/Shows/NextUp") ->
+                        request.url.encodedPath.endsWith("/Shows/s1/Episodes") ->
                             json("""{"Items":[{"Id":"e1","Name":"第一集","Type":"Episode"}]}""")
                         request.url.encodedPath.endsWith("/Items/e1") ->
                             json(
@@ -1123,24 +1185,32 @@ class EmbyRepositoryTest {
         }
 
     @Test
-    fun resolvePlayTarget_series_uses_next_up_episode() =
+    fun resolvePlayTarget_series_uses_local_resumed_episode() =
         runTest {
+            val progressStore = PlaybackSyncStore(MapSettings()) { 1_000L }
+            progressStore.seedServerProgressIfAbsent(
+                serverId = server.id,
+                itemId = "e9",
+                positionMs = 12_345L,
+                played = false,
+            )
+            val paths = mutableListOf<String>()
             val repo =
-                testRepo { req ->
-                    if (req.url.encodedPath.contains("NextUp")) {
-                        json(
-                            """{"Items":[{"Id":"e9","Name":"第9集","Type":"Episode","UserData":{"PlaybackPositionTicks":999}}]}""",
-                        )
-                    } else {
-                        json("""{"Items":[]}""")
-                    }
+                testRepo(
+                    progressProjection = PlaybackProgressProjection(progressStore) { true },
+                ) { req ->
+                    paths += req.url.encodedPath
+                    json(
+                        """{"Items":[{"Id":"e1","Name":"第1集","Type":"Episode"},{"Id":"e9","Name":"第9集","Type":"Episode","UserData":{"PlaybackPositionTicks":999}}]}""",
+                    )
                 }
 
             val res = repo.resolvePlayTarget(server, detail("s1", "Series"))
 
             assertTrue(res.isSuccess, res.toString())
             assertEquals("e9", res.getOrThrow().itemId)
-            assertEquals(999L, res.getOrThrow().startPositionTicks)
+            assertEquals(123_450_000L, res.getOrThrow().startPositionTicks)
+            assertTrue(paths.none { it.contains("NextUp") }, paths.toString())
         }
 
     @Test
@@ -1160,6 +1230,27 @@ class EmbyRepositoryTest {
             assertTrue(res.isSuccess, res.toString())
             assertEquals("e1", res.getOrThrow().itemId)
             assertEquals(0L, res.getOrThrow().startPositionTicks)
+        }
+
+    @Test
+    fun localOnlySeriesResolutionNeverUsesEmbysNextUpOrRemoteResume() =
+        runTest {
+            val paths = mutableListOf<String>()
+            val repo =
+                testRepo(
+                    progressProjection = PlaybackProgressProjection(progressSyncEnabled = { false }),
+                ) { request ->
+                    paths += request.url.encodedPath
+                    json(
+                        """{"Items":[{"Id":"e1","Type":"Episode","UserData":{"Played":true,"PlaybackPositionTicks":999}}]}""",
+                    )
+                }
+
+            val target = repo.resolvePlayTarget(server, detail("s1", "Series")).getOrThrow()
+
+            assertEquals("e1", target.itemId)
+            assertEquals(0L, target.startPositionTicks)
+            assertTrue(paths.none { it.contains("NextUp") }, paths.toString())
         }
 
     @Test
@@ -1225,8 +1316,17 @@ class EmbyRepositoryTest {
     @Test
     fun seasons_and_episodes_parse() =
         runTest {
+            val progressStore = PlaybackSyncStore(MapSettings()) { 1_000L }
+            progressStore.seedServerProgressIfAbsent(
+                serverId = server.id,
+                itemId = "e1",
+                positionMs = 12_345L,
+                played = false,
+            )
             val repo =
-                testRepo { req ->
+                testRepo(
+                    progressProjection = PlaybackProgressProjection(progressStore) { true },
+                ) { req ->
                     if (req.url.encodedPath.contains("/Seasons")) {
                         json(
                             """{"Items":[{"Id":"se1","Name":"第 1 季","Type":"Season","IndexNumber":1,"ImageTags":{"Primary":"t"}}]}""",
@@ -1250,7 +1350,7 @@ class EmbyRepositoryTest {
             assertEquals(1, ep.indexNumber)
             assertEquals("能听亡魂的女子", ep.name)
             assertEquals(46, ep.runtimeMinutes)
-            assertEquals(123L, ep.resumePositionTicks)
+            assertEquals(123_450_000L, ep.resumePositionTicks)
         }
 
     @Test
@@ -1392,6 +1492,29 @@ class EmbyRepositoryTest {
                     .orEmpty()
                     .contains("分页未前进"),
             )
+        }
+
+    @Test
+    fun favoriteOnlySnapshotNeverQueriesOrAdoptsServerProgress() =
+        runTest {
+            val queries = mutableListOf<String>()
+            val repo =
+                testRepo { request ->
+                    queries += request.url.encodedQuery
+                    json(
+                        """{"Items":[{"Id":"m1","Name":"M","UserData":{"IsFavorite":true,"Played":true,"PlaybackPositionTicks":999}}],"TotalRecordCount":1}""",
+                    )
+                }
+
+            val item = repo.userLibrarySnapshot(server, includeProgress = false).getOrThrow().single()
+
+            assertEquals(1, queries.size)
+            assertTrue(queries.single().contains("Filters=IsFavorite"), queries.single())
+            assertFalse(queries.single().contains("IsResumable"), queries.single())
+            assertFalse(queries.single().contains("IsPlayed"), queries.single())
+            assertTrue(item.favorite)
+            assertFalse(item.played)
+            assertEquals(0L, item.positionTicks)
         }
 
     @Test

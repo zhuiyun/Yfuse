@@ -253,12 +253,14 @@ internal fun exoAudioEncodingLabel(encoding: Int): String =
     }
 
 /**
- * Encodings that carry Dolby object audio when passed through untouched.
- *
- * AC-4 can also carry objects, but the label rule these replaced only ever recognised JOC and
- * TrueHD, so the badge's meaning is left exactly where it was rather than widened silently.
+ * Exact Android encoding evidence for Dolby object audio. Generic TrueHD is deliberately absent:
+ * Android's encoding constant cannot distinguish a channel-based TrueHD stream from Atmos.
  */
-internal val DOLBY_OBJECT_ENCODINGS = setOf(C.ENCODING_E_AC3_JOC, C.ENCODING_DOLBY_TRUEHD)
+internal val DOLBY_OBJECT_ENCODINGS = setOf(C.ENCODING_E_AC3_JOC)
+
+/** Compatible immersive carriers; unlike [DOLBY_OBJECT_ENCODINGS], these are not Atmos proof. */
+internal val IMMERSIVE_AUDIO_CARRIER_ENCODINGS =
+    setOf(C.ENCODING_E_AC3_JOC, C.ENCODING_DOLBY_TRUEHD)
 
 /**
  * The same set as [DOLBY_OBJECT_ENCODINGS] for a backend that names its codec instead of
@@ -268,7 +270,13 @@ internal val DOLBY_OBJECT_ENCODINGS = setOf(C.ENCODING_E_AC3_JOC, C.ENCODING_DOL
 internal fun isDolbyObjectAudioCodec(identifier: String?): Boolean {
     val normalized = identifier?.trim()?.lowercase().orEmpty()
     if (normalized.isEmpty()) return false
-    return "truehd" in normalized || "atmos" in normalized
+    return "atmos" in normalized || "eac3-joc" in normalized || "eac3_joc" in normalized
+}
+
+internal fun isImmersiveAudioCarrierCodec(identifier: String?): Boolean {
+    val normalized = identifier?.trim()?.lowercase().orEmpty()
+    if (normalized.isEmpty()) return false
+    return "truehd" in normalized || isDolbyObjectAudioCodec(normalized)
 }
 
 /**

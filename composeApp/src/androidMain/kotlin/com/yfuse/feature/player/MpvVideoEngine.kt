@@ -1161,7 +1161,10 @@ class MpvVideoEngine(
                         videoReadiness = PlaybackOutputReadiness.Waiting,
                         audioReadiness = PlaybackOutputReadiness.Waiting,
                         dolbyVisionOutput = false,
+                        immersiveAudioCarrierOutput = false,
                         dolbyAtmosOutput = false,
+                        spatialAudioOutput = false,
+                        headTrackingAvailable = false,
                         outputEvidence =
                             it.diagnostics.outputEvidence.nextSession().copy(
                                 videoConfidence = PlaybackEvidenceConfidence.Requested,
@@ -1584,10 +1587,16 @@ class MpvVideoEngine(
                             // mpv names the codec rather than exposing an encoding constant,
                             // so the identifier is matched — a backend codec name, not a
                             // sentence written for the diagnostics panel.
+                            immersiveAudioCarrierOutput =
+                                readiness == PlaybackOutputReadiness.Rendering &&
+                                    passthroughStatus is PlaybackOutputStatus.Active &&
+                                    isImmersiveAudioCarrierCodec(decoder ?: outputFormat),
                             dolbyAtmosOutput =
                                 readiness == PlaybackOutputReadiness.Rendering &&
                                     passthroughStatus is PlaybackOutputStatus.Active &&
                                     isDolbyObjectAudioCodec(decoder ?: outputFormat),
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                             outputEvidence =
                                 state.diagnostics.outputEvidence.copy(
                                     audioReadiness = readiness,

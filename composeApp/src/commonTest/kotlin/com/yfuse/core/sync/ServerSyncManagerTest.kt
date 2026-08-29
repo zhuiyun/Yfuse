@@ -4,6 +4,7 @@ import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.security.TestSecureStore
+import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.test.runTest
@@ -15,7 +16,7 @@ import kotlin.test.assertTrue
 
 class ServerSyncManagerTest {
     @Test
-    fun backoff_survives_manager_recreation() =
+    fun eachNewManagerMakesOneFreshStartupProgressAttemptDespiteOldBackoff() =
         runTest {
             val settings = MapSettings()
             val secrets = TestSecureStore()
@@ -30,7 +31,51 @@ class ServerSyncManagerTest {
             ServerSyncManager(repo, registry, settings).syncAll()
             ServerSyncManager(repo, ServerRegistry(settings, secrets), settings).syncAll()
 
-            assertEquals(1, requests)
+            assertEquals(2, requests)
+        }
+
+    @Test
+    fun progressSnapshotIsPulledOnlyOncePerServerAndSeedsLocalStore() =
+        runTest {
+            val settings = MapSettings()
+            val savedServer = server("https://emby.test")
+            val registry =
+                ServerRegistry(settings, TestSecureStore()).apply {
+                    addOrUpdate(savedServer)
+                }
+            val progressQueries = mutableListOf<String>()
+            val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+            val manager =
+                ServerSyncManager(
+                    repo =
+                        testRepo { request ->
+                            val query = request.url.toString()
+                            if (
+                                request.url.parameters["Filters"] == "IsResumable" ||
+                                request.url.parameters["IsPlayed"] == "true"
+                            ) {
+                                progressQueries += query
+                                json(
+                                    """{"Items":[{"Id":"movie-1","Name":"Movie","Type":"Movie","UserData":{"PlaybackPositionTicks":250000000,"Played":false}}],"TotalRecordCount":1}""",
+                                )
+                            } else {
+                                json("""{"Items":[],"TotalRecordCount":0}""")
+                            }
+                        },
+                    registry = registry,
+                    settings = settings,
+                    playbackStore = store,
+                )
+
+            manager.syncAll(force = true)
+            manager.syncAll(force = true)
+
+            assertEquals(2, progressQueries.size)
+            assertEquals(
+                25_000L,
+                store.stateForServerItem(savedServer.id, "movie-1")?.positionMs,
+            )
+            assertTrue(store.pending().isEmpty())
         }
 
     @Test

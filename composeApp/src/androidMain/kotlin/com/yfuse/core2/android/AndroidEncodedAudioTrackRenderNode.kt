@@ -21,19 +21,33 @@ internal class AndroidEncodedAudioTrackRenderNode(
     private var format: YAudioTrackFormat? = null
     private var basePresentationTimeUs: Long? = null
     private var requestedPlay = false
+    private var exactDolbyAtmosTransport = false
 
-    val immersiveOutput: Boolean
+    val immersiveCarrierOutput: Boolean
         get() =
             clockSnapshot() != null &&
                 format?.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos, YAudioCodec.DtsX)
 
-    fun configure(format: YAudioTrackFormat) {
+    val dolbyAtmosOutput: Boolean
+        get() = immersiveCarrierOutput && exactDolbyAtmosTransport
+
+    fun configure(
+        format: YAudioTrackFormat,
+        exactDolbyAtmosTransport: Boolean = false,
+    ) {
         release()
-        requireNotNull(androidEncodedAudioEncoding(format.codec)) {
+        val sinkFormat =
+            format.copy(
+                codec = encodedSinkCodec(format.codec, exactDolbyAtmosTransport),
+            )
+        requireNotNull(androidEncodedAudioEncoding(sinkFormat.codec)) {
             "${format.codec} has no Android encoded AudioTrack mapping"
         }
-        track = createTrack(format)
+        track = createTrack(sinkFormat)
         this.format = format
+        this.exactDolbyAtmosTransport =
+            exactDolbyAtmosTransport &&
+            format.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos)
         basePresentationTimeUs = null
         requestedPlay = false
     }
@@ -112,6 +126,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
         format = null
         requestedPlay = false
         basePresentationTimeUs = null
+        exactDolbyAtmosTransport = false
         if (audioTrack != null) {
             runCatching { audioTrack.pause() }
             runCatching { audioTrack.flush() }
@@ -138,6 +153,18 @@ internal fun androidEncodedAudioEncoding(
         YAudioCodec.Dts -> AudioFormat.ENCODING_DTS
         YAudioCodec.DtsHd, YAudioCodec.DtsX -> AudioFormat.ENCODING_DTS_HD
         else -> null
+    }
+
+/** Selects the encoding actually declared to AudioTrack without promoting carrier support to object audio. */
+internal fun encodedSinkCodec(
+    sourceCodec: YAudioCodec,
+    exactDolbyAtmosTransport: Boolean,
+): YAudioCodec =
+    when {
+        sourceCodec == YAudioCodec.Eac3Joc && !exactDolbyAtmosTransport -> YAudioCodec.Eac3
+        sourceCodec == YAudioCodec.TrueHdAtmos && !exactDolbyAtmosTransport -> YAudioCodec.TrueHd
+        sourceCodec == YAudioCodec.DtsX -> YAudioCodec.DtsHd
+        else -> sourceCodec
     }
 
 private fun buildEncodedAudioTrack(format: YAudioTrackFormat): AudioTrack {

@@ -14,6 +14,7 @@ import io.ktor.client.request.parameter
 
 internal class EmbyLookupService(
     private val client: HttpClient,
+    private val progress: PlaybackProgressProjection = PlaybackProgressProjection(),
 ) {
     /**
      * Every series in the library, indexed by provider key (`tmdb:1399`).
@@ -85,7 +86,7 @@ internal class EmbyLookupService(
                     }.body()
             buildMap {
                 dto.Items.forEach { item ->
-                    val hit = ProviderHit(item.Id, item.UserData?.Played == true)
+                    val hit = ProviderHit(item.Id, progress.project(server, item).UserData?.Played == true)
                     item.ProviderIds.orEmpty().forEach { (provider, value) ->
                         if (value.isNotBlank()) {
                             put("${provider.lowercase()}:$value", hit)
@@ -124,7 +125,7 @@ internal class EmbyLookupService(
                         parameter("ImageTypeLimit", 2)
                         parameter("Limit", 1)
                     }.body()
-            dto.Items.firstOrNull()?.toMediaItem()
+            dto.Items.firstOrNull()?.let { progress.project(server, it).toMediaItem() }
         }
 
     /**
@@ -164,7 +165,7 @@ internal class EmbyLookupService(
                         }.body()
                 return@embyApiCall dto.Items
                     .firstOrNull { it.IndexNumber == coordinate.episodeNumber }
-                    ?.toMediaItem()
+                    ?.let { progress.project(server, it).toMediaItem() }
             }
             val provider = mediaKey.substringBefore(':', "")
             val value = mediaKey.substringAfter(':', "")
@@ -180,7 +181,7 @@ internal class EmbyLookupService(
                             header("X-Emby-Token", server.accessToken)
                             parameter("Fields", "ProductionYear,Overview,ProviderIds")
                         }.body()
-                return@embyApiCall dto.toMediaItem()
+                return@embyApiCall progress.project(server, dto).toMediaItem()
             }
             val dto: ItemsResponseDto =
                 client
@@ -194,7 +195,7 @@ internal class EmbyLookupService(
                         parameter("ImageTypeLimit", 2)
                         parameter("Limit", 1)
                     }.body()
-            dto.Items.firstOrNull()?.toMediaItem()
+            dto.Items.firstOrNull()?.let { progress.project(server, it).toMediaItem() }
         }
 }
 

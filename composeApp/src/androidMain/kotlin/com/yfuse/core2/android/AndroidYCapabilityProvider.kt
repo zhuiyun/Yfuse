@@ -7,12 +7,15 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
+import android.media.Spatializer
 import android.os.Build
 import android.view.Display
+import androidx.annotation.RequiresApi
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YCapabilityProvider
 import com.yfuse.core2.capability.YDeviceCapabilities
 import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.capability.YSpatialAudioCapability
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoDecoderCapability
 
@@ -37,6 +40,7 @@ internal class AndroidYCapabilityProvider(
             supportsSurfaceDirect = videoDecoders.any { it.surfaceOutput },
             supportsTunnel = videoDecoders.any { it.tunneledPlayback },
             supportsFrameRateSwitching = queryFrameRateSwitching(),
+            spatialAudio = querySpatialAudioCapability(),
         )
     }
 
@@ -57,7 +61,6 @@ internal class AndroidYCapabilityProvider(
             .flatMap { info -> info.supportedTypes.asSequence() }
             .mapNotNull { type -> type.lowercase().toYAudioCodec() }
             .toSet()
-            .expandImmersiveDecoderFamilies()
 
     private fun queryAudioPassthrough(): Set<YAudioCodec> {
         val manager = appContext.getSystemService(AudioManager::class.java) ?: return emptySet()
@@ -198,6 +201,25 @@ internal class AndroidYCapabilityProvider(
             .distinct()
             .size > 1
     }
+
+    private fun querySpatialAudioCapability(): YSpatialAudioCapability {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S_V2) return YSpatialAudioCapability()
+        val manager = appContext.getSystemService(AudioManager::class.java) ?: return YSpatialAudioCapability()
+        return manager.querySpatialAudioCapabilityApi32()
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.S_V2)
+private fun AudioManager.querySpatialAudioCapabilityApi32(): YSpatialAudioCapability {
+    val output = spatializer
+    return YSpatialAudioCapability(
+        multichannelSupported =
+            output.immersiveAudioLevel == Spatializer.SPATIALIZER_IMMERSIVE_LEVEL_MULTICHANNEL,
+        available = output.isAvailable,
+        enabled = output.isEnabled,
+        headTrackerAvailable =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && output.isHeadTrackerAvailable,
+    )
 }
 
 internal fun supportsSurfaceOutput(
@@ -400,21 +422,14 @@ internal fun String.toYAudioCodec(): YAudioCodec? =
 
 private const val MIME_DOLBY_VISION = "video/dolby-vision"
 
-private fun Set<YAudioCodec>.expandImmersiveDecoderFamilies(): Set<YAudioCodec> =
-    buildSet {
-        addAll(this@expandImmersiveDecoderFamilies)
-        if (YAudioCodec.Eac3 in this@expandImmersiveDecoderFamilies) add(YAudioCodec.Eac3Joc)
-        if (YAudioCodec.TrueHd in this@expandImmersiveDecoderFamilies) add(YAudioCodec.TrueHdAtmos)
-    }
-
-private fun audioCodecsForEncoding(encoding: Int): Set<YAudioCodec> =
+internal fun audioCodecsForEncoding(encoding: Int): Set<YAudioCodec> =
     when (encoding) {
         AudioFormat.ENCODING_AC3 -> setOf(YAudioCodec.Ac3)
-        AudioFormat.ENCODING_E_AC3 -> setOf(YAudioCodec.Eac3, YAudioCodec.Eac3Joc)
+        AudioFormat.ENCODING_E_AC3 -> setOf(YAudioCodec.Eac3)
         AudioFormat.ENCODING_E_AC3_JOC -> setOf(YAudioCodec.Eac3, YAudioCodec.Eac3Joc)
-        AudioFormat.ENCODING_DOLBY_TRUEHD -> setOf(YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos)
+        AudioFormat.ENCODING_DOLBY_TRUEHD -> setOf(YAudioCodec.TrueHd)
         AudioFormat.ENCODING_DTS -> setOf(YAudioCodec.Dts)
         AudioFormat.ENCODING_DTS_HD -> setOf(YAudioCodec.DtsHd)
-        AudioFormat.ENCODING_DTS_HD_MA -> setOf(YAudioCodec.DtsHd, YAudioCodec.DtsX)
+        AudioFormat.ENCODING_DTS_HD_MA -> setOf(YAudioCodec.DtsHd)
         else -> emptySet()
     }

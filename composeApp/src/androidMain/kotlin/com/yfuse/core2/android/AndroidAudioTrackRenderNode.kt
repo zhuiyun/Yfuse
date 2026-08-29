@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTimestamp
@@ -22,6 +23,7 @@ internal data class YAudioClockSnapshot(
  * actual hardware playback clock instead of an unrelated wall clock.
  */
 internal class AndroidAudioTrackRenderNode(
+    context: Context? = null,
     private val createTrack: (MediaFormat) -> AudioTrack = ::buildAudioTrack,
 ) : YAudioRenderNode {
     override val name: String = "AudioTrack"
@@ -31,11 +33,20 @@ internal class AndroidAudioTrackRenderNode(
     private var basePresentationTimeUs: Long? = null
     private var requestedPlay = false
     private var speed = 1f
+    private val spatialAudioProbe = context?.let(::AndroidSpatialAudioProbe)
+    private var spatialAudioState = AndroidSpatialAudioState()
+
+    val spatialAudioOutput: Boolean
+        get() = clockSnapshot() != null && spatialAudioState.active
+
+    val headTrackingAvailable: Boolean
+        get() = spatialAudioOutput && spatialAudioState.headTrackerAvailable
 
     fun configure(format: MediaFormat) {
         release()
         sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
         track = createTrack(format)
+        spatialAudioState = spatialAudioProbe?.current(format) ?: AndroidSpatialAudioState()
         basePresentationTimeUs = null
         requestedPlay = false
         speed = 1f
@@ -133,6 +144,7 @@ internal class AndroidAudioTrackRenderNode(
         requestedPlay = false
         sampleRate = 0
         basePresentationTimeUs = null
+        spatialAudioState = AndroidSpatialAudioState()
         if (audioTrack != null) {
             runCatching { audioTrack.pause() }
             runCatching { audioTrack.flush() }
@@ -187,7 +199,7 @@ private fun buildAudioTrack(format: MediaFormat): AudioTrack {
         }
 }
 
-private fun channelMaskForCount(channelCount: Int): Int =
+internal fun channelMaskForCount(channelCount: Int): Int =
     when (channelCount) {
         1 -> AudioFormat.CHANNEL_OUT_MONO
         2 -> AudioFormat.CHANNEL_OUT_STEREO

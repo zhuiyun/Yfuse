@@ -80,4 +80,13 @@ class AndroidCore2FallbackPolicyTest {
         assertTrue(annotated.reason.contains("VulkanInstance"))
         assertEquals(YPlaybackRoute.GpuEnhanced, annotated.route)
     }
+
+    @Test
+    fun router_failure_diagnostics_keep_type_without_leaking_the_message() {
+        val reason = core2RouterFailureReason(IllegalStateException("https://media/secret?token=credential"))
+
+        assertTrue(reason.contains("IllegalStateException"))
+        assertFalse(reason.contains("secret"))
+        assertFalse(reason.contains("credential"))
+    }
 }

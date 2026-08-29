@@ -16,6 +16,7 @@ import kotlinx.coroutines.CancellationException
 /** Server-side title and person search, including real paging boundaries. */
 internal class EmbySearchService(
     private val client: HttpClient,
+    private val progress: PlaybackProgressProjection = PlaybackProgressProjection(),
 ) {
     /** Genre facet for search; [parentId] narrows it to one library when selected. */
     suspend fun genres(
@@ -48,6 +49,7 @@ internal class EmbySearchService(
             suspend fun request(
                 term: String,
                 offset: Int,
+                requestLimit: Int = limit,
             ): ItemsResponseDto =
                 client
                     .get("${server.baseUrl}/Users/${server.userId}/Items") {
@@ -58,8 +60,6 @@ internal class EmbySearchService(
                         filter.parentId?.let { parameter("ParentId", it) }
                         filter.productionYear?.let { parameter("ProductionYear", it) }
                         filter.genre?.takeIf { it.isNotBlank() }?.let { parameter("Genres", it) }
-                        filter.played?.let { parameter("IsPlayed", it) }
-                        if (filter.resumable) parameter("Filters", "IsResumable")
                         filter.sortBy?.let {
                             parameter("SortBy", it)
                             parameter("SortOrder", if (filter.descending) "Descending" else "Ascending")
@@ -73,12 +73,50 @@ internal class EmbySearchService(
                         parameter("EnableImageTypes", "Primary")
                         parameter("ImageTypeLimit", 1)
                         if (offset > 0) parameter("StartIndex", offset)
-                        parameter("Limit", limit)
+                        parameter("Limit", requestLimit)
                     }.body()
 
-            val exactPage = request(query, startIndex)
+            val localProgressFilter = filter.played != null || filter.resumable
+            val exactPage =
+                request(
+                    query,
+                    if (localProgressFilter) 0 else startIndex,
+                    if (localProgressFilter) LOCAL_PROGRESS_SCAN_PAGE_SIZE else limit,
+                )
             if (exactPage.Items.isNotEmpty() || startIndex > 0) {
-                val items = exactPage.Items.map { it.toMediaItem() }
+                if (localProgressFilter) {
+                    val all = exactPage.Items.toMutableList()
+                    var offset = all.size
+                    var pages = 1
+                    var reportedTotal = exactPage.TotalRecordCount
+                    while (
+                        pages < MAX_LOCAL_PROGRESS_SCAN_PAGES &&
+                        all.isNotEmpty() &&
+                        (reportedTotal?.let { offset < it } ?: (offset % LOCAL_PROGRESS_SCAN_PAGE_SIZE == 0))
+                    ) {
+                        val page = request(query, offset, LOCAL_PROGRESS_SCAN_PAGE_SIZE)
+                        if (page.Items.isEmpty()) break
+                        all += page.Items
+                        offset += page.Items.size
+                        reportedTotal = page.TotalRecordCount ?: reportedTotal
+                        pages++
+                        if (page.Items.size < LOCAL_PROGRESS_SCAN_PAGE_SIZE) break
+                    }
+                    val matching =
+                        all
+                            .asSequence()
+                            .distinctBy { it.Id }
+                            .map { progress.project(server, it).toMediaItem() }
+                            .filter { it.matchesProgressFilter(filter) }
+                            .toList()
+                    val pageItems = matching.drop(startIndex).take(limit)
+                    return@embyApiCall MediaSearchPage(
+                        items = if (filter.sortBy == null) rankSearchResults(pageItems, query) else pageItems,
+                        totalCount = matching.size,
+                        startIndex = startIndex,
+                    )
+                }
+                val items = exactPage.Items.map { progress.project(server, it).toMediaItem() }
                 return@embyApiCall MediaSearchPage(
                     items = if (filter.sortBy == null) rankSearchResults(items, query) else items,
                     totalCount =
@@ -114,8 +152,9 @@ internal class EmbySearchService(
                     .asSequence()
                     .distinctBy { it.Id }
                     .filter { it.Name?.contains(normalizedQuery, ignoreCase = true) == true }
+                    .map { progress.project(server, it).toMediaItem() }
+                    .filter { !localProgressFilter || it.matchesProgressFilter(filter) }
                     .take(limit)
-                    .map { it.toMediaItem() }
                     .toList()
             MediaSearchPage(
                 items = rankSearchResults(items, query),
@@ -123,6 +162,17 @@ internal class EmbySearchService(
                 startIndex = 0,
             )
         }
+
+    private fun MediaItem.matchesProgressFilter(filter: MediaSearchFilter): Boolean {
+        if (filter.played != null && played != filter.played) return false
+        if (filter.resumable && (played || (resumePositionTicks ?: 0L) <= 0L)) return false
+        return true
+    }
+
+    private companion object {
+        const val LOCAL_PROGRESS_SCAN_PAGE_SIZE = 200
+        const val MAX_LOCAL_PROGRESS_SCAN_PAGES = 250
+    }
 
     suspend fun searchPeople(
         server: SavedServer,
@@ -178,6 +228,6 @@ internal class EmbySearchService(
                         parameter("ImageTypeLimit", 2)
                         parameter("Limit", limit)
                     }.body()
-            dto.Items.map { it.toMediaItem() }
+            dto.Items.map { progress.project(server, it).toMediaItem() }
         }
 }

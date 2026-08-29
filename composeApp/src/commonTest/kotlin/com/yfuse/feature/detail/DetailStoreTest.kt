@@ -5,9 +5,11 @@ import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.data.PlaybackProgressProjection
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
@@ -373,6 +375,98 @@ class DetailStoreTest {
             store.dispose()
         }
     }
+
+    @Test
+    fun initial_series_play_target_does_not_wait_for_the_catalog() =
+        runBlocking {
+            val catalogStarted = CompletableDeferred<Unit>()
+            val releaseCatalog = CompletableDeferred<Unit>()
+            val store =
+                seriesStore(
+                    beforeFirstSeasons = {
+                        catalogStarted.complete(Unit)
+                        releaseCatalog.await()
+                    },
+                )
+            try {
+                catalogStarted.await()
+                val ready = awaitRealTime { store.states.first { !it.selectionLoading } }
+
+                assertEquals("e1", ready.playTarget?.id)
+                assertTrue(ready.episodesLoading)
+                store.labels.test(timeout = 10.seconds) {
+                    store.accept(DetailIntent.Play)
+                    assertEquals(
+                        DetailLabel.Play("one", "e1", 10_000_000L, "ev1"),
+                        awaitItem(),
+                    )
+                    cancelAndConsumeRemainingEvents()
+                }
+            } finally {
+                releaseCatalog.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun episode_selection_timeout_clears_loading_and_restores_the_committed_episode() =
+        runTest {
+            val store =
+                seriesStore(
+                    beforeEpisodeTwoDetail = { awaitCancellation() },
+                    sourceSelectionTimeoutMs = 50L,
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+
+                store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
+                store.states.first { !it.selectionLoading && it.actionMessage != null }
+
+                assertEquals("e1", store.state.playTarget?.id)
+                assertEquals("e1", store.state.selectedEpisodeId)
+                assertEquals("剧集切换等待超时，请检查网络后重试", store.state.actionMessage)
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun newer_episode_selection_cancels_the_old_request_without_leaking_loading() =
+        runBlocking {
+            val oldRequestStarted = CompletableDeferred<Unit>()
+            val releaseOldRequest = CompletableDeferred<Unit>()
+            val store =
+                seriesStore(
+                    beforeEpisodeTwoDetail = {
+                        oldRequestStarted.complete(Unit)
+                        releaseOldRequest.await()
+                    },
+                )
+            try {
+                awaitRealTime {
+                    store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+                }
+
+                store.accept(DetailIntent.SelectEpisode("e2", 20_000_000L))
+                oldRequestStarted.await()
+                store.accept(DetailIntent.SelectEpisode("e1", 10_000_000L))
+                awaitRealTime {
+                    store.states.first {
+                        !it.selectionLoading &&
+                            it.playTarget?.id == "e1" &&
+                            it.selectedEpisodeId == "e1"
+                    }
+                }
+
+                releaseOldRequest.complete(Unit)
+                assertEquals("e1", store.state.playTarget?.id)
+                assertTrue(!store.state.selectionLoading)
+            } finally {
+                releaseOldRequest.complete(Unit)
+                store.dispose()
+            }
+        }
 
     @Test
     fun play_while_episode_is_resolving_waits_for_and_plays_the_new_episode() =
@@ -842,8 +936,14 @@ class DetailStoreTest {
                     )
                 }
             }
+        val localProgress = PlaybackSyncStore(MapSettings()) { 1_000L }
+        localProgress.seedServerProgressIfAbsent("one", "m1", positionMs = 4_000L, played = false)
+        localProgress.seedServerProgressIfAbsent("two", "m2", positionMs = 9_000L, played = false)
         val repo =
-            testRepo(dispatcher = mainContext) { request ->
+            testRepo(
+                dispatcher = mainContext,
+                progressProjection = PlaybackProgressProjection(localProgress) { true },
+            ) { request ->
                 val host = request.url.host
                 val path = request.url.encodedPath
                 when {
@@ -919,11 +1019,13 @@ class DetailStoreTest {
     private fun seriesStore(
         includeSecondSource: Boolean = false,
         beforeEpisodeTwoDetail: suspend () -> Unit = {},
+        beforeFirstSeasons: suspend () -> Unit = {},
         beforeSecondEpisodes: suspend () -> Unit = {},
         secondEpisodesBody: String = """{"Items":[$ALT_EPISODE_ONE]}""",
         onSecondEpisodeDetail: () -> Unit = {},
         onSecondNextUp: () -> Unit = {},
         seasonTwoEpisodesFailure: (() -> Throwable?)? = null,
+        sourceSelectionTimeoutMs: Long = 45_000L,
         mainContext: CoroutineDispatcher = Dispatchers.Unconfined,
     ): com.arkivanov.mvikotlin.core.store.Store<
         DetailIntent,
@@ -937,8 +1039,15 @@ class DetailStoreTest {
                     addOrUpdate(SavedServer("two", "http://two", "备库", "u", "user", "tok2"))
                 }
             }
+        val localProgress = PlaybackSyncStore(MapSettings()) { 1_000L }
+        localProgress.seedServerProgressIfAbsent("one", "e1", positionMs = 1_000L, played = false)
+        localProgress.seedServerProgressIfAbsent("one", "e2", positionMs = 2_000L, played = false)
+        localProgress.seedServerProgressIfAbsent("two", "ae1", positionMs = 3_000L, played = false)
         val repo =
-            testRepo(dispatcher = mainContext) { request ->
+            testRepo(
+                dispatcher = mainContext,
+                progressProjection = PlaybackProgressProjection(localProgress) { true },
+            ) { request ->
                 val host = request.url.host
                 val path = request.url.encodedPath
                 when {
@@ -967,7 +1076,8 @@ class DetailStoreTest {
                             )
                         }
                     }
-                    path.endsWith("/Shows/s1/Seasons") ->
+                    path.endsWith("/Shows/s1/Seasons") -> {
+                        beforeFirstSeasons()
                         json(
                             if (seasonTwoEpisodesFailure == null) {
                                 """{"Items":[{"Id":"season1","Name":"第 1 季","IndexNumber":1}]}"""
@@ -976,6 +1086,7 @@ class DetailStoreTest {
                                     """{"Id":"season2","Name":"第 2 季","IndexNumber":2}]}"""
                             },
                         )
+                    }
                     path.endsWith("/Shows/s2/Seasons") ->
                         json(
                             """{"Items":[{"Id":"aseason1","Name":"第 1 季","IndexNumber":1}]}""",
@@ -1010,6 +1121,7 @@ class DetailStoreTest {
             registry,
             itemId = "s1",
             serverId = "one",
+            sourceSelectionTimeoutMs = sourceSelectionTimeoutMs,
             mainContext = mainContext,
             playbackTrackRequest = testPlaybackTrackRequest,
             syncManager = testSyncManager,

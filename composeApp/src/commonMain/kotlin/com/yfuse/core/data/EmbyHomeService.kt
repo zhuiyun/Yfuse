@@ -24,6 +24,7 @@ internal class EmbyHomeService(
     private val client: HttpClient,
     private val libraryService: EmbyLibraryService,
     private val browseService: EmbyBrowseService,
+    private val progress: PlaybackProgressProjection = PlaybackProgressProjection(),
 ) {
     /** Aggregates the home screen: continue-watching, latest-per-library, featured. */
     suspend fun homeContent(server: SavedServer): Result<HomeContent> =
@@ -255,23 +256,32 @@ internal class EmbyHomeService(
     }
 
     private suspend fun fetchResume(server: SavedServer): List<MediaItem> {
-        val dto: ItemsResponseDto =
+        val ids =
+            progress
+                .localStates(server)
+                .asSequence()
+                .filter { !it.played && it.positionMs > 0L }
+                .mapNotNull { it.serverItemId }
+                .distinct()
+                .take(12)
+                .toList()
+        if (ids.isEmpty()) return emptyList()
+        val localItems: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Items/Resume") {
+                .get("${server.baseUrl}/Users/${server.userId}/Items") {
                     header("X-Emby-Token", server.accessToken)
-                    parameter("Limit", 12)
-                    parameter("Recursive", true)
-                    parameter("MediaTypes", "Video")
-                    // UserData carries PlayedPercentage, which draws the resume bar.
+                    parameter("Ids", ids.joinToString(","))
                     parameter(
                         "Fields",
-                        "BackdropImageTags,UserData,Overview,CommunityRating,ParentBackdropItemId," +
-                            "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks",
+                            "BackdropImageTags,UserData,Overview,CommunityRating,ParentBackdropItemId," +
+                            "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks,ProviderIds",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")
                     parameter("ImageTypeLimit", 2)
+                    parameter("Limit", ids.size)
                 }.body()
-        return dto.Items.map { it.toMediaItem() }
+        val byId = localItems.Items.associateBy(BaseItemDto::Id)
+        return ids.mapNotNull(byId::get).map { progress.project(server, it).toMediaItem() }
     }
 
     private suspend fun fetchLatest(
@@ -293,6 +303,6 @@ internal class EmbyHomeService(
                     parameter("EnableImageTypes", "Primary,Backdrop")
                     parameter("ImageTypeLimit", 2)
                 }.body()
-        return items.map { it.toMediaItem() }
+        return items.map { progress.project(server, it).toMediaItem() }
     }
 }

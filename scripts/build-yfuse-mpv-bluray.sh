@@ -8,9 +8,12 @@ WORK_ROOT="${YFUSE_MPV_WORK_ROOT:-$ROOT/.native-build/yfuse-mpv}"
 OUT_DIR="${YFUSE_MPV_OUT_DIR:-$ROOT/.native-build/artifacts}"
 UPSTREAM_REPO="https://github.com/jarnedemeulemeester/libmpv-android.git"
 UPSTREAM_COMMIT="fcf6745703dc1265bca88f12fee8fc355ddf251e" # v1.0.0
+ANDROID_GRADLE_PLUGIN_VERSION="8.11.1"
+KOTLIN_ANDROID_PLUGIN_VERSION="2.2.21"
 LIBBLURAY_TAG="1.4.1"
 LIBBLURAY_COMMIT="7d94f2660af5bfc16015291a03539329135c18f1"
 LIBUDFREAD_COMMIT="139a2194525f2745b98a98e4d8fa627d07440176"
+MPV_FACADE_CLASS_PATH="dev/jdtech/mpv/MPVLib.class"
 CAPABILITY_CLASS_PATH="dev/yfuse/mpv/YfuseMpvCapabilities.class"
 REGISTRY_CLASS_PATH="dev/yfuse/mpv/YfuseBluRayRegistry.class"
 BDMV_REGISTRY_CLASS_PATH="dev/yfuse/mpv/YfuseBdmvRegistry.class"
@@ -74,12 +77,67 @@ git -C "$WORK_ROOT/source" checkout -q --detach FETCH_HEAD
 }
 
 SOURCE="$WORK_ROOT/source"
+GRADLE_VERSION_CATALOG="$SOURCE/gradle/libs.versions.toml"
+GRADLE_MODULE_BUILD="$SOURCE/libmpv/build.gradle.kts"
 DEPINFO="$SOURCE/buildscripts/include/depinfo.sh"
 DOWNLOAD_DEPS="$SOURCE/buildscripts/include/download-deps.sh"
 LIBBLURAY_BUILD="$SOURCE/buildscripts/scripts/libbluray.sh"
 CAPABILITY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseMpvCapabilities.java"
 REGISTRY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseBluRayRegistry.java"
 BDMV_REGISTRY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseBdmvRegistry.java"
+
+# The pinned wrapper revision currently names an unpublished Android Gradle Plugin. Keep the
+# Android wrapper source pinned, but replace that external build-tool coordinate with the version
+# already resolved and exercised by Yfuse's own Android quality gates.
+python3 - "$GRADLE_VERSION_CATALOG" "$ANDROID_GRADLE_PLUGIN_VERSION" <<'PY'
+from pathlib import Path
+import sys
+
+catalog = Path(sys.argv[1])
+version = sys.argv[2]
+text = catalog.read_text()
+anchor = 'android-plugin = "9.1.0"'
+if text.count(anchor) != 1:
+    raise SystemExit("unexpected upstream version catalog: Android plugin anchor missing or duplicated")
+catalog.write_text(text.replace(anchor, f'android-plugin = "{version}"', 1))
+PY
+
+# This builder assembles a checksum-bound local AAR and never publishes to Maven Central. The
+# upstream publishing plugin deliberately requires a newer AGP than the pinned assembly toolchain,
+# so remove only its imports, application and terminal publishing block from the pinned checkout.
+python3 - "$GRADLE_MODULE_BUILD" "$KOTLIN_ANDROID_PLUGIN_VERSION" <<'PY'
+from pathlib import Path
+import sys
+
+module = Path(sys.argv[1])
+kotlin_version = sys.argv[2]
+text = module.read_text()
+for import_line in (
+    "import com.vanniktech.maven.publish.AndroidSingleVariantLibrary\n",
+    "import com.vanniktech.maven.publish.JavadocJar\n",
+    "import com.vanniktech.maven.publish.SourcesJar\n",
+):
+    if text.count(import_line) != 1:
+        raise SystemExit("unexpected upstream module build: publishing import anchor drift")
+    text = text.replace(import_line, "", 1)
+plugin_line = "    alias(libs.plugins.maven.publish)\n"
+if text.count(plugin_line) != 1:
+    raise SystemExit("unexpected upstream module build: publishing plugin anchor drift")
+text = text.replace(plugin_line, "", 1)
+android_plugin_line = "    alias(libs.plugins.android.library)\n"
+if text.count(android_plugin_line) != 1:
+    raise SystemExit("unexpected upstream module build: Android plugin anchor drift")
+text = text.replace(
+    android_plugin_line,
+    android_plugin_line + f'    id("org.jetbrains.kotlin.android") version "{kotlin_version}"\n',
+    1,
+)
+publishing_block = "\nmavenPublishing {\n"
+if text.count(publishing_block) != 1:
+    raise SystemExit("unexpected upstream module build: publishing block anchor drift")
+text = text[: text.index(publishing_block)].rstrip() + "\n"
+module.write_text(text)
+PY
 
 if [[ -n "$REQUESTED_ABI" ]]; then
   python3 - "$SOURCE/libmpv/build.gradle.kts" "$REQUESTED_ABI" <<'PY'
@@ -349,7 +407,7 @@ grep -q 'jni/arm64-v8a/libmpv.so' "$TMP_LIST" || {
   exit 1
 }
 unzip -p "$AAR" classes.jar >"$TMP_CLASSES"
-for required_class in "$CAPABILITY_CLASS_PATH" "$REGISTRY_CLASS_PATH" "$BDMV_REGISTRY_CLASS_PATH"; do
+for required_class in "$MPV_FACADE_CLASS_PATH" "$CAPABILITY_CLASS_PATH" "$REGISTRY_CLASS_PATH" "$BDMV_REGISTRY_CLASS_PATH"; do
   unzip -l "$TMP_CLASSES" | grep -F "$required_class" >/dev/null || {
     printf 'error: AAR is missing required Yfuse class: %s\n' "$required_class" >&2
     exit 1
@@ -361,6 +419,8 @@ cp -f "$AAR" "$DEST"
 sha256sum "$DEST" | tee "$DEST.sha256"
 {
   printf 'libmpv-android=%s\n' "$UPSTREAM_COMMIT"
+  printf 'android-gradle-plugin=%s\n' "$ANDROID_GRADLE_PLUGIN_VERSION"
+  printf 'kotlin-android-plugin=%s\n' "$KOTLIN_ANDROID_PLUGIN_VERSION"
   printf 'libbluray=%s\n' "$LIBBLURAY_COMMIT"
   printf 'libudfread=%s\n' "$LIBUDFREAD_COMMIT"
   printf 'bdj_jar=disabled\n'

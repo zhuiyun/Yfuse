@@ -44,7 +44,7 @@ class LibraryStoreTest {
 
             val s = store.states.first { !it.loading && !it.content.isEmpty }
             assertEquals("我的服务器", s.currentServer?.serverName)
-            assertEquals(1, s.content.resume.size)
+            assertTrue(s.content.resume.isEmpty())
             assertTrue(s.content.rows.isNotEmpty())
             assertEquals(42, s.content.counts?.movieCount)
             assertEquals(7, s.content.counts?.seriesCount)

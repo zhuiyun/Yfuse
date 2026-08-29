@@ -50,6 +50,20 @@ jobs:
           scripts/fetch-engines.sh
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+      - name: Reject new ktlint violations
+        shell: bash
+        run: |
+          set +e
+          ./gradlew ktlintCheck --no-daemon --continue
+          ktlint_status=$?
+          set -e
+          if (( ktlint_status != 0 )); then
+            while IFS= read -r report; do
+              echo "===== $report ====="
+              cat "$report"
+            done < <(find . -path '*/build/reports/ktlint/*/*.txt' -type f | sort)
+            exit "$ktlint_status"
+          fi
       - name: Compile and run unit tests
         run: ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
       - name: Compile startup and frame-time Macrobenchmark APK
@@ -57,7 +71,26 @@ jobs:
       - name: Verify design-system usage
         run: ./gradlew :composeApp:verifyDesignSystemUsage --no-daemon
       - name: Run Android lint
-        run: ./gradlew :composeApp:lintDebug --no-daemon
+        shell: bash
+        run: |
+          set +e
+          ./gradlew :composeApp:lintDebug --no-daemon
+          lint_status=$?
+          set -e
+          if (( lint_status != 0 )); then
+            report="composeApp/build/reports/lint-results-debug.txt"
+            if [[ -f "$report" ]]; then cat "$report"; fi
+            exit "$lint_status"
+          fi
+      - name: Build and install current YCore GPU companion
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifacts="$RUNNER_TEMP/ycore-gpu-companion"
+          bash scripts/build-ycore-gpu-companion.sh "$artifacts"
+          install -m 0644 "$artifacts/ycore-gpu.aar" composeApp/libs/ycore-gpu.aar
+          install -m 0644 "$artifacts/ycore-gpu.aar.sha256" composeApp/libs/ycore-gpu.aar.sha256
+          install -m 0644 "$artifacts/NATIVE-SOURCES.txt" composeApp/libs/ycore-gpu.sources.txt
       - name: Build R8 release package
         run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
       - name: Verify release package and size budget
@@ -73,8 +106,6 @@ jobs:
           "$build_tools/aapt" dump badging "$apk" | grep -Fq "package: name='com.yfuse'"
           apk_size="$(stat -c '%s' "$apk")"
           (( apk_size <= APK_SIZE_BUDGET_BYTES ))
-      - name: Reject new ktlint violations
-        run: ./gradlew ktlintCheck --no-daemon
       - name: Check patch whitespace
         shell: bash
         env:
