@@ -1,10 +1,10 @@
 package com.yfuse.core2.android
 
-import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.capability.YContainer
+import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
-import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
