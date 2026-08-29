@@ -28,6 +28,7 @@ extern "C" {
 #include <libavutil/mastering_display_metadata.h>
 #include <libavutil/mem.h>
 #include <libbluray/bluray.h>
+#include <libbluray/filesystem.h>
 #include <libbluray/keys.h>
 #include <libbluray/overlay.h>
 #include <libswresample/swresample.h>
@@ -92,6 +93,15 @@ struct DiscSource {
     jmethodID overlay_frame = nullptr;
     jmethodID overlay_cleared = nullptr;
     jmethodID close_source = nullptr;
+    jmethodID open_file = nullptr;
+    jmethodID read_file = nullptr;
+    jmethodID seek_file = nullptr;
+    jmethodID tell_file = nullptr;
+    jmethodID close_file = nullptr;
+    jmethodID open_dir = nullptr;
+    jmethodID read_dir = nullptr;
+    jmethodID close_dir = nullptr;
+    bool filesystem_source = false;
     std::string path;
     std::mutex mutex;
     BlurayIo* active = nullptr;
@@ -118,6 +128,18 @@ struct BlurayIo {
     std::vector<uint32_t> overlay;
 
     ~BlurayIo();
+};
+
+struct BdmvFile {
+    BD_FILE_H api = {};
+    DiscSource* source = nullptr;
+    jlong handle = 0;
+};
+
+struct BdmvDirectory {
+    BD_DIR_H api = {};
+    DiscSource* source = nullptr;
+    jlong handle = 0;
 };
 
 std::mutex g_disc_sources_mutex;
@@ -188,6 +210,236 @@ JNIEnv* disc_env(JavaVM* vm, bool* attached) {
 
 void clear_java_exception(JNIEnv* env) {
     if (env && env->ExceptionCheck()) env->ExceptionClear();
+}
+
+jlong open_bdmv_handle(
+    JNIEnv* env,
+    DiscSource* source,
+    jmethodID method,
+    const char* relative_path) {
+    if (!env || !source || !source->object || !method || !relative_path) return 0;
+    jstring path = env->NewStringUTF(relative_path);
+    if (!path) return 0;
+    const jlong handle = env->CallLongMethod(source->object, method, path);
+    env->DeleteLocalRef(path);
+    if (env->ExceptionCheck()) {
+        clear_java_exception(env);
+        return 0;
+    }
+    return handle > 0 ? handle : 0;
+}
+
+void close_bdmv_file(BD_FILE_H* api) {
+    auto* file = api ? static_cast<BdmvFile*>(api->internal) : nullptr;
+    if (!file) return;
+    bool attached = false;
+    JNIEnv* env = disc_env(file->source ? file->source->vm : nullptr, &attached);
+    if (env && file->source && file->source->object && file->handle > 0) {
+        env->CallVoidMethod(file->source->object, file->source->close_file, file->handle);
+        clear_java_exception(env);
+    }
+    if (attached) file->source->vm->DetachCurrentThread();
+    delete file;
+}
+
+int64_t seek_bdmv_file(BD_FILE_H* api, int64_t offset, int32_t origin) {
+    auto* file = api ? static_cast<BdmvFile*>(api->internal) : nullptr;
+    if (!file || !file->source) return -1;
+    bool attached = false;
+    JNIEnv* env = disc_env(file->source->vm, &attached);
+    if (!env) return -1;
+    jlong result =
+        env->CallLongMethod(
+            file->source->object,
+            file->source->seek_file,
+            file->handle,
+            static_cast<jlong>(offset),
+            static_cast<jint>(origin));
+    if (env->ExceptionCheck()) {
+        clear_java_exception(env);
+        result = -1;
+    }
+    if (attached) file->source->vm->DetachCurrentThread();
+    return static_cast<int64_t>(result);
+}
+
+int64_t tell_bdmv_file(BD_FILE_H* api) {
+    auto* file = api ? static_cast<BdmvFile*>(api->internal) : nullptr;
+    if (!file || !file->source) return -1;
+    bool attached = false;
+    JNIEnv* env = disc_env(file->source->vm, &attached);
+    if (!env) return -1;
+    jlong result =
+        env->CallLongMethod(file->source->object, file->source->tell_file, file->handle);
+    if (env->ExceptionCheck()) {
+        clear_java_exception(env);
+        result = -1;
+    }
+    if (attached) file->source->vm->DetachCurrentThread();
+    return static_cast<int64_t>(result);
+}
+
+int64_t read_bdmv_file(BD_FILE_H* api, uint8_t* destination, int64_t size) {
+    auto* file = api ? static_cast<BdmvFile*>(api->internal) : nullptr;
+    if (
+        !file ||
+        !file->source ||
+        !destination ||
+        size < 0 ||
+        size > std::numeric_limits<jint>::max()
+    ) {
+        return -1;
+    }
+    if (size == 0) return 0;
+    bool attached = false;
+    JNIEnv* env = disc_env(file->source->vm, &attached);
+    if (!env) return -1;
+    jbyteArray target = env->NewByteArray(static_cast<jsize>(size));
+    if (!target) {
+        if (attached) file->source->vm->DetachCurrentThread();
+        return -1;
+    }
+    jint result =
+        env->CallIntMethod(
+            file->source->object,
+            file->source->read_file,
+            file->handle,
+            target,
+            0,
+            static_cast<jint>(size));
+    if (env->ExceptionCheck()) {
+        clear_java_exception(env);
+        result = -1;
+    }
+    if (result > 0 && result <= size) {
+        env->GetByteArrayRegion(target, 0, result, reinterpret_cast<jbyte*>(destination));
+        if (env->ExceptionCheck()) {
+            clear_java_exception(env);
+            result = -1;
+        }
+    } else if (result > size) {
+        result = -1;
+    }
+    env->DeleteLocalRef(target);
+    if (attached) file->source->vm->DetachCurrentThread();
+    return result;
+}
+
+BD_FILE_H* open_bdmv_file(void* opaque, const char* relative_path) {
+    auto* source = static_cast<DiscSource*>(opaque);
+    if (!source || !source->filesystem_source || !relative_path) return nullptr;
+    bool attached = false;
+    JNIEnv* env = disc_env(source->vm, &attached);
+    if (!env) return nullptr;
+    const jlong handle = open_bdmv_handle(env, source, source->open_file, relative_path);
+    if (handle <= 0) {
+        if (attached) source->vm->DetachCurrentThread();
+        return nullptr;
+    }
+    auto* file = new (std::nothrow) BdmvFile();
+    if (!file) {
+        env->CallVoidMethod(source->object, source->close_file, handle);
+        clear_java_exception(env);
+        if (attached) source->vm->DetachCurrentThread();
+        return nullptr;
+    }
+    file->source = source;
+    file->handle = handle;
+    file->api.internal = file;
+    file->api.close = close_bdmv_file;
+    file->api.seek = seek_bdmv_file;
+    file->api.tell = tell_bdmv_file;
+    file->api.eof = nullptr;
+    file->api.read = read_bdmv_file;
+    file->api.write = nullptr;
+    if (attached) source->vm->DetachCurrentThread();
+    return &file->api;
+}
+
+void close_bdmv_directory(BD_DIR_H* api) {
+    auto* directory = api ? static_cast<BdmvDirectory*>(api->internal) : nullptr;
+    if (!directory) return;
+    bool attached = false;
+    JNIEnv* env = disc_env(directory->source ? directory->source->vm : nullptr, &attached);
+    if (env && directory->source && directory->source->object && directory->handle > 0) {
+        env->CallVoidMethod(
+            directory->source->object,
+            directory->source->close_dir,
+            directory->handle);
+        clear_java_exception(env);
+    }
+    if (attached) directory->source->vm->DetachCurrentThread();
+    delete directory;
+}
+
+int read_bdmv_directory(BD_DIR_H* api, BD_DIRENT* entry) {
+    auto* directory = api ? static_cast<BdmvDirectory*>(api->internal) : nullptr;
+    if (!directory || !directory->source || !entry) return -1;
+    bool attached = false;
+    JNIEnv* env = disc_env(directory->source->vm, &attached);
+    if (!env) return -1;
+    auto value = static_cast<jstring>(
+        env->CallObjectMethod(
+            directory->source->object,
+            directory->source->read_dir,
+            directory->handle));
+    if (env->ExceptionCheck()) {
+        clear_java_exception(env);
+        value = nullptr;
+    }
+    if (!value) {
+        if (attached) directory->source->vm->DetachCurrentThread();
+        return 1;
+    }
+    const char* name = env->GetStringUTFChars(value, nullptr);
+    if (!name) {
+        env->DeleteLocalRef(value);
+        if (attached) directory->source->vm->DetachCurrentThread();
+        return -1;
+    }
+    const size_t length = std::strlen(name);
+    int result = 0;
+    if (
+        length == 0 ||
+        length >= sizeof(entry->d_name) ||
+        std::strchr(name, '/') ||
+        std::strchr(name, '\\')
+    ) {
+        result = -1;
+    } else {
+        std::memcpy(entry->d_name, name, length + 1);
+    }
+    env->ReleaseStringUTFChars(value, name);
+    env->DeleteLocalRef(value);
+    if (attached) directory->source->vm->DetachCurrentThread();
+    return result;
+}
+
+BD_DIR_H* open_bdmv_directory(void* opaque, const char* relative_path) {
+    auto* source = static_cast<DiscSource*>(opaque);
+    if (!source || !source->filesystem_source || !relative_path) return nullptr;
+    bool attached = false;
+    JNIEnv* env = disc_env(source->vm, &attached);
+    if (!env) return nullptr;
+    const jlong handle = open_bdmv_handle(env, source, source->open_dir, relative_path);
+    if (handle <= 0) {
+        if (attached) source->vm->DetachCurrentThread();
+        return nullptr;
+    }
+    auto* directory = new (std::nothrow) BdmvDirectory();
+    if (!directory) {
+        env->CallVoidMethod(source->object, source->close_dir, handle);
+        clear_java_exception(env);
+        if (attached) source->vm->DetachCurrentThread();
+        return nullptr;
+    }
+    directory->source = source;
+    directory->handle = handle;
+    directory->api.internal = directory;
+    directory->api.close = close_bdmv_directory;
+    directory->api.read = read_bdmv_directory;
+    if (attached) source->vm->DetachCurrentThread();
+    return &directory->api;
 }
 
 DiscSource::~DiscSource() {
@@ -672,7 +924,12 @@ int open_bluray_demux(
     disc->source = source;
     if (source->path.empty()) {
         disc->bd = bd_init();
-        if (!disc->bd || !bd_open_stream(disc->bd, source.get(), disc_read_blocks)) {
+        const int opened =
+            !disc->bd ? 0 :
+            source->filesystem_source ?
+                bd_open_files(disc->bd, source.get(), open_bdmv_directory, open_bdmv_file) :
+                bd_open_stream(disc->bd, source.get(), disc_read_blocks);
+        if (!opened) {
             return AVERROR_INVALIDDATA;
         }
     } else {
@@ -1180,6 +1437,41 @@ jlong native_register_bluray_source(JNIEnv* env, jclass, jobject source_object) 
         env->DeleteLocalRef(source_class);
         throw_illegal_argument(env, "Blu-ray source object has an incompatible callback contract");
         return 0;
+    }
+    source->open_file = env->GetMethodID(source_class, "openFileNative", "(Ljava/lang/String;)J");
+    clear_java_exception(env);
+    source->read_file = env->GetMethodID(source_class, "readFileNative", "(J[BII)I");
+    clear_java_exception(env);
+    source->seek_file = env->GetMethodID(source_class, "seekFileNative", "(JJI)J");
+    clear_java_exception(env);
+    source->tell_file = env->GetMethodID(source_class, "tellFileNative", "(J)J");
+    clear_java_exception(env);
+    source->close_file = env->GetMethodID(source_class, "closeFileNative", "(J)V");
+    clear_java_exception(env);
+    source->open_dir = env->GetMethodID(source_class, "openDirNative", "(Ljava/lang/String;)J");
+    clear_java_exception(env);
+    source->read_dir = env->GetMethodID(source_class, "readDirNative", "(J)Ljava/lang/String;");
+    clear_java_exception(env);
+    source->close_dir = env->GetMethodID(source_class, "closeDirNative", "(J)V");
+    clear_java_exception(env);
+    const bool filesystem_contract =
+        source->open_file &&
+        source->read_file &&
+        source->seek_file &&
+        source->tell_file &&
+        source->close_file &&
+        source->open_dir &&
+        source->read_dir &&
+        source->close_dir;
+    const jmethodID filesystem_method =
+        env->GetMethodID(source_class, "isBdmvFilesystemNative", "()Z");
+    clear_java_exception(env);
+    if (filesystem_contract && filesystem_method) {
+        source->filesystem_source = env->CallBooleanMethod(source_object, filesystem_method) == JNI_TRUE;
+        if (env->ExceptionCheck()) {
+            clear_java_exception(env);
+            source->filesystem_source = false;
+        }
     }
     auto path_ref = static_cast<jstring>(env->CallObjectMethod(source_object, path_method));
     if (env->ExceptionCheck()) {

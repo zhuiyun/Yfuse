@@ -63,6 +63,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.pressable
@@ -735,7 +736,12 @@ private fun AccordionCalendarDay(
         } else {
             82.dp
         }
-    val animationModifier = if (reduceMotion) Modifier else Modifier.animateContentSize()
+    val animationModifier =
+        if (reduceMotion) {
+            Modifier
+        } else {
+            Modifier.animateContentSize(animationSpec = Motion.settle())
+        }
 
     Column(
         Modifier

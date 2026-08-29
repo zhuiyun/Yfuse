@@ -23,8 +23,10 @@ on:
       - scripts/native/**
       - media-tests/**
       - composeApp/src/androidInstrumentedTest/kotlin/com/yfuse/core2/android/YCoreMediaSuiteInstrumentedTest.kt
-      - composeApp/src/commonMain/kotlin/com/yfuse/core2/test/YMediaTestSuite.kt
-      - composeApp/src/commonTest/kotlin/com/yfuse/core2/test/YMediaTestSuiteTest.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/core2/**
+      - composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/**
+      - composeApp/src/commonMain/kotlin/com/yfuse/core2/**
+      - composeApp/src/commonTest/kotlin/com/yfuse/core2/**
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvDolbyRuntimeEvidence.android.kt
       - composeApp/src/commonMain/kotlin/com/yfuse/feature/player/MpvDolbyRuntimeEvidence.kt

@@ -86,6 +86,33 @@ class YPlaybackLearningTest {
         )
     }
 
+    @Test
+    fun `severe thermal pressure penalizes then avoids the exact route`() {
+        engine.record(
+            key(),
+            YPlaybackObservation(
+                rendered = true,
+                playedDurationMs = 60_000L,
+                maximumThermalStatus = 3,
+            ),
+        )
+        assertEquals(YLearnedRouteAdvice.Penalize, engine.advice(key()))
+
+        repeat(2) {
+            now++
+            engine.record(
+                key(),
+                YPlaybackObservation(
+                    rendered = true,
+                    playedDurationMs = 60_000L,
+                    maximumThermalStatus = 3,
+                ),
+            )
+        }
+
+        assertEquals(YLearnedRouteAdvice.Avoid, engine.advice(key()))
+    }
+
     private fun key() =
         YPlaybackLearningKey(
             route = YPlaybackRoute.NativeTunnel,
