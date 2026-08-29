@@ -77,12 +77,14 @@ internal fun createVideoEngine(
     val yCoreAllowed =
         !remoteYCoreBlocked &&
             !yCoreDemuxBlocked &&
-            (packagedNativeOnly ||
-                shouldUseCore2Trial(
-                    enabled = core2TrialEnabled,
-                    engineSelection = engineSelection,
-                    crashBlocked = false,
-                ))
+            (
+                packagedNativeOnly ||
+                    shouldUseCore2Trial(
+                        enabled = core2TrialEnabled,
+                        engineSelection = engineSelection,
+                        crashBlocked = false,
+                    )
+            )
     val component =
         if (yCoreAllowed) {
             NativePlaybackComponent.YCoreDemux

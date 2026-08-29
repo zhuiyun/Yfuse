@@ -807,8 +807,7 @@ val yfuseCastReceiverApplicationId =
                 "yfuseCastReceiverApplicationId must be the 8-character Cast receiver application id"
             }
             normalized.uppercase()
-        }
-        .orEmpty()
+        }.orEmpty()
 
 android {
     namespace = "com.yfuse"

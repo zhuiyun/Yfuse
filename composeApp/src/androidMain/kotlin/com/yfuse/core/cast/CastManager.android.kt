@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -44,7 +45,6 @@ import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URL
 import kotlin.coroutines.resume
-import org.json.JSONObject
 
 private lateinit var castApplicationContext: Context
 

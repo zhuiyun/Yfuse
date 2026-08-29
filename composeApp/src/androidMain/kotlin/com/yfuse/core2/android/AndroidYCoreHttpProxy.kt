@@ -16,14 +16,14 @@ import com.yfuse.core2.adaptive.YHlsPlaylist
 import com.yfuse.core2.adaptive.YHlsResourceKind
 import com.yfuse.core2.adaptive.YHlsVariantMediaPlaylist
 import com.yfuse.core2.adaptive.alignYHlsVariantSegments
-import com.yfuse.core2.adaptive.buildYHlsPlaybackMaster
 import com.yfuse.core2.adaptive.buildYDashPlaybackManifest
+import com.yfuse.core2.adaptive.buildYHlsPlaybackMaster
 import com.yfuse.core2.adaptive.parseYDashManifest
 import com.yfuse.core2.adaptive.parseYHlsPlaylist
 import com.yfuse.core2.adaptive.renderDashTemplate
 import com.yfuse.core2.adaptive.rewriteYHlsResourceUris
-import com.yfuse.core2.adaptive.selectYHlsPlaybackSet
 import com.yfuse.core2.adaptive.selectYDashPlaybackRepresentations
+import com.yfuse.core2.adaptive.selectYHlsPlaybackSet
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
@@ -306,7 +306,12 @@ internal class AndroidYCoreHttpProxy(
                 .matchEntire(pathSuffix)
                 ?: return null
         val first = match.groupValues[1].toLongOrNull() ?: return null
-        val number = if (templateRoute.usesNumber) first else templateRoute.representation.segmentTemplate?.startNumber ?: 1L
+        val number =
+            if (templateRoute.usesNumber) {
+                first
+            } else {
+                templateRoute.representation.segmentTemplate?.startNumber ?: 1L
+            }
         val time =
             when {
                 templateRoute.usesNumber && templateRoute.usesTime -> match.groupValues[2].toLongOrNull()
