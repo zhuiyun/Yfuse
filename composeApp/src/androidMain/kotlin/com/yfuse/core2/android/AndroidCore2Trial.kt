@@ -271,7 +271,10 @@ private fun String.isHlsManifest(): Boolean {
     return path.endsWith(".m3u8")
 }
 
-private val CORE2_DOLBY_TRIAL_PROFILES = setOf(5, 7, 8)
+// These are the semantic profiles for which YCore owns strict parser/router paths. Runtime codec
+// and display capability checks remain authoritative, so admitting Profile 10 here never implies
+// that an AV1 Dolby decoder exists on the current device.
+private val CORE2_DOLBY_TRIAL_PROFILES = setOf(5, 7, 8, 10)
 
 private fun PlayerMediaItem.supportsYCoreNativeBluRay(version: com.yfuse.feature.player.PlayerMediaVersion?): Boolean {
     if (version?.discSource != true || !FfmpegNativeBridge.discNavigationAvailable) return false
@@ -282,17 +285,23 @@ private fun PlayerMediaItem.supportsYCoreNativeBluRay(version: com.yfuse.feature
             declaredDiscSource = true,
         )
     val scheme = url.substringBefore(':').lowercase()
-    return when (kind) {
+    return supportsYCoreNativeDiscSource(kind, scheme)
+}
+
+internal fun supportsYCoreNativeDiscSource(
+    kind: PlaybackDiscKind,
+    scheme: String,
+): Boolean =
+    when (kind) {
         PlaybackDiscKind.BluRay,
         PlaybackDiscKind.Iso,
         -> scheme in setOf("file", "content", "http", "https")
-        PlaybackDiscKind.Bdmv -> scheme == "file"
+        PlaybackDiscKind.Bdmv -> scheme in setOf("file", "content")
         PlaybackDiscKind.Dvd,
         PlaybackDiscKind.None,
         PlaybackDiscKind.Unknown,
         -> false
     }
-}
 
 private fun String.isDashManifest(): Boolean {
     val path = substringBefore('?').substringBefore('#').lowercase()

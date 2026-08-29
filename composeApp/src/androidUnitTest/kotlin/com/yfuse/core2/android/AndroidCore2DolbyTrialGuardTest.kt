@@ -155,6 +155,18 @@ class AndroidCore2DolbyTrialGuardTest {
         )
     }
 
+    @Test
+    fun dolby_profile_10_enters_av1_runtime_routing() {
+        assertTrue(
+            listOf(
+                item(
+                    dolbyProfile = 10,
+                    needsDolbyDecoder = true,
+                ),
+            ).canUseCore2Trial(startIndex = 0),
+        )
+    }
+
     private fun item(
         dolbyProfile: Int?,
         needsDolbyDecoder: Boolean,
@@ -169,7 +181,7 @@ class AndroidCore2DolbyTrialGuardTest {
                 transcodeUrl = "",
                 fallbackTranscodeUrl = "",
                 container = "mkv",
-                sourceVideoCodec = "hevc",
+                sourceVideoCodec = if (dolbyProfile == 10) "av1" else "hevc",
                 dolbyVision = true,
                 dolbyProfile = dolbyProfile,
                 needsDolbyDecoder = needsDolbyDecoder,

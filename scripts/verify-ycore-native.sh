@@ -69,6 +69,8 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$(manifest_value ycore-tone-map-source)" == "scripts/native/ycore_tone_map.h" ]] ||
   fail "YCore HDR tone-map provenance is missing"
 [[ "$(manifest_value ycore-disc-api)" == "2" ]] || fail "YCore disc API v2 (HDMV overlay/input) is missing"
+[[ "$(manifest_value ycore-bdmv-vfs)" == "read-only-saf" ]] ||
+  fail "YCore read-only filesystem/SAF BDMV VFS is missing"
 [[ "$(manifest_value ycore-libbluray)" == "1.4.1" ]] || fail "unexpected libbluray revision"
 [[ "$(manifest_value ycore-disc-uri-source)" == "scripts/native/ycore_disc_uri.h" ]] ||
   fail "YCore disc URI boundary provenance is missing"
@@ -145,8 +147,8 @@ for bridge in "${bridges[@]}"; do
   if grep -E 'avcodec_(send_frame|receive_packet)' "$symbols" >/dev/null; then
     fail "$abi bridge unexpectedly links FFmpeg encode entry points"
   fi
-  grep -E 'bd_(open|open_files)' "$symbols" >/dev/null ||
-    fail "$abi bridge is not linked to libbluray navigation"
+  grep -F 'bd_open_files' "$symbols" >/dev/null ||
+    fail "$abi bridge is missing libbluray filesystem/SAF BDMV navigation"
   grep -F 'ycorebd://' "$bridge_strings" >/dev/null ||
     fail "$abi bridge is missing the opaque Blu-ray URI boundary"
 done
@@ -187,7 +189,7 @@ done
 
 printf 'verified standalone YCore runtime: %s\n' "$AAR"
 printf 'FFmpeg: %s; demux + software decode + HDR tone map\n' "$FFMPEG_REVISION"
-printf 'Blu-ray: libbluray 1.4.1 through opaque YCore block I/O\n'
+printf 'Blu-ray: libbluray 1.4.1 through opaque block I/O and read-only SAF BDMV VFS\n'
 printf 'GPU: ImageReader/AHardwareBuffer + Vulkan YCbCr shader + measured swapchain presentation\n'
 printf 'purity: no mpv, player, MDK, or Java engine classes\n'
 printf 'page alignment: all packaged native libraries PT_LOAD >= 16 KiB\n'

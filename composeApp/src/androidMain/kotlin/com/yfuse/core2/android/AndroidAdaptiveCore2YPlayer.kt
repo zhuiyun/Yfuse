@@ -45,11 +45,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Per-item Core2 router. It never assumes one queue shares one codec/HDR/audio route.
@@ -111,8 +113,20 @@ internal class AndroidAdaptiveCore2YPlayer(
     private val audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
     private val batteryManager = context.applicationContext.getSystemService(BatteryManager::class.java)
     private val powerManager = context.applicationContext.getSystemService(PowerManager::class.java)
+    private val thermalMonitor =
+        scope.launch {
+            var severe = currentThermalStatus() >= SEVERE_THERMAL_STATUS
+            while (true) {
+                delay(THERMAL_POLL_INTERVAL_MS)
+                val nextSevere = currentThermalStatus() >= SEVERE_THERMAL_STATUS
+                if (nextSevere && !severe) commands.trySend(Command.ThermalPressure)
+                severe = nextSevere
+            }
+        }
     private val audioCallbackHandler = Handler(Looper.getMainLooper())
     private val audioRouteChangeQueued = AtomicBoolean(false)
+    private val seekCommandQueued = AtomicBoolean(false)
+    private val pendingSeekMs = AtomicLong(NO_PENDING_SEEK_MS)
     private val audioDeviceCallback =
         object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = queueAudioRouteChange()
@@ -154,7 +168,8 @@ internal class AndroidAdaptiveCore2YPlayer(
         if (released) return
         val target = positionMs.coerceAtLeast(0L)
         mutableState.updateState { it.copy(positionMs = target) }
-        commands.trySend(Command.Seek(target))
+        pendingSeekMs.set(target)
+        queuePendingSeek()
     }
 
     override fun setSpeed(speed: Float) {
@@ -239,6 +254,14 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
     }
 
+    private fun queuePendingSeek() {
+        if (!released && seekCommandQueued.compareAndSet(false, true)) {
+            if (commands.trySend(Command.SeekPending).isFailure) {
+                seekCommandQueued.set(false)
+            }
+        }
+    }
+
     private fun currentBatteryPermille(): Int {
         val percent = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: return -1
         return if (percent in 0..100) percent * 10 else -1
@@ -305,6 +328,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             val bypassLearnedRouteMemory = bypassLearnedRouteMemoryOnce
             bypassLearnedRouteMemoryOnce = false
             val item = queueItems[currentIndex]
+            val forcePowerSaver = currentThermalStatus() >= SEVERE_THERMAL_STATUS
             val tunnelAllowed =
                 allowTunnel &&
                     item.drmConfiguration == null &&
@@ -331,6 +355,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     item,
                     preferTunnel = tunnelAllowed,
                     allowAudioPassthrough = allowAudioPassthrough,
+                    forcePowerSaver = forcePowerSaver,
                 ) ?: return null
             if (
                 !bypassLearnedRouteMemory &&
@@ -347,6 +372,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         item,
                         preferTunnel = false,
                         allowAudioPassthrough = allowAudioPassthrough,
+                        forcePowerSaver = forcePowerSaver,
                     ) ?: return null
             }
             val learnedAdvice = learningEngine.advice(decision.toFailureKey().toLearningKey())
@@ -674,9 +700,14 @@ internal class AndroidAdaptiveCore2YPlayer(
                             requestedPlay = false
                             child?.pause()
                         }
-                        is Command.Seek -> {
-                            pendingPositionMs = command.positionMs
-                            child?.seekTo(command.positionMs)
+                        Command.SeekPending -> {
+                            seekCommandQueued.set(false)
+                            val positionMs = pendingSeekMs.getAndSet(NO_PENDING_SEEK_MS)
+                            if (positionMs >= 0L) {
+                                pendingPositionMs = positionMs
+                                child?.seekTo(positionMs)
+                            }
+                            if (pendingSeekMs.get() >= 0L) queuePendingSeek()
                         }
                         is Command.SetSpeed -> {
                             speed = command.speed
@@ -743,6 +774,16 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 rebuild(pendingPositionMs)
                             }
                         }
+                        Command.ThermalPressure -> {
+                            val activeRoute = child?.state?.value?.diagnostics?.route
+                            if (
+                                activeRoute == YPlaybackRoute.GpuEnhanced ||
+                                activeRoute == YPlaybackRoute.SoftwareFallback
+                            ) {
+                                pendingPositionMs = child?.currentPositionMs() ?: mutableState.value.positionMs
+                                rebuild(pendingPositionMs)
+                            }
+                        }
                         is Command.FallbackFromTunnel -> {
                             if (
                                 command.index == currentIndex &&
@@ -800,8 +841,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                             rebuild(pendingPositionMs)
                         }
                     }
-                } catch (_: Throwable) {
-                    publishUnavailable("Core2 router failed before a child route became active")
+                } catch (failure: Throwable) {
+                    publishUnavailable(core2RouterFailureReason(failure))
                 }
             }
         } finally {
@@ -822,9 +863,9 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         data object AudioRouteChanged : Command
 
-        data class Seek(
-            val positionMs: Long,
-        ) : Command
+        data object ThermalPressure : Command
+
+        data object SeekPending : Command
 
         data class SetSpeed(
             val speed: Float,
@@ -893,6 +934,13 @@ private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlaye
 }
 
 private const val TUNNEL_SPEED_EPSILON = 0.001f
+private const val NO_PENDING_SEEK_MS = -1L
+private const val THERMAL_POLL_INTERVAL_MS = 30_000L
+private const val SEVERE_THERMAL_STATUS = 3
+
+internal fun core2RouterFailureReason(failure: Throwable): String =
+    "Core2 router failed at ${failure::class.simpleName ?: "unknown failure"}"
+
 private const val MIN_LEARNING_PLAYBACK_MS = 30_000L
 
 private fun YCore2FailureKey.toLearningKey(): YPlaybackLearningKey =

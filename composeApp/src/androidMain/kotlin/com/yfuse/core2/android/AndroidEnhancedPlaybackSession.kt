@@ -208,38 +208,39 @@ internal class AndroidEnhancedPlaybackSession(
             } else {
                 val decoderSurface =
                     if (plan.route == YPlaybackRoute.GpuEnhanced) {
-                        check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            "GpuEnhanced requires Android 9 HardwareBuffer"
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            val sourcePeakNits =
+                                effectiveVideo.hdrStaticMetadata?.let { metadata ->
+                                    maxOf(metadata.maxContentLightLevel, metadata.maxDisplayLuminance)
+                                        .takeIf { it > 0 }
+                                        ?.toFloat()
+                                }
+                            AndroidVulkanVideoOutput(
+                                width = effectiveVideo.width,
+                                height = effectiveVideo.height,
+                                target = surface,
+                                colorConfig =
+                                    gpuColorPipelineConfig(
+                                        sourceHdrType = effectiveVideo.hdrType,
+                                        outputHdrType = plan.outputHdrType,
+                                        bitDepth = effectiveVideo.bitDepth,
+                                        staticPeakNits = sourcePeakNits,
+                                        displayPeakNits = displayPeakNits,
+                                        scalingFilter = YScalingFilter.Lanczos,
+                                        sourceRange = effectiveVideo.colorRange,
+                                        sourceMatrix = effectiveVideo.colorMatrix,
+                                        sourcePrimaries = effectiveVideo.colorPrimaries,
+                                        chromaLocation = effectiveVideo.chromaLocation,
+                                        geometry = effectiveVideo.geometry,
+                                        hdrStaticMetadata = effectiveVideo.hdrStaticMetadata,
+                                    ),
+                            ).also {
+                                check(it.isReady) { "Vulkan swapchain/ImageReader output is unavailable" }
+                                gpuVideoOutput = it
+                            }.decoderSurface
+                        } else {
+                            error("GpuEnhanced requires Android 9 HardwareBuffer")
                         }
-                        val sourcePeakNits =
-                            effectiveVideo.hdrStaticMetadata?.let { metadata ->
-                                maxOf(metadata.maxContentLightLevel, metadata.maxDisplayLuminance)
-                                    .takeIf { it > 0 }
-                                    ?.toFloat()
-                            }
-                        AndroidVulkanVideoOutput(
-                            width = effectiveVideo.width,
-                            height = effectiveVideo.height,
-                            target = surface,
-                            colorConfig =
-                                gpuColorPipelineConfig(
-                                    sourceHdrType = effectiveVideo.hdrType,
-                                    outputHdrType = plan.outputHdrType,
-                                    bitDepth = effectiveVideo.bitDepth,
-                                    staticPeakNits = sourcePeakNits,
-                                    displayPeakNits = displayPeakNits,
-                                    scalingFilter = YScalingFilter.Lanczos,
-                                    sourceRange = effectiveVideo.colorRange,
-                                    sourceMatrix = effectiveVideo.colorMatrix,
-                                    sourcePrimaries = effectiveVideo.colorPrimaries,
-                                    chromaLocation = effectiveVideo.chromaLocation,
-                                    geometry = effectiveVideo.geometry,
-                                    hdrStaticMetadata = effectiveVideo.hdrStaticMetadata,
-                                ),
-                        ).also {
-                            check(it.isReady) { "Vulkan swapchain/ImageReader output is unavailable" }
-                            gpuVideoOutput = it
-                        }.decoderSurface
                     } else {
                         surface
                     }

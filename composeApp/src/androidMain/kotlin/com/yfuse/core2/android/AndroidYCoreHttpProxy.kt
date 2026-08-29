@@ -1,6 +1,8 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import com.yfuse.core.data.PlaybackNetworkClass
+import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core2.adaptive.YAdaptiveBandwidthEstimator
 import com.yfuse.core2.adaptive.YAdaptiveEncryptionMethod
 import com.yfuse.core2.adaptive.YAdaptiveSelectionConditions
@@ -52,6 +54,9 @@ internal class AndroidYCoreHttpProxy(
     private val userAgent: String,
     private val cacheMaximumBytes: Long,
     private val createTransport: () -> YMediaTransport = ::AndroidHttpMediaTransport,
+    private val isMeteredNetwork: () -> Boolean = {
+        currentPlaybackNetworkClass() == PlaybackNetworkClass.Metered
+    },
 ) : Closeable {
     private data class Route(
         val upstreamUri: String,
@@ -90,6 +95,7 @@ internal class AndroidYCoreHttpProxy(
 
     private class HlsAbrSession(
         initialVariantId: String,
+        private val isMeteredNetwork: () -> Boolean,
     ) {
         private val bandwidthEstimator = YAdaptiveBandwidthEstimator()
         private var currentVariantId = initialVariantId
@@ -114,6 +120,7 @@ internal class AndroidYCoreHttpProxy(
                                 bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
                                     ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
                             bufferedDurationUs = bufferedDurationUs,
+                            metered = isMeteredNetwork(),
                         ),
                     currentVariantId = currentForSegment,
                 )
@@ -343,10 +350,43 @@ internal class AndroidYCoreHttpProxy(
         val rootText = loadBounded(route.upstreamUri, MAX_HLS_MANIFEST_BYTES).decodeToString()
         require(!rootText.hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
         val root = parseYHlsPlaylist(rootText, route.upstreamUri)
+        if (root is YHlsPlaylist.Master && rootText.hasSeparateYCoreHlsRenditions()) {
+            // A separate AUDIO/VIDEO/SUBTITLES group cannot be collapsed into one media playlist.
+            // Keep the authored master relationship intact, but force every child playlist back
+            // through this loopback boundary. FFmpeg may coordinate rendition selection while
+            // transport, credentials, cache policy and network isolation remain owned by YCore.
+            val localizedMaster =
+                rewriteYHlsResourceUris(rootText, route.upstreamUri) { upstreamUri, kind ->
+                    require(
+                        kind == YHlsResourceKind.VariantPlaylist ||
+                            kind == YHlsResourceKind.RenditionPlaylist,
+                    ) { "Unexpected media resource in an HLS master playlist" }
+                    localUrl(
+                        upstreamUri = upstreamUri,
+                        cacheable = false,
+                        cacheIdentity = route.cacheIdentity?.forAdaptiveResource(upstreamUri),
+                        maximumWidth = route.maximumWidth,
+                        maximumHeight = route.maximumHeight,
+                        hlsManifest = true,
+                        dashManifest = false,
+                        drmProtected = route.drmProtected,
+                    )
+                }.encodeToByteArray()
+            writeHeaders(
+                socket = socket,
+                status = 200,
+                reason = "OK",
+                contentType = HLS_CONTENT_TYPE,
+                contentLength = localizedMaster.size.toLong(),
+            )
+            if (method == "GET") socket.getOutputStream().write(localizedMaster)
+            socket.getOutputStream().flush()
+            return
+        }
         val playback =
             when (root) {
                 is YHlsPlaylist.Media -> HlsPlaybackManifest(rootText, route.upstreamUri, root)
-                is YHlsPlaylist.Master -> loadHlsPlaybackManifest(rootText, root, route)
+                is YHlsPlaylist.Master -> loadHlsPlaybackManifest(root, route)
             }
         require(
             playback.media.segments.none { segment ->
@@ -398,11 +438,9 @@ internal class AndroidYCoreHttpProxy(
     }
 
     private fun loadHlsPlaybackManifest(
-        rootText: String,
         root: YHlsPlaylist.Master,
         route: Route,
     ): HlsPlaybackManifest {
-        require(!rootText.hasSeparateHlsRenditions()) { "Separate HLS rendition groups are not executable yet" }
         val selected =
             YAdaptiveVariantSelector.select(
                 variants = root.variants,
@@ -412,6 +450,7 @@ internal class AndroidYCoreHttpProxy(
                         bufferedDurationUs = STARTUP_BUFFER_US,
                         maximumWidth = route.maximumWidth,
                         maximumHeight = route.maximumHeight,
+                        metered = isMeteredNetwork(),
                     ),
             )
         val selectedText = loadBounded(selected.uri, MAX_HLS_MANIFEST_BYTES).decodeToString()
@@ -436,7 +475,9 @@ internal class AndroidYCoreHttpProxy(
                 }
             }.filterNotNull()
         val aligned = alignYHlsVariantSegments(variantMedia, selected.id)
-        val session = HlsAbrSession(selected.id).takeIf { aligned.any { it.resources.size > 1 } }
+        val session =
+            HlsAbrSession(selected.id, isMeteredNetwork)
+                .takeIf { aligned.any { it.resources.size > 1 } }
         return HlsPlaybackManifest(
             text = selectedText,
             uri = selected.uri,
@@ -502,6 +543,7 @@ internal class AndroidYCoreHttpProxy(
                         bufferedDurationUs = STARTUP_BUFFER_US,
                         maximumWidth = route.maximumWidth,
                         maximumHeight = route.maximumHeight,
+                        metered = isMeteredNetwork(),
                     ),
             )
         val rewritten =
@@ -846,7 +888,7 @@ private fun String.isDashManifestUri(): Boolean =
             .endsWith(".mpd")
     }.getOrDefault(false)
 
-private fun String.hasSeparateHlsRenditions(): Boolean =
+internal fun String.hasSeparateYCoreHlsRenditions(): Boolean =
     lineSequence().any { line ->
         val normalized = line.trim().uppercase()
         normalized.startsWith("#EXT-X-MEDIA:") ||

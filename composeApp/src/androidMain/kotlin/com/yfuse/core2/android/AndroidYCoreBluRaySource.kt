@@ -15,6 +15,7 @@ import com.yfuse.core2.api.YMediaItem
 import com.yfuse.feature.player.HttpRangeDiscBlockSource
 import com.yfuse.feature.player.HdmvDiscSession
 import com.yfuse.feature.player.NativeBluRayOverlayFrame
+import com.yfuse.feature.player.NativeLocalBdmvSource
 import com.yfuse.feature.player.NativeRemoteBluRaySessionRegistry
 import com.yfuse.feature.player.RemoteDiscHeaderProvider
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,14 +26,16 @@ import java.io.File
 /**
  * Credential-free source object retained by the YCore libbluray registry.
  *
- * Filesystem ISO/BDMV inputs are opened by libbluray from a canonical path. Seekable content URIs
- * and authenticated HTTP images expose only the 2048-byte UDF callback; their URI and headers never
- * cross JNI or appear in native diagnostics.
+ * Filesystem ISO/BDMV inputs are opened by libbluray from a canonical path. Seekable ISO content
+ * URIs and authenticated HTTP images expose only the 2048-byte UDF callback. Persisted SAF BDMV
+ * trees expose only validated relative file/directory callbacks. URIs and headers never cross JNI
+ * or appear in native diagnostics.
  */
 internal class AndroidYCoreBluRaySource private constructor(
     private val discPath: String?,
     private val descriptor: ParcelFileDescriptor?,
     private val remoteSource: HttpRangeDiscBlockSource?,
+    private val bdmvSource: NativeLocalBdmvSource?,
 ) {
     private val mutableNavigation =
         MutableStateFlow(PlaybackDiscNavigationState(kind = PlaybackDiscKind.BluRay))
@@ -52,6 +55,10 @@ internal class AndroidYCoreBluRaySource private constructor(
     /** JNI callback. A null result selects bd_open_stream() and [readBlocksNative]. */
     @Suppress("unused")
     fun discPathNative(): String? = discPath
+
+    /** JNI callback. True selects libbluray's directory VFS instead of its UDF block reader. */
+    @Suppress("unused")
+    fun isBdmvFilesystemNative(): Boolean = bdmvSource != null
 
     /** JNI callback. Returns complete 2048-byte blocks, zero at EOF, or -1 on failure. */
     @Synchronized
@@ -100,6 +107,44 @@ internal class AndroidYCoreBluRaySource private constructor(
         } catch (_: ErrnoException) {
             -1
         }
+    }
+
+    /** JNI callbacks used only for extracted BDMV trees opened through libbluray's read-only VFS. */
+    @Suppress("unused")
+    fun openFileNative(relativePath: String): Long = bdmvSource?.openFileNative(relativePath) ?: 0L
+
+    @Suppress("unused")
+    fun readFileNative(
+        handle: Long,
+        target: ByteArray,
+        targetOffset: Int,
+        length: Int,
+    ): Int = bdmvSource?.readFileNative(handle, target, targetOffset, length) ?: -1
+
+    @Suppress("unused")
+    fun seekFileNative(
+        handle: Long,
+        offset: Long,
+        origin: Int,
+    ): Long = bdmvSource?.seekFileNative(handle, offset, origin) ?: -1L
+
+    @Suppress("unused")
+    fun tellFileNative(handle: Long): Long = bdmvSource?.tellFileNative(handle) ?: -1L
+
+    @Suppress("unused")
+    fun closeFileNative(handle: Long) {
+        bdmvSource?.closeFileNative(handle)
+    }
+
+    @Suppress("unused")
+    fun openDirNative(relativePath: String): Long = bdmvSource?.openDirNative(relativePath) ?: 0L
+
+    @Suppress("unused")
+    fun readDirNative(handle: Long): String? = bdmvSource?.readDirNative(handle)
+
+    @Suppress("unused")
+    fun closeDirNative(handle: Long) {
+        bdmvSource?.closeDirNative(handle)
     }
 
     /** JNI callback pushed after open and every title/chapter/angle transition. */
@@ -176,6 +221,7 @@ internal class AndroidYCoreBluRaySource private constructor(
         NativeRemoteBluRaySessionRegistry.deactivate(menuSession)
         runCatching { remoteSource?.close() }
         runCatching { descriptor?.close() }
+        runCatching { bdmvSource?.closeNativeSource() }
     }
 
     private inner class YCoreHdmvDiscSession : HdmvDiscSession {
@@ -233,11 +279,20 @@ internal class AndroidYCoreBluRaySource private constructor(
                         discPath = runCatching { File(path).canonicalPath }.getOrNull() ?: return null,
                         descriptor = null,
                         remoteSource = null,
+                        bdmvSource = null,
                     )
                 }
 
                 "content" -> {
-                    if (disc.kind == YDiscKind.Bdmv) return null
+                    if (disc.kind == YDiscKind.Bdmv) {
+                        val source = NativeLocalBdmvSource.create(context, item.uri) ?: return null
+                        return AndroidYCoreBluRaySource(
+                            discPath = null,
+                            descriptor = null,
+                            remoteSource = null,
+                            bdmvSource = source,
+                        )
+                    }
                     val descriptor =
                         runCatching { context.contentResolver.openFileDescriptor(uri, "r") }.getOrNull()
                             ?: return null
@@ -245,6 +300,7 @@ internal class AndroidYCoreBluRaySource private constructor(
                         discPath = null,
                         descriptor = descriptor,
                         remoteSource = null,
+                        bdmvSource = null,
                     )
                 }
 
@@ -263,6 +319,7 @@ internal class AndroidYCoreBluRaySource private constructor(
                         discPath = null,
                         descriptor = null,
                         remoteSource = source,
+                        bdmvSource = null,
                     )
                 }
 

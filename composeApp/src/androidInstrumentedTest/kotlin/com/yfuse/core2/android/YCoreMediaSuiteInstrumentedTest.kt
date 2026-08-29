@@ -710,7 +710,8 @@ class YCoreMediaSuiteInstrumentedTest {
             return if (percent in 0..100) percent * 10 else -1
         }
 
-        private fun thermalStatus(): Int = if (Build.VERSION.SDK_INT >= 29) powerManager?.currentThermalStatus ?: 0 else 0
+        private fun thermalStatus(): Int =
+            if (Build.VERSION.SDK_INT >= 29) powerManager?.currentThermalStatus ?: 0 else 0
     }
 }
 
