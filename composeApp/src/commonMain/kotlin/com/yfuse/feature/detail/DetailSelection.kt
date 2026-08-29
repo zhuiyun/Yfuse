@@ -34,6 +34,8 @@ sealed interface SourceSelectionFailure {
 
 internal class SourceSelectionTimeoutException : Exception("Cross-server source selection timed out")
 
+internal class EpisodeSelectionTimeoutException : Exception("Episode selection timed out")
+
 internal class EpisodeUnavailableException(
     val seasonNumber: Int?,
     val episodeNumber: Int?,
