@@ -57,7 +57,17 @@ jobs:
       - name: Verify design-system usage
         run: ./gradlew :composeApp:verifyDesignSystemUsage --no-daemon
       - name: Run Android lint
-        run: ./gradlew :composeApp:lintDebug --no-daemon
+        shell: bash
+        run: |
+          set +e
+          ./gradlew :composeApp:lintDebug --no-daemon
+          lint_status=$?
+          set -e
+          if (( lint_status != 0 )); then
+            report="composeApp/build/reports/lint-results-debug.txt"
+            if [[ -f "$report" ]]; then cat "$report"; fi
+            exit "$lint_status"
+          fi
       - name: Build R8 release package
         run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
       - name: Verify release package and size budget
