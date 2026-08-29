@@ -18,6 +18,8 @@ on:
       - scripts/build-yfuse-mpv-dolby.sh
       - scripts/build-ycore-native.sh
       - scripts/build-ycore-demux.sh
+      - scripts/build-ycore-gpu-companion.sh
+      - scripts/package-ycore-native-aar.py
       - scripts/verify-yfuse-mpv-dolby-aar.sh
       - scripts/verify-ycore-native.sh
       - scripts/native/**
@@ -60,6 +62,15 @@ jobs:
           scripts/fetch-engines.sh
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+      - name: Build and install current YCore GPU companion
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifacts="$RUNNER_TEMP/ycore-gpu-companion"
+          bash scripts/build-ycore-gpu-companion.sh "$artifacts"
+          install -m 0644 "$artifacts/ycore-gpu.aar" composeApp/libs/ycore-gpu.aar
+          install -m 0644 "$artifacts/ycore-gpu.aar.sha256" composeApp/libs/ycore-gpu.aar.sha256
+          install -m 0644 "$artifacts/NATIVE-SOURCES.txt" composeApp/libs/ycore-gpu.sources.txt
       - name: Compile, test, lint and R8
         id: verify
         continue-on-error: true
