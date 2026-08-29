@@ -70,7 +70,7 @@ private class AndroidSpatialAudioStateMonitorApi32(
     private val onChanged: () -> Unit,
 ) : AndroidSpatialAudioStateMonitor {
     private val output = audioManager.spatializer
-    private val headTrackerMonitor =
+    private val headTrackerMonitor: AndroidSpatialAudioStateMonitor? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             AndroidHeadTrackerStateMonitorApi33(context, output, onChanged)
         } else {
