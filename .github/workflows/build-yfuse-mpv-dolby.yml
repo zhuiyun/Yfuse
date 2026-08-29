@@ -9,6 +9,7 @@ on:
       - scripts/build-yfuse-mpv-dolby.sh
       - scripts/build-ycore-native.sh
       - scripts/build-ycore-demux.sh
+      - scripts/build-ycore-gpu-companion.sh
       - scripts/package-ycore-native-aar.py
       - scripts/verify-ycore-native.sh
       - scripts/verify-ycore-native-apk.sh
@@ -29,6 +30,7 @@ on:
       - scripts/build-yfuse-mpv-dolby.sh
       - scripts/build-ycore-native.sh
       - scripts/build-ycore-demux.sh
+      - scripts/build-ycore-gpu-companion.sh
       - scripts/package-ycore-native-aar.py
       - scripts/run-ycore-device-gates.sh
       - scripts/ycore-release-evidence.py
