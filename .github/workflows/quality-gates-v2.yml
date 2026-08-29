@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          ./gradlew ktlintCheck --no-daemon
+          ./gradlew ktlintCheck --no-daemon --continue
           ktlint_status=$?
           set -e
           if (( ktlint_status != 0 )); then
