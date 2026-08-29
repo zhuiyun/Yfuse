@@ -127,12 +127,12 @@ class ServerSyncManager(
     private val repo: EmbyRepository,
     private val registry: ServerRegistry,
     private val settings: Settings,
+    private val progressPreferences: ProgressSyncPreferences = ProgressSyncPreferences(settings),
 ) {
     private companion object {
         const val PENDING_KEY = "sync.pending.v1"
         const val AUTO_KEY = "sync.auto"
         const val METADATA_KEY = "sync.metadata"
-        const val PROGRESS_KEY = "sync.progress"
         const val ARTWORK_KEY = "sync.artwork"
         const val FAVORITES_KEY = "sync.favorites"
         const val RETRY_STATE_KEY = "sync.retry.v1"
@@ -181,7 +181,7 @@ class ServerSyncManager(
     // Metadata and artwork mirroring are not implemented by this user-state synchronizer.
     // Expose them as disabled for cloud-snapshot compatibility instead of persisting no-op flags.
     val syncMetadata = MutableStateFlow(false)
-    val syncProgress = MutableStateFlow(settings.getBoolean(PROGRESS_KEY, true))
+    val syncProgress = progressPreferences.enabled
     val syncArtwork = MutableStateFlow(false)
     val syncFavorites = MutableStateFlow(settings.getBoolean(FAVORITES_KEY, true))
     private val appForeground = MutableStateFlow(false)
@@ -237,8 +237,7 @@ class ServerSyncManager(
     }
 
     fun setProgress(value: Boolean) {
-        syncProgress.value = value
-        settings.putBoolean(PROGRESS_KEY, value)
+        progressPreferences.setEnabled(value)
         if (value && appForeground.value) automaticScope?.launch { syncAll() }
     }
 
@@ -454,7 +453,7 @@ class ServerSyncManager(
             try {
                 // Keep JSON decoding and page merging off the UI caller.
                 withContext(Dispatchers.Default) {
-                    repo.userLibrarySnapshot(server)
+                    repo.userLibrarySnapshot(server, includeProgress = syncProgress.value)
                 }
             } catch (cancelled: CancellationException) {
                 setStatus(server) { it.copy(syncing = false) }

@@ -24,6 +24,7 @@ import kotlinx.coroutines.CancellationException
 
 internal class EmbyBrowseService(
     private val client: HttpClient,
+    private val progress: PlaybackProgressProjection = PlaybackProgressProjection(),
 ) {
     /** Real BoxSet and Playlist containers visible to this Emby user. */
     suspend fun mediaContainers(server: SavedServer): Result<List<MediaContainer>> =
@@ -197,7 +198,7 @@ internal class EmbyBrowseService(
                             }.body()
                 }
             LibraryPage(
-                items = dto.Items.map { it.toMediaItem() },
+                items = dto.Items.map { progress.project(server, it).toMediaItem() },
                 totalCount =
                     pageTotal(
                         reportedTotal = dto.TotalRecordCount,
@@ -295,7 +296,7 @@ internal class EmbyBrowseService(
                         libraryCardParameters(startIndex, limit)
                     }.body()
             LibraryPage(
-                items = dto.Items.map { it.toMediaItem() },
+                items = dto.Items.map { progress.project(server, it).toMediaItem() },
                 totalCount =
                     pageTotal(
                         reportedTotal = dto.TotalRecordCount,
@@ -402,7 +403,7 @@ internal class EmbyBrowseService(
                     parameter("Limit", pageIds.size)
                 }.body()
         val cardsById = cards.Items.associateBy(BaseItemDto::Id)
-        val items = pageIds.mapNotNull(cardsById::get).map { it.toMediaItem() }
+        val items = pageIds.mapNotNull(cardsById::get).map { progress.project(server, it).toMediaItem() }
         val totalCount =
             if (exhausted) {
                 canonicalIds.size
@@ -644,7 +645,7 @@ internal class EmbyBrowseService(
                     applyServerResolutionFilter(resolution)
                     personalCollectionParameters(limit, startIndex)
                 }.body()
-        return dto.toPersonalCollection(startIndex, limit)
+        return dto.toPersonalCollection(server, startIndex, limit)
     }
 
     internal suspend fun fetchWatchLater(
@@ -662,7 +663,7 @@ internal class EmbyBrowseService(
                     parameter("UserId", server.userId)
                     personalCollectionParameters(limit, startIndex)
                 }.body()
-        return dto.toPersonalCollection(startIndex, limit)
+        return dto.toPersonalCollection(server, startIndex, limit)
     }
 
     private fun io.ktor.client.request.HttpRequestBuilder.personalCollectionParameters(
@@ -681,11 +682,12 @@ internal class EmbyBrowseService(
     }
 
     private fun ItemsResponseDto.toPersonalCollection(
+        server: SavedServer,
         startIndex: Int,
         limit: Int,
     ): PersonalCollection =
         PersonalCollection(
-            items = Items.map { it.toMediaItem() },
+            items = Items.map { progress.project(server, it).toMediaItem() },
             totalCount =
                 pageTotal(
                     reportedTotal = TotalRecordCount,

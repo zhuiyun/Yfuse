@@ -45,11 +45,16 @@ internal class EmbyUserDataService(
             }
         }
 
-    suspend fun snapshot(server: SavedServer): Result<List<SyncedUserItem>> =
+    suspend fun snapshot(
+        server: SavedServer,
+        includeProgress: Boolean = true,
+    ): Result<List<SyncedUserItem>> =
         embyApiCall("user_library_snapshot") {
             val collected = linkedMapOf<String, SyncedUserItem>()
-            UserSnapshotQuery.entries.forEach { query ->
-                collectUserState(server, query, collected)
+            val queries =
+                if (includeProgress) UserSnapshotQuery.entries else listOf(UserSnapshotQuery.Favorite)
+            queries.forEach { query ->
+                collectUserState(server, query, collected, includeProgress)
             }
             collected.values.toList()
         }
@@ -58,6 +63,7 @@ internal class EmbyUserDataService(
         server: SavedServer,
         query: UserSnapshotQuery,
         collected: MutableMap<String, SyncedUserItem>,
+        includeProgress: Boolean,
     ) {
         val seenResponseIds = HashSet<String>()
         var startIndex = 0
@@ -95,8 +101,13 @@ internal class EmbyUserDataService(
                             id = item.Id,
                             title = item.Name.orEmpty(),
                             favorite = item.UserData?.IsFavorite == true,
-                            played = item.UserData?.Played == true,
-                            positionTicks = item.UserData?.PlaybackPositionTicks ?: 0L,
+                            played = includeProgress && item.UserData?.Played == true,
+                            positionTicks =
+                                if (includeProgress) {
+                                    item.UserData?.PlaybackPositionTicks ?: 0L
+                                } else {
+                                    0L
+                                },
                             dateModified = item.DateModified,
                         )
                 }

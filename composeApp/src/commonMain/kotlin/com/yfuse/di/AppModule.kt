@@ -27,6 +27,7 @@ import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackEventOutbox
 import com.yfuse.core.data.PlaybackFailoverRequest
 import com.yfuse.core.data.PlaybackPreferences
+import com.yfuse.core.data.PlaybackProgressProjection
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerActivityStore
@@ -60,6 +61,7 @@ import com.yfuse.core.playback.createPlaybackRuntimeEnvironmentProvider
 import com.yfuse.core.security.SecureStore
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.createSecureStore
+import com.yfuse.core.sync.ProgressSyncPreferences
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.playback.PlaybackSyncManager
@@ -100,6 +102,14 @@ fun appModule(
     single { PlaybackFailoverRequest() }
     single { PlaybackEventOutbox(get()) }
     single { PlaybackSyncStore(get()) }
+    single { ProgressSyncPreferences(get()) }
+    single {
+        val progressPreferences = get<ProgressSyncPreferences>()
+        PlaybackProgressProjection(
+            localStore = get(),
+            progressSyncEnabled = { progressPreferences.enabled.value },
+        )
+    }
     single { ServerActivityStore(get()) }
     single { ServerStatsStore(get()) }
     single { UserAgentPreferences(get()) }
@@ -148,6 +158,7 @@ fun appModule(
                 playbackPreferences.audioPassthrough.value ==
                     PlaybackAudioPassthrough.Compatible
             },
+            progressProjection = get(),
         )
     }
     single<OfflineMediaManager> { createOfflineMediaManager(get(), get(), get()) }
@@ -177,7 +188,7 @@ fun appModule(
         )
     }
     single { DanmakuRepository(createDanmakuClient()) }
-    single { ServerSyncManager(get(), get(), get()) }
+    single { ServerSyncManager(get(), get(), get(), get()) }
     single { AccountAccessTokenSource() }
     single { WatchTogetherClient(get(), get()) }
     single { WatchInviteResolver(get(), get()) }

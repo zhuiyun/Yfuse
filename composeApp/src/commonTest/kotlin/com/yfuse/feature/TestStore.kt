@@ -2,6 +2,7 @@ package com.yfuse.feature
 
 import com.russhwolf.settings.MapSettings
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.PlaybackProgressProjection
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.network.createEmbyClient
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
@@ -27,6 +28,7 @@ fun testRepo(
     capabilitiesProvider: PlaybackDeviceCapabilitiesProvider =
         PlaybackDeviceCapabilitiesProvider { PlaybackDeviceCapabilities.conservative() },
     audioPassthroughEnabled: () -> Boolean = { false },
+    progressProjection: PlaybackProgressProjection = PlaybackProgressProjection(),
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
 ): EmbyRepository =
     EmbyRepository(
@@ -43,6 +45,7 @@ fun testRepo(
         ),
         capabilitiesProvider,
         audioPassthroughEnabled,
+        progressProjection,
     )
 
 /** A fresh in-memory server registry for tests. */
