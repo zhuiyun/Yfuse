@@ -5,7 +5,9 @@ import android.os.Build
 import com.yfuse.core2.capability.YAudioCodec
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AndroidEncodedAudioTrackRenderNodeTest {
     @Test
@@ -30,6 +32,34 @@ class AndroidEncodedAudioTrackRenderNodeTest {
         assertEquals(
             AudioFormat.ENCODING_E_AC3_JOC,
             androidEncodedAudioEncoding(YAudioCodec.Eac3Joc, Build.VERSION_CODES.P),
+        )
+    }
+
+    @Test
+    fun `base carrier encodings do not advertise object audio`() {
+        assertEquals(setOf(YAudioCodec.Eac3), audioCodecsForEncoding(AudioFormat.ENCODING_E_AC3))
+        assertEquals(setOf(YAudioCodec.TrueHd), audioCodecsForEncoding(AudioFormat.ENCODING_DOLBY_TRUEHD))
+        assertEquals(setOf(YAudioCodec.DtsHd), audioCodecsForEncoding(AudioFormat.ENCODING_DTS_HD_MA))
+        assertFalse(YAudioCodec.Eac3Joc in audioCodecsForEncoding(AudioFormat.ENCODING_E_AC3))
+    }
+
+    @Test
+    fun `exact joc encoding preserves positive object audio capability`() {
+        val codecs = audioCodecsForEncoding(AudioFormat.ENCODING_E_AC3_JOC)
+
+        assertTrue(YAudioCodec.Eac3 in codecs)
+        assertTrue(YAudioCodec.Eac3Joc in codecs)
+    }
+
+    @Test
+    fun `joc uses base carrier unless the sink exposes exact transport`() {
+        assertEquals(
+            YAudioCodec.Eac3,
+            encodedSinkCodec(YAudioCodec.Eac3Joc, exactDolbyAtmosTransport = false),
+        )
+        assertEquals(
+            YAudioCodec.Eac3Joc,
+            encodedSinkCodec(YAudioCodec.Eac3Joc, exactDolbyAtmosTransport = true),
         )
     }
 }

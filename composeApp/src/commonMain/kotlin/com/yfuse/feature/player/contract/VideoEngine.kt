@@ -157,7 +157,11 @@ data class PlaybackDiagnostics(
     /** Output-trace facts used by P7 validation; false means unproven, never inferred from metadata. */
     val dolbyVisionRpuApplied: Boolean = false,
     val dolbyVisionEnhancementLayerComposed: Boolean = false,
-    /** Current display/audio-route capability snapshot, kept separate from active output. */
+    /** A compatible immersive carrier is active, without positive object-rendering proof. */
+    val immersiveAudioCarrierOutput: Boolean = false,
+    /** Format-specific system Spatializer output evidence, separate from Atmos passthrough. */
+    val spatialAudioOutput: Boolean = false,
+    val headTrackingAvailable: Boolean = false,
     val deviceOutputCapabilities: String = "未探测",
     /** YCore route selected before backend construction: direct/native/GPU/server. */
     val plannedRenderPath: String = "",

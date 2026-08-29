@@ -59,7 +59,10 @@ internal data class YEnhancedPlaybackSnapshot(
     val audioDecoderName: String?,
     val audioRendering: Boolean,
     val audioPassthrough: Boolean,
+    val immersiveAudioCarrierOutput: Boolean,
     val dolbyAtmosOutput: Boolean,
+    val spatialAudioOutput: Boolean,
+    val headTrackingAvailable: Boolean,
     val audioFallbackCount: Int,
     val droppedFrames: Int,
     val avSyncOffsetUs: Long?,
@@ -84,13 +87,14 @@ internal class AndroidEnhancedPlaybackSession(
     private val demuxer: YDemuxer = AndroidFfmpegDemuxer(),
     private val videoDecoder: AndroidMediaCodecVideoNode = AndroidMediaCodecVideoNode(),
     private val audioDecoder: AndroidMediaCodecAudioNode = AndroidMediaCodecAudioNode(),
-    private val audioRenderer: AndroidAudioTrackRenderNode = AndroidAudioTrackRenderNode(),
+    private val audioRenderer: AndroidAudioTrackRenderNode = AndroidAudioTrackRenderNode(context),
     private val encodedAudioRenderer: AndroidEncodedAudioTrackRenderNode = AndroidEncodedAudioTrackRenderNode(),
     private val runtimeCapabilities: AndroidRuntimeCapabilityRegistry? = null,
     frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) {
     private val wallClock = YMediaClock()
     private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
+    private val capabilityProvider = AndroidYCapabilityProvider(context)
     private val gpuEvidenceStore = AndroidYCoreGpuEvidenceStore(context)
     private val displayPeakNits = context.yCoreDisplayPeakNits()
 
@@ -277,7 +281,13 @@ internal class AndroidEnhancedPlaybackSession(
                                 stage = YPlaybackFailureStage.AudioRenderer,
                                 safeDetail = "Enhanced encoded audio configure",
                             ) {
-                                encodedAudioRenderer.configure(format)
+                                encodedAudioRenderer.configure(
+                                    format,
+                                    exactDolbyAtmosTransport =
+                                        capabilityProvider
+                                            .current()
+                                            .hasExactDolbyAtmosPassthrough(format.codec),
+                                )
                             }
                         } catch (_: Exception) {
                             rejectedPassthroughTracks += audioTrack.id
@@ -463,7 +473,10 @@ internal class AndroidEnhancedPlaybackSession(
                         stage = YPlaybackFailureStage.AudioRenderer,
                         safeDetail = "Enhanced audio track switch sink configure",
                     ) {
-                        encodedAudioRenderer.configure(format)
+                        encodedAudioRenderer.configure(
+                            format,
+                            exactDolbyAtmosTransport = capabilities.hasExactDolbyAtmosPassthrough(format.codec),
+                        )
                     }
                     audioRendererConfigured = true
                 } catch (_: Exception) {
@@ -638,7 +651,10 @@ internal class AndroidEnhancedPlaybackSession(
                 },
             audioRendering = audioRendererConfigured && audioClockSnapshot() != null,
             audioPassthrough = isAudioPassthrough(),
-            dolbyAtmosOutput = encodedAudioRenderer.immersiveOutput,
+            immersiveAudioCarrierOutput = encodedAudioRenderer.immersiveCarrierOutput,
+            dolbyAtmosOutput = encodedAudioRenderer.dolbyAtmosOutput,
+            spatialAudioOutput = !isAudioPassthrough() && audioRenderer.spatialAudioOutput,
+            headTrackingAvailable = !isAudioPassthrough() && audioRenderer.headTrackingAvailable,
             audioFallbackCount = audioFallbackCount,
             droppedFrames = droppedFrames,
             avSyncOffsetUs = lastAvSyncOffsetUs,
@@ -647,6 +663,7 @@ internal class AndroidEnhancedPlaybackSession(
             gpuFrameDurationNs = gpu?.lastGpuFrameDurationNs ?: 0L,
             dolbyVisionRpuApplied =
                 videoVerified &&
+                    plan?.renderPath == YRenderPath.SurfaceDirect &&
                     plan?.outputHdrType == YHdrType.DolbyVision &&
                     p7RpuQueued,
             dolbyVisionEnhancementLayerDelivered = p7EnhancementLayerQueued,

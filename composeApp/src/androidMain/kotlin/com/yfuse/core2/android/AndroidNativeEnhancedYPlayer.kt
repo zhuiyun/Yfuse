@@ -20,6 +20,7 @@ import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
+import com.yfuse.core2.strategy.YRenderPath
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -325,6 +326,16 @@ internal class AndroidNativeEnhancedYPlayer(
                             dynamicRange = video?.hdrType?.name.orEmpty(),
                             videoOutput = "等待首帧",
                             audioOutput = if (tracks.isEmpty()) "无音频轨" else "等待 PCM 输出",
+                            videoOutputVerified = false,
+                            audioOutputVerified = false,
+                            dolbyVisionOutput = false,
+                            dolbyVisionRpuApplied = false,
+                            dolbyVisionEnhancementLayerDelivered = false,
+                            dolbyVisionFelComposed = false,
+                            immersiveAudioCarrierOutput = false,
+                            dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                             reason = playbackPlan.reason,
                         ),
                 )
@@ -372,7 +383,12 @@ internal class AndroidNativeEnhancedYPlayer(
                                 if (snapshot.audioRendering) {
                                     when {
                                         snapshot.dolbyAtmosOutput -> "Dolby Atmos 原码 · AudioTrack"
+                                        snapshot.immersiveAudioCarrierOutput ->
+                                            "沉浸音频载波 · AudioTrack（未验证对象输出）"
                                         snapshot.audioPassthrough -> "原码直通 · AudioTrack"
+                                        snapshot.spatialAudioOutput && snapshot.headTrackingAvailable ->
+                                            "系统空间音频 · PCM · 头部跟踪可用"
+                                        snapshot.spatialAudioOutput -> "系统空间音频 · PCM"
                                         else -> "PCM · AudioTrack"
                                     }
                                 } else {
@@ -384,12 +400,18 @@ internal class AndroidNativeEnhancedYPlayer(
                             // route. P7 FEL composition remains a separate evidence gate.
                             dolbyVisionOutput =
                                 snapshot.firstVideoFrameRendered &&
+                                    activePlan?.renderPath == YRenderPath.SurfaceDirect &&
+                                    activePlan?.usesHdrFallback == false &&
+                                    activeDolbyProfile != null &&
                                     snapshot.outputHdrType == com.yfuse.core2.capability.YHdrType.DolbyVision,
                             dolbyVisionRpuApplied = snapshot.dolbyVisionRpuApplied,
                             dolbyVisionEnhancementLayerDelivered =
                                 snapshot.dolbyVisionEnhancementLayerDelivered,
                             dolbyVisionFelComposed = snapshot.dolbyVisionFelComposed,
+                            immersiveAudioCarrierOutput = snapshot.immersiveAudioCarrierOutput,
                             dolbyAtmosOutput = snapshot.dolbyAtmosOutput,
+                            spatialAudioOutput = snapshot.spatialAudioOutput,
+                            headTrackingAvailable = snapshot.headTrackingAvailable,
                             audioUnderrunCount = snapshot.audioFallbackCount,
                             droppedFrames = snapshot.droppedFrames,
                             avSyncOffsetMs = snapshot.avSyncOffsetUs?.div(MICROS_PER_MILLISECOND),
@@ -545,6 +567,16 @@ internal class AndroidNativeEnhancedYPlayer(
                                     it.diagnostics.copy(
                                         videoOutput = "停止",
                                         audioOutput = "停止",
+                                        videoOutputVerified = false,
+                                        audioOutputVerified = false,
+                                        dolbyVisionOutput = false,
+                                        dolbyVisionRpuApplied = false,
+                                        dolbyVisionEnhancementLayerDelivered = false,
+                                        dolbyVisionFelComposed = false,
+                                        immersiveAudioCarrierOutput = false,
+                                        dolbyAtmosOutput = false,
+                                        spatialAudioOutput = false,
+                                        headTrackingAvailable = false,
                                         reason =
                                             typed?.stage?.let { stage -> "NativeEnhanced failed at ${stage.name}" }
                                                 ?: "NativeEnhanced failed before typed-stage classification",

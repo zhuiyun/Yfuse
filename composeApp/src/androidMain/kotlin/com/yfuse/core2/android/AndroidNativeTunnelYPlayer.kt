@@ -192,10 +192,12 @@ internal class AndroidNativeTunnelYPlayer(
         var requestedPlay = request.autoPlay
         var prepared = false
         var lastPublishNs = 0L
+        var nativeDolbyVisionRoute = false
 
         fun publishFailure(failure: Throwable) {
             session.close()
             prepared = false
+            nativeDolbyVisionRoute = false
             requestedPlay = false
             val typed = failure as? YPlaybackException
             mutableState.updateState {
@@ -212,6 +214,11 @@ internal class AndroidNativeTunnelYPlayer(
                             audioOutput = "停止",
                             videoOutputVerified = false,
                             audioOutputVerified = false,
+                            dolbyVisionOutput = false,
+                            immersiveAudioCarrierOutput = false,
+                            dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                             reason =
                                 typed?.stage?.let { stage -> "NativeTunnel failed at ${stage.name}" }
                                     ?: "NativeTunnel failed before typed-stage classification",
@@ -221,6 +228,7 @@ internal class AndroidNativeTunnelYPlayer(
         }
 
         fun prepareCurrent(positionUs: Long) {
+            nativeDolbyVisionRoute = false
             val surface = surfaceOutput?.surface?.takeIf { it.isValid }
             if (surface == null) {
                 prepared = false
@@ -244,6 +252,9 @@ internal class AndroidNativeTunnelYPlayer(
             check(decision?.nativeTunnelExecutable == true) {
                 "Media item is not eligible for YCore NativeTunnel"
             }
+            nativeDolbyVisionRoute =
+                decision.probe.dolbyVisionConfig != null &&
+                    decision.plan.outputHdrType == com.yfuse.core2.capability.YHdrType.DolbyVision
             session.open(
                 source = item.toAndroidTunnelSource(),
                 surface = surface,
@@ -292,9 +303,12 @@ internal class AndroidNativeTunnelYPlayer(
                             audioOutput = "等待 HW_AV_SYNC 时钟",
                             videoOutputVerified = false,
                             audioOutputVerified = false,
-                            // Keep DV claims conservative until an output-side HDR evidence layer exists.
+                            // Promoted only after the tunnel decoder emits a frame-render callback.
                             dolbyVisionOutput = false,
+                            immersiveAudioCarrierOutput = false,
                             dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                             reason = decision.plan.reason,
                         ),
                 )
@@ -335,6 +349,7 @@ internal class AndroidNativeTunnelYPlayer(
                                 },
                             videoOutputVerified = snapshot.videoOutputVerified,
                             audioOutputVerified = snapshot.audioClockReady,
+                            dolbyVisionOutput = snapshot.videoOutputVerified && nativeDolbyVisionRoute,
                         ),
                 )
             }

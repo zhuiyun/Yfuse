@@ -255,7 +255,13 @@ data class YPlayerDiagnostics(
     val dolbyVisionEnhancementLayerDelivered: Boolean = false,
     /** Independent output evidence only. Merely detecting or delivering EL must leave this false. */
     val dolbyVisionFelComposed: Boolean = false,
+    /** A compatible object-audio carrier is flowing; this alone is not verified Atmos output. */
+    val immersiveAudioCarrierOutput: Boolean = false,
     val dolbyAtmosOutput: Boolean = false,
+    /** Android's format-specific system Spatializer is active on the decoded PCM sink. */
+    val spatialAudioOutput: Boolean = false,
+    /** A head tracker is available for the active system-spatialized PCM route. */
+    val headTrackingAvailable: Boolean = false,
     /** Video presentation timestamp minus the active audio/master clock. */
     val avSyncOffsetMs: Long? = null,
     val avSyncMeasured: Boolean = avSyncOffsetMs != null,

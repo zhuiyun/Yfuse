@@ -125,6 +125,8 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
     private val audioCallbackHandler = Handler(Looper.getMainLooper())
     private val audioRouteChangeQueued = AtomicBoolean(false)
+    private val spatialAudioStateMonitor =
+        createAndroidSpatialAudioStateMonitor(context, ::queueAudioRouteChange)
     private val seekCommandQueued = AtomicBoolean(false)
     private val pendingSeekMs = AtomicLong(NO_PENDING_SEEK_MS)
     private val audioDeviceCallback =
@@ -229,6 +231,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         if (released) return
         released = true
         audioManager?.unregisterAudioDeviceCallback(audioDeviceCallback)
+        spatialAudioStateMonitor?.release()
         commands.close()
         worker.cancel()
         scope.cancel()
@@ -317,7 +320,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                             videoOutputVerified = false,
                             audioOutputVerified = false,
                             dolbyVisionOutput = false,
+                            immersiveAudioCarrierOutput = false,
                             dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                         ),
                 )
             }

@@ -56,6 +56,17 @@ enum class YHdrType {
     DolbyVision,
 }
 
+/** Current platform spatial-audio state, kept separate from active stream/output evidence. */
+data class YSpatialAudioCapability(
+    val multichannelSupported: Boolean = false,
+    val available: Boolean = false,
+    val enabled: Boolean = false,
+    val headTrackerAvailable: Boolean = false,
+) {
+    val active: Boolean
+        get() = multichannelSupported && available && enabled
+}
+
 data class YVideoRequirement(
     val codec: YVideoCodec,
     val width: Int = 0,
@@ -129,6 +140,7 @@ data class YDeviceCapabilities(
     val supportsSurfaceDirect: Boolean = true,
     val supportsTunnel: Boolean = videoDecoders.any { it.tunneledPlayback },
     val supportsFrameRateSwitching: Boolean = false,
+    val spatialAudio: YSpatialAudioCapability = YSpatialAudioCapability(),
 ) {
     fun bestDecoder(requirement: YVideoRequirement): YVideoDecoderCapability? =
         videoDecoders
@@ -143,7 +155,7 @@ data class YDeviceCapabilities(
     fun audioOutputPath(requirement: YAudioRequirement?): YAudioOutputPath {
         val codec = requirement?.codec ?: return YAudioOutputPath.None
         return when {
-            codec in audioPassthrough -> YAudioOutputPath.Passthrough
+            audioPassthrough.supportsEncodedCarrier(codec) -> YAudioOutputPath.Passthrough
             audioDecoders.supportsDecoded(codec) -> YAudioOutputPath.DecodePcm
             else -> YAudioOutputPath.None
         }
@@ -153,6 +165,10 @@ data class YDeviceCapabilities(
         requirement == null || audioOutputPath(requirement) != YAudioOutputPath.None
 
     fun supportsDisplayHdr(type: YHdrType): Boolean = type == YHdrType.Sdr || type in displayHdrTypes
+
+    /** Exact object-audio capability only; compatible base carriers do not satisfy this proof. */
+    fun hasExactDolbyAtmosPassthrough(codec: YAudioCodec): Boolean =
+        codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos) && codec in audioPassthrough
 
     companion object {
         fun conservative(): YDeviceCapabilities =
@@ -169,6 +185,16 @@ data class YDeviceCapabilities(
 }
 
 private fun Set<YAudioCodec>.supportsDecoded(codec: YAudioCodec): Boolean =
+    codec in this ||
+        (codec == YAudioCodec.Eac3Joc && YAudioCodec.Eac3 in this) ||
+        (codec == YAudioCodec.TrueHdAtmos && YAudioCodec.TrueHd in this) ||
+        (codec == YAudioCodec.DtsX && YAudioCodec.DtsHd in this)
+
+/**
+ * Object extensions can travel inside their backwards-compatible encoded carrier. This permits
+ * playback, but callers must not promote carrier compatibility into verified Atmos/DTS:X output.
+ */
+private fun Set<YAudioCodec>.supportsEncodedCarrier(codec: YAudioCodec): Boolean =
     codec in this ||
         (codec == YAudioCodec.Eac3Joc && YAudioCodec.Eac3 in this) ||
         (codec == YAudioCodec.TrueHdAtmos && YAudioCodec.TrueHd in this) ||
