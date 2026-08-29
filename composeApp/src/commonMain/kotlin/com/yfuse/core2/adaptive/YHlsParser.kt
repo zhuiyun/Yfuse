@@ -107,7 +107,7 @@ private fun parseMasterPlaylist(
                     attributes["STABLE-VARIANT-ID"]
                         ?.takeIf(String::isNotBlank)
                         ?: attributes["NAME"]
-                        ?.takeIf(String::isNotBlank)
+                            ?.takeIf(String::isNotBlank)
                         ?: "hls-$variantIndex-$bandwidth",
                 uri = resolveAdaptiveUri(baseUri, uriLine),
                 bandwidthBitsPerSecond = bandwidth,

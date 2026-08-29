@@ -14,7 +14,7 @@ internal fun PlaybackState.withRemoteCast(
     val receipt = cast.outputEvidence
     val outputConfirmed =
         cast.status == CastPlaybackStatus.Playing &&
-        receipt.sessionRevision == cast.sessionRevision &&
+            receipt.sessionRevision == cast.sessionRevision &&
             receipt.receiverConfirmed &&
             receipt.playbackConfirmed
     val outputReadiness =

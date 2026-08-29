@@ -917,7 +917,13 @@ internal fun String.hasSeparateYCoreHlsRenditions(): Boolean =
             ("AUDIO=" in normalized || "VIDEO=" in normalized || "SUBTITLES=" in normalized)
     }
 
-private fun String.hasHlsSessionKey(): Boolean = lineSequence().any { line -> line.trim().uppercase().startsWith("#EXT-X-SESSION-KEY:") }
+private fun String.hasHlsSessionKey(): Boolean =
+    lineSequence().any { line ->
+        line
+            .trim()
+            .uppercase()
+            .startsWith("#EXT-X-SESSION-KEY:")
+    }
 
 private fun String.hasLowLatencyHlsParts(): Boolean =
     lineSequence().any { line ->

@@ -798,13 +798,17 @@ val buildApplicationId =
         normalized
     } ?: "com.yfuse"
 val yfuseCastReceiverApplicationId =
-    providers.gradleProperty("yfuseCastReceiverApplicationId").orNull?.let { rawValue ->
-        val normalized = rawValue.trim()
-        require(normalized.matches(Regex("[A-Fa-f0-9]{8}"))) {
-            "yfuseCastReceiverApplicationId must be the 8-character Cast receiver application id"
+    providers
+        .gradleProperty("yfuseCastReceiverApplicationId")
+        .orNull
+        ?.let { rawValue ->
+            val normalized = rawValue.trim()
+            require(normalized.matches(Regex("[A-Fa-f0-9]{8}"))) {
+                "yfuseCastReceiverApplicationId must be the 8-character Cast receiver application id"
+            }
+            normalized.uppercase()
         }
-        normalized.uppercase()
-    }.orEmpty()
+        .orEmpty()
 
 android {
     namespace = "com.yfuse"

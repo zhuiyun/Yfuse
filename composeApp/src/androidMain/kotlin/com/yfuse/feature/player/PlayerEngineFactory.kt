@@ -67,20 +67,22 @@ internal fun createVideoEngine(
         AndroidNativeCrashMonitor.isYCoreGpuBlocked(
             decoderMode,
             capabilitySignature,
-        ) || PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.YCoreGpu)
+        ) ||
+            PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.YCoreGpu)
     val yCoreDemuxBlocked =
         AndroidNativeCrashMonitor.isYCoreDemuxBlocked(
             decoderMode,
             capabilitySignature,
         )
     val yCoreAllowed =
-        !remoteYCoreBlocked && !yCoreDemuxBlocked &&
+        !remoteYCoreBlocked &&
+            !yCoreDemuxBlocked &&
             (packagedNativeOnly ||
-            shouldUseCore2Trial(
-                enabled = core2TrialEnabled,
-                engineSelection = engineSelection,
-                crashBlocked = false,
-            ))
+                shouldUseCore2Trial(
+                    enabled = core2TrialEnabled,
+                    engineSelection = engineSelection,
+                    crashBlocked = false,
+                ))
     val component =
         if (yCoreAllowed) {
             NativePlaybackComponent.YCoreDemux

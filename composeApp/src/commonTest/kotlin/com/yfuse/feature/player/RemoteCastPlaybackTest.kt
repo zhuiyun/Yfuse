@@ -1,8 +1,8 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.cast.CastDevice
-import com.yfuse.core.cast.CastPlaybackStatus
 import com.yfuse.core.cast.CastOutputEvidence
+import com.yfuse.core.cast.CastPlaybackStatus
 import com.yfuse.core.cast.CastState
 import com.yfuse.feature.player.contract.PlaybackEvidenceConfidence
 import com.yfuse.feature.player.contract.PlaybackOutputEvidence
