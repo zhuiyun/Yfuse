@@ -413,7 +413,6 @@ class PlaybackPreferences(
         if (!enabled) settings.remove(PLAYBACK_QOE_OUTBOX_KEY)
     }
 
-
     fun rememberedSeriesPlayback(
         serverId: String?,
         seriesId: String?,
