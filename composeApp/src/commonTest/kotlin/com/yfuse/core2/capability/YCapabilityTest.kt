@@ -1,6 +1,7 @@
 package com.yfuse.core2.capability
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -58,5 +59,36 @@ class YCapabilityTest {
                 YVideoRequirement(codec = YVideoCodec.H264, width = 2_200, height = 4_100),
             ),
         )
+    }
+
+    @Test
+    fun immersiveExtensionsCanUseBaseCarrierWithoutBecomingVerifiedAtmos() {
+        val capabilities =
+            YDeviceCapabilities(
+                videoDecoders = emptyList(),
+                audioPassthrough = setOf(YAudioCodec.Eac3, YAudioCodec.TrueHd),
+            )
+
+        assertEquals(
+            YAudioOutputPath.Passthrough,
+            capabilities.audioOutputPath(YAudioRequirement(YAudioCodec.Eac3Joc)),
+        )
+        assertEquals(
+            YAudioOutputPath.Passthrough,
+            capabilities.audioOutputPath(YAudioRequirement(YAudioCodec.TrueHdAtmos)),
+        )
+        assertFalse(capabilities.hasExactDolbyAtmosPassthrough(YAudioCodec.Eac3Joc))
+        assertFalse(capabilities.hasExactDolbyAtmosPassthrough(YAudioCodec.TrueHdAtmos))
+    }
+
+    @Test
+    fun exactJocCapabilityIsPositiveAtmosTransportEvidence() {
+        val capabilities =
+            YDeviceCapabilities(
+                videoDecoders = emptyList(),
+                audioPassthrough = setOf(YAudioCodec.Eac3Joc),
+            )
+
+        assertTrue(capabilities.hasExactDolbyAtmosPassthrough(YAudioCodec.Eac3Joc))
     }
 }

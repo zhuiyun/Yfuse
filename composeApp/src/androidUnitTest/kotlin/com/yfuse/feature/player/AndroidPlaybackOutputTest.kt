@@ -116,20 +116,21 @@ class AndroidPlaybackOutputTest {
     }
 
     @Test
-    fun truehd_atmos_requires_a_real_encoded_audio_track() {
+    fun generic_truehd_is_only_immersive_carrier_evidence() {
         val trueHd = audioTrackConfig(encoding = C.ENCODING_DOLBY_TRUEHD)
         val active = exoAudioPassthroughStatus(AudioPassthroughMode.Compatible, trueHd)
         val disabled = exoAudioPassthroughStatus(AudioPassthroughMode.Disabled, trueHd)
 
         assertIs<PlaybackOutputStatus.Active>(active)
-        assertTrue(trueHd.encoding in DOLBY_OBJECT_ENCODINGS)
+        assertFalse(trueHd.encoding in DOLBY_OBJECT_ENCODINGS)
+        assertTrue(trueHd.encoding in IMMERSIVE_AUDIO_CARRIER_ENCODINGS)
         assertEquals("Dolby TrueHD", exoAudioEncodingLabel(trueHd.encoding))
         assertIs<PlaybackOutputStatus.Disabled>(disabled)
 
-        // mpv reports codec identifiers instead of Android encoding constants. Both common
-        // spellings must keep the Atmos badge tied to the actual encoded-output status.
-        assertTrue(isDolbyObjectAudioCodec("truehd"))
+        // A backend's generic TrueHD identifier is carrier evidence, not object-audio proof.
+        assertFalse(isDolbyObjectAudioCodec("truehd"))
         assertTrue(isDolbyObjectAudioCodec("truehd-atmos"))
+        assertTrue(isImmersiveAudioCarrierCodec("truehd"))
         assertFalse(isDolbyObjectAudioCodec("eac3"))
         assertFalse(isDolbyObjectAudioCodec("pcm_s16le"))
     }

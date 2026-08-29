@@ -125,6 +125,8 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
     private val audioCallbackHandler = Handler(Looper.getMainLooper())
     private val audioRouteChangeQueued = AtomicBoolean(false)
+    private val spatialAudioStateMonitor =
+        createAndroidSpatialAudioStateMonitor(context, ::queueAudioRouteChange)
     private val seekCommandQueued = AtomicBoolean(false)
     private val pendingSeekMs = AtomicLong(NO_PENDING_SEEK_MS)
     private val audioDeviceCallback =
@@ -229,6 +231,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         if (released) return
         released = true
         audioManager?.unregisterAudioDeviceCallback(audioDeviceCallback)
+        spatialAudioStateMonitor?.release()
         commands.close()
         worker.cancel()
         scope.cancel()
@@ -267,7 +270,12 @@ internal class AndroidAdaptiveCore2YPlayer(
         return if (percent in 0..100) percent * 10 else -1
     }
 
-    private fun currentThermalStatus(): Int = if (Build.VERSION.SDK_INT >= 29) powerManager?.currentThermalStatus ?: 0 else 0
+    private fun currentThermalStatus(): Int =
+        if (Build.VERSION.SDK_INT >= 29) {
+            powerManager?.currentThermalStatus ?: 0
+        } else {
+            0
+        }
 
     private suspend fun runLoop() {
         var currentIndex = request.startIndex
@@ -317,7 +325,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                             videoOutputVerified = false,
                             audioOutputVerified = false,
                             dolbyVisionOutput = false,
+                            immersiveAudioCarrierOutput = false,
                             dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                         ),
                 )
             }
@@ -359,13 +370,13 @@ internal class AndroidAdaptiveCore2YPlayer(
                 ) ?: return null
             if (
                 !bypassLearnedRouteMemory &&
-                    !forceSoftwareFallback &&
-                    decision.plan.route == YPlaybackRoute.NativeTunnel &&
-                    (
-                        failureLedger.isBlocked(decision.toFailureKey()) ||
-                            learningEngine.advice(decision.toFailureKey().toLearningKey()) !=
-                            YLearnedRouteAdvice.Allow
-                    )
+                !forceSoftwareFallback &&
+                decision.plan.route == YPlaybackRoute.NativeTunnel &&
+                (
+                    failureLedger.isBlocked(decision.toFailureKey()) ||
+                        learningEngine.advice(decision.toFailureKey().toLearningKey()) !=
+                        YLearnedRouteAdvice.Allow
+                )
             ) {
                 decision =
                     routeEvaluator.evaluate(
@@ -378,11 +389,11 @@ internal class AndroidAdaptiveCore2YPlayer(
             val learnedAdvice = learningEngine.advice(decision.toFailureKey().toLearningKey())
             if (
                 !bypassLearnedRouteMemory &&
-                    (
-                        forceSoftwareFallback ||
-                            failureLedger.isBlocked(decision.toFailureKey()) ||
-                            learnedAdvice == YLearnedRouteAdvice.Avoid
-                    )
+                (
+                    forceSoftwareFallback ||
+                        failureLedger.isBlocked(decision.toFailureKey()) ||
+                        learnedAdvice == YLearnedRouteAdvice.Avoid
+                )
             ) {
                 decision =
                     decision.copy(
@@ -440,51 +451,52 @@ internal class AndroidAdaptiveCore2YPlayer(
                         frameRateSwitchMode = frameRateSwitchMode,
                         forcedPlan = plan,
                     )
-                plan.route == YPlaybackRoute.GpuEnhanced ->
-                    AndroidYCoreGpuRuntime.probe(
-                        context,
-                        yCoreGpuEvidenceKey(decision.probe.playbackRequest, plan),
-                    ).let { routeGpuProbe ->
-                        if (
-                            routeGpuProbe.canAttemptNativeVulkan &&
-                            decision.probe.playbackRequest.enhancedDemuxSupported &&
-                            item.drmConfiguration == null
-                        ) {
-                            val nativeGpuPlan =
-                                plan.copy(
-                                    demuxPath = YDemuxPath.Enhanced,
-                                    reason =
-                                        buildString {
-                                            append(plan.reason)
-                                            if (plan.demuxPath != YDemuxPath.Enhanced) {
-                                                append("; Vulkan frame ownership requires YCore enhanced demux")
-                                            }
-                                            append(
-                                                if (routeGpuProbe.canClaimNativeVulkan) {
-                                                    "; native Vulkan output passed the persisted measurement gate"
-                                                } else {
-                                                    "; native Vulkan measurement trial (libplacebo remains recovery)"
-                                                },
-                                            )
-                                        },
-                                )
-                            AndroidNativeEnhancedYPlayer(
-                                context = context,
-                                request = singleRequest,
-                                routeEvaluator = routeEvaluator,
-                                allowAudioPassthrough = false,
-                                frameRateSwitchMode = frameRateSwitchMode,
-                                forcedPlan = nativeGpuPlan,
+                plan.route == YPlaybackRoute.GpuEnhanced -> {
+                    val routeGpuProbe =
+                        AndroidYCoreGpuRuntime.probe(
+                            context,
+                            yCoreGpuEvidenceKey(decision.probe.playbackRequest, plan),
+                        )
+                    if (
+                        routeGpuProbe.canAttemptNativeVulkan &&
+                        decision.probe.playbackRequest.enhancedDemuxSupported &&
+                        item.drmConfiguration == null
+                    ) {
+                        val nativeGpuPlan =
+                            plan.copy(
+                                demuxPath = YDemuxPath.Enhanced,
+                                reason =
+                                    buildString {
+                                        append(plan.reason)
+                                        if (plan.demuxPath != YDemuxPath.Enhanced) {
+                                            append("; Vulkan frame ownership requires YCore enhanced demux")
+                                        }
+                                        append(
+                                            if (routeGpuProbe.canClaimNativeVulkan) {
+                                                "; native Vulkan output passed the persisted measurement gate"
+                                            } else {
+                                                "; native Vulkan measurement trial (libplacebo remains recovery)"
+                                            },
+                                        )
+                                    },
                             )
-                        } else {
-                            fallbackRouteFactory?.create(
-                                item,
-                                singleRequest,
-                                plan.withNativeGpuFallbackTruth(routeGpuProbe),
-                                speed,
-                            )
-                        }
+                        AndroidNativeEnhancedYPlayer(
+                            context = context,
+                            request = singleRequest,
+                            routeEvaluator = routeEvaluator,
+                            allowAudioPassthrough = false,
+                            frameRateSwitchMode = frameRateSwitchMode,
+                            forcedPlan = nativeGpuPlan,
+                        )
+                    } else {
+                        fallbackRouteFactory?.create(
+                            item,
+                            singleRequest,
+                            plan.withNativeGpuFallbackTruth(routeGpuProbe),
+                            speed,
+                        )
                     }
+                }
                 plan.route == YPlaybackRoute.SoftwareFallback ->
                     fallbackRouteFactory?.create(item, singleRequest, plan, speed)
                 else -> null
@@ -775,7 +787,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                             }
                         }
                         Command.ThermalPressure -> {
-                            val activeRoute = child?.state?.value?.diagnostics?.route
+                            val activeRoute =
+                                child
+                                    ?.state
+                                    ?.value
+                                    ?.diagnostics
+                                    ?.route
                             if (
                                 activeRoute == YPlaybackRoute.GpuEnhanced ||
                                 activeRoute == YPlaybackRoute.SoftwareFallback

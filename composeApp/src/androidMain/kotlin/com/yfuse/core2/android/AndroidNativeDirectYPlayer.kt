@@ -283,6 +283,11 @@ internal class AndroidNativeDirectYPlayer(
                         audioOutput = "停止",
                         videoOutputVerified = false,
                         audioOutputVerified = false,
+                        dolbyVisionOutput = false,
+                        immersiveAudioCarrierOutput = false,
+                        dolbyAtmosOutput = false,
+                        spatialAudioOutput = false,
+                        headTrackingAvailable = false,
                         // Never copy Throwable.message: media/framework exceptions can contain a URL.
                         reason =
                             typed?.stage?.let { stage -> "NativeDirect failed at ${stage.name}" }
@@ -297,7 +302,7 @@ internal class AndroidNativeDirectYPlayer(
         private val demux = AndroidMediaExtractorDemuxNode(context)
         private val videoDecoder = AndroidMediaCodecVideoNode()
         private val audioDecoder = AndroidMediaCodecAudioNode()
-        private val audioRenderer = AndroidAudioTrackRenderNode()
+        private val audioRenderer = AndroidAudioTrackRenderNode(context)
         private val encodedAudioRenderer = AndroidEncodedAudioTrackRenderNode()
         private val capabilityProvider = AndroidYCapabilityProvider(context)
         private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
@@ -514,6 +519,11 @@ internal class AndroidNativeDirectYPlayer(
                             audioOutput = waitingAudioOutputLabel(),
                             videoOutputVerified = false,
                             audioOutputVerified = false,
+                            dolbyVisionOutput = false,
+                            immersiveAudioCarrierOutput = false,
+                            dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                             reason = "Platform demux + hardware decode + direct Surface",
                         ),
                 )
@@ -542,6 +552,7 @@ internal class AndroidNativeDirectYPlayer(
                             mutableState.value.diagnostics.copy(
                                 videoOutput = "等待 Surface",
                                 videoOutputVerified = false,
+                                dolbyVisionOutput = false,
                             ),
                     )
                 return
@@ -556,6 +567,7 @@ internal class AndroidNativeDirectYPlayer(
                         mutableState.value.diagnostics.copy(
                             videoOutput = "硬解已配置 · 等待首帧",
                             videoOutputVerified = false,
+                            dolbyVisionOutput = false,
                         ),
                 )
             if (videoConfigured && previous?.surface?.isValid == true) {
@@ -662,6 +674,11 @@ internal class AndroidNativeDirectYPlayer(
                             audioOutput = waitingAudioOutputLabel(),
                             videoOutputVerified = false,
                             audioOutputVerified = false,
+                            dolbyVisionOutput = false,
+                            immersiveAudioCarrierOutput = false,
+                            dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                         ),
                 )
             if (requestedPlay) startPlayback()
@@ -837,8 +854,20 @@ internal class AndroidNativeDirectYPlayer(
                                     mutableState.value.copy(
                                         diagnostics =
                                             mutableState.value.diagnostics.copy(
-                                                audioOutput = "PCM · AudioTrack",
+                                                audioOutput =
+                                                    when {
+                                                        audioRenderer.spatialAudioOutput &&
+                                                            audioRenderer.headTrackingAvailable ->
+                                                            "系统空间音频 · PCM · 头部跟踪可用"
+                                                        audioRenderer.spatialAudioOutput ->
+                                                            "系统空间音频 · PCM"
+                                                        else -> "PCM · AudioTrack"
+                                                    },
                                                 audioOutputVerified = true,
+                                                immersiveAudioCarrierOutput = false,
+                                                dolbyAtmosOutput = false,
+                                                spatialAudioOutput = audioRenderer.spatialAudioOutput,
+                                                headTrackingAvailable = audioRenderer.headTrackingAvailable,
                                             ),
                                     )
                             }
@@ -954,6 +983,7 @@ internal class AndroidNativeDirectYPlayer(
                                 mutableState.value.diagnostics.copy(
                                     videoOutput = "Surface 直出",
                                     videoOutputVerified = true,
+                                    dolbyVisionOutput = nativeDolbyVisionOutputVerified(),
                                 ),
                         )
                 }
@@ -980,6 +1010,7 @@ internal class AndroidNativeDirectYPlayer(
                             mutableState.value.diagnostics.copy(
                                 videoOutput = "Surface 直出 · 尾段最近帧",
                                 videoOutputVerified = true,
+                                dolbyVisionOutput = nativeDolbyVisionOutputVerified(),
                             ),
                     )
             }
@@ -1107,7 +1138,13 @@ internal class AndroidNativeDirectYPlayer(
                 format == null -> audioRendererConfigured = false
                 audioOutputPath == YAudioOutputPath.Passthrough -> {
                     try {
-                        encodedAudioRenderer.configure(requireNotNull(coreFormat))
+                        encodedAudioRenderer.configure(
+                            requireNotNull(coreFormat),
+                            exactDolbyAtmosTransport =
+                                capabilityProvider
+                                    .current()
+                                    .hasExactDolbyAtmosPassthrough(coreFormat.codec),
+                        )
                         audioRendererConfigured = true
                     } catch (_: Exception) {
                         rejectedPassthroughTracks += requireNotNull(audioTrackIndex)
@@ -1159,7 +1196,9 @@ internal class AndroidNativeDirectYPlayer(
                                 mutableState.value.diagnostics.copy(
                                     audioOutput = activeAudioOutputLabel(),
                                     audioOutputVerified = true,
-                                    dolbyAtmosOutput = encodedAudioRenderer.immersiveOutput,
+                                    immersiveAudioCarrierOutput =
+                                        encodedAudioRenderer.immersiveCarrierOutput,
+                                    dolbyAtmosOutput = encodedAudioRenderer.dolbyAtmosOutput,
                                 ),
                         )
                 }
@@ -1181,7 +1220,10 @@ internal class AndroidNativeDirectYPlayer(
                         mutableState.value.diagnostics.copy(
                             audioOutput = "原码不可用 · 自动回落 PCM",
                             audioOutputVerified = false,
+                            immersiveAudioCarrierOutput = false,
                             dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                             audioUnderrunCount =
                                 mutableState.value.diagnostics.audioUnderrunCount +
                                     if (countFailure) 1 else 0,
@@ -1189,7 +1231,15 @@ internal class AndroidNativeDirectYPlayer(
                 )
         }
 
-        private fun isAudioPassthrough(): Boolean = audioInputFormat != null && audioOutputPath == YAudioOutputPath.Passthrough
+        private fun isAudioPassthrough(): Boolean =
+            audioInputFormat != null && audioOutputPath == YAudioOutputPath.Passthrough
+
+        private fun nativeDolbyVisionOutputVerified(): Boolean =
+            plannedDolbyVisionConfig != null &&
+                videoFormat?.getString(MediaFormat.KEY_MIME) == DOLBY_VISION_MIME &&
+                capabilityProvider
+                    .current()
+                    .supportsDisplayHdr(com.yfuse.core2.capability.YHdrType.DolbyVision)
 
         private fun audioClockSnapshot(): YAudioClockSnapshot? =
             if (isAudioPassthrough()) encodedAudioRenderer.clockSnapshot() else audioRenderer.clockSnapshot()
@@ -1280,10 +1330,11 @@ internal class AndroidNativeDirectYPlayer(
             }
 
         private fun activeAudioOutputLabel(): String =
-            if (audioTrackFormat?.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos)) {
-                "Dolby Atmos 原码 · AudioTrack"
-            } else {
-                "原码直通 · AudioTrack"
+            when {
+                encodedAudioRenderer.dolbyAtmosOutput -> "Dolby Atmos 原码 · AudioTrack"
+                encodedAudioRenderer.immersiveCarrierOutput ->
+                    "沉浸音频载波 · AudioTrack（未验证对象输出）"
+                else -> "原码直通 · AudioTrack"
             }
 
         private fun audioTracks(): List<YTrack> =
@@ -1446,7 +1497,9 @@ internal fun secureSurfaceRequirementSatisfied(
  * gesture into one seek/flush operation while preserving barriers such as pause, item switch and
  * track selection.
  */
-internal fun coalesceNativeDirectCommands(commands: List<AndroidNativeDirectYPlayer.Command>): List<AndroidNativeDirectYPlayer.Command> =
+internal fun coalesceNativeDirectCommands(
+    commands: List<AndroidNativeDirectYPlayer.Command>,
+): List<AndroidNativeDirectYPlayer.Command> =
     commands.fold(mutableListOf()) { result, command ->
         val previous = result.lastOrNull()
         if (previous != null && previous.canBeReplacedBy(command)) {
@@ -1507,7 +1560,14 @@ private fun MediaFormat.toCore2AudioTrackFormat(): YAudioTrackFormat {
 private fun MediaFormat.durationUsOrNull(): Long? =
     if (containsKey(MediaFormat.KEY_DURATION)) getLong(MediaFormat.KEY_DURATION).coerceAtLeast(0L) else null
 
-private fun MediaFormat.intOrZero(key: String): Int = if (containsKey(key)) runCatching { getInteger(key) }.getOrDefault(0) else 0
+private fun MediaFormat.intOrZero(key: String): Int =
+    if (containsKey(key)) {
+        runCatching {
+            getInteger(key)
+        }.getOrDefault(0)
+    } else {
+        0
+    }
 
 private fun MediaFormat.longOrZero(key: String): Long =
     if (containsKey(key)) {

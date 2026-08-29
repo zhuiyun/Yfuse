@@ -15,6 +15,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
@@ -44,6 +45,8 @@ import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core.playback.PlaybackHdrFormat
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.playbackBufferProfile
+import com.yfuse.core2.android.AndroidSpatialAudioProbe
+import com.yfuse.core2.android.createAndroidSpatialAudioStateMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -100,6 +103,7 @@ class ExoVideoEngine(
         runCatching { GlobalContext.get().get<PlaybackDeviceCapabilitiesProvider>() }.getOrNull()
     internal val frameRateMatchMode = outputPreferences.frameRateMatch.value.toPlayerMode()
     private val audioPassthroughMode = outputPreferences.audioPassthrough.value.toPlayerMode()
+    private val spatialAudioProbe = AndroidSpatialAudioProbe(context)
     private val dualSubtitleCueMerger = ExoDualSubtitleCueMerger()
     private val secondarySubtitles =
         ExoSecondarySubtitleController(
@@ -152,6 +156,10 @@ class ExoVideoEngine(
     private var retryJob: Job? = null
     private var fallbackJob: Job? = null
     private var released = false
+    private val spatialAudioStateMonitor =
+        createAndroidSpatialAudioStateMonitor(context) {
+            if (!released) updateAudioOutput()
+        }
     private val cacheHandle = VideoCachePool.acquire(context.applicationContext, videoCacheBytes)
     private val trackSelector = DefaultTrackSelector(context)
 
@@ -312,7 +320,10 @@ class ExoVideoEngine(
             videoReadiness = PlaybackOutputReadiness.Waiting,
             audioReadiness = PlaybackOutputReadiness.Waiting,
             dolbyVisionOutput = false,
+            immersiveAudioCarrierOutput = false,
             dolbyAtmosOutput = false,
+            spatialAudioOutput = false,
+            headTrackingAvailable = false,
             droppedFrames = 0,
             avSyncOffsetMs = null,
             avSyncMeasurement = "等待 Media3 呈现时钟",
@@ -336,7 +347,10 @@ class ExoVideoEngine(
                                     "$decoder · 等待 AudioTrack"
                                 } ?: "等待音频输出",
                             audioReadiness = PlaybackOutputReadiness.Waiting,
+                            immersiveAudioCarrierOutput = false,
                             dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                             outputEvidence =
                                 it.diagnostics.outputEvidence.copy(
                                     audioReadiness = PlaybackOutputReadiness.Waiting,
@@ -350,6 +364,16 @@ class ExoVideoEngine(
             return
         }
         val status = exoAudioPassthroughStatus(audioPassthroughMode, config)
+        val spatialAudioState =
+            if (Util.isEncodingLinearPcm(config.encoding)) {
+                spatialAudioProbe.current(
+                    sampleRate = config.sampleRate,
+                    channelMask = config.channelConfig,
+                    encoding = config.encoding,
+                )
+            } else {
+                null
+            }
         _state.update {
             it.copy(
                 diagnostics =
@@ -361,9 +385,14 @@ class ExoVideoEngine(
                                 decoderName = currentAudioDecoder,
                             ),
                         audioReadiness = PlaybackOutputReadiness.Rendering,
+                        immersiveAudioCarrierOutput =
+                            status is PlaybackOutputStatus.Active &&
+                                config.encoding in IMMERSIVE_AUDIO_CARRIER_ENCODINGS,
                         dolbyAtmosOutput =
                             status is PlaybackOutputStatus.Active &&
                                 config.encoding in DOLBY_OBJECT_ENCODINGS,
+                        spatialAudioOutput = spatialAudioState?.active == true,
+                        headTrackingAvailable = spatialAudioState?.headTrackerAvailable == true,
                         outputEvidence =
                             it.diagnostics.outputEvidence.copy(
                                 audioReadiness = PlaybackOutputReadiness.Rendering,
@@ -557,7 +586,10 @@ class ExoVideoEngine(
                                 it.diagnostics.copy(
                                     audioOutput = "音频解码器已释放",
                                     audioReadiness = PlaybackOutputReadiness.Released,
+                                    immersiveAudioCarrierOutput = false,
                                     dolbyAtmosOutput = false,
+                                    spatialAudioOutput = false,
+                                    headTrackingAvailable = false,
                                     outputEvidence =
                                         it.diagnostics.outputEvidence.copy(
                                             audioReadiness = PlaybackOutputReadiness.Released,
@@ -620,7 +652,10 @@ class ExoVideoEngine(
                                 audioOutput =
                                     "${currentAudioDecoder.ifBlank { "Media3" }} · 音频解码失败",
                                 audioReadiness = PlaybackOutputReadiness.Waiting,
+                                immersiveAudioCarrierOutput = false,
                                 dolbyAtmosOutput = false,
+                                spatialAudioOutput = false,
+                                headTrackingAvailable = false,
                                 outputEvidence =
                                     it.diagnostics.outputEvidence.copy(
                                         audioReadiness = PlaybackOutputReadiness.Waiting,
@@ -751,7 +786,10 @@ class ExoVideoEngine(
                                 audioReadiness = PlaybackOutputReadiness.Released,
                                 // The label rule cleared this implicitly, because the released
                                 // sentence no longer said 源码输出. A flag has to be told.
+                                immersiveAudioCarrierOutput = false,
                                 dolbyAtmosOutput = false,
+                                spatialAudioOutput = false,
+                                headTrackingAvailable = false,
                                 outputEvidence =
                                     it.diagnostics.outputEvidence.copy(
                                         audioReadiness = PlaybackOutputReadiness.Released,
@@ -1323,6 +1361,7 @@ class ExoVideoEngine(
         ticker?.cancel()
         ticker = null
         secondarySubtitles.release()
+        spatialAudioStateMonitor?.release()
         player.clearVideoFrameMetadataListener(videoFrameMetadataListener)
         player.removeListener(listener)
         player.removeAnalyticsListener(analyticsListener)
