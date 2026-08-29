@@ -2,6 +2,24 @@ name: Build YCore native runtime
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/build-yfuse-mpv-dolby.yml
+      - scripts/build-yfuse-mpv-bluray.sh
+      - scripts/build-yfuse-mpv-dolby.sh
+      - scripts/build-ycore-native.sh
+      - scripts/build-ycore-demux.sh
+      - scripts/package-ycore-native-aar.py
+      - scripts/verify-ycore-native.sh
+      - scripts/verify-ycore-native-apk.sh
+      - scripts/native/**
+      - composeApp/src/androidMain/kotlin/com/yfuse/core2/**
+      - composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/**
+      - composeApp/src/commonMain/kotlin/com/yfuse/core2/**
+      - composeApp/src/commonTest/kotlin/com/yfuse/core2/**
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvSource.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeRemoteBluRaySource.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/RemoteDiscBlockSource.android.kt
   push:
     branches:
       - master
@@ -27,6 +45,9 @@ on:
       - composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/**
       - composeApp/src/commonMain/kotlin/com/yfuse/core2/**
       - composeApp/src/commonTest/kotlin/com/yfuse/core2/**
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeLocalBdmvSource.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/NativeRemoteBluRaySource.android.kt
+      - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/RemoteDiscBlockSource.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvNativeBuildCapabilities.android.kt
       - composeApp/src/androidMain/kotlin/com/yfuse/feature/player/MpvDolbyRuntimeEvidence.android.kt
       - composeApp/src/commonMain/kotlin/com/yfuse/feature/player/MpvDolbyRuntimeEvidence.kt
