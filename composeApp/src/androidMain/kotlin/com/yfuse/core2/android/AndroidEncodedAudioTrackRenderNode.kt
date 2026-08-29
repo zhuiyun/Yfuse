@@ -47,7 +47,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
         this.format = format
         this.exactDolbyAtmosTransport =
             exactDolbyAtmosTransport &&
-                format.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos)
+            format.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos)
         basePresentationTimeUs = null
         requestedPlay = false
     }

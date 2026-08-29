@@ -1497,7 +1497,9 @@ internal fun secureSurfaceRequirementSatisfied(
  * gesture into one seek/flush operation while preserving barriers such as pause, item switch and
  * track selection.
  */
-internal fun coalesceNativeDirectCommands(commands: List<AndroidNativeDirectYPlayer.Command>): List<AndroidNativeDirectYPlayer.Command> =
+internal fun coalesceNativeDirectCommands(
+    commands: List<AndroidNativeDirectYPlayer.Command>,
+): List<AndroidNativeDirectYPlayer.Command> =
     commands.fold(mutableListOf()) { result, command ->
         val previous = result.lastOrNull()
         if (previous != null && previous.canBeReplacedBy(command)) {
@@ -1558,7 +1560,14 @@ private fun MediaFormat.toCore2AudioTrackFormat(): YAudioTrackFormat {
 private fun MediaFormat.durationUsOrNull(): Long? =
     if (containsKey(MediaFormat.KEY_DURATION)) getLong(MediaFormat.KEY_DURATION).coerceAtLeast(0L) else null
 
-private fun MediaFormat.intOrZero(key: String): Int = if (containsKey(key)) runCatching { getInteger(key) }.getOrDefault(0) else 0
+private fun MediaFormat.intOrZero(key: String): Int =
+    if (containsKey(key)) {
+        runCatching {
+            getInteger(key)
+        }.getOrDefault(0)
+    } else {
+        0
+    }
 
 private fun MediaFormat.longOrZero(key: String): Long =
     if (containsKey(key)) {

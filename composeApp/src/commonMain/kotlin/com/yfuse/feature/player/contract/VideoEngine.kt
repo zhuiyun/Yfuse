@@ -411,7 +411,10 @@ interface VideoEngine {
     fun release()
 }
 
-internal fun subtitleBrightnessByte(brightness: Float): Int = (brightness.coerceIn(MIN_SUBTITLE_BRIGHTNESS, 1f) * 255f).roundToInt()
+internal fun subtitleBrightnessByte(brightness: Float): Int =
+    (
+        brightness.coerceIn(MIN_SUBTITLE_BRIGHTNESS, 1f) * 255f
+    ).roundToInt()
 
 internal fun subtitleBrightnessRgba(brightness: Float): String {
     val channel = subtitleBrightnessByte(brightness).toString(16).padStart(2, '0')
