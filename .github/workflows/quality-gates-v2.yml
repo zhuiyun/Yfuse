@@ -68,6 +68,20 @@ jobs:
             if [[ -f "$report" ]]; then cat "$report"; fi
             exit "$lint_status"
           fi
+      - name: Reject new ktlint violations
+        shell: bash
+        run: |
+          set +e
+          ./gradlew ktlintCheck --no-daemon
+          ktlint_status=$?
+          set -e
+          if (( ktlint_status != 0 )); then
+            while IFS= read -r report; do
+              echo "===== $report ====="
+              cat "$report"
+            done < <(find . -path '*/build/reports/ktlint/*/*.txt' -type f | sort)
+            exit "$ktlint_status"
+          fi
       - name: Build and install current YCore GPU companion
         shell: bash
         run: |
@@ -92,20 +106,6 @@ jobs:
           "$build_tools/aapt" dump badging "$apk" | grep -Fq "package: name='com.yfuse'"
           apk_size="$(stat -c '%s' "$apk")"
           (( apk_size <= APK_SIZE_BUDGET_BYTES ))
-      - name: Reject new ktlint violations
-        shell: bash
-        run: |
-          set +e
-          ./gradlew ktlintCheck --no-daemon
-          ktlint_status=$?
-          set -e
-          if (( ktlint_status != 0 )); then
-            while IFS= read -r report; do
-              echo "===== $report ====="
-              cat "$report"
-            done < <(find . -path '*/build/reports/ktlint/*/*.txt' -type f | sort)
-            exit "$ktlint_status"
-          fi
       - name: Check patch whitespace
         shell: bash
         env:
