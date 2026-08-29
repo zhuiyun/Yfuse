@@ -7,8 +7,18 @@ import com.yfuse.core.cast.CastState
 internal fun PlaybackState.withRemoteCast(
     cast: CastState,
     playMethod: String,
-): PlaybackState =
-    copy(
+): PlaybackState {
+    val receipt = cast.outputEvidence
+    val outputConfirmed =
+        cast.status == CastPlaybackStatus.Playing &&
+            receipt.sessionRevision == cast.sessionRevision &&
+            receipt.receiverConfirmed &&
+            receipt.playbackConfirmed
+    val outputReadiness =
+        if (outputConfirmed) PlaybackOutputReadiness.Rendering else PlaybackOutputReadiness.Waiting
+    val confidence =
+        if (outputConfirmed) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested
+    return copy(
         playing =
             when (cast.status) {
                 CastPlaybackStatus.Playing -> true
@@ -35,10 +45,35 @@ internal fun PlaybackState.withRemoteCast(
                 videoWidth = 0,
                 dynamicRange = "",
                 audioFormat = "",
+                videoOutput =
+                    if (outputConfirmed) "Cast 接收端已开始输出" else "等待 Cast 视频输出回执",
+                audioOutput =
+                    if (outputConfirmed) "Cast 接收端已开始输出" else "等待 Cast 音频输出回执",
+                videoReadiness = outputReadiness,
+                audioReadiness = outputReadiness,
+                dolbyVisionOutput = outputConfirmed && receipt.dolbyVisionOutput,
+                dolbyAtmosOutput = outputConfirmed && receipt.dolbyAtmosOutput,
+                dolbyVisionRpuApplied = false,
+                dolbyVisionEnhancementLayerComposed = false,
+                immersiveAudioCarrierOutput = false,
+                spatialAudioOutput = false,
+                headTrackingAvailable = false,
+                deviceOutputCapabilities =
+                    "Cast：DV ${cast.capabilities.dolbyVision.label} · Atmos ${cast.capabilities.dolbyAtmos.label}",
                 bitrateBitsPerSecond = 0L,
                 frameRate = 0f,
                 droppedFrames = 0,
                 bufferedDurationMs = 0L,
                 networkBitsPerSecond = 0L,
+                outputEvidence =
+                    PlaybackOutputEvidence(
+                        sessionRevision = cast.sessionRevision.coerceAtLeast(1L),
+                        videoReadiness = outputReadiness,
+                        audioReadiness = outputReadiness,
+                        videoConfidence = confidence,
+                        audioConfidence = confidence,
+                        rendererDetail = receipt.detail,
+                    ),
             ),
     )
+}

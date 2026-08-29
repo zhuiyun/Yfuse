@@ -33,6 +33,63 @@ class YHlsParserTest {
     }
 
     @Test
+    fun master_playlist_recognizes_dolby_vision_and_atmos_renditions() {
+        val master =
+            assertIs<YHlsPlaylist.Master>(
+                parseYHlsPlaylist(
+                    text = dualDolbyMaster,
+                    baseUri = "https://media.example.test/master.m3u8",
+                ),
+            )
+
+        val dolbyVariant = master.variants.single { it.id == "dv-4k" }
+        val atmos = master.renditions.single { it.name == "Atmos" }
+        assertTrue(dolbyVariant.isDolbyVision)
+        assertEquals(YHlsVideoRange.Pq, dolbyVariant.videoRange)
+        assertEquals("atmos", dolbyVariant.audioGroupId)
+        assertTrue(atmos.isDolbyAtmos)
+        assertEquals("https://media.example.test/audio/atmos.m3u8", atmos.uri)
+    }
+
+    @Test
+    fun playback_selection_keeps_dual_dolby_ladder_only_when_output_route_supports_it() {
+        val master =
+            assertIs<YHlsPlaylist.Master>(
+                parseYHlsPlaylist(
+                    text = dualDolbyMaster,
+                    baseUri = "https://media.example.test/master.m3u8",
+                ),
+            )
+        val conditions =
+            YAdaptiveSelectionConditions(
+                estimatedBandwidthBitsPerSecond = 20_000_000L,
+                bufferedDurationUs = 20_000_000L,
+            )
+
+        val dolby =
+            selectYHlsPlaybackSet(
+                master,
+                conditions,
+                YHlsPlaybackCapabilities(dolbyVisionOutput = true, dolbyAtmosOutput = true),
+            )
+        assertTrue(dolby.variants.all(YAdaptiveVariant::isDolbyVision))
+        assertTrue(dolby.renditions.single { it.type == YHlsRenditionType.Audio }.isDolbyAtmos)
+        val dolbyText = buildYHlsPlaybackMaster(dolby) { uri, _ -> "local://${uri.substringAfterLast('/')}" }
+        assertTrue("CHANNELS=\"6/JOC\"" in dolbyText)
+        assertTrue("VIDEO-RANGE=PQ" in dolbyText)
+        assertFalse("audio/stereo.m3u8" in dolbyText)
+
+        val compatible =
+            selectYHlsPlaybackSet(
+                master,
+                conditions,
+                YHlsPlaybackCapabilities(),
+            )
+        assertTrue(compatible.variants.none(YAdaptiveVariant::isDolbyVision))
+        assertFalse(compatible.renditions.single { it.type == YHlsRenditionType.Audio }.isDolbyAtmos)
+    }
+
+    @Test
     fun media_playlist_preserves_init_ranges_encryption_and_timeline() {
         val playlist =
             parseYHlsPlaylist(
@@ -114,5 +171,26 @@ class YHlsParserTest {
             kinds,
         )
         assertFalse("token=secret" in rewritten)
+    }
+
+    private companion object {
+        val dualDolbyMaster =
+            listOf(
+                "#EXTM3U",
+                "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"stereo\",NAME=\"Stereo\"," +
+                    "DEFAULT=YES,AUTOSELECT=YES,CHANNELS=\"2\",URI=\"audio/stereo.m3u8\"",
+                "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"atmos\",NAME=\"Atmos\"," +
+                    "DEFAULT=YES,AUTOSELECT=YES,CHANNELS=\"6/JOC\",URI=\"audio/atmos.m3u8\"",
+                "#EXT-X-STREAM-INF:BANDWIDTH=3500000,STABLE-VARIANT-ID=\"sdr-1080\"," +
+                    "RESOLUTION=1920x1080,CODECS=\"hvc1.2.4.L120.B0,mp4a.40.2\"," +
+                    "VIDEO-RANGE=SDR,AUDIO=\"stereo\"",
+                "video/sdr-1080.m3u8",
+                "#EXT-X-STREAM-INF:BANDWIDTH=6500000,STABLE-VARIANT-ID=\"dv-1080\"," +
+                    "RESOLUTION=1920x1080,CODECS=\"dvh1.08.06,ec-3\",VIDEO-RANGE=PQ,AUDIO=\"atmos\"",
+                "video/dv-1080.m3u8",
+                "#EXT-X-STREAM-INF:BANDWIDTH=14000000,STABLE-VARIANT-ID=\"dv-4k\"," +
+                    "RESOLUTION=3840x2160,CODECS=\"dvh1.08.06,ec-3\",VIDEO-RANGE=PQ,AUDIO=\"atmos\"",
+                "video/dv-4k.m3u8",
+            ).joinToString("\n")
     }
 }

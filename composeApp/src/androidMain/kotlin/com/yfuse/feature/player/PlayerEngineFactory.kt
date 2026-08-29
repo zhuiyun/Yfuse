@@ -8,6 +8,8 @@ import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.playback.NativePlaybackComponent
+import com.yfuse.core.playback.PlaybackAudioCodec
+import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDolbyVisionRuntimeCapabilities
 import com.yfuse.core.playback.PlaybackEngineSelection
@@ -51,6 +53,7 @@ internal fun createVideoEngine(
     frameRateMatch: PlaybackFrameRateMatch = PlaybackFrameRateMatch.Disabled,
     dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
+    deviceCapabilities: PlaybackDeviceCapabilities = PlaybackDeviceCapabilities.conservative(),
     capabilitySignature: String = "unknown",
 ): VideoEngine {
     val packagedNativeOnly = BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME
@@ -64,20 +67,24 @@ internal fun createVideoEngine(
         AndroidNativeCrashMonitor.isYCoreGpuBlocked(
             decoderMode,
             capabilitySignature,
-        ) || PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.YCoreGpu)
+        ) ||
+            PlaybackRemotePolicyRegistry.isDisabled(PlaybackRemotePath.YCoreGpu)
     val yCoreDemuxBlocked =
         AndroidNativeCrashMonitor.isYCoreDemuxBlocked(
             decoderMode,
             capabilitySignature,
         )
     val yCoreAllowed =
-        !remoteYCoreBlocked && !yCoreDemuxBlocked &&
-            (packagedNativeOnly ||
-            shouldUseCore2Trial(
-                enabled = core2TrialEnabled,
-                engineSelection = engineSelection,
-                crashBlocked = false,
-            ))
+        !remoteYCoreBlocked &&
+            !yCoreDemuxBlocked &&
+            (
+                packagedNativeOnly ||
+                    shouldUseCore2Trial(
+                        enabled = core2TrialEnabled,
+                        engineSelection = engineSelection,
+                        crashBlocked = false,
+                    )
+            )
     val component =
         if (yCoreAllowed) {
             NativePlaybackComponent.YCoreDemux
@@ -125,6 +132,10 @@ internal fun createVideoEngine(
                 autoNext = autoNext,
                 customUserAgent = customUserAgent,
                 allowAudioPassthrough = allowAudioPassthrough,
+                allowDolbyVisionHls = deviceCapabilities.supportsDolbyVisionOutput,
+                allowDolbyAtmosHls =
+                    allowAudioPassthrough &&
+                        PlaybackAudioCodec.Eac3Joc in deviceCapabilities.directAudioFormats,
                 frameRateMatch = frameRateMatch,
                 videoCacheBytes = videoCacheBytes,
                 nativeOnly = resolvedNativeOnly,
