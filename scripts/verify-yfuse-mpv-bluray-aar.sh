@@ -62,7 +62,10 @@ actual_sha="$(sha256_of "$AAR")"
 [[ "$actual_sha" == "$expected_sha" ]] || die "AAR SHA-256 mismatch: expected $expected_sha, got $actual_sha"
 
 [[ "$(manifest_value libmpv-android)" == "$EXPECTED_MPV" ]] || die "unexpected libmpv-android source revision"
-[[ "$(manifest_value android-gradle-plugin)" == "$EXPECTED_ANDROID_GRADLE_PLUGIN" ]] ||
+android_gradle_plugin="$(manifest_value android-gradle-plugin)"
+# Previously published, checksum-pinned carriers predate this provenance field. New native builds
+# always write it; legacy carriers remain installable, while any explicit conflicting value fails.
+[[ -z "$android_gradle_plugin" || "$android_gradle_plugin" == "$EXPECTED_ANDROID_GRADLE_PLUGIN" ]] ||
   die "unexpected Android Gradle Plugin revision"
 [[ "$(manifest_value libbluray)" == "$EXPECTED_BLURAY" ]] || die "unexpected libbluray source revision"
 [[ "$(manifest_value libudfread)" == "$EXPECTED_UDFREAD" ]] || die "unexpected libudfread source revision"
