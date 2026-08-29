@@ -1373,4 +1373,63 @@
     <file name="src/commonTest/kotlin/com/yfuse/feature/servers/ServersStoreTest.kt">
         <error line="391" column="51" source="standard:chain-method-continuation" />
     </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/CalendarFollowStoreTest.kt">
+        <error line="166" column="73" source="standard:chain-method-continuation" />
+        <error line="166" column="82" source="standard:chain-method-continuation" />
+        <error line="190" column="58" source="standard:chain-method-continuation" />
+        <error line="190" column="86" source="standard:chain-method-continuation" />
+        <error line="191" column="54" source="standard:chain-method-continuation" />
+        <error line="191" column="79" source="standard:chain-method-continuation" />
+        <error line="192" column="73" source="standard:chain-method-continuation" />
+        <error line="192" column="98" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core/data/OfficialAiringScheduleCatalogTest.kt">
+        <error line="102" column="54" source="standard:chain-method-continuation" />
+        <error line="102" column="63" source="standard:chain-method-continuation" />
+        <error line="102" column="71" source="standard:chain-method-continuation" />
+        <error line="102" column="79" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core2/api/YPlayerDiagnosticsTest.kt">
+        <error line="24" column="22" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core2/dolby/YDolbyVisionLayerSynchronizerTest.kt">
+        <error line="34" column="24" source="standard:function-signature" />
+        <error line="34" column="36" source="standard:function-signature" />
+        <error line="34" column="45" source="standard:function-signature" />
+        <error line="34" column="48" source="standard:function-signature" />
+        <error line="37" column="24" source="standard:function-signature" />
+        <error line="37" column="35" source="standard:function-signature" />
+        <error line="37" column="47" source="standard:function-signature" />
+        <error line="37" column="61" source="standard:function-signature" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/core2/hdr/YHdr10PlusParserTest.kt">
+        <error line="47" column="19" source="standard:function-signature" />
+        <error line="47" column="31" source="standard:function-signature" />
+        <error line="47" column="41" source="standard:function-signature" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/calendar/AiringShowCalendarDialogTest.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/calendar/CalendarStateTest.kt">
+        <error line="247" column="24" source="standard:chain-method-continuation" />
+        <error line="247" column="32" source="standard:chain-method-continuation" />
+        <error line="247" column="40" source="standard:chain-method-continuation" />
+        <error line="247" column="49" source="standard:chain-method-continuation" />
+        <error line="249" column="32" source="standard:chain-method-continuation" />
+        <error line="249" column="40" source="standard:chain-method-continuation" />
+        <error line="249" column="48" source="standard:chain-method-continuation" />
+        <error line="249" column="57" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/PlaybackReportingCoordinatorTest.kt">
+        <error line="3" column="1" source="standard:import-ordering" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/PlaybackTruthTest.kt">
+        <error line="83" column="25" source="standard:chain-method-continuation" />
+        <error line="88" column="25" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/commonTest/kotlin/com/yfuse/feature/player/PlayerStoreTest.kt">
+        <error line="408" column="36" source="standard:chain-method-continuation" />
+        <error line="408" column="58" source="standard:chain-method-continuation" />
+        <error line="408" column="64" source="standard:chain-method-continuation" />
+    </file>
 </baseline>
