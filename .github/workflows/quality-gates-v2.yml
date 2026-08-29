@@ -68,6 +68,15 @@ jobs:
             if [[ -f "$report" ]]; then cat "$report"; fi
             exit "$lint_status"
           fi
+      - name: Build and install current YCore GPU companion
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifacts="$RUNNER_TEMP/ycore-gpu-companion"
+          bash scripts/build-ycore-gpu-companion.sh "$artifacts"
+          install -m 0644 "$artifacts/ycore-gpu.aar" composeApp/libs/ycore-gpu.aar
+          install -m 0644 "$artifacts/ycore-gpu.aar.sha256" composeApp/libs/ycore-gpu.aar.sha256
+          install -m 0644 "$artifacts/NATIVE-SOURCES.txt" composeApp/libs/ycore-gpu.sources.txt
       - name: Build R8 release package
         run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
       - name: Verify release package and size budget
