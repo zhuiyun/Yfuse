@@ -8,6 +8,7 @@ WORK_ROOT="${YFUSE_MPV_WORK_ROOT:-$ROOT/.native-build/yfuse-mpv}"
 OUT_DIR="${YFUSE_MPV_OUT_DIR:-$ROOT/.native-build/artifacts}"
 UPSTREAM_REPO="https://github.com/jarnedemeulemeester/libmpv-android.git"
 UPSTREAM_COMMIT="fcf6745703dc1265bca88f12fee8fc355ddf251e" # v1.0.0
+ANDROID_GRADLE_PLUGIN_VERSION="8.11.1"
 LIBBLURAY_TAG="1.4.1"
 LIBBLURAY_COMMIT="7d94f2660af5bfc16015291a03539329135c18f1"
 LIBUDFREAD_COMMIT="139a2194525f2745b98a98e4d8fa627d07440176"
@@ -74,12 +75,29 @@ git -C "$WORK_ROOT/source" checkout -q --detach FETCH_HEAD
 }
 
 SOURCE="$WORK_ROOT/source"
+GRADLE_VERSION_CATALOG="$SOURCE/gradle/libs.versions.toml"
 DEPINFO="$SOURCE/buildscripts/include/depinfo.sh"
 DOWNLOAD_DEPS="$SOURCE/buildscripts/include/download-deps.sh"
 LIBBLURAY_BUILD="$SOURCE/buildscripts/scripts/libbluray.sh"
 CAPABILITY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseMpvCapabilities.java"
 REGISTRY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseBluRayRegistry.java"
 BDMV_REGISTRY_SOURCE="$SOURCE/libmpv/src/main/java/dev/yfuse/mpv/YfuseBdmvRegistry.java"
+
+# The pinned wrapper revision currently names an unpublished Android Gradle Plugin. Keep the
+# Android wrapper source pinned, but replace that external build-tool coordinate with the version
+# already resolved and exercised by Yfuse's own Android quality gates.
+python3 - "$GRADLE_VERSION_CATALOG" "$ANDROID_GRADLE_PLUGIN_VERSION" <<'PY'
+from pathlib import Path
+import sys
+
+catalog = Path(sys.argv[1])
+version = sys.argv[2]
+text = catalog.read_text()
+anchor = 'android-plugin = "9.1.0"'
+if text.count(anchor) != 1:
+    raise SystemExit("unexpected upstream version catalog: Android plugin anchor missing or duplicated")
+catalog.write_text(text.replace(anchor, f'android-plugin = "{version}"', 1))
+PY
 
 if [[ -n "$REQUESTED_ABI" ]]; then
   python3 - "$SOURCE/libmpv/build.gradle.kts" "$REQUESTED_ABI" <<'PY'
@@ -361,6 +379,7 @@ cp -f "$AAR" "$DEST"
 sha256sum "$DEST" | tee "$DEST.sha256"
 {
   printf 'libmpv-android=%s\n' "$UPSTREAM_COMMIT"
+  printf 'android-gradle-plugin=%s\n' "$ANDROID_GRADLE_PLUGIN_VERSION"
   printf 'libbluray=%s\n' "$LIBBLURAY_COMMIT"
   printf 'libudfread=%s\n' "$LIBUDFREAD_COMMIT"
   printf 'bdj_jar=disabled\n'
