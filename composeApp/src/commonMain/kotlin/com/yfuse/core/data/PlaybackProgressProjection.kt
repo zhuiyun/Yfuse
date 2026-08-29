@@ -9,9 +9,9 @@ import com.yfuse.core.sync.playback.PlaybackSyncStore
 /**
  * The single boundary between server metadata and progress shown by the app.
  *
- * With progress sync disabled, server UserData is never allowed to supply watched state,
- * percentage or a resume position. Favorites remain server-owned and local playback records
- * become the only progress domain.
+ * Server UserData is never a live progress source for screens. A startup pull may seed records
+ * which do not exist locally; after that, watched state, percentage and resume position always
+ * come from [localStore]. Favorites remain server-owned.
  */
 class PlaybackProgressProjection(
     private val localStore: PlaybackSyncStore? = null,
@@ -23,7 +23,6 @@ class PlaybackProgressProjection(
         server: SavedServer,
         item: BaseItemDto,
     ): BaseItemDto {
-        if (!localOnly) return item
         val state = stateFor(server, item)
         val favorite = item.UserData?.IsFavorite
         val positionMs = state?.positionMs?.coerceAtLeast(0L) ?: 0L
@@ -58,13 +57,13 @@ class PlaybackProgressProjection(
         item: BaseItemDto,
     ): PlaybackStateRecord? {
         val store = localStore ?: return null
-        // Local-only means local to this exact server item too: portable provider aliases must
-        // not silently copy server A's progress onto server B while synchronization is disabled.
+        // Progress is local to this exact server item: portable provider aliases must not
+        // silently copy server A's progress onto server B during normal browsing.
         return store.stateForServerItem(server.id, item.Id)
     }
 
     fun localStates(server: SavedServer): List<PlaybackStateRecord> =
-        if (localOnly) localStore?.statesForServer(server.id).orEmpty() else emptyList()
+        localStore?.statesForServer(server.id).orEmpty()
 
     private fun millisecondsToTicks(value: Long): Long =
         if (value > Long.MAX_VALUE / TICKS_PER_MILLISECOND) Long.MAX_VALUE else value * TICKS_PER_MILLISECOND

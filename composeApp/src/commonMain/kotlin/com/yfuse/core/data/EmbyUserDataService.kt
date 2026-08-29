@@ -48,11 +48,18 @@ internal class EmbyUserDataService(
     suspend fun snapshot(
         server: SavedServer,
         includeProgress: Boolean = true,
+        includeFavorites: Boolean = true,
     ): Result<List<SyncedUserItem>> =
         embyApiCall("user_library_snapshot") {
             val collected = linkedMapOf<String, SyncedUserItem>()
             val queries =
-                if (includeProgress) UserSnapshotQuery.entries else listOf(UserSnapshotQuery.Favorite)
+                buildList {
+                    if (includeFavorites) add(UserSnapshotQuery.Favorite)
+                    if (includeProgress) {
+                        add(UserSnapshotQuery.Resumable)
+                        add(UserSnapshotQuery.Played)
+                    }
+                }
             queries.forEach { query ->
                 collectUserState(server, query, collected, includeProgress)
             }

@@ -256,51 +256,32 @@ internal class EmbyHomeService(
     }
 
     private suspend fun fetchResume(server: SavedServer): List<MediaItem> {
-        if (progress.localOnly) {
-            val ids =
-                progress
-                    .localStates(server)
-                    .asSequence()
-                    .filter { !it.played && it.positionMs > 0L }
-                    .mapNotNull { it.serverItemId }
-                    .distinct()
-                    .take(12)
-                    .toList()
-            if (ids.isEmpty()) return emptyList()
-            val localItems: ItemsResponseDto =
-                client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
-                        header("X-Emby-Token", server.accessToken)
-                        parameter("Ids", ids.joinToString(","))
-                        parameter(
-                            "Fields",
-                            "BackdropImageTags,UserData,Overview,CommunityRating,ParentBackdropItemId," +
-                                "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks,ProviderIds",
-                        )
-                        parameter("EnableImageTypes", "Primary,Backdrop")
-                        parameter("ImageTypeLimit", 2)
-                        parameter("Limit", ids.size)
-                    }.body()
-            val byId = localItems.Items.associateBy(BaseItemDto::Id)
-            return ids.mapNotNull(byId::get).map { progress.project(server, it).toMediaItem() }
-        }
-        val dto: ItemsResponseDto =
+        val ids =
+            progress
+                .localStates(server)
+                .asSequence()
+                .filter { !it.played && it.positionMs > 0L }
+                .mapNotNull { it.serverItemId }
+                .distinct()
+                .take(12)
+                .toList()
+        if (ids.isEmpty()) return emptyList()
+        val localItems: ItemsResponseDto =
             client
-                .get("${server.baseUrl}/Users/${server.userId}/Items/Resume") {
+                .get("${server.baseUrl}/Users/${server.userId}/Items") {
                     header("X-Emby-Token", server.accessToken)
-                    parameter("Limit", 12)
-                    parameter("Recursive", true)
-                    parameter("MediaTypes", "Video")
-                    // UserData carries PlayedPercentage, which draws the resume bar.
+                    parameter("Ids", ids.joinToString(","))
                     parameter(
                         "Fields",
-                        "BackdropImageTags,UserData,Overview,CommunityRating,ParentBackdropItemId," +
-                            "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks",
+                            "BackdropImageTags,UserData,Overview,CommunityRating,ParentBackdropItemId," +
+                            "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks,ProviderIds",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")
                     parameter("ImageTypeLimit", 2)
+                    parameter("Limit", ids.size)
                 }.body()
-        return dto.Items.map { progress.project(server, it).toMediaItem() }
+        val byId = localItems.Items.associateBy(BaseItemDto::Id)
+        return ids.mapNotNull(byId::get).map { progress.project(server, it).toMediaItem() }
     }
 
     private suspend fun fetchLatest(

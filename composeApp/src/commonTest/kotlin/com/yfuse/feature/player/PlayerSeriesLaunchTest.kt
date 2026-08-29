@@ -76,7 +76,8 @@ class PlayerSeriesLaunchTest {
             val state = store.states.first { !it.loading }
 
             assertEquals(listOf("e4"), state.items.map { it.id })
-            assertEquals(3_300L, state.startPositionMs)
+            assertEquals(0L, state.startPositionMs)
+            assertFalse(requestedPaths.any { it.endsWith("/Shows/NextUp") })
             assertTrue(requestedPaths.any { it.endsWith("/Items/e4/PlaybackInfo") })
             assertFalse(requestedPaths.any { it.endsWith("/Items/series/PlaybackInfo") })
             store.dispose()

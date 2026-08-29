@@ -24,7 +24,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 
 data class PlaybackCloudSyncState(
     val syncing: Boolean = false,
@@ -60,6 +59,7 @@ class PlaybackSyncManager(
     private var cloudFailureStreak = 0
     private var retryNotBeforeEpochMs = Long.MIN_VALUE
     private var cloudPlaybackEndpointUnavailable = false
+    private val startupPullAttemptedUserIds = mutableSetOf<String>()
     private val _state =
         MutableStateFlow(
             PlaybackCloudSyncState(
@@ -89,11 +89,7 @@ class PlaybackSyncManager(
                 }
                 val userId = cipher.currentUserId() ?: return@collectLatest
                 if (store.bindAccount(userId)) updatePendingState()
-                syncNow()
-                while (true) {
-                    delay(PERIODIC_CLOUD_SYNC_MS)
-                    syncNow()
-                }
+                syncNow(pullRemote = startupPullAttemptedUserIds.add(userId))
             }
         }
     }
@@ -171,11 +167,12 @@ class PlaybackSyncManager(
     }
 
     /**
-     * The account-level position to use for an ordinary playback launch.
+     * The process-local position to use for an ordinary playback launch.
      *
-     * `null` means Yfuse has no opinion and the media server's start position remains authoritative.
-     * A real synced record may deliberately resolve to `0` (finished, manually unwatched, or a
-     * newer restart), so callers must not collapse zero into the no-record case.
+     * The startup pull may seed this store once, but playback itself never performs a remote read.
+     * `null` means Yfuse has no local record. A real record may deliberately resolve to `0`
+     * (finished, manually unwatched, or a newer restart), so callers must not collapse zero into
+     * the no-record case.
      */
     fun startPositionMs(
         mediaKey: String,
@@ -195,22 +192,7 @@ class PlaybackSyncManager(
         serverId: String? = null,
     ): Long? = startPositionMs(mediaKey, aliases, serverId)?.takeIf { it > 0L }
 
-    /**
-     * Best-effort pull immediately before an ordinary resume, closing the small gap between the
-     * 60-second background poll and a user who just moved from another device. Playback never
-     * waits on a slow/offline account service longer than [budgetMs].
-     */
-    suspend fun refreshForPlayback(
-        maxAgeMs: Long = PREPLAY_SYNC_MAX_AGE_MS,
-        budgetMs: Long = PREPLAY_SYNC_BUDGET_MS,
-    ) {
-        if (maxAgeMs < 0L || budgetMs <= 0L) return
-        val lastSuccess = _state.value.lastSyncedAtEpochMs
-        if (lastSuccess != null && nowEpochMs() - lastSuccess in 0L..maxAgeMs) return
-        withTimeoutOrNull(budgetMs) { syncNow() }
-    }
-
-    suspend fun syncNow() {
+    private suspend fun syncNow(pullRemote: Boolean = false) {
         syncMutex.withLock {
             if (!progressSyncEnabled.value) {
                 _state.value = _state.value.copy(syncing = false)
@@ -226,7 +208,7 @@ class PlaybackSyncManager(
             lastCloudAttemptAtEpochMs = now
             _state.value = _state.value.copy(syncing = true, error = null)
             try {
-                syncWithToken(accessToken)
+                syncWithToken(accessToken, pullRemote)
                 markCloudSyncSucceeded()
                 _state.value =
                     _state.value.copy(
@@ -243,7 +225,7 @@ class PlaybackSyncManager(
                 if (error.status == HttpStatusCode.Unauthorized) {
                     val refreshed = accessTokens.refreshAccessTokenFor(cloud.origin)
                     if (refreshed != null) {
-                        runCatching { syncWithToken(refreshed) }
+                        runCatching { syncWithToken(refreshed, pullRemote) }
                             .onSuccess {
                                 markCloudSyncSucceeded()
                                 _state.value =
@@ -265,9 +247,14 @@ class PlaybackSyncManager(
         }
     }
 
-    private suspend fun syncWithToken(accessToken: String) {
-        if (!progressSyncEnabled.value) return
-        pullAll(accessToken)
+    private suspend fun syncWithToken(
+        accessToken: String,
+        pullRemote: Boolean,
+    ) {
+        if (pullRemote) {
+            if (!progressSyncEnabled.value) return
+            pullAll(accessToken)
+        }
         if (!progressSyncEnabled.value) return
         pushPending(accessToken)
         if (!progressSyncEnabled.value) return
@@ -449,7 +436,7 @@ class PlaybackSyncManager(
                     if (elapsed < MIN_URGENT_CLOUD_GAP_MS) {
                         delay(MIN_URGENT_CLOUD_GAP_MS - elapsed)
                     }
-                    syncNow()
+                    syncNow(pullRemote = false)
                 }
             return
         }
@@ -457,7 +444,7 @@ class PlaybackSyncManager(
         debounceJob =
             scope.launch {
                 delay(CLOUD_DEBOUNCE_MS)
-                syncNow()
+                syncNow(pullRemote = false)
             }
     }
 
@@ -553,9 +540,6 @@ class PlaybackSyncManager(
         const val CLOUD_DEBOUNCE_MS = 20_000L
         const val MIN_URGENT_CLOUD_GAP_MS = 5_000L
         const val MAX_CLOUD_FAILURE_STREAK = 6
-        const val PERIODIC_CLOUD_SYNC_MS = 60_000L
-        const val PREPLAY_SYNC_MAX_AGE_MS = 10_000L
-        const val PREPLAY_SYNC_BUDGET_MS = 1_000L
         const val PULL_PAGE_SIZE = 100
         const val MAX_PULL_PAGES_PER_SYNC = 8
         const val PUSH_BATCH_SIZE = 8
