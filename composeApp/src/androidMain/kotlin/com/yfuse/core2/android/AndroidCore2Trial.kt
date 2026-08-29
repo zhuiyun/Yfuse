@@ -48,6 +48,8 @@ internal object AndroidCore2TrialFactory {
         autoNext: Boolean,
         customUserAgent: String,
         allowAudioPassthrough: Boolean,
+        allowDolbyVisionHls: Boolean,
+        allowDolbyAtmosHls: Boolean,
         frameRateMatch: PlaybackFrameRateMatch,
         videoCacheBytes: Long = 0L,
         nativeOnly: Boolean = false,
@@ -104,6 +106,10 @@ internal object AndroidCore2TrialFactory {
                                     drmProtected =
                                         item.drmConfiguration != null ||
                                             item.activeVersion?.drmConfiguration != null,
+                                    // The authored HLS master is the source of truth. Emby metadata
+                                    // can omit rendition-level Dolby facts that AVFoundation sees.
+                                    allowDolbyVisionHls = allowDolbyVisionHls,
+                                    allowDolbyAtmosHls = allowDolbyAtmosHls,
                                 )
                             } else if (cacheable) {
                                 cacheProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl

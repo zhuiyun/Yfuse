@@ -11,15 +11,18 @@ import com.yfuse.core2.adaptive.YAdaptiveVariantSelector
 import com.yfuse.core2.adaptive.YDashRepresentation
 import com.yfuse.core2.adaptive.YDashResourceKind
 import com.yfuse.core2.adaptive.YHlsAlignedSegment
+import com.yfuse.core2.adaptive.YHlsPlaybackCapabilities
 import com.yfuse.core2.adaptive.YHlsPlaylist
 import com.yfuse.core2.adaptive.YHlsResourceKind
 import com.yfuse.core2.adaptive.YHlsVariantMediaPlaylist
 import com.yfuse.core2.adaptive.alignYHlsVariantSegments
+import com.yfuse.core2.adaptive.buildYHlsPlaybackMaster
 import com.yfuse.core2.adaptive.buildYDashPlaybackManifest
 import com.yfuse.core2.adaptive.parseYDashManifest
 import com.yfuse.core2.adaptive.parseYHlsPlaylist
 import com.yfuse.core2.adaptive.renderDashTemplate
 import com.yfuse.core2.adaptive.rewriteYHlsResourceUris
+import com.yfuse.core2.adaptive.selectYHlsPlaybackSet
 import com.yfuse.core2.adaptive.selectYDashPlaybackRepresentations
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YMediaTransport
@@ -67,6 +70,8 @@ internal class AndroidYCoreHttpProxy(
         val hlsManifest: Boolean,
         val dashManifest: Boolean,
         val drmProtected: Boolean,
+        val allowDolbyVisionHls: Boolean,
+        val allowDolbyAtmosHls: Boolean,
         val dashTemplate: DashTemplateRoute? = null,
         val hlsAbrResource: HlsAbrResourceRoute? = null,
     )
@@ -184,6 +189,8 @@ internal class AndroidYCoreHttpProxy(
         hlsManifest: Boolean = upstreamUri.isHlsManifestUri(),
         dashManifest: Boolean = upstreamUri.isDashManifestUri(),
         drmProtected: Boolean = false,
+        allowDolbyVisionHls: Boolean = false,
+        allowDolbyAtmosHls: Boolean = false,
     ): String {
         if (closed.get() || upstreamUri.sourceProtocolOrNull() == null) return upstreamUri
         val route =
@@ -196,6 +203,8 @@ internal class AndroidYCoreHttpProxy(
                 hlsManifest = hlsManifest,
                 dashManifest = dashManifest,
                 drmProtected = drmProtected,
+                allowDolbyVisionHls = allowDolbyVisionHls,
+                allowDolbyAtmosHls = allowDolbyAtmosHls,
             )
         val syntheticPath =
             when {
@@ -351,16 +360,26 @@ internal class AndroidYCoreHttpProxy(
         require(!rootText.hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
         val root = parseYHlsPlaylist(rootText, route.upstreamUri)
         if (root is YHlsPlaylist.Master && rootText.hasSeparateYCoreHlsRenditions()) {
-            // A separate AUDIO/VIDEO/SUBTITLES group cannot be collapsed into one media playlist.
-            // Keep the authored master relationship intact, but force every child playlist back
-            // through this loopback boundary. FFmpeg may coordinate rendition selection while
-            // transport, credentials, cache policy and network isolation remain owned by YCore.
+            val conditions =
+                YAdaptiveSelectionConditions(
+                    estimatedBandwidthBitsPerSecond = INITIAL_BANDWIDTH_BITS_PER_SECOND,
+                    bufferedDurationUs = STARTUP_BUFFER_US,
+                    maximumWidth = route.maximumWidth,
+                    maximumHeight = route.maximumHeight,
+                    metered = isMeteredNetwork(),
+                )
+            val playback =
+                selectYHlsPlaybackSet(
+                    master = root,
+                    conditions = conditions,
+                    capabilities =
+                        YHlsPlaybackCapabilities(
+                            dolbyVisionOutput = route.allowDolbyVisionHls,
+                            dolbyAtmosOutput = route.allowDolbyAtmosHls,
+                        ),
+                )
             val localizedMaster =
-                rewriteYHlsResourceUris(rootText, route.upstreamUri) { upstreamUri, kind ->
-                    require(
-                        kind == YHlsResourceKind.VariantPlaylist ||
-                            kind == YHlsResourceKind.RenditionPlaylist,
-                    ) { "Unexpected media resource in an HLS master playlist" }
+                buildYHlsPlaybackMaster(playback) { upstreamUri, _ ->
                     localUrl(
                         upstreamUri = upstreamUri,
                         cacheable = false,
@@ -370,6 +389,8 @@ internal class AndroidYCoreHttpProxy(
                         hlsManifest = true,
                         dashManifest = false,
                         drmProtected = route.drmProtected,
+                        allowDolbyVisionHls = route.allowDolbyVisionHls,
+                        allowDolbyAtmosHls = route.allowDolbyAtmosHls,
                     )
                 }.encodeToByteArray()
             writeHeaders(

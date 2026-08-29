@@ -30,10 +30,40 @@ enum class CastCapability(
 }
 
 data class CastCapabilities(
+    /** True only after the Yfuse custom receiver answered for the current session revision. */
+    val receiverConfirmed: Boolean = false,
     val playPause: CastCapability = CastCapability.Unknown,
     val seek: CastCapability = CastCapability.Unknown,
     val stop: CastCapability = CastCapability.Unknown,
     val volume: CastCapability = CastCapability.Unknown,
+    /** Receiver + connected display capability, never inferred from the sender device. */
+    val dolbyVision: CastCapability = CastCapability.Unknown,
+    /** Receiver audio passthrough capability, never inferred from source metadata. */
+    val dolbyAtmos: CastCapability = CastCapability.Unknown,
+    /** Result of the receiver's canDisplayType check for the requested original representation. */
+    val requestedMedia: CastCapability = CastCapability.Unknown,
+)
+
+/** Source facts sent to a capable receiver before choosing original media over the safe fallback. */
+data class CastMediaProfile(
+    val contentType: String? = null,
+    val videoCodec: String? = null,
+    val audioCodec: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val frameRate: Double? = null,
+    val dolbyVision: Boolean = false,
+    val dolbyAtmos: Boolean = false,
+)
+
+/** Current-load output receipt emitted by the receiver after playback actually reaches PLAYING. */
+data class CastOutputEvidence(
+    val sessionRevision: Long = 0L,
+    val receiverConfirmed: Boolean = false,
+    val playbackConfirmed: Boolean = false,
+    val dolbyVisionOutput: Boolean = false,
+    val dolbyAtmosOutput: Boolean = false,
+    val detail: String = "接收端未回执",
 )
 
 enum class CastTermination {
@@ -56,6 +86,7 @@ data class CastState(
     /** Receiver volume, 0f..1f; null until a receiver confirms it. */
     val volume: Float? = null,
     val capabilities: CastCapabilities = CastCapabilities(),
+    val outputEvidence: CastOutputEvidence = CastOutputEvidence(),
     /** Last confirmed transport intent, retained through buffering/disconnection. */
     val lastRemoteWasPlaying: Boolean = false,
     val termination: CastTermination? = null,
@@ -83,6 +114,8 @@ interface CastManager {
         mediaUrl: String,
         title: String,
         positionMs: Long = 0L,
+        fallbackMediaUrl: String? = null,
+        mediaProfile: CastMediaProfile = CastMediaProfile(),
     ): Boolean
 
     suspend fun resume(): Boolean
@@ -110,6 +143,7 @@ internal fun CastState.connectingTo(
         positionConfirmed = false,
         durationMs = 0L,
         capabilities = CastCapabilities(),
+        outputEvidence = CastOutputEvidence(sessionRevision = sessionRevision + 1L),
         lastRemoteWasPlaying = false,
         termination = null,
         error = null,
@@ -147,10 +181,52 @@ internal fun CastState.commandFailed(message: String): CastState =
         error = message,
     )
 
+/** Ignores delayed custom-channel messages from an older Cast load attempt. */
+internal fun CastState.withReceiverCapabilities(
+    revision: Long,
+    dolbyVision: CastCapability,
+    dolbyAtmos: CastCapability,
+    requestedMedia: CastCapability,
+): CastState {
+    if (revision != sessionRevision || termination != null) return this
+    return copy(
+        capabilities =
+            capabilities.copy(
+                receiverConfirmed = true,
+                dolbyVision = dolbyVision,
+                dolbyAtmos = dolbyAtmos,
+                requestedMedia = requestedMedia,
+            ),
+    )
+}
+
+/** A positive Dolby badge is accepted only from PLAYING evidence for this exact load revision. */
+internal fun CastState.withReceiverOutputReceipt(
+    revision: Long,
+    playbackConfirmed: Boolean,
+    dolbyVisionOutput: Boolean,
+    dolbyAtmosOutput: Boolean,
+    detail: String,
+): CastState {
+    if (revision != sessionRevision || termination != null) return this
+    return copy(
+        outputEvidence =
+            CastOutputEvidence(
+                sessionRevision = revision,
+                receiverConfirmed = true,
+                playbackConfirmed = playbackConfirmed,
+                dolbyVisionOutput = playbackConfirmed && dolbyVisionOutput,
+                dolbyAtmosOutput = playbackConfirmed && dolbyAtmosOutput,
+                detail = detail,
+            ),
+    )
+}
+
 internal fun CastState.unexpectedDisconnect(message: String): CastState =
     copy(
         status = CastPlaybackStatus.Disconnected,
         capabilities = CastCapabilities(),
+        outputEvidence = CastOutputEvidence(sessionRevision = sessionRevision),
         termination = CastTermination.Unexpected,
         error = message,
     )
@@ -161,6 +237,7 @@ internal fun CastState.userStopped(): CastState =
         activeDevice = null,
         sessionConfirmed = false,
         capabilities = CastCapabilities(),
+        outputEvidence = CastOutputEvidence(sessionRevision = sessionRevision),
         termination = CastTermination.UserStop,
         error = null,
     )

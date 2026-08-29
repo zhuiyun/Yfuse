@@ -78,6 +78,12 @@ private fun parseMasterPlaylist(
     lines: List<String>,
     baseUri: String,
 ): YHlsPlaylist.Master {
+    val renditions =
+        lines
+            .asSequence()
+            .filter { it.startsWith(MEDIA_TAG) }
+            .map { line -> parseHlsRendition(line, baseUri) }
+            .toList()
     val variants = mutableListOf<YAdaptiveVariant>()
     var index = 0
     while (index < lines.size) {
@@ -98,7 +104,9 @@ private fun parseMasterPlaylist(
         variants +=
             YAdaptiveVariant(
                 id =
-                    attributes["NAME"]
+                    attributes["STABLE-VARIANT-ID"]
+                        ?.takeIf(String::isNotBlank)
+                        ?: attributes["NAME"]
                         ?.takeIf(String::isNotBlank)
                         ?: "hls-$variantIndex-$bandwidth",
                 uri = resolveAdaptiveUri(baseUri, uriLine),
@@ -114,10 +122,50 @@ private fun parseMasterPlaylist(
                         ?.map(String::trim)
                         ?.filter(String::isNotEmpty)
                         .orEmpty(),
+                audioGroupId = attributes["AUDIO"]?.takeIf(String::isNotBlank),
+                videoGroupId = attributes["VIDEO"]?.takeIf(String::isNotBlank),
+                subtitleGroupId = attributes["SUBTITLES"]?.takeIf(String::isNotBlank),
+                closedCaptionsGroupId =
+                    attributes["CLOSED-CAPTIONS"]
+                        ?.takeUnless { it.equals("NONE", ignoreCase = true) }
+                        ?.takeIf(String::isNotBlank),
+                videoRange = attributes["VIDEO-RANGE"].toYHlsVideoRange(),
+                stableVariantId = attributes["STABLE-VARIANT-ID"]?.takeIf(String::isNotBlank),
             )
         index = uriIndex + 1
     }
-    return YHlsPlaylist.Master(variants)
+    return YHlsPlaylist.Master(variants, renditions)
+}
+
+private fun parseHlsRendition(
+    line: String,
+    baseUri: String,
+): YHlsRendition {
+    val attributes = parseHlsAttributes(line.substringAfter(':', ""))
+    return YHlsRendition(
+        type =
+            when (attributes["TYPE"]?.uppercase()) {
+                "AUDIO" -> YHlsRenditionType.Audio
+                "VIDEO" -> YHlsRenditionType.Video
+                "SUBTITLES" -> YHlsRenditionType.Subtitles
+                "CLOSED-CAPTIONS" -> YHlsRenditionType.ClosedCaptions
+                else -> YHlsRenditionType.Unknown
+            },
+        groupId = attributes["GROUP-ID"] ?: error("HLS rendition is missing GROUP-ID"),
+        name = attributes["NAME"] ?: error("HLS rendition is missing NAME"),
+        uri = attributes["URI"]?.let { resolveAdaptiveUri(baseUri, it) },
+        language = attributes["LANGUAGE"]?.takeIf(String::isNotBlank),
+        default = attributes["DEFAULT"].isHlsYes(),
+        autoselect = attributes["AUTOSELECT"].isHlsYes(),
+        forced = attributes["FORCED"].isHlsYes(),
+        channels = attributes["CHANNELS"]?.takeIf(String::isNotBlank),
+        characteristics =
+            attributes["CHARACTERISTICS"]
+                ?.split(',')
+                ?.map(String::trim)
+                ?.filter(String::isNotBlank)
+                .orEmpty(),
+    )
 }
 
 private fun parseMediaPlaylist(
@@ -271,6 +319,16 @@ private fun String.parseResolution(): Pair<Int, Int>? {
     val height = substringAfter('x', "").toIntOrNull()
     return if (width != null && height != null && width > 0 && height > 0) width to height else null
 }
+
+private fun String?.toYHlsVideoRange(): YHlsVideoRange =
+    when (this?.trim()?.uppercase()) {
+        "SDR" -> YHlsVideoRange.Sdr
+        "PQ" -> YHlsVideoRange.Pq
+        "HLG" -> YHlsVideoRange.Hlg
+        else -> YHlsVideoRange.Unknown
+    }
+
+private fun String?.isHlsYes(): Boolean = equals("YES", ignoreCase = true)
 
 private fun String.parseByteRange(defaultOffset: Long): YAdaptiveByteRange {
     val length = substringBefore('@').toLongOrNull()?.takeIf { it > 0L } ?: error("Invalid HLS byte range")

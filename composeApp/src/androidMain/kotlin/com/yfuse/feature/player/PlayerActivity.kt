@@ -1180,9 +1180,18 @@ class PlayerActivity : ComponentActivity() {
         val targetIndex = activeState.currentIndex + offset
         val item = playbackItems.value.getOrNull(targetIndex) ?: return
         val deviceId = cast.activeDeviceId ?: return
-        val mediaUrl = item.transcodeUrl.ifBlank { item.url }
+        val fallbackUrl = item.transcodeUrl.ifBlank { item.fallbackTranscodeUrl }
         lifecycleScope.launch {
-            if (castManager.play(deviceId, mediaUrl, item.title, 0L)) {
+            if (
+                castManager.play(
+                    deviceId = deviceId,
+                    mediaUrl = item.url,
+                    title = item.title,
+                    positionMs = 0L,
+                    fallbackMediaUrl = fallbackUrl,
+                    mediaProfile = item.castMediaProfile(),
+                )
+            ) {
                 activePlayer?.selectItem(targetIndex)
                 activePlayer?.pause()
             }

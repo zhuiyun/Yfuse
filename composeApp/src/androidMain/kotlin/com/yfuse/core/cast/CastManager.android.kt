@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
+import com.google.android.gms.cast.Cast
 import com.google.android.gms.cast.CastMediaControlIntent
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
@@ -43,6 +44,7 @@ import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URL
 import kotlin.coroutines.resume
+import org.json.JSONObject
 
 private lateinit var castApplicationContext: Context
 
@@ -81,8 +83,14 @@ private class AndroidCastManager(
     private var dlnaPollJob: Job? = null
     private var activeProtocol: ActiveProtocol? = null
     private var castClient: RemoteMediaClient? = null
+    private var castMessageSession: CastSession? = null
     private var sessionListenerRegistered = false
     private var suppressNextSessionEnd = false
+
+    private val castMessageCallback =
+        Cast.MessageReceivedCallback { _, namespace, message ->
+            if (namespace == CAST_OUTPUT_NAMESPACE) handleCastReceiverMessage(message)
+        }
 
     private val mediaRouter by lazy { MediaRouter.getInstance(context) }
     private val castSelector =
@@ -90,7 +98,7 @@ private class AndroidCastManager(
             .Builder()
             .addControlCategory(
                 CastMediaControlIntent.categoryForCast(
-                    CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID,
+                    configuredCastReceiverApplicationId(),
                 ),
             ).build()
 
@@ -333,21 +341,39 @@ private class AndroidCastManager(
         mediaUrl: String,
         title: String,
         positionMs: Long,
+        fallbackMediaUrl: String?,
+        mediaProfile: CastMediaProfile,
     ): Boolean {
-        castMediaUrlError(mediaUrl)?.let { message ->
+        val usableFallback = fallbackMediaUrl?.takeIf { castMediaUrlError(it) == null }
+        val mediaError = castMediaUrlError(mediaUrl)
+        if (mediaError != null && usableFallback == null) {
             mutableState.update { current ->
                 if (current.hasActiveSession) {
-                    current.copy(error = message)
+                    current.copy(error = mediaError)
                 } else {
-                    current.commandFailed(message)
+                    current.commandFailed(mediaError)
                 }
             }
             return false
         }
+        val resolvedMediaUrl = if (mediaError == null) mediaUrl else requireNotNull(usableFallback)
+        val resolvedProfile = if (resolvedMediaUrl == mediaUrl) mediaProfile else CastMediaProfile()
         return if (deviceId.startsWith(CAST_PREFIX)) {
-            playChromecast(deviceId, mediaUrl, title, positionMs)
+            playChromecast(
+                deviceId = deviceId,
+                mediaUrl = resolvedMediaUrl,
+                fallbackMediaUrl = usableFallback,
+                title = title,
+                positionMs = positionMs,
+                mediaProfile = resolvedProfile,
+            )
         } else {
-            playDlna(deviceId, mediaUrl, title, positionMs)
+            playDlna(
+                deviceId,
+                usableFallback ?: resolvedMediaUrl,
+                title,
+                positionMs,
+            )
         }
     }
 
@@ -436,8 +462,10 @@ private class AndroidCastManager(
     private suspend fun playChromecast(
         deviceId: String,
         mediaUrl: String,
+        fallbackMediaUrl: String?,
         title: String,
         positionMs: Long,
+        mediaProfile: CastMediaProfile,
     ): Boolean =
         withContext(Dispatchers.Main.immediate) {
             ensureCastCallbacks()
@@ -466,16 +494,40 @@ private class AndroidCastManager(
                 val remote = requireNotNull(activeSession.remoteMediaClient) { "Chromecast 媒体通道不可用" }
                 attachCastClient(activeSession)
 
+                val revision = mutableState.value.sessionRevision
+                requestReceiverCapabilities(activeSession, revision, mediaProfile)
+                val receiverCapabilities = mutableState.value.capabilities
+                val canUseOriginalDolby =
+                    hasYfuseCastReceiver() &&
+                        (mediaProfile.dolbyVision || mediaProfile.dolbyAtmos) &&
+                        receiverCapabilities.receiverConfirmed &&
+                        receiverCapabilities.requestedMedia == CastCapability.Supported &&
+                        (!mediaProfile.dolbyVision || receiverCapabilities.dolbyVision == CastCapability.Supported) &&
+                        (!mediaProfile.dolbyAtmos || receiverCapabilities.dolbyAtmos == CastCapability.Supported)
+                val selectedUrl =
+                    if (canUseOriginalDolby) {
+                        mediaUrl
+                    } else {
+                        fallbackMediaUrl?.takeIf { castMediaUrlError(it) == null } ?: mediaUrl
+                    }
+                val selectedProfile =
+                    if (selectedUrl == mediaUrl) {
+                        mediaProfile
+                    } else {
+                        CastMediaProfile(contentType = selectedUrl.contentType())
+                    }
+
                 val metadata =
                     MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
                         putString(MediaMetadata.KEY_TITLE, title)
                     }
                 val info =
                     MediaInfo
-                        .Builder(mediaUrl)
+                        .Builder(selectedUrl)
                         .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
-                        .setContentType(mediaUrl.contentType())
+                        .setContentType(selectedProfile.contentType ?: selectedUrl.contentType())
                         .setMetadata(metadata)
+                        .setCustomData(selectedProfile.toCastCustomData(revision))
                         .build()
                 mutableState.update { it.copy(status = CastPlaybackStatus.Buffering) }
                 val accepted =
@@ -530,15 +582,85 @@ private class AndroidCastManager(
         castClient = remote
         remote.registerCallback(castCallback)
         remote.addProgressListener(castProgressListener, CAST_PROGRESS_INTERVAL_MS)
+        if (hasYfuseCastReceiver()) {
+            runCatching {
+                session.setMessageReceivedCallbacks(CAST_OUTPUT_NAMESPACE, castMessageCallback)
+                castMessageSession = session
+            }.onFailure { error ->
+                AppLog.warning(
+                    category = "cast",
+                    event = "receiver_channel_attach_failed",
+                    message = "Cast output channel unavailable",
+                    throwable = error,
+                )
+            }
+        }
         if (activeProtocol == ActiveProtocol.Chromecast) syncChromecastStatus()
     }
 
     private fun detachCastClient() {
+        castMessageSession?.let { session ->
+            runCatching { session.removeMessageReceivedCallbacks(CAST_OUTPUT_NAMESPACE) }
+        }
+        castMessageSession = null
         castClient?.let { client ->
             runCatching { client.unregisterCallback(castCallback) }
             runCatching { client.removeProgressListener(castProgressListener) }
         }
         castClient = null
+    }
+
+    private suspend fun requestReceiverCapabilities(
+        session: CastSession,
+        revision: Long,
+        profile: CastMediaProfile,
+    ) {
+        if (!hasYfuseCastReceiver()) return
+        val request =
+            JSONObject()
+                .put("type", "capabilities.request")
+                .put("revision", revision)
+                .put("profile", profile.toJson())
+                .toString()
+        val sent =
+            withTimeoutOrNull(CAST_CAPABILITY_TIMEOUT_MS) {
+                session.sendMessage(CAST_OUTPUT_NAMESPACE, request)?.awaitSuccess() == true
+            } == true
+        if (!sent) return
+        withTimeoutOrNull(CAST_CAPABILITY_TIMEOUT_MS) {
+            while (
+                mutableState.value.sessionRevision == revision &&
+                !mutableState.value.capabilities.receiverConfirmed
+            ) {
+                delay(CAST_CAPABILITY_POLL_MS)
+            }
+        }
+    }
+
+    private fun handleCastReceiverMessage(message: String) {
+        val payload = runCatching { JSONObject(message) }.getOrNull() ?: return
+        val revision = payload.optLong("revision", -1L).takeIf { it >= 0L } ?: return
+        when (payload.optString("type")) {
+            "capabilities.response" ->
+                mutableState.update { state ->
+                    state.withReceiverCapabilities(
+                        revision = revision,
+                        dolbyVision = payload.castCapability("dolbyVisionSupported"),
+                        dolbyAtmos = payload.castCapability("dolbyAtmosSupported"),
+                        requestedMedia = payload.castCapability("requestedMediaSupported"),
+                    )
+                }
+            "output.receipt" ->
+                mutableState.update { state ->
+                    state.withReceiverOutputReceipt(
+                        revision = revision,
+                        playbackConfirmed = payload.optBoolean("playbackConfirmed", false),
+                        dolbyVisionOutput = payload.optBoolean("dolbyVisionOutput", false),
+                        dolbyAtmosOutput = payload.optBoolean("dolbyAtmosOutput", false),
+                        detail = payload.optString("detail", "Cast 接收端输出回执"),
+                    )
+                }
+        }
     }
 
     private fun syncChromecastStatus() {
@@ -567,7 +689,7 @@ private class AndroidCastManager(
                 else -> CastPlaybackStatus.Buffering
             }
         val capabilities =
-            CastCapabilities(
+            mutableState.value.capabilities.copy(
                 playPause = CastCapability.Supported,
                 seek =
                     if (mediaStatus.isMediaCommandSupported(MediaStatus.COMMAND_SEEK)) {
@@ -1142,8 +1264,35 @@ private fun String.xmlTag(name: String): String? =
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
     ).find(this)?.groupValues?.get(1)?.trim()?.xmlUnescape()
 
+private fun CastMediaProfile.toJson(): JSONObject =
+    JSONObject().apply {
+        contentType?.takeIf(String::isNotBlank)?.let { put("contentType", it) }
+        videoCodec?.takeIf(String::isNotBlank)?.let { put("videoCodec", it) }
+        audioCodec?.takeIf(String::isNotBlank)?.let { put("audioCodec", it) }
+        width?.takeIf { it > 0 }?.let { put("width", it) }
+        height?.takeIf { it > 0 }?.let { put("height", it) }
+        frameRate?.takeIf { it.isFinite() && it > 0.0 }?.let { put("frameRate", it) }
+        put("dolbyVision", dolbyVision)
+        put("dolbyAtmos", dolbyAtmos)
+    }
+
+private fun CastMediaProfile.toCastCustomData(revision: Long): JSONObject =
+    JSONObject()
+        .put("yfuseRevision", revision)
+        .put("yfuseProfile", toJson())
+
+private fun JSONObject.castCapability(name: String): CastCapability =
+    when {
+        !has(name) || isNull(name) -> CastCapability.Unknown
+        optBoolean(name, false) -> CastCapability.Supported
+        else -> CastCapability.Unsupported
+    }
+
 private const val CAST_PREFIX = "chromecast:"
+private const val CAST_OUTPUT_NAMESPACE = "urn:x-cast:com.yfuse.output"
 private const val CAST_COMMAND_TIMEOUT_MS = 10_000L
+private const val CAST_CAPABILITY_TIMEOUT_MS = 1_500L
+private const val CAST_CAPABILITY_POLL_MS = 50L
 private const val CAST_PROGRESS_INTERVAL_MS = 500L
 private const val DLNA_ACTIVE_POLL_INTERVAL_MS = 1_000L
 private const val DLNA_IDLE_POLL_INTERVAL_MS = 5_000L

@@ -95,6 +95,44 @@ class CastStateMachineTest {
     }
 
     @Test
+    fun receiver_evidence_is_revision_scoped_and_cleared_between_loads() {
+        val first =
+            CastState()
+                .connectingTo(receiver, positionMs = 0L)
+                .withReceiverCapabilities(
+                    revision = 1L,
+                    dolbyVision = CastCapability.Supported,
+                    dolbyAtmos = CastCapability.Supported,
+                    requestedMedia = CastCapability.Supported,
+                ).withReceiverOutputReceipt(
+                    revision = 1L,
+                    playbackConfirmed = true,
+                    dolbyVisionOutput = true,
+                    dolbyAtmosOutput = true,
+                    detail = "PLAYING",
+                )
+
+        assertTrue(first.capabilities.receiverConfirmed)
+        assertTrue(first.outputEvidence.dolbyVisionOutput)
+        assertTrue(first.outputEvidence.dolbyAtmosOutput)
+
+        val second = first.connectingTo(receiver, positionMs = 10_000L)
+        assertEquals(2L, second.sessionRevision)
+        assertFalse(second.capabilities.receiverConfirmed)
+        assertFalse(second.outputEvidence.receiverConfirmed)
+        assertEquals(
+            second,
+            second.withReceiverOutputReceipt(
+                revision = 1L,
+                playbackConfirmed = true,
+                dolbyVisionOutput = true,
+                dolbyAtmosOutput = true,
+                detail = "stale",
+            ),
+        )
+    }
+
+    @Test
     fun dlna_time_and_cast_start_position_are_bounded_and_precise() {
         assertEquals(3_723_500L, parseDlnaTimeMillis("01:02:03.500"))
         assertEquals("00:01:30", formatDlnaTime(90_999L))

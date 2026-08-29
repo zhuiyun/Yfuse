@@ -2,7 +2,11 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.cast.CastDevice
 import com.yfuse.core.cast.CastPlaybackStatus
+import com.yfuse.core.cast.CastOutputEvidence
 import com.yfuse.core.cast.CastState
+import com.yfuse.feature.player.contract.PlaybackEvidenceConfidence
+import com.yfuse.feature.player.contract.PlaybackOutputEvidence
+import com.yfuse.feature.player.contract.PlaybackOutputReadiness
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -81,5 +85,82 @@ class RemoteCastPlaybackTest {
         assertEquals(12_000L, projected.positionMs)
         assertEquals(13_000L, projected.bufferedPositionMs)
         assertTrue(projected.buffering)
+    }
+
+    @Test
+    fun local_dolby_evidence_is_cleared_until_this_receiver_load_reports_output() {
+        val local =
+            PlaybackState(
+                diagnostics =
+                    PlaybackDiagnostics(
+                        videoOutput = "本地 Dolby Vision",
+                        audioOutput = "本地 Atmos passthrough",
+                        videoReadiness = PlaybackOutputReadiness.Rendering,
+                        audioReadiness = PlaybackOutputReadiness.Rendering,
+                        dolbyVisionOutput = true,
+                        dolbyAtmosOutput = true,
+                        dolbyVisionRpuApplied = true,
+                        dolbyVisionEnhancementLayerComposed = true,
+                        immersiveAudioCarrierOutput = true,
+                        spatialAudioOutput = true,
+                        headTrackingAvailable = true,
+                        outputEvidence =
+                            PlaybackOutputEvidence(
+                                sessionRevision = 8L,
+                                videoReadiness = PlaybackOutputReadiness.Rendering,
+                                audioReadiness = PlaybackOutputReadiness.Rendering,
+                                videoConfidence = PlaybackEvidenceConfidence.Confirmed,
+                                audioConfidence = PlaybackEvidenceConfidence.Confirmed,
+                            ),
+                    ),
+            )
+        val cast =
+            CastState(
+                sessionRevision = 3L,
+                status = CastPlaybackStatus.Playing,
+                activeDevice = receiver,
+                sessionConfirmed = true,
+            )
+
+        val projected = local.withRemoteCast(cast, playMethod = "直播放")
+
+        assertFalse(projected.diagnostics.dolbyVisionOutput)
+        assertFalse(projected.diagnostics.dolbyAtmosOutput)
+        assertFalse(projected.diagnostics.dolbyVisionRpuApplied)
+        assertFalse(projected.diagnostics.dolbyVisionEnhancementLayerComposed)
+        assertFalse(projected.diagnostics.immersiveAudioCarrierOutput)
+        assertFalse(projected.diagnostics.spatialAudioOutput)
+        assertFalse(projected.diagnostics.headTrackingAvailable)
+        assertEquals(3L, projected.diagnostics.outputEvidence.sessionRevision)
+    }
+
+    @Test
+    fun matching_playing_receipt_projects_receiver_dolby_output() {
+        val cast =
+            CastState(
+                sessionRevision = 4L,
+                status = CastPlaybackStatus.Playing,
+                activeDevice = receiver,
+                sessionConfirmed = true,
+                outputEvidence =
+                    CastOutputEvidence(
+                        sessionRevision = 4L,
+                        receiverConfirmed = true,
+                        playbackConfirmed = true,
+                        dolbyVisionOutput = true,
+                        dolbyAtmosOutput = true,
+                        detail = "PLAYING",
+                    ),
+            )
+
+        val projected = PlaybackState().withRemoteCast(cast, playMethod = "直播放")
+
+        assertTrue(projected.diagnostics.dolbyVisionOutput)
+        assertTrue(projected.diagnostics.dolbyAtmosOutput)
+        assertFalse(projected.diagnostics.hasNativeDualDolbyOutput())
+        assertEquals(
+            PlaybackEvidenceConfidence.Confirmed,
+            projected.diagnostics.outputEvidence.videoConfidence,
+        )
     }
 }

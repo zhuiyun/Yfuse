@@ -188,7 +188,8 @@ internal fun PlaybackDiagnostics.hasActiveDolbyAtmosOutput(): Boolean = dolbyAtm
 
 /** Both native outputs must be live in this exact playback session; source flags do not qualify. */
 internal fun PlaybackDiagnostics.hasNativeDualDolbyOutput(): Boolean =
-    videoReadiness == PlaybackOutputReadiness.Rendering &&
+    !engine.startsWith("远程投屏") &&
+        videoReadiness == PlaybackOutputReadiness.Rendering &&
         audioReadiness == PlaybackOutputReadiness.Rendering &&
         dolbyVisionOutput &&
         dolbyAtmosOutput

@@ -797,6 +797,14 @@ val buildApplicationId =
         }
         normalized
     } ?: "com.yfuse"
+val yfuseCastReceiverApplicationId =
+    providers.gradleProperty("yfuseCastReceiverApplicationId").orNull?.let { rawValue ->
+        val normalized = rawValue.trim()
+        require(normalized.matches(Regex("[A-Fa-f0-9]{8}"))) {
+            "yfuseCastReceiverApplicationId must be the 8-character Cast receiver application id"
+        }
+        normalized.uppercase()
+    }.orEmpty()
 
 android {
     namespace = "com.yfuse"
@@ -829,6 +837,11 @@ android {
         buildConfigField("boolean", "YFUSE_MDK_INCLUDED", includeMdk.toString())
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", nativeOnlyRuntime.toString())
         buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", packagedYCoreGpu.toString())
+        buildConfigField(
+            "String",
+            "YFUSE_CAST_RECEIVER_APPLICATION_ID",
+            "\"$yfuseCastReceiverApplicationId\"",
+        )
         buildConfigField(
             "String",
             "YFUSE_PACKAGE_PROFILE",

@@ -368,6 +368,7 @@ internal fun PlayerRoot(
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateMatch = frameRateMatch,
                 dolbyVisionRuntime = dolbyVisionRuntime,
+                deviceCapabilities = deviceCapabilities,
                 capabilitySignature =
                     preflightItems
                         .getOrNull(resume.itemIndex)
@@ -2010,16 +2011,17 @@ internal fun PlayerRoot(
         positionMs: Long,
     ): Boolean {
         val item = latestActiveItems.getOrNull(index) ?: return false
-        // Receiver compatibility is explicit: prefer Emby's H.264/AAC stream and only use
-        // the original when the server did not provide one. CastManager validates before it
-        // touches the current receiver session, so a bad next URL cannot evict this item.
-        val castUrl = item.transcodeUrl.ifBlank { item.url }
+        // A Yfuse receiver may approve the original Dolby representation. Default/unknown
+        // receivers keep the established H.264/AAC fallback and never gain a Dolby badge.
+        val fallbackUrl = item.transcodeUrl.ifBlank { item.fallbackTranscodeUrl }
         val loaded =
             castManager.play(
                 deviceId = deviceId,
-                mediaUrl = castUrl,
+                mediaUrl = item.url,
                 title = item.title,
                 positionMs = positionMs,
+                fallbackMediaUrl = fallbackUrl,
+                mediaProfile = item.castMediaProfile(),
             )
         if (!loaded) return false
         if (localState.currentIndex != index) player.selectItem(index)
@@ -2583,7 +2585,9 @@ internal fun PlayerRoot(
                         val capabilities = castState.capabilities
                         "播放 ${capabilities.playPause.label} · " +
                             "跳转 ${capabilities.seek.label} · " +
-                            "音量 ${capabilities.volume.label}"
+                            "音量 ${capabilities.volume.label} · " +
+                            "DV ${capabilities.dolbyVision.label} · " +
+                            "Atmos ${capabilities.dolbyAtmos.label}"
                     },
                 onDiscoverCast = requestCastDiscovery,
                 onCastTo = { deviceId ->
@@ -2623,11 +2627,9 @@ internal fun PlayerRoot(
                 containerLabel = currentItem?.activeVersion?.container,
                 dolbyVision =
                     !state.transcoding &&
-                        currentItem?.activeVersion?.dolbyVision == true &&
                         state.diagnostics.hasActiveDolbyVisionOutput(),
                 dolbyAtmos =
                     !state.transcoding &&
-                        currentItem?.activeVersion?.dolbyAtmos == true &&
                         state.diagnostics.hasActiveDolbyAtmosOutput(),
                 versions =
                     currentItem?.versions.orEmpty().map { version ->
