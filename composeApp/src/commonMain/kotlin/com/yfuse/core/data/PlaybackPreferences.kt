@@ -188,6 +188,9 @@ class PlaybackPreferences(
                 ?: PlaybackEngineSelection.Auto
         _engineSelection.value = available
         settings.putString(KEY_ENGINE_SELECTION, available.name)
+        if (available != PlaybackEngineSelection.Auto) {
+            setCore2NativeOnlyEnabled(false)
+        }
     }
 
     private val _core2TrialEnabled =
@@ -202,12 +205,24 @@ class PlaybackPreferences(
 
     private val _core2NativeOnlyEnabled =
         MutableStateFlow(
-            settings.getBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, false) && _core2TrialEnabled.value,
+            settings.getBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, false).let { stored ->
+                val resolved =
+                    stored &&
+                        _core2TrialEnabled.value &&
+                        _engineSelection.value == PlaybackEngineSelection.Auto
+                if (stored != resolved) {
+                    settings.putBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, resolved)
+                }
+                resolved
+            },
         )
     val core2NativeOnlyEnabled: StateFlow<Boolean> = _core2NativeOnlyEnabled.asStateFlow()
 
     fun setCore2NativeOnlyEnabled(enabled: Boolean) {
-        val resolved = enabled && _core2TrialEnabled.value
+        val resolved =
+            enabled &&
+                _core2TrialEnabled.value &&
+                _engineSelection.value == PlaybackEngineSelection.Auto
         _core2NativeOnlyEnabled.value = resolved
         settings.putBoolean(KEY_CORE2_NATIVE_ONLY_ENABLED, resolved)
     }

@@ -109,6 +109,36 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun ycore_native_only_requires_automatic_engine_selection() {
+        val settings = MapSettings()
+        val preferences = PlaybackPreferences(settings)
+
+        preferences.setCore2NativeOnlyEnabled(true)
+        assertTrue(preferences.core2NativeOnlyEnabled.value)
+
+        preferences.setEngineSelection(PlaybackEngineSelection.LockMpv)
+        assertFalse(preferences.core2NativeOnlyEnabled.value)
+
+        preferences.setCore2NativeOnlyEnabled(true)
+        assertFalse(preferences.core2NativeOnlyEnabled.value)
+        assertFalse(PlaybackPreferences(settings).core2NativeOnlyEnabled.value)
+    }
+
+    @Test
+    fun stale_native_only_value_is_cleared_when_a_locked_engine_is_restored() {
+        val settings = MapSettings()
+        settings.putString("player.ycore.engineSelection", PlaybackEngineSelection.LockMpv.name)
+        settings.putBoolean("player.ycore2.trialEnabled", true)
+        settings.putBoolean("player.ycore2.nativeOnlyEnabled", true)
+
+        val restored = PlaybackPreferences(settings)
+
+        assertFalse(restored.core2NativeOnlyEnabled.value)
+        restored.setEngineSelection(PlaybackEngineSelection.Auto)
+        assertFalse(PlaybackPreferences(settings).core2NativeOnlyEnabled.value)
+    }
+
+    @Test
     fun ycore_device_quirks_are_bounded_and_persist_without_media_identity() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)
