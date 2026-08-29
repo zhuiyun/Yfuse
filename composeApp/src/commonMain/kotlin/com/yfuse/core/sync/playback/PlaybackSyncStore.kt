@@ -171,6 +171,58 @@ class PlaybackSyncStore(
                 .toList()
         }
 
+    /**
+     * Seeds one startup-only Emby/Jellyfin value when this device has never recorded the item.
+     * Existing local state always wins, and imported values are clean so a pull cannot be echoed
+     * back to Yfuse cloud as if it were a new local playback mutation.
+     */
+    fun seedServerProgressIfAbsent(
+        serverId: String,
+        itemId: String,
+        positionMs: Long,
+        played: Boolean,
+    ): Boolean =
+        synchronized(lock) {
+            if (serverId.isBlank() || itemId.isBlank()) return@synchronized false
+            val normalizedPosition = positionMs.coerceAtLeast(0L)
+            if (!played && normalizedPosition == 0L) return@synchronized false
+            val alreadyLocal =
+                documents.any {
+                    it.document.state.serverId == serverId &&
+                        it.document.state.serverItemId == itemId
+                }
+            if (alreadyLocal) return@synchronized false
+            val now = nowEpochMs()
+            val state =
+                PlaybackStateRecord(
+                    mediaKey = "emby:$itemId",
+                    positionMs = normalizedPosition,
+                    durationMs = 0L,
+                    played = played,
+                    lastPlayedAtEpochMs = now,
+                    deviceId = deviceId,
+                    serverId = serverId,
+                    serverItemId = itemId,
+                    revision = 1L,
+                    mutationKind =
+                        if (played) {
+                            PlaybackMutationKind.AutoFinished
+                        } else {
+                            PlaybackMutationKind.AutoProgress
+                        },
+                )
+            replaceLocked(
+                index = -1,
+                value =
+                    StoredPlaybackDocument(
+                        document = PlaybackSyncDocument(state = state),
+                        dirty = false,
+                        mutationId = newId("server-seed"),
+                    ),
+            )
+            true
+        }
+
     fun pending(limit: Int = 64): List<StoredPlaybackDocument> =
         synchronized(lock) {
             documents.filter(StoredPlaybackDocument::dirty).take(limit.coerceIn(1, 128))

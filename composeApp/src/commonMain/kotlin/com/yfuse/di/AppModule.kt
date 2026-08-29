@@ -188,7 +188,7 @@ fun appModule(
         )
     }
     single { DanmakuRepository(createDanmakuClient()) }
-    single { ServerSyncManager(get(), get(), get(), get()) }
+    single { ServerSyncManager(get(), get(), get(), get(), get()) }
     single { AccountAccessTokenSource() }
     single { WatchTogetherClient(get(), get()) }
     single { WatchInviteResolver(get(), get()) }

@@ -8,6 +8,54 @@ import kotlin.test.assertTrue
 
 class PlaybackSyncStoreTest {
     @Test
+    fun startupServerProgressSeedsOnlyMissingItemsWithoutCreatingUpload() {
+        val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+
+        assertTrue(
+            store.seedServerProgressIfAbsent(
+                serverId = "server-a",
+                itemId = "movie-1",
+                positionMs = 25_000L,
+                played = false,
+            ),
+        )
+
+        val seeded = requireNotNull(store.stateForServerItem("server-a", "movie-1"))
+        assertEquals(25_000L, seeded.positionMs)
+        assertFalse(seeded.played)
+        assertTrue(store.pending().isEmpty())
+    }
+
+    @Test
+    fun startupServerProgressNeverOverwritesExistingLocalState() {
+        val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+        store.updatePlayback(
+            mediaKey = "emby:movie-1",
+            aliases = emptyList(),
+            positionMs = 70_000L,
+            durationMs = 100_000L,
+            played = false,
+            sessionId = "local",
+            serverId = "server-a",
+            serverItemId = "movie-1",
+            mutationKind = PlaybackMutationKind.AutoProgress,
+            trigger = PlaybackSyncTrigger.Periodic,
+        )
+
+        assertFalse(
+            store.seedServerProgressIfAbsent(
+                serverId = "server-a",
+                itemId = "movie-1",
+                positionMs = 10_000L,
+                played = true,
+            ),
+        )
+        val retained = requireNotNull(store.stateForServerItem("server-a", "movie-1"))
+        assertEquals(70_000L, retained.positionMs)
+        assertFalse(retained.played)
+    }
+
+    @Test
     fun serverLocalEmbyIdsNeverMergeAcrossServers() {
         val store = PlaybackSyncStore(MapSettings()) { 1_000L }
 

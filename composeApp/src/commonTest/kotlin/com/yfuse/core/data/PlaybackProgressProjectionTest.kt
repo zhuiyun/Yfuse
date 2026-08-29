@@ -70,11 +70,14 @@ class PlaybackProgressProjectionTest {
     }
 
     @Test
-    fun enabledProgressLeavesServerUserDataUntouched() {
+    fun enabledProgressStillRejectsLiveServerProgressAfterStartup() {
         val remote = UserDataDto(PlayedPercentage = 42.0, PlaybackPositionTicks = 42L, Played = true)
         val projection = PlaybackProgressProjection(progressSyncEnabled = { true })
+        val projected = projection.project(server, item(remote))
 
-        assertEquals(remote, projection.project(server, item(remote)).UserData)
+        assertEquals(false, projected.UserData?.Played)
+        assertNull(projected.UserData?.PlayedPercentage)
+        assertNull(projected.UserData?.PlaybackPositionTicks)
     }
 
     private fun item(userData: UserDataDto? = null) =

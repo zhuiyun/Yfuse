@@ -9,6 +9,7 @@ import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.sync.playback.PlaybackSyncStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -128,6 +129,7 @@ class ServerSyncManager(
     private val registry: ServerRegistry,
     private val settings: Settings,
     private val progressPreferences: ProgressSyncPreferences = ProgressSyncPreferences(settings),
+    private val playbackStore: PlaybackSyncStore? = null,
 ) {
     private companion object {
         const val PENDING_KEY = "sync.pending.v1"
@@ -137,6 +139,7 @@ class ServerSyncManager(
         const val FAVORITES_KEY = "sync.favorites"
         const val RETRY_STATE_KEY = "sync.retry.v1"
         const val PERIOD_MS = 15 * 60 * 1000L
+        const val TICKS_PER_MILLISECOND = 10_000L
 
         /** Once the exponent reaches this streak, additional failures use the same ceiling. */
         const val MAX_FAILURE_STREAK = 6
@@ -157,6 +160,7 @@ class ServerSyncManager(
     private val retryStateSerializer = ListSerializer(ServerRetryState.serializer())
     private val pending = MutableStateFlow(loadPending())
     private val snapshots = mutableMapOf<String, List<SyncedUserItem>>()
+    private val progressPullAttemptedServerIds = mutableSetOf<String>()
     private val syncMutex = Mutex()
 
     /**
@@ -208,9 +212,16 @@ class ServerSyncManager(
                         if (!foreground) return@collectLatest
                         while (true) {
                             if (
-                                autoSync.value &&
-                                registry.data.value.servers
-                                    .isNotEmpty()
+                                registry.data.value.servers.isNotEmpty() &&
+                                (
+                                    autoSync.value ||
+                                        (
+                                            syncProgress.value &&
+                                                registry.data.value.servers.any {
+                                                    it.id !in progressPullAttemptedServerIds
+                                                }
+                                        )
+                                )
                             ) {
                                 syncAll()
                             }
@@ -409,9 +420,12 @@ class ServerSyncManager(
     ) {
         val hasEnabledPending =
             pending.value.any { it.serverId == server.id && kindEnabled(it.kind) }
-        if (!syncFavorites.value && !syncProgress.value && !hasEnabledPending) return
+        val progressPullPending =
+            syncProgress.value && server.id !in progressPullAttemptedServerIds
+        if (!syncFavorites.value && !progressPullPending && !hasEnabledPending) return
         val unavailableReason = server.knownUnavailableEndpointReason()
         if (unavailableReason != null) {
+            if (progressPullPending) progressPullAttemptedServerIds.add(server.id)
             setStatus(server) {
                 it.copy(
                     syncing = false,
@@ -433,7 +447,10 @@ class ServerSyncManager(
         }
         val now = System.currentTimeMillis()
         val retryState = retryStates[server.id]
-        val notBefore = retryState?.retryNotBeforeEpochMs?.takeUnless { force }
+        // A launch gets exactly one fresh progress-pull attempt even when the previous process
+        // persisted a transient backoff. Later favorite/queue synchronization still honors it.
+        val notBefore =
+            retryState?.retryNotBeforeEpochMs?.takeUnless { force || progressPullPending }
         if (notBefore != null && now < notBefore) {
             AppLog.info(
                 category = "sync",
@@ -449,11 +466,24 @@ class ServerSyncManager(
             return
         }
         setStatus(server) { it.copy(syncing = true, error = null) }
+        // Mark before I/O: one app process makes at most one progress-pull attempt per server.
+        // A failed launch pull waits for the next process instead of turning into background polling.
+        val includeProgress =
+            syncProgress.value && progressPullAttemptedServerIds.add(server.id)
+        val includeFavorites = syncFavorites.value
         val snapshotResult =
             try {
                 // Keep JSON decoding and page merging off the UI caller.
                 withContext(Dispatchers.Default) {
-                    repo.userLibrarySnapshot(server, includeProgress = syncProgress.value)
+                    if (includeProgress || includeFavorites) {
+                        repo.userLibrarySnapshot(
+                            server = server,
+                            includeProgress = includeProgress,
+                            includeFavorites = includeFavorites,
+                        )
+                    } else {
+                        Result.success(emptyList())
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 setStatus(server) { it.copy(syncing = false) }
@@ -462,8 +492,30 @@ class ServerSyncManager(
         snapshotResult.fold(
             onSuccess = { remote ->
                 clearRetryState(server.id)
-                val conflicts = detectConflicts(server.id, remote)
-                snapshots[server.id] = remote
+                if (includeProgress) {
+                    remote.forEach { item ->
+                        playbackStore?.seedServerProgressIfAbsent(
+                            serverId = server.id,
+                            itemId = item.id,
+                            positionMs = item.positionTicks / TICKS_PER_MILLISECOND,
+                            played = item.played,
+                        )
+                    }
+                }
+                val conflicts =
+                    detectConflicts(
+                        serverId = server.id,
+                        remote = remote,
+                        includeProgress = includeProgress,
+                        includeFavorites = includeFavorites,
+                    )
+                snapshots[server.id] =
+                    mergeSnapshot(
+                        previous = snapshots[server.id].orEmpty(),
+                        remote = remote,
+                        includeProgress = includeProgress,
+                        includeFavorites = includeFavorites,
+                    )
                 setStatus(server) {
                     it.copy(
                         syncing = false,
@@ -669,13 +721,51 @@ class ServerSyncManager(
             }
     }
 
+    /** A favorite-only refresh must not erase the one startup progress snapshot kept for bases. */
+    private fun mergeSnapshot(
+        previous: List<SyncedUserItem>,
+        remote: List<SyncedUserItem>,
+        includeProgress: Boolean,
+        includeFavorites: Boolean,
+    ): List<SyncedUserItem> {
+        if (includeProgress && includeFavorites) return remote
+        val previousById = previous.associateBy(SyncedUserItem::id)
+        val remoteById = remote.associateBy(SyncedUserItem::id)
+        return (previousById.keys + remoteById.keys).map { itemId ->
+            val old = previousById[itemId]
+            val fresh = remoteById[itemId]
+            SyncedUserItem(
+                id = itemId,
+                title = fresh?.title ?: old?.title.orEmpty(),
+                favorite = if (includeFavorites) fresh?.favorite == true else old?.favorite == true,
+                played = if (includeProgress) fresh?.played == true else old?.played == true,
+                positionTicks =
+                    if (includeProgress) {
+                        fresh?.positionTicks ?: 0L
+                    } else {
+                        old?.positionTicks ?: 0L
+                    },
+                dateModified = fresh?.dateModified ?: old?.dateModified,
+            )
+        }
+    }
+
     private fun detectConflicts(
         serverId: String,
         remote: List<SyncedUserItem>,
+        includeProgress: Boolean = true,
+        includeFavorites: Boolean = true,
     ): List<SyncConflict> {
         val remoteById = remote.associateBy(SyncedUserItem::id)
         return pending.value
-            .filter { it.serverId == serverId && kindEnabled(it.kind) }
+            .filter {
+                it.serverId == serverId &&
+                    kindEnabled(it.kind) &&
+                    when (it.kind) {
+                        SyncMutationKind.Favorite -> includeFavorites
+                        SyncMutationKind.Played -> includeProgress
+                    }
+            }
             .mapNotNull { mutation ->
                 val item = remoteById[mutation.itemId]
                 val remoteValue =

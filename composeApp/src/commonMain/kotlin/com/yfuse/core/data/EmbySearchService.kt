@@ -60,10 +60,6 @@ internal class EmbySearchService(
                         filter.parentId?.let { parameter("ParentId", it) }
                         filter.productionYear?.let { parameter("ProductionYear", it) }
                         filter.genre?.takeIf { it.isNotBlank() }?.let { parameter("Genres", it) }
-                        if (!progress.localOnly) {
-                            filter.played?.let { parameter("IsPlayed", it) }
-                            if (filter.resumable) parameter("Filters", "IsResumable")
-                        }
                         filter.sortBy?.let {
                             parameter("SortBy", it)
                             parameter("SortOrder", if (filter.descending) "Descending" else "Ascending")
@@ -80,8 +76,7 @@ internal class EmbySearchService(
                         parameter("Limit", requestLimit)
                     }.body()
 
-            val localProgressFilter =
-                progress.localOnly && (filter.played != null || filter.resumable)
+            val localProgressFilter = filter.played != null || filter.resumable
             val exactPage =
                 request(
                     query,

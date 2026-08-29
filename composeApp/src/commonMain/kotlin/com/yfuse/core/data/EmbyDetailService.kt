@@ -63,12 +63,7 @@ internal class EmbyDetailService(
             if (detail.type != "Series") {
                 PlayTarget(detail.id, detail.resumePositionTicks ?: 0L)
             } else {
-                val episode =
-                    if (progress.localOnly) {
-                        fetchLocalNextUp(server, detail.id)
-                    } else {
-                        fetchNextUp(server, detail.id)
-                    } ?: fetchFirstEpisode(server, detail.id)
+                val episode = fetchNextUp(server, detail.id) ?: fetchFirstEpisode(server, detail.id)
                 requireNotNull(episode) { "no episodes" }
                 val projected = progress.project(server, episode)
                 PlayTarget(projected.Id, projected.UserData?.PlaybackPositionTicks ?: 0L)
@@ -78,17 +73,7 @@ internal class EmbyDetailService(
     internal suspend fun fetchNextUp(
         server: SavedServer,
         seriesId: String,
-    ): BaseItemDto? {
-        val dto: ItemsResponseDto =
-            client
-                .get("${server.baseUrl}/Shows/NextUp") {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("UserId", server.userId)
-                    parameter("SeriesId", seriesId)
-                    parameter("Limit", 1)
-                }.body()
-        return dto.Items.firstOrNull()
-    }
+    ): BaseItemDto? = fetchLocalNextUp(server, seriesId)
 
     internal suspend fun fetchFirstEpisode(
         server: SavedServer,
@@ -134,22 +119,7 @@ internal class EmbyDetailService(
         limit: Int = 12,
     ): Result<List<MediaItem>> =
         embyApiCall("next_up") {
-            if (progress.localOnly) return@embyApiCall localNextUpEpisodes(server, limit)
-            val dto: ItemsResponseDto =
-                client
-                    .get("${server.baseUrl}/Shows/NextUp") {
-                        header("X-Emby-Token", server.accessToken)
-                        parameter("UserId", server.userId)
-                        parameter("Limit", limit)
-                        parameter(
-                            "Fields",
-                            "ProductionYear,CommunityRating,Overview,ProviderIds,BackdropImageTags,ParentBackdropItemId," +
-                                "ParentBackdropImageTags,SeriesPrimaryImageTag,UserData",
-                        )
-                        parameter("EnableImageTypes", "Primary,Backdrop")
-                        parameter("ImageTypeLimit", 2)
-                    }.body()
-            dto.Items.map { progress.project(server, it).toMediaItem() }
+            localNextUpEpisodes(server, limit)
         }
 
     private suspend fun localNextUpEpisodes(

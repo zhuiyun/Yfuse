@@ -218,8 +218,6 @@ class DetailComponent(
                     val fromStart = explicitFromStartPending
                     if (fromStart) {
                         mirrorRestarted(store.state)
-                    } else {
-                        playbackSync?.refreshForPlayback()
                     }
                     val launchTicks =
                         if (fromStart) {
@@ -341,6 +339,7 @@ class DetailComponent(
      * Yfuse cloud state is the convergence authority for an ordinary resume. A deliberate
      * PlayFromStart creates a new playback generation and never calls this for its launch.
      */
+    /** Resolves every launch from the process-local progress snapshot; playback never pulls here. */
     private fun syncedStartPositionTicks(
         state: DetailState,
         fallbackTicks: Long,

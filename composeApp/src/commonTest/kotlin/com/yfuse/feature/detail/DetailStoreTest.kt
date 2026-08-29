@@ -5,9 +5,11 @@ import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.data.PlaybackProgressProjection
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
@@ -934,8 +936,14 @@ class DetailStoreTest {
                     )
                 }
             }
+        val localProgress = PlaybackSyncStore(MapSettings()) { 1_000L }
+        localProgress.seedServerProgressIfAbsent("one", "m1", positionMs = 4_000L, played = false)
+        localProgress.seedServerProgressIfAbsent("two", "m2", positionMs = 9_000L, played = false)
         val repo =
-            testRepo(dispatcher = mainContext) { request ->
+            testRepo(
+                dispatcher = mainContext,
+                progressProjection = PlaybackProgressProjection(localProgress) { true },
+            ) { request ->
                 val host = request.url.host
                 val path = request.url.encodedPath
                 when {
@@ -1031,8 +1039,15 @@ class DetailStoreTest {
                     addOrUpdate(SavedServer("two", "http://two", "备库", "u", "user", "tok2"))
                 }
             }
+        val localProgress = PlaybackSyncStore(MapSettings()) { 1_000L }
+        localProgress.seedServerProgressIfAbsent("one", "e1", positionMs = 1_000L, played = false)
+        localProgress.seedServerProgressIfAbsent("one", "e2", positionMs = 2_000L, played = false)
+        localProgress.seedServerProgressIfAbsent("two", "ae1", positionMs = 3_000L, played = false)
         val repo =
-            testRepo(dispatcher = mainContext) { request ->
+            testRepo(
+                dispatcher = mainContext,
+                progressProjection = PlaybackProgressProjection(localProgress) { true },
+            ) { request ->
                 val host = request.url.host
                 val path = request.url.encodedPath
                 when {
