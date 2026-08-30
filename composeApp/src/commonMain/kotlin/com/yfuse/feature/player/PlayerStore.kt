@@ -643,7 +643,8 @@ class PlayerStoreFactory(
             reducer = ReducerImpl,
         )
 
-    private inner class ExecutorImpl : CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
+    private inner class ExecutorImpl :
+        CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
         override fun executeAction(action: PlayerAction) {
             load()
         }
