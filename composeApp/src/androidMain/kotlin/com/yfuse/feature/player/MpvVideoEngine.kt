@@ -58,10 +58,16 @@ internal fun externalSubtitleMpvCommands(item: PlayerMediaItem): List<Array<Stri
     item.playbackExternalSubtitles().map { subtitle ->
         val language = subtitle.language?.takeIf(String::isNotBlank)
         val selection = if (subtitle.default) "select" else "auto"
+        val title =
+            if (subtitle.uri == item.externalSubtitleUri) {
+                "外挂字幕"
+            } else {
+                subtitle.label
+            }
         if (language == null) {
-            arrayOf("sub-add", subtitle.uri, selection, subtitle.label)
+            arrayOf("sub-add", subtitle.uri, selection, title)
         } else {
-            arrayOf("sub-add", subtitle.uri, selection, subtitle.label, language)
+            arrayOf("sub-add", subtitle.uri, selection, title, language)
         }
     }
 
