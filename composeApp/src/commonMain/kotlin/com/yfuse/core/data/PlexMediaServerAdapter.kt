@@ -796,11 +796,12 @@ internal class PlexMediaServerAdapter(
             val mediaWithPart =
                 item.Media
                     .firstNotNullOfOrNull { media ->
-                        media.Part.firstOrNull { part ->
-                            part.indexes
-                                ?.split(',')
-                                ?.any { it.trim().equals("sd", ignoreCase = true) } == true
-                        }?.let { media to it }
+                        media.Part
+                            .firstOrNull { part ->
+                                part.indexes
+                                    ?.split(',')
+                                    ?.any { it.trim().equals("sd", ignoreCase = true) } == true
+                            }?.let { media to it }
                     } ?: return@embyApiCall null
             val (media, part) = mediaWithPart
             val partId = part.id ?: return@embyApiCall null
