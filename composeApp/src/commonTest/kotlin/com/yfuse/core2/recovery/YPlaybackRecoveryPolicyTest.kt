@@ -17,7 +17,21 @@ class YPlaybackRecoveryPolicyTest {
         val second = first.copy(sameRouteAttempts = 1)
 
         assertEquals(YPlaybackRecoveryAction.RetrySameRoute, YPlaybackRecoveryPolicy.decide(first))
-        assertEquals(YPlaybackRecoveryAction.FallbackToSoftware, YPlaybackRecoveryPolicy.decide(second))
+        assertEquals(YPlaybackRecoveryAction.FallbackToEnhanced, YPlaybackRecoveryPolicy.decide(second))
+    }
+
+    @Test
+    fun `enhanced hardware failure advances to YCore software decode`() {
+        assertEquals(
+            YPlaybackRecoveryAction.FallbackToSoftware,
+            YPlaybackRecoveryPolicy.decide(
+                context(
+                    route = YPlaybackRoute.NativeEnhanced,
+                    category = YPlaybackFailureCategory.Decoder,
+                    attempts = 1,
+                ),
+            ),
+        )
     }
 
     @Test

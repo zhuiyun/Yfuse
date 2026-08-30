@@ -7,6 +7,8 @@ import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFeature
 import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import java.util.ArrayDeque
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -14,6 +16,42 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class AndroidAdaptiveHttpMediaTransportTest {
+    @Test
+    fun native_direct_okhttp_fallback_follows_same_origin_authenticated_redirects() =
+        runBlocking {
+            val server = MockWebServer()
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/media/movie.mkv"))
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 0-3/4")
+                    .setBody("data"),
+            )
+            server.start()
+            try {
+                val transport =
+                    AndroidAdaptiveHttpMediaTransport(
+                        createCronet = { error("Cronet unavailable") },
+                    )
+                val response =
+                    transport.open(
+                        YMediaTransportRequest(
+                            uri = server.url("redirect").toString(),
+                            protocol = YSourceProtocol.Http,
+                            range = YByteRange(0L, 3L),
+                            headers = mapOf("X-Emby-Token" to "private"),
+                        ),
+                    )
+
+                assertEquals(206, response.statusCode)
+                assertEquals("private", server.takeRequest().getHeader("X-Emby-Token"))
+                assertEquals("private", server.takeRequest().getHeader("X-Emby-Token"))
+                transport.close()
+            } finally {
+                server.shutdown()
+            }
+        }
+
     @Test
     fun cronet_failure_falls_back_once_to_okhttp_transport() =
         runBlocking {

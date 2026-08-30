@@ -1,7 +1,5 @@
 package com.yfuse.core2.android
 
-import com.yfuse.core2.api.YMediaItem
-import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
@@ -13,6 +11,9 @@ import com.yfuse.core2.strategy.YRenderPath
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidAdaptiveCore2RecoveryPlanTest {
@@ -33,36 +34,56 @@ class AndroidAdaptiveCore2RecoveryPlanTest {
     }
 
     @Test
-    fun `inconclusive Dolby metadata receives a real YCore FFmpeg attempt`() {
-        val plan =
-            yCoreInconclusiveSourceRecoveryPlan(
-                YMediaItem(
-                    id = "dolby-unknown",
-                    uri = "https://media.invalid/movie.mkv",
-                    sourceHints =
-                        YMediaSourceHints(
-                            dynamicRange = "Dolby Vision",
-                            dolbyVision = true,
-                        ),
-                ),
-            )
+    fun `native direct never treats an unresolved Dolby source as ordinary HEVC`() {
+        val failure =
+            assertFailsWith<YPlaybackException> {
+                validateNativeDirectDolbyIdentity(
+                    required = true,
+                    extractedMime = "video/hevc",
+                )
+            }
 
-        assertEquals(YPlaybackRoute.SoftwareFallback, plan.route)
-        assertEquals(YDemuxPath.Enhanced, plan.demuxPath)
-        assertEquals(YDecodePath.Software, plan.decodePath)
-        assertEquals(YRenderPath.Gpu, plan.renderPath)
-        assertEquals(YHdrType.DolbyVision, plan.inputHdrType)
-        assertEquals(YHdrType.Sdr, plan.outputHdrType)
-        assertTrue(plan.softwareVideoToneMap)
-        assertTrue(plan.softwareAudioDecode)
-        assertFalse(plan.usesHdrFallback)
+        assertEquals(YPlaybackFailureCategory.Container, failure.category)
+        assertEquals(YPlaybackFailureStage.Bitstream, failure.stage)
+    }
+
+    @Test
+    fun `native direct accepts the Dolby identity exposed by the platform extractor`() {
+        validateNativeDirectDolbyIdentity(
+            required = true,
+            extractedMime = "video/dolby-vision",
+        )
+    }
+
+    @Test
+    fun `YCore internal recovery advances through enhanced hardware then software`() {
+        val enhanced = yCoreInternalEnhancedRecoveryPlan(YHdrType.Hdr10)
+        val software = assertNotNull(yCoreInternalSoftwareRecoveryPlan(YHdrType.Hdr10))
+
+        assertEquals(YPlaybackRoute.NativeEnhanced, enhanced.route)
+        assertEquals(YDemuxPath.Enhanced, enhanced.demuxPath)
+        assertEquals(YDecodePath.Hardware, enhanced.decodePath)
+        assertEquals(YRenderPath.SurfaceDirect, enhanced.renderPath)
+        assertEquals(YPlaybackRoute.SoftwareFallback, software.route)
+        assertEquals(YDecodePath.Software, software.decodePath)
+        assertEquals(YRenderPath.Gpu, software.renderPath)
+        assertEquals(YHdrType.Sdr, software.outputHdrType)
+        assertTrue(software.softwareVideoToneMap)
+    }
+
+    @Test
+    fun `Dolby Vision never crosses into ordinary software decode`() {
+        assertNull(yCoreInternalSoftwareRecoveryPlan(YHdrType.DolbyVision))
+        assertFailsWith<YPlaybackException> {
+            validateEnhancedDolbyVisionIdentity(required = true, config = null)
+        }
     }
 
     @Test
     fun `real playback failures replace the preflight gate with an actionable category`() {
         assertEquals(
             "YCore 2.0 无法连接片源，请检查服务器或网络",
-            yCoreEnhancedFailureMessage(
+            yCoreNativeDirectFailureMessage(
                 YPlaybackException(
                     category = YPlaybackFailureCategory.Network,
                     stage = YPlaybackFailureStage.SourceOpen,

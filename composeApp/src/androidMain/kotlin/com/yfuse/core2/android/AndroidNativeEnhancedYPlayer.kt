@@ -47,6 +47,7 @@ internal class AndroidNativeEnhancedYPlayer(
     private val allowAudioPassthrough: Boolean = true,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
     private val forcedPlan: YPlaybackPlan? = null,
+    private val requireDolbyVisionIdentity: Boolean = false,
 ) : YPlayer {
     private val appContext = context.applicationContext
     private val capabilityProvider = AndroidYCapabilityProvider(context)
@@ -69,6 +70,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             } else {
                                 "Surface + AudioTrack"
                             },
+                        dynamicRange = forcedPlan?.inputHdrType?.name.orEmpty(),
                         reason = "YCore 2.0 NativeEnhanced opt-in path",
                     ),
             ),
@@ -266,8 +268,15 @@ internal class AndroidNativeEnhancedYPlayer(
                 check(playbackPlan.demuxPath == YDemuxPath.Enhanced) {
                     "Forced YCore plan must use the enhanced demux path"
                 }
-                check(playbackPlan.route in setOf(YPlaybackRoute.SoftwareFallback, YPlaybackRoute.GpuEnhanced)) {
-                    "Only YCore software and measured GPU plans may be forced"
+                check(
+                    playbackPlan.route in
+                        setOf(
+                            YPlaybackRoute.NativeEnhanced,
+                            YPlaybackRoute.GpuEnhanced,
+                            YPlaybackRoute.SoftwareFallback,
+                        ),
+                ) {
+                    "Only YCore enhanced, GPU and software plans may be forced"
                 }
             }
             val result =
@@ -283,6 +292,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     surface = output,
                     startPositionUs = positionUs.coerceAtLeast(0L),
                     runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
+                    requireDolbyVisionIdentity = requireDolbyVisionIdentity,
                 )
             prepared = true
             activePlan = playbackPlan

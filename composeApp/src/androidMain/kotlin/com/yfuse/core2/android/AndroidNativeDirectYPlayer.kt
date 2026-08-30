@@ -61,6 +61,7 @@ internal class AndroidNativeDirectYPlayer(
     private val plannedAudioOutputPath: YAudioOutputPath? = null,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
     private val plannedDolbyVisionConfig: YDolbyVisionConfig? = null,
+    private val requireDolbyVisionIdentity: Boolean = false,
 ) : YPlayer {
     private val appContext = context.applicationContext
     private val mutableState =
@@ -267,7 +268,6 @@ internal class AndroidNativeDirectYPlayer(
         throwable: Throwable,
     ) {
         session.releaseMedia()
-        val failureType = throwable::class.simpleName ?: "PlaybackFailure"
         val typed = throwable as? YPlaybackException
         mutableState.value =
             mutableState.value.copy(
@@ -275,7 +275,7 @@ internal class AndroidNativeDirectYPlayer(
                 playing = false,
                 playbackRequested = false,
                 buffering = false,
-                error = "YCore 2.0 原生播放失败（$failureType）",
+                error = yCoreNativeDirectFailureMessage(typed),
                 errorCategory = typed?.category ?: YPlaybackFailureCategory.Unknown,
                 diagnostics =
                     mutableState.value.diagnostics.copy(
@@ -430,8 +430,13 @@ internal class AndroidNativeDirectYPlayer(
                     runCatching { externalSubtitleLoader.load(source, item.headers) }.getOrNull()
                 }
             externalSubtitleSelected = externalSubtitle != null
-            videoTrackIndex = demux.findFirstTrack(VIDEO_MIME_PREFIX)
-            checkNotNull(videoTrackIndex) { "NativeDirect requires a video track" }
+            videoTrackIndex =
+                demux.findFirstTrack(VIDEO_MIME_PREFIX)
+                    ?: throw YPlaybackException(
+                        category = YPlaybackFailureCategory.Container,
+                        stage = YPlaybackFailureStage.Demux,
+                        safeDetail = "NativeDirect source has no video track",
+                    )
             audioTrackIndex = demux.findFirstTrack(AUDIO_MIME_PREFIX)
             videoFormat =
                 demux
@@ -441,6 +446,10 @@ internal class AndroidNativeDirectYPlayer(
                             format.applyDolbyVisionConfiguration(config)
                         }
                     }
+            validateNativeDirectDolbyIdentity(
+                required = requireDolbyVisionIdentity,
+                extractedMime = videoFormat?.getString(MediaFormat.KEY_MIME),
+            )
             audioInputFormat = audioTrackIndex?.let(demux::trackFormat)
             item.drmConfiguration?.let { configuration ->
                 val initializationData =
@@ -1255,12 +1264,18 @@ internal class AndroidNativeDirectYPlayer(
                 "Protected playback requires a secure SurfaceView output"
             }
             try {
-                videoDecoder.configure(
-                    format = format,
-                    surface = surface,
-                    decoderName = decoderName,
-                    mediaCrypto = drmBinding?.mediaCrypto,
-                )
+                yPlaybackStage(
+                    category = YPlaybackFailureCategory.Decoder,
+                    stage = YPlaybackFailureStage.VideoDecoderConfigure,
+                    safeDetail = "NativeDirect MediaCodec configure",
+                ) {
+                    videoDecoder.configure(
+                        format = format,
+                        surface = surface,
+                        decoderName = decoderName,
+                        mediaCrypto = drmBinding?.mediaCrypto,
+                    )
+                }
                 runtimeCapabilityKey?.let(runtimeCapabilities::recordConfigured)
             } catch (failure: Throwable) {
                 runtimeCapabilityKey?.let(runtimeCapabilities::recordRejected)
@@ -1486,6 +1501,32 @@ internal class AndroidNativeDirectYPlayer(
         ) : Command
     }
 }
+
+internal fun validateNativeDirectDolbyIdentity(
+    required: Boolean,
+    extractedMime: String?,
+) {
+    if (!required || extractedMime.equals(DOLBY_VISION_MIME, ignoreCase = true)) return
+    throw YPlaybackException(
+        category = YPlaybackFailureCategory.Container,
+        stage = YPlaybackFailureStage.Bitstream,
+        safeDetail = "NativeDirect source did not expose a Dolby Vision track identity",
+    )
+}
+
+internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): String =
+    when (failure?.category) {
+        YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源授权已失效，请刷新播放地址后重试"
+        YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
+        YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
+        YPlaybackFailureCategory.Container -> "YCore 2.0 原生解封装无法识别当前片源"
+        YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
+        YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
+        YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"
+        YPlaybackFailureCategory.Unknown,
+        null,
+        -> "YCore 2.0 原生播放失败，请导出诊断日志"
+    }
 
 internal fun secureSurfaceRequirementSatisfied(
     protectedContent: Boolean,

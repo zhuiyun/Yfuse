@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -53,6 +54,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkivanov.mvikotlin.extensions.coroutines.states
@@ -132,6 +134,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
     val serverStats by component.stats.stats.collectAsState()
     val layout by component.layout.collectAsState()
     val listFilter by component.listFilter.collectAsState()
+    val managementState by component.management.collectAsState()
     val gridState = rememberLazyGridState()
     val share = rememberShareHandler()
 
@@ -158,6 +161,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
     var iconFor by remember { mutableStateOf<SavedServer?>(null) }
     var filterVisible by remember { mutableStateOf(false) }
     var diagnosticsFor by remember { mutableStateOf<SavedServer?>(null) }
+    var managementFor by remember { mutableStateOf<SavedServer?>(null) }
     // The refresh round now has a real completion signal — it awaits both the probes and the
     // count requests — so the spinner tracks the work instead of a fixed delay.
     val refreshing by component.refreshing.collectAsState()
@@ -323,6 +327,11 @@ fun ServersTabScreen(component: ServersTabComponent) {
                 diagnosticsFor = server
                 actionsFor = null
             },
+            onManage = {
+                managementFor = server
+                component.loadManagement(server)
+                actionsFor = null
+            },
             onIcon = {
                 iconFor = server
                 actionsFor = null
@@ -422,6 +431,29 @@ fun ServersTabScreen(component: ServersTabComponent) {
                 server = live,
                 onProbe = { component.refreshHealth(live) },
                 onDismiss = { diagnosticsFor = null },
+            )
+        }
+    }
+
+    managementFor?.let { opened ->
+        val live = state.servers.firstOrNull { it.id == opened.id }
+        if (live == null) {
+            managementFor = null
+            component.closeManagement()
+        } else {
+            ServerManagementDialog(
+                server = live,
+                state = managementState,
+                onReload = { component.loadManagement(live) },
+                onRefreshLibrary = { component.refreshManagedLibrary(live, it) },
+                onRunTask = { component.runManagedTask(live, it) },
+                onSwitchHomeUser = { userId, pin ->
+                    component.switchManagedPlexUser(live, userId, pin)
+                },
+                onDismiss = {
+                    managementFor = null
+                    component.closeManagement()
+                },
             )
         }
     }
@@ -1152,6 +1184,153 @@ private fun EmptyServers(onAdd: () -> Unit) {
     }
 }
 
+@Composable
+private fun ServerManagementDialog(
+    server: SavedServer,
+    state: ServerManagementUiState,
+    onReload: () -> Unit,
+    onRefreshLibrary: (String) -> Unit,
+    onRunTask: (String) -> Unit,
+    onSwitchHomeUser: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    var plexHomePin by remember(server.id) { mutableStateOf("") }
+    GlassDialog(onDismiss = onDismiss) {
+        OverlayHeader(
+            title = "服务器管理",
+            subtitle = server.serverName,
+            onClose = onDismiss,
+        )
+        when (state) {
+            ServerManagementUiState.Idle,
+            is ServerManagementUiState.Loading,
+            -> {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 1.5.dp)
+                    Text("正在读取媒体库与服务器任务…", style = AppTypography.body.medium, color = palette.body)
+                }
+            }
+            is ServerManagementUiState.Error -> {
+                Text(state.message, style = AppTypography.body.medium, color = palette.error)
+                Spacer(Modifier.height(12.dp))
+                OverlayButton(
+                    label = "重试",
+                    onClick = onReload,
+                    modifier = Modifier.fillMaxWidth(),
+                    tone = OverlayButtonTone.Primary,
+                )
+            }
+            is ServerManagementUiState.Ready -> {
+                if (state.snapshot.supportsPlexHomeSwitch && state.snapshot.plexHomeUsers.isNotEmpty()) {
+                    Text("Plex Home 用户", style = AppTypography.caption.strong, color = palette.sub2)
+                    Spacer(Modifier.height(8.dp))
+                    if (state.snapshot.plexHomeUsers.any { it.pinProtected }) {
+                        YfFormField(
+                            value = plexHomePin,
+                            onValueChange = { plexHomePin = it.filter(Char::isDigit).take(4) },
+                            label = "受保护用户 PIN",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            visualTransformation = PasswordVisualTransformation(),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                        state.snapshot.plexHomeUsers.forEach { user ->
+                            OverlayOptionRow(
+                                label = user.name,
+                                description =
+                                    buildString {
+                                        append(if (user.admin) "管理员" else "家庭用户")
+                                        if (user.pinProtected) append(" · 需要 PIN")
+                                    },
+                                selected = false,
+                                onClick = {
+                                    onSwitchHomeUser(
+                                        user.id,
+                                        plexHomePin.takeIf { user.pinProtected }.orEmpty(),
+                                    )
+                                },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
+                Text("媒体库扫描", style = AppTypography.caption.strong, color = palette.sub2)
+                Spacer(Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                    state.snapshot.libraries.forEach { library ->
+                        OverlayOptionRow(
+                            label = library.name,
+                            description =
+                                if (state.busyId == "library:${library.id}") {
+                                    "正在提交扫描…"
+                                } else {
+                                    "扫描 ${library.collectionType?.ifBlank { "媒体库" } ?: "媒体库"}"
+                                },
+                            selected = false,
+                            onClick = { onRefreshLibrary(library.id) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("服务器任务", style = AppTypography.caption.strong, color = palette.sub2)
+                Spacer(Modifier.height(8.dp))
+                if (!state.snapshot.supportsScheduledTasks) {
+                    Text(
+                        "Plex 没有稳定的通用计划任务接口；媒体库扫描、单项元数据刷新和分析仍可用。",
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                    )
+                } else if (state.snapshot.scheduledTasksError != null) {
+                    Text(
+                        state.snapshot.scheduledTasksError,
+                        style = AppTypography.caption.regular,
+                        color = palette.sub2,
+                    )
+                } else if (state.snapshot.tasks.isEmpty()) {
+                    Text("服务器未返回计划任务。", style = AppTypography.caption.regular, color = palette.sub2)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                        state.snapshot.tasks.forEach { task ->
+                            val progress =
+                                task.progressPercent
+                                    ?.toInt()
+                                    ?.let { " · $it%" }
+                                    .orEmpty()
+                            OverlayOptionRow(
+                                label = task.name,
+                                description = "${task.state}$progress${task.lastResult?.let { " · 上次 $it" }.orEmpty()}",
+                                selected = false,
+                                onClick = { onRunTask(task.id) },
+                            )
+                        }
+                    }
+                }
+                state.message?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(it, style = AppTypography.caption.medium, color = Semantic.Success)
+                }
+                state.error?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(it, style = AppTypography.caption.medium, color = palette.error)
+                }
+                Spacer(Modifier.height(12.dp))
+                OverlayButton(
+                    label = "刷新状态",
+                    onClick = onReload,
+                    modifier = Modifier.fillMaxWidth(),
+                    tone = OverlayButtonTone.Plain,
+                )
+            }
+        }
+    }
+}
+
 /**
  * Long-press menu — the card's own identity, then the things its face cannot carry.
  *
@@ -1173,6 +1352,7 @@ private fun ServerActionsDialog(
     onSetDefault: () -> Unit,
     onRoutes: () -> Unit,
     onDiagnostics: () -> Unit,
+    onManage: () -> Unit,
     onIcon: () -> Unit,
     onEdit: () -> Unit,
     onRemove: () -> Unit,
@@ -1337,6 +1517,13 @@ private fun ServerActionsDialog(
             label = "HTTPS 诊断",
             description = "检查主线路与备用地址的传输安全",
             onClick = onDiagnostics,
+        )
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Server,
+            label = "服务器管理",
+            description = "扫描媒体库、查看并运行服务器任务",
+            onClick = onManage,
         )
         Spacer(Modifier.height(8.dp))
         ServerActionRow(

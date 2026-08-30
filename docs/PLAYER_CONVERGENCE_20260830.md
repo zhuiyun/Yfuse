@@ -35,8 +35,18 @@ executors. It does not introduce another decoder or rendering kernel.
   Exo/mpv with language, codec, default and forced metadata. YCore's current single-sidecar contract
   intentionally hands provider multi-track items to the compatibility backend instead of dropping
   tracks.
-- Plex account OAuth, cloud Watchlist, remote subtitle-store installation and offline downloads
-  remain outside this local-server loop.
+- Plex account PIN login now opens the hosted Plex authorization page, polls expiry/cancellation,
+  supports Plex Home user selection and protected-user PIN switching, discovers owned/shared PMS
+  resources, ranks HTTPS/direct/Relay connections, and stores the account and PMS credentials in
+  separate platform-secure slots. Manual server URL + token remains available as a fallback.
+- Plex cloud Watchlist mutations resolve the provider-owned `plex://` identity before calling the
+  cloud service; local PMS rating keys never escape to the account API. Original-quality offline
+  downloads and external subtitle sidecars use PMS-negotiated authenticated URLs. Plex server-side
+  converted Downloads and on-demand subtitle-store installation remain explicit unsupported
+  boundaries because Plex does not publish those client protocols in the stable PMS API.
+- The server tab now exposes a management center: per-library scans on all three providers,
+  scheduled-task inspection/execution on Emby/Jellyfin, and provider-correct metadata refresh plus
+  Plex media analysis from the item detail menu. Plex does not claim a generic task endpoint.
 
 ## Required external verification
 
@@ -45,7 +55,8 @@ executors. It does not introduce another decoder or rendering kernel.
 2. Google Cast Console must show receiver `E9107559` as published with at least one sender app.
 3. Run the physical Chromecast matrix in `castReceiver/README.md`.
 4. Run Emby and Jellyfin playback/reporting smoke tests.
-5. Run Plex Media Server smoke tests for token login, movie/episode direct play, HLS fallback,
+5. Run Plex Media Server smoke tests for cloud PIN login, Home PIN switching, route/Relay discovery,
+   Watchlist add/remove, original offline download, token login, movie/episode direct play, HLS fallback,
    embedded/external track selection, collection/playlist add/remove (including duplicate playlist
    entries), actor filters, BIF seek previews, seek/resume, watched state, Cast and token
-   expiry/re-login.
+   expiry/re-login, library scan, item metadata refresh and analysis.

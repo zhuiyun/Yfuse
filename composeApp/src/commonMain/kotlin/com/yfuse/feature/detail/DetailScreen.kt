@@ -776,6 +776,30 @@ fun DetailScreen(component: DetailComponent) {
                                     component.store.accept(DetailIntent.LoadOrganizationContainers)
                                 },
                             )
+                            OverlayOptionRow(
+                                label = "刷新服务器元数据",
+                                description = "保留已锁定字段与现有图片",
+                                selected = false,
+                                onClick = {
+                                    moreSheetOpen = false
+                                    detailScope.launch {
+                                        component.refreshServerMetadata(detail)
+                                    }
+                                },
+                            )
+                            if (state.server?.kind == com.yfuse.core.model.MediaServerKind.Plex) {
+                                OverlayOptionRow(
+                                    label = "分析 Plex 媒体",
+                                    description = "重新分析文件、音视频轨与章节",
+                                    selected = false,
+                                    onClick = {
+                                        moreSheetOpen = false
+                                        detailScope.launch {
+                                            component.analyzeServerMetadata(detail)
+                                        }
+                                    },
+                                )
+                            }
                             // 一起看 belongs where the decision is made — at the point of choosing
                             // what to watch, not in the settings of a player you must already have
                             // open.
@@ -808,6 +832,12 @@ fun DetailScreen(component: DetailComponent) {
                         detail = downloadTarget,
                         episodes = state.episodes,
                         selectedVersionId = state.selectedVersionId,
+                        allowedQualities =
+                            if (state.playServer?.kind == com.yfuse.core.model.MediaServerKind.Plex) {
+                                listOf(com.yfuse.core.offline.OfflineDownloadQuality.Original)
+                            } else {
+                                com.yfuse.core.offline.OfflineDownloadQuality.entries
+                            },
                         onConfirm = { selection ->
                             downloadSheetOpen = false
                             component.download(selection)

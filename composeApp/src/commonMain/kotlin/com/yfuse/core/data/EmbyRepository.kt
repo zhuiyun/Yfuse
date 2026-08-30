@@ -20,13 +20,18 @@ import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
+import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.sync.SyncedUserItem
 import io.ktor.client.HttpClient
+import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.parameter
+import io.ktor.client.request.post
 
 /** Result of a successful authentication, ready to persist as a [SavedServer]. */
 data class AuthedServer(
@@ -35,7 +40,10 @@ data class AuthedServer(
     val userId: String,
     val userName: String,
     val accessToken: String,
+    val cloudAccessToken: String? = null,
+    val cloudOwnerAccessToken: String? = null,
     val kind: MediaServerKind = MediaServerKind.Emby,
+    val routes: List<ServerRoute> = emptyList(),
 ) {
     fun toSavedServer(
         serverName: String? = null,
@@ -47,7 +55,11 @@ data class AuthedServer(
         userId = userId,
         userName = userName,
         accessToken = accessToken,
+        cloudAccessToken = cloudAccessToken,
+        cloudOwnerAccessToken = cloudOwnerAccessToken,
         kind = kind,
+        routes = routes,
+        activeRouteId = ServerRoute.PRIMARY_ID.takeIf { routes.isNotEmpty() },
         localCleartextConfirmed = localCleartextConfirmed,
     )
 }
@@ -224,8 +236,72 @@ class EmbyRepository(
     private val subtitleService = EmbySubtitleService(client)
     private val userDataService = EmbyUserDataService(client)
     private val plex = PlexMediaServerAdapter(client, progressProjection)
+    private val plexCloud = PlexCloudAccountService(client)
 
     suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> = authService.publicUsers(baseUrl)
+
+    suspend fun startPlexCloudSignIn(nowEpochMs: Long): Result<PlexPinSession> = plexCloud.startPin(nowEpochMs)
+
+    suspend fun pollPlexCloudSignIn(
+        session: PlexPinSession,
+        nowEpochMs: Long,
+    ): Result<PlexPinPoll> = plexCloud.pollPin(session, nowEpochMs)
+
+    suspend fun plexHomeUsers(accountToken: String): Result<List<PlexHomeUser>> = plexCloud.homeUsers(accountToken)
+
+    suspend fun switchPlexHomeUser(
+        accountToken: String,
+        userId: String,
+        pin: String,
+    ): Result<String> = plexCloud.switchHomeUser(accountToken, userId, pin)
+
+    suspend fun plexCloudResources(accountToken: String): Result<List<PlexCloudResource>> =
+        plexCloud.resources(accountToken)
+
+    /** Tries the advertised Plex routes in safe order and persists every usable fallback. */
+    suspend fun authenticatePlexCloudResource(
+        accountToken: String,
+        resource: PlexCloudResource,
+        ownerAccountToken: String = accountToken,
+    ): Result<AuthedServer> {
+        val serverToken = resource.accessToken ?: accountToken
+        var lastError: Throwable? = null
+        resource.rankedConnections().forEach { connection ->
+            val authenticated = plex.authenticate(connection.uri, serverToken)
+            authenticated.onSuccess { server ->
+                return Result.success(
+                    server.copy(
+                        serverName = resource.name,
+                        cloudAccessToken = accountToken,
+                        cloudOwnerAccessToken = ownerAccountToken,
+                        routes = resource.routes(server.baseUrl),
+                    ),
+                )
+            }
+            lastError = authenticated.exceptionOrNull()
+        }
+        return Result.failure(lastError ?: IllegalStateException("Plex 账号中没有可连接的服务器线路"))
+    }
+
+    suspend fun switchPlexServerHomeUser(
+        server: SavedServer,
+        userId: String,
+        pin: String,
+    ): Result<AuthedServer> {
+        require(server.kind == MediaServerKind.Plex) { "这不是 Plex 服务器" }
+        val ownerToken =
+            server.cloudOwnerAccessToken ?: server.cloudAccessToken
+                ?: return Result.failure(IllegalStateException("此服务器不是通过 Plex 云账号连接的"))
+        val activeToken =
+            switchPlexHomeUser(ownerToken, userId, pin).getOrElse { return Result.failure(it) }
+        val machineId = plex.machineIdentifierFor(server).getOrElse { return Result.failure(it) }
+        val resource =
+            plexCloudResources(activeToken)
+                .getOrElse { return Result.failure(it) }
+                .firstOrNull { it.id == machineId }
+                ?: return Result.failure(IllegalStateException("切换后的 Plex 用户无权访问此服务器"))
+        return authenticatePlexCloudResource(activeToken, resource, ownerToken)
+    }
 
     suspend fun authenticate(
         baseUrl: String,
@@ -244,6 +320,122 @@ class EmbyRepository(
             plex.libraries(server)
         } else {
             embyApiCall("libraries") { libraryService.views(server) }
+        }
+
+    suspend fun serverManagement(server: SavedServer): Result<ServerManagementSnapshot> =
+        libraries(server).mapCatching { mediaLibraries ->
+            val taskResult: Result<List<ServerScheduledTask>> =
+                if (server.kind == MediaServerKind.Plex) {
+                    Result.success(emptyList())
+                } else {
+                    runCatching {
+                        client
+                            .get("${server.baseUrl}/ScheduledTasks") {
+                                header("X-Emby-Token", server.accessToken)
+                            }.body<List<EmbyScheduledTaskDto>>()
+                            .mapNotNull { task ->
+                                task.Id.takeIf(String::isNotBlank)?.let { id ->
+                                    ServerScheduledTask(
+                                        id = id,
+                                        name = task.Name.takeIf(String::isNotBlank) ?: "服务器任务",
+                                        state = task.State,
+                                        progressPercent = task.CurrentProgressPercentage,
+                                        lastResult =
+                                            task.LastExecutionResult?.Status ?: task.LastExecutionResult?.Name,
+                                    )
+                                }
+                            }
+                    }
+                }
+            ServerManagementSnapshot(
+                libraries = mediaLibraries,
+                tasks = taskResult.getOrDefault(emptyList()),
+                supportsScheduledTasks = server.kind != MediaServerKind.Plex,
+                supportsMetadataAnalysis = server.kind == MediaServerKind.Plex,
+                plexHomeUsers =
+                    if (server.kind == MediaServerKind.Plex) {
+                        val ownerToken = server.cloudOwnerAccessToken ?: server.cloudAccessToken
+                        ownerToken?.let { plexHomeUsers(it).getOrDefault(emptyList()) }.orEmpty()
+                    } else {
+                        emptyList()
+                    },
+                supportsPlexHomeSwitch =
+                    server.kind == MediaServerKind.Plex &&
+                        (server.cloudOwnerAccessToken != null || server.cloudAccessToken != null),
+                scheduledTasksError =
+                    taskResult.exceptionOrNull()?.let {
+                        "当前账号无权读取服务器计划任务，媒体库扫描仍可使用"
+                    },
+            )
+        }
+
+    suspend fun refreshLibrary(
+        server: SavedServer,
+        libraryId: String? = null,
+    ): Result<Unit> =
+        if (server.kind == MediaServerKind.Plex) {
+            libraryId?.let { plex.refreshLibrary(server, it) }
+                ?: Result.failure(IllegalArgumentException("请选择 Plex 媒体库"))
+        } else {
+            embyApiCall("refresh_library") {
+                if (libraryId.isNullOrBlank()) {
+                    client.post("${server.baseUrl}/Library/Refresh") {
+                        header("X-Emby-Token", server.accessToken)
+                    }
+                } else {
+                    client.post("${server.baseUrl}/Items/$libraryId/Refresh") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Recursive", true)
+                        parameter("MetadataRefreshMode", "Default")
+                        parameter("ImageRefreshMode", "Default")
+                    }
+                }
+            }
+        }
+
+    suspend fun runServerTask(
+        server: SavedServer,
+        taskId: String,
+    ): Result<Unit> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.failure(UnsupportedOperationException("Plex 没有可远程运行的通用计划任务接口"))
+        } else {
+            embyApiCall("run_scheduled_task") {
+                require(taskId.matches(Regex("[A-Za-z0-9-]{1,128}"))) { "服务器任务标识无效" }
+                client.post("${server.baseUrl}/ScheduledTasks/Running/$taskId") {
+                    header("X-Emby-Token", server.accessToken)
+                }
+            }
+        }
+
+    suspend fun refreshMetadata(
+        server: SavedServer,
+        itemId: String,
+    ): Result<Unit> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.refreshMetadata(server, itemId)
+        } else {
+            embyApiCall("refresh_metadata") {
+                require(itemId.matches(Regex("[A-Za-z0-9-]{1,128}"))) { "媒体标识无效" }
+                client.post("${server.baseUrl}/Items/$itemId/Refresh") {
+                    header("X-Emby-Token", server.accessToken)
+                    parameter("Recursive", true)
+                    parameter("MetadataRefreshMode", "FullRefresh")
+                    parameter("ImageRefreshMode", "FullRefresh")
+                    parameter("ReplaceAllMetadata", false)
+                    parameter("ReplaceAllImages", false)
+                }
+            }
+        }
+
+    suspend fun analyzeMetadata(
+        server: SavedServer,
+        itemId: String,
+    ): Result<Unit> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.analyzeMetadata(server, itemId)
+        } else {
+            Result.failure(UnsupportedOperationException("Emby/Jellyfin 请使用元数据刷新或服务器计划任务"))
         }
 
     suspend fun mediaContainers(server: SavedServer): Result<List<MediaContainer>> =
@@ -328,7 +520,9 @@ class EmbyRepository(
         itemId: String,
     ): Result<Unit> =
         if (server.kind == MediaServerKind.Plex) {
-            Result.failure(UnsupportedOperationException("Plex Watchlist 需要云端账号接口"))
+            plexWatchlist(server, itemId) { token, key ->
+                plexCloud.setWatchlist(token, key, inWatchlist = true)
+            }
         } else {
             browseService.addToWatchLater(server, itemId)
         }
@@ -337,17 +531,37 @@ class EmbyRepository(
         server: SavedServer,
         itemId: String,
     ): Result<Boolean> =
-        if (server.kind == MediaServerKind.Plex) Result.success(false) else browseService.isInWatchLater(server, itemId)
+        if (server.kind == MediaServerKind.Plex) {
+            plexWatchlist(server, itemId, plexCloud::isInWatchlist)
+        } else {
+            browseService.isInWatchLater(server, itemId)
+        }
 
     suspend fun removeFromWatchLater(
         server: SavedServer,
         itemId: String,
     ): Result<Unit> =
         if (server.kind == MediaServerKind.Plex) {
-            Result.failure(UnsupportedOperationException("Plex Watchlist 需要云端账号接口"))
+            plexWatchlist(server, itemId) { token, key ->
+                plexCloud.setWatchlist(token, key, inWatchlist = false)
+            }
         } else {
             browseService.removeFromWatchLater(server, itemId)
         }
+
+    private suspend fun <T> plexWatchlist(
+        server: SavedServer,
+        itemId: String,
+        action: suspend (accountToken: String, cloudRatingKey: String) -> Result<T>,
+    ): Result<T> {
+        val accountToken =
+            server.cloudAccessToken
+                ?: return Result.failure(IllegalStateException("请先通过 Plex 云账号重新连接此服务器"))
+        return plex.cloudRatingKey(server, itemId).fold(
+            onSuccess = { key -> action(accountToken, key) },
+            onFailure = { Result.failure(it) },
+        )
+    }
 
     suspend fun reportPlaybackStarted(
         server: SavedServer,

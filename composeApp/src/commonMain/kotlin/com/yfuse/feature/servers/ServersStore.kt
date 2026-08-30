@@ -6,6 +6,8 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
+import com.yfuse.core.data.PlexCloudResource
+import com.yfuse.core.data.PlexPinSession
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.logging.AppLog
@@ -204,6 +206,55 @@ sealed interface QuickConnectUiState {
     ) : QuickConnectUiState
 }
 
+data class PlexHomeUserOption(
+    val id: String,
+    val name: String,
+    val pinProtected: Boolean,
+    val admin: Boolean,
+)
+
+data class PlexServerOption(
+    val id: String,
+    val name: String,
+    val owned: Boolean,
+    val routeCount: Int,
+)
+
+sealed interface PlexAccountUiState {
+    data object Idle : PlexAccountUiState
+
+    data object Starting : PlexAccountUiState
+
+    data class AwaitingAuthorization(
+        val code: String,
+        val authUrl: String,
+        val expiresAtEpochMs: Long,
+    ) : PlexAccountUiState
+
+    data object LoadingAccount : PlexAccountUiState
+
+    data class SelectingHomeUser(
+        val users: List<PlexHomeUserOption>,
+        val error: String? = null,
+    ) : PlexAccountUiState
+
+    data object LoadingServers : PlexAccountUiState
+
+    data class SelectingServer(
+        val servers: List<PlexServerOption>,
+    ) : PlexAccountUiState
+
+    data object Connecting : PlexAccountUiState
+
+    data object Expired : PlexAccountUiState
+
+    data object Cancelled : PlexAccountUiState
+
+    data class Error(
+        val message: String,
+    ) : PlexAccountUiState
+}
+
 data class ServersState(
     val servers: List<SavedServer> = emptyList(),
     val defaultServerId: String? = null,
@@ -214,6 +265,8 @@ data class ServersState(
     val discovered: List<DiscoveredServer> = emptyList(),
     val publicUsers: List<PublicUserDto> = emptyList(),
     val quickConnect: QuickConnectUiState = QuickConnectUiState.Idle,
+    val plexAccount: PlexAccountUiState = PlexAccountUiState.Idle,
+    val plexHomePin: String = "",
     /** True once an edit touches address/account fields; name changes do not set it. */
     val connectionEdited: Boolean = false,
     /** Non-null when the dialog is open in "edit existing server" mode; the saved server's
@@ -272,6 +325,22 @@ sealed interface ServersIntent {
     data object StartQuickConnect : ServersIntent
 
     data object CancelQuickConnect : ServersIntent
+
+    data object StartPlexAccountSignIn : ServersIntent
+
+    data object CancelPlexAccountSignIn : ServersIntent
+
+    data class PlexHomePinChanged(
+        val value: String,
+    ) : ServersIntent
+
+    data class SelectPlexHomeUser(
+        val id: String,
+    ) : ServersIntent
+
+    data class SelectPlexCloudServer(
+        val id: String,
+    ) : ServersIntent
 
     data object Submit : ServersIntent
 
@@ -362,6 +431,14 @@ private sealed interface Msg {
         val state: QuickConnectUiState,
     ) : Msg
 
+    data class PlexAccount(
+        val state: PlexAccountUiState,
+    ) : Msg
+
+    data class PlexHomePin(
+        val value: String,
+    ) : Msg
+
     data object Submitting : Msg
 
     data object SubmitDone : Msg
@@ -410,10 +487,16 @@ class ServersStoreFactory(
         private var scanJob: Job? = null
         private var publicUsersJob: Job? = null
         private var quickConnectJob: Job? = null
+        private var plexAccountJob: Job? = null
         private var activeQuickConnect: Pair<String, QuickConnectSession>? = null
+        private var activePlexPin: PlexPinSession? = null
+        private var plexAccountToken: String? = null
+        private var plexOwnerToken: String? = null
+        private var plexResources: Map<String, PlexCloudResource> = emptyMap()
         private var scanRequestId = 0
         private var publicUsersRequestId = 0
         private var quickConnectRequestId = 0
+        private var plexAccountRequestId = 0
 
         private fun cancelDialogJobs() {
             scanRequestId++
@@ -421,8 +504,20 @@ class ServersStoreFactory(
             scanJob?.cancel()
             publicUsersJob?.cancel()
             stopQuickConnect(resetState = false, notifyGateway = true)
+            stopPlexAccount(resetState = false)
             scanJob = null
             publicUsersJob = null
+        }
+
+        private fun stopPlexAccount(resetState: Boolean) {
+            plexAccountRequestId++
+            plexAccountJob?.cancel()
+            plexAccountJob = null
+            activePlexPin = null
+            plexAccountToken = null
+            plexOwnerToken = null
+            plexResources = emptyMap()
+            if (resetState) dispatch(Msg.PlexAccount(PlexAccountUiState.Idle))
         }
 
         private fun stopQuickConnect(
@@ -464,6 +559,7 @@ class ServersStoreFactory(
                 is ServersIntent.ServerNameChanged -> dispatch(Msg.ServerName(intent.value))
                 is ServersIntent.ProviderChanged -> {
                     stopQuickConnect(resetState = true, notifyGateway = true)
+                    stopPlexAccount(resetState = true)
                     dispatch(Msg.Provider(intent.kind))
                 }
                 is ServersIntent.ProtocolChanged -> {
@@ -491,6 +587,15 @@ class ServersStoreFactory(
                     stopQuickConnect(resetState = false, notifyGateway = true)
                     dispatch(Msg.QuickConnect(QuickConnectUiState.Cancelled))
                 }
+                ServersIntent.StartPlexAccountSignIn -> startPlexAccountSignIn()
+                ServersIntent.CancelPlexAccountSignIn -> {
+                    stopPlexAccount(resetState = false)
+                    dispatch(Msg.PlexAccount(PlexAccountUiState.Cancelled))
+                }
+                is ServersIntent.PlexHomePinChanged ->
+                    dispatch(Msg.PlexHomePin(intent.value.filter(Char::isDigit).take(4)))
+                is ServersIntent.SelectPlexHomeUser -> selectPlexHomeUser(intent.id)
+                is ServersIntent.SelectPlexCloudServer -> selectPlexCloudServer(intent.id)
                 ServersIntent.Submit -> submit()
                 ServersIntent.Scan -> scan()
                 ServersIntent.LocalNetworkPermissionDenied ->
@@ -566,6 +671,230 @@ class ServersStoreFactory(
                     }
                     dispatch(Msg.PublicUsers(result.getOrDefault(emptyList())))
                     publicUsersJob = null
+                }
+        }
+
+        private fun startPlexAccountSignIn() {
+            if (state().form.kind != MediaServerKind.Plex) return
+            stopPlexAccount(resetState = false)
+            val requestId = ++plexAccountRequestId
+            dispatch(Msg.PlexAccount(PlexAccountUiState.Starting))
+            plexAccountJob =
+                scope.launch {
+                    val session =
+                        repo.startPlexCloudSignIn(nowEpochMs()).getOrElse {
+                            if (requestId == plexAccountRequestId) {
+                                dispatch(
+                                    Msg.PlexAccount(
+                                        PlexAccountUiState.Error(it.toUserMessage("Plex 登录启动失败")),
+                                    ),
+                                )
+                            }
+                            plexAccountJob = null
+                            return@launch
+                        }
+                    if (requestId != plexAccountRequestId) return@launch
+                    activePlexPin = session
+                    dispatch(
+                        Msg.PlexAccount(
+                            PlexAccountUiState.AwaitingAuthorization(
+                                code = session.code,
+                                authUrl = session.authUrl,
+                                expiresAtEpochMs = session.expiresAtEpochMs,
+                            ),
+                        ),
+                    )
+                    pollPlexAccount(requestId, session)
+                }
+        }
+
+        private suspend fun pollPlexAccount(
+            requestId: Int,
+            session: PlexPinSession,
+        ) {
+            while (requestId == plexAccountRequestId) {
+                val remainingMs = session.expiresAtEpochMs - nowEpochMs()
+                if (remainingMs <= 0L) {
+                    activePlexPin = null
+                    plexAccountJob = null
+                    dispatch(Msg.PlexAccount(PlexAccountUiState.Expired))
+                    return
+                }
+                delay(minOf(PLEX_PIN_POLL_INTERVAL_MS, remainingMs))
+                if (requestId != plexAccountRequestId) return
+                val poll =
+                    repo.pollPlexCloudSignIn(session, nowEpochMs()).getOrElse {
+                        activePlexPin = null
+                        plexAccountJob = null
+                        dispatch(
+                            Msg.PlexAccount(
+                                PlexAccountUiState.Error(it.toUserMessage("Plex 授权检查失败")),
+                            ),
+                        )
+                        return
+                    }
+                if (poll.expired) {
+                    activePlexPin = null
+                    plexAccountJob = null
+                    dispatch(Msg.PlexAccount(PlexAccountUiState.Expired))
+                    return
+                }
+                val token = poll.accessToken ?: continue
+                activePlexPin = null
+                dispatch(Msg.PlexAccount(PlexAccountUiState.LoadingAccount))
+                loadPlexHome(requestId, token)
+                return
+            }
+        }
+
+        private suspend fun loadPlexHome(
+            requestId: Int,
+            accountToken: String,
+        ) {
+            plexAccountToken = accountToken
+            if (plexOwnerToken == null) plexOwnerToken = accountToken
+            val users = repo.plexHomeUsers(accountToken).getOrElse { emptyList() }
+            if (requestId != plexAccountRequestId) return
+            if (users.size > 1) {
+                dispatch(
+                    Msg.PlexAccount(
+                        PlexAccountUiState.SelectingHomeUser(
+                            users.map {
+                                PlexHomeUserOption(
+                                    id = it.id,
+                                    name = it.name,
+                                    pinProtected = it.pinProtected,
+                                    admin = it.admin,
+                                )
+                            },
+                        ),
+                    ),
+                )
+                plexAccountJob = null
+            } else {
+                loadPlexResources(requestId, accountToken)
+            }
+        }
+
+        private fun selectPlexHomeUser(userId: String) {
+            val homeState = state().plexAccount as? PlexAccountUiState.SelectingHomeUser ?: return
+            val user = homeState.users.firstOrNull { it.id == userId } ?: return
+            val pin = state().plexHomePin
+            if (user.pinProtected && pin.length != 4) {
+                dispatch(Msg.PlexAccount(homeState.copy(error = "该 Plex Home 用户需要 4 位 PIN")))
+                return
+            }
+            val accountToken = plexAccountToken ?: return
+            val requestId = plexAccountRequestId
+            dispatch(Msg.PlexAccount(PlexAccountUiState.LoadingServers))
+            plexAccountJob =
+                scope.launch {
+                    val switched =
+                        repo.switchPlexHomeUser(accountToken, userId, pin).getOrElse {
+                            if (requestId == plexAccountRequestId) {
+                                dispatch(Msg.PlexAccount(homeState.copy(error = it.toUserMessage("Plex Home 切换失败"))))
+                            }
+                            plexAccountJob = null
+                            return@launch
+                        }
+                    if (requestId != plexAccountRequestId) return@launch
+                    plexAccountToken = switched
+                    loadPlexResources(requestId, switched)
+                }
+        }
+
+        private suspend fun loadPlexResources(
+            requestId: Int,
+            accountToken: String,
+        ) {
+            dispatch(Msg.PlexAccount(PlexAccountUiState.LoadingServers))
+            val resources =
+                repo.plexCloudResources(accountToken).getOrElse {
+                    if (requestId == plexAccountRequestId) {
+                        dispatch(
+                            Msg.PlexAccount(
+                                PlexAccountUiState.Error(it.toUserMessage("读取 Plex 服务器失败")),
+                            ),
+                        )
+                    }
+                    plexAccountJob = null
+                    return
+                }
+            if (requestId != plexAccountRequestId) return
+            plexResources = resources.associateBy { it.id }
+            if (resources.isEmpty()) {
+                dispatch(Msg.PlexAccount(PlexAccountUiState.Error("此 Plex 账号没有可连接的媒体服务器")))
+            } else {
+                dispatch(
+                    Msg.PlexAccount(
+                        PlexAccountUiState.SelectingServer(
+                            resources.map {
+                                PlexServerOption(
+                                    id = it.id,
+                                    name = it.name,
+                                    owned = it.owned,
+                                    routeCount = it.connections.size,
+                                )
+                            },
+                        ),
+                    ),
+                )
+            }
+            plexAccountJob = null
+        }
+
+        private fun selectPlexCloudServer(resourceId: String) {
+            val resource = plexResources[resourceId] ?: return
+            val accountToken = plexAccountToken ?: return
+            val requestId = plexAccountRequestId
+            val editingId = state().editingServerId
+            val requestedName = sanitizeServerName(state().form.serverName)
+            dispatch(Msg.PlexAccount(PlexAccountUiState.Connecting))
+            plexAccountJob =
+                scope.launch {
+                    repo
+                        .authenticatePlexCloudResource(
+                            accountToken = accountToken,
+                            resource = resource,
+                            ownerAccountToken = plexOwnerToken ?: accountToken,
+                        ).onSuccess { authenticated ->
+                            if (requestId != plexAccountRequestId) return@onSuccess
+                            val existing = editingId?.let { registry.serverById(it) }
+                            val savedServer =
+                                authenticated.toSavedServer(
+                                    serverName = requestedName.takeIf(String::isNotBlank) ?: existing?.serverName,
+                                )
+                            val saved =
+                                if (editingId == null) {
+                                    registry.addOrUpdate(savedServer)
+                                    true
+                                } else {
+                                    registry.replace(editingId, savedServer)
+                                }
+                            if (!saved) {
+                                dispatch(Msg.PlexAccount(PlexAccountUiState.Error("原服务器已不存在，请重新添加")))
+                                return@onSuccess
+                            }
+                            AppLog.info(
+                                category = "server.auth",
+                                event = "plex_cloud_login_succeeded",
+                                message = "Plex cloud account server login succeeded",
+                                attributes = mapOf("serverId" to savedServer.id),
+                            )
+                            onAuthenticated(savedServer.id)
+                            cancelDialogJobs()
+                            dispatch(Msg.SubmitDone)
+                            publish(ServersLabel.ServerAdded)
+                        }.onFailure {
+                            if (requestId == plexAccountRequestId) {
+                                dispatch(
+                                    Msg.PlexAccount(
+                                        PlexAccountUiState.Error(it.toUserMessage("连接 Plex 服务器失败")),
+                                    ),
+                                )
+                            }
+                        }
+                    plexAccountJob = null
                 }
         }
 
@@ -830,6 +1159,8 @@ class ServersStoreFactory(
                         discovered = emptyList(),
                         publicUsers = emptyList(),
                         quickConnect = QuickConnectUiState.Idle,
+                        plexAccount = PlexAccountUiState.Idle,
+                        plexHomePin = "",
                         connectionEdited = false,
                     )
                 Msg.DialogClose ->
@@ -841,6 +1172,8 @@ class ServersStoreFactory(
                         discovered = emptyList(),
                         publicUsers = emptyList(),
                         quickConnect = QuickConnectUiState.Idle,
+                        plexAccount = PlexAccountUiState.Idle,
+                        plexHomePin = "",
                         connectionEdited = false,
                     )
                 is Msg.EditOpen -> {
@@ -861,6 +1194,8 @@ class ServersStoreFactory(
                         discovered = emptyList(),
                         publicUsers = emptyList(),
                         quickConnect = QuickConnectUiState.Idle,
+                        plexAccount = PlexAccountUiState.Idle,
+                        plexHomePin = "",
                         connectionEdited = false,
                         form =
                             LoginForm(
@@ -978,6 +1313,8 @@ class ServersStoreFactory(
                         form = form.copy(httpRiskAccepted = msg.accepted, error = null),
                     )
                 is Msg.QuickConnect -> copy(quickConnect = msg.state)
+                is Msg.PlexAccount -> copy(plexAccount = msg.state)
+                is Msg.PlexHomePin -> copy(plexHomePin = msg.value)
                 Msg.Submitting -> copy(form = form.copy(submitting = true, error = null))
                 Msg.SubmitDone ->
                     copy(
@@ -988,6 +1325,8 @@ class ServersStoreFactory(
                         discovered = emptyList(),
                         publicUsers = emptyList(),
                         quickConnect = QuickConnectUiState.Idle,
+                        plexAccount = PlexAccountUiState.Idle,
+                        plexHomePin = "",
                         connectionEdited = false,
                     )
                 is Msg.SubmitError -> copy(form = form.copy(submitting = false, error = msg.m))
@@ -1004,6 +1343,7 @@ class ServersStoreFactory(
 }
 
 private const val QUICK_CONNECT_POLL_INTERVAL_MS = 2_000L
+private const val PLEX_PIN_POLL_INTERVAL_MS = 2_000L
 
 private fun sanitizeServerName(value: String): String =
     value

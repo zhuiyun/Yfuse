@@ -8,6 +8,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerActivityStore
 import com.yfuse.core.data.ServerHealthMonitor
+import com.yfuse.core.data.ServerManagementSnapshot
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.ThemePreferences
@@ -22,6 +23,27 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+sealed interface ServerManagementUiState {
+    data object Idle : ServerManagementUiState
+
+    data class Loading(
+        val serverId: String,
+    ) : ServerManagementUiState
+
+    data class Ready(
+        val serverId: String,
+        val snapshot: ServerManagementSnapshot,
+        val busyId: String? = null,
+        val message: String? = null,
+        val error: String? = null,
+    ) : ServerManagementUiState
+
+    data class Error(
+        val serverId: String,
+        val message: String,
+    ) : ServerManagementUiState
+}
 
 /**
  * The 服务器 tab — the saved servers as a grid, and everything one can do to one of them.
@@ -69,12 +91,105 @@ class ServersTabComponent(
     private val _refreshing = MutableStateFlow(false)
 
     private val _listFilter = MutableStateFlow(ServerListFilter())
+    private val _management = MutableStateFlow<ServerManagementUiState>(ServerManagementUiState.Idle)
 
     /** Sorting, latency and account filtering stay with this tab while the app is alive. */
     val listFilter: StateFlow<ServerListFilter> = _listFilter.asStateFlow()
 
     /** Drives the header's refresh control so a whole-grid re-probe is visibly running. */
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    val management: StateFlow<ServerManagementUiState> = _management.asStateFlow()
+
+    fun loadManagement(server: SavedServer) {
+        _management.value = ServerManagementUiState.Loading(server.id)
+        scope.launch {
+            repo.serverManagement(server).fold(
+                onSuccess = { snapshot ->
+                    _management.value = ServerManagementUiState.Ready(server.id, snapshot)
+                },
+                onFailure = {
+                    _management.value =
+                        ServerManagementUiState.Error(server.id, it.message ?: "读取服务器管理信息失败")
+                },
+            )
+        }
+    }
+
+    fun closeManagement() {
+        _management.value = ServerManagementUiState.Idle
+    }
+
+    fun refreshManagedLibrary(
+        server: SavedServer,
+        libraryId: String,
+    ) {
+        val ready = _management.value as? ServerManagementUiState.Ready ?: return
+        _management.value = ready.copy(busyId = "library:$libraryId", message = null, error = null)
+        scope.launch {
+            repo.refreshLibrary(server, libraryId).fold(
+                onSuccess = {
+                    val libraryName =
+                        ready.snapshot.libraries
+                            .firstOrNull { library -> library.id == libraryId }
+                            ?.name
+                            ?: libraryId
+                    _management.value =
+                        ready.copy(message = "已提交媒体库扫描任务：$libraryName")
+                },
+                onFailure = {
+                    _management.value = ready.copy(error = it.message ?: "媒体库扫描启动失败")
+                },
+            )
+        }
+    }
+
+    fun runManagedTask(
+        server: SavedServer,
+        taskId: String,
+    ) {
+        val ready = _management.value as? ServerManagementUiState.Ready ?: return
+        _management.value = ready.copy(busyId = "task:$taskId", message = null, error = null)
+        scope.launch {
+            repo.runServerTask(server, taskId).fold(
+                onSuccess = {
+                    _management.value = ready.copy(message = "服务器任务已启动")
+                },
+                onFailure = {
+                    _management.value = ready.copy(error = it.message ?: "服务器任务启动失败")
+                },
+            )
+        }
+    }
+
+    fun switchManagedPlexUser(
+        server: SavedServer,
+        userId: String,
+        pin: String,
+    ) {
+        val ready = _management.value as? ServerManagementUiState.Ready ?: return
+        _management.value = ready.copy(busyId = "home:$userId", message = null, error = null)
+        scope.launch {
+            repo.switchPlexServerHomeUser(server, userId, pin).fold(
+                onSuccess = { authenticated ->
+                    val replacement =
+                        authenticated.toSavedServer(
+                            serverName = server.serverName,
+                            localCleartextConfirmed = server.localCleartextConfirmed,
+                        )
+                    if (!registry.replace(server.id, replacement)) {
+                        _management.value = ready.copy(error = "服务器已不存在，请重新打开管理中心")
+                        return@fold
+                    }
+                    val updated = registry.serverById(replacement.id) ?: replacement
+                    loadManagement(updated)
+                },
+                onFailure = {
+                    _management.value = ready.copy(error = it.message ?: "Plex Home 用户切换失败")
+                },
+            )
+        }
+    }
 
     fun setSortOrder(value: ServerSortOrder) {
         _listFilter.value = _listFilter.value.copy(sort = value)
