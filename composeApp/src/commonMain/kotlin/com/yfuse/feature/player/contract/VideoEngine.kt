@@ -242,6 +242,7 @@ data class SubtitleAppearance(
 
 internal fun SubtitleAppearance.withBrightness(brightness: Float): SubtitleAppearance {
     val factor = brightness.coerceIn(MIN_SUBTITLE_BRIGHTNESS, 1f)
+
     fun dim(argb: Long): Long {
         val value = argb and 0xFFFFFFFFL
         val alpha = value and 0xFF000000L
@@ -412,8 +413,7 @@ interface VideoEngine {
 
     val supportsSubtitleAppearance: Boolean get() = false
 
-    fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean =
-        appearance == SubtitleAppearance()
+    fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean = appearance == SubtitleAppearance()
 
     /** Temporarily prevents automatic queue advance after the current entry finishes. */
     fun setPauseAtEndOfCurrentItem(enabled: Boolean) = Unit
@@ -479,7 +479,9 @@ internal fun subtitleArgbMpvColor(argb: Long): String {
     val red = (value ushr 16) and 0xFF
     val green = (value ushr 8) and 0xFF
     val blue = value and 0xFF
+
     fun Long.hexByte(): String = toString(16).padStart(2, '0')
+
     return "#${red.hexByte()}${green.hexByte()}${blue.hexByte()}${alpha.hexByte()}"
 }
 

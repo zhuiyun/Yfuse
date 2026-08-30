@@ -51,8 +51,7 @@ internal class PlayerBackendExtensions(
 
     fun setSubtitlePosition(position: Float): Boolean = engine.setSubtitlePosition(position)
 
-    fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean =
-        engine.setSubtitleAppearance(appearance)
+    fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean = engine.setSubtitleAppearance(appearance)
 
     fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
         engine.setPauseAtEndOfCurrentItem(enabled)

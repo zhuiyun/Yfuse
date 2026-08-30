@@ -7,6 +7,7 @@ import kotlinx.serialization.Transient
 enum class MediaServerKind {
     Emby,
     Jellyfin,
+
     /** Reserved for the provider adapter; Emby-compatible endpoints never masquerade as Plex. */
     Plex,
 }

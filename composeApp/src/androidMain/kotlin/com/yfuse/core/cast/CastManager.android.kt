@@ -443,7 +443,12 @@ private class AndroidCastManager(
             val mediaTracks = remote.mediaInfo?.mediaTracks.orEmpty()
             val targetType =
                 if (kind == CastTrackKind.Audio) MediaTrack.TYPE_AUDIO else MediaTrack.TYPE_TEXT
-            val activeIds = remote.mediaStatus?.activeTrackIds?.toMutableSet().orEmpty().toMutableSet()
+            val activeIds =
+                remote.mediaStatus
+                    ?.activeTrackIds
+                    ?.toMutableSet()
+                    .orEmpty()
+                    .toMutableSet()
             mediaTracks.filter { it.type == targetType }.forEach { activeIds.remove(it.id) }
             if (enabled) {
                 val normalizedLanguage = language?.trim()?.lowercase()
@@ -814,7 +819,12 @@ private class AndroidCastManager(
                         CastCapability.Unsupported
                     },
                 trackSelection =
-                    if (remote.mediaInfo?.mediaTracks.orEmpty().isNotEmpty()) {
+                    if (
+                        remote.mediaInfo
+                            ?.mediaTracks
+                            .orEmpty()
+                            .isNotEmpty()
+                    ) {
                         CastCapability.Supported
                     } else {
                         mutableState.value.capabilities.trackSelection
@@ -852,15 +862,15 @@ private class AndroidCastManager(
         mutableState.update { state ->
             val updated =
                 state.remoteUpdate(
-                status = playbackStatus,
-                positionMs = remote.approximateStreamPosition,
-                durationMs = remote.streamDuration,
-                volume = mediaStatus.streamVolume.toFloat(),
-                capabilities = capabilities,
-                queueSize = mediaStatus.queueItemCount,
-                currentQueueIndex = currentQueueIndex,
-                tracks = tracks,
-            )
+                    status = playbackStatus,
+                    positionMs = remote.approximateStreamPosition,
+                    durationMs = remote.streamDuration,
+                    volume = mediaStatus.streamVolume.toFloat(),
+                    capabilities = capabilities,
+                    queueSize = mediaStatus.queueItemCount,
+                    currentQueueIndex = currentQueueIndex,
+                    tracks = tracks,
+                )
             if (currentQueueIndex != state.currentQueueIndex) {
                 updated.copy(
                     outputEvidence = CastOutputEvidence(sessionRevision = state.sessionRevision),

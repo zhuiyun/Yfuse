@@ -502,8 +502,7 @@ class EmbyRepository(
         server: SavedServer,
         includeProgress: Boolean = true,
         includeFavorites: Boolean = true,
-    ): Result<List<SyncedUserItem>> =
-        userDataService.snapshot(server, includeProgress, includeFavorites)
+    ): Result<List<SyncedUserItem>> = userDataService.snapshot(server, includeProgress, includeFavorites)
 
     /**
      * Asks the server to end the encoding started for [playSessionId] on this device.
