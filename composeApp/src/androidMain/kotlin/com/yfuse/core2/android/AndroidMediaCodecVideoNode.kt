@@ -159,11 +159,12 @@ internal class AndroidMediaCodecVideoNode(
                 !info.isEncoder && info.supportedTypes.any { it.equals(MIME_DOLBY_VISION, ignoreCase = true) }
             }
         val profileMatches =
-            profile?.let { exactProfile ->
-                codecInfos
-                    .filter { info -> info.supportsProfile(MIME_DOLBY_VISION, exactProfile) }
-                    .map { it.name }
-            }
+            profile
+                ?.let { exactProfile ->
+                    codecInfos
+                        .filter { info -> info.supportsProfile(MIME_DOLBY_VISION, exactProfile) }
+                        .map { it.name }
+                }
                 .orEmpty()
         val preferredDecoderName = runCatching { codecList.findDecoderForFormat(format) }.getOrNull()
         val candidateNames =
@@ -496,7 +497,12 @@ internal fun emptyTailSeekRetryTarget(
 }
 
 /** MediaExtractor's SYNC bit matches MediaCodec's key-frame bit. */
-private fun Int.toCodecInputFlags(): Int = if (this and MediaExtractorFlags.SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+private fun Int.toCodecInputFlags(): Int =
+    if (this and MediaExtractorFlags.SYNC != 0) {
+        MediaCodec.BUFFER_FLAG_KEY_FRAME
+    } else {
+        0
+    }
 
 /** Kept local so the video node does not depend on MediaExtractor at runtime. */
 private object MediaExtractorFlags {
