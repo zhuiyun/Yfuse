@@ -10,7 +10,6 @@ import okhttp3.mockwebserver.MockWebServer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
 class AndroidHttpMediaTransportTest {
     @Test
@@ -107,18 +106,69 @@ class AndroidHttpMediaTransportTest {
         }
 
     @Test
-    fun `redirectable media transport rejects provider credentials before opening`() =
+    fun `redirectable media transport keeps provider credentials on the same origin`() =
         runTest {
-            val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
+            val server = MockWebServer()
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/media/movie.mkv"))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("media"))
+            server.start()
+            try {
+                val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
 
-            assertFailsWith<IllegalArgumentException> {
-                transport.open(
-                    YMediaTransportRequest(
-                        uri = "https://media.invalid/movie.mkv",
-                        protocol = YSourceProtocol.Https,
-                        headers = mapOf("X-Emby-Token" to "private"),
-                    ),
+                assertEquals(
+                    200,
+                    transport
+                        .open(
+                            YMediaTransportRequest(
+                                uri = server.url("redirect").toString(),
+                                protocol = YSourceProtocol.Http,
+                                headers = mapOf("X-Emby-Token" to "private"),
+                            ),
+                        ).statusCode,
                 )
+                assertEquals("private", server.takeRequest().getHeader("X-Emby-Token"))
+                assertEquals("private", server.takeRequest().getHeader("X-Emby-Token"))
+                transport.close()
+            } finally {
+                server.shutdown()
+            }
+        }
+
+    @Test
+    fun `redirectable media transport strips provider credentials across origins`() =
+        runTest {
+            val origin = MockWebServer()
+            val cdn = MockWebServer()
+            cdn.enqueue(MockResponse().setResponseCode(200).setBody("media"))
+            cdn.start()
+            origin.enqueue(MockResponse().setResponseCode(302).setHeader("Location", cdn.url("movie.mkv")))
+            origin.start()
+            try {
+                val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
+
+                assertEquals(
+                    200,
+                    transport
+                        .open(
+                            YMediaTransportRequest(
+                                uri = origin.url("redirect").toString(),
+                                protocol = YSourceProtocol.Http,
+                                headers =
+                                    mapOf(
+                                        "X-Emby-Token" to "private",
+                                        "User-Agent" to "Yfuse-test",
+                                    ),
+                            ),
+                        ).statusCode,
+                )
+                assertEquals("private", origin.takeRequest().getHeader("X-Emby-Token"))
+                val redirected = cdn.takeRequest()
+                assertEquals(null, redirected.getHeader("X-Emby-Token"))
+                assertEquals("Yfuse-test", redirected.getHeader("User-Agent"))
+                transport.close()
+            } finally {
+                origin.shutdown()
+                cdn.shutdown()
             }
         }
 }

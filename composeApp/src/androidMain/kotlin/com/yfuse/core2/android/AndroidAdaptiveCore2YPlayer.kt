@@ -305,6 +305,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         fun publishUnavailable(reason: String) {
             stopChild()
+            val item = queueItems[currentIndex]
             mutableState.updateState {
                 it.copy(
                     phase = YPlaybackPhase.Failed,
@@ -312,10 +313,13 @@ internal class AndroidAdaptiveCore2YPlayer(
                     playbackRequested = requestedPlay,
                     buffering = false,
                     error =
-                        if (fallbackRouteFactory == null) {
-                            "YCore 2.0 无法确认当前片源的安全播放路径；请重试或切换兼容内核"
+                        if (item.drmConfiguration != null) {
+                            "YCore 2.0 无法打开当前受保护片源，" +
+                                "设备未提供可执行的安全解码路径"
+                        } else if (fallbackRouteFactory == null) {
+                            "YCore 2.0 无法打开当前片源，请导出诊断日志"
                         } else {
-                            "YCore 2.0 无法确认当前片源的安全播放路径，正在交给兼容内核"
+                            "YCore 2.0 与兼容内核均无法打开当前片源"
                         },
                     errorCategory = YPlaybackFailureCategory.Unknown,
                     diagnostics =
@@ -334,9 +338,37 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
         }
 
+        fun createInconclusiveSourceRoute(
+            item: YMediaItem,
+            singleRequest: YPlayerOpenRequest,
+        ): YPlayer? {
+            val compatibility = fallbackRouteFactory
+            if (compatibility != null) {
+                return compatibility.create(
+                    item = item,
+                    request = singleRequest,
+                    plan = yCoreInconclusiveSourceCompatibilityPlan(item),
+                    startSpeed = speed,
+                )
+            }
+            if (item.drmConfiguration != null || !yCoreSoftwareBootstrapAvailable()) return null
+            return AndroidNativeEnhancedYPlayer(
+                context = context,
+                request = singleRequest,
+                routeEvaluator = routeEvaluator,
+                allowAudioPassthrough = false,
+                frameRateSwitchMode = frameRateSwitchMode,
+                forcedPlan = yCoreInconclusiveSourceRecoveryPlan(item),
+            )
+        }
+
         fun createChild(positionMs: Long): YPlayer? {
             pendingFailureKey = null
-            val bypassLearnedRouteMemory = bypassLearnedRouteMemoryOnce
+            val bypassLearnedRouteMemory =
+                shouldBypassLearnedYCoreRouteMemory(
+                    manualRetry = bypassLearnedRouteMemoryOnce,
+                    compatibilityRouteAvailable = fallbackRouteFactory != null,
+                )
             bypassLearnedRouteMemoryOnce = false
             val item = queueItems[currentIndex]
             val forcePowerSaver = currentThermalStatus() >= SEVERE_THERMAL_STATUS
@@ -367,7 +399,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     preferTunnel = tunnelAllowed,
                     allowAudioPassthrough = allowAudioPassthrough,
                     forcePowerSaver = forcePowerSaver,
-                ) ?: return null
+                ) ?: return createInconclusiveSourceRoute(item, singleRequest)
             if (
                 !bypassLearnedRouteMemory &&
                 !forceSoftwareFallback &&
@@ -384,7 +416,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         preferTunnel = false,
                         allowAudioPassthrough = allowAudioPassthrough,
                         forcePowerSaver = forcePowerSaver,
-                    ) ?: return null
+                    ) ?: return createInconclusiveSourceRoute(item, singleRequest)
             }
             val learnedAdvice = learningEngine.advice(decision.toFailureKey().toLearningKey())
             if (
@@ -993,6 +1025,63 @@ internal fun YPlaybackPlan.toSoftwareFallbackPlan(reason: String): YPlaybackPlan
         reason = reason,
     )
 }
+
+internal fun shouldBypassLearnedYCoreRouteMemory(
+    manualRetry: Boolean,
+    compatibilityRouteAvailable: Boolean,
+): Boolean = manualRetry || !compatibilityRouteAvailable
+
+internal fun yCoreInconclusiveSourceRecoveryPlan(item: YMediaItem): YPlaybackPlan {
+    val inputHdrType = item.hintedHdrType()
+    return YPlaybackPlan(
+        route = YPlaybackRoute.SoftwareFallback,
+        demuxPath = YDemuxPath.Enhanced,
+        decodePath = YDecodePath.Software,
+        renderPath = YRenderPath.Gpu,
+        outputHdrType = YHdrType.Sdr,
+        inputHdrType = inputHdrType,
+        nativeAudio = false,
+        audioPath = YAudioOutputPath.DecodePcm,
+        softwareAudioDecode = true,
+        softwareVideoToneMap = inputHdrType != YHdrType.Sdr,
+        usesHdrFallback = false,
+        reason = "YCore FFmpeg bootstrap after inconclusive metadata/capability probe",
+    )
+}
+
+private fun yCoreInconclusiveSourceCompatibilityPlan(item: YMediaItem): YPlaybackPlan {
+    val inputHdrType = item.hintedHdrType()
+    return YPlaybackPlan(
+        route = YPlaybackRoute.GpuEnhanced,
+        demuxPath = YDemuxPath.Enhanced,
+        decodePath = YDecodePath.Hardware,
+        renderPath = YRenderPath.Gpu,
+        outputHdrType = inputHdrType,
+        inputHdrType = inputHdrType,
+        nativeAudio = true,
+        audioPath = YAudioOutputPath.DecodePcm,
+        reason = "Compatibility executor after inconclusive YCore source probe",
+    )
+}
+
+private fun YMediaItem.hintedHdrType(): YHdrType {
+    val range = sourceHints?.dynamicRange.orEmpty().trim().lowercase()
+    return when {
+        sourceHints?.dolbyVision == true || "dolby" in range || range.startsWith("dv") ->
+            YHdrType.DolbyVision
+        "hdr10+" in range || "hdr10plus" in range -> YHdrType.Hdr10Plus
+        "hlg" in range -> YHdrType.Hlg
+        "hdr" in range -> YHdrType.Hdr10
+        else -> YHdrType.Sdr
+    }
+}
+
+private fun yCoreSoftwareBootstrapAvailable(): Boolean =
+    runCatching {
+        AndroidFfmpegDemuxer().let { demuxer ->
+            demuxer.available && demuxer.softwareDecodeAvailable
+        }
+    }.getOrDefault(false)
 
 private fun yCoreSoftwarePlanExecutable(plan: YPlaybackPlan): Boolean {
     if (
