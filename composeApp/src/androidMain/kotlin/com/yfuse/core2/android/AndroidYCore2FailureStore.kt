@@ -99,6 +99,7 @@ private fun String.decodeOpaque(): String? {
 }
 
 private const val PREFERENCES_NAME = "yfuse_ycore2_failure_ledger"
+
 // Transport/probe semantics changed in 1.0.13. Old deterministic failures must not suppress the
 // corrected route before it gets one real attempt on the device.
 private const val KEY_RECORDS = "records_v2"

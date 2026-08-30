@@ -210,6 +210,7 @@ internal class AndroidCore2RouteEvaluator(
 ) {
     private val platformProbe = AndroidCore2MediaProbe(context)
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
+
     fun evaluate(
         item: YMediaItem,
         preferTunnel: Boolean = true,
@@ -234,7 +235,7 @@ internal class AndroidCore2RouteEvaluator(
                     val requiresDolbyProfileTruth =
                         sourceClaimsDolbyVision ||
                             platform.playbackRequest.video.hdrType == YHdrType.DolbyVision &&
-                                platform.dolbyVisionConfig == null
+                            platform.dolbyVisionConfig == null
                     val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
                     when {
                         deep?.dolbyVisionConfig != null -> deep
@@ -248,8 +249,10 @@ internal class AndroidCore2RouteEvaluator(
                         requiresDolbyProfileTruth ->
                             platform.takeIf { it.dolbyVisionConfig != null } ?: return null
                         deep != null &&
-                            (deep.materiallyOverrides(platform) ||
-                                deep.dolbyVisionStreamEvidence != null) -> deep
+                            (
+                                deep.materiallyOverrides(platform) ||
+                                    deep.dolbyVisionStreamEvidence != null
+                            ) -> deep
                         else -> platform
                     }
                 }
@@ -540,7 +543,13 @@ private fun MediaFormat.dolbyVisionConfigOrNull(mime: String): YDolbyVisionConfi
     )
 }
 
-private fun MediaFormat.intOrZero(key: String): Int = if (containsKey(key)) runCatching { getInteger(key) }.getOrDefault(0) else 0
+private fun MediaFormat.intOrZero(key: String): Int =
+    if (containsKey(key)) {
+        runCatching { getInteger(key) }
+            .getOrDefault(0)
+    } else {
+        0
+    }
 
 private fun MediaFormat.frameRateOrZero(): Float {
     if (!containsKey(MediaFormat.KEY_FRAME_RATE)) return 0f
