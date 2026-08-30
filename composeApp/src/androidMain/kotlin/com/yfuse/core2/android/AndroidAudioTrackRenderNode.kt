@@ -217,11 +217,45 @@ private fun buildAudioTrack(format: MediaFormat): AudioTrack {
                 .build(),
         ).setAudioFormat(audioFormat)
         .setTransferMode(AudioTrack.MODE_STREAM)
-        .setBufferSizeInBytes((minBuffer * 4).coerceAtLeast(DEFAULT_AUDIO_BUFFER_BYTES))
+        .setBufferSizeInBytes(
+            nativeDirectAudioBufferSizeBytes(
+                minimumBufferBytes = minBuffer,
+                sampleRate = sampleRate,
+                channelCount = channelCount,
+                encoding = encoding,
+            ),
+        )
         .build()
         .also { track ->
             check(track.state == AudioTrack.STATE_INITIALIZED) { "AudioTrack failed to initialize" }
         }
+}
+
+internal fun nativeDirectAudioBufferSizeBytes(
+    minimumBufferBytes: Int,
+    sampleRate: Int,
+    channelCount: Int,
+    encoding: Int,
+): Int {
+    require(minimumBufferBytes > 0 && sampleRate > 0 && channelCount > 0)
+    val bytesPerSample =
+        when (encoding) {
+            AudioFormat.ENCODING_PCM_8BIT -> 1
+            AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
+            AudioFormat.ENCODING_PCM_FLOAT,
+            AudioFormat.ENCODING_PCM_32BIT,
+            -> 4
+            else -> 2
+        }
+    val resilientBuffer =
+        (sampleRate.toLong() * channelCount * bytesPerSample * TARGET_AUDIO_BUFFER_SECONDS)
+            .coerceAtMost(MAX_AUDIO_BUFFER_BYTES.toLong())
+            .toInt()
+    return maxOf(
+        minimumBufferBytes.toLong() * MINIMUM_AUDIO_BUFFER_MULTIPLIER,
+        DEFAULT_AUDIO_BUFFER_BYTES.toLong(),
+        resilientBuffer.toLong(),
+    ).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }
 
 internal fun channelMaskForCount(channelCount: Int): Int =
@@ -242,3 +276,6 @@ internal fun channelMaskForCount(channelCount: Int): Int =
 
 private const val MICROS_PER_SECOND = 1_000_000L
 private const val DEFAULT_AUDIO_BUFFER_BYTES = 64 * 1024
+private const val MAX_AUDIO_BUFFER_BYTES = 2 * 1024 * 1024
+private const val MINIMUM_AUDIO_BUFFER_MULTIPLIER = 4L
+private const val TARGET_AUDIO_BUFFER_SECONDS = 2L
