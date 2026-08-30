@@ -271,6 +271,7 @@ internal class AndroidNativeDirectYPlayer(
     ) {
         session.releaseMedia()
         val typed = throwable as? YPlaybackException
+        val codecConfigurationFailure = typed?.cause as? YVideoDecoderConfigurationException
         AppLog.error(
             category = "player.core2",
             event = "native_direct_failed",
@@ -280,6 +281,18 @@ internal class AndroidNativeDirectYPlayer(
                     "category" to (typed?.category?.name ?: YPlaybackFailureCategory.Unknown.name),
                     "stage" to (typed?.stage?.name ?: YPlaybackFailureStage.Unknown.name),
                     "detail" to typed?.safeDetail.orEmpty(),
+                    "codecMime" to codecConfigurationFailure?.mime.orEmpty(),
+                    "codecProfile" to (codecConfigurationFailure?.profile?.toString() ?: ""),
+                    "decoderAttempts" to
+                        codecConfigurationFailure
+                            ?.failures
+                            ?.joinToString(",") { it.decoderName }
+                            .orEmpty(),
+                    "decoderErrors" to
+                        codecConfigurationFailure
+                            ?.failures
+                            ?.joinToString(",") { failure -> failure.safeDiagnosticLabel() }
+                            .orEmpty(),
                 ),
         )
         mutableState.value =
@@ -1699,6 +1712,19 @@ private fun MediaFormat?.dynamicRangeLabel(): String {
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     value = transform(value)
 }
+
+private fun YVideoDecoderAttemptFailure.safeDiagnosticLabel(): String =
+    buildString {
+        append(decoderName)
+        append(':')
+        append(diagnosticInfo ?: errorType)
+        errorCode?.let { code ->
+            append(':')
+            append(code)
+        }
+        if (recoverable) append(":recoverable")
+        if (transient) append(":transient")
+    }
 
 private const val VIDEO_MIME_PREFIX = "video/"
 private const val AUDIO_MIME_PREFIX = "audio/"
