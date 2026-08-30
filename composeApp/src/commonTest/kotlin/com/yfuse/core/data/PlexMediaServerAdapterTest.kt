@@ -206,8 +206,7 @@ class PlexMediaServerAdapterTest {
                         server = server,
                         containerId = collection.id,
                         kind = collection.kind,
-                    )
-                    .getOrThrow()
+                    ).getOrThrow()
 
             assertEquals("科幻合集", collection.title)
             assertEquals(4, collection.itemCount)

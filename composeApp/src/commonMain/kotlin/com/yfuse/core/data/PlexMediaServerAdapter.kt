@@ -794,13 +794,14 @@ internal class PlexMediaServerAdapter(
         embyApiCall("plex_trickplay_info") {
             val item = metadata(server, itemId, includeChildren = false)
             val mediaWithPart =
-                item.Media.firstNotNullOfOrNull { media ->
-                    media.Part.firstOrNull { part ->
-                        part.indexes
-                            ?.split(',')
-                            ?.any { it.trim().equals("sd", ignoreCase = true) } == true
-                    }?.let { media to it }
-                } ?: return@embyApiCall null
+                item.Media
+                    .firstNotNullOfOrNull { media ->
+                        media.Part.firstOrNull { part ->
+                            part.indexes
+                                ?.split(',')
+                                ?.any { it.trim().equals("sd", ignoreCase = true) } == true
+                        }?.let { media to it }
+                    } ?: return@embyApiCall null
             val (media, part) = mediaWithPart
             val partId = part.id ?: return@embyApiCall null
             val durationMs = part.duration ?: media.duration ?: item.duration ?: return@embyApiCall null
@@ -809,8 +810,7 @@ internal class PlexMediaServerAdapter(
                 (
                     (durationMs + PLEX_TRICKPLAY_SAMPLE_INTERVAL_MS - 1L) /
                         PLEX_TRICKPLAY_SAMPLE_INTERVAL_MS
-                )
-                    .coerceAtMost(Int.MAX_VALUE.toLong())
+                ).coerceAtMost(Int.MAX_VALUE.toLong())
                     .toInt()
             TrickplayInfo(
                 width = 320,
