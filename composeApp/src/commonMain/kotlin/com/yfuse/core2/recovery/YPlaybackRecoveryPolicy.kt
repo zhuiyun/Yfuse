@@ -7,6 +7,7 @@ import com.yfuse.core2.api.YPlaybackRoute
 enum class YPlaybackRecoveryAction {
     RetrySameRoute,
     DisableTunnel,
+    FallbackToEnhanced,
     FallbackToSoftware,
     Stop,
 }
@@ -53,10 +54,16 @@ object YPlaybackRecoveryPolicy {
         ) {
             return YPlaybackRecoveryAction.RetrySameRoute
         }
-        return if (context.protectedContent) {
-            YPlaybackRecoveryAction.Stop
-        } else {
-            YPlaybackRecoveryAction.FallbackToSoftware
+        if (context.protectedContent) return YPlaybackRecoveryAction.Stop
+        return when (context.route) {
+            YPlaybackRoute.NativeDirect -> YPlaybackRecoveryAction.FallbackToEnhanced
+            YPlaybackRoute.NativeEnhanced,
+            YPlaybackRoute.GpuEnhanced,
+            -> YPlaybackRecoveryAction.FallbackToSoftware
+            YPlaybackRoute.Legacy,
+            YPlaybackRoute.NativeTunnel,
+            YPlaybackRoute.SoftwareFallback,
+            -> YPlaybackRecoveryAction.Stop
         }
     }
 }
