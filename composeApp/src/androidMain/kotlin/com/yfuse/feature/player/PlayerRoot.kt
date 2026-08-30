@@ -87,6 +87,7 @@ import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
 
 private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
+private const val MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS = 2
 
 /**
  * Owns the live player, its temporary presentation engine, and the shared control layer. Switching
@@ -1747,6 +1748,22 @@ internal fun PlayerRoot(
         }
     }
 
+    var nativeOnlyRecoveryAttempts by
+        remember(activeProbe.capabilitySignature, state.currentIndex) { mutableIntStateOf(0) }
+    LaunchedEffect(
+        runtimeAssessment.health.evaluationReady,
+        runtimeAssessment.runtimeFault,
+        state.currentIndex,
+    ) {
+        if (
+            runtimeAssessment.health.evaluationReady &&
+            runtimeAssessment.runtimeFault == null &&
+            state.playing &&
+            !state.buffering
+        ) {
+            nativeOnlyRecoveryAttempts = 0
+        }
+    }
     LaunchedEffect(
         runtimeAssessment.runtimeFault,
         kind,
@@ -1760,10 +1777,48 @@ internal fun PlayerRoot(
             return@LaunchedEffect
         }
         if (core2NativeOnlyActive) {
+            val positionMs = player.currentPositionMs().coerceAtLeast(0L)
+            if (nativeOnlyRecoveryAttempts < MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS) {
+                nativeOnlyRecoveryAttempts++
+                resume =
+                    playbackHandoverSnapshot(
+                        state = state,
+                        currentPositionMs = positionMs,
+                        playbackRequested = player.playbackRequested,
+                        requestedSpeed = requestedPlaybackSpeed,
+                        secondarySubtitle = secondarySubtitleRestore,
+                        subtitleDelayMs = subtitleControls.offsetMs,
+                        audioDelayMs = audioControls.delayMs,
+                    )
+                // Rebuild the YCore player itself. This releases MediaCodec, the Surface binding,
+                // AudioTrack, demux/transport state and stale frame callbacks, but never selects a
+                // Legacy engine or asks the server to transcode.
+                engineGeneration++
+                AppLog.warning(
+                    category = "player.core2",
+                    event = "native_only_runtime_recovery",
+                    message = "YCore Native rebuilt its local pipeline after a silent output fault",
+                    attributes =
+                        mapOf(
+                            "engine" to kind.name,
+                            "itemIndex" to state.currentIndex.toString(),
+                            "positionMs" to positionMs.toString(),
+                            "fault" to fault.kind.name,
+                            "attempt" to nativeOnlyRecoveryAttempts.toString(),
+                        ),
+                )
+                Toast
+                    .makeText(
+                        context,
+                        "YCore 正在重建本地解码链路",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                return@LaunchedEffect
+            }
             AppLog.warning(
                 category = "player.core2",
                 event = "native_only_runtime_fault",
-                message = "YCore Native reported a silent output fault without Legacy fallback",
+                message = "YCore Native exhausted local recovery without using Legacy fallback",
                 attributes =
                     mapOf(
                         "engine" to kind.name,
@@ -1774,7 +1829,7 @@ internal fun PlayerRoot(
             Toast
                 .makeText(
                     context,
-                    "YCore Native 输出异常，纯内核模式未切换兼容内核",
+                    "YCore 本地恢复失败，未切换兼容内核或服务器解码",
                     Toast.LENGTH_SHORT,
                 ).show()
             return@LaunchedEffect

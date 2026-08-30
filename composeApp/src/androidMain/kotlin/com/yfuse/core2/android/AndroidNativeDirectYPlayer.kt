@@ -240,9 +240,16 @@ internal class AndroidNativeDirectYPlayer(
                     pendingCommands += command
                 }
                 val handledCommand = pendingCommands.isNotEmpty()
-                coalesceNativeDirectCommands(pendingCommands).forEach { command ->
-                    runCatching { session.handle(command) }
-                        .onFailure { fail(session, it) }
+                for (command in coalesceNativeDirectCommands(pendingCommands)) {
+                    val failure = runCatching { session.handle(command) }.exceptionOrNull()
+                    if (failure != null) {
+                        fail(session, failure)
+                        // Commands in this batch were captured before the failure. Processing a
+                        // stale Play/Seek/Surface command after releaseMedia() can partially revive
+                        // a failed session and report rendered frames while its phase is Failed.
+                        // A later explicit retry arrives in a fresh batch and may prepare safely.
+                        break
+                    }
                 }
 
                 val canPump = session.canPump
