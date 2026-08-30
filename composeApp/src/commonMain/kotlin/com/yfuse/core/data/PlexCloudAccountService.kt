@@ -3,6 +3,7 @@ package com.yfuse.core.data
 import com.yfuse.core.data.dto.PlexResponseDto
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.normalizedRoutes
+import com.yfuse.core.network.suppressEmbyIdentity
 import com.yfuse.deviceId
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -283,6 +284,7 @@ internal class PlexCloudAccountService(
         }
 
     private fun HttpRequestBuilder.cloudHeaders(token: String? = null) {
+        suppressEmbyIdentity()
         headers.remove("X-Emby-Authorization")
         headers.remove("X-Emby-Client")
         headers.remove("X-Emby-Client-Version")
