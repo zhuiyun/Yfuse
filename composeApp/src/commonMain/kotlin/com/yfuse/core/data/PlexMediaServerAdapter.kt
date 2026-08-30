@@ -119,6 +119,59 @@ internal class PlexMediaServerAdapter(
                 }
         }
 
+    suspend fun refreshLibrary(
+        server: SavedServer,
+        libraryId: String,
+    ): Result<Unit> =
+        embyApiCall("plex_refresh_library") {
+            val id = plexNumericId(libraryId, "libraryId")
+            client.get("${normalizeBaseUrl(server.baseUrl)}/library/sections/$id/refresh") {
+                plexHeaders(server.accessToken)
+            }
+        }
+
+    suspend fun refreshMetadata(
+        server: SavedServer,
+        itemId: String,
+    ): Result<Unit> =
+        embyApiCall("plex_refresh_metadata") {
+            val id = plexNumericId(itemId, "itemId")
+            client.get("${normalizeBaseUrl(server.baseUrl)}/library/metadata/$id/refresh") {
+                plexHeaders(server.accessToken)
+            }
+        }
+
+    suspend fun analyzeMetadata(
+        server: SavedServer,
+        itemId: String,
+    ): Result<Unit> =
+        embyApiCall("plex_analyze_metadata") {
+            val id = plexNumericId(itemId, "itemId")
+            client.put("${normalizeBaseUrl(server.baseUrl)}/library/metadata/$id/analyze") {
+                plexHeaders(server.accessToken)
+            }
+        }
+
+    suspend fun cloudRatingKey(
+        server: SavedServer,
+        itemId: String,
+    ): Result<String> =
+        embyApiCall("plex_cloud_rating_key") {
+            val metadata =
+                container(server, "/library/metadata/${plexNumericId(itemId, "itemId")}") {
+                    parameter("includeGuids", 1)
+                }.allMetadata().firstOrNull() ?: error("Plex 中找不到该媒体")
+            val raw =
+                (metadata.Guid.map { it.id } + listOfNotNull(metadata.guid))
+                    .firstOrNull { it.startsWith("plex://") }
+                    ?: error("该媒体没有可用于 Plex Watchlist 的云端标识")
+            raw.substringAfterLast('/').substringBefore('?').takeIf(String::isNotBlank)
+                ?: error("Plex 云端媒体标识无效")
+        }
+
+    suspend fun machineIdentifierFor(server: SavedServer): Result<String> =
+        embyApiCall("plex_machine_identifier") { machineIdentifier(server) }
+
     suspend fun mediaContainers(server: SavedServer): Result<List<MediaContainer>> =
         embyApiCall("plex_media_containers") {
             allMediaContainers(server)

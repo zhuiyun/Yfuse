@@ -17,6 +17,7 @@ import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.offline.OfflineDownloadSelection
 import com.yfuse.core.offline.buildOfflineDownloadRequests
@@ -113,6 +114,21 @@ class DetailComponent(
             currentSeriesId = detail.seriesId,
             currentSeasonId = state.episodes.firstOrNull { it.id == detail.id }?.seasonId,
         ).forEach(dependencies.offlineMediaManager::enqueue)
+    }
+
+    suspend fun refreshServerMetadata(detail: MediaDetail): Result<Unit> {
+        val server = store.state.server ?: return Result.failure(IllegalStateException("服务器已不可用"))
+        return repo.refreshMetadata(server, detail.id).onSuccess {
+            store.accept(DetailIntent.Retry)
+        }
+    }
+
+    suspend fun analyzeServerMetadata(detail: MediaDetail): Result<Unit> {
+        val server = store.state.server ?: return Result.failure(IllegalStateException("服务器已不可用"))
+        if (server.kind != MediaServerKind.Plex) {
+            return Result.failure(UnsupportedOperationException("仅 Plex 提供单项媒体分析"))
+        }
+        return repo.analyzeMetadata(server, detail.id)
     }
 
     suspend fun loadSeriesAiringCalendar(

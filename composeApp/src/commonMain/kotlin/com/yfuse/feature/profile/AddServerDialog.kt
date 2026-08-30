@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -48,6 +49,7 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
+import com.yfuse.feature.servers.PlexAccountUiState
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
 import com.yfuse.core.designsystem.liquidGlass as glass
@@ -69,6 +71,7 @@ fun AddServerDialog(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val form = state.form
+    val uriHandler = LocalUriHandler.current
     val editing = state.editingServerId != null
     val endpointValidation = validateEmbyServerEndpoint(form.url)
     val requestLanScan =
@@ -256,8 +259,136 @@ fun AddServerDialog(
                     .glass(GlassShapes.card, palette.card2, palette.border),
             ) {
                 if (form.kind == MediaServerKind.Plex) {
+                    FormRow(label = "Plex 云账号", divider = true) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            when (val account = state.plexAccount) {
+                                PlexAccountUiState.Idle,
+                                PlexAccountUiState.Cancelled,
+                                PlexAccountUiState.Expired,
+                                is PlexAccountUiState.Error,
+                                -> {
+                                    Text(
+                                        when (account) {
+                                            PlexAccountUiState.Expired -> "登录码已过期，请重新开始。"
+                                            PlexAccountUiState.Cancelled -> "已取消 Plex 账号登录。"
+                                            is PlexAccountUiState.Error -> account.message
+                                            else -> "使用 plex.tv 账号发现服务器，并保留远程与 Relay 线路。"
+                                        },
+                                        style = AppTypography.caption.regular,
+                                        color =
+                                            if (account is PlexAccountUiState.Error) {
+                                                palette.error
+                                            } else {
+                                                palette.sub2
+                                            },
+                                    )
+                                    OverlayButton(
+                                        label = if (account == PlexAccountUiState.Idle) "使用 Plex 账号登录" else "重新登录",
+                                        onClick = { onIntent(ServersIntent.StartPlexAccountSignIn) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        tone = OverlayButtonTone.Plain,
+                                    )
+                                }
+                                PlexAccountUiState.Starting,
+                                PlexAccountUiState.LoadingAccount,
+                                PlexAccountUiState.LoadingServers,
+                                PlexAccountUiState.Connecting,
+                                -> {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(14.dp),
+                                            color = accent.accent,
+                                            strokeWidth = 1.5.dp,
+                                        )
+                                        Text(
+                                            when (account) {
+                                                PlexAccountUiState.Starting -> "正在申请登录码…"
+                                                PlexAccountUiState.LoadingAccount -> "正在读取 Plex Home…"
+                                                PlexAccountUiState.LoadingServers -> "正在发现账号服务器…"
+                                                else -> "正在验证服务器线路…"
+                                            },
+                                            style = AppTypography.caption.medium,
+                                            color = palette.body,
+                                        )
+                                    }
+                                }
+                                is PlexAccountUiState.AwaitingAuthorization -> {
+                                    Text(
+                                        "登录码  ${account.code}",
+                                        style = AppTypography.body.strong,
+                                        color = palette.text,
+                                    )
+                                    Text(
+                                        "在 Plex 页面确认后会自动继续。",
+                                        style = AppTypography.caption.regular,
+                                        color = palette.sub2,
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OverlayButton(
+                                            label = "打开 Plex 授权页",
+                                            onClick = { uriHandler.openUri(account.authUrl) },
+                                            modifier = Modifier.weight(1f),
+                                            tone = OverlayButtonTone.Plain,
+                                        )
+                                        OverlayButton(
+                                            label = "取消",
+                                            onClick = { onIntent(ServersIntent.CancelPlexAccountSignIn) },
+                                            modifier = Modifier.weight(1f),
+                                            tone = OverlayButtonTone.Plain,
+                                        )
+                                    }
+                                }
+                                is PlexAccountUiState.SelectingHomeUser -> {
+                                    Text(
+                                        "选择 Plex Home 用户",
+                                        style = AppTypography.caption.strong,
+                                        color = palette.text,
+                                    )
+                                    if (account.users.any { it.pinProtected }) {
+                                        FormInput(
+                                            label = "Home PIN（受保护用户）",
+                                            value = state.plexHomePin,
+                                            divider = false,
+                                            password = true,
+                                            keyboardType = KeyboardType.Number,
+                                        ) { onIntent(ServersIntent.PlexHomePinChanged(it)) }
+                                    }
+                                    account.error?.let {
+                                        Text(it, style = AppTypography.caption.medium, color = palette.error)
+                                    }
+                                    account.users.forEach { user ->
+                                        PlexChoiceRow(
+                                            title = user.name,
+                                            subtitle =
+                                                buildString {
+                                                    append(if (user.admin) "管理员" else "家庭用户")
+                                                    if (user.pinProtected) append(" · 需要 PIN")
+                                                },
+                                        ) { onIntent(ServersIntent.SelectPlexHomeUser(user.id)) }
+                                    }
+                                }
+                                is PlexAccountUiState.SelectingServer -> {
+                                    Text(
+                                        "选择 Plex Media Server",
+                                        style = AppTypography.caption.strong,
+                                        color = palette.text,
+                                    )
+                                    account.servers.forEach { server ->
+                                        PlexChoiceRow(
+                                            title = server.name,
+                                            subtitle =
+                                                "${if (server.owned) "自有" else "共享"} · ${server.routeCount} 条线路",
+                                        ) { onIntent(ServersIntent.SelectPlexCloudServer(server.id)) }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     FormInput(
-                        label = "Plex Token",
+                        label = "手动 Plex Token（备用）",
                         value = form.password,
                         placeholder = if (editing) "修改连接时重新填写 Token" else "输入 X-Plex-Token",
                         enabled = !form.submitting,
@@ -359,6 +490,43 @@ fun AddServerDialog(
                     (!editing || form.serverName.isNotBlank()),
             loading = form.submitting,
         )
+    }
+}
+
+@Composable
+private fun PlexChoiceRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressable(onClick = onClick)
+            .touchTarget()
+            .glass(GlassShapes.thumb, palette.card3, palette.border)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(AppIcons.ChevronRight, null, tint = palette.sub2, modifier = Modifier.size(13.dp))
     }
 }
 

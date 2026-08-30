@@ -350,6 +350,7 @@ internal fun OfflineDownloadDialog(
     detail: MediaDetail,
     episodes: List<Episode>,
     selectedVersionId: String?,
+    allowedQualities: List<OfflineDownloadQuality> = OfflineDownloadQuality.entries,
     onConfirm: (OfflineDownloadSelection) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -424,7 +425,14 @@ internal fun OfflineDownloadDialog(
         }
 
         Text("画质", style = AppTypography.caption.strong, color = palette.sub2)
-        OfflineChoiceRow(OfflineDownloadQuality.entries, quality, { it.label }) { quality = it }
+        OfflineChoiceRow(allowedQualities, quality, { it.label }) { quality = it }
+        if (allowedQualities.size == 1) {
+            Text(
+                "Plex 原画可直接离线；转码画质需要服务器端 Downloads 转换任务，当前不会伪装成普通文件下载。",
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+            )
+        }
 
         selectedVersion?.subtitleTracks?.takeIf { it.isNotEmpty() }?.let { tracks ->
             Text("字幕", style = AppTypography.caption.strong, color = palette.sub2)

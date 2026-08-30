@@ -59,6 +59,28 @@ class ServerRegistryTest {
     }
 
     @Test
+    fun plex_cloud_token_uses_a_second_secure_slot_and_never_enters_settings() {
+        val settings = MapSettings()
+        val secrets = TestSecureStore()
+        val cloudToken = "plex-cloud-secret"
+        val ownerToken = "plex-owner-secret"
+        registry(settings, secrets).addOrUpdate(
+            server("plex", "pms-token").copy(
+                kind = MediaServerKind.Plex,
+                cloudAccessToken = cloudToken,
+                cloudOwnerAccessToken = ownerToken,
+            ),
+        )
+
+        val persisted = requireNotNull(settings.getStringOrNull("servers.data"))
+        assertFalse(cloudToken in persisted)
+        assertFalse(ownerToken in persisted)
+        assertEquals(3, secrets.storedKeys().size)
+        assertEquals(cloudToken, registry(settings, secrets).defaultServer?.cloudAccessToken)
+        assertEquals(ownerToken, registry(settings, secrets).defaultServer?.cloudOwnerAccessToken)
+    }
+
+    @Test
     fun jellyfin_provider_kind_survives_encrypted_registry_reload() {
         val settings = MapSettings()
         val secrets = TestSecureStore()

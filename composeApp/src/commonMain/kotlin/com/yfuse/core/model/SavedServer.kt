@@ -26,6 +26,10 @@ data class SavedServer(
     val userId: String,
     val userName: String,
     val accessToken: String,
+    /** Plex-account credential for cloud-only APIs; persisted in a separate secure-store slot. */
+    val cloudAccessToken: String? = null,
+    /** Plex Home owner token retained only to authorize later managed-user switching. */
+    val cloudOwnerAccessToken: String? = null,
     val kind: MediaServerKind = MediaServerKind.Emby,
     /** Previous connection-derived ids retained when this saved server is edited. */
     val previousIds: Set<String> = emptySet(),

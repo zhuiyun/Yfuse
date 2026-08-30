@@ -72,6 +72,8 @@ private data class PortableServer(
     @SerialName("u") val userId: String,
     @SerialName("a") val userName: String,
     @SerialName("t") val accessToken: String,
+    @SerialName("ct") val cloudAccessToken: String? = null,
+    @SerialName("ot") val cloudOwnerAccessToken: String? = null,
     // Optional so a v2 package written before multi-route still imports.
     @SerialName("rt") val routes: List<ServerRoute> = emptyList(),
     @SerialName("ie") val iconEmoji: String? = null,
@@ -88,6 +90,10 @@ private data class SecretWrite(
     val ref: String,
     val newToken: String,
     val previousToken: String?,
+    val newCloudToken: String?,
+    val previousCloudToken: String?,
+    val newOwnerToken: String?,
+    val previousOwnerToken: String?,
 )
 
 /**
@@ -112,6 +118,8 @@ class ServerRegistry(
         const val MAX_SERVERS = 100
         const val MAX_TOKEN_CHARS = 4_096
         const val SECRET_KEY_PREFIX = "emby-token:"
+        const val CLOUD_SECRET_KEY_PREFIX = "plex-account-token:"
+        const val OWNER_SECRET_KEY_PREFIX = "plex-owner-token:"
         val VALID_SECRET_REF = Regex("[A-Za-z0-9_-]{43}")
     }
 
@@ -433,6 +441,8 @@ class ServerRegistry(
                         userId = server.userId,
                         userName = server.userName,
                         accessToken = server.accessToken,
+                        cloudAccessToken = server.cloudAccessToken,
+                        cloudOwnerAccessToken = server.cloudOwnerAccessToken,
                         previousIds = server.previousIds,
                         invalidMessagePrefix = "同步的",
                         routes = server.routes,
@@ -486,6 +496,8 @@ class ServerRegistry(
                                         userId = it.userId,
                                         userName = it.userName,
                                         accessToken = it.accessToken,
+                                        cloudAccessToken = it.cloudAccessToken,
+                                        cloudOwnerAccessToken = it.cloudOwnerAccessToken,
                                         routes = it.routes,
                                         iconEmoji = it.iconEmoji,
                                         iconTint = it.iconTint,
@@ -623,6 +635,8 @@ class ServerRegistry(
                                 userId = it.userId,
                                 userName = it.userName,
                                 accessToken = it.accessToken,
+                                cloudAccessToken = it.cloudAccessToken,
+                                cloudOwnerAccessToken = it.cloudOwnerAccessToken,
                                 routes = it.routes,
                                 iconEmoji = it.iconEmoji,
                                 iconTint = it.iconTint,
@@ -652,6 +666,8 @@ class ServerRegistry(
                     userId = portable.userId,
                     userName = portable.userName,
                     accessToken = portable.accessToken,
+                    cloudAccessToken = portable.cloudAccessToken,
+                    cloudOwnerAccessToken = portable.cloudOwnerAccessToken,
                     previousIds =
                         current.servers
                             .firstOrNull { it.id == id }
@@ -700,7 +716,11 @@ class ServerRegistry(
         ) {
             "服务器列表包含重复项"
         }
-        normalized.servers.forEach { requireValidToken(it.accessToken) }
+        normalized.servers.forEach {
+            requireValidToken(it.accessToken)
+            it.cloudAccessToken?.let(::requireValidToken)
+            it.cloudOwnerAccessToken?.let(::requireValidToken)
+        }
 
         val oldData = _data.value
         val oldRefs = secretRefs
@@ -713,12 +733,28 @@ class ServerRegistry(
         val writes =
             normalized.servers.mapNotNull { server ->
                 val ref = requireNotNull(newRefs[server.id])
-                val previous = oldByRef[ref]?.accessToken
-                if (previous == server.accessToken) null else SecretWrite(ref, server.accessToken, previous)
+                val previousServer = oldByRef[ref]
+                if (
+                    previousServer?.accessToken == server.accessToken &&
+                    previousServer.cloudAccessToken == server.cloudAccessToken &&
+                    previousServer.cloudOwnerAccessToken == server.cloudOwnerAccessToken
+                ) {
+                    null
+                } else {
+                    SecretWrite(
+                        ref = ref,
+                        newToken = server.accessToken,
+                        previousToken = previousServer?.accessToken,
+                        newCloudToken = server.cloudAccessToken,
+                        previousCloudToken = previousServer?.cloudAccessToken,
+                        newOwnerToken = server.cloudOwnerAccessToken,
+                        previousOwnerToken = previousServer?.cloudOwnerAccessToken,
+                    )
+                }
             }
 
         try {
-            writes.forEach { writeSecret(it.ref, it.newToken) }
+            writes.forEach { writeSecret(it.ref, it.newToken, it.newCloudToken, it.newOwnerToken) }
             persistMetadata(normalized, newRefs)
         } catch (error: Exception) {
             rollbackSecretWrites(writes)
@@ -826,7 +862,7 @@ class ServerRegistry(
         try {
             safeLegacy.servers.forEach { server ->
                 val ref = requireNotNull(refs[server.id])
-                writeSecret(ref, server.accessToken)
+                writeSecret(ref, server.accessToken, server.cloudAccessToken, server.cloudOwnerAccessToken)
                 written += ref
             }
             persistMetadata(safeLegacy, refs)
@@ -877,6 +913,15 @@ class ServerRegistry(
                             tokenBytes.fill(0)
                         }
                     requireValidToken(token)
+                    val cloudTokenBytes = secureStore.get(cloudSecretKey(stored.secretRef))
+                    val cloudToken =
+                        cloudTokenBytes?.let { bytes ->
+                            try {
+                                bytes.decodeToString().also(::requireValidToken)
+                            } finally {
+                                bytes.fill(0)
+                            }
+                        }
                     val raw =
                         SavedServer(
                             id = stored.id,
@@ -885,6 +930,8 @@ class ServerRegistry(
                             userId = stored.userId,
                             userName = stored.userName,
                             accessToken = token,
+                            cloudAccessToken = cloudToken,
+                            cloudOwnerAccessToken = readOptionalSecret(ownerSecretKey(stored.secretRef)),
                             previousIds = recentPreviousIds(stored.id, stored.previousIds),
                             routes = stored.routes,
                             activeRouteId = stored.activeRouteId,
@@ -1045,10 +1092,48 @@ class ServerRegistry(
     private fun writeSecret(
         ref: String,
         token: String,
+        cloudToken: String? = null,
+        ownerToken: String? = null,
     ) {
         val bytes = token.encodeToByteArray()
         try {
             secureStore.put(secretKey(ref), bytes)
+        } finally {
+            bytes.fill(0)
+        }
+        if (cloudToken == null) {
+            secureStore.remove(cloudSecretKey(ref))
+        } else {
+            val cloudBytes = cloudToken.encodeToByteArray()
+            try {
+                secureStore.put(cloudSecretKey(ref), cloudBytes)
+            } finally {
+                cloudBytes.fill(0)
+            }
+        }
+        writeOptionalSecret(ownerSecretKey(ref), ownerToken)
+    }
+
+    private fun writeOptionalSecret(
+        key: String,
+        token: String?,
+    ) {
+        if (token == null) {
+            secureStore.remove(key)
+            return
+        }
+        val bytes = token.encodeToByteArray()
+        try {
+            secureStore.put(key, bytes)
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    private fun readOptionalSecret(key: String): String? {
+        val bytes = secureStore.get(key) ?: return null
+        return try {
+            bytes.decodeToString().also(::requireValidToken)
         } finally {
             bytes.fill(0)
         }
@@ -1057,8 +1142,13 @@ class ServerRegistry(
     private fun rollbackSecretWrites(writes: List<SecretWrite>) {
         writes.asReversed().forEach { write ->
             runCatching {
-                write.previousToken?.let { writeSecret(write.ref, it) }
-                    ?: secureStore.remove(secretKey(write.ref))
+                write.previousToken?.let {
+                    writeSecret(write.ref, it, write.previousCloudToken, write.previousOwnerToken)
+                } ?: run {
+                    secureStore.remove(secretKey(write.ref))
+                    secureStore.remove(cloudSecretKey(write.ref))
+                    secureStore.remove(ownerSecretKey(write.ref))
+                }
             }.onFailure { error ->
                 AppLog.error(
                     category = "server.registry",
@@ -1071,7 +1161,11 @@ class ServerRegistry(
     }
 
     private fun removeSecretBestEffort(ref: String) {
-        runCatching { secureStore.remove(secretKey(ref)) }.onFailure { error ->
+        runCatching {
+            secureStore.remove(secretKey(ref))
+            secureStore.remove(cloudSecretKey(ref))
+            secureStore.remove(ownerSecretKey(ref))
+        }.onFailure { error ->
             AppLog.warning(
                 category = "server.registry",
                 event = "orphan_secret_remove_failed",
@@ -1111,6 +1205,10 @@ class ServerRegistry(
 
     private fun secretKey(ref: String): String = SECRET_KEY_PREFIX + ref
 
+    private fun cloudSecretKey(ref: String): String = CLOUD_SECRET_KEY_PREFIX + ref
+
+    private fun ownerSecretKey(ref: String): String = OWNER_SECRET_KEY_PREFIX + ref
+
     private fun requireValidToken(token: String) {
         require(token.isNotBlank() && token.length <= MAX_TOKEN_CHARS) { "服务器访问令牌无效" }
     }
@@ -1121,6 +1219,8 @@ class ServerRegistry(
         userId: String,
         userName: String,
         accessToken: String,
+        cloudAccessToken: String? = null,
+        cloudOwnerAccessToken: String? = null,
         previousIds: Iterable<String>,
         invalidMessagePrefix: String,
         routes: List<ServerRoute> = emptyList(),
@@ -1140,11 +1240,15 @@ class ServerRegistry(
         }
         val normalizedUserId = userId.trim()
         val token = accessToken.trim()
+        val cloudToken = cloudAccessToken?.trim()?.takeIf(String::isNotBlank)
+        val ownerToken = cloudOwnerAccessToken?.trim()?.takeIf(String::isNotBlank)
         require(
             normalizedUserId.isNotEmpty() &&
                 normalizedUserId.length <= 256 &&
                 token.length in 1..MAX_TOKEN_CHARS,
         ) { "${invalidMessagePrefix}服务器凭据无效" }
+        cloudToken?.let(::requireValidToken)
+        ownerToken?.let(::requireValidToken)
         val id = SavedServer.idOf(normalizedBaseUrl, normalizedUserId)
         return SavedServer(
             id = id,
@@ -1164,6 +1268,8 @@ class ServerRegistry(
                     .trim()
                     .take(128),
             accessToken = token,
+            cloudAccessToken = cloudToken,
+            cloudOwnerAccessToken = ownerToken,
             kind = kind,
             previousIds = recentPreviousIds(id, previousIds.take(MAX_SERVER_PREVIOUS_IDS)),
             // The imported list is untrusted input: rebuild the primary from the address the
@@ -1240,6 +1346,8 @@ private fun SavedServer.carryingUserSettingsFrom(existing: SavedServer?): SavedS
             listOf(ServerRoute(ServerRoute.PRIMARY_ID, primaryName, baseUrl)) + backups
         }
     return copy(
+        cloudAccessToken = cloudAccessToken ?: existing.cloudAccessToken,
+        cloudOwnerAccessToken = cloudOwnerAccessToken ?: existing.cloudOwnerAccessToken,
         routes = routes.normalizedRoutes(),
         activeRouteId = ServerRoute.PRIMARY_ID.takeIf { routes.isNotEmpty() },
         iconEmoji = iconEmoji ?: existing.iconEmoji,
