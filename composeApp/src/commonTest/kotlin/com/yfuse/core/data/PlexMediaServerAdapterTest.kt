@@ -106,7 +106,11 @@ class PlexMediaServerAdapterTest {
             )
             assertEquals(
                 "http://plex:32400/library/streams/3?X-Plex-Token=secret-token",
-                detail.versions.single().subtitleTracks.single().uri,
+                detail.versions
+                    .single()
+                    .subtitleTracks
+                    .single()
+                    .uri,
             )
             assertEquals(false, source.SupportsDirectPlay)
             assertEquals(true, source.SupportsDirectStream)

@@ -51,9 +51,8 @@ internal fun mpvScaleModeProperties(mode: VideoScaleMode): MpvScaleModePropertie
         keepAspect = mode != VideoScaleMode.Stretch,
     )
 
-internal fun externalSubtitleMpvCommand(item: PlayerMediaItem): Array<String>? {
-    return externalSubtitleMpvCommands(item).firstOrNull()
-}
+internal fun externalSubtitleMpvCommand(item: PlayerMediaItem): Array<String>? =
+    externalSubtitleMpvCommands(item).firstOrNull()
 
 internal fun externalSubtitleMpvCommands(item: PlayerMediaItem): List<Array<String>> =
     item.playbackExternalSubtitles().map { subtitle ->
