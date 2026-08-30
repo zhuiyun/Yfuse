@@ -51,12 +51,12 @@ internal class EmbyAuthService(
             val publicInfo = serverInfo.getOrNull()
             val kind = publicInfo.mediaServerKind()
             AuthedServer(
-                url,
-                publicInfo?.ServerName ?: url,
-                auth.User.Id,
-                auth.User.Name,
-                auth.AccessToken,
-                kind,
+                baseUrl = url,
+                serverName = publicInfo?.ServerName ?: url,
+                userId = auth.User.Id,
+                userName = auth.User.Name,
+                accessToken = auth.AccessToken,
+                kind = kind,
             )
         }
 }

@@ -416,7 +416,12 @@ private suspend fun resolvePlexOfflineSourceUrl(
     }
     val playback =
         repository
-            .playbackInfo(server, item.itemId, "offline-${item.id}")
+            .playbackInfo(
+                server = server,
+                itemId = item.itemId,
+                mediaSourceId = item.mediaSourceId,
+                playSessionId = "offline-${item.id}",
+            )
             .getOrElse { throw it }
     val source =
         playback.MediaSources.firstOrNull { candidate ->
@@ -434,13 +439,19 @@ private suspend fun resolvePlexOfflineSubtitleUrl(
     val index = item.subtitleStreamIndex ?: return null
     val playback =
         repository
-            .playbackInfo(server, item.itemId, "offline-subtitle-${item.id}")
+            .playbackInfo(
+                server = server,
+                itemId = item.itemId,
+                mediaSourceId = item.mediaSourceId,
+                playSessionId = "offline-subtitle-${item.id}",
+            )
             .getOrElse { throw it }
     val source =
         playback.MediaSources.firstOrNull { candidate ->
             item.mediaSourceId == null || candidate.Id == item.mediaSourceId
         } ?: error("Plex 中找不到所选媒体版本")
     return source.MediaStreams
+        .orEmpty()
         .firstOrNull { it.Index == index && it.Type.equals("Subtitle", ignoreCase = true) }
         ?.DeliveryUrl
         ?.takeIf(String::isNotBlank)

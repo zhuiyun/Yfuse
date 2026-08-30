@@ -7,6 +7,7 @@ import android.media.MediaFormat
 import android.os.Build
 import android.view.Surface
 import android.view.WindowManager
+import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.YPlaybackRoute
@@ -28,6 +29,7 @@ import com.yfuse.core2.demux.YSampleFlag
 import com.yfuse.core2.demux.YSubtitlePacketDecoder
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.demux.YVideoTrackFormat
+import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.dolby.dolbyVisionHevcBaseLayerSample
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
@@ -182,7 +184,7 @@ internal class AndroidEnhancedPlaybackSession(
                 safeDetail = "Enhanced source open",
             ) {
                 demuxer.open(source)
-        }
+            }
         val videoTrack =
             result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
                 ?: throw YPlaybackException(
