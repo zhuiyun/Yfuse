@@ -70,6 +70,7 @@ internal object PlaybackDiagnosticReportRegistry {
         state: PlaybackState,
         selectedEngine: PlayerEngine,
         fallbackChain: List<PlayerEngine>,
+        nativeOnly: Boolean = false,
     ) {
         val diagnostics = state.diagnostics
         val evidence = diagnostics.outputEvidence
@@ -77,10 +78,20 @@ internal object PlaybackDiagnosticReportRegistry {
         val report =
             redactDiagnosticText(
                 buildString {
-                    appendLine("engine.selected=${selectedEngine.name}")
+                    appendLine(
+                        "engine.selected=" +
+                            if (nativeOnly) "YCore2Native" else selectedEngine.name,
+                    )
                     appendLine("engine.actual=${diagnostics.engine.ifBlank { "unknown" }}")
                     appendLine("route=${diagnostics.plannedRenderPath.ifBlank { "unknown" }}")
-                    appendLine("fallback.chain=${fallbackChain.joinToString(" -> ") { it.name }}")
+                    appendLine(
+                        "fallback.chain=" +
+                            if (nativeOnly) {
+                                "YCore2Native"
+                            } else {
+                                fallbackChain.joinToString(" -> ") { it.name }
+                            },
+                    )
                     appendLine("fallback.reason=${diagnostics.fallbackReason.orEmpty()}")
                     appendLine("video.decoder=${evidence.videoDecoder.ifBlank { diagnostics.decoder }}")
                     appendLine("video.codec=${diagnostics.videoCodec}")

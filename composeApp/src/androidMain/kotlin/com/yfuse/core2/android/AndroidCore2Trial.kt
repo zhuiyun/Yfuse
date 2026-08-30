@@ -146,6 +146,7 @@ internal object AndroidCore2TrialFactory {
                 decoderPreference = decoderMode.toCore2Preference(),
                 optimizationPreference = optimizationMode.toCore2Preference(),
                 nativeGpuRuntimeProbe = nativeGpuRuntimeProbe,
+                nativeOnly = nativeOnly,
             )
         val discFactory =
             AndroidYCoreDiscRouteFactory(

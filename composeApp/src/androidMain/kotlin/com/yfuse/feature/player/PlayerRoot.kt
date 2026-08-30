@@ -29,6 +29,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.util.UnstableApi
+import com.yfuse.BuildConfig
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.CastPlaybackStatus
@@ -143,10 +144,13 @@ internal fun PlayerRoot(
         mutableStateOf(configuredEngineSelection)
     }
     val core2NativeOnlyActive =
-        core2NativeOnlyEnabled &&
-            core2TrialEnabled &&
-            sessionEngineSelection == PlaybackEngineSelection.Auto &&
-            !core2DisabledForSession
+        BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME ||
+            (
+                core2NativeOnlyEnabled &&
+                    core2TrialEnabled &&
+                    sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                    !core2DisabledForSession
+            )
 
     /**
      * Decide the initial HDR path before constructing a backend. Exo is selected for a verified
@@ -1456,6 +1460,7 @@ internal fun PlayerRoot(
             state = state,
             selectedEngine = kind,
             fallbackChain = (enginesTried + kind).toList(),
+            nativeOnly = core2NativeOnlyActive,
         )
     }
     var serversTried by remember(state.currentIndex) {
@@ -2236,7 +2241,7 @@ internal fun PlayerRoot(
                     }
                 },
                 onExternalPlayer =
-                    currentItem?.let { item ->
+                    currentItem?.takeUnless { core2NativeOnlyActive }?.let { item ->
                         {
                             val mediaUrl =
                                 if (state.transcoding) {

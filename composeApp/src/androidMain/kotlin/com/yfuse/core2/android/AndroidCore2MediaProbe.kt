@@ -4,8 +4,12 @@ import android.content.Context
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Build
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackRoute
+import com.yfuse.core2.bitstream.YBitstream
+import com.yfuse.core2.bitstream.YDolbyVisionNalEvidence
+import com.yfuse.core2.bitstream.YSamplePacking
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YCapabilityProvider
@@ -15,6 +19,8 @@ import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.dolby.YDolbyVisionCodecFamily
 import com.yfuse.core2.dolby.YDolbyVisionConfig
+import com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataParser
+import com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataResult
 import com.yfuse.core2.dolby.YDolbyVisionRouteDecision
 import com.yfuse.core2.dolby.YDolbyVisionRouter
 import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
@@ -34,6 +40,7 @@ import com.yfuse.core2.strategy.YPlaybackRequest
 import com.yfuse.core2.strategy.YPlaybackStrategy
 import com.yfuse.core2.strategy.YRenderPath
 import com.yfuse.core2.strategy.enhancedAudioCodecIsMoreReliable
+import java.nio.ByteBuffer
 
 internal enum class YCore2ProbeFailure {
     SourceUnavailable,
@@ -138,9 +145,42 @@ internal class AndroidCore2MediaProbe(
             val videoMime =
                 videoFormat.getString(MediaFormat.KEY_MIME)?.lowercase()
                     ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.UnknownVideoCodec)
-            val dolbyVisionConfig = videoFormat.dolbyVisionConfigOrNull(videoMime)
+            val container = item.containerHint()
+            val dolbyVisionConfig =
+                videoFormat.dolbyVisionConfigOrNull(videoMime)
+                    ?: demux.matroskaDolbyVisionConfigOrNull(container, videoMime)
+            val observedDolbyVisionNals =
+                if (
+                    dolbyVisionConfig == null &&
+                    videoMime == MIME_HEVC &&
+                    item.sourceHints?.dolbyVision == true
+                ) {
+                    demux.probeDolbyVisionNals(videoIndex, videoFormat)
+                } else {
+                    EMPTY_DOLBY_NAL_EVIDENCE
+                }
+            val unconfiguredDolbyVisionSignal = observedDolbyVisionNals.rpuPresent
+            if (unconfiguredDolbyVisionSignal) {
+                AppLog.info(
+                    category = "player.core2",
+                    event = "dolby_rpu_identity_recovered",
+                    message = "YCore confirmed Dolby Vision RPU NAL units through MediaExtractor",
+                    attributes =
+                        mapOf(
+                            "rpuCount" to observedDolbyVisionNals.rpuCount.toString(),
+                            "enhancementLayerCount" to
+                                observedDolbyVisionNals.enhancementLayerCount.toString(),
+                        ),
+                )
+            }
+            val effectiveVideoMime =
+                if (dolbyVisionConfig != null || unconfiguredDolbyVisionSignal) {
+                    MIME_DOLBY_VISION
+                } else {
+                    videoMime
+                }
             val videoCodec =
-                videoMime.toCore2VideoCodec(videoFormat, dolbyVisionConfig)
+                effectiveVideoMime.toCore2VideoCodec(videoFormat, dolbyVisionConfig)
                     ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.UnknownVideoCodec)
             val audioIndex = demux.findFirstTrack("audio/")
             val audioFormat = audioIndex?.let(demux::trackFormat)
@@ -152,8 +192,8 @@ internal class AndroidCore2MediaProbe(
                     width = videoFormat.intOrZero(MediaFormat.KEY_WIDTH),
                     height = videoFormat.intOrZero(MediaFormat.KEY_HEIGHT),
                     frameRate = videoFormat.frameRateOrZero(),
-                    bitDepth = videoFormat.bitDepth(videoMime),
-                    hdrType = videoFormat.hdrType(videoMime),
+                    bitDepth = if (dolbyVisionConfig != null) 10 else videoFormat.bitDepth(videoMime),
+                    hdrType = videoFormat.hdrType(effectiveVideoMime),
                     dolbyVisionProfile = dolbyVisionConfig?.profile,
                     secureDecodeRequired = item.drmConfiguration != null,
                 )
@@ -173,7 +213,7 @@ internal class AndroidCore2MediaProbe(
             YCore2ProbeResult.Success(
                 playbackRequest =
                     YPlaybackRequest(
-                        container = item.containerHint(),
+                        container = container,
                         video = video,
                         audio = audio,
                         platformDemuxSupported = true,
@@ -181,10 +221,15 @@ internal class AndroidCore2MediaProbe(
                         fallbackHdrType = dolbyVisionConfig?.compatibleBaseHdr,
                         preferTunnel = true,
                     ),
-                videoMime = videoMime,
+                videoMime = effectiveVideoMime,
                 audioMime = audioMime,
                 durationMs = durationUs / 1_000L,
                 dolbyVisionConfig = dolbyVisionConfig,
+                dolbyVisionStreamEvidence =
+                    dolbyVisionConfig?.let { config ->
+                        YDolbyVisionStreamEvidence(config, observedDolbyVisionNals)
+                    },
+                unconfiguredDolbyVisionSignal = unconfiguredDolbyVisionSignal,
             )
         } catch (_: Throwable) {
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
@@ -192,6 +237,68 @@ internal class AndroidCore2MediaProbe(
             demux.release()
         }
     }
+}
+
+private fun AndroidMediaExtractorDemuxNode.probeDolbyVisionNals(
+    videoTrackIndex: Int,
+    videoFormat: MediaFormat,
+): YDolbyVisionNalEvidence {
+    selectTrack(videoTrackIndex)
+    val buffer =
+        ByteBuffer.allocateDirect(
+            videoFormat
+                .maxInputSizeOr(DOLBY_SAMPLE_PROBE_DEFAULT_BYTES)
+                .coerceIn(DOLBY_SAMPLE_PROBE_MIN_BYTES, DOLBY_SAMPLE_PROBE_MAX_BYTES),
+        )
+    var rpuCount = 0
+    var enhancementLayerCount = 0
+    for (ignored in 0 until DOLBY_SAMPLE_PROBE_COUNT) {
+        val sample = readSample(buffer) ?: break
+        val bytes = ByteArray(sample.data.remaining())
+        sample.data.duplicate().get(bytes)
+        val evidence =
+            DOLBY_SAMPLE_PACKINGS
+                .mapNotNull { packing ->
+                    runCatching { YBitstream.dolbyVisionEvidence(bytes, packing) }.getOrNull()
+                }.maxByOrNull { it.rpuCount + it.enhancementLayerCount }
+        rpuCount += evidence?.rpuCount ?: 0
+        enhancementLayerCount += evidence?.enhancementLayerCount ?: 0
+        if (rpuCount > 0) return YDolbyVisionNalEvidence(rpuCount, enhancementLayerCount)
+        if (!advance()) break
+    }
+    return YDolbyVisionNalEvidence(rpuCount, enhancementLayerCount)
+}
+
+private fun AndroidMediaExtractorDemuxNode.matroskaDolbyVisionConfigOrNull(
+    container: YContainer,
+    videoMime: String,
+): YDolbyVisionConfig? {
+    if (container != YContainer.Matroska || videoMime !in MATROSKA_DOLBY_BASE_MIME_TYPES) return null
+    for (maximumBytes in MATROSKA_METADATA_PROBE_BYTES) {
+        val bytes = readSourcePrefix(maximumBytes) ?: return null
+        when (val result = YMatroskaDolbyVisionMetadataParser.parse(bytes)) {
+            is YMatroskaDolbyVisionMetadataResult.Found -> {
+                AppLog.info(
+                    category = "player.core2",
+                    event = "matroska_dolby_config_recovered",
+                    message = "YCore recovered Dolby Vision configuration from Matroska metadata",
+                    attributes =
+                        mapOf(
+                            "profile" to result.metadata.config.profile.toString(),
+                            "codec" to result.metadata.codecId,
+                            "mappingType" to result.metadata.blockAddIdType.toString(16),
+                        ),
+                )
+                return result.metadata.config
+            }
+            YMatroskaDolbyVisionMetadataResult.Absent,
+            YMatroskaDolbyVisionMetadataResult.Invalid,
+            -> return null
+            YMatroskaDolbyVisionMetadataResult.Truncated -> Unit
+        }
+        if (bytes.size < maximumBytes) return null
+    }
+    return null
 }
 
 /** Evaluates the best current route against platform and bounded FFmpeg metadata truth. */
@@ -207,6 +314,7 @@ internal class AndroidCore2RouteEvaluator(
     private val codecConfigurationProbe: AndroidCodecConfigurationProbe = AndroidCodecConfigurationProbe(),
     private val codecSampleProbe: AndroidCodecSampleProbe = AndroidCodecSampleProbe(context),
     private val nativeGpuRuntimeProbe: YNativeGpuRuntimeProbe = AndroidYCoreGpuRuntime.probe(context),
+    private val nativeOnly: Boolean = false,
 ) {
     private val platformProbe = AndroidCore2MediaProbe(context)
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
@@ -223,6 +331,12 @@ internal class AndroidCore2RouteEvaluator(
         val sourceClaimsDolbyVision = item.sourceHints?.dolbyVision == true
         val resolved =
             when {
+                nativeOnly && platform == null -> null
+                nativeOnly &&
+                    sourceClaimsDolbyVision &&
+                    platform?.dolbyVisionConfig == null &&
+                    platform?.unconfiguredDolbyVisionSignal != true -> null
+                nativeOnly -> platform
                 platform == null && item.drmConfiguration != null -> null
                 platform == null ->
                     (enhancedProbe.probe(item) as? YCore2ProbeResult.Success)
@@ -260,7 +374,8 @@ internal class AndroidCore2RouteEvaluator(
             } ?: return null
         val requested =
             resolved.playbackRequest.copy(
-                preferTunnel = preferTunnel,
+                enhancedDemuxSupported = resolved.playbackRequest.enhancedDemuxSupported && !nativeOnly,
+                preferTunnel = preferTunnel && !resolved.unconfiguredDolbyVisionSignal,
                 allowAudioPassthrough = allowAudioPassthrough,
                 decoderPreference =
                     if (forcePowerSaver) {
@@ -616,6 +731,12 @@ private fun MediaFormat.bitDepth(mime: String): Int {
 }
 
 internal fun YMediaItem.containerHint(): YContainer {
+    val sourceContainer = sourceHints?.container?.lowercase().orEmpty()
+    if ("matroska" in sourceContainer || sourceContainer == "mkv") return YContainer.Matroska
+    if ("webm" in sourceContainer) return YContainer.WebM
+    if ("mpegts" in sourceContainer || "mpeg-ts" in sourceContainer) return YContainer.MpegTs
+    if ("mp4" in sourceContainer) return YContainer.Mp4
+
     val mime = mimeType?.lowercase().orEmpty()
     if ("matroska" in mime) return YContainer.Matroska
     if ("webm" in mime) return YContainer.WebM
@@ -642,11 +763,28 @@ internal fun MediaFormat.applyDolbyVisionConfiguration(config: YDolbyVisionConfi
     apply {
         setString(MediaFormat.KEY_MIME, MIME_DOLBY_VISION)
         config.profile.toAndroidDolbyVisionProfile()?.let { setInteger(MediaFormat.KEY_PROFILE, it) }
-        // Preserve an extractor-provided dvcC/dvvC record verbatim. When it is absent, MIME and
-        // exact KEY_PROFILE are enough to select the Dolby decoder without fabricating a level.
+        if (!containsKey(CSD_2)) {
+            setByteBuffer(CSD_2, ByteBuffer.wrap(config.toConfigurationBytes()))
+        }
     }
 
 private const val MIME_DOLBY_VISION = "video/dolby-vision"
+private const val MIME_HEVC = "video/hevc"
 private const val CSD_2 = "csd-2"
 private const val COLOR_TRANSFER_ST2084 = 6
 private const val COLOR_TRANSFER_HLG = 7
+private val MATROSKA_DOLBY_BASE_MIME_TYPES =
+    setOf("video/hevc", "video/avc", "video/av01", MIME_DOLBY_VISION)
+private val MATROSKA_METADATA_PROBE_BYTES = intArrayOf(512 * 1024, 4 * 1024 * 1024)
+private const val DOLBY_SAMPLE_PROBE_COUNT = 24
+private const val DOLBY_SAMPLE_PROBE_MIN_BYTES = 256 * 1024
+private const val DOLBY_SAMPLE_PROBE_DEFAULT_BYTES = 2 * 1024 * 1024
+private const val DOLBY_SAMPLE_PROBE_MAX_BYTES = 32 * 1024 * 1024
+private val DOLBY_SAMPLE_PACKINGS =
+    listOf(
+        YSamplePacking.AnnexB,
+        YSamplePacking.LengthPrefixed(4),
+        YSamplePacking.LengthPrefixed(2),
+        YSamplePacking.LengthPrefixed(1),
+    )
+private val EMPTY_DOLBY_NAL_EVIDENCE = YDolbyVisionNalEvidence(0, 0)
