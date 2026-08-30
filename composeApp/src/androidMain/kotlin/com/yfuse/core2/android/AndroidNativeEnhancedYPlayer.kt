@@ -564,7 +564,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 playing = false,
                                 playbackRequested = false,
                                 buffering = false,
-                                error = "YCore 2.0 增强播放路径失败，已安全停止",
+                                error = yCoreEnhancedFailureMessage(typed),
                                 // Unknown is deliberately non-penalizing until each native stage has
                                 // a typed failure domain. Never infer decoder failure from text.
                                 errorCategory = typed?.category ?: YPlaybackFailureCategory.Unknown,
@@ -633,6 +633,20 @@ internal class AndroidNativeEnhancedYPlayer(
         ) : Command
     }
 }
+
+internal fun yCoreEnhancedFailureMessage(failure: YPlaybackException?): String =
+    when (failure?.category) {
+        YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源授权已失效，请刷新播放地址后重试"
+        YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
+        YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
+        YPlaybackFailureCategory.Container -> "YCore 2.0 无法解析当前片源容器"
+        YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
+        YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
+        YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"
+        YPlaybackFailureCategory.Unknown,
+        null,
+        -> "YCore 2.0 实际起播失败，请导出诊断日志"
+    }
 
 internal fun coalesceNativeEnhancedCommands(
     commands: List<AndroidNativeEnhancedYPlayer.Command>,

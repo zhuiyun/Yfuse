@@ -49,6 +49,8 @@ internal sealed interface YCore2ProbeResult {
         val durationMs: Long,
         val dolbyVisionConfig: YDolbyVisionConfig? = null,
         val dolbyVisionStreamEvidence: YDolbyVisionStreamEvidence? = null,
+        /** Dolby NAL units were observed even though the container omitted its profile record. */
+        val unconfiguredDolbyVisionSignal: Boolean = false,
     ) : YCore2ProbeResult
 
     data class Failure(
@@ -223,7 +225,7 @@ internal class AndroidCore2RouteEvaluator(
                 platform == null && item.drmConfiguration != null -> null
                 platform == null ->
                     (enhancedProbe.probe(item) as? YCore2ProbeResult.Success)
-                        ?.takeUnless { sourceClaimsDolbyVision && it.dolbyVisionConfig == null }
+                        ?.takeUnless { it.unconfiguredDolbyVisionSignal }
                 item.drmConfiguration != null ->
                     platform.takeUnless {
                         sourceClaimsDolbyVision && platform.dolbyVisionConfig == null
@@ -236,6 +238,11 @@ internal class AndroidCore2RouteEvaluator(
                     val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
                     when {
                         deep?.dolbyVisionConfig != null -> deep
+                        deep?.unconfiguredDolbyVisionSignal == true -> return null
+                        // Server metadata is only a hint. When the bounded FFmpeg/NAL probe sees
+                        // ordinary HEVC/HDR and no Dolby signal, trust the local bitstream truth
+                        // instead of permanently blocking a mislabeled source.
+                        requiresDolbyProfileTruth && deep != null -> deep
                         // The platform identified Dolby Vision but did not expose its configuration.
                         // Do not let a generic HEVC plan bypass the exact-profile Dolby router.
                         requiresDolbyProfileTruth ->
