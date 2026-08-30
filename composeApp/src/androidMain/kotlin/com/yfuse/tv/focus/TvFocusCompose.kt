@@ -9,6 +9,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -103,6 +104,7 @@ fun Modifier.tvFocusTarget(
  * Applies a Compose focus group and optionally prevents directional focus from leaving it.
  * Back/dismiss remains an explicit remote intent handled by the dialog owner.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 fun Modifier.tvFocusScope(trapFocus: Boolean): Modifier =
     then(
         if (trapFocus) {

@@ -408,8 +408,8 @@ private fun TvProviderWriteResult.Failure.toPublishResult(): ContinueWatchingPub
 private val ContinueWatchingMediaType.programType: Int
     get() =
         when (this) {
-            ContinueWatchingMediaType.Movie -> TvContract.Programs.TYPE_MOVIE
-            ContinueWatchingMediaType.Episode -> TvContract.Programs.TYPE_TV_EPISODE
+            ContinueWatchingMediaType.Movie -> TvContract.PreviewPrograms.TYPE_MOVIE
+            ContinueWatchingMediaType.Episode -> TvContract.PreviewPrograms.TYPE_TV_EPISODE
         }
 
 private const val MAX_TITLE_CHARS = 200

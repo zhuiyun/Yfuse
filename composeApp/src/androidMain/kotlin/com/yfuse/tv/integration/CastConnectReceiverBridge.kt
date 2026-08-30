@@ -210,8 +210,8 @@ class CastConnectHostActionResolver(
 ) {
     private val deepLinkResolver = TvPlaybackDeepLinkResolver(servers)
 
-    fun resolve(request: CastConnectPlaybackRequest): CastConnectHostAction? =
-        when (val source = request.source) {
+    fun resolve(request: CastConnectPlaybackRequest): CastConnectHostAction? {
+        return when (val source = request.source) {
             is CastConnectPlaybackSource.YfuseDeepLink -> {
                 val decoded = TvPlaybackDeepLinkCodec.decode(source.uri) ?: return null
                 if (decoded != source.route) return null
@@ -234,6 +234,7 @@ class CastConnectHostActionResolver(
                 )
             }
         }
+    }
 }
 
 data class CastConnectReceiverStatus(
