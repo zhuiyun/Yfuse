@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.view.Surface
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -61,6 +62,7 @@ internal class AndroidNativeDirectYPlayer(
     private val plannedAudioOutputPath: YAudioOutputPath? = null,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
     private val plannedDolbyVisionConfig: YDolbyVisionConfig? = null,
+    private val confirmedDolbyVisionNalIdentity: Boolean = false,
     private val requireDolbyVisionIdentity: Boolean = false,
 ) : YPlayer {
     private val appContext = context.applicationContext
@@ -269,6 +271,17 @@ internal class AndroidNativeDirectYPlayer(
     ) {
         session.releaseMedia()
         val typed = throwable as? YPlaybackException
+        AppLog.error(
+            category = "player.core2",
+            event = "native_direct_failed",
+            message = "YCore NativeDirect failed",
+            attributes =
+                mapOf(
+                    "category" to (typed?.category?.name ?: YPlaybackFailureCategory.Unknown.name),
+                    "stage" to (typed?.stage?.name ?: YPlaybackFailureStage.Unknown.name),
+                    "detail" to typed?.safeDetail.orEmpty(),
+                ),
+        )
         mutableState.value =
             mutableState.value.copy(
                 phase = YPlaybackPhase.Failed,
@@ -290,8 +303,16 @@ internal class AndroidNativeDirectYPlayer(
                         headTrackingAvailable = false,
                         // Never copy Throwable.message: media/framework exceptions can contain a URL.
                         reason =
-                            typed?.stage?.let { stage -> "NativeDirect failed at ${stage.name}" }
-                                ?: "NativeDirect failed before typed-stage classification",
+                            typed?.let { failure ->
+                                buildString {
+                                    append("NativeDirect failed at ")
+                                    append(failure.stage.name)
+                                    failure.safeDetail?.takeIf(String::isNotBlank)?.let { detail ->
+                                        append(": ")
+                                        append(detail)
+                                    }
+                                }
+                            } ?: "NativeDirect failed before typed-stage classification",
                     ),
             )
     }
@@ -442,8 +463,10 @@ internal class AndroidNativeDirectYPlayer(
                 demux
                     .trackFormat(requireNotNull(videoTrackIndex))
                     .also { format ->
-                        plannedDolbyVisionConfig?.let { config ->
-                            format.applyDolbyVisionConfiguration(config)
+                        if (plannedDolbyVisionConfig != null) {
+                            format.applyDolbyVisionConfiguration(plannedDolbyVisionConfig)
+                        } else if (confirmedDolbyVisionNalIdentity) {
+                            format.setString(MediaFormat.KEY_MIME, DOLBY_VISION_MIME)
                         }
                     }
             validateNativeDirectDolbyIdentity(
@@ -1519,7 +1542,12 @@ internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): Stri
         YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源授权已失效，请刷新播放地址后重试"
         YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
         YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
-        YPlaybackFailureCategory.Container -> "YCore 2.0 原生解封装无法识别当前片源"
+        YPlaybackFailureCategory.Container ->
+            if (failure.stage == YPlaybackFailureStage.Bitstream) {
+                "YCore 2.0 无法验证当前片源的杜比视界配置"
+            } else {
+                "YCore 2.0 原生解封装无法识别当前片源"
+            }
         YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
         YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
         YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"

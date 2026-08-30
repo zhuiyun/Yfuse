@@ -45,9 +45,9 @@ val includeYCoreGpuCompanion =
             .asFile
             .isFile
 
-// Native-only packages carry libycore_gpu.so inside ycore-native.aar. Legacy/full packages use
-// the isolated companion so MPV, MDK, and YCore never contribute duplicate JNI libraries.
-val packagedYCoreGpu = nativeOnlyRuntime || includeYCoreGpuCompanion
+// The system-native profile is deliberately MediaExtractor/MediaCodec-only. GPU/FFmpeg carriers
+// belong to the full compatibility package and must never enter a native-only APK.
+val packagedYCoreGpu = includeYCoreGpuCompanion
 
 /**
  * Keeps feature code on the semantic design-system surface. These are deliberately simple
@@ -390,13 +390,11 @@ val verifyYCoreGpuCompanionArtifact by tasks.registering {
 val verifyProductionYCoreGpu by tasks.registering {
     group = "verification"
     description = "Fails release packaging when the selected profile has no YCore Vulkan runtime."
-    if (nativeOnlyRuntime) {
-        dependsOn(verifyStandaloneYCoreArtifact)
-    } else {
+    if (!nativeOnlyRuntime) {
         dependsOn(verifyYCoreGpuCompanionArtifact)
     }
     doLast {
-        require(packagedYCoreGpu) {
+        require(nativeOnlyRuntime || packagedYCoreGpu) {
             "Release builds require the YCore GPU runtime; run scripts/install-ycore-native.sh first"
         }
     }
@@ -636,11 +634,9 @@ kotlin {
             implementation(libs.media3.ui)
             implementation(libs.media3.hls)
             implementation(libs.media3.dash)
-            // Native-only builds package the dependency-closed YCore carrier. The verified mpv
-            // AAR remains compile-only so compatibility adapters can compile without entering the
-            // APK; ordinary builds retain the existing compatibility runtime until device gates pass.
+            // Native-only builds compile compatibility adapters but package no third-party player
+            // runtime. Their executable path is Android MediaExtractor/MediaCodec/AudioTrack.
             if (nativeOnlyRuntime) {
-                implementation(files("libs/ycore-native.aar"))
                 compileOnly(files("libs/libmpv-release.aar"))
             } else {
                 implementation(files("libs/libmpv-release.aar"))
@@ -1057,9 +1053,7 @@ tasks.register<BumpVersionTask>("bumpVersion") {
 tasks.configureEach {
     if (name == "preBuild") {
         dependsOn(verifyCustomMpvArtifact)
-        if (nativeOnlyRuntime) {
-            dependsOn(verifyStandaloneYCoreArtifact)
-        } else if (includeYCoreGpuCompanion) {
+        if (includeYCoreGpuCompanion) {
             dependsOn(verifyYCoreGpuCompanionArtifact)
         }
         if (includeMdk) dependsOn(verifyMdkArtifact)

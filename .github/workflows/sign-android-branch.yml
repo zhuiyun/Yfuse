@@ -170,6 +170,7 @@ jobs:
             :composeApp:testDebugUnitTest \
             :watchTogetherProtocol:jvmTest \
             :watchTogetherServer:test \
+            -PyfuseNativeOnlyRuntime=true \
             --no-daemon
 
       - name: Resolve signed build version
@@ -194,7 +195,7 @@ jobs:
           ./gradlew :composeApp:assembleRelease \
             -PyfuseVersionCode=${{ steps.version.outputs.version_code }} \
             -PyfuseVersionName=${{ steps.version.outputs.version_name }} \
-            -PconfirmMdkDistributionRights=true \
+            -PyfuseNativeOnlyRuntime=true \
             --no-daemon
 
       - name: Verify and stage signed APK
@@ -206,6 +207,7 @@ jobs:
           metadata="composeApp/build/outputs/apk/release/output-metadata.json"
           test -s "$apk"
           test -s "$metadata"
+          bash scripts/verify-ycore-native-apk.sh "$apk"
 
           android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           build_tools="$(find "$android_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
@@ -243,7 +245,7 @@ jobs:
             exit 1
           fi
 
-          file_name="Yfuse-${version_code}-${version_name}-signed.apk"
+          file_name="Yfuse-${version_code}-${version_name}-system-ycore-signed.apk"
           mkdir -p build/signed-artifact
           cp "$apk" "build/signed-artifact/$file_name"
           sha256sum "build/signed-artifact/$file_name" > build/signed-artifact/SHA256SUMS
@@ -253,7 +255,7 @@ jobs:
             --arg versionName "$version_name" \
             --arg certificateSha256 "$actual_cert" \
             --arg commit "$GITHUB_SHA" \
-            '{packageName: $packageName, versionCode: $versionCode, versionName: $versionName, certificateSha256: $certificateSha256, commit: $commit}' \
+            '{packageName: $packageName, versionCode: $versionCode, versionName: $versionName, certificateSha256: $certificateSha256, commit: $commit, runtime: "system-ycore"}' \
             > build/signed-artifact/build-info.json
           echo "file_name=$file_name" >> "$GITHUB_OUTPUT"
 
