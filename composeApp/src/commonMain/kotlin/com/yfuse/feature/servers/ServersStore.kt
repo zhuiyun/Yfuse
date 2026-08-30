@@ -646,7 +646,7 @@ class ServersStoreFactory(
                     dispatch(Msg.QuickConnect(QuickConnectUiState.Expired))
                     return
                 }
-                delay(minOf(QuickConnectPollIntervalMs, remainingMs))
+                delay(minOf(QUICK_CONNECT_POLL_INTERVAL_MS, remainingMs))
                 if (requestId != quickConnectRequestId) return
                 val polled = quickConnectGateway.poll(baseUrl, session.id)
                 if (requestId != quickConnectRequestId) return
@@ -1003,7 +1003,7 @@ class ServersStoreFactory(
     }
 }
 
-private const val QuickConnectPollIntervalMs = 2_000L
+private const val QUICK_CONNECT_POLL_INTERVAL_MS = 2_000L
 
 private fun sanitizeServerName(value: String): String =
     value

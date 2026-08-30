@@ -153,7 +153,8 @@ internal class PlexMediaServerAdapter(
                     .distinctBy(MediaItem::id)
                     .take(20)
             val featured =
-                rows.asSequence()
+                rows
+                    .asSequence()
                     .flatMap { it.items.asSequence() }
                     .filter { it.backdropTag != null }
                     .distinctBy(MediaItem::id)
@@ -191,7 +192,8 @@ internal class PlexMediaServerAdapter(
                     if (resolution == LibraryResolution.FourK) parameter("resolution", "4k")
                 }
             val items =
-                container.allMetadata()
+                container
+                    .allMetadata()
                     .map { it.toBaseItem(server) }
                     .filter { item -> item.matches(resolution) }
                     .map { progress.project(server, it).toMediaItem() }
@@ -288,9 +290,13 @@ internal class PlexMediaServerAdapter(
             val item = metadata(server, itemId, includeChildren = false)
             item.duration?.takeIf { it > 0L }?.let { durationByItemMs[itemId] = it }
             val sources =
-                item.toBaseItem(server, playSessionId).MediaSources.orEmpty()
+                item
+                    .toBaseItem(server, playSessionId)
+                    .MediaSources
+                    .orEmpty()
                     .let { all ->
-                        mediaSourceId?.takeIf(String::isNotBlank)
+                        mediaSourceId
+                            ?.takeIf(String::isNotBlank)
                             ?.let { requested -> all.filter { it.Id == requested }.ifEmpty { all } }
                             ?: all
                     }
@@ -310,11 +316,19 @@ internal class PlexMediaServerAdapter(
     ): Result<Unit> =
         embyApiCall("plex_playback_timeline") {
             val timeMs = (positionTicks / 10_000L).coerceAtLeast(0L)
+            val state =
+                if (stopped) {
+                    "stopped"
+                } else if (isPaused) {
+                    "paused"
+                } else {
+                    "playing"
+                }
             client.get("${normalizeBaseUrl(server.baseUrl)}/:/timeline") {
                 plexHeaders(server.accessToken, playSessionId)
                 parameter("ratingKey", itemId)
                 parameter("key", "/library/metadata/$itemId")
-                parameter("state", if (stopped) "stopped" else if (isPaused) "paused" else "playing")
+                parameter("state", state)
                 parameter("time", timeMs)
                 durationByItemMs[itemId]?.let { parameter("duration", it) }
             }
@@ -391,9 +405,14 @@ internal class PlexMediaServerAdapter(
                         parameter("sort", it.toPlexSearchSort(filter.descending))
                     }
                 }
-            val acceptedTypes = filter.includeItemTypes.split(',').map { it.trim() }.toSet()
+            val acceptedTypes =
+                filter.includeItemTypes
+                    .split(',')
+                    .map { it.trim() }
+                    .toSet()
             val items =
-                response.allMetadata()
+                response
+                    .allMetadata()
                     .filter { it.type?.lowercase() in setOf("movie", "show", "episode") }
                     .map { progress.project(server, it.toBaseItem(server)).toMediaItem() }
                     .filter { it.type in acceptedTypes }
@@ -611,8 +630,7 @@ internal class PlexMediaServerAdapter(
         )
     }
 
-    suspend fun probe(server: SavedServer): Result<Long> =
-        probeAddress(server.baseUrl, server.accessToken)
+    suspend fun probe(server: SavedServer): Result<Long> = probeAddress(server.baseUrl, server.accessToken)
 
     suspend fun probeAddress(
         baseUrl: String,
@@ -969,8 +987,7 @@ internal fun plexAuthenticatedUrl(
 private fun PlexMediaContainerDto.allMetadata(): List<PlexMetadataDto> =
     Metadata + Directory + Hub.flatMap { it.Metadata }
 
-private fun PlexMediaContainerDto.effectiveTotal(): Int =
-    totalSize ?: size.takeIf { it > 0 } ?: allMetadata().size
+private fun PlexMediaContainerDto.effectiveTotal(): Int = totalSize ?: size.takeIf { it > 0 } ?: allMetadata().size
 
 private fun LibrarySort.toPlexSort(): String =
     when (this) {

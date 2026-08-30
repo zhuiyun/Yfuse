@@ -43,7 +43,6 @@ import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.formDivider
-import com.yfuse.core.designsystem.liquidGlass as glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
@@ -51,6 +50,7 @@ import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
+import com.yfuse.core.designsystem.liquidGlass as glass
 
 /**
  * 添加服务器.

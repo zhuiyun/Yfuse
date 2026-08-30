@@ -94,7 +94,14 @@ class PlexMediaServerAdapterTest {
             assertEquals("沙丘", detail.title)
             assertEquals("100", detail.id)
             assertEquals("155", detail.providerIds["Tmdb"])
-            assertEquals(3, detail.versions.single().subtitleTracks.single().index)
+            assertEquals(
+                3,
+                detail.versions
+                    .single()
+                    .subtitleTracks
+                    .single()
+                    .index,
+            )
             assertEquals(false, source.SupportsDirectPlay)
             assertEquals(true, source.SupportsDirectStream)
             assertTrue(source.DirectStreamUrl.orEmpty().contains("/library/parts/12/file.mkv"))
