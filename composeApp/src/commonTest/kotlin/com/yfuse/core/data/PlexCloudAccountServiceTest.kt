@@ -77,11 +77,12 @@ class PlexCloudAccountServiceTest {
             val token = repo.switchPlexHomeUser("owner-token", "kid", "2468").getOrThrow()
             val resource = repo.plexCloudResources(token).getOrThrow().single()
             val authenticated =
-                repo.authenticatePlexCloudResource(
-                    accountToken = token,
-                    resource = resource,
-                    ownerAccountToken = "owner-token",
-                ).getOrThrow()
+                repo
+                    .authenticatePlexCloudResource(
+                        accountToken = token,
+                        resource = resource,
+                        ownerAccountToken = "owner-token",
+                    ).getOrThrow()
 
             assertTrue(users.single { it.id == "kid" }.pinProtected)
             assertEquals("kid-token", authenticated.cloudAccessToken)

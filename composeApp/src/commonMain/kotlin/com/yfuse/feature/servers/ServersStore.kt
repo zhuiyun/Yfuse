@@ -222,6 +222,7 @@ data class PlexServerOption(
 
 sealed interface PlexAccountUiState {
     data object Idle : PlexAccountUiState
+
     data object Starting : PlexAccountUiState
 
     data class AwaitingAuthorization(
@@ -244,7 +245,9 @@ sealed interface PlexAccountUiState {
     ) : PlexAccountUiState
 
     data object Connecting : PlexAccountUiState
+
     data object Expired : PlexAccountUiState
+
     data object Cancelled : PlexAccountUiState
 
     data class Error(
@@ -854,8 +857,7 @@ class ServersStoreFactory(
                             accountToken = accountToken,
                             resource = resource,
                             ownerAccountToken = plexOwnerToken ?: accountToken,
-                        )
-                        .onSuccess { authenticated ->
+                        ).onSuccess { authenticated ->
                             if (requestId != plexAccountRequestId) return@onSuccess
                             val existing = editingId?.let { registry.serverById(it) }
                             val savedServer =

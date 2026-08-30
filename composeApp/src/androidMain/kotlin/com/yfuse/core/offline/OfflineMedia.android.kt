@@ -1502,8 +1502,7 @@ internal class AndroidOfflineMediaManager(
                     } else {
                         resolveOfflineSubtitleUrl(snapshot, registry)
                     }
-                }
-                    .onFailure { error -> logSubtitleFailure(snapshot, error) }
+                }.onFailure { error -> logSubtitleFailure(snapshot, error) }
                     .getOrNull()
                     ?: return@withContext null
             val source =

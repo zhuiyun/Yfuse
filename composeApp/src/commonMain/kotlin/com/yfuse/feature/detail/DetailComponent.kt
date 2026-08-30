@@ -353,9 +353,9 @@ class DetailComponent(
 
     /**
      * Yfuse cloud state is the convergence authority for an ordinary resume. A deliberate
-     * PlayFromStart creates a new playback generation and never calls this for its launch.
+     * PlayFromStart creates a new playback generation and never calls this for its launch. Every
+     * other launch resolves from the process-local progress snapshot; playback never pulls here.
      */
-    /** Resolves every launch from the process-local progress snapshot; playback never pulls here. */
     private fun syncedStartPositionTicks(
         state: DetailState,
         fallbackTicks: Long,

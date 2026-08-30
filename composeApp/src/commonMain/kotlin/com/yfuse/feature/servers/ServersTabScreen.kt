@@ -1297,7 +1297,11 @@ private fun ServerManagementDialog(
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
                         state.snapshot.tasks.forEach { task ->
-                            val progress = task.progressPercent?.toInt()?.let { " · $it%" }.orEmpty()
+                            val progress =
+                                task.progressPercent
+                                    ?.toInt()
+                                    ?.let { " · $it%" }
+                                    .orEmpty()
                             OverlayOptionRow(
                                 label = task.name,
                                 description = "${task.state}$progress${task.lastResult?.let { " · 上次 $it" }.orEmpty()}",

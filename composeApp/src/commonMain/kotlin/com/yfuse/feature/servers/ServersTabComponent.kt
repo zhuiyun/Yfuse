@@ -8,8 +8,8 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerActivityStore
 import com.yfuse.core.data.ServerHealthMonitor
-import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerManagementSnapshot
+import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.model.SavedServer
@@ -129,8 +129,13 @@ class ServersTabComponent(
         scope.launch {
             repo.refreshLibrary(server, libraryId).fold(
                 onSuccess = {
+                    val libraryName =
+                        ready.snapshot.libraries
+                            .firstOrNull { library -> library.id == libraryId }
+                            ?.name
+                            ?: libraryId
                     _management.value =
-                        ready.copy(message = "已提交媒体库扫描任务：${ready.snapshot.libraries.firstOrNull { it.id == libraryId }?.name ?: libraryId}")
+                        ready.copy(message = "已提交媒体库扫描任务：$libraryName")
                 },
                 onFailure = {
                     _management.value = ready.copy(error = it.message ?: "媒体库扫描启动失败")

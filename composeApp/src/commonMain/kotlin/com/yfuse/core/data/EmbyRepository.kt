@@ -240,16 +240,14 @@ class EmbyRepository(
 
     suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> = authService.publicUsers(baseUrl)
 
-    suspend fun startPlexCloudSignIn(nowEpochMs: Long): Result<PlexPinSession> =
-        plexCloud.startPin(nowEpochMs)
+    suspend fun startPlexCloudSignIn(nowEpochMs: Long): Result<PlexPinSession> = plexCloud.startPin(nowEpochMs)
 
     suspend fun pollPlexCloudSignIn(
         session: PlexPinSession,
         nowEpochMs: Long,
     ): Result<PlexPinPoll> = plexCloud.pollPin(session, nowEpochMs)
 
-    suspend fun plexHomeUsers(accountToken: String): Result<List<PlexHomeUser>> =
-        plexCloud.homeUsers(accountToken)
+    suspend fun plexHomeUsers(accountToken: String): Result<List<PlexHomeUser>> = plexCloud.homeUsers(accountToken)
 
     suspend fun switchPlexHomeUser(
         accountToken: String,
