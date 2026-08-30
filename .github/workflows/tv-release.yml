@@ -217,7 +217,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/verify-tv-source.py \
-            --manifest tvApp/src/main/AndroidManifest.xml \
+            --manifest tvApp/src/androidMain/AndroidManifest.xml \
             --banner tvApp/src/main/res/drawable-nodpi/tv_banner.png
           python3 -m unittest discover \
             --start-directory scripts/tests \

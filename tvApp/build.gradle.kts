@@ -170,7 +170,6 @@ android {
     // the TV resources first lets a later TV-specific resource override remain explicit.
     sourceSets {
         getByName("main") {
-            manifest.srcFile("src/main/AndroidManifest.xml")
             res.srcDirs(
                 "src/main/res",
                 rootProject.file("composeApp/src/androidMain/res"),
