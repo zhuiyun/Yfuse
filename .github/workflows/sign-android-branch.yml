@@ -161,16 +161,23 @@ jobs:
           set -euo pipefail
           git diff --check HEAD^
 
-      - name: Compile and run tests
+      - name: Compile system-native YCore route
         shell: bash
         run: |
           set -euo pipefail
           ./gradlew \
             :composeApp:compileDebugKotlinAndroid \
+            -PyfuseNativeOnlyRuntime=true \
+            --no-daemon
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
             :composeApp:testDebugUnitTest \
             :watchTogetherProtocol:jvmTest \
             :watchTogetherServer:test \
-            -PyfuseNativeOnlyRuntime=true \
             --no-daemon
 
       - name: Resolve signed build version
