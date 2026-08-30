@@ -355,6 +355,7 @@ internal class AndroidNativeDirectYPlayer(
         private val externalSubtitleLoader = AndroidExternalSubtitleLoader(context)
         private val wallClock = YMediaClock(positionUs = request.startPositionMs * MICROS_PER_MILLISECOND)
         private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
+        private var monotonicPositionFloorUs = request.startPositionMs * MICROS_PER_MILLISECOND
 
         private var currentIndex = request.startIndex
         private var sourceRemote = false
@@ -475,6 +476,7 @@ internal class AndroidNativeDirectYPlayer(
 
         private fun prepareCurrent(positionUs: Long) {
             releaseMedia()
+            monotonicPositionFloorUs = positionUs.coerceAtLeast(0L)
             val item = request.items[currentIndex]
             mutableState.value =
                 mutableState.value.copy(
@@ -742,6 +744,7 @@ internal class AndroidNativeDirectYPlayer(
             seekTargetAudioUs = targetUs
             lastVideoPresentationUs = targetUs
             lastQueuedPresentationUs = targetUs
+            monotonicPositionFloorUs = targetUs
             firstVideoFrameRendered = false
             wallClock.seek(targetUs, System.nanoTime())
             mutableState.value =
@@ -1206,6 +1209,14 @@ internal class AndroidNativeDirectYPlayer(
                         "audioUnderruns" to audioRenderer.underrunCount.toString(),
                         "audioBackpressure" to audioBackpressureCount.toString(),
                         "pendingAudioBytes" to (pendingAudioOutput?.data?.remaining() ?: 0).toString(),
+                        "audioClockSource" to
+                            if (isAudioPassthrough()) {
+                                "EncodedAudioTrack"
+                            } else {
+                                audioRenderer.clockSource
+                            },
+                        "audioClockStalled" to
+                            (!isAudioPassthrough() && audioRenderer.clockStalled).toString(),
                         "slowPumps" to slowPumpCount.toString(),
                         "maximumPumpMs" to (maximumPumpDurationNs / NANOS_PER_MILLISECOND).toString(),
                         "avOffsetMs" to (lastAvSyncOffsetUs?.div(MICROS_PER_MILLISECOND)?.toString() ?: ""),
@@ -1214,16 +1225,21 @@ internal class AndroidNativeDirectYPlayer(
             maximumPumpDurationNs = 0L
         }
 
-        private fun currentPositionUs(): Long =
-            audioClockSnapshot()?.positionUs
-                ?: if (requestedPlay) {
-                    wallClock.positionUs(System.nanoTime())
-                } else {
-                    maxOf(
-                        mutableState.value.positionMs * MICROS_PER_MILLISECOND,
-                        lastVideoPresentationUs,
-                    )
-                }
+        private fun currentPositionUs(): Long {
+            val candidateUs =
+                audioClockSnapshot()?.positionUs
+                    ?: if (requestedPlay) {
+                        wallClock.positionUs(System.nanoTime())
+                    } else {
+                        maxOf(
+                            mutableState.value.positionMs * MICROS_PER_MILLISECOND,
+                            lastVideoPresentationUs,
+                        )
+                    }
+            return maxOf(candidateUs, monotonicPositionFloorUs).also { positionUs ->
+                monotonicPositionFloorUs = positionUs
+            }
+        }
 
         private fun finishIfEnded() {
             if (!isEnded()) return

@@ -95,6 +95,46 @@ class AndroidMediaCodecVideoNodePolicyTest {
     }
 
     @Test
+    fun dolbyVisionRetriesOptionalMetadataOnAndroid10AndNewer() {
+        assertEquals(
+            listOf(
+                YDolbyVisionConfigureVariant.Exact,
+                YDolbyVisionConfigureVariant.WithoutCsd2,
+                YDolbyVisionConfigureVariant.WithoutCsd2AndProfile,
+            ),
+            dolbyVisionConfigureVariants(
+                androidApi = 36,
+                hasCsd2 = true,
+                hasProfile = true,
+            ),
+        )
+    }
+
+    @Test
+    fun dolbyVisionKeepsExactFormatWhenMetadataCannotBeRemoved() {
+        assertEquals(
+            listOf(YDolbyVisionConfigureVariant.Exact),
+            dolbyVisionConfigureVariants(
+                androidApi = 28,
+                hasCsd2 = true,
+                hasProfile = true,
+            ),
+        )
+    }
+
+    @Test
+    fun dolbyVisionSkipsUnavailableRetryVariants() {
+        assertEquals(
+            listOf(YDolbyVisionConfigureVariant.Exact),
+            dolbyVisionConfigureVariants(
+                androidApi = 36,
+                hasCsd2 = false,
+                hasProfile = false,
+            ),
+        )
+    }
+
+    @Test
     fun frameAheadOfMasterIsHeld() {
         val decision =
             videoFrameReleaseDecision(
