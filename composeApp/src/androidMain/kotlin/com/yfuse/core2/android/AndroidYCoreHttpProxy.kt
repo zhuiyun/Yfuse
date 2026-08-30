@@ -56,7 +56,9 @@ internal class AndroidYCoreHttpProxy(
     context: Context,
     private val userAgent: String,
     private val cacheMaximumBytes: Long,
-    private val createTransport: () -> YMediaTransport = ::AndroidHttpMediaTransport,
+    private val createTransport: () -> YMediaTransport = {
+        AndroidHttpMediaTransport(followSafeRedirects = true)
+    },
     private val isMeteredNetwork: () -> Boolean = {
         currentPlaybackNetworkClass() == PlaybackNetworkClass.Metered
     },

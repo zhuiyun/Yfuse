@@ -19,6 +19,7 @@ import java.io.InputStream
 /** Stateful random-access HTTP/WebDAV transport. A seek is expressed by closing and reopening it. */
 internal class AndroidHttpMediaTransport(
     private val client: OkHttpClient = sharedMediaTransportClient,
+    private val followSafeRedirects: Boolean = false,
 ) : YMediaTransport {
     override val supportedProtocols: Set<YSourceProtocol> =
         setOf(YSourceProtocol.Http, YSourceProtocol.Https, YSourceProtocol.WebDav, YSourceProtocol.WebDavTls)
@@ -32,10 +33,25 @@ internal class AndroidHttpMediaTransport(
 
     private var response: Response? = null
     private var input: InputStream? = null
+    private val activeClient =
+        if (followSafeRedirects) {
+            client
+                .newBuilder()
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build()
+        } else {
+            client
+        }
 
     override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse =
         withContext(Dispatchers.IO) {
             require(request.protocol in supportedProtocols) { "Unsupported HTTP transport protocol" }
+            if (followSafeRedirects) {
+                require(request.headers.keys.none(String::isCredentialHeader)) {
+                    "Redirectable media transport cannot carry provider credentials"
+                }
+            }
             closeCurrent()
             val builder =
                 Request
@@ -54,7 +70,7 @@ internal class AndroidHttpMediaTransport(
                 builder.header(name, value)
             }
             request.range?.let { range -> builder.header("Range", range.toHttpRange()) }
-            val opened = client.newCall(builder.build()).execute()
+            val opened = activeClient.newCall(builder.build()).execute()
             response = opened
             input = opened.body?.byteStream()
             val acceptedRange =
@@ -105,6 +121,18 @@ internal class AndroidHttpMediaTransport(
 private fun YByteRange.toHttpRange(): String = "bytes=$startInclusive-${endInclusive ?: ""}"
 
 private fun String.isSafeTransportHeader(): Boolean = isNotBlank() && none { it == '\r' || it == '\n' || it == ':' }
+
+private fun String.isCredentialHeader(): Boolean {
+    val normalized = trim().lowercase()
+    return normalized == "authorization" ||
+        normalized == "proxy-authorization" ||
+        normalized == "cookie" ||
+        normalized == "cookie2" ||
+        normalized.contains("auth") ||
+        normalized.contains("token") ||
+        normalized.contains("api-key") ||
+        normalized.contains("apikey")
+}
 
 private val sharedMediaTransportClient =
     OkHttpClient
