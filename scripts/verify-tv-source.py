@@ -16,6 +16,10 @@ FORBIDDEN_PERMISSIONS = {
     "android.permission.REQUEST_INSTALL_PACKAGES",
     "android.permission.SCHEDULE_EXACT_ALARM",
 }
+REQUIRED_PERMISSIONS = {
+    "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+    "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+}
 
 
 def fail(message: str) -> "NoReturn":
@@ -70,10 +74,25 @@ def main() -> int:
     forbidden = permissions & FORBIDDEN_PERMISSIONS
     if forbidden:
         fail("phone-only TV permissions: " + ", ".join(sorted(forbidden)))
+    missing_permissions = REQUIRED_PERMISSIONS - permissions
+    if missing_permissions:
+        fail(
+            "missing TV foreground-service permission(s): "
+            + ", ".join(sorted(missing_permissions))
+        )
 
     application = root.find("application")
     if application is None or not application.get(ANDROID + "banner"):
         fail("application android:banner is required")
+    services = {
+        service.get(ANDROID + "name"): service.get(ANDROID + "foregroundServiceType", "")
+        for service in application.findall("service")
+    }
+    work_manager_types = set(
+        services.get("androidx.work.impl.foreground.SystemForegroundService", "").split("|")
+    )
+    if "dataSync" not in work_manager_types:
+        fail("WorkManager SystemForegroundService must declare dataSync")
     has_leanback_launcher = False
     for activity in application.findall("activity") + application.findall("activity-alias"):
         for intent_filter in activity.findall("intent-filter"):
