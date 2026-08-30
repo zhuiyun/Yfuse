@@ -375,6 +375,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                         "reason" to "inconclusive_probe",
                     ),
             )
+            val probeHdrType =
+                decision
+                    ?.probe
+                    ?.playbackRequest
+                    ?.video
+                    ?.hdrType
             return AndroidNativeDirectYPlayer(
                 context = context,
                 request = singleRequest,
@@ -384,8 +390,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                 frameRateSwitchMode = frameRateSwitchMode,
                 plannedDolbyVisionConfig = decision?.probe?.dolbyVisionConfig,
                 requireDolbyVisionIdentity =
-                    decision?.probe?.playbackRequest?.video?.hdrType == YHdrType.DolbyVision ||
-                        decision == null && item.hintedHdrType() == YHdrType.DolbyVision,
+                    probeHdrType == YHdrType.DolbyVision ||
+                        (decision == null && item.hintedHdrType() == YHdrType.DolbyVision),
             )
         }
 
@@ -396,7 +402,11 @@ internal class AndroidAdaptiveCore2YPlayer(
         ): YPlayer? {
             if (item.drmConfiguration != null) return null
             val inputHdrType =
-                decision?.probe?.playbackRequest?.video?.hdrType
+                decision
+                    ?.probe
+                    ?.playbackRequest
+                    ?.video
+                    ?.hdrType
                     ?: item.hintedHdrType()
             AppLog.info(
                 category = "player.core2",
@@ -431,7 +441,11 @@ internal class AndroidAdaptiveCore2YPlayer(
         ): YPlayer? {
             if (item.drmConfiguration != null) return null
             val inputHdrType =
-                decision?.probe?.playbackRequest?.video?.hdrType
+                decision
+                    ?.probe
+                    ?.playbackRequest
+                    ?.video
+                    ?.hdrType
                     ?: item.hintedHdrType()
             val plan = yCoreInternalSoftwareRecoveryPlan(inputHdrType)
             if (plan == null || !yCoreSoftwarePlanExecutable(plan)) {
@@ -986,7 +1000,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                             }
                         }
                         is Command.FallbackToEnhanced -> {
-                            val activeRoute = child?.state?.value?.diagnostics?.route
+                            val activeRoute =
+                                child
+                                    ?.state
+                                    ?.value
+                                    ?.diagnostics
+                                    ?.route
                             if (
                                 command.index == currentIndex &&
                                 activeRoute != null &&

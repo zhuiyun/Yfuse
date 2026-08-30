@@ -182,7 +182,7 @@ internal class AndroidEnhancedPlaybackSession(
                 safeDetail = "Enhanced source open",
             ) {
                 demuxer.open(source)
-        }
+            }
         val videoTrack =
             result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
                 ?: throw YPlaybackException(
