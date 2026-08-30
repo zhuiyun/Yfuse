@@ -1065,7 +1065,12 @@ private fun yCoreInconclusiveSourceCompatibilityPlan(item: YMediaItem): YPlaybac
 }
 
 private fun YMediaItem.hintedHdrType(): YHdrType {
-    val range = sourceHints?.dynamicRange.orEmpty().trim().lowercase()
+    val range =
+        sourceHints
+            ?.dynamicRange
+            .orEmpty()
+            .trim()
+            .lowercase()
     return when {
         sourceHints?.dolbyVision == true || "dolby" in range || range.startsWith("dv") ->
             YHdrType.DolbyVision
