@@ -1172,19 +1172,21 @@ internal fun PlayerRoot(
                     info?.let {
                         TrickplayStoryboard(
                             urlPattern =
-                                EmbyStream.trickplayTilePattern(
-                                    baseUrl = server.baseUrl,
-                                    itemId = key.itemId,
-                                    mediaSourceId = key.mediaSourceId,
-                                    width = it.width,
-                                    token = server.accessToken,
-                                ),
+                                it.urlPattern
+                                    ?: EmbyStream.trickplayTilePattern(
+                                        baseUrl = server.baseUrl,
+                                        itemId = key.itemId,
+                                        mediaSourceId = key.mediaSourceId,
+                                        width = it.width,
+                                        token = server.accessToken,
+                                    ),
                             width = it.width,
                             height = it.height,
                             tileColumns = it.tileColumns,
                             tileRows = it.tileRows,
                             intervalMs = it.intervalMs,
                             thumbnailCount = it.thumbnailCount,
+                            urlIndexMultiplier = it.urlIndexMultiplier,
                         )
                     }
                 trickplayCache = trickplayCache.withTrickplayResult(key, storyboard)

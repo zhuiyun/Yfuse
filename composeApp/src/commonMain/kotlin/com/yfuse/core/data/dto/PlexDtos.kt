@@ -2,6 +2,7 @@ package com.yfuse.core.data.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
 
 /** JSON envelope returned by Plex Media Server when `Accept: application/json` is used. */
 @Serializable
@@ -27,6 +28,8 @@ data class PlexMediaContainerDto(
 data class PlexHubDto(
     val title: String? = null,
     val type: String? = null,
+    val hubIdentifier: String? = null,
+    val Directory: List<PlexMetadataDto> = emptyList(),
     val Metadata: List<PlexMetadataDto> = emptyList(),
 )
 
@@ -65,9 +68,9 @@ data class PlexMetadataDto(
     val contentRating: String? = null,
     val audienceRating: Double? = null,
     val rating: Double? = null,
-    val leafCount: Int? = null,
-    val viewedLeafCount: Int? = null,
-    val childCount: Int? = null,
+    val leafCount: JsonPrimitive? = null,
+    val viewedLeafCount: JsonPrimitive? = null,
+    val childCount: JsonPrimitive? = null,
     val guid: String? = null,
     val Guid: List<PlexGuidDto> = emptyList(),
     val Genre: List<PlexTagDto> = emptyList(),
@@ -115,6 +118,7 @@ data class PlexMediaDto(
 data class PlexPartDto(
     val id: Long? = null,
     val key: String? = null,
+    val indexes: String? = null,
     val duration: Long? = null,
     val file: String? = null,
     val size: Long? = null,

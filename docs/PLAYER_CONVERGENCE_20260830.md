@@ -27,8 +27,11 @@ executors. It does not introduce another decoder or rendering kernel.
   sidecar track metadata, direct part URLs, universal-HLS fallback, timeline reporting, scrobble /
   unscrobble, resume snapshot import and provider-id matching use the same UI/player contracts as
   Emby and Jellyfin.
-- Plex account OAuth, cloud Watchlist, server-side collection editing, remote subtitle-store
-  installation, actor search and BIF trickplay remain outside this local-server minimum loop.
+- Plex local collections and video playlists now use the shared container directory/detail routes;
+  people hubs and actor filters use the shared search/person routes. Generated `sd` BIF indexes are
+  exposed as authenticated, timestamp-addressed 1x1 storyboards to the existing seek preview UI.
+- Plex account OAuth, cloud Watchlist, server-side collection/playlist editing, remote
+  subtitle-store installation and offline downloads remain outside this local-server loop.
 
 ## Required external verification
 
@@ -38,4 +41,5 @@ executors. It does not introduce another decoder or rendering kernel.
 3. Run the physical Chromecast matrix in `castReceiver/README.md`.
 4. Run Emby and Jellyfin playback/reporting smoke tests.
 5. Run Plex Media Server smoke tests for token login, movie/episode direct play, HLS fallback,
-   embedded/external tracks, seek/resume, watched state, Cast and token expiry/re-login.
+   embedded/external tracks, collections/playlists, actor filters, BIF seek previews, seek/resume,
+   watched state, Cast and token expiry/re-login.

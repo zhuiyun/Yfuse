@@ -247,7 +247,7 @@ class EmbyRepository(
         }
 
     suspend fun mediaContainers(server: SavedServer): Result<List<MediaContainer>> =
-        if (server.kind == MediaServerKind.Plex) Result.success(emptyList()) else browseService.mediaContainers(server)
+        if (server.kind == MediaServerKind.Plex) plex.mediaContainers(server) else browseService.mediaContainers(server)
 
     suspend fun mediaContainersPage(
         server: SavedServer,
@@ -256,7 +256,7 @@ class EmbyRepository(
         limit: Int = LIBRARY_PAGE_SIZE,
     ): Result<MediaContainerPage> =
         if (server.kind == MediaServerKind.Plex) {
-            Result.success(MediaContainerPage(startIndex = startIndex))
+            plex.mediaContainersPage(server, kind, startIndex, limit)
         } else {
             browseService.mediaContainersPage(server, kind, startIndex, limit)
         }
@@ -472,7 +472,7 @@ class EmbyRepository(
         resolution: LibraryResolution = LibraryResolution.All,
     ): Result<LibraryPage> =
         if (server.kind == MediaServerKind.Plex) {
-            Result.success(LibraryPage(startIndex = startIndex))
+            plex.mediaContainerItems(server, containerId, kind, sort, genre, startIndex, limit, resolution)
         } else {
             browseService.mediaContainerItems(server, containerId, kind, sort, genre, startIndex, limit, resolution)
         }
@@ -483,7 +483,7 @@ class EmbyRepository(
         kind: MediaContainerKind,
     ): Result<List<String>> =
         if (server.kind == MediaServerKind.Plex) {
-            Result.success(emptyList())
+            plex.mediaContainerGenres(server, containerId, kind)
         } else {
             browseService.mediaContainerGenres(server, containerId, kind)
         }
@@ -598,7 +598,11 @@ class EmbyRepository(
         query: String,
         limit: Int = PERSON_SEARCH_LIMIT,
     ): List<Person> =
-        if (server.kind == MediaServerKind.Plex) emptyList() else searchService.searchPeople(server, query, limit)
+        if (server.kind == MediaServerKind.Plex) {
+            plex.searchPeople(server, query, limit)
+        } else {
+            searchService.searchPeople(server, query, limit)
+        }
 
     /** Everything on this server that credits one person, newest first. */
     suspend fun itemsByPerson(
@@ -607,7 +611,7 @@ class EmbyRepository(
         limit: Int = PERSON_ITEMS_LIMIT,
     ): Result<List<MediaItem>> =
         if (server.kind == MediaServerKind.Plex) {
-            Result.success(emptyList())
+            plex.itemsByPerson(server, personId, limit)
         } else {
             searchService.itemsByPerson(server, personId, limit)
         }
@@ -767,7 +771,7 @@ class EmbyRepository(
         itemId: String,
     ): Result<TrickplayInfo?> =
         if (server.kind == MediaServerKind.Plex) {
-            Result.success(null)
+            plex.trickplayInfo(server, itemId)
         } else {
             detailService.trickplayInfo(server, itemId)
         }

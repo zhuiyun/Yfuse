@@ -6,6 +6,7 @@ import com.yfuse.core.data.dto.MediaSourceDto
 import com.yfuse.core.data.dto.MediaStreamDto
 import com.yfuse.core.data.dto.PersonDto
 import com.yfuse.core.data.dto.PlaybackInfoResponseDto
+import com.yfuse.core.data.dto.PlexHubDto
 import com.yfuse.core.data.dto.PlexMediaContainerDto
 import com.yfuse.core.data.dto.PlexMediaDto
 import com.yfuse.core.data.dto.PlexMetadataDto
@@ -24,14 +25,19 @@ import com.yfuse.core.model.LibraryCounts
 import com.yfuse.core.model.LibraryPage
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
+import com.yfuse.core.model.MediaContainer
+import com.yfuse.core.model.MediaContainerKind
+import com.yfuse.core.model.MediaContainerPage
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
 import com.yfuse.core.model.MediaServerKind
+import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.model.TrickplayInfo
 import com.yfuse.core.network.normalizeBaseUrl
 import com.yfuse.core.sync.SyncedUserItem
 import com.yfuse.deviceId
@@ -44,12 +50,17 @@ import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.http.ContentType
 import io.ktor.http.encodeURLParameter
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.TimeSource
 
 private const val PLEX_PRODUCT = "Yfuse"
 private const val PLEX_PLATFORM = "Android"
 private const val PLEX_SNAPSHOT_PAGE_SIZE = 2_000
+private const val PLEX_CONTAINER_LIMIT = 2_000
+private const val PLEX_TRICKPLAY_SAMPLE_INTERVAL_MS = 10_000L
+private const val PLEX_COLLECTION_TYPE = 18
 private const val PLEX_ARTWORK_PREFIX = "plex:"
+private val PLEX_BROWSABLE_TYPES = setOf("movie", "show", "episode")
 
 /**
  * Native Plex provider boundary.
@@ -103,6 +114,88 @@ internal class PlexMediaServerAdapter(
                         collectionType = if (type == "show") "tvshows" else "movies",
                     )
                 }
+        }
+
+    suspend fun mediaContainers(server: SavedServer): Result<List<MediaContainer>> =
+        embyApiCall("plex_media_containers") {
+            allMediaContainers(server)
+        }
+
+    suspend fun mediaContainersPage(
+        server: SavedServer,
+        kind: MediaContainerKind,
+        startIndex: Int,
+        limit: Int,
+    ): Result<MediaContainerPage> =
+        embyApiCall("plex_media_containers_page") {
+            val containers = allMediaContainers(server).filter { it.kind == kind }
+            MediaContainerPage(
+                containers = containers.drop(startIndex.coerceAtLeast(0)).take(limit.coerceAtLeast(1)),
+                totalCount = containers.size,
+                startIndex = startIndex,
+            )
+        }
+
+    suspend fun mediaContainerItems(
+        server: SavedServer,
+        containerId: String,
+        kind: MediaContainerKind,
+        sort: LibrarySort,
+        genre: String?,
+        startIndex: Int,
+        limit: Int,
+        resolution: LibraryResolution,
+    ): Result<LibraryPage> =
+        embyApiCall("plex_media_container_items") {
+            val path =
+                when (kind) {
+                    MediaContainerKind.BoxSet -> "/library/collections/$containerId/children"
+                    MediaContainerKind.Playlist -> "/playlists/$containerId/items"
+                }
+            val response =
+                container(server, path) {
+                    parameter("X-Plex-Container-Start", startIndex.coerceAtLeast(0))
+                    parameter("X-Plex-Container-Size", limit.coerceAtLeast(1))
+                    parameter("includeGuids", 1)
+                    parameter("includeUserState", 1)
+                    parameter("includeMedia", 1)
+                    if (kind == MediaContainerKind.BoxSet) {
+                        parameter("sort", sort.toPlexSort())
+                        genre?.takeIf(String::isNotBlank)?.let { parameter("genre", it) }
+                    }
+                }
+            val items =
+                response
+                    .allMetadata()
+                    .filter { it.type?.lowercase() in PLEX_BROWSABLE_TYPES }
+                    .map { it.toBaseItem(server) }
+                    .filter { it.matches(resolution) }
+                    .map { progress.project(server, it).toMediaItem() }
+            LibraryPage(
+                items = items,
+                totalCount = response.effectiveTotal().coerceAtLeast(startIndex + items.size),
+                startIndex = startIndex,
+            )
+        }
+
+    suspend fun mediaContainerGenres(
+        server: SavedServer,
+        containerId: String,
+        kind: MediaContainerKind,
+    ): Result<List<String>> =
+        if (kind == MediaContainerKind.Playlist) {
+            Result.success(emptyList())
+        } else {
+            embyApiCall("plex_media_container_genres") {
+                container(server, "/library/collections/$containerId/children") {
+                    parameter("X-Plex-Container-Start", 0)
+                    parameter("X-Plex-Container-Size", PLEX_CONTAINER_LIMIT)
+                }.allMetadata()
+                    .flatMap { it.Genre }
+                    .mapNotNull { it.tag.takeIf(String::isNotBlank) }
+                    .distinct()
+                    .sorted()
+            }
         }
 
     suspend fun itemCounts(server: SavedServer): Result<LibraryCounts> =
@@ -160,6 +253,7 @@ internal class PlexMediaServerAdapter(
                     .distinctBy(MediaItem::id)
                     .take(12)
                     .toList()
+            val containers = runCatching { mediaContainers(server).getOrThrow() }.getOrDefault(emptyList())
             HomeContent(
                 featured = featured,
                 resume = resume,
@@ -167,6 +261,8 @@ internal class PlexMediaServerAdapter(
                 counts =
                     runCatching { itemCounts(server).getOrThrow() }
                         .getOrNull(),
+                collections = containers.filter { it.kind == MediaContainerKind.BoxSet }.take(12),
+                playlists = containers.filter { it.kind == MediaContainerKind.Playlist }.take(12),
             )
         }
 
@@ -420,6 +516,67 @@ internal class PlexMediaServerAdapter(
             MediaSearchPage(items, response.effectiveTotal(), startIndex)
         }
 
+    suspend fun searchPeople(
+        server: SavedServer,
+        query: String,
+        limit: Int,
+    ): List<Person> =
+        runCatching {
+            val normalizedQuery = query.trim()
+            if (normalizedQuery.isEmpty() || limit <= 0) return@runCatching emptyList()
+            val hubPeople =
+                container(server, "/hubs/search") {
+                    parameter("query", normalizedQuery)
+                    parameter("limit", limit)
+                    parameter("includeCollections", 1)
+                }.Hub
+                    .asSequence()
+                    .filter { it.isPeopleHub() }
+                    .flatMap { it.allMetadata().asSequence() }
+                    .mapNotNull { it.toPerson() }
+                    .toList()
+            val candidates =
+                hubPeople.ifEmpty {
+                    libraries(server).getOrThrow().flatMap { library ->
+                        container(server, "/library/sections/${library.id}/actor") {
+                            parameter("X-Plex-Container-Start", 0)
+                            parameter("X-Plex-Container-Size", PLEX_CONTAINER_LIMIT)
+                        }.Directory.mapNotNull { it.toPerson() }
+                    }
+                }
+            candidates
+                .filter { it.name.contains(normalizedQuery, ignoreCase = true) }
+                .distinctBy(Person::id)
+                .take(limit)
+        }.getOrDefault(emptyList())
+
+    suspend fun itemsByPerson(
+        server: SavedServer,
+        personId: String,
+        limit: Int,
+    ): Result<List<MediaItem>> =
+        embyApiCall("plex_items_by_person") {
+            val items = mutableListOf<MediaItem>()
+            libraries(server).getOrThrow().forEach { library ->
+                if (items.size >= limit) return@forEach
+                val response =
+                    container(server, "/library/sections/${library.id}/all") {
+                        parameter("actor", personId)
+                        parameter("sort", "year:desc,titleSort:asc")
+                        parameter("includeGuids", 1)
+                        parameter("includeUserState", 1)
+                        parameter("X-Plex-Container-Start", 0)
+                        parameter("X-Plex-Container-Size", limit - items.size)
+                    }
+                items +=
+                    response
+                        .allMetadata()
+                        .filter { it.type?.lowercase() in setOf("movie", "show") }
+                        .map { progress.project(server, it.toBaseItem(server)).toMediaItem() }
+            }
+            items.distinctBy(MediaItem::id).take(limit)
+        }
+
     suspend fun userLibrarySnapshot(
         server: SavedServer,
         includeProgress: Boolean,
@@ -630,6 +787,48 @@ internal class PlexMediaServerAdapter(
         )
     }
 
+    suspend fun trickplayInfo(
+        server: SavedServer,
+        itemId: String,
+    ): Result<TrickplayInfo?> =
+        embyApiCall("plex_trickplay_info") {
+            val item = metadata(server, itemId, includeChildren = false)
+            val mediaWithPart =
+                item.Media.firstNotNullOfOrNull { media ->
+                    media.Part.firstOrNull { part ->
+                        part.indexes
+                            ?.split(',')
+                            ?.any { it.trim().equals("sd", ignoreCase = true) } == true
+                    }?.let { media to it }
+                } ?: return@embyApiCall null
+            val (media, part) = mediaWithPart
+            val partId = part.id ?: return@embyApiCall null
+            val durationMs = part.duration ?: media.duration ?: item.duration ?: return@embyApiCall null
+            if (durationMs <= 0L) return@embyApiCall null
+            val thumbnailCount =
+                (
+                    (durationMs + PLEX_TRICKPLAY_SAMPLE_INTERVAL_MS - 1L) /
+                        PLEX_TRICKPLAY_SAMPLE_INTERVAL_MS
+                )
+                    .coerceAtMost(Int.MAX_VALUE.toLong())
+                    .toInt()
+            TrickplayInfo(
+                width = 320,
+                height = 180,
+                tileColumns = 1,
+                tileRows = 1,
+                intervalMs = PLEX_TRICKPLAY_SAMPLE_INTERVAL_MS,
+                thumbnailCount = thumbnailCount,
+                urlPattern =
+                    plexAuthenticatedUrl(
+                        baseUrl = server.baseUrl,
+                        rawPath = "/library/parts/$partId/indexes/sd/{index}",
+                        token = server.accessToken,
+                    ),
+                urlIndexMultiplier = PLEX_TRICKPLAY_SAMPLE_INTERVAL_MS,
+            )
+        }
+
     suspend fun probe(server: SavedServer): Result<Long> = probeAddress(server.baseUrl, server.accessToken)
 
     suspend fun probeAddress(
@@ -697,6 +896,35 @@ internal class PlexMediaServerAdapter(
             }
         }
         return values
+    }
+
+    private suspend fun allMediaContainers(server: SavedServer): List<MediaContainer> {
+        val collections =
+            runCatching {
+                libraries(server).getOrThrow().flatMap { library ->
+                    container(
+                        server,
+                        "/library/sections/${library.id}/all",
+                    ) {
+                        parameter("type", PLEX_COLLECTION_TYPE)
+                        parameter("includeCollections", 1)
+                        parameter("X-Plex-Container-Start", 0)
+                        parameter("X-Plex-Container-Size", PLEX_CONTAINER_LIMIT)
+                    }.allMetadata()
+                        .mapNotNull { it.toMediaContainer(server, MediaContainerKind.BoxSet) }
+                }
+            }.getOrDefault(emptyList())
+        val playlists =
+            runCatching {
+                container(server, "/playlists") {
+                    parameter("playlistType", "video")
+                    parameter("includeCollections", 1)
+                    parameter("X-Plex-Container-Start", 0)
+                    parameter("X-Plex-Container-Size", PLEX_CONTAINER_LIMIT)
+                }.allMetadata()
+                    .mapNotNull { it.toMediaContainer(server, MediaContainerKind.Playlist) }
+            }.getOrDefault(emptyList())
+        return (collections + playlists).distinctBy { "${it.kind}:${it.id}" }
     }
 
     private suspend fun container(
@@ -985,7 +1213,44 @@ internal fun plexAuthenticatedUrl(
 }
 
 private fun PlexMediaContainerDto.allMetadata(): List<PlexMetadataDto> =
-    Metadata + Directory + Hub.flatMap { it.Metadata }
+    Metadata + Directory + Hub.flatMap { it.allMetadata() }
+
+private fun PlexHubDto.allMetadata(): List<PlexMetadataDto> = Metadata + Directory
+
+private fun PlexHubDto.isPeopleHub(): Boolean {
+    val normalizedType = type?.lowercase().orEmpty()
+    val normalizedId = hubIdentifier?.lowercase().orEmpty()
+    return normalizedType in setOf("actor", "person", "people") ||
+        "actor" in normalizedId ||
+        "people" in normalizedId
+}
+
+private fun PlexMetadataDto.toPerson(): Person? {
+    val name = title?.takeIf(String::isNotBlank) ?: return null
+    val id = ratingKey ?: key?.substringAfterLast('/')?.takeIf(String::isNotBlank) ?: return null
+    return Person(
+        id = id,
+        name = name,
+        role = null,
+        primaryImageTag = thumb.plexArtworkTag(),
+    )
+}
+
+private fun PlexMetadataDto.toMediaContainer(
+    server: SavedServer,
+    kind: MediaContainerKind,
+): MediaContainer? {
+    val id = ratingKey ?: key?.substringAfterLast('/')?.takeIf(String::isNotBlank) ?: return null
+    val name = title?.takeIf(String::isNotBlank) ?: return null
+    return MediaContainer(
+        id = id,
+        title = name,
+        kind = kind,
+        serverId = server.id,
+        posterTag = thumb.plexArtworkTag(),
+        itemCount = childCount.toPlexInt() ?: leafCount.toPlexInt(),
+    )
+}
 
 private fun PlexMediaContainerDto.effectiveTotal(): Int = totalSize ?: size.takeIf { it > 0 } ?: allMetadata().size
 
@@ -1062,6 +1327,8 @@ private fun String?.toFrameRate(): Double? {
 }
 
 private fun String?.mentions(value: String): Boolean = this?.contains(value, ignoreCase = true) == true
+
+private fun JsonPrimitive?.toPlexInt(): Int? = this?.content?.toIntOrNull()
 
 private fun Boolean.toPresenceFlag(): Int = if (this) 1 else 0
 

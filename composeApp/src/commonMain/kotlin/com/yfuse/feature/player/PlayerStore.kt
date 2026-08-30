@@ -474,6 +474,7 @@ data class TrickplayStoryboard(
     val tileRows: Int,
     val intervalMs: Long,
     val thumbnailCount: Int,
+    val urlIndexMultiplier: Long = 1L,
 ) {
     fun frameAt(positionMs: Long): TrickplayFrame {
         val frame =
@@ -482,8 +483,9 @@ data class TrickplayStoryboard(
                 .toInt()
         val perSheet = (tileColumns * tileRows).coerceAtLeast(1)
         val local = frame % perSheet
+        val urlIndex = (frame / perSheet).toLong() * urlIndexMultiplier.coerceAtLeast(1L)
         return TrickplayFrame(
-            url = urlPattern.replace("{index}", (frame / perSheet).toString()),
+            url = urlPattern.replace("{index}", urlIndex.toString()),
             column = local % tileColumns.coerceAtLeast(1),
             row = local / tileColumns.coerceAtLeast(1),
         )
@@ -893,19 +895,21 @@ class PlayerStoreFactory(
                             (if (id == effectiveItemId) negotiatedTrickplay else null)?.let { info ->
                                 TrickplayStoryboard(
                                     urlPattern =
-                                        EmbyStream.trickplayTilePattern(
-                                            baseUrl = server.baseUrl,
-                                            itemId = id,
-                                            mediaSourceId = unqualified.id,
-                                            width = info.width,
-                                            token = server.accessToken,
-                                        ),
+                                        info.urlPattern
+                                            ?: EmbyStream.trickplayTilePattern(
+                                                baseUrl = server.baseUrl,
+                                                itemId = id,
+                                                mediaSourceId = unqualified.id,
+                                                width = info.width,
+                                                token = server.accessToken,
+                                            ),
                                     width = info.width,
                                     height = info.height,
                                     tileColumns = info.tileColumns,
                                     tileRows = info.tileRows,
                                     intervalMs = info.intervalMs,
                                     thumbnailCount = info.thumbnailCount,
+                                    urlIndexMultiplier = info.urlIndexMultiplier,
                                 )
                             },
                         serverId = server.id,

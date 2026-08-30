@@ -8,4 +8,8 @@ data class TrickplayInfo(
     val tileRows: Int,
     val intervalMs: Long,
     val thumbnailCount: Int,
+    /** Provider-owned frame URL. Null keeps the Emby/Jellyfin tile endpoint. */
+    val urlPattern: String? = null,
+    /** Multiplies the storyboard index before replacing `{index}` (Plex BIF uses milliseconds). */
+    val urlIndexMultiplier: Long = 1L,
 )

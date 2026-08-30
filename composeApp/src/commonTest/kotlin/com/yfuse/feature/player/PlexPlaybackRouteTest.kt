@@ -49,4 +49,24 @@ class PlexPlaybackRouteTest {
         assertTrue("session=${rebound.playSessionId}" in rebound.transcodeUrl)
         assertTrue("PlaySessionId=${rebound.playSessionId}" in rebound.transcodeUrl)
     }
+
+    @Test
+    fun plex_bif_storyboard_replaces_frame_index_with_millisecond_timestamp() {
+        val storyboard =
+            TrickplayStoryboard(
+                urlPattern = "http://plex/library/parts/12/indexes/sd/{index}",
+                width = 320,
+                height = 180,
+                tileColumns = 1,
+                tileRows = 1,
+                intervalMs = 10_000L,
+                thumbnailCount = 10,
+                urlIndexMultiplier = 10_000L,
+            )
+
+        assertEquals(
+            "http://plex/library/parts/12/indexes/sd/20000",
+            storyboard.frameAt(25_000L).url,
+        )
+    }
 }

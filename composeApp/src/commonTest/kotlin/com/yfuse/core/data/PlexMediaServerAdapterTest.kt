@@ -1,5 +1,6 @@
 package com.yfuse.core.data
 
+import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
@@ -163,6 +164,114 @@ class PlexMediaServerAdapterTest {
             assertEquals("100", snapshot.id)
             assertEquals(12_000_000L, snapshot.positionTicks)
             assertFalse(snapshot.played)
+        }
+
+    @Test
+    fun collections_playlists_and_container_items_use_local_plex_routes() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    when (request.url.encodedPath) {
+                        "/library/sections" ->
+                            json(
+                                """{"MediaContainer":{"Directory":[""" +
+                                    """{"key":"1","title":"电影","type":"movie"},""" +
+                                    """{"key":"2","title":"剧集","type":"show"}]}}""",
+                            )
+                        "/library/sections/1/all" -> {
+                            assertEquals("18", request.url.parameters["type"])
+                            json(
+                                """{"MediaContainer":{"Metadata":[{"ratingKey":"500","type":"collection",""" +
+                                    """"title":"科幻合集","thumb":"/library/metadata/500/thumb/1",""" +
+                                    """"childCount":"4"}]}}""",
+                            )
+                        }
+                        "/library/sections/2/all" -> json("""{"MediaContainer":{"Metadata":[]}}""")
+                        "/playlists" ->
+                            json(
+                                """{"MediaContainer":{"Metadata":[{"ratingKey":"600","type":"playlist",""" +
+                                    """"title":"周末播放","thumb":"/playlists/600/thumb/1","leafCount":8}]}}""",
+                            )
+                        "/library/collections/500/children" -> json(movieMetadata())
+                        else -> error("unexpected ${request.url}")
+                    }
+                }
+
+            val containers = repo.mediaContainers(server).getOrThrow()
+            val collection = containers.single { it.kind == MediaContainerKind.BoxSet }
+            val playlist = containers.single { it.kind == MediaContainerKind.Playlist }
+            val items =
+                repo
+                    .mediaContainerItems(
+                        server = server,
+                        containerId = collection.id,
+                        kind = collection.kind,
+                    )
+                    .getOrThrow()
+
+            assertEquals("科幻合集", collection.title)
+            assertEquals(4, collection.itemCount)
+            assertEquals("周末播放", playlist.title)
+            assertEquals(8, playlist.itemCount)
+            assertEquals("沙丘", items.items.single().title)
+        }
+
+    @Test
+    fun people_search_and_person_items_map_plex_hubs_and_actor_filter() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    when (request.url.encodedPath) {
+                        "/hubs/search" ->
+                            json("""{"MediaContainer":{"Hub":[]}}""")
+                        "/library/sections" ->
+                            json(
+                                """{"MediaContainer":{"Directory":[""" +
+                                    """{"key":"1","title":"电影","type":"movie"}]}}""",
+                            )
+                        "/library/sections/1/actor" ->
+                            json(
+                                """{"MediaContainer":{"Directory":[{"key":"99","type":"person",""" +
+                                    """"title":"张曼玉","thumb":"/library/people/99/thumb"}]}}""",
+                            )
+                        "/library/sections/1/all" -> {
+                            assertEquals("99", request.url.parameters["actor"])
+                            json(movieMetadata())
+                        }
+                        else -> error("unexpected ${request.url}")
+                    }
+                }
+
+            val person = repo.searchPeople(server, "张曼玉").single()
+            val credits = repo.itemsByPerson(server, person.id).getOrThrow()
+
+            assertEquals("99", person.id)
+            assertEquals("张曼玉", person.name)
+            assertEquals("plex:/library/people/99/thumb", person.primaryImageTag)
+            assertEquals(listOf("沙丘"), credits.map { it.title })
+        }
+
+    @Test
+    fun bif_index_metadata_exposes_authenticated_timestamp_storyboard() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    assertEquals("/library/metadata/100", request.url.encodedPath)
+                    json(
+                        """{"MediaContainer":{"Metadata":[{"ratingKey":"100","type":"movie","title":"沙丘",""" +
+                            """"duration":25000,"Media":[{"id":7,"duration":25000,"Part":[{"id":12,""" +
+                            """"indexes":"sd","duration":25000,"key":"/library/parts/12/file.mkv"}]}]}]}}""",
+                    )
+                }
+
+            val info = repo.trickplayInfo(server, "100").getOrThrow()
+
+            assertNotNull(info)
+            assertEquals(3, info.thumbnailCount)
+            assertEquals(1, info.tileColumns)
+            assertEquals(10_000L, info.urlIndexMultiplier)
+            assertTrue(info.urlPattern.orEmpty().contains("/library/parts/12/indexes/sd/{index}"))
+            assertTrue(info.urlPattern.orEmpty().contains("X-Plex-Token=secret-token"))
         }
 
     private fun movieMetadata(): String =
