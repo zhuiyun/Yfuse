@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import com.yfuse.core.model.MediaVersion
+import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.VideoStreamInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
