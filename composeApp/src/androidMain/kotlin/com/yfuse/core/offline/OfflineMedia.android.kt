@@ -421,8 +421,7 @@ private suspend fun resolvePlexOfflineSourceUrl(
                 itemId = item.itemId,
                 mediaSourceId = item.mediaSourceId,
                 playSessionId = "offline-${item.id}",
-            )
-            .getOrElse { throw it }
+            ).getOrElse { throw it }
     val source =
         playback.MediaSources.firstOrNull { candidate ->
             item.mediaSourceId == null || candidate.Id == item.mediaSourceId
@@ -444,8 +443,7 @@ private suspend fun resolvePlexOfflineSubtitleUrl(
                 itemId = item.itemId,
                 mediaSourceId = item.mediaSourceId,
                 playSessionId = "offline-subtitle-${item.id}",
-            )
-            .getOrElse { throw it }
+            ).getOrElse { throw it }
     val source =
         playback.MediaSources.firstOrNull { candidate ->
             item.mediaSourceId == null || candidate.Id == item.mediaSourceId
