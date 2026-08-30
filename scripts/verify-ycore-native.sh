@@ -7,6 +7,7 @@ AAR="${1:-$DEFAULT_ARTIFACTS/ycore-native.aar}"
 SHA_FILE="${2:-$AAR.sha256}"
 SOURCES="${3:-$DEFAULT_ARTIFACTS/NATIVE-SOURCES.txt}"
 PAGE_ALIGNMENT=$((16 * 1024))
+REQUIRED_ABIS="${YCORE_REQUIRED_ABIS:-arm64-v8a}"
 
 fail() {
   echo "[verify-ycore-native] $*" >&2
@@ -126,6 +127,17 @@ mapfile -t bridges < <(find "$stage/aar/jni" -mindepth 2 -maxdepth 2 -type f -na
 [[ -f "$stage/aar/jni/arm64-v8a/libycore_gpu.so" ]] ||
   fail "AAR is missing arm64-v8a/libycore_gpu.so"
 
+IFS=',' read -r -a required_abis <<<"$REQUIRED_ABIS"
+(( ${#required_abis[@]} > 0 )) || fail "YCORE_REQUIRED_ABIS must name at least one ABI"
+for required_abi in "${required_abis[@]}"; do
+  [[ "$required_abi" =~ ^[A-Za-z0-9_-]+$ ]] ||
+    fail "invalid ABI in YCORE_REQUIRED_ABIS: $required_abi"
+  [[ -f "$stage/aar/jni/$required_abi/libycore_demux.so" ]] ||
+    fail "AAR is missing $required_abi/libycore_demux.so"
+  [[ -f "$stage/aar/jni/$required_abi/libycore_gpu.so" ]] ||
+    fail "AAR is missing $required_abi/libycore_gpu.so"
+done
+
 for bridge in "${bridges[@]}"; do
   abi="$(basename "$(dirname "$bridge")")"
   symbols="$stage/$abi-ycore-symbols.txt"
@@ -193,3 +205,4 @@ printf 'Blu-ray: libbluray 1.4.1 through opaque block I/O and read-only SAF BDMV
 printf 'GPU: ImageReader/AHardwareBuffer + Vulkan YCbCr shader + measured swapchain presentation\n'
 printf 'purity: no mpv, player, MDK, or Java engine classes\n'
 printf 'page alignment: all packaged native libraries PT_LOAD >= 16 KiB\n'
+printf 'required ABIs: %s\n' "$REQUIRED_ABIS"

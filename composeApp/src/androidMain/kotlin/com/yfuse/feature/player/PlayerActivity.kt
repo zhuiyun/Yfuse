@@ -12,8 +12,6 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Rect
 import android.media.AudioManager
-import android.media.MediaMetadata
-import android.media.session.MediaSession
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -60,6 +58,15 @@ import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.lockOrientationOnCompactScreens
 import com.yfuse.core2.api.YPlayer
+import com.yfuse.tv.integration.CastConnectReceiverBridge
+import com.yfuse.tv.player.TvMediaSessionActions
+import com.yfuse.tv.player.TvMediaSessionAdapter
+import com.yfuse.tv.player.TvMediaSessionState
+import com.yfuse.tv.player.TvPlaybackActions
+import com.yfuse.tv.player.TvPlayerChromeController
+import com.yfuse.tv.player.TvRemoteInputController
+import com.yfuse.tv.player.isTelevisionDevice
+import com.yfuse.tv.player.withoutServerTranscodeForTv
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,7 +74,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
-import android.media.session.PlaybackState as PlatformPlaybackState
 
 /**
  * Fullscreen playback lives in its own activity. Phones retain the landscape-first experience,
@@ -95,6 +101,7 @@ class PlayerActivity : ComponentActivity() {
             engine: PlayerEngine,
             decoder: DecoderMode,
             autoNext: Boolean,
+            startPlaybackRequested: Boolean = true,
         ): Intent {
             val request =
                 PlayerLaunchRequest.create(
@@ -104,6 +111,7 @@ class PlayerActivity : ComponentActivity() {
                     engine = engine,
                     decoder = decoder,
                     autoNext = autoNext,
+                    startPlaybackRequested = startPlaybackRequested,
                 )
             val payload =
                 PlayerLaunchIntentPayload.create(
@@ -143,8 +151,11 @@ class PlayerActivity : ComponentActivity() {
     private var remoteCastManager: CastManager? = null
     private var sessionTitles: List<String> = emptyList()
     private val pictureInPicture = MutableStateFlow(false)
-    private lateinit var mediaSession: MediaSession
+    private lateinit var mediaSessionAdapter: TvMediaSessionAdapter
     private lateinit var notificationController: PlayerNotificationController
+    private val tvChromeController = TvPlayerChromeController()
+    private var tvRemoteInputController: TvRemoteInputController? = null
+    private var televisionDevice = false
     private var mediaReceiverRegistered = false
     private var videoBounds: Rect? = null
     private var pipWasVisible = false
@@ -204,6 +215,19 @@ class PlayerActivity : ComponentActivity() {
      * could not express.
      */
     private val volumeKeyPresses = MutableStateFlow(0L)
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Authored DVD/Blu-ray menus own the complete remote while interactive. Their Compose
+        // effect routes D-pad and Back after normal dispatch, so TV transport must not pre-empt it.
+        if (
+            televisionDevice &&
+            !ActiveDiscNavigation.menuActive &&
+            tvRemoteInputController?.dispatch(event) == true
+        ) {
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
 
     /**
      * Handles the volume rocker so the player can answer it with its own slider.
@@ -301,6 +325,27 @@ class PlayerActivity : ComponentActivity() {
                 onPause = { activePlayer?.pause() },
                 onResume = { activePlayer?.play() },
             )
+        televisionDevice = isTelevisionDevice(this)
+        if (televisionDevice) {
+            tvRemoteInputController =
+                TvRemoteInputController(
+                    chrome = tvChromeController,
+                    playback =
+                        TvPlaybackActions(
+                            currentPositionMs = {
+                                activePlayer?.currentPositionMs() ?: activeState.positionMs
+                            },
+                            durationMs = { activeState.durationMs },
+                            togglePlayPause = ::togglePlaybackWithFocus,
+                            play = ::requestPlaybackStart,
+                            pause = ::requestPlaybackPause,
+                            seekTo = ::seekPlaybackTo,
+                            previous = { selectAdjacentPlayback(-1) },
+                            next = { selectAdjacentPlayback(1) },
+                        ),
+                    nowMs = SystemClock::uptimeMillis,
+                )
+        }
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -335,10 +380,16 @@ class PlayerActivity : ComponentActivity() {
         }
         val launchRequest = (launchResolution as PlayerLaunchResolution.Ready).request
         launchViewModel.request = launchRequest
-        val items = launchRequest.items
+        val items =
+            if (televisionDevice) {
+                launchRequest.items.withoutServerTranscodeForTv()
+            } else {
+                launchRequest.items
+            }
         val initialEngine = launchRequest.engine
         val decoderMode = launchRequest.decoder
         val autoNext = launchRequest.autoNext
+        val startPlaybackRequested = launchRequest.startPlaybackRequested
         val retainedResume = launchViewModel.resume
         val initialStartIndex = retainedResume?.first ?: launchRequest.startIndex
         val initialStartPositionMs = retainedResume?.second ?: launchRequest.startPositionMs
@@ -347,7 +398,8 @@ class PlayerActivity : ComponentActivity() {
         pipWasVisible = isInPictureInPictureMode
         sessionTitles = items.map { it.title }
         createMediaSession()
-        notificationController = PlayerNotificationController(this) { mediaSession }
+        if (televisionDevice) CastConnectReceiverBridge.onNewIntent(intent)
+        notificationController = PlayerNotificationController(this) { mediaSessionAdapter.session }
         notificationController.createChannel()
         registerMediaActionReceiver()
         registerScreenStateReceiver()
@@ -532,6 +584,8 @@ class PlayerActivity : ComponentActivity() {
                     onEnterPictureInPicture = ::enterPlayerPictureInPicture,
                     onRefreshEpisodes = { refreshEpisodes(force = true) },
                     onRemotePlayRequested = ::ensureAudioFocus,
+                    remoteChrome = tvChromeController.takeIf { televisionDevice },
+                    startPlaybackRequested = startPlaybackRequested,
                 )
             }
         }
@@ -539,6 +593,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (televisionDevice) CastConnectReceiverBridge.onNewIntent(intent)
         // Notification taps only bring this live instance forward. They deliberately carry no
         // launch token and must never restart playback or consume registry state.
         if (intent.action == ACTION_OPEN) return
@@ -662,9 +717,9 @@ class PlayerActivity : ComponentActivity() {
             runCatching { unregisterReceiver(screenStateReceiver) }
             screenStateReceiverRegistered = false
         }
-        if (::mediaSession.isInitialized) {
-            mediaSession.isActive = false
-            mediaSession.release()
+        if (::mediaSessionAdapter.isInitialized) {
+            if (televisionDevice) CastConnectReceiverBridge.detachMediaSessionToken()
+            mediaSessionAdapter.release()
         }
         super.onDestroy()
         playbackGate = null
@@ -779,7 +834,9 @@ class PlayerActivity : ComponentActivity() {
                         playMethod = selected.playMethod,
                         forcedTranscodeReason = null,
                         trickplay = item.trickplay.takeIf { selected.id == sourceId },
-                    )
+                    ).let { updated ->
+                        if (televisionDevice) updated.withoutServerTranscodeForTv() else updated
+                    }
                 playbackItems.value =
                     playbackItems.value.toMutableList().apply { set(index, refreshed) }
                 queueResume.value = index to positionMs
@@ -792,8 +849,8 @@ class PlayerActivity : ComponentActivity() {
                         mapOf(
                             "revision" to capabilityRevision.toString(),
                             "itemIndex" to index.toString(),
-                            "playMethod" to selected.playMethod.name,
-                            "mediaSourceId" to selected.id,
+                            "playMethod" to refreshed.playMethod.name,
+                            "mediaSourceId" to refreshed.versionId.orEmpty(),
                         ),
                 )
             }.onFailure { error ->
@@ -866,7 +923,7 @@ class PlayerActivity : ComponentActivity() {
                 if (episodes.isEmpty()) return@launch
 
                 val existing = playbackItems.value.associateBy(PlayerMediaItem::id)
-                val refreshed =
+                val refreshedFromServer =
                     episodes.map { episode ->
                         val title =
                             listOfNotNull(
@@ -961,6 +1018,12 @@ class PlayerActivity : ComponentActivity() {
                             )
                         }
                     }
+                val refreshed =
+                    if (televisionDevice) {
+                        refreshedFromServer.withoutServerTranscodeForTv()
+                    } else {
+                        refreshedFromServer
+                    }
                 val current = playbackItems.value
                 if (refreshed == current) return@launch
 
@@ -1002,52 +1065,26 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun createMediaSession() {
-        mediaSession =
-            MediaSession(this, "YfusePlayer").apply {
-                setCallback(
-                    object : MediaSession.Callback() {
-                        override fun onPlay() {
-                            if (!playbackAllowedByLifecycle()) return
-                            val castManager = remoteCastManager
-                            if (castManager?.state?.value?.hasActiveSession == true) {
-                                lifecycleScope.launch { castManager.resume() }
-                                return
-                            }
-                            if (ensureAudioFocus()) {
-                                startPlaybackKeepAliveService(fromUserAction = true)
-                                playbackGate?.play()
-                            }
-                        }
+        mediaSessionAdapter =
+            TvMediaSessionAdapter(
+                context = this,
+                tag = "YfusePlayer",
+                actions =
+                    object : TvMediaSessionActions {
+                        override fun play() = requestPlaybackStart()
 
-                        override fun onPause() {
-                            val castManager = remoteCastManager
-                            if (castManager?.state?.value?.hasActiveSession == true) {
-                                lifecycleScope.launch { castManager.pause() }
-                            } else {
-                                playbackGate?.pause()
-                            }
-                        }
+                        override fun pause() = requestPlaybackPause()
 
-                        override fun onSeekTo(pos: Long) {
-                            val castManager = remoteCastManager
-                            if (castManager?.state?.value?.hasActiveSession == true) {
-                                lifecycleScope.launch { castManager.seekTo(pos) }
-                            } else {
-                                playbackGate?.seekTo(pos)
-                            }
-                        }
+                        override fun seekTo(positionMs: Long) = seekPlaybackTo(positionMs)
 
-                        override fun onSkipToNext() {
-                            selectAdjacentPlayback(1)
-                        }
+                        override fun previous() = selectAdjacentPlayback(-1)
 
-                        override fun onSkipToPrevious() {
-                            selectAdjacentPlayback(-1)
-                        }
+                        override fun next() = selectAdjacentPlayback(1)
                     },
-                )
-                isActive = true
-            }
+            )
+        if (televisionDevice) {
+            CastConnectReceiverBridge.attachMediaSessionToken(mediaSessionAdapter.compatToken)
+        }
     }
 
     private fun registerScreenStateReceiver() {
@@ -1117,36 +1154,59 @@ class PlayerActivity : ComponentActivity() {
         } else if (state.ended || state.error != null) {
             abandonAudioFocus()
         }
-        var actions =
-            PlatformPlaybackState.ACTION_PLAY or
-                PlatformPlaybackState.ACTION_PAUSE or
-                PlatformPlaybackState.ACTION_PLAY_PAUSE or
-                PlatformPlaybackState.ACTION_SEEK_TO
-        if (state.hasNext) actions = actions or PlatformPlaybackState.ACTION_SKIP_TO_NEXT
-        if (state.hasPrevious) actions = actions or PlatformPlaybackState.ACTION_SKIP_TO_PREVIOUS
-        val platformState =
-            when {
-                state.error != null -> PlatformPlaybackState.STATE_ERROR
-                state.ended -> PlatformPlaybackState.STATE_STOPPED
-                state.buffering -> PlatformPlaybackState.STATE_BUFFERING
-                state.playing -> PlatformPlaybackState.STATE_PLAYING
-                else -> PlatformPlaybackState.STATE_PAUSED
-            }
-        val builder =
-            PlatformPlaybackState
-                .Builder()
-                .setActions(actions)
-                .setState(platformState, state.positionMs, state.speed)
-        state.error?.let(builder::setErrorMessage)
-        mediaSession.setPlaybackState(builder.build())
-        mediaSession.setMetadata(
-            MediaMetadata
-                .Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, sessionTitles.getOrNull(state.currentIndex).orEmpty())
-                .putLong(MediaMetadata.METADATA_KEY_DURATION, state.durationMs)
-                .build(),
+        mediaSessionAdapter.update(
+            TvMediaSessionState(
+                playing = state.playing,
+                buffering = state.buffering,
+                ended = state.ended,
+                positionMs = state.positionMs,
+                durationMs = state.durationMs,
+                speed = state.speed,
+                title = sessionTitles.getOrNull(state.currentIndex).orEmpty(),
+                hasPrevious = state.hasPrevious,
+                hasNext = state.hasNext,
+                error = state.error,
+            ),
         )
         notificationController.update(state, sessionTitles)
+    }
+
+    private fun requestPlaybackStart() {
+        if (!playbackAllowedByLifecycle()) return
+        val castManager = remoteCastManager
+        if (castManager?.state?.value?.hasActiveSession == true) {
+            lifecycleScope.launch { castManager.resume() }
+            return
+        }
+        if (ensureAudioFocus()) {
+            startPlaybackKeepAliveService(fromUserAction = true)
+            playbackGate?.play()
+        }
+    }
+
+    private fun requestPlaybackPause() {
+        val castManager = remoteCastManager
+        if (castManager?.state?.value?.hasActiveSession == true) {
+            lifecycleScope.launch { castManager.pause() }
+        } else {
+            playbackGate?.pause()
+        }
+    }
+
+    private fun seekPlaybackTo(positionMs: Long) {
+        val durationMs = activeState.durationMs
+        val target =
+            if (durationMs > 0L) {
+                positionMs.coerceIn(0L, durationMs)
+            } else {
+                positionMs.coerceAtLeast(0L)
+            }
+        val castManager = remoteCastManager
+        if (castManager?.state?.value?.hasActiveSession == true) {
+            lifecycleScope.launch { castManager.seekTo(target) }
+        } else {
+            playbackGate?.seekTo(target)
+        }
     }
 
     private fun togglePlaybackWithFocus() {

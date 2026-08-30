@@ -13,5 +13,6 @@ expect fun PlayerLauncher(
     items: List<PlayerMediaItem>,
     startIndex: Int,
     startPositionMs: Long,
+    startPlaybackRequested: Boolean = true,
     onLaunched: () -> Unit,
 )

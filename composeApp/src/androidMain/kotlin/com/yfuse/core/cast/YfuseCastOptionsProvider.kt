@@ -2,6 +2,7 @@ package com.yfuse.core.cast
 
 import android.content.Context
 import com.google.android.gms.cast.CastMediaControlIntent
+import com.google.android.gms.cast.LaunchOptions
 import com.google.android.gms.cast.framework.CastOptions
 import com.google.android.gms.cast.framework.OptionsProvider
 import com.google.android.gms.cast.framework.SessionProvider
@@ -21,6 +22,12 @@ class YfuseCastOptionsProvider : OptionsProvider {
         CastOptions
             .Builder()
             .setReceiverApplicationId(configuredCastReceiverApplicationId())
+            .setLaunchOptions(
+                LaunchOptions
+                    .Builder()
+                    .setAndroidReceiverCompatible(true)
+                    .build(),
+            )
             .build()
 
     override fun getAdditionalSessionProviders(context: Context): List<SessionProvider>? = null

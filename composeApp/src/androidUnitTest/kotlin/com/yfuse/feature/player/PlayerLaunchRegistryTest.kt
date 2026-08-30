@@ -16,6 +16,45 @@ import kotlin.test.assertTrue
 
 class PlayerLaunchRegistryTest {
     @Test
+    fun launch_request_defaults_to_starting_playback_for_existing_callers() {
+        assertTrue(request().startPlaybackRequested)
+    }
+
+    @Test
+    fun explicitly_paused_launch_survives_registry_and_pure_resolution() {
+        val store =
+            PlayerLaunchRegistryStore(
+                elapsedRealtimeMs = { 10L },
+                tokenFactory = { "launch-paused" },
+            )
+        val baseline = request(count = 3)
+        val paused =
+            PlayerLaunchRequest.create(
+                items = baseline.items,
+                startIndex = baseline.startIndex,
+                startPositionMs = baseline.startPositionMs,
+                engine = baseline.engine,
+                decoder = baseline.decoder,
+                autoNext = baseline.autoNext,
+                startPlaybackRequested = false,
+            )
+        val launchId = store.register(paused)
+        val payload = PlayerLaunchIntentPayload.create(paused, launchId)
+
+        val resolution =
+            resolvePlayerLaunch(
+                retained = null,
+                payload = payload,
+                consume = store::consume,
+            )
+
+        val ready = assertIs<PlayerLaunchResolution.Ready>(resolution)
+        assertSame(paused, ready.request)
+        assertFalse(ready.request.startPlaybackRequested)
+        assertNull(store.consume(launchId))
+    }
+
+    @Test
     fun queue_of_235_items_stays_out_of_the_bounded_intent_payload() {
         val secret = "private-token-that-must-stay-in-process"
         val largeRequest =

@@ -20,6 +20,23 @@ private const val NEXT_SOURCE_PRELOAD_WINDOW_MS = 90_000L
 private const val MAX_PENDING_REPORT_COMMANDS = 8
 private const val DEFAULT_PLAY_METHOD = "DirectPlay"
 
+/** Token-free projection of the progress event already emitted by this reporter. */
+internal data class SystemPlaybackProgressEvent(
+    val serverId: String?,
+    val itemId: String,
+    val title: String,
+    val seriesName: String?,
+    val seasonNumber: Int?,
+    val episodeNumber: Int?,
+    val posterUrl: String?,
+    val positionMs: Long,
+    val durationMs: Long,
+    val trigger: PlaybackSyncTrigger,
+)
+
+/** Android TV persists and schedules its local system surface; other playback reporting stays unchanged. */
+internal expect fun publishSystemPlaybackProgress(event: SystemPlaybackProgressEvent)
+
 /**
  * Serializes media-server and Yfuse playback events so item transitions always stop the old
  * session before starting the new one. Local cross-platform state is persisted before native
@@ -445,6 +462,20 @@ internal class PlaybackProgressReporter(
         item: PlayerMediaItem,
         trigger: PlaybackSyncTrigger,
     ) {
+        publishSystemPlaybackProgress(
+            SystemPlaybackProgressEvent(
+                serverId = item.serverId,
+                itemId = item.id,
+                title = item.title,
+                seriesName = item.seriesName,
+                seasonNumber = item.seasonNumber,
+                episodeNumber = item.episodeNumber,
+                posterUrl = item.posterUrl,
+                positionMs = activePositionMs,
+                durationMs = activeDurationMs,
+                trigger = trigger,
+            ),
+        )
         playbackSync?.recordPlayback(
             mediaKey = item.watchKey,
             aliases = item.matchKeys,

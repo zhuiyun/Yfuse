@@ -648,6 +648,10 @@ kotlin {
             implementation(libs.androidx.work.runtime)
             implementation(libs.zxing.core)
             implementation(libs.google.cast.framework)
+            // Cast Connect receiver APIs are compiled with the shared TV integration sources but
+            // are packaged only by :tvApp. The mobile application remains a Cast sender.
+            compileOnly(libs.google.cast.tv)
+            implementation(libs.androidx.media)
             implementation(libs.androidx.metrics.performance)
             implementation(libs.androidx.profileinstaller)
             // Android's platform Ed25519 provider starts at API 33. The app supports API 26,

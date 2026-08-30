@@ -17,6 +17,7 @@ class PlayerComponent(
     serverId: String? = null,
     private val mediaSourceId: String? = null,
     private val dependencies: AppDependencies,
+    val startPlaybackRequested: Boolean = true,
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
     private val preloadKey =

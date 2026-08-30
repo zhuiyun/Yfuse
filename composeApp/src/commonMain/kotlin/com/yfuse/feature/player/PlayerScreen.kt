@@ -58,6 +58,7 @@ fun PlayerScreen(component: PlayerComponent) {
                     items = state.items,
                     startIndex = state.startIndex,
                     startPositionMs = state.startPositionMs,
+                    startPlaybackRequested = component.startPlaybackRequested,
                     onLaunched = component.onBack,
                 )
         }

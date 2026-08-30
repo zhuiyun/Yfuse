@@ -94,6 +94,8 @@ class HomeTabComponent(
             val startPositionTicks: Long,
             /** Names one file when the item has several; null takes the server's first. */
             val mediaSourceId: String? = null,
+            /** Defaults true so navigation state saved before TV autoplay support still restores. */
+            val startPlaybackRequested: Boolean = true,
         ) : Config
 
         @Serializable data class Info(
@@ -154,12 +156,14 @@ class HomeTabComponent(
         serverId: String?,
         itemId: String,
         positionMs: Long,
+        startPlaybackRequested: Boolean = true,
     ) {
         openPlayer(
             Config.Player(
                 serverId = serverId,
                 itemId = itemId,
                 startPositionTicks = positionMs.toEmbyTicks(),
+                startPlaybackRequested = startPlaybackRequested,
             ),
         )
     }
@@ -268,6 +272,7 @@ class HomeTabComponent(
                         serverId = config.serverId,
                         mediaSourceId = config.mediaSourceId,
                         dependencies = dependencies,
+                        startPlaybackRequested = config.startPlaybackRequested,
                         onBack = {
                             playerNavigation.complete(config)
                             navigation.pop()

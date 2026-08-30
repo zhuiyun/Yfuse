@@ -1,0 +1,336 @@
+name: Build and publish Android TV
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: Unique Google Play versionCode
+        required: true
+        type: string
+      version_name:
+        description: Numeric public version name, for example 1.1.0
+        required: true
+        type: string
+      release_notes:
+        description: Google Play release notes
+        required: true
+        type: string
+      publish_to_play:
+        description: Upload the verified AAB to Google Play
+        required: true
+        default: false
+        type: boolean
+      track:
+        description: Google Play Android TV track
+        required: true
+        default: tv:qa
+        type: choice
+        options:
+          - tv:qa
+          - tv:beta
+          - tv:production
+          - custom-closed
+      closed_track_name:
+        description: Closed-test track suffix when track is custom-closed (lowercase slug only)
+        required: false
+        type: string
+      release_status:
+        description: Google Play release status
+        required: true
+        default: draft
+        type: choice
+        options:
+          - draft
+          - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-tv-production-publish
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Sign, verify, and publish TV AAB
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment:
+      name: production
+    env:
+      VERSION_CODE: ${{ inputs.version_code }}
+      VERSION_NAME: ${{ inputs.version_name }}
+      RELEASE_NOTES: ${{ inputs.release_notes }}
+      PUBLISH_TO_PLAY: ${{ inputs.publish_to_play }}
+      TV_PLAY_TRACK: ${{ inputs.track }}
+      TV_PLAY_CLOSED_TRACK: ${{ inputs.closed_track_name }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+      TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+      EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
+      APK_SIZE_BUDGET_BYTES: "50000000"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Validate release request
+        id: release_request
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::version_code must be a positive integer"
+            exit 1
+          }
+          [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::version_name must use numeric major.minor.patch"
+            exit 1
+          }
+          [[ -n "${RELEASE_NOTES//[[:space:]]/}" ]] || {
+            echo "::error::release_notes must not be empty"
+            exit 1
+          }
+          case "$TV_PLAY_TRACK" in
+            tv:qa|tv:beta|tv:production)
+              [[ -z "$TV_PLAY_CLOSED_TRACK" ]] || {
+                echo "::error::closed_track_name is valid only with custom-closed"
+                exit 1
+              }
+              play_track_id="$TV_PLAY_TRACK"
+              ;;
+            custom-closed)
+              [[ "$TV_PLAY_CLOSED_TRACK" =~ ^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$ ]] || {
+                echo "::error::closed_track_name must be a 1-64 character lowercase slug using letters, digits, dot, underscore, or hyphen"
+                exit 1
+              }
+              case "$TV_PLAY_CLOSED_TRACK" in
+                qa|beta|production)
+                  echo "::error::Use the dedicated tv:$TV_PLAY_CLOSED_TRACK choice instead of custom-closed"
+                  exit 1
+                  ;;
+              esac
+              play_track_id="tv:$TV_PLAY_CLOSED_TRACK"
+              ;;
+            *)
+              echo "::error::Unsupported Android TV track: $TV_PLAY_TRACK"
+              exit 1
+              ;;
+          esac
+          printf 'play_track_id=%s\n' "$play_track_id" >> "$GITHUB_OUTPUT"
+          required=(
+            ANDROID_KEYSTORE_BASE64
+            ANDROID_KEYSTORE_PASSWORD
+            ANDROID_KEY_ALIAS
+            ANDROID_KEY_PASSWORD
+            TMDB_TOKEN
+          )
+          if [[ "$PUBLISH_TO_PLAY" == "true" ]]; then
+            required+=(GOOGLE_PLAY_SERVICE_ACCOUNT_JSON)
+            if [[ "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+              echo "::error::Google Play publishing is allowed only from $DEFAULT_BRANCH"
+              exit 1
+            fi
+          fi
+          for name in "${required[@]}"; do
+            [[ -n "${!name:-}" ]] || {
+              echo "::error::Missing production secret: $name"
+              exit 1
+            }
+          done
+
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install Android 36 build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          fi
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Fetch compile-only player APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y p7zip-full
+          fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+          test -s composeApp/libs/libmpv-release.aar
+
+      - name: Configure production signing and services
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signing
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > signing/yfuse-release.jks
+          chmod 600 signing/yfuse-release.jks
+          {
+            printf 'storeFile=signing/yfuse-release.jks\n'
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > keystore.properties
+          printf 'tmdb.token=%s\n' "$TMDB_TOKEN" > local.properties
+          chmod 600 keystore.properties local.properties
+
+      - name: Verify configured certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          configured_cert="$(
+            keytool -list -v \
+              -keystore signing/yfuse-release.jks \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              -alias "$ANDROID_KEY_ALIAS" |
+              sed -n 's/^[[:space:]]*SHA256: //p' |
+              head -n 1 |
+              tr -d ':[:space:]' |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          expected_cert="$(tr -d ':[:space:]' <<<"$EXPECTED_ANDROID_CERT_SHA256" | tr '[:upper:]' '[:lower:]')"
+          [[ -n "$configured_cert" && "$configured_cert" == "$expected_cert" ]] || {
+            echo "::error::Production signing certificate mismatch"
+            exit 1
+          }
+
+      - name: Verify source TV contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-tv-source.py \
+            --manifest tvApp/src/main/AndroidManifest.xml \
+            --banner tvApp/src/main/res/drawable-nodpi/tv_banner.png
+          python3 -m unittest discover \
+            --start-directory scripts/tests \
+            --pattern 'test_verify_tv_artifact.py'
+          git diff --check
+
+      - name: Test and build signed TV artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :tvApp:testDebugUnitTest \
+            :tvApp:assembleRelease \
+            :tvApp:bundleRelease \
+            -PyfuseVersionCode="$VERSION_CODE" \
+            -PyfuseVersionName="$VERSION_NAME" \
+            --stacktrace \
+            --no-daemon
+
+      - name: Verify and stage signed TV artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="tvApp/build/outputs/apk/release/tvApp-release.apk"
+          aab="tvApp/build/outputs/bundle/release/tvApp-release.aab"
+          metadata="tvApp/build/outputs/apk/release/output-metadata.json"
+          test -s "$apk"
+          test -s "$aab"
+          test -s "$metadata"
+          [[ "$(stat -c '%s' "$apk")" -le "$APK_SIZE_BUDGET_BYTES" ]] || {
+            echo "::error::TV APK exceeds the size budget"
+            exit 1
+          }
+
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          build_tools="$(find "$android_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          apksigner="$build_tools/apksigner"
+          zipalign="$build_tools/zipalign"
+          aapt="$build_tools/aapt"
+          test -x "$apksigner"
+          test -x "$zipalign"
+          test -x "$aapt"
+
+          python3 scripts/verify-tv-artifact.py \
+            --aapt "$aapt" \
+            --readelf "$(command -v readelf)" \
+            "$apk"
+          "$zipalign" -c -v 4 "$apk"
+          signer_output="$("$apksigner" verify --verbose --print-certs "$apk")"
+          expected_cert="$(tr -d ':[:space:]' <<<"$EXPECTED_ANDROID_CERT_SHA256" | tr '[:upper:]' '[:lower:]')"
+          normalized_signer="$(tr -d ':[:space:]' <<<"$signer_output" | tr '[:upper:]' '[:lower:]')"
+          [[ "$normalized_signer" == *"$expected_cert"* ]] || {
+            echo "::error::TV APK signing certificate mismatch"
+            exit 1
+          }
+          jarsigner -verify -strict "$aab"
+          bundle_cert="$(
+            keytool -printcert -jarfile "$aab" |
+              sed -n 's/^[[:space:]]*SHA256: //p' |
+              head -n 1 |
+              tr -d ':[:space:]' |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          [[ "$bundle_cert" == "$expected_cert" ]] || {
+            echo "::error::TV AAB signing certificate mismatch"
+            exit 1
+          }
+
+          actual_code="$(jq -r '.elements[0].versionCode' "$metadata")"
+          actual_name="$(jq -r '.elements[0].versionName' "$metadata")"
+          [[ "$actual_code" == "$VERSION_CODE" && "$actual_name" == "$VERSION_NAME" ]]
+
+          dex_dir="$(mktemp -d)"
+          unzip -qq "$apk" 'classes*.dex' -d "$dex_dir"
+          strings "$dex_dir"/classes*.dex | grep -F 'E9107559' >/dev/null || {
+            echo "::error::TV artifact does not contain Cast receiver E9107559"
+            exit 1
+          }
+
+          mkdir -p build/tv-release build/play-whatsnew
+          apk_name="Yfuse-TV-${VERSION_CODE}-${VERSION_NAME}-signed.apk"
+          aab_name="Yfuse-TV-${VERSION_CODE}-${VERSION_NAME}-signed.aab"
+          cp "$apk" "build/tv-release/$apk_name"
+          cp "$aab" "build/tv-release/$aab_name"
+          printf '%s\n' "$RELEASE_NOTES" > build/play-whatsnew/whatsnew-zh-CN
+          cp build/play-whatsnew/whatsnew-zh-CN build/tv-release/release-notes-zh-CN.txt
+          sha256sum build/tv-release/*.apk build/tv-release/*.aab > build/tv-release/SHA256SUMS
+          jq -n \
+            --arg packageName com.yfuse \
+            --arg versionCode "$VERSION_CODE" \
+            --arg versionName "$VERSION_NAME" \
+            --arg certificateSha256 "$expected_cert" \
+            --arg commit "$GITHUB_SHA" \
+            '{packageName: $packageName, versionCode: $versionCode, versionName: $versionName, certificateSha256: $certificateSha256, commit: $commit, formFactor: "android-tv", runtime: "ycore-system-native", castReceiverApplicationId: "E9107559"}' \
+            > build/tv-release/build-info.json
+
+      - name: Upload signed TV release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: yfuse-tv-signed-${{ inputs.version_code }}-${{ github.sha }}
+          path: build/tv-release/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload TV AAB to Google Play
+        if: inputs.publish_to_play
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.yfuse
+          releaseFiles: tvApp/build/outputs/bundle/release/tvApp-release.aab
+          tracks: ${{ steps.release_request.outputs.play_track_id }}
+          status: ${{ inputs.release_status }}
+          releaseName: Yfuse TV ${{ inputs.version_name }}
+          whatsNewDirectory: build/play-whatsnew
+          mappingFile: tvApp/build/outputs/mapping/release/mapping.txt

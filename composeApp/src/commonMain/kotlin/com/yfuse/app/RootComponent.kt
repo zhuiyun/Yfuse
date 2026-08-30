@@ -202,9 +202,15 @@ class RootComponent(
         serverId: String?,
         itemId: String,
         positionMs: Long,
+        startPlaybackRequested: Boolean = true,
     ) {
         selectTab(Tab.Home)
-        home.resumePlayback(serverId, itemId, positionMs)
+        home.resumePlayback(
+            serverId = serverId,
+            itemId = itemId,
+            positionMs = positionMs,
+            startPlaybackRequested = startPlaybackRequested,
+        )
     }
 
     /**

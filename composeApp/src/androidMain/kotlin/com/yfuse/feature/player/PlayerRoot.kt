@@ -75,6 +75,7 @@ import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
 import com.yfuse.core2.legacy.asPlaybackStateFlow
 import com.yfuse.core2.legacy.asYPlayer
+import com.yfuse.tv.player.TvPlayerChromeBridge
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -126,6 +127,9 @@ internal fun PlayerRoot(
     onEnterPictureInPicture: () -> Unit,
     onRefreshEpisodes: () -> Unit,
     onRemotePlayRequested: () -> Boolean,
+    remoteChrome: TvPlayerChromeBridge? = null,
+    /** Initial Cast/user autoplay intent; engine handovers use the live snapshot after this. */
+    startPlaybackRequested: Boolean = true,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -226,7 +230,7 @@ internal fun PlayerRoot(
             PlaybackHandoverSnapshot(
                 itemIndex = startIndex,
                 positionMs = startPositionMs,
-                playbackRequested = true,
+                playbackRequested = startPlaybackRequested,
                 speed = 1f,
             ),
         )
@@ -2889,6 +2893,7 @@ internal fun PlayerRoot(
                         onReact = { watchTogether.sendReaction(it) },
                         onReactionFinished = watchTogether::clearReaction,
                     ),
+                remoteChrome = remoteChrome,
             )
         }
     }

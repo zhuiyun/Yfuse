@@ -1,0 +1,135 @@
+name: Android TV quality gates
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - feature/**
+      - codex/**
+    paths:
+      - .github/workflows/tv-quality-gates.yml
+      - composeApp/src/commonMain/**
+      - composeApp/src/androidMain/**
+      - composeApp/src/androidUnitTest/**
+      - tvApp/**
+      - gradle/**
+      - settings.gradle.kts
+      - gradle.properties
+      - version.properties
+      - scripts/fetch-engines.sh
+      - scripts/verify-tv-*.py
+      - scripts/tests/test_verify_tv_artifact.py
+  pull_request:
+    paths:
+      - .github/workflows/tv-quality-gates.yml
+      - composeApp/src/commonMain/**
+      - composeApp/src/androidMain/**
+      - composeApp/src/androidUnitTest/**
+      - tvApp/**
+      - gradle/**
+      - settings.gradle.kts
+      - gradle.properties
+      - version.properties
+      - scripts/fetch-engines.sh
+      - scripts/verify-tv-*.py
+      - scripts/tests/test_verify_tv_artifact.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-tv-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tv:
+    name: Compile, test, and inspect TV APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Verify source TV contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-tv-source.py \
+            --manifest tvApp/src/main/AndroidManifest.xml \
+            --banner tvApp/src/main/res/drawable-nodpi/tv_banner.png
+          python3 -m py_compile \
+            scripts/verify-tv-source.py \
+            scripts/verify-tv-artifact.py
+          python3 -m unittest discover \
+            --start-directory scripts/tests \
+            --pattern 'test_verify_tv_artifact.py'
+          git diff --check
+
+      - name: Install Android 36 build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(find "$android_sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          fi
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Fetch compile-only player APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y p7zip-full
+          fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+          test -s composeApp/libs/libmpv-release.aar
+
+      - name: Run TV unit tests and build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :tvApp:testDebugUnitTest \
+            :tvApp:assembleDebug \
+            --stacktrace \
+            --no-daemon
+
+      - name: Verify packaged TV contract
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="tvApp/build/outputs/apk/debug/tvApp-debug.apk"
+          test -s "$apk"
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          build_tools="$(find "$android_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          python3 scripts/verify-tv-artifact.py \
+            --aapt "$build_tools/aapt" \
+            --readelf "$(command -v readelf)" \
+            "$apk"
+          mkdir -p build/tv-quality
+          cp "$apk" build/tv-quality/Yfuse-TV-debug.apk
+          sha256sum build/tv-quality/Yfuse-TV-debug.apk > build/tv-quality/SHA256SUMS
+
+      - name: Upload verified TV APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: yfuse-tv-debug-${{ github.sha }}
+          path: build/tv-quality/
+          if-no-files-found: error
+          retention-days: 7

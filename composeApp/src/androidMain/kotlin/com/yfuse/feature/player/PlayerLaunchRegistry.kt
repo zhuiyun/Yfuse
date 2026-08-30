@@ -23,6 +23,8 @@ internal data class PlayerLaunchRequest(
     val engine: PlayerEngine,
     val decoder: DecoderMode,
     val autoNext: Boolean,
+    /** Initial user intent; false prepares the first frame without starting playback. */
+    val startPlaybackRequested: Boolean = true,
 ) {
     companion object {
         const val MAX_QUEUE_ITEMS = 10_000
@@ -34,6 +36,7 @@ internal data class PlayerLaunchRequest(
             engine: PlayerEngine,
             decoder: DecoderMode,
             autoNext: Boolean,
+            startPlaybackRequested: Boolean = true,
         ): PlayerLaunchRequest {
             require(items.isNotEmpty()) { "A player launch requires at least one item" }
             require(items.size <= MAX_QUEUE_ITEMS) { "Player queue exceeds the in-process limit" }
@@ -45,6 +48,7 @@ internal data class PlayerLaunchRequest(
                 engine = engine,
                 decoder = decoder,
                 autoNext = autoNext,
+                startPlaybackRequested = startPlaybackRequested,
             )
         }
     }

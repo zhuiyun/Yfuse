@@ -15,10 +15,11 @@ actual fun PlayerLauncher(
     items: List<PlayerMediaItem>,
     startIndex: Int,
     startPositionMs: Long,
+    startPlaybackRequested: Boolean,
     onLaunched: () -> Unit,
 ) {
     val context = LocalContext.current
-    LaunchedEffect(items, startIndex) {
+    LaunchedEffect(items, startIndex, startPositionMs, startPlaybackRequested) {
         if (items.isEmpty()) return@LaunchedEffect
         val koin = GlobalContext.get()
         val serverRegistry = runCatching { koin.get<ServerRegistry>() }.getOrNull()
@@ -55,6 +56,7 @@ actual fun PlayerLauncher(
                         ),
                     decoder = preferences?.decoder?.value ?: com.yfuse.core.model.DecoderMode.Hardware,
                     autoNext = preferences?.autoNext?.value ?: true,
+                    startPlaybackRequested = startPlaybackRequested,
                 ).also { launchIntent ->
                     pendingLaunch = launchIntent
                     context.startActivity(launchIntent)

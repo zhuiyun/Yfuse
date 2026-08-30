@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -40,7 +41,12 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.glass
+import com.yfuse.tv.player.TvPlayerChromeBridge
+import com.yfuse.tv.player.TvPlayerChromeCommandType
+import com.yfuse.tv.player.TvPlayerChromeLayer
+import com.yfuse.tv.player.TvPlayerChromePanel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlin.math.abs
 
 /** Controls fade out after this long without interaction, while playing. */
@@ -182,6 +188,7 @@ internal fun PlayerControls(
     skipActions: SkipSegmentActions = SkipSegmentActions(),
     watch: WatchRoomState = WatchRoomState(),
     watchActions: WatchRoomActions = WatchRoomActions(),
+    remoteChrome: TvPlayerChromeBridge? = null,
     modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(true) }
@@ -227,6 +234,28 @@ internal fun PlayerControls(
     // are per-viewer, not shared.
     val watchLocked = watch.locked
     val latestWatchLocked by rememberUpdatedState(watchLocked)
+    val remoteChromeState = remoteChrome?.state?.collectAsState()?.value
+    val timelineState =
+        remoteChromeState
+            ?.seekTargetMs
+            ?.takeIf { remoteChromeState.seeking }
+            ?.let { target ->
+                val position =
+                    if (state.durationMs > 0L) {
+                        target.coerceIn(0L, state.durationMs)
+                    } else {
+                        target.coerceAtLeast(0L)
+                    }
+                state.copy(positionMs = position)
+            }
+            ?: state
+
+    LaunchedEffect(remoteChromeState?.seekTargetMs, remoteChromeState?.seeking) {
+        val target = remoteChromeState?.seekTargetMs ?: return@LaunchedEffect
+        if (remoteChromeState.seeking) {
+            gestureHud = "跳转 ${target.asClock()} / ${state.durationMs.asClock()}"
+        }
+    }
 
     LaunchedEffect(watch.available) {
         if (!watch.available) {
@@ -331,6 +360,65 @@ internal fun PlayerControls(
                 lastReadChatId = latestChatMessages.lastOrNull()?.id
             }
         }
+
+    fun closeTopRemoteLayer() {
+        when {
+            danmakuSendOpen -> danmakuSendOpen = false
+            danmakuSearchOpen -> danmakuSearchOpen = false
+            drawerOpen -> drawerOpen = false
+            watch.controlRequesterName != null -> room.onDenyControl()
+            watchChatOpen -> closeWatchChat()
+            watchDialogOpen -> watchDialogOpen = false
+            gestureHelpOpen -> gestureHelpOpen = false
+            quickPopup != null -> quickPopup = null
+            settingsPanelKind != null -> settingsPanelKind = null
+            locked -> locked = false
+            visible -> visible = false
+        }
+    }
+
+    val remotePanel =
+        when {
+            danmakuSendOpen -> TvPlayerChromePanel.DanmakuSend
+            danmakuSearchOpen -> TvPlayerChromePanel.DanmakuSearch
+            drawerOpen -> TvPlayerChromePanel.Episodes
+            watch.controlRequesterName != null -> TvPlayerChromePanel.ControlRequest
+            watchChatOpen -> TvPlayerChromePanel.WatchChat
+            watchDialogOpen -> TvPlayerChromePanel.WatchTogether
+            gestureHelpOpen -> TvPlayerChromePanel.GestureHelp
+            quickPopup != null -> TvPlayerChromePanel.QuickPicker
+            settingsPanelKind != null -> TvPlayerChromePanel.Settings
+            else -> null
+        }
+    val remoteLayer =
+        when {
+            locked -> TvPlayerChromeLayer.Locked
+            remotePanel != null -> TvPlayerChromeLayer.Panel
+            visible -> TvPlayerChromeLayer.Controls
+            else -> TvPlayerChromeLayer.Hidden
+        }
+    val latestRemotePanel by rememberUpdatedState(remotePanel)
+    val latestRemoteLocked by rememberUpdatedState(locked)
+    val latestCloseTopRemoteLayer by rememberUpdatedState { closeTopRemoteLayer() }
+
+    LaunchedEffect(remoteChrome) {
+        remoteChrome?.commands?.collect { command ->
+            when (command.type) {
+                TvPlayerChromeCommandType.ShowControls -> poke()
+                TvPlayerChromeCommandType.HideControls -> {
+                    if (latestRemotePanel == null && !latestRemoteLocked) visible = false
+                }
+                TvPlayerChromeCommandType.CloseTop -> latestCloseTopRemoteLayer()
+            }
+        }
+    }
+    LaunchedEffect(remoteChrome, remoteLayer, remotePanel, controlsHaveFocus) {
+        remoteChrome?.publishUiState(
+            layer = remoteLayer,
+            panel = remotePanel,
+            controlsHaveFocus = controlsHaveFocus,
+        )
+    }
 
     LaunchedEffect(
         visible,
@@ -708,7 +796,7 @@ internal fun PlayerControls(
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             RefinedBottomBar(
-                state = state,
+                state = timelineState,
                 seekLocked = watchLocked,
                 onPlayPause = {
                     poke()
