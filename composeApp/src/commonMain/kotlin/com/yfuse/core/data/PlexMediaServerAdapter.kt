@@ -839,7 +839,7 @@ internal class PlexMediaServerAdapter(
 
     private fun PlexMediaDto.streams(part: PlexPartDto): List<MediaStreamDto> {
         val declared = part.Stream
-        if (declared.isNotEmpty()) return declared.map(PlexStreamDto::toMediaStream)
+        if (declared.isNotEmpty()) return declared.map { it.toMediaStream() }
         return buildList {
             add(
                 MediaStreamDto(
