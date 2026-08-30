@@ -366,7 +366,10 @@ private fun Int.toRangeFailureKind(): YTransportFailureKind =
     }
 
 private fun checkWorkerThread() {
-    check(Looper.myLooper() != Looper.getMainLooper()) { "Remote media I/O is forbidden on the main thread" }
+    val mainLooper = Looper.getMainLooper()
+    check(mainLooper == null || Looper.myLooper() != mainLooper) {
+        "Remote media I/O is forbidden on the main thread"
+    }
 }
 
 private fun Long.saturatedAdd(other: Long): Long {
