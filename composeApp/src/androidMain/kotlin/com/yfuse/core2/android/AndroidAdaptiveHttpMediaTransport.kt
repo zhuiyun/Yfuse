@@ -11,7 +11,9 @@ import kotlinx.coroutines.CancellationException
 /** Prefers Cronet HTTP/2/HTTP/3 and falls back to the pinned OkHttp transport when unavailable. */
 internal class AndroidAdaptiveHttpMediaTransport(
     private val createCronet: () -> YMediaTransport,
-    private val createOkHttp: () -> YMediaTransport = ::AndroidHttpMediaTransport,
+    private val createOkHttp: () -> YMediaTransport = {
+        AndroidHttpMediaTransport(followSafeRedirects = true)
+    },
 ) : YMediaTransport {
     override val supportedProtocols: Set<YSourceProtocol> =
         setOf(YSourceProtocol.Http, YSourceProtocol.Https, YSourceProtocol.WebDav, YSourceProtocol.WebDavTls)

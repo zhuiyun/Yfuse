@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -45,8 +46,10 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
+import com.yfuse.feature.servers.PlexAccountUiState
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
 import com.yfuse.core.designsystem.liquidGlass as glass
@@ -68,6 +71,7 @@ fun AddServerDialog(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val form = state.form
+    val uriHandler = LocalUriHandler.current
     val editing = state.editingServerId != null
     val endpointValidation = validateEmbyServerEndpoint(form.url)
     val requestLanScan =
@@ -83,7 +87,7 @@ fun AddServerDialog(
                 if (editing) {
                     "名称可直接修改；连接信息变更后需重新登录"
                 } else {
-                    "连接你自己的 Emby 服务器"
+                    "连接 Emby、Jellyfin 或 Plex 服务器"
                 },
             onClose = onDismiss,
         )
@@ -194,6 +198,22 @@ fun AddServerDialog(
                     .fillMaxWidth()
                     .glass(GlassShapes.card, palette.card2, palette.border),
             ) {
+                FormRow(label = "服务类型", divider = true, labelBottomPadding = 6.dp) {
+                    Row(
+                        modifier = Modifier.selectableGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        ProviderSegment("Emby", MediaServerKind.Emby, form.kind, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Emby))
+                        }
+                        ProviderSegment("Jellyfin", MediaServerKind.Jellyfin, form.kind, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Jellyfin))
+                        }
+                        ProviderSegment("Plex", MediaServerKind.Plex, form.kind, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Plex))
+                        }
+                    }
+                }
                 FormInput(
                     label = "显示名称",
                     value = form.serverName,
@@ -238,26 +258,165 @@ fun AddServerDialog(
                     .fillMaxWidth()
                     .glass(GlassShapes.card, palette.card2, palette.border),
             ) {
-                FormInput(
-                    label = "用户名",
-                    value = form.username,
-                    placeholder = "输入用户名",
-                    enabled = !form.submitting,
-                    divider = true,
-                ) { onIntent(ServersIntent.UsernameChanged(it)) }
-                FormInput(
-                    label = "密码",
-                    value = form.password,
-                    placeholder = if (editing) "仅修改名称时无需填写" else "留空表示无密码",
-                    enabled = !form.submitting,
-                    password = true,
-                    divider = false,
-                ) { onIntent(ServersIntent.PasswordChanged(it)) }
+                if (form.kind == MediaServerKind.Plex) {
+                    FormRow(label = "Plex 云账号", divider = true) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            when (val account = state.plexAccount) {
+                                PlexAccountUiState.Idle,
+                                PlexAccountUiState.Cancelled,
+                                PlexAccountUiState.Expired,
+                                is PlexAccountUiState.Error,
+                                -> {
+                                    Text(
+                                        when (account) {
+                                            PlexAccountUiState.Expired -> "登录码已过期，请重新开始。"
+                                            PlexAccountUiState.Cancelled -> "已取消 Plex 账号登录。"
+                                            is PlexAccountUiState.Error -> account.message
+                                            else -> "使用 plex.tv 账号发现服务器，并保留远程与 Relay 线路。"
+                                        },
+                                        style = AppTypography.caption.regular,
+                                        color =
+                                            if (account is PlexAccountUiState.Error) {
+                                                palette.error
+                                            } else {
+                                                palette.sub2
+                                            },
+                                    )
+                                    OverlayButton(
+                                        label = if (account == PlexAccountUiState.Idle) "使用 Plex 账号登录" else "重新登录",
+                                        onClick = { onIntent(ServersIntent.StartPlexAccountSignIn) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        tone = OverlayButtonTone.Plain,
+                                    )
+                                }
+                                PlexAccountUiState.Starting,
+                                PlexAccountUiState.LoadingAccount,
+                                PlexAccountUiState.LoadingServers,
+                                PlexAccountUiState.Connecting,
+                                -> {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(14.dp),
+                                            color = accent.accent,
+                                            strokeWidth = 1.5.dp,
+                                        )
+                                        Text(
+                                            when (account) {
+                                                PlexAccountUiState.Starting -> "正在申请登录码…"
+                                                PlexAccountUiState.LoadingAccount -> "正在读取 Plex Home…"
+                                                PlexAccountUiState.LoadingServers -> "正在发现账号服务器…"
+                                                else -> "正在验证服务器线路…"
+                                            },
+                                            style = AppTypography.caption.medium,
+                                            color = palette.body,
+                                        )
+                                    }
+                                }
+                                is PlexAccountUiState.AwaitingAuthorization -> {
+                                    Text(
+                                        "登录码  ${account.code}",
+                                        style = AppTypography.body.strong,
+                                        color = palette.text,
+                                    )
+                                    Text(
+                                        "在 Plex 页面确认后会自动继续。",
+                                        style = AppTypography.caption.regular,
+                                        color = palette.sub2,
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OverlayButton(
+                                            label = "打开 Plex 授权页",
+                                            onClick = { uriHandler.openUri(account.authUrl) },
+                                            modifier = Modifier.weight(1f),
+                                            tone = OverlayButtonTone.Plain,
+                                        )
+                                        OverlayButton(
+                                            label = "取消",
+                                            onClick = { onIntent(ServersIntent.CancelPlexAccountSignIn) },
+                                            modifier = Modifier.weight(1f),
+                                            tone = OverlayButtonTone.Plain,
+                                        )
+                                    }
+                                }
+                                is PlexAccountUiState.SelectingHomeUser -> {
+                                    Text(
+                                        "选择 Plex Home 用户",
+                                        style = AppTypography.caption.strong,
+                                        color = palette.text,
+                                    )
+                                    if (account.users.any { it.pinProtected }) {
+                                        FormInput(
+                                            label = "Home PIN（受保护用户）",
+                                            value = state.plexHomePin,
+                                            divider = false,
+                                            password = true,
+                                            keyboardType = KeyboardType.Number,
+                                        ) { onIntent(ServersIntent.PlexHomePinChanged(it)) }
+                                    }
+                                    account.error?.let {
+                                        Text(it, style = AppTypography.caption.medium, color = palette.error)
+                                    }
+                                    account.users.forEach { user ->
+                                        PlexChoiceRow(
+                                            title = user.name,
+                                            subtitle =
+                                                buildString {
+                                                    append(if (user.admin) "管理员" else "家庭用户")
+                                                    if (user.pinProtected) append(" · 需要 PIN")
+                                                },
+                                        ) { onIntent(ServersIntent.SelectPlexHomeUser(user.id)) }
+                                    }
+                                }
+                                is PlexAccountUiState.SelectingServer -> {
+                                    Text(
+                                        "选择 Plex Media Server",
+                                        style = AppTypography.caption.strong,
+                                        color = palette.text,
+                                    )
+                                    account.servers.forEach { server ->
+                                        PlexChoiceRow(
+                                            title = server.name,
+                                            subtitle =
+                                                "${if (server.owned) "自有" else "共享"} · ${server.routeCount} 条线路",
+                                        ) { onIntent(ServersIntent.SelectPlexCloudServer(server.id)) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    FormInput(
+                        label = "手动 Plex Token（备用）",
+                        value = form.password,
+                        placeholder = if (editing) "修改连接时重新填写 Token" else "输入 X-Plex-Token",
+                        enabled = !form.submitting,
+                        password = true,
+                        divider = false,
+                    ) { onIntent(ServersIntent.PasswordChanged(it)) }
+                } else {
+                    FormInput(
+                        label = "用户名",
+                        value = form.username,
+                        placeholder = "输入用户名",
+                        enabled = !form.submitting,
+                        divider = true,
+                    ) { onIntent(ServersIntent.UsernameChanged(it)) }
+                    FormInput(
+                        label = "密码",
+                        value = form.password,
+                        placeholder = if (editing) "仅修改名称时无需填写" else "留空表示无密码",
+                        enabled = !form.submitting,
+                        password = true,
+                        divider = false,
+                    ) { onIntent(ServersIntent.PasswordChanged(it)) }
+                }
             }
 
             // Picking a discovered server loads its public users; offer them as one tap
             // instead of making the name be typed from memory.
-            if (state.publicUsers.isNotEmpty()) {
+            if (form.kind != MediaServerKind.Plex && state.publicUsers.isNotEmpty()) {
                 Row(
                     modifier = Modifier.selectableGroup(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -326,11 +485,48 @@ fun AddServerDialog(
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,
             enabled =
-                form.canSubmit &&
+                (form.canSubmit || (editing && !state.connectionEdited)) &&
                     endpointValidation.allowed &&
                     (!editing || form.serverName.isNotBlank()),
             loading = form.submitting,
         )
+    }
+}
+
+@Composable
+private fun PlexChoiceRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressable(onClick = onClick)
+            .touchTarget()
+            .glass(GlassShapes.thumb, palette.card3, palette.border)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = AppTypography.body.strong,
+                color = palette.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(AppIcons.ChevronRight, null, tint = palette.sub2, modifier = Modifier.size(13.dp))
     }
 }
 
@@ -456,4 +652,20 @@ private fun ProtocolSegment(
             color = if (selected) accent.accent else palette.sub2,
         )
     }
+}
+
+@Composable
+private fun ProviderSegment(
+    label: String,
+    kind: MediaServerKind,
+    selectedKind: MediaServerKind,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    ProtocolSegment(
+        label = label,
+        selected = kind == selectedKind,
+        modifier = modifier,
+        onClick = onClick,
+    )
 }

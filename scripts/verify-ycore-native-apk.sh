@@ -12,13 +12,9 @@ stage="$(mktemp -d)"
 trap 'rm -f "$entries"; rm -rf "$stage"' EXIT
 unzip -Z1 "$APK" > "$entries"
 
-grep -Fx 'lib/arm64-v8a/libycore_demux.so' "$entries" >/dev/null || {
-  echo "error: APK is missing arm64-v8a/libycore_demux.so" >&2
-  exit 1
-}
-if grep -E '^lib/[^/]+/(libmpv|libplayer|libmdk)\.so$' "$entries" >/dev/null; then
-  echo "error: native-only APK contains a legacy playback runtime" >&2
-  grep -E '^lib/[^/]+/(libmpv|libplayer|libmdk)\.so$' "$entries" >&2
+if grep -E '^lib/[^/]+/(libycore_demux|libycore_gpu|libmpv|libplayer|libmdk|libavcodec|libavformat|libavutil|libswresample|libswscale)\.so$' "$entries" >/dev/null; then
+  echo "error: system-native APK contains a forbidden player/demux/codec runtime" >&2
+  grep -E '^lib/[^/]+/(libycore_demux|libycore_gpu|libmpv|libplayer|libmdk|libavcodec|libavformat|libavutil|libswresample|libswscale)\.so$' "$entries" >&2
   exit 1
 fi
 if grep -E '^lib/(armeabi-v7a|x86|x86_64)/' "$entries" >/dev/null; then
@@ -48,4 +44,4 @@ while IFS= read -r library; do
   }
 done < <(find "$stage/lib" -type f -name '*.so' -print | sort)
 
-echo "verified native-only APK: YCore present, legacy native engines absent, arm64 16 KiB aligned"
+echo "verified system-native APK: external player/demux/codec runtimes absent, native libraries 16 KiB aligned"

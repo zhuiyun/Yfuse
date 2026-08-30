@@ -11,10 +11,10 @@ import com.yfuse.core.playback.PlaybackDrmScheme
 internal fun sanitizePlaybackUrl(value: String): String {
     val querySafe =
         value.replace(
-            Regex("(?i)(api_key|x-emby-token)=([^&\\s]+)"),
+            Regex("(?i)(api_key|x-emby-token|x-plex-token)=([^&\\s]+)"),
         ) { match -> "${match.groupValues[1]}=<redacted>" }
     return querySafe.replace(
-        Regex("(?i)(\"?(?:api_key|x-emby-token)\"?\\s*:\\s*\")([^\"]+)(\")"),
+        Regex("(?i)(\"?(?:api_key|x-emby-token|x-plex-token)\"?\\s*:\\s*\")([^\"]+)(\")"),
     ) { match -> "${match.groupValues[1]}<redacted>${match.groupValues[3]}" }
 }
 
@@ -66,7 +66,9 @@ internal fun exoMediaItem(
     )?.let(builder::setMimeType)
     playbackDrmConfiguration(item, playbackUrl)
         ?.let { builder.setDrmConfiguration(it.toMedia3Configuration()) }
-    offlineSubtitleConfiguration(item)?.let { builder.setSubtitleConfigurations(listOf(it)) }
+    externalSubtitleConfigurations(item)
+        .takeIf { it.isNotEmpty() }
+        ?.let(builder::setSubtitleConfigurations)
     return builder.build()
 }
 
@@ -131,8 +133,11 @@ internal fun externalSubtitleFormatHint(uri: String): String? {
         .firstOrNull { it.matches(Regex("[a-z0-9]{2,8}")) }
 }
 
-internal fun externalSubtitleMimeType(uri: String): String =
-    when (externalSubtitleFormatHint(uri)) {
+internal fun externalSubtitleMimeType(
+    uri: String,
+    codec: String? = null,
+): String =
+    when (codec?.trim()?.lowercase() ?: externalSubtitleFormatHint(uri)) {
         "vtt", "webvtt" -> MimeTypes.TEXT_VTT
         "ass", "ssa" -> MimeTypes.TEXT_SSA
         "ttml", "dfxp" -> MimeTypes.APPLICATION_TTML
@@ -148,6 +153,19 @@ internal fun offlineSubtitleConfiguration(item: PlayerMediaItem): MediaItem.Subt
         .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
         .build()
 }
+
+internal fun externalSubtitleConfigurations(item: PlayerMediaItem): List<MediaItem.SubtitleConfiguration> =
+    item.playbackExternalSubtitles().map { subtitle ->
+        val selectionFlags =
+            (if (subtitle.default) C.SELECTION_FLAG_DEFAULT else 0) or
+                (if (subtitle.forced) C.SELECTION_FLAG_FORCED else 0)
+        MediaItem.SubtitleConfiguration
+            .Builder(android.net.Uri.parse(subtitle.uri))
+            .setMimeType(externalSubtitleMimeType(subtitle.uri, subtitle.codec))
+            .setLanguage(subtitle.language?.takeIf(String::isNotBlank))
+            .setSelectionFlags(selectionFlags)
+            .build()
+    }
 
 internal fun mediaItem(
     item: PlayerMediaItem,

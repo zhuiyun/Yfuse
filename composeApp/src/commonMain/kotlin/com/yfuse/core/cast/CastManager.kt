@@ -36,6 +36,8 @@ data class CastCapabilities(
     val seek: CastCapability = CastCapability.Unknown,
     val stop: CastCapability = CastCapability.Unknown,
     val volume: CastCapability = CastCapability.Unknown,
+    val trackSelection: CastCapability = CastCapability.Unknown,
+    val queue: CastCapability = CastCapability.Unknown,
     /** Receiver + connected display capability, never inferred from the sender device. */
     val dolbyVision: CastCapability = CastCapability.Unknown,
     /** Receiver audio passthrough capability, never inferred from source metadata. */
@@ -54,6 +56,23 @@ data class CastMediaProfile(
     val frameRate: Double? = null,
     val dolbyVision: Boolean = false,
     val dolbyAtmos: Boolean = false,
+)
+
+data class CastQueueEntry(
+    val mediaUrl: String,
+    val title: String,
+    val fallbackMediaUrl: String? = null,
+    val mediaProfile: CastMediaProfile = CastMediaProfile(),
+)
+
+enum class CastTrackKind { Audio, Subtitle }
+
+data class CastTrack(
+    val id: Long,
+    val kind: CastTrackKind,
+    val label: String,
+    val language: String? = null,
+    val selected: Boolean = false,
 )
 
 /** Current-load output receipt emitted by the receiver after playback actually reaches PLAYING. */
@@ -83,6 +102,9 @@ data class CastState(
     val positionMs: Long = 0L,
     val positionConfirmed: Boolean = false,
     val durationMs: Long = 0L,
+    val queueSize: Int = 0,
+    val currentQueueIndex: Int = 0,
+    val tracks: List<CastTrack> = emptyList(),
     /** Receiver volume, 0f..1f; null until a receiver confirms it. */
     val volume: Float? = null,
     val capabilities: CastCapabilities = CastCapabilities(),
@@ -116,6 +138,8 @@ interface CastManager {
         positionMs: Long = 0L,
         fallbackMediaUrl: String? = null,
         mediaProfile: CastMediaProfile = CastMediaProfile(),
+        queue: List<CastQueueEntry> = emptyList(),
+        queueIndex: Int = 0,
     ): Boolean
 
     suspend fun resume(): Boolean
@@ -125,6 +149,17 @@ interface CastManager {
     suspend fun seekTo(positionMs: Long): Boolean
 
     suspend fun setVolume(volume: Float): Boolean
+
+    suspend fun selectTrack(
+        kind: CastTrackKind,
+        language: String?,
+        label: String,
+        enabled: Boolean = true,
+    ): Boolean
+
+    suspend fun queueNext(): Boolean
+
+    suspend fun queuePrevious(): Boolean
 
     /** True only when the receiver acknowledged stop (or no session remained). */
     suspend fun stop(): Boolean
@@ -142,6 +177,9 @@ internal fun CastState.connectingTo(
         positionMs = positionMs.coerceAtLeast(0L),
         positionConfirmed = false,
         durationMs = 0L,
+        queueSize = 0,
+        currentQueueIndex = 0,
+        tracks = emptyList(),
         capabilities = CastCapabilities(),
         outputEvidence = CastOutputEvidence(sessionRevision = sessionRevision + 1L),
         lastRemoteWasPlaying = false,
@@ -155,6 +193,9 @@ internal fun CastState.remoteUpdate(
     durationMs: Long? = null,
     volume: Float? = null,
     capabilities: CastCapabilities? = null,
+    queueSize: Int? = null,
+    currentQueueIndex: Int? = null,
+    tracks: List<CastTrack>? = null,
 ): CastState =
     copy(
         status = status,
@@ -164,6 +205,11 @@ internal fun CastState.remoteUpdate(
         durationMs = durationMs?.coerceAtLeast(0L) ?: this.durationMs,
         volume = volume?.coerceIn(0f, 1f) ?: this.volume,
         capabilities = capabilities ?: this.capabilities,
+        queueSize = queueSize?.coerceAtLeast(0) ?: this.queueSize,
+        currentQueueIndex =
+            currentQueueIndex?.coerceIn(0, ((queueSize ?: this.queueSize) - 1).coerceAtLeast(0))
+                ?: this.currentQueueIndex,
+        tracks = tracks ?: this.tracks,
         lastRemoteWasPlaying =
             when (status) {
                 CastPlaybackStatus.Playing -> true
@@ -187,6 +233,8 @@ internal fun CastState.withReceiverCapabilities(
     dolbyVision: CastCapability,
     dolbyAtmos: CastCapability,
     requestedMedia: CastCapability,
+    trackSelection: CastCapability = CastCapability.Unknown,
+    queue: CastCapability = CastCapability.Unknown,
 ): CastState {
     if (revision != sessionRevision || termination != null) return this
     return copy(
@@ -196,6 +244,8 @@ internal fun CastState.withReceiverCapabilities(
                 dolbyVision = dolbyVision,
                 dolbyAtmos = dolbyAtmos,
                 requestedMedia = requestedMedia,
+                trackSelection = trackSelection,
+                queue = queue,
             ),
     )
 }
@@ -226,6 +276,7 @@ internal fun CastState.unexpectedDisconnect(message: String): CastState =
     copy(
         status = CastPlaybackStatus.Disconnected,
         capabilities = CastCapabilities(),
+        tracks = emptyList(),
         outputEvidence = CastOutputEvidence(sessionRevision = sessionRevision),
         termination = CastTermination.Unexpected,
         error = message,
@@ -237,6 +288,9 @@ internal fun CastState.userStopped(): CastState =
         activeDevice = null,
         sessionConfirmed = false,
         capabilities = CastCapabilities(),
+        queueSize = 0,
+        currentQueueIndex = 0,
+        tracks = emptyList(),
         outputEvidence = CastOutputEvidence(sessionRevision = sessionRevision),
         termination = CastTermination.UserStop,
         error = null,

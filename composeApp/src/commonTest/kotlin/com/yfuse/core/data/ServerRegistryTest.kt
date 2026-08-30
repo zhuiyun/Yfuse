@@ -2,6 +2,7 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
 import com.russhwolf.settings.Settings
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServersData
@@ -55,6 +56,37 @@ class ServerRegistryTest {
         val reloaded = registry(settings, secrets)
         assertEquals(token, reloaded.defaultServer?.accessToken)
         assertEquals("name-a", reloaded.defaultServer?.serverName)
+    }
+
+    @Test
+    fun plex_cloud_token_uses_a_second_secure_slot_and_never_enters_settings() {
+        val settings = MapSettings()
+        val secrets = TestSecureStore()
+        val cloudToken = "plex-cloud-secret"
+        val ownerToken = "plex-owner-secret"
+        registry(settings, secrets).addOrUpdate(
+            server("plex", "pms-token").copy(
+                kind = MediaServerKind.Plex,
+                cloudAccessToken = cloudToken,
+                cloudOwnerAccessToken = ownerToken,
+            ),
+        )
+
+        val persisted = requireNotNull(settings.getStringOrNull("servers.data"))
+        assertFalse(cloudToken in persisted)
+        assertFalse(ownerToken in persisted)
+        assertEquals(3, secrets.storedKeys().size)
+        assertEquals(cloudToken, registry(settings, secrets).defaultServer?.cloudAccessToken)
+        assertEquals(ownerToken, registry(settings, secrets).defaultServer?.cloudOwnerAccessToken)
+    }
+
+    @Test
+    fun jellyfin_provider_kind_survives_encrypted_registry_reload() {
+        val settings = MapSettings()
+        val secrets = TestSecureStore()
+        registry(settings, secrets).addOrUpdate(server("jellyfin").copy(kind = MediaServerKind.Jellyfin))
+
+        assertEquals(MediaServerKind.Jellyfin, registry(settings, secrets).defaultServer?.kind)
     }
 
     @Test

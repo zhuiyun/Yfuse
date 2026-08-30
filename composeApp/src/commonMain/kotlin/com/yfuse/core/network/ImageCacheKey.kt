@@ -30,10 +30,10 @@ private fun credentialScopedCacheKeyForUrl(
     val credentials =
         allParameters.mapNotNull { parameter ->
             parameter
-                .takeIf { it.isEmbyCredentialParameter() }
+                .takeIf { it.isServerCredentialParameter() }
                 ?.substringAfter('=', missingDelimiterValue = "")
         }
-    val parameters = allParameters.filterNot(String::isEmbyCredentialParameter)
+    val parameters = allParameters.filterNot(String::isServerCredentialParameter)
 
     val sanitizedUrl =
         buildString {
@@ -55,10 +55,11 @@ private fun credentialScopedCacheKeyForUrl(
     return "yfuse-$cacheKind-v2:$credentialDigest:$sanitizedUrl"
 }
 
-private fun String.isEmbyCredentialParameter(): Boolean =
+private fun String.isServerCredentialParameter(): Boolean =
     substringBefore('=').let { name ->
         name.equals("api_key", ignoreCase = true) ||
-            name.equals("X-Emby-Token", ignoreCase = true)
+            name.equals("X-Emby-Token", ignoreCase = true) ||
+            name.equals("X-Plex-Token", ignoreCase = true)
     }
 
 private fun ByteArray.toHex(): String =

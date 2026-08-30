@@ -22,6 +22,7 @@ data class PublicInfoDto(
     val ServerName: String? = null,
     val Version: String? = null,
     val Id: String? = null,
+    val ProductName: String? = null,
 )
 
 @Serializable
@@ -104,6 +105,8 @@ data class MediaStreamDto(
     val IsForced: Boolean? = null,
     val IsDefault: Boolean? = null,
     val IsExternal: Boolean? = null,
+    /** Provider-owned sidecar address, already authenticated when the player needs URL auth. */
+    val DeliveryUrl: String? = null,
     val IsInterlaced: Boolean? = null,
     val BitRate: Int? = null,
     val SampleRate: Int? = null,
@@ -598,6 +601,7 @@ fun MediaSourceDto.toMediaVersion(
                         forced = stream.IsForced == true,
                         external = stream.IsExternal == true,
                         default = stream.IsDefault == true,
+                        uri = stream.DeliveryUrl?.takeIf(String::isNotBlank),
                     )
                 },
         supportsDirectPlay = SupportsDirectPlay,

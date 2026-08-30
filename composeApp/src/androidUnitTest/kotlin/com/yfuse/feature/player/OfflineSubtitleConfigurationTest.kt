@@ -72,6 +72,39 @@ class OfflineSubtitleConfigurationTest {
     }
 
     @Test
+    fun plex_sidecars_are_all_attached_with_codec_and_selection_metadata() {
+        val configurations =
+            externalSubtitleConfigurations(
+                PlayerMediaItem(
+                    id = "movie",
+                    url = "https://plex/movie.mkv",
+                    transcodeUrl = "https://plex/movie.m3u8",
+                    title = "Movie",
+                    externalSubtitles =
+                        listOf(
+                            PlayerExternalSubtitle(
+                                uri = "https://plex/library/streams/3?X-Plex-Token=secret",
+                                language = "zho",
+                                codec = "srt",
+                                default = true,
+                            ),
+                            PlayerExternalSubtitle(
+                                uri = "https://plex/library/streams/4?X-Plex-Token=secret",
+                                language = "eng",
+                                codec = "ass",
+                            ),
+                        ),
+                ),
+            )
+
+        assertEquals(2, configurations.size)
+        assertEquals(MimeTypes.APPLICATION_SUBRIP, configurations[0].mimeType)
+        assertTrue(configurations[0].selectionFlags and C.SELECTION_FLAG_DEFAULT != 0)
+        assertEquals(MimeTypes.TEXT_SSA, configurations[1].mimeType)
+        assertEquals("eng", configurations[1].language)
+    }
+
+    @Test
     fun sidecar_does_not_override_the_selected_engine() {
         val plain = PlayerMediaItem("movie", "file:///movie", "file:///movie", "Movie")
         val withSubtitle = plain.copy(externalSubtitleUri = "file:///movie.srt")

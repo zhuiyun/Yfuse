@@ -67,4 +67,108 @@ class AndroidHttpMediaTransportTest {
                 server.shutdown()
             }
         }
+
+    @Test
+    fun `YCore proxy transport follows media redirects and preserves byte ranges`() =
+        runTest {
+            val server = MockWebServer()
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/cdn/movie.mkv"))
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 4-7/10")
+                    .setBody("4567"),
+            )
+            server.start()
+            try {
+                val transport =
+                    AndroidHttpMediaTransport(
+                        client = OkHttpClient.Builder().followRedirects(false).build(),
+                        followSafeRedirects = true,
+                    )
+                val response =
+                    transport.open(
+                        YMediaTransportRequest(
+                            uri = server.url("redirect/movie.mkv").toString(),
+                            protocol = YSourceProtocol.Http,
+                            headers = mapOf("User-Agent" to "Yfuse-test"),
+                            range = YByteRange(4, 7),
+                        ),
+                    )
+
+                assertEquals(206, response.statusCode)
+                assertEquals("bytes=4-7", server.takeRequest().getHeader("Range"))
+                assertEquals("bytes=4-7", server.takeRequest().getHeader("Range"))
+                transport.close()
+            } finally {
+                server.shutdown()
+            }
+        }
+
+    @Test
+    fun `redirectable media transport keeps provider credentials on the same origin`() =
+        runTest {
+            val server = MockWebServer()
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/media/movie.mkv"))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("media"))
+            server.start()
+            try {
+                val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
+
+                assertEquals(
+                    200,
+                    transport
+                        .open(
+                            YMediaTransportRequest(
+                                uri = server.url("redirect").toString(),
+                                protocol = YSourceProtocol.Http,
+                                headers = mapOf("X-Emby-Token" to "private"),
+                            ),
+                        ).statusCode,
+                )
+                assertEquals("private", server.takeRequest().getHeader("X-Emby-Token"))
+                assertEquals("private", server.takeRequest().getHeader("X-Emby-Token"))
+                transport.close()
+            } finally {
+                server.shutdown()
+            }
+        }
+
+    @Test
+    fun `redirectable media transport strips provider credentials across origins`() =
+        runTest {
+            val origin = MockWebServer()
+            val cdn = MockWebServer()
+            cdn.enqueue(MockResponse().setResponseCode(200).setBody("media"))
+            cdn.start()
+            origin.enqueue(MockResponse().setResponseCode(302).setHeader("Location", cdn.url("movie.mkv")))
+            origin.start()
+            try {
+                val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
+
+                assertEquals(
+                    200,
+                    transport
+                        .open(
+                            YMediaTransportRequest(
+                                uri = origin.url("redirect").toString(),
+                                protocol = YSourceProtocol.Http,
+                                headers =
+                                    mapOf(
+                                        "X-Emby-Token" to "private",
+                                        "User-Agent" to "Yfuse-test",
+                                    ),
+                            ),
+                        ).statusCode,
+                )
+                assertEquals("private", origin.takeRequest().getHeader("X-Emby-Token"))
+                val redirected = cdn.takeRequest()
+                assertEquals(null, redirected.getHeader("X-Emby-Token"))
+                assertEquals("Yfuse-test", redirected.getHeader("User-Agent"))
+                transport.close()
+            } finally {
+                origin.shutdown()
+                cdn.shutdown()
+            }
+        }
 }

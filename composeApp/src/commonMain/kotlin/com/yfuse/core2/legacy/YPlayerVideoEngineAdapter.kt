@@ -62,6 +62,8 @@ internal class YPlayerVideoEngineAdapter(
 
     override val supportsSubtitlePosition: Boolean = true
 
+    override val supportsSubtitleAppearance: Boolean = true
+
     override fun setSubtitleOffsetMs(offsetMs: Long): Boolean = true
 
     override fun setSubtitleScale(scale: Float): Boolean = true
@@ -69,6 +71,8 @@ internal class YPlayerVideoEngineAdapter(
     override fun setSubtitleBrightness(brightness: Float): Boolean = true
 
     override fun setSubtitlePosition(position: Float): Boolean = true
+
+    override fun setSubtitleAppearance(appearance: com.yfuse.feature.player.SubtitleAppearance): Boolean = true
 
     override fun selectItem(index: Int) = player.selectItem(index)
 
@@ -88,7 +92,12 @@ internal class YPlayerVideoEngineAdapter(
 }
 
 /** Returns the product player without wrapping a Core2 player back through the Legacy contract. */
-internal fun VideoEngine.asYPlayer(): YPlayer = if (this is YPlayerVideoEngineAdapter) player else LegacyYPlayerAdapter(this)
+internal fun VideoEngine.asYPlayer(): YPlayer =
+    if (this is YPlayerVideoEngineAdapter) {
+        player
+    } else {
+        LegacyYPlayerAdapter(this)
+    }
 
 /**
  * Product presentation bridge used while YPlayerState intentionally omits Legacy-only extensions.
@@ -110,7 +119,10 @@ private class ReverseMappedStateFlow<Source, Target>(
 
     override val replayCache: List<Target> get() = listOf(value)
 
-    override suspend fun collect(collector: FlowCollector<Target>): Nothing = source.collect { value -> collector.emit(transform(value)) }
+    override suspend fun collect(collector: FlowCollector<Target>): Nothing =
+        source.collect { value ->
+            collector.emit(transform(value))
+        }
 }
 
 private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =

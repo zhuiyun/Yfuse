@@ -18,6 +18,7 @@ internal fun ExoSurface(
     subtitleScale: Float,
     subtitleBrightness: Float,
     subtitlePosition: Float,
+    subtitleAppearance: SubtitleAppearance,
     modifier: Modifier = Modifier,
 ) {
     AndroidView(
@@ -35,17 +36,22 @@ internal fun ExoSurface(
             view.subtitleView?.apply {
                 setFractionalTextSize(0.0533f * subtitleScale.coerceIn(0.6f, 1.8f))
                 setBottomPaddingFraction((1f - subtitlePosition.coerceIn(0.60f, 0.96f)).coerceIn(0.04f, 0.40f))
-                val channel = subtitleBrightnessByte(subtitleBrightness)
-                val preserveAuthoredStyle = subtitleBrightness >= 0.999f
+                val appearance = subtitleAppearance.withBrightness(subtitleBrightness)
+                val preserveAuthoredStyle =
+                    subtitleBrightness >= 0.999f && subtitleAppearance == SubtitleAppearance()
                 setApplyEmbeddedStyles(preserveAuthoredStyle)
                 setApplyEmbeddedFontSizes(preserveAuthoredStyle)
                 setStyle(
                     CaptionStyleCompat(
-                        AndroidColor.rgb(channel, channel, channel),
+                        appearance.textColorArgb.toInt(),
+                        appearance.backgroundColorArgb.toInt(),
                         AndroidColor.TRANSPARENT,
-                        AndroidColor.TRANSPARENT,
-                        CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                        AndroidColor.BLACK,
+                        if (appearance.outlineWidth > 0f) {
+                            CaptionStyleCompat.EDGE_TYPE_OUTLINE
+                        } else {
+                            CaptionStyleCompat.EDGE_TYPE_NONE
+                        },
+                        appearance.outlineColorArgb.toInt(),
                         null,
                     ),
                 )

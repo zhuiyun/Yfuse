@@ -36,6 +36,22 @@ import kotlinx.serialization.Serializable
 private const val DISC_SOURCE_TRANSCODE_REASON =
     "ISO/DVD/Blu-ray 光盘源需要服务器解析主标题，已使用服务器转码"
 
+/** One authenticated sidecar exposed by the active media version. */
+@Serializable
+data class PlayerExternalSubtitle(
+    val uri: String,
+    val language: String? = null,
+    val codec: String? = null,
+    val default: Boolean = false,
+    val forced: Boolean = false,
+) {
+    val label: String
+        get() =
+            listOfNotNull(language, codec?.uppercase(), "强制".takeIf { forced })
+                .joinToString(" · ")
+                .ifBlank { "外挂字幕" }
+}
+
 /**
  * One selectable file behind a queue entry, with its stream URLs already built.
  *
@@ -96,6 +112,8 @@ data class PlayerMediaVersion(
     val sourceAudio: String? = null,
     /** Lets an engine distinguish a genuinely silent file from a missing audio track. */
     val audioTrackCount: Int = 0,
+    /** Sidecars belong to a physical version and change atomically with its media URL. */
+    val externalSubtitles: List<PlayerExternalSubtitle> = emptyList(),
     /** Initial method approved by PlaybackInfo for [url]. */
     val playMethod: PlaybackMethod = PlaybackMethod.DirectPlay,
     /** True only when PlaybackInfo explicitly approved a server-transcoded representation. */
@@ -165,6 +183,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                     rawUrl = raw,
                     token = token,
                     playSessionId = sessionId,
+                    addApiKey = !raw.contains("X-Plex-Token=", ignoreCase = true),
                     localCleartextConfirmed = localCleartextConfirmed,
                 )
             }
@@ -179,6 +198,9 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                 version.supportsDirectStream == true &&
                 directStream != null &&
                 version.directStreamUrl.isLinearMediaStreamUrl()
+        val providerDirectStream =
+            directStream != null &&
+                version.directStreamUrl?.contains("X-Plex-Token=", ignoreCase = true) == true
         val hlsTranscode =
             when {
                 negotiatedTranscode != null ->
@@ -191,6 +213,9 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             }
         val method =
             when {
+                // Plex's negotiated `/library/parts/...` URL is the original file. It must win
+                // over the Emby-shaped generated DirectPlay fallback, including for Dolby media.
+                providerDirectStream -> PlaybackMethod.DirectStream
                 // A concrete .m2ts/.ts/etc address means the server already selected and
                 // remuxed a title. A generic or static DirectStreamUrl can still be the raw
                 // ISO bytes, which no Android backend can consume as a linear stream.
@@ -252,6 +277,21 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                         ?: version.audioTracks.firstOrNull()
                 )?.label,
             audioTrackCount = version.audioTracks.size,
+            externalSubtitles =
+                version.subtitleTracks
+                    .mapNotNull { track ->
+                        track.uri
+                            ?.takeIf { track.external && it.isNotBlank() }
+                            ?.let { uri ->
+                                PlayerExternalSubtitle(
+                                    uri = uri,
+                                    language = track.language,
+                                    codec = track.codec,
+                                    default = track.default,
+                                    forced = track.forced,
+                                )
+                            }
+                    }.distinctBy(PlayerExternalSubtitle::uri),
         )
     }
 
@@ -391,6 +431,8 @@ data class PlayerMediaItem(
     /** Optional process-local offline sidecar; never contains an account token. */
     val externalSubtitleUri: String? = null,
     val externalSubtitleLanguage: String? = null,
+    /** Online provider sidecars for the active version; legacy offline fields remain supported. */
+    val externalSubtitles: List<PlayerExternalSubtitle> = emptyList(),
     /**
      * Exact copies on other servers, resolved before the player starts.
      *
@@ -438,6 +480,7 @@ data class PlayerMediaItem(
             playMethod = version.playMethod,
             serverTranscodeSupported = version.serverTranscodeSupported,
             drmConfiguration = version.drmConfiguration,
+            externalSubtitles = version.externalSubtitles,
             forcedTranscodeReason =
                 when {
                     version.discSource && version.playMethod == PlaybackMethod.Transcode ->
@@ -467,6 +510,7 @@ data class TrickplayStoryboard(
     val tileRows: Int,
     val intervalMs: Long,
     val thumbnailCount: Int,
+    val urlIndexMultiplier: Long = 1L,
 ) {
     fun frameAt(positionMs: Long): TrickplayFrame {
         val frame =
@@ -475,13 +519,31 @@ data class TrickplayStoryboard(
                 .toInt()
         val perSheet = (tileColumns * tileRows).coerceAtLeast(1)
         val local = frame % perSheet
+        val urlIndex = (frame / perSheet).toLong() * urlIndexMultiplier.coerceAtLeast(1L)
         return TrickplayFrame(
-            url = urlPattern.replace("{index}", (frame / perSheet).toString()),
+            url = urlPattern.replace("{index}", urlIndex.toString()),
             column = local % tileColumns.coerceAtLeast(1),
             row = local / tileColumns.coerceAtLeast(1),
         )
     }
 }
+
+/** Merges the legacy offline sidecar with provider-owned online tracks without duplicate URLs. */
+internal fun PlayerMediaItem.playbackExternalSubtitles(): List<PlayerExternalSubtitle> =
+    buildList {
+        externalSubtitleUri
+            ?.takeIf(String::isNotBlank)
+            ?.let { uri ->
+                add(
+                    PlayerExternalSubtitle(
+                        uri = uri,
+                        language = externalSubtitleLanguage,
+                        default = true,
+                    ),
+                )
+            }
+        addAll(externalSubtitles)
+    }.distinctBy(PlayerExternalSubtitle::uri)
 
 data class TrickplayFrame(
     val url: String,
@@ -513,11 +575,22 @@ internal const val MAX_TRICKPLAY_CACHE_ENTRIES = 8
 
 private fun String.withPlaySessionId(sessionId: String): String {
     if (isBlank()) return this
+    val plexSession = Regex("([?&])session=[^&]*")
+    val withProviderSession =
+        if (contains("/video/:/transcode/universal/", ignoreCase = true)) {
+            if (plexSession.containsMatchIn(this)) {
+                replace(plexSession, "$1session=$sessionId")
+            } else {
+                "$this${if ('?' in this) '&' else '?'}session=$sessionId"
+            }
+        } else {
+            this
+        }
     val parameter = Regex("([?&])PlaySessionId=[^&]*")
-    return if (parameter.containsMatchIn(this)) {
-        replace(parameter, "$1PlaySessionId=$sessionId")
+    return if (parameter.containsMatchIn(withProviderSession)) {
+        withProviderSession.replace(parameter, "$1PlaySessionId=$sessionId")
     } else {
-        "$this${if ('?' in this) '&' else '?'}PlaySessionId=$sessionId"
+        "$withProviderSession${if ('?' in withProviderSession) '&' else '?'}PlaySessionId=$sessionId"
     }
 }
 
@@ -625,7 +698,8 @@ class PlayerStoreFactory(
             reducer = ReducerImpl,
         )
 
-    private inner class ExecutorImpl : CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
+    private inner class ExecutorImpl :
+        CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
         override fun executeAction(action: PlayerAction) {
             load()
         }
@@ -874,19 +948,21 @@ class PlayerStoreFactory(
                             (if (id == effectiveItemId) negotiatedTrickplay else null)?.let { info ->
                                 TrickplayStoryboard(
                                     urlPattern =
-                                        EmbyStream.trickplayTilePattern(
-                                            baseUrl = server.baseUrl,
-                                            itemId = id,
-                                            mediaSourceId = unqualified.id,
-                                            width = info.width,
-                                            token = server.accessToken,
-                                        ),
+                                        info.urlPattern
+                                            ?: EmbyStream.trickplayTilePattern(
+                                                baseUrl = server.baseUrl,
+                                                itemId = id,
+                                                mediaSourceId = unqualified.id,
+                                                width = info.width,
+                                                token = server.accessToken,
+                                            ),
                                     width = info.width,
                                     height = info.height,
                                     tileColumns = info.tileColumns,
                                     tileRows = info.tileRows,
                                     intervalMs = info.intervalMs,
                                     thumbnailCount = info.thumbnailCount,
+                                    urlIndexMultiplier = info.urlIndexMultiplier,
                                 )
                             },
                         serverId = server.id,
@@ -931,6 +1007,7 @@ class PlayerStoreFactory(
                         progress = progress,
                         caption = caption,
                         durationMsHint = runtimeTicks?.takeIf { it > 0L }?.div(10_000L) ?: 0L,
+                        externalSubtitles = unqualified.externalSubtitles,
                     )
                 }
 
@@ -1337,6 +1414,7 @@ class PlayerStoreFactory(
                     DISC_SOURCE_TRANSCODE_REASON.takeIf {
                         playable.discSource && playable.playMethod == PlaybackMethod.Transcode
                     },
+                externalSubtitles = playable.externalSubtitles,
                 serverFallbacks = emptyList(),
                 durationMsHint = detail.runtimeTicks?.takeIf { it > 0L }?.div(10_000L) ?: 0L,
             )

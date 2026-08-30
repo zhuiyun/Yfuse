@@ -46,11 +46,17 @@ private data class EmbyIdentityPreferenceKey(
 )
 
 private val embyRequestOriginKey = AttributeKey<EmbyRequestOrigin>("EmbyRequestOrigin")
+private val suppressEmbyIdentityKey = AttributeKey<Unit>("SuppressEmbyIdentity")
 
 private const val EMBY_CLIENT_HEADER = "X-Emby-Client"
 private const val EMBY_CLIENT_VERSION_HEADER = "X-Emby-Client-Version"
 private const val EMBY_DEVICE_ID_HEADER = "X-Emby-Device-Id"
 private const val EMBY_DEVICE_NAME_HEADER = "X-Emby-Device-Name"
+
+/** Marks a non-Emby request so shared-client defaults are stripped before network execution. */
+internal fun HttpRequestBuilder.suppressEmbyIdentity() {
+    attributes.put(suppressEmbyIdentityKey, Unit)
+}
 
 /**
  * How long an Emby request may take before it is abandoned.
@@ -135,6 +141,14 @@ fun createEmbyClient(
         val preferredClientBySession =
             MutableStateFlow<Map<EmbyIdentityPreferenceKey, String>>(emptyMap())
         client.plugin(HttpSend).intercept { request ->
+            if (request.attributes.getOrNull(suppressEmbyIdentityKey) != null) {
+                request.headers.remove("X-Emby-Authorization")
+                request.headers.remove(EMBY_CLIENT_HEADER)
+                request.headers.remove(EMBY_CLIENT_VERSION_HEADER)
+                request.headers.remove(EMBY_DEVICE_ID_HEADER)
+                request.headers.remove(EMBY_DEVICE_NAME_HEADER)
+                request.headers.remove("X-Emby-Token")
+            }
             val target = request.url
             val currentOrigin = target.build().embyRequestOrigin()
             val originalOrigin = request.attributes.getOrNull(embyRequestOriginKey)

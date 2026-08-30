@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.view.Surface
 import androidx.annotation.RequiresApi
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.graph.YVideoDecodeNode
 import java.nio.ByteBuffer
 
@@ -118,6 +119,15 @@ internal class AndroidMediaCodecVideoNode(
             } else {
                 null
             }
+        if (mime == MIME_DOLBY_VISION && secureDecoderName == null) {
+            configureDolbyVisionDecoder(
+                format = format,
+                surface = surface,
+                plannedDecoderName = decoderName,
+                mediaCrypto = mediaCrypto,
+            )
+            return
+        }
         val decoder =
             createPlannedVideoDecoder(
                 mime = mime,
@@ -134,6 +144,89 @@ internal class AndroidMediaCodecVideoNode(
             runCatching { decoder.release() }
             throw throwable
         }
+    }
+
+    private fun configureDolbyVisionDecoder(
+        format: MediaFormat,
+        surface: Surface,
+        plannedDecoderName: String?,
+        mediaCrypto: MediaCrypto?,
+    ) {
+        val codecList = MediaCodecList(MediaCodecList.ALL_CODECS)
+        val profile = format.integerOrNull(MediaFormat.KEY_PROFILE)
+        val codecInfos =
+            codecList.codecInfos.filter { info ->
+                !info.isEncoder && info.supportedTypes.any { it.equals(MIME_DOLBY_VISION, ignoreCase = true) }
+            }
+        val profileMatches =
+            profile
+                ?.let { exactProfile ->
+                    codecInfos
+                        .filter { info -> info.supportsProfile(MIME_DOLBY_VISION, exactProfile) }
+                        .map { it.name }
+                }.orEmpty()
+        val preferredDecoderName = runCatching { codecList.findDecoderForFormat(format) }.getOrNull()
+        val candidateNames =
+            orderedVideoDecoderNames(
+                plannedDecoderName = plannedDecoderName,
+                preferredDecoderName = preferredDecoderName,
+                profileMatchingDecoderNames = profileMatches,
+                mimeDecoderNames = codecInfos.map { it.name },
+            )
+        AppLog.info(
+            category = "player.core2",
+            event = "video_decoder_candidates",
+            message = "YCore enumerated exact-format Dolby Vision decoders",
+            attributes =
+                mapOf(
+                    "mime" to MIME_DOLBY_VISION,
+                    "profile" to (profile?.toString() ?: "unknown"),
+                    "planned" to plannedDecoderName.orEmpty(),
+                    "preferred" to preferredDecoderName.orEmpty(),
+                    "candidates" to candidateNames.joinToString(","),
+                ),
+        )
+        if (candidateNames.isEmpty()) {
+            throw YVideoDecoderConfigurationException(
+                mime = MIME_DOLBY_VISION,
+                profile = profile,
+                failures = emptyList(),
+            )
+        }
+
+        val failures = mutableListOf<YVideoDecoderAttemptFailure>()
+        candidateNames.forEachIndexed { index, candidateName ->
+            var decoder: MediaCodec? = null
+            try {
+                val candidateDecoder = createDecoderByName(candidateName)
+                decoder = candidateDecoder
+                candidateDecoder.configure(format, surface, mediaCrypto, 0)
+                candidateDecoder.start()
+                codec = candidateDecoder
+                started = true
+                AppLog.info(
+                    category = "player.core2",
+                    event = "video_decoder_selected",
+                    message = "YCore started a Dolby Vision decoder with the exact source format",
+                    attributes =
+                        mapOf(
+                            "decoder" to candidateName,
+                            "profile" to (profile?.toString() ?: "unknown"),
+                            "candidateIndex" to index.toString(),
+                            "candidateCount" to candidateNames.size.toString(),
+                        ),
+                )
+                return
+            } catch (failure: Throwable) {
+                failures += failure.toVideoDecoderAttemptFailure(candidateName)
+                runCatching { decoder?.release() }
+            }
+        }
+        throw YVideoDecoderConfigurationException(
+            mime = MIME_DOLBY_VISION,
+            profile = profile,
+            failures = failures,
+        )
     }
 
     /** Changes the target without decoding through a texture or CPU buffer. */
@@ -300,6 +393,66 @@ internal class AndroidMediaCodecVideoNode(
         }
 }
 
+internal data class YVideoDecoderAttemptFailure(
+    val decoderName: String,
+    val errorType: String,
+    val diagnosticInfo: String? = null,
+    val errorCode: Int? = null,
+    val recoverable: Boolean = false,
+    val transient: Boolean = false,
+)
+
+internal class YVideoDecoderConfigurationException(
+    val mime: String,
+    val profile: Int?,
+    val failures: List<YVideoDecoderAttemptFailure>,
+) : RuntimeException("No local MediaCodec decoder accepted the exact video format")
+
+internal fun orderedVideoDecoderNames(
+    plannedDecoderName: String?,
+    preferredDecoderName: String?,
+    profileMatchingDecoderNames: List<String>,
+    mimeDecoderNames: List<String>,
+): List<String> =
+    buildList {
+        plannedDecoderName?.takeIf(String::isNotBlank)?.let(::add)
+        preferredDecoderName?.takeIf(String::isNotBlank)?.let(::add)
+        addAll(profileMatchingDecoderNames.filter(String::isNotBlank))
+        addAll(mimeDecoderNames.filter(String::isNotBlank))
+    }.distinct()
+
+private fun MediaCodecInfo.supportsProfile(
+    mime: String,
+    profile: Int,
+): Boolean =
+    runCatching {
+        getCapabilitiesForType(mime).profileLevels.any { it.profile == profile }
+    }.getOrDefault(false)
+
+private fun MediaFormat.integerOrNull(key: String): Int? =
+    if (containsKey(key)) {
+        runCatching { getInteger(key) }.getOrNull()
+    } else {
+        null
+    }
+
+private fun Throwable.toVideoDecoderAttemptFailure(decoderName: String): YVideoDecoderAttemptFailure =
+    if (this is MediaCodec.CodecException) {
+        YVideoDecoderAttemptFailure(
+            decoderName = decoderName,
+            errorType = this::class.simpleName ?: "CodecException",
+            diagnosticInfo = diagnosticInfo,
+            errorCode = errorCode,
+            recoverable = isRecoverable,
+            transient = isTransient,
+        )
+    } else {
+        YVideoDecoderAttemptFailure(
+            decoderName = decoderName,
+            errorType = this::class.simpleName ?: "unknown",
+        )
+    }
+
 /** Keeps API 31-only verifier types out of [AndroidMediaCodecVideoNode] on Android 10 and older. */
 @RequiresApi(Build.VERSION_CODES.S)
 private object Api31TunnelFrameReadyListener {
@@ -343,7 +496,12 @@ internal fun emptyTailSeekRetryTarget(
 }
 
 /** MediaExtractor's SYNC bit matches MediaCodec's key-frame bit. */
-private fun Int.toCodecInputFlags(): Int = if (this and MediaExtractorFlags.SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+private fun Int.toCodecInputFlags(): Int =
+    if (this and MediaExtractorFlags.SYNC != 0) {
+        MediaCodec.BUFFER_FLAG_KEY_FRAME
+    } else {
+        0
+    }
 
 /** Kept local so the video node does not depend on MediaExtractor at runtime. */
 private object MediaExtractorFlags {
@@ -353,3 +511,4 @@ private object MediaExtractorFlags {
 
 private const val DEFAULT_EMPTY_TAIL_SEEK_RETRY_STEP_US = 1_000_000L
 private const val DEFAULT_EMPTY_TAIL_SEEK_RETRIES = 3
+private const val MIME_DOLBY_VISION = "video/dolby-vision"

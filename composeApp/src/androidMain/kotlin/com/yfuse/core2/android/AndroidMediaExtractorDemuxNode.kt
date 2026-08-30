@@ -48,6 +48,7 @@ internal class AndroidMediaExtractorDemuxNode(
     private val timeline = YMediaTimestampTimeline()
     private var extractor: MediaExtractor? = null
     private var mediaDataSource: MediaDataSource? = null
+    private var currentSource: YAndroidMediaSource? = null
     private var selectedTracks = emptySet<Int>()
 
     fun open(source: YAndroidMediaSource) {
@@ -56,6 +57,7 @@ internal class AndroidMediaExtractorDemuxNode(
         try {
             opened.setPrivateDataSource(source)
             extractor = opened
+            currentSource = source
             selectedTracks = emptySet()
         } catch (throwable: Throwable) {
             runCatching { opened.release() }
@@ -68,6 +70,42 @@ internal class AndroidMediaExtractorDemuxNode(
     val trackCount: Int get() = extractor?.trackCount ?: 0
 
     fun trackFormat(index: Int): MediaFormat = requireExtractor().getTrackFormat(index)
+
+    /** Reads only a bounded container prefix for YCore-owned metadata parsing. */
+    fun readSourcePrefix(maximumBytes: Int): ByteArray? {
+        require(maximumBytes > 0)
+        mediaDataSource?.let { source ->
+            val knownSize = runCatching { source.size }.getOrDefault(-1L)
+            val targetSize =
+                knownSize
+                    .takeIf { it >= 0L }
+                    ?.coerceAtMost(maximumBytes.toLong())
+                    ?.toInt()
+                    ?: maximumBytes
+            val result = ByteArray(targetSize)
+            var total = 0
+            while (total < result.size) {
+                val read = source.readAt(total.toLong(), result, total, result.size - total)
+                if (read <= 0) break
+                total += read
+            }
+            return result.copyOf(total)
+        }
+
+        val openedSource = currentSource ?: return null
+        val scheme = Uri.parse(openedSource.uri).scheme?.lowercase()
+        if (scheme !in setOf("content", "android.resource", "file")) return null
+        return appContext.contentResolver.openInputStream(Uri.parse(openedSource.uri))?.use { input ->
+            val result = ByteArray(maximumBytes)
+            var total = 0
+            while (total < result.size) {
+                val read = input.read(result, total, result.size - total)
+                if (read <= 0) break
+                total += read
+            }
+            result.copyOf(total)
+        }
+    }
 
     fun drmInitializationData(schemeUuid: UUID): ByteArray? =
         requireExtractor()
@@ -150,6 +188,7 @@ internal class AndroidMediaExtractorDemuxNode(
         mediaDataSource?.let { runCatching { it.close() } }
         extractor = null
         mediaDataSource = null
+        currentSource = null
         selectedTracks = emptySet()
         timeline.reset()
     }
@@ -159,9 +198,16 @@ internal class AndroidMediaExtractorDemuxNode(
         timeline.establish(requireExtractor().validSampleTimeUs())
     }
 
-    private fun MediaExtractor.validSampleTimeUs(): Long = sampleTime.takeUnless { it == MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE } ?: 0L
+    private fun MediaExtractor.validSampleTimeUs(): Long =
+        sampleTime
+            .takeUnless {
+                it == MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE
+            } ?: 0L
 
-    private fun requireExtractor(): MediaExtractor = checkNotNull(extractor) { "MediaExtractor demux node has not been opened" }
+    private fun requireExtractor(): MediaExtractor =
+        checkNotNull(extractor) {
+            "MediaExtractor demux node has not been opened"
+        }
 
     private fun MediaExtractor.setPrivateDataSource(source: YAndroidMediaSource) {
         val parsed = Uri.parse(source.uri)

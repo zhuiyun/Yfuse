@@ -328,6 +328,8 @@ data class SubtitleTrackInfo(
     val forced: Boolean = false,
     val external: Boolean = false,
     val default: Boolean = false,
+    /** Authenticated provider URL for a sidecar subtitle; null for embedded streams. */
+    val uri: String? = null,
 ) {
     val label: String
         get() =

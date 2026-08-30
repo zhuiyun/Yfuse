@@ -40,22 +40,22 @@ internal class AndroidEnhancedMediaProbe(
             val video = requireNotNull(videoTrack.video)
             val audioTrack = result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio && it.audio != null }
             val audio = audioTrack?.audio
+            val packing = video.samplePacking
+            var rpuCount = 0
+            var enhancementLayerCount = 0
+            if (packing != null && (video.dolbyVisionConfig != null || item.sourceHints?.dolbyVision == true)) {
+                demuxer.selectTracks(setOf(videoTrack.id))
+                repeat(DOLBY_PROBE_SAMPLE_LIMIT) {
+                    val sample = demuxer.readSample() ?: return@repeat
+                    if (sample.trackId == videoTrack.id) {
+                        val evidence = YBitstream.dolbyVisionEvidence(sample.data, packing)
+                        rpuCount += evidence.rpuCount
+                        enhancementLayerCount += evidence.enhancementLayerCount
+                    }
+                }
+            }
             val dolbyEvidence =
                 video.dolbyVisionConfig?.let { config ->
-                    val packing = video.samplePacking
-                    var rpuCount = 0
-                    var enhancementLayerCount = 0
-                    if (packing != null) {
-                        demuxer.selectTracks(setOf(videoTrack.id))
-                        repeat(DOLBY_PROBE_SAMPLE_LIMIT) {
-                            val sample = demuxer.readSample() ?: return@repeat
-                            if (sample.trackId == videoTrack.id) {
-                                val evidence = YBitstream.dolbyVisionEvidence(sample.data, packing)
-                                rpuCount += evidence.rpuCount
-                                enhancementLayerCount += evidence.enhancementLayerCount
-                            }
-                        }
-                    }
                     YDolbyVisionStreamEvidence(
                         config = config,
                         observedNals = YDolbyVisionNalEvidence(rpuCount, enhancementLayerCount),
@@ -93,6 +93,8 @@ internal class AndroidEnhancedMediaProbe(
                 durationMs = (result.durationUs ?: 0L).coerceAtLeast(0L) / 1_000L,
                 dolbyVisionConfig = video.dolbyVisionConfig,
                 dolbyVisionStreamEvidence = dolbyEvidence,
+                unconfiguredDolbyVisionSignal =
+                    video.dolbyVisionConfig == null && (rpuCount > 0 || enhancementLayerCount > 0),
             )
         } catch (_: Throwable) {
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)

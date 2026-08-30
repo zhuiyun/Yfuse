@@ -3,6 +3,15 @@ package com.yfuse.core.model
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 
+@Serializable
+enum class MediaServerKind {
+    Emby,
+    Jellyfin,
+
+    /** Native Plex Media Server adapter; Emby-compatible endpoints never masquerade as Plex. */
+    Plex,
+}
+
 /** A server the user has logged into, with its saved session and user-visible name. */
 @Serializable
 data class SavedServer(
@@ -17,6 +26,11 @@ data class SavedServer(
     val userId: String,
     val userName: String,
     val accessToken: String,
+    /** Plex-account credential for cloud-only APIs; persisted in a separate secure-store slot. */
+    val cloudAccessToken: String? = null,
+    /** Plex Home owner token retained only to authorize later managed-user switching. */
+    val cloudOwnerAccessToken: String? = null,
+    val kind: MediaServerKind = MediaServerKind.Emby,
     /** Previous connection-derived ids retained when this saved server is edited. */
     val previousIds: Set<String> = emptySet(),
     /** Empty for a server saved before multi-route; see [effectiveRoutes]. */

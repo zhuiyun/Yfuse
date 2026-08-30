@@ -20,6 +20,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.redactDiagnosticText
 import com.yfuse.core.model.Episode
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import kotlinx.coroutines.CancellationException
@@ -383,6 +384,9 @@ internal fun resolveOfflineSourceUrl(
     val server =
         registry.serverById(item.serverId)
             ?: error("服务器已移除，无法继续下载")
+    require(server.kind != MediaServerKind.Plex) {
+        "Plex 离线源必须先通过服务器协商解析"
+    }
     return if (item.quality == OfflineDownloadQuality.Original) {
         EmbyStream.directPlay(
             baseUrl = server.baseUrl,
@@ -400,6 +404,55 @@ internal fun resolveOfflineSourceUrl(
             mediaSourceId = item.mediaSourceId,
         )
     }
+}
+
+private suspend fun resolvePlexOfflineSourceUrl(
+    item: OfflineMedia,
+    server: com.yfuse.core.model.SavedServer,
+    repository: EmbyRepository,
+): String {
+    require(item.quality == OfflineDownloadQuality.Original) {
+        "Plex 离线下载当前仅支持原画；转码下载需要 Plex Downloads 转换任务"
+    }
+    val playback =
+        repository
+            .playbackInfo(
+                server = server,
+                itemId = item.itemId,
+                mediaSourceId = item.mediaSourceId,
+                playSessionId = "offline-${item.id}",
+            ).getOrElse { throw it }
+    val source =
+        playback.MediaSources.firstOrNull { candidate ->
+            item.mediaSourceId == null || candidate.Id == item.mediaSourceId
+        } ?: error("Plex 中找不到所选媒体版本")
+    return source.DirectStreamUrl?.takeIf(String::isNotBlank)
+        ?: error("Plex 未返回可下载的原始文件地址")
+}
+
+private suspend fun resolvePlexOfflineSubtitleUrl(
+    item: OfflineMedia,
+    server: com.yfuse.core.model.SavedServer,
+    repository: EmbyRepository,
+): String? {
+    val index = item.subtitleStreamIndex ?: return null
+    val playback =
+        repository
+            .playbackInfo(
+                server = server,
+                itemId = item.itemId,
+                mediaSourceId = item.mediaSourceId,
+                playSessionId = "offline-subtitle-${item.id}",
+            ).getOrElse { throw it }
+    val source =
+        playback.MediaSources.firstOrNull { candidate ->
+            item.mediaSourceId == null || candidate.Id == item.mediaSourceId
+        } ?: error("Plex 中找不到所选媒体版本")
+    return source.MediaStreams
+        .orEmpty()
+        .firstOrNull { it.Index == index && it.Type.equals("Subtitle", ignoreCase = true) }
+        ?.DeliveryUrl
+        ?.takeIf(String::isNotBlank)
 }
 
 internal fun resolveOfflineSubtitleUrl(
@@ -1121,7 +1174,12 @@ internal class AndroidOfflineMediaManager(
                 val server =
                     registry.serverById(snapshot.serverId)
                         ?: error("服务器已移除，无法继续下载")
-                val sourceUrl = resolveOfflineSourceUrl(snapshot, registry)
+                val sourceUrl =
+                    if (server.kind == MediaServerKind.Plex) {
+                        resolvePlexOfflineSourceUrl(snapshot, server, repository)
+                    } else {
+                        resolveOfflineSourceUrl(snapshot, registry)
+                    }
                 val source =
                     requireAllowedOfflineTransferUrl(
                         sourceUrl,
@@ -1443,13 +1501,18 @@ internal class AndroidOfflineMediaManager(
 
     private suspend fun downloadSubtitlePart(snapshot: OfflineMedia): File? =
         withContext(Dispatchers.IO) {
-            val sourceUrl =
-                runCatching { resolveOfflineSubtitleUrl(snapshot, registry) }
-                    .onFailure { error -> logSubtitleFailure(snapshot, error) }
-                    .getOrNull()
-                    ?: return@withContext null
             val server =
                 registry.serverById(snapshot.serverId)
+                    ?: return@withContext null
+            val sourceUrl =
+                runCatching {
+                    if (server.kind == MediaServerKind.Plex) {
+                        resolvePlexOfflineSubtitleUrl(snapshot, server, repository)
+                    } else {
+                        resolveOfflineSubtitleUrl(snapshot, registry)
+                    }
+                }.onFailure { error -> logSubtitleFailure(snapshot, error) }
+                    .getOrNull()
                     ?: return@withContext null
             val source =
                 runCatching {

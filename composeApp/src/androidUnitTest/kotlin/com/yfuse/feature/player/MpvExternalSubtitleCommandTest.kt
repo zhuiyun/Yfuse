@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class MpvExternalSubtitleCommandTest {
@@ -40,6 +41,34 @@ class MpvExternalSubtitleCommandTest {
                     title = "Episode",
                 ),
             ),
+        )
+    }
+
+    @Test
+    fun every_plex_sidecar_is_mounted_and_only_the_default_is_selected() {
+        val commands =
+            externalSubtitleMpvCommands(
+                PlayerMediaItem(
+                    id = "movie",
+                    url = "https://plex/movie.mkv",
+                    transcodeUrl = "https://plex/movie.m3u8",
+                    title = "Movie",
+                    externalSubtitles =
+                        listOf(
+                            PlayerExternalSubtitle("https://plex/sub/zh", "zho", "srt", default = true),
+                            PlayerExternalSubtitle("https://plex/sub/en", "eng", "ass"),
+                        ),
+                ),
+            )
+
+        assertEquals(2, commands.size)
+        assertContentEquals(
+            arrayOf("sub-add", "https://plex/sub/zh", "select", "zho · SRT", "zho"),
+            commands[0],
+        )
+        assertContentEquals(
+            arrayOf("sub-add", "https://plex/sub/en", "auto", "eng · ASS", "eng"),
+            commands[1],
         )
     }
 }

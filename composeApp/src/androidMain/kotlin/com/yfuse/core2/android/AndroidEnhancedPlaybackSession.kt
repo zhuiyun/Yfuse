@@ -7,6 +7,7 @@ import android.media.MediaFormat
 import android.os.Build
 import android.view.Surface
 import android.view.WindowManager
+import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.YPlaybackRoute
@@ -28,6 +29,7 @@ import com.yfuse.core2.demux.YSampleFlag
 import com.yfuse.core2.demux.YSubtitlePacketDecoder
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.demux.YVideoTrackFormat
+import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.dolby.dolbyVisionHevcBaseLayerSample
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
@@ -155,6 +157,7 @@ internal class AndroidEnhancedPlaybackSession(
         surface: Surface,
         startPositionUs: Long = 0L,
         runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null,
+        requireDolbyVisionIdentity: Boolean = false,
     ): YDemuxOpenResult {
         close()
         this.runtimeCapabilityKey = runtimeCapabilityKey
@@ -184,9 +187,25 @@ internal class AndroidEnhancedPlaybackSession(
             }
         val videoTrack =
             result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
-                ?: error("Enhanced demux contains no video track")
+                ?: throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Container,
+                    stage = YPlaybackFailureStage.Demux,
+                    safeDetail = "Enhanced demux contains no video track",
+                )
         val audioTrack = result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio && it.audio != null }
-        val effectiveVideo = effectiveVideoTrack(requireNotNull(videoTrack.video), plan)
+        val sourceVideo = requireNotNull(videoTrack.video)
+        validateEnhancedDolbyVisionIdentity(
+            required = requireDolbyVisionIdentity,
+            config = sourceVideo.dolbyVisionConfig,
+        )
+        val effectiveVideo =
+            yPlaybackStage(
+                category = YPlaybackFailureCategory.Container,
+                stage = YPlaybackFailureStage.Bitstream,
+                safeDetail = "Enhanced video format validation",
+            ) {
+                effectiveVideoTrack(sourceVideo, plan)
+            }
         softwareVideoActive = plan.decodePath == YDecodePath.Software
         softwareAudioActive = audioTrack != null && plan.softwareAudioDecode
         val softwareNode =
@@ -1428,6 +1447,18 @@ internal class AndroidEnhancedPlaybackSession(
             dolbyVisionConfig = null,
         )
     }
+}
+
+internal fun validateEnhancedDolbyVisionIdentity(
+    required: Boolean,
+    config: YDolbyVisionConfig?,
+) {
+    if (!required || config != null) return
+    throw YPlaybackException(
+        category = YPlaybackFailureCategory.Container,
+        stage = YPlaybackFailureStage.Bitstream,
+        safeDetail = "Enhanced demux did not expose a Dolby Vision configuration",
+    )
 }
 
 private fun YCompressedSample.toExtractorFlags(): Int =

@@ -33,6 +33,68 @@ class AndroidMediaCodecVideoNodePolicyTest {
     }
 
     @Test
+    fun dolbyCandidatesPreferPlannedThenExactFormatThenAdvertisedProfile() {
+        assertEquals(
+            listOf(
+                "c2.vendor.planned.decoder",
+                "c2.vendor.exact.decoder",
+                "c2.vendor.profile.decoder",
+                "c2.vendor.generic.decoder",
+            ),
+            orderedVideoDecoderNames(
+                plannedDecoderName = "c2.vendor.planned.decoder",
+                preferredDecoderName = "c2.vendor.exact.decoder",
+                profileMatchingDecoderNames =
+                    listOf(
+                        "c2.vendor.profile.decoder",
+                        "c2.vendor.exact.decoder",
+                    ),
+                mimeDecoderNames =
+                    listOf(
+                        "c2.vendor.generic.decoder",
+                        "c2.vendor.profile.decoder",
+                    ),
+            ),
+        )
+    }
+
+    @Test
+    fun dolbyCandidatesRemoveBlankAndDuplicateAliases() {
+        assertEquals(
+            listOf("c2.vendor.dolby.decoder", "OMX.vendor.dolby.decoder"),
+            orderedVideoDecoderNames(
+                plannedDecoderName = " ",
+                preferredDecoderName = "c2.vendor.dolby.decoder",
+                profileMatchingDecoderNames = listOf("c2.vendor.dolby.decoder"),
+                mimeDecoderNames = listOf("", "OMX.vendor.dolby.decoder"),
+            ),
+        )
+    }
+
+    @Test
+    fun exactFormatFailureRetainsOnlyStructuredCodecEvidence() {
+        val failure =
+            YVideoDecoderConfigurationException(
+                mime = "video/dolby-vision",
+                profile = 32,
+                failures =
+                    listOf(
+                        YVideoDecoderAttemptFailure(
+                            decoderName = "c2.vendor.dolby.decoder",
+                            errorType = "CodecException",
+                            diagnosticInfo = "android.media.MediaCodec.error_neg_22",
+                            errorCode = -22,
+                        ),
+                    ),
+            )
+
+        assertEquals("video/dolby-vision", failure.mime)
+        assertEquals(32, failure.profile)
+        assertEquals("c2.vendor.dolby.decoder", failure.failures.single().decoderName)
+        assertEquals(-22, failure.failures.single().errorCode)
+    }
+
+    @Test
     fun frameAheadOfMasterIsHeld() {
         val decision =
             videoFrameReleaseDecision(

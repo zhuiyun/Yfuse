@@ -9,8 +9,10 @@ import com.google.android.gms.cast.CastMediaControlIntent
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
 import com.google.android.gms.cast.MediaMetadata
+import com.google.android.gms.cast.MediaQueueItem
 import com.google.android.gms.cast.MediaSeekOptions
 import com.google.android.gms.cast.MediaStatus
+import com.google.android.gms.cast.MediaTrack
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
@@ -343,6 +345,8 @@ private class AndroidCastManager(
         positionMs: Long,
         fallbackMediaUrl: String?,
         mediaProfile: CastMediaProfile,
+        queue: List<CastQueueEntry>,
+        queueIndex: Int,
     ): Boolean {
         val usableFallback = fallbackMediaUrl?.takeIf { castMediaUrlError(it) == null }
         val mediaError = castMediaUrlError(mediaUrl)
@@ -366,6 +370,8 @@ private class AndroidCastManager(
                 title = title,
                 positionMs = positionMs,
                 mediaProfile = resolvedProfile,
+                queue = queue,
+                queueIndex = queueIndex,
             )
         } else {
             playDlna(
@@ -426,6 +432,61 @@ private class AndroidCastManager(
             null -> false
         }
 
+    override suspend fun selectTrack(
+        kind: CastTrackKind,
+        language: String?,
+        label: String,
+        enabled: Boolean,
+    ): Boolean {
+        if (activeProtocol != ActiveProtocol.Chromecast) return false
+        return chromecastCommand("切换${if (kind == CastTrackKind.Audio) "音轨" else "字幕"}") { remote ->
+            val mediaTracks = remote.mediaInfo?.mediaTracks.orEmpty()
+            val targetType =
+                if (kind == CastTrackKind.Audio) MediaTrack.TYPE_AUDIO else MediaTrack.TYPE_TEXT
+            val activeIds =
+                remote.mediaStatus
+                    ?.activeTrackIds
+                    ?.toMutableSet()
+                    .orEmpty()
+                    .toMutableSet()
+            mediaTracks.filter { it.type == targetType }.forEach { activeIds.remove(it.id) }
+            if (enabled) {
+                val normalizedLanguage = language?.trim()?.lowercase()
+                val normalizedLabel = label.trim().lowercase()
+                val target =
+                    mediaTracks
+                        .filter { it.type == targetType }
+                        .maxByOrNull { track ->
+                            when {
+                                normalizedLanguage != null && track.language?.lowercase() == normalizedLanguage -> 3
+                                track.name?.trim()?.lowercase() == normalizedLabel -> 2
+                                track.name?.lowercase()?.contains(normalizedLabel) == true -> 1
+                                else -> 0
+                            }
+                        }?.takeIf { track ->
+                            normalizedLanguage == null ||
+                                track.language?.lowercase() == normalizedLanguage ||
+                                track.name?.lowercase()?.contains(normalizedLabel) == true
+                        }
+                requireNotNull(target) { "接收端未提供匹配轨道" }
+                activeIds += target.id
+            }
+            remote.setActiveMediaTracks(activeIds.toLongArray())
+        }
+    }
+
+    override suspend fun queueNext(): Boolean =
+        when (activeProtocol) {
+            ActiveProtocol.Chromecast -> chromecastCommand("下一集") { it.queueNext(null) }
+            else -> false
+        }
+
+    override suspend fun queuePrevious(): Boolean =
+        when (activeProtocol) {
+            ActiveProtocol.Chromecast -> chromecastCommand("上一集") { it.queuePrev(null) }
+            else -> false
+        }
+
     override suspend fun stop(): Boolean =
         when (activeProtocol) {
             ActiveProtocol.Chromecast -> stopChromecast()
@@ -466,6 +527,8 @@ private class AndroidCastManager(
         title: String,
         positionMs: Long,
         mediaProfile: CastMediaProfile,
+        queue: List<CastQueueEntry>,
+        queueIndex: Int,
     ): Boolean =
         withContext(Dispatchers.Main.immediate) {
             ensureCastCallbacks()
@@ -517,30 +580,66 @@ private class AndroidCastManager(
                         CastMediaProfile(contentType = selectedUrl.contentType())
                     }
 
-                val metadata =
-                    MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
-                        putString(MediaMetadata.KEY_TITLE, title)
-                    }
                 val info =
-                    MediaInfo
-                        .Builder(selectedUrl)
-                        .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
-                        .setContentType(selectedProfile.contentType ?: selectedUrl.contentType())
-                        .setMetadata(metadata)
-                        .setCustomData(selectedProfile.toCastCustomData(revision))
-                        .build()
+                    castMediaInfo(
+                        mediaUrl = selectedUrl,
+                        title = title,
+                        profile = selectedProfile,
+                        revision = revision,
+                        queueIndex = queueIndex,
+                    )
                 mutableState.update { it.copy(status = CastPlaybackStatus.Buffering) }
+                val usableQueue =
+                    queue
+                        .mapIndexedNotNull { index, entry ->
+                            val entryUrl =
+                                entry.fallbackMediaUrl
+                                    ?.takeIf { castMediaUrlError(it) == null }
+                                    ?: entry.mediaUrl.takeIf { castMediaUrlError(it) == null }
+                                    ?: return@mapIndexedNotNull null
+                            MediaQueueItem
+                                .Builder(
+                                    if (index == queueIndex) {
+                                        info
+                                    } else {
+                                        castMediaInfo(
+                                            mediaUrl = entryUrl,
+                                            title = entry.title,
+                                            profile =
+                                                if (entryUrl == entry.mediaUrl) {
+                                                    entry.mediaProfile
+                                                } else {
+                                                    CastMediaProfile(contentType = entryUrl.contentType())
+                                                },
+                                            revision = revision,
+                                            queueIndex = index,
+                                        )
+                                    },
+                                ).setAutoplay(true)
+                                .build()
+                        }.takeIf { items -> items.size == queue.size && queueIndex in items.indices }
                 val accepted =
                     withTimeoutOrNull(CAST_COMMAND_TIMEOUT_MS) {
-                        remote
-                            .load(
-                                MediaLoadRequestData
-                                    .Builder()
-                                    .setMediaInfo(info)
-                                    .setAutoplay(true)
-                                    .setCurrentTime(positionMs.coerceAtLeast(0L))
-                                    .build(),
-                            ).awaitSuccess()
+                        if (usableQueue != null && usableQueue.size > 1) {
+                            remote
+                                .queueLoad(
+                                    usableQueue.toTypedArray(),
+                                    queueIndex,
+                                    MediaStatus.REPEAT_MODE_REPEAT_OFF,
+                                    positionMs.coerceAtLeast(0L),
+                                    null,
+                                ).awaitSuccess()
+                        } else {
+                            remote
+                                .load(
+                                    MediaLoadRequestData
+                                        .Builder()
+                                        .setMediaInfo(info)
+                                        .setAutoplay(true)
+                                        .setCurrentTime(positionMs.coerceAtLeast(0L))
+                                        .build(),
+                                ).awaitSuccess()
+                        }
                     } == true
                 check(accepted) { "接收端拒绝加载媒体" }
                 activeProtocol = ActiveProtocol.Chromecast
@@ -648,6 +747,8 @@ private class AndroidCastManager(
                         dolbyVision = payload.castCapability("dolbyVisionSupported"),
                         dolbyAtmos = payload.castCapability("dolbyAtmosSupported"),
                         requestedMedia = payload.castCapability("requestedMediaSupported"),
+                        trackSelection = payload.castCapability("trackSelectionSupported"),
+                        queue = payload.castCapability("queueSupported"),
                     )
                 }
             "output.receipt" ->
@@ -659,6 +760,19 @@ private class AndroidCastManager(
                         dolbyAtmosOutput = payload.optBoolean("dolbyAtmosOutput", false),
                         detail = payload.optString("detail", "Cast 接收端输出回执"),
                     )
+                }
+            "session.state" ->
+                mutableState.update { state ->
+                    if (revision != state.sessionRevision || state.termination != null) {
+                        state
+                    } else {
+                        state.remoteUpdate(
+                            status = state.status,
+                            queueSize = payload.optInt("queueSize", state.queueSize),
+                            currentQueueIndex =
+                                payload.optInt("queueIndex", state.currentQueueIndex),
+                        )
+                    }
                 }
         }
     }
@@ -704,19 +818,66 @@ private class AndroidCastManager(
                     } else {
                         CastCapability.Unsupported
                     },
+                trackSelection =
+                    if (
+                        remote.mediaInfo
+                            ?.mediaTracks
+                            .orEmpty()
+                            .isNotEmpty()
+                    ) {
+                        CastCapability.Supported
+                    } else {
+                        mutableState.value.capabilities.trackSelection
+                    },
+                queue =
+                    if (mediaStatus.queueItemCount > 1) {
+                        CastCapability.Supported
+                    } else {
+                        mutableState.value.capabilities.queue
+                    },
             )
         if (playbackStatus == CastPlaybackStatus.Error) {
             mutableState.update { it.commandFailed("Chromecast 接收端报告播放错误") }
             return
         }
-        mutableState.update {
-            it.remoteUpdate(
-                status = playbackStatus,
-                positionMs = remote.approximateStreamPosition,
-                durationMs = remote.streamDuration,
-                volume = mediaStatus.streamVolume.toFloat(),
-                capabilities = capabilities,
-            )
+        val activeTrackIds = mediaStatus.activeTrackIds?.toSet().orEmpty()
+        val tracks =
+            remote.mediaInfo?.mediaTracks.orEmpty().mapNotNull { track ->
+                val kind =
+                    when (track.type) {
+                        MediaTrack.TYPE_AUDIO -> CastTrackKind.Audio
+                        MediaTrack.TYPE_TEXT -> CastTrackKind.Subtitle
+                        else -> return@mapNotNull null
+                    }
+                CastTrack(
+                    id = track.id,
+                    kind = kind,
+                    label = track.name ?: track.language ?: "轨道 ${track.id}",
+                    language = track.language,
+                    selected = track.id in activeTrackIds,
+                )
+            }
+        val currentQueueIndex =
+            remote.mediaInfo?.customData?.optInt("yfuseQueueIndex", 0) ?: 0
+        mutableState.update { state ->
+            val updated =
+                state.remoteUpdate(
+                    status = playbackStatus,
+                    positionMs = remote.approximateStreamPosition,
+                    durationMs = remote.streamDuration,
+                    volume = mediaStatus.streamVolume.toFloat(),
+                    capabilities = capabilities,
+                    queueSize = mediaStatus.queueItemCount,
+                    currentQueueIndex = currentQueueIndex,
+                    tracks = tracks,
+                )
+            if (currentQueueIndex != state.currentQueueIndex) {
+                updated.copy(
+                    outputEvidence = CastOutputEvidence(sessionRevision = state.sessionRevision),
+                )
+            } else {
+                updated
+            }
         }
     }
 
@@ -1276,10 +1437,34 @@ private fun CastMediaProfile.toJson(): JSONObject =
         put("dolbyAtmos", dolbyAtmos)
     }
 
-private fun CastMediaProfile.toCastCustomData(revision: Long): JSONObject =
+private fun CastMediaProfile.toCastCustomData(
+    revision: Long,
+    queueIndex: Int,
+): JSONObject =
     JSONObject()
         .put("yfuseRevision", revision)
+        .put("yfuseQueueIndex", queueIndex)
         .put("yfuseProfile", toJson())
+
+private fun castMediaInfo(
+    mediaUrl: String,
+    title: String,
+    profile: CastMediaProfile,
+    revision: Long,
+    queueIndex: Int,
+): MediaInfo {
+    val metadata =
+        MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
+            putString(MediaMetadata.KEY_TITLE, title)
+        }
+    return MediaInfo
+        .Builder(mediaUrl)
+        .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
+        .setContentType(profile.contentType ?: mediaUrl.contentType())
+        .setMetadata(metadata)
+        .setCustomData(profile.toCastCustomData(revision, queueIndex))
+        .build()
+}
 
 private fun JSONObject.castCapability(name: String): CastCapability =
     when {

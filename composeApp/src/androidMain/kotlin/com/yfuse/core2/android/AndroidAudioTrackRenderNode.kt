@@ -99,6 +99,31 @@ internal class AndroidAudioTrackRenderNode(
         return total
     }
 
+    /**
+     * Writes only the PCM bytes accepted immediately by AudioTrack.
+     *
+     * NativeDirect owns video pacing and audio delivery on the same worker. Blocking here until
+     * the sink has room would also stop MediaCodec video dequeue/release, producing visible bursts
+     * and stalls. The caller keeps the codec output buffer until [data] is fully consumed.
+     */
+    fun writeNonBlocking(
+        data: ByteBuffer,
+        presentationTimeUs: Long,
+    ): Int {
+        val audioTrack = checkNotNull(track) { "AudioTrack render node has not been configured" }
+        if (!data.hasRemaining()) return 0
+        val shouldAnchorClock = basePresentationTimeUs == null
+        val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_NON_BLOCKING)
+        check(written >= 0) { "AudioTrack.write failed with code $written" }
+        if (shouldAnchorClock && written > 0) {
+            basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
+        }
+        return written
+    }
+
+    val underrunCount: Int
+        get() = track?.underrunCount?.coerceAtLeast(0) ?: 0
+
     fun clockSnapshot(): YAudioClockSnapshot? {
         val audioTrack = track ?: return null
         val baseUs = basePresentationTimeUs ?: return null
