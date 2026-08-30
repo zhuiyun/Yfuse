@@ -366,6 +366,13 @@ internal class AndroidAdaptiveCore2YPlayer(
                 )
             }
             if (item.drmConfiguration != null) return null
+            val preservedProbe =
+                decision?.probe
+                    ?: if (nativeOnly) {
+                        routeEvaluator.probePlatformForNativeAttempt(item)
+                    } else {
+                        null
+                    }
             AppLog.info(
                 category = "player.core2",
                 event = "internal_route_attempt",
@@ -377,8 +384,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     ),
             )
             val probeHdrType =
-                decision
-                    ?.probe
+                preservedProbe
                     ?.playbackRequest
                     ?.video
                     ?.hdrType
@@ -389,9 +395,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                 runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
                 plannedAudioOutputPath = decision?.plan?.audioPath,
                 frameRateSwitchMode = frameRateSwitchMode,
-                plannedDolbyVisionConfig = decision?.probe?.dolbyVisionConfig,
+                plannedDolbyVisionConfig = preservedProbe?.dolbyVisionConfig,
                 confirmedDolbyVisionNalIdentity =
-                    decision?.probe?.unconfiguredDolbyVisionSignal == true,
+                    preservedProbe?.unconfiguredDolbyVisionSignal == true,
                 requireDolbyVisionIdentity =
                     probeHdrType == YHdrType.DolbyVision ||
                         (decision == null && item.hintedHdrType() == YHdrType.DolbyVision),

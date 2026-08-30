@@ -321,6 +321,11 @@ internal class AndroidCore2RouteEvaluator(
     private val platformProbe = AndroidCore2MediaProbe(context)
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
 
+    /** Preserves exact platform/container evidence when capability routing cannot advertise a plan. */
+    fun probePlatformForNativeAttempt(item: YMediaItem): YCore2ProbeResult.Success? =
+        (platformProbe.probe(item) as? YCore2ProbeResult.Success)
+            ?.withConfirmedDolbyVisionSourceHint(item)
+
     fun evaluate(
         item: YMediaItem,
         preferTunnel: Boolean = true,
