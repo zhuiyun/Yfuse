@@ -14,7 +14,7 @@ dependencies {
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.websockets)
     implementation(libs.ktor.json)
-    implementation("org.xerial:sqlite-jdbc:3.53.2.1")
+    implementation("org.xerial:sqlite-jdbc:3.53.4.0")
     testImplementation(kotlin("test"))
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.websockets)
