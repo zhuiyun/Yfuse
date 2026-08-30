@@ -1,6 +1,20 @@
 name: Build and publish Android TV
 
 on:
+  push:
+    branches:
+      - codex/android-tv-p0-20260830
+    paths:
+      - .github/workflows/tv-release.yml
+      - composeApp/gradle.lockfile
+      - gradle/**
+      - gradle.properties
+      - scripts/fetch-engines.sh
+      - scripts/verify-tv-artifact.py
+      - scripts/verify-tv-source.py
+      - settings.gradle.kts
+      - tvApp/**
+      - version.properties
   workflow_dispatch:
     inputs:
       version_code:
@@ -68,7 +82,7 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_to_play && secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON || '' }}
       TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
       EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
       APK_SIZE_BUDGET_BYTES: "50000000"
@@ -76,6 +90,24 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Resolve branch verification request
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_code="$(awk -F= '$1 == "VERSION_CODE" { print $2 }' version.properties)"
+          version_name="$(awk -F= '$1 == "VERSION_NAME" { print $2 }' version.properties)"
+          [[ "$version_code" =~ ^[1-9][0-9]*$ ]]
+          [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          {
+            printf 'VERSION_CODE=%s\n' "$version_code"
+            printf 'VERSION_NAME=%s\n' "$version_name"
+            printf 'RELEASE_NOTES=Android TV P0 branch verification build %s\n' "$GITHUB_SHA"
+            printf 'PUBLISH_TO_PLAY=false\n'
+            printf 'TV_PLAY_TRACK=tv:qa\n'
+            printf 'TV_PLAY_CLOSED_TRACK=\n'
+          } >> "$GITHUB_ENV"
 
       - name: Validate release request
         id: release_request
@@ -317,7 +349,7 @@ jobs:
       - name: Upload signed TV release
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: yfuse-tv-signed-${{ inputs.version_code }}-${{ github.sha }}
+          name: yfuse-tv-signed-${{ github.sha }}
           path: build/tv-release/
           if-no-files-found: error
           retention-days: 30
