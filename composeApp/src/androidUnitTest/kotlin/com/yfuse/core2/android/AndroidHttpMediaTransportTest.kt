@@ -10,6 +10,7 @@ import okhttp3.mockwebserver.MockWebServer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class AndroidHttpMediaTransportTest {
     @Test
@@ -65,6 +66,59 @@ class AndroidHttpMediaTransportTest {
                 transport.close()
             } finally {
                 server.shutdown()
+            }
+        }
+
+    @Test
+    fun `YCore proxy transport follows media redirects and preserves byte ranges`() =
+        runTest {
+            val server = MockWebServer()
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/cdn/movie.mkv"))
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 4-7/10")
+                    .setBody("4567"),
+            )
+            server.start()
+            try {
+                val transport =
+                    AndroidHttpMediaTransport(
+                        client = OkHttpClient.Builder().followRedirects(false).build(),
+                        followSafeRedirects = true,
+                    )
+                val response =
+                    transport.open(
+                        YMediaTransportRequest(
+                            uri = server.url("redirect/movie.mkv").toString(),
+                            protocol = YSourceProtocol.Http,
+                            headers = mapOf("User-Agent" to "Yfuse-test"),
+                            range = YByteRange(4, 7),
+                        ),
+                    )
+
+                assertEquals(206, response.statusCode)
+                assertEquals("bytes=4-7", server.takeRequest().getHeader("Range"))
+                assertEquals("bytes=4-7", server.takeRequest().getHeader("Range"))
+                transport.close()
+            } finally {
+                server.shutdown()
+            }
+        }
+
+    @Test
+    fun `redirectable media transport rejects provider credentials before opening`() =
+        runTest {
+            val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
+
+            assertFailsWith<IllegalArgumentException> {
+                transport.open(
+                    YMediaTransportRequest(
+                        uri = "https://media.invalid/movie.mkv",
+                        protocol = YSourceProtocol.Https,
+                        headers = mapOf("X-Emby-Token" to "private"),
+                    ),
+                )
             }
         }
 }

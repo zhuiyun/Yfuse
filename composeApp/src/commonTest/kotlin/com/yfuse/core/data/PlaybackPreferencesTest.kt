@@ -197,11 +197,16 @@ class PlaybackPreferencesTest {
                 primarySubtitle = RememberedPlaybackTrack("zho", "简体", "srt"),
                 secondarySubtitle = RememberedPlaybackTrack("eng", "English", "ass"),
                 audioDelayMs = 25_000L,
+                audioEnhancement = "Unknown",
                 subtitleOffsetMs = 90_000L,
                 subtitleScale = 4f,
                 subtitleBrightness = 0.1f,
                 subtitlePosition = 0.1f,
                 subtitleStylePreset = "Unknown",
+                subtitleTextColorArgb = -1L,
+                subtitleBackgroundColorArgb = 0x1FFFFFFFFL,
+                subtitleOutlineColorArgb = -2L,
+                subtitleOutlineWidth = 99f,
                 speed = 8f,
                 aspectMode = "not-a-mode",
             )
@@ -210,11 +215,16 @@ class PlaybackPreferencesTest {
         val restored = PlaybackPreferences(settings).rememberedSeriesPlayback("server-a", "series-1")
         assertEquals(RememberedPlaybackTrack("zho", "国语", "eac3"), restored?.audio)
         assertEquals(10_000L, restored?.audioDelayMs)
+        assertEquals("Off", restored?.audioEnhancement)
         assertEquals(60_000L, restored?.subtitleOffsetMs)
         assertEquals(1.8f, restored?.subtitleScale)
         assertEquals(0.35f, restored?.subtitleBrightness)
         assertEquals(0.60f, restored?.subtitlePosition)
         assertEquals("Standard", restored?.subtitleStylePreset)
+        assertEquals(0xFFFFFFFFL, restored?.subtitleTextColorArgb)
+        assertEquals(0xFFFFFFFFL, restored?.subtitleBackgroundColorArgb)
+        assertEquals(0xFFFFFFFEL, restored?.subtitleOutlineColorArgb)
+        assertEquals(6f, restored?.subtitleOutlineWidth)
         assertEquals(4f, restored?.speed)
         assertEquals("Fit", restored?.aspectMode)
         assertNull(PlaybackPreferences(settings).rememberedSeriesPlayback("server-b", "series-1"))

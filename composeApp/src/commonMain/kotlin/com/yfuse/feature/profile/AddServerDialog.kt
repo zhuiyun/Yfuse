@@ -45,6 +45,7 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.feature.servers.ServersIntent
@@ -83,7 +84,7 @@ fun AddServerDialog(
                 if (editing) {
                     "名称可直接修改；连接信息变更后需重新登录"
                 } else {
-                    "连接你自己的 Emby 服务器"
+                    "连接 Emby、Jellyfin 或 Plex 服务器"
                 },
             onClose = onDismiss,
         )
@@ -194,6 +195,22 @@ fun AddServerDialog(
                     .fillMaxWidth()
                     .glass(GlassShapes.card, palette.card2, palette.border),
             ) {
+                FormRow(label = "服务类型", divider = true, labelBottomPadding = 6.dp) {
+                    Row(
+                        modifier = Modifier.selectableGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        ProviderSegment("Emby", MediaServerKind.Emby, form.kind, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Emby))
+                        }
+                        ProviderSegment("Jellyfin", MediaServerKind.Jellyfin, form.kind, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Jellyfin))
+                        }
+                        ProviderSegment("Plex", MediaServerKind.Plex, form.kind, Modifier.weight(1f)) {
+                            onIntent(ServersIntent.ProviderChanged(MediaServerKind.Plex))
+                        }
+                    }
+                }
                 FormInput(
                     label = "显示名称",
                     value = form.serverName,
@@ -238,26 +255,37 @@ fun AddServerDialog(
                     .fillMaxWidth()
                     .glass(GlassShapes.card, palette.card2, palette.border),
             ) {
-                FormInput(
-                    label = "用户名",
-                    value = form.username,
-                    placeholder = "输入用户名",
-                    enabled = !form.submitting,
-                    divider = true,
-                ) { onIntent(ServersIntent.UsernameChanged(it)) }
-                FormInput(
-                    label = "密码",
-                    value = form.password,
-                    placeholder = if (editing) "仅修改名称时无需填写" else "留空表示无密码",
-                    enabled = !form.submitting,
-                    password = true,
-                    divider = false,
-                ) { onIntent(ServersIntent.PasswordChanged(it)) }
+                if (form.kind == MediaServerKind.Plex) {
+                    FormInput(
+                        label = "Plex Token",
+                        value = form.password,
+                        placeholder = if (editing) "修改连接时重新填写 Token" else "输入 X-Plex-Token",
+                        enabled = !form.submitting,
+                        password = true,
+                        divider = false,
+                    ) { onIntent(ServersIntent.PasswordChanged(it)) }
+                } else {
+                    FormInput(
+                        label = "用户名",
+                        value = form.username,
+                        placeholder = "输入用户名",
+                        enabled = !form.submitting,
+                        divider = true,
+                    ) { onIntent(ServersIntent.UsernameChanged(it)) }
+                    FormInput(
+                        label = "密码",
+                        value = form.password,
+                        placeholder = if (editing) "仅修改名称时无需填写" else "留空表示无密码",
+                        enabled = !form.submitting,
+                        password = true,
+                        divider = false,
+                    ) { onIntent(ServersIntent.PasswordChanged(it)) }
+                }
             }
 
             // Picking a discovered server loads its public users; offer them as one tap
             // instead of making the name be typed from memory.
-            if (state.publicUsers.isNotEmpty()) {
+            if (form.kind != MediaServerKind.Plex && state.publicUsers.isNotEmpty()) {
                 Row(
                     modifier = Modifier.selectableGroup(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -326,7 +354,7 @@ fun AddServerDialog(
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,
             enabled =
-                form.canSubmit &&
+                (form.canSubmit || (editing && !state.connectionEdited)) &&
                     endpointValidation.allowed &&
                     (!editing || form.serverName.isNotBlank()),
             loading = form.submitting,
@@ -456,4 +484,20 @@ private fun ProtocolSegment(
             color = if (selected) accent.accent else palette.sub2,
         )
     }
+}
+
+@Composable
+private fun ProviderSegment(
+    label: String,
+    kind: MediaServerKind,
+    selectedKind: MediaServerKind,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    ProtocolSegment(
+        label = label,
+        selected = kind == selectedKind,
+        modifier = modifier,
+        onClick = onClick,
+    )
 }

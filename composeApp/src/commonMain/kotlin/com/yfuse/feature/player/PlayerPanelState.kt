@@ -121,6 +121,7 @@ data class SubtitleControlState(
     val brightness: Float = 1f,
     val position: Float = DEFAULT_SUBTITLE_POSITION,
     val stylePreset: SubtitleStylePreset = SubtitleStylePreset.Standard,
+    val appearance: SubtitleAppearance = SubtitleAppearance(),
     val secondaryTrackId: String? = null,
     val secondarySupported: Boolean = false,
     val secondaryUnavailableReason: String? = null,
@@ -128,6 +129,7 @@ data class SubtitleControlState(
     val scaleAvailable: Boolean = true,
     val brightnessAvailable: Boolean = true,
     val positionAvailable: Boolean = true,
+    val appearanceAvailable: Boolean = true,
     val unavailableReason: String? = null,
 )
 
@@ -137,6 +139,10 @@ data class SubtitleControlActions(
     val onBrightness: (Float) -> Unit = {},
     val onPosition: (Float) -> Unit = {},
     val onStylePreset: (SubtitleStylePreset) -> Unit = {},
+    val onTextColor: (Long) -> Unit = {},
+    val onBackgroundColor: (Long) -> Unit = {},
+    val onOutlineColor: (Long) -> Unit = {},
+    val onOutlineWidth: (Float) -> Unit = {},
     val onSecondaryTrack: (String) -> Unit = {},
 )
 
@@ -145,22 +151,44 @@ enum class SubtitleStylePreset(
     val scale: Float,
     val brightness: Float,
     val position: Float,
+    val appearance: SubtitleAppearance,
 ) {
-    Standard("标准", 1f, 1f, DEFAULT_SUBTITLE_POSITION),
-    Cinema("影院", 1.05f, 0.85f, 0.88f),
-    Compact("紧凑", 0.85f, 0.80f, 0.94f),
-    Accessible("大字幕", 1.30f, 1f, 0.84f),
-    Custom("自定义", 1f, 1f, DEFAULT_SUBTITLE_POSITION),
+    Standard("标准", 1f, 1f, DEFAULT_SUBTITLE_POSITION, SubtitleAppearance()),
+    Cinema(
+        "影院",
+        1.05f,
+        0.85f,
+        0.88f,
+        SubtitleAppearance(textColorArgb = 0xFFFFF2CCL, outlineWidth = 2.5f),
+    ),
+    Compact(
+        "紧凑",
+        0.85f,
+        0.80f,
+        0.94f,
+        SubtitleAppearance(outlineWidth = 1.5f),
+    ),
+    Accessible(
+        "大字幕",
+        1.30f,
+        1f,
+        0.84f,
+        SubtitleAppearance(backgroundColorArgb = 0x99000000L, outlineWidth = 3f),
+    ),
+    Custom("自定义", 1f, 1f, DEFAULT_SUBTITLE_POSITION, SubtitleAppearance()),
 }
 
 data class AudioControlState(
     val delayMs: Long = 0L,
+    val enhancement: AudioEnhancementMode = AudioEnhancementMode.Off,
     val available: Boolean = true,
+    val enhancementAvailable: Boolean = true,
     val unavailableReason: String? = null,
 )
 
 data class AudioControlActions(
     val onDelay: (Long) -> Unit = {},
+    val onEnhancement: (AudioEnhancementMode) -> Unit = {},
 )
 
 const val DEFAULT_SUBTITLE_POSITION = 0.92f

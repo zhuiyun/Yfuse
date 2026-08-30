@@ -218,6 +218,7 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
         val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
         !knownUnsupportedDolbyProfile &&
             (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
+            item.externalSubtitles.isEmpty() &&
             item.externalSubtitleUri.isCore2SubtitleSourceSupported() &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
     }
@@ -247,7 +248,12 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
                 version?.dolbyVision != true ||
                     version?.dolbyProfile == null ||
                     version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
-            externalSubtitleSupported = item.externalSubtitleUri.isCore2SubtitleSourceSupported(),
+            // YCore currently exposes one sidecar source. Provider-owned multi-track lists stay
+            // on Exo/mpv so every Plex track remains selectable instead of silently dropping all
+            // but one.
+            externalSubtitleSupported =
+                item.externalSubtitles.isEmpty() &&
+                    item.externalSubtitleUri.isCore2SubtitleSourceSupported(),
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
 }

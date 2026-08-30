@@ -10,6 +10,7 @@ class DiagnosticRedactorTest {
         val input =
             """
             https://example.test/video?api_key=secret-key&item=42
+            https://plex.example/video?X-Plex-Token=plex-secret&item=43
             Authorization: Bearer secret-token
             Authorization=Basic YWRtaW46c2VjcmV0
             {"AccessToken":"server-token","name":"safe"}
@@ -25,6 +26,7 @@ class DiagnosticRedactorTest {
         val redacted = redactDiagnosticText(input)
 
         assertFalse("secret-key" in redacted)
+        assertFalse("plex-secret" in redacted)
         assertFalse("secret-token" in redacted)
         assertFalse("server-token" in redacted)
         assertFalse("YWRtaW46c2VjcmV0" in redacted)

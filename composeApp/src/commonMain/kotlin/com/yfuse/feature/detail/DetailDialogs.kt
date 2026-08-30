@@ -569,6 +569,7 @@ internal fun OrganizationContainerDialog(
                     ) { container ->
                         val added = container.id in addedIds
                         val adding = container.id in addingIds
+                        val editable = container.editable
                         val kind =
                             if (container.kind == MediaContainerKind.BoxSet) {
                                 "合集"
@@ -582,9 +583,12 @@ internal fun OrganizationContainerDialog(
                                     append(" · ")
                                     append(container.title)
                                     if (adding) append(" · 正在加入…")
+                                    if (!editable) append(" · 智能规则，只读")
                                 },
                             selected = added,
-                            onClick = { if (!adding && !added) onAdd(container.id) },
+                            onClick = {
+                                if (editable && !adding && !added) onAdd(container.id)
+                            },
                         )
                     }
                 }

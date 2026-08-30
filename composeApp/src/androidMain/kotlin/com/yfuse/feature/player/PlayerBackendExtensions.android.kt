@@ -19,6 +19,9 @@ internal class PlayerBackendExtensions(
     val supportsAudioDelay: Boolean
         get() = engine.supportsAudioDelay
 
+    val supportsAudioEnhancement: Boolean
+        get() = engine.supportsAudioEnhancement
+
     val supportsSubtitleOffset: Boolean
         get() = engine.supportsSubtitleOffset
 
@@ -31,7 +34,12 @@ internal class PlayerBackendExtensions(
     val supportsSubtitlePosition: Boolean
         get() = engine.supportsSubtitlePosition
 
+    val supportsSubtitleAppearance: Boolean
+        get() = engine.supportsSubtitleAppearance
+
     fun setAudioDelayMs(delayMs: Long): Boolean = engine.setAudioDelayMs(delayMs)
+
+    fun setAudioEnhancement(mode: AudioEnhancementMode): Boolean = engine.setAudioEnhancement(mode)
 
     fun selectSecondarySubtitleTrack(id: String): Boolean = engine.selectSecondarySubtitleTrack(id)
 
@@ -42,6 +50,8 @@ internal class PlayerBackendExtensions(
     fun setSubtitleBrightness(brightness: Float): Boolean = engine.setSubtitleBrightness(brightness)
 
     fun setSubtitlePosition(position: Float): Boolean = engine.setSubtitlePosition(position)
+
+    fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean = engine.setSubtitleAppearance(appearance)
 
     fun setPauseAtEndOfCurrentItem(enabled: Boolean) {
         engine.setPauseAtEndOfCurrentItem(enabled)

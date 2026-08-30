@@ -53,4 +53,16 @@ class ImageCacheKeyTest {
         assertFalse("second" in cacheKey)
         assertFalse("emby-token" in cacheKey.lowercase())
     }
+
+    @Test
+    fun plex_token_is_account_scoped_and_never_persisted_in_the_cache_key() {
+        val cacheKey =
+            mediaCacheKeyForUrl(
+                "https://plex.example/library/parts/12/file.mkv?X-Plex-Token=plex-secret",
+            )
+
+        assertTrue(cacheKey.endsWith("https://plex.example/library/parts/12/file.mkv"))
+        assertFalse("plex-secret" in cacheKey)
+        assertFalse("plex-token" in cacheKey.lowercase())
+    }
 }

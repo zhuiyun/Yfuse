@@ -32,7 +32,9 @@ import androidx.media3.common.util.UnstableApi
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.CastPlaybackStatus
+import com.yfuse.core.cast.CastQueueEntry
 import com.yfuse.core.cast.CastTermination
+import com.yfuse.core.cast.CastTrackKind
 import com.yfuse.core.cast.castRecoveryDecision
 import com.yfuse.core.cast.formatDlnaTime
 import com.yfuse.core.data.DanmakuPreferences
@@ -44,7 +46,6 @@ import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SeriesPlaybackPreference
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
-import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
@@ -127,7 +128,6 @@ internal fun PlayerRoot(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val themePreferences = remember { GlobalContext.get().get<ThemePreferences>() }
     val playbackNetworkFlow = remember { playbackNetworkClasses() }
     val playbackNetworkClass by
         playbackNetworkFlow.collectAsState(initial = currentPlaybackNetworkClass())
@@ -601,6 +601,19 @@ internal fun PlayerRoot(
     }
     val castManager = remember { GlobalContext.get().get<CastManager>() }
     val castState by castManager.state.collectAsState()
+    var pendingSeek by remember { mutableStateOf(SeekMergeState()) }
+    LaunchedEffect(pendingSeek.sequence) {
+        val request = pendingSeek
+        val positionMs = request.positionMs ?: return@LaunchedEffect
+        delay(SEEK_MERGE_DEBOUNCE_MS)
+        if (pendingSeek.sequence != request.sequence) return@LaunchedEffect
+        if (castState.hasActiveSession) {
+            castManager.seekTo(positionMs)
+        } else {
+            playbackGate.seekTo(positionMs)
+        }
+        pendingSeek = pendingSeek.consumed(request.sequence)
+    }
     val requestCastDiscovery =
         rememberLocalNetworkPermissionRequest(
             onGranted = { scope.launch { castManager.discover() } },
@@ -1085,7 +1098,15 @@ internal fun PlayerRoot(
         secondarySubtitleTrackId = null
         restoreSubtitlesOff = remembered?.primarySubtitlesOff == true
         requestedPlaybackSpeed = remembered?.speed ?: 1f
-        audioControls = audioControls.copy(delayMs = remembered?.audioDelayMs ?: 0L)
+        audioControls =
+            audioControls.copy(
+                delayMs = remembered?.audioDelayMs ?: 0L,
+                enhancement =
+                    remembered
+                        ?.audioEnhancement
+                        ?.let { stored -> AudioEnhancementMode.entries.firstOrNull { it.name == stored } }
+                        ?: AudioEnhancementMode.Off,
+            )
         scaleMode =
             remembered
                 ?.aspectMode
@@ -1102,6 +1123,13 @@ internal fun PlayerRoot(
                         ?.subtitleStylePreset
                         ?.let { stored -> SubtitleStylePreset.entries.firstOrNull { it.name == stored } }
                         ?: SubtitleStylePreset.Standard,
+                appearance =
+                    SubtitleAppearance(
+                        textColorArgb = remembered?.subtitleTextColorArgb ?: 0xFFFFFFFFL,
+                        backgroundColorArgb = remembered?.subtitleBackgroundColorArgb ?: 0x00000000L,
+                        outlineColorArgb = remembered?.subtitleOutlineColorArgb ?: 0xFF000000L,
+                        outlineWidth = remembered?.subtitleOutlineWidth ?: 2f,
+                    ),
             )
     }
 
@@ -1144,19 +1172,21 @@ internal fun PlayerRoot(
                     info?.let {
                         TrickplayStoryboard(
                             urlPattern =
-                                EmbyStream.trickplayTilePattern(
-                                    baseUrl = server.baseUrl,
-                                    itemId = key.itemId,
-                                    mediaSourceId = key.mediaSourceId,
-                                    width = it.width,
-                                    token = server.accessToken,
-                                ),
+                                it.urlPattern
+                                    ?: EmbyStream.trickplayTilePattern(
+                                        baseUrl = server.baseUrl,
+                                        itemId = key.itemId,
+                                        mediaSourceId = key.mediaSourceId,
+                                        width = it.width,
+                                        token = server.accessToken,
+                                    ),
                             width = it.width,
                             height = it.height,
                             tileColumns = it.tileColumns,
                             tileRows = it.tileRows,
                             intervalMs = it.intervalMs,
                             thumbnailCount = it.thumbnailCount,
+                            urlIndexMultiplier = it.urlIndexMultiplier,
                         )
                     }
                 trickplayCache = trickplayCache.withTrickplayResult(key, storyboard)
@@ -2024,6 +2054,19 @@ internal fun PlayerRoot(
                 positionMs = positionMs,
                 fallbackMediaUrl = fallbackUrl,
                 mediaProfile = item.castMediaProfile(),
+                queue =
+                    latestActiveItems.map { queued ->
+                        CastQueueEntry(
+                            mediaUrl = queued.url,
+                            title = queued.title,
+                            fallbackMediaUrl =
+                                queued.transcodeUrl
+                                    .ifBlank { queued.fallbackTranscodeUrl }
+                                    .takeIf(String::isNotBlank),
+                            mediaProfile = queued.castMediaProfile(),
+                        )
+                    },
+                queueIndex = index,
             )
         if (!loaded) return false
         if (localState.currentIndex != index) player.selectItem(index)
@@ -2034,6 +2077,22 @@ internal fun PlayerRoot(
             sleepTimerArmedItemReachedEnd = false
         }
         return true
+    }
+    LaunchedEffect(
+        castState.sessionRevision,
+        castState.currentQueueIndex,
+        castState.queueSize,
+        castState.hasActiveSession,
+    ) {
+        if (
+            castState.hasActiveSession &&
+            castState.queueSize > 1 &&
+            castState.currentQueueIndex in latestActiveItems.indices &&
+            localState.currentIndex != castState.currentQueueIndex
+        ) {
+            player.selectItem(castState.currentQueueIndex)
+            player.pause()
+        }
     }
 
     var autoAdvancedCastRevision by remember { mutableStateOf<Long?>(null) }
@@ -2111,6 +2170,7 @@ internal fun PlayerRoot(
                     subtitleScale = subtitleControls.scale,
                     subtitleBrightness = subtitleControls.brightness,
                     subtitlePosition = subtitleControls.position,
+                    subtitleAppearance = subtitleControls.appearance,
                     modifier = Modifier.fillMaxSize(),
                 )
             is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize())
@@ -2122,6 +2182,7 @@ internal fun PlayerRoot(
                     subtitleScale = subtitleControls.scale,
                     subtitleBrightness = subtitleControls.brightness,
                     subtitlePosition = subtitleControls.position,
+                    subtitleAppearance = subtitleControls.appearance,
                     modifier = Modifier.fillMaxSize(),
                 )
         }
@@ -2174,12 +2235,24 @@ internal fun PlayerRoot(
                         playbackGate.retry()
                     }
                 },
+                onExternalPlayer =
+                    currentItem?.let { item ->
+                        {
+                            val mediaUrl =
+                                if (state.transcoding) {
+                                    item.transcodeUrl.ifBlank { item.fallbackTranscodeUrl }
+                                } else {
+                                    item.url
+                                }
+                            if (!openExternalPlayer(context, mediaUrl, item.title)) {
+                                Toast
+                                    .makeText(context, "未找到可处理此视频的外部播放器", Toast.LENGTH_SHORT)
+                                    .show()
+                            }
+                        }
+                    },
                 onSeek = { positionMs ->
-                    if (castState.hasActiveSession) {
-                        scope.launch { castManager.seekTo(positionMs) }
-                    } else {
-                        playbackGate.seekTo(positionMs)
-                    }
+                    pendingSeek = pendingSeek.offer(positionMs)
                 },
                 onSelectItem = { index ->
                     if (sleepTimerOption == SleepTimerOption.EndOfEpisode) {
@@ -2205,7 +2278,9 @@ internal fun PlayerRoot(
                     }
                     val deviceId = castState.activeDeviceId
                     if (castState.hasActiveSession && deviceId != null && previous in activeItems.indices) {
-                        scope.launch { loadCastItem(deviceId, previous, 0L) }
+                        scope.launch {
+                            if (!castManager.queuePrevious()) loadCastItem(deviceId, previous, 0L)
+                        }
                         true
                     } else {
                         playbackGate.selectPrevious()
@@ -2221,7 +2296,9 @@ internal fun PlayerRoot(
                     }
                     val deviceId = castState.activeDeviceId
                     if (castState.hasActiveSession && deviceId != null && next in activeItems.indices) {
-                        scope.launch { loadCastItem(deviceId, next, 0L) }
+                        scope.launch {
+                            if (!castManager.queueNext()) loadCastItem(deviceId, next, 0L)
+                        }
                         true
                     } else {
                         playbackGate.selectNext()
@@ -2229,19 +2306,36 @@ internal fun PlayerRoot(
                 },
                 onRefreshEpisodes = onRefreshEpisodes,
                 onSelectAudio = { id ->
-                    state.audioTracks.firstOrNull { it.id == id }?.let { track ->
+                    val selectedTrack = state.audioTracks.firstOrNull { it.id == id }
+                    selectedTrack?.let { track ->
                         handoverItemId = currentItem?.id
                         audioRestore = track.toRestorePreference()
                         rememberSeriesPlayback { remembered ->
                             remembered.copy(audio = track.toRememberedPlaybackTrack())
                         }
                     }
-                    player.selectTrack(YTrackType.Audio, id)
+                    if (castState.hasActiveSession && selectedTrack != null) {
+                        scope.launch {
+                            castManager.selectTrack(
+                                kind = CastTrackKind.Audio,
+                                language = selectedTrack.language,
+                                label = selectedTrack.label,
+                            )
+                        }
+                    } else {
+                        player.selectTrack(YTrackType.Audio, id)
+                    }
                 },
                 audioControls =
                     audioControls.copy(
                         available =
                             backendExtensions.supportsAudioDelay ||
+                                (
+                                    sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                        !core2NativeOnlyActive
+                                ),
+                        enhancementAvailable =
+                            backendExtensions.supportsAudioEnhancement ||
                                 (
                                     sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                         !core2NativeOnlyActive
@@ -2262,9 +2356,26 @@ internal fun PlayerRoot(
                             audioControls = audioControls.copy(delayMs = it)
                             rememberSeriesPlayback { remembered -> remembered.copy(audioDelayMs = it) }
                         },
+                        onEnhancement = {
+                            audioControls = audioControls.copy(enhancement = it)
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(audioEnhancement = it.name)
+                            }
+                        },
                     ),
                 onSelectSubtitle = { id ->
                     val track = state.subtitleTracks.firstOrNull { it.id == id }
+                    if (castState.hasActiveSession) {
+                        scope.launch {
+                            castManager.selectTrack(
+                                kind = CastTrackKind.Subtitle,
+                                language = track?.language,
+                                label = track?.label.orEmpty(),
+                                enabled = id != EngineTrack.OFF,
+                            )
+                        }
+                        return@PlayerControls
+                    }
                     if (id == EngineTrack.OFF) {
                         handoverItemId = currentItem?.id
                         subtitleRestore = null
@@ -2358,6 +2469,12 @@ internal fun PlayerRoot(
                                     sessionEngineSelection == PlaybackEngineSelection.Auto &&
                                         !core2NativeOnlyActive
                                 ),
+                        appearanceAvailable =
+                            backendExtensions.supportsSubtitleAppearance ||
+                                (
+                                    sessionEngineSelection == PlaybackEngineSelection.Auto &&
+                                        !core2NativeOnlyActive
+                                ),
                         unavailableReason =
                             if (
                                 sessionEngineSelection == PlaybackEngineSelection.Auto &&
@@ -2423,6 +2540,7 @@ internal fun PlayerRoot(
                                     scale = preset.scale,
                                     brightness = preset.brightness,
                                     position = preset.position,
+                                    appearance = preset.appearance,
                                     stylePreset = preset,
                                 )
                             rememberSeriesPlayback { remembered ->
@@ -2430,7 +2548,67 @@ internal fun PlayerRoot(
                                     subtitleScale = preset.scale,
                                     subtitleBrightness = preset.brightness,
                                     subtitlePosition = preset.position,
+                                    subtitleTextColorArgb = preset.appearance.textColorArgb,
+                                    subtitleBackgroundColorArgb = preset.appearance.backgroundColorArgb,
+                                    subtitleOutlineColorArgb = preset.appearance.outlineColorArgb,
+                                    subtitleOutlineWidth = preset.appearance.outlineWidth,
                                     subtitleStylePreset = preset.name,
+                                )
+                            }
+                        },
+                        onTextColor = { color ->
+                            val appearance = subtitleControls.appearance.copy(textColorArgb = color)
+                            subtitleControls =
+                                subtitleControls.copy(
+                                    appearance = appearance,
+                                    stylePreset = SubtitleStylePreset.Custom,
+                                )
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(
+                                    subtitleTextColorArgb = color,
+                                    subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                )
+                            }
+                        },
+                        onBackgroundColor = { color ->
+                            val appearance = subtitleControls.appearance.copy(backgroundColorArgb = color)
+                            subtitleControls =
+                                subtitleControls.copy(
+                                    appearance = appearance,
+                                    stylePreset = SubtitleStylePreset.Custom,
+                                )
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(
+                                    subtitleBackgroundColorArgb = color,
+                                    subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                )
+                            }
+                        },
+                        onOutlineColor = { color ->
+                            val appearance = subtitleControls.appearance.copy(outlineColorArgb = color)
+                            subtitleControls =
+                                subtitleControls.copy(
+                                    appearance = appearance,
+                                    stylePreset = SubtitleStylePreset.Custom,
+                                )
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(
+                                    subtitleOutlineColorArgb = color,
+                                    subtitleStylePreset = SubtitleStylePreset.Custom.name,
+                                )
+                            }
+                        },
+                        onOutlineWidth = { width ->
+                            val appearance = subtitleControls.appearance.copy(outlineWidth = width)
+                            subtitleControls =
+                                subtitleControls.copy(
+                                    appearance = appearance,
+                                    stylePreset = SubtitleStylePreset.Custom,
+                                )
+                            rememberSeriesPlayback { remembered ->
+                                remembered.copy(
+                                    subtitleOutlineWidth = width,
+                                    subtitleStylePreset = SubtitleStylePreset.Custom.name,
                                 )
                             }
                         },
@@ -2512,15 +2690,16 @@ internal fun PlayerRoot(
                 engineOptions =
                     PlaybackEngineSelection.selectable.map { selection ->
                         val label =
-                            selection.lockedEngine?.let { "锁定 ${it.label}" }
-                                ?: "YCore 智能自动"
+                            selection.lockedEngine?.let { "本视频使用 ${it.label}" }
+                                ?: "本视频跟随 YCore 智能策略"
                         label to (selection == sessionEngineSelection)
                     },
                 onSelectEngine = { index ->
                     PlaybackEngineSelection.selectable.getOrNull(index)?.let { selection ->
-                        playbackPreferences.setEngineSelection(selection)
-                        selection.lockedEngine?.let(themePreferences::setEngine)
                         selectEngineStrategy(selection)
+                        Toast
+                            .makeText(context, "仅覆盖当前视频；全局播放策略未更改", Toast.LENGTH_SHORT)
+                            .show()
                     }
                 },
                 // Manual escape hatch when the picture is black but audio plays. Offered on
@@ -2592,6 +2771,8 @@ internal fun PlayerRoot(
                         "播放 ${capabilities.playPause.label} · " +
                             "跳转 ${capabilities.seek.label} · " +
                             "音量 ${capabilities.volume.label} · " +
+                            "轨道 ${capabilities.trackSelection.label} · " +
+                            "队列 ${capabilities.queue.label} · " +
                             "DV ${capabilities.dolbyVision.label} · " +
                             "Atmos ${capabilities.dolbyAtmos.label}"
                     },

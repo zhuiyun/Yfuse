@@ -40,4 +40,15 @@ class PlaybackDiagnosticsTest {
         assertFalse("secret-json" in safe)
         assertTrue("\"api_key\":\"<redacted>\"" in safe)
     }
+
+    @Test
+    fun plex_playback_token_is_redacted() {
+        val safe =
+            sanitizePlaybackUrl(
+                "https://plex/library/parts/1/file.mkv?X-Plex-Token=plex-secret",
+            )
+
+        assertFalse("plex-secret" in safe)
+        assertTrue("X-Plex-Token=<redacted>" in safe)
+    }
 }

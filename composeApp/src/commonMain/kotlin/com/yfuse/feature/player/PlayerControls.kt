@@ -81,8 +81,8 @@ internal fun shouldShowManualSkipPill(
  * lasted [HOLD_SEEK_RAMP_MS]. This keeps short holds precise while still allowing a long
  * hold to cross an episode.
  *
- * The engine is now sought every 300ms while held, so the decoded picture visibly follows
- * the HUD without hammering a remote direct-play stream with frame-rate-frequency seeks.
+ * The control proposes a seek every 300ms while held. The player-level latest-wins reducer merges
+ * bursts before they reach a local engine or Cast receiver, while the HUD remains immediate.
  */
 private const val HOLD_SEEK_TICK_MS = 300L
 private const val HOLD_SEEK_STEP_MS = 3_000L
@@ -108,6 +108,7 @@ internal fun PlayerControls(
     onEnterPictureInPicture: () -> Unit,
     onPlayPause: () -> Unit,
     onRetry: () -> Unit,
+    onExternalPlayer: (() -> Unit)? = null,
     onSeek: (Long) -> Unit,
     onSelectItem: (Int) -> Unit,
     onPreviousItem: () -> Boolean,
@@ -201,7 +202,7 @@ internal fun PlayerControls(
     var gestureHud by remember { mutableStateOf<String?>(null) }
     var controlsHaveFocus by remember { mutableStateOf(false) }
     // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
-    // is held. [holdSeekTarget] is the last position already sent to the playback engine.
+    // is held. [holdSeekTarget] is the newest position proposed to the playback coordinator.
     var holdSeekDirection by remember { mutableIntStateOf(0) }
     var holdSeekTarget by remember { mutableLongStateOf(0L) }
     // The app's own vocabulary, not Compose's two-constant one. These two call sites were
@@ -444,7 +445,7 @@ internal fun PlayerControls(
             val span = latestDuration.coerceAtLeast(1L)
             val step = if (heldMs < HOLD_SEEK_RAMP_MS) HOLD_SEEK_STEP_MS else HOLD_SEEK_FAST_STEP_MS
             holdSeekTarget = (holdSeekTarget + direction * step).coerceIn(0L, span)
-            // Real seek while held: decoded video follows the timeline instead of waiting for release.
+            // Proposed seek while held; PlayerRoot merges closely-spaced commands latest-wins.
             latestOnSeek(holdSeekTarget)
             gestureHud = "${if (direction < 0) "快退" else "快进"} " +
                 "${holdSeekTarget.asClock()} / ${span.asClock()}"
@@ -520,7 +521,7 @@ internal fun PlayerControls(
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onPress = {
-                            // The engine is already following every held tick; release only stops it.
+                            // The engine follows merged held ticks; release only stops the producer.
                             tryAwaitRelease()
                             if (holdSeekDirection != 0) {
                                 holdSeekDirection = 0
@@ -658,6 +659,7 @@ internal fun PlayerControls(
             PlaybackErrorOverlay(
                 message = message,
                 onRetry = onRetry,
+                onExternalPlayer = onExternalPlayer,
                 onBack = onBack,
             )
             return@Box
@@ -855,6 +857,7 @@ internal fun PlayerControls(
                     onNextDiscTitle = onNextDiscTitle,
                     onNextDiscChapter = onNextDiscChapter,
                     onShowDiscMenu = onShowDiscMenu,
+                    onExternalPlayer = onExternalPlayer,
                     onDiscoverCast = onDiscoverCast,
                     onCastTo = onCastTo,
                     onStopCast = onStopCast,

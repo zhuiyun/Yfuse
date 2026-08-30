@@ -9,6 +9,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.DiscoveredServer
 import com.yfuse.core.network.LanDiscovery
@@ -24,6 +25,8 @@ import kotlinx.coroutines.launch
 
 /** 添加服务器 form: protocol segment + address + port, plus the credentials. */
 data class LoginForm(
+    /** Emby/Jellyfin share one login protocol; Plex uses a server-issued token. */
+    val kind: MediaServerKind = MediaServerKind.Emby,
     /** Optional on first login; prefilled with the saved display name while editing. */
     val serverName: String = "",
     /** The prototype defaults the protocol segment to HTTPS. */
@@ -59,13 +62,21 @@ data class LoginForm(
 
     val canStartQuickConnect: Boolean
         get() =
-            parseServerAddress(host)?.host?.isNotBlank() == true &&
-                validServerPort(port) &&
-                validateEmbyServerEndpoint(url, httpRiskAccepted).allowed &&
+            kind != MediaServerKind.Plex &&
+                hasValidEndpoint &&
                 !submitting
 
+    private val hasValidEndpoint: Boolean
+        get() =
+            parseServerAddress(host)?.host?.isNotBlank() == true &&
+                validServerPort(port) &&
+                validateEmbyServerEndpoint(url, httpRiskAccepted).allowed
+
     val canSubmit: Boolean
-        get() = canStartQuickConnect && username.isNotBlank()
+        get() =
+            hasValidEndpoint &&
+                !submitting &&
+                if (kind == MediaServerKind.Plex) password.isNotBlank() else username.isNotBlank()
 }
 
 internal data class ParsedServerAddress(
@@ -226,6 +237,10 @@ sealed interface ServersIntent {
         val value: String,
     ) : ServersIntent
 
+    data class ProviderChanged(
+        val kind: MediaServerKind,
+    ) : ServersIntent
+
     data class ProtocolChanged(
         val https: Boolean,
     ) : ServersIntent
@@ -309,6 +324,10 @@ private sealed interface Msg {
 
     data class ServerName(
         val v: String,
+    ) : Msg
+
+    data class Provider(
+        val kind: MediaServerKind,
     ) : Msg
 
     data class Protocol(
@@ -443,6 +462,10 @@ class ServersStoreFactory(
                     dispatch(Msg.EditOpen(intent.server))
                 }
                 is ServersIntent.ServerNameChanged -> dispatch(Msg.ServerName(intent.value))
+                is ServersIntent.ProviderChanged -> {
+                    stopQuickConnect(resetState = true, notifyGateway = true)
+                    dispatch(Msg.Provider(intent.kind))
+                }
                 is ServersIntent.ProtocolChanged -> {
                     stopQuickConnect(resetState = true, notifyGateway = true)
                     dispatch(Msg.Protocol(intent.https))
@@ -519,6 +542,7 @@ class ServersStoreFactory(
             val requestId = ++publicUsersRequestId
             val parsed = parseServerAddress(server.address) ?: return
             val https = parsed.https ?: true
+            dispatch(Msg.Provider(MediaServerKind.Emby))
             dispatch(Msg.Protocol(https))
             dispatch(Msg.Host(parsed.host))
             dispatch(Msg.Port(parsed.port ?: defaultServerPort(https)))
@@ -622,7 +646,7 @@ class ServersStoreFactory(
                     dispatch(Msg.QuickConnect(QuickConnectUiState.Expired))
                     return
                 }
-                delay(minOf(QuickConnectPollIntervalMs, remainingMs))
+                delay(minOf(QUICK_CONNECT_POLL_INTERVAL_MS, remainingMs))
                 if (requestId != quickConnectRequestId) return
                 val polled = quickConnectGateway.poll(baseUrl, session.id)
                 if (requestId != quickConnectRequestId) return
@@ -742,7 +766,7 @@ class ServersStoreFactory(
             dispatch(Msg.Submitting)
             scope.launch {
                 repo
-                    .authenticate(form.url, form.username.trim(), form.password)
+                    .authenticate(form.url, form.username.trim(), form.password, form.kind)
                     .onSuccess {
                         val authResult = it
                         // Preserve the user's chosen server name when editing — otherwise
@@ -840,6 +864,7 @@ class ServersStoreFactory(
                         connectionEdited = false,
                         form =
                             LoginForm(
+                                kind = msg.server.kind,
                                 serverName = msg.server.serverName,
                                 https = https,
                                 host = parsed.host,
@@ -855,12 +880,38 @@ class ServersStoreFactory(
                     copy(
                         form = form.copy(serverName = msg.v.take(60), error = null),
                     )
+                is Msg.Provider ->
+                    copy(
+                        form =
+                            form.copy(
+                                kind = msg.kind,
+                                username = if (msg.kind == MediaServerKind.Plex) "" else form.username,
+                                password = "",
+                                port =
+                                    when {
+                                        msg.kind == MediaServerKind.Plex &&
+                                            form.port in setOf("443", "8096") -> "32400"
+                                        form.kind == MediaServerKind.Plex &&
+                                            msg.kind != MediaServerKind.Plex &&
+                                            form.port == "32400" -> defaultServerPort(form.https)
+                                        else -> form.port
+                                    },
+                                error = null,
+                            ),
+                        publicUsers = emptyList(),
+                        connectionEdited = true,
+                    )
                 is Msg.Protocol ->
                     copy(
                         form =
                             form.copy(
                                 https = msg.https,
-                                port = defaultServerPort(msg.https),
+                                port =
+                                    if (form.kind == MediaServerKind.Plex) {
+                                        "32400"
+                                    } else {
+                                        defaultServerPort(msg.https)
+                                    },
                                 httpRiskAccepted = false,
                                 error = null,
                             ),
@@ -952,7 +1003,7 @@ class ServersStoreFactory(
     }
 }
 
-private const val QuickConnectPollIntervalMs = 2_000L
+private const val QUICK_CONNECT_POLL_INTERVAL_MS = 2_000L
 
 private fun sanitizeServerName(value: String): String =
     value

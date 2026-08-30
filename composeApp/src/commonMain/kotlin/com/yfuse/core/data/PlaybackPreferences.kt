@@ -6,6 +6,7 @@ import com.yfuse.core.playback.PlaybackEngineSelection
 import com.yfuse.core.playback.PlaybackFailureRecord
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.PlaybackPerformanceRecord
+import com.yfuse.feature.player.AudioEnhancementMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,11 +73,16 @@ data class SeriesPlaybackPreference(
     val primarySubtitle: RememberedPlaybackTrack? = null,
     val secondarySubtitle: RememberedPlaybackTrack? = null,
     val audioDelayMs: Long = 0L,
+    val audioEnhancement: String = AudioEnhancementMode.Off.name,
     val subtitleOffsetMs: Long = 0L,
     val subtitleScale: Float = 1f,
     val subtitleBrightness: Float = 1f,
     val subtitlePosition: Float = 0.92f,
     val subtitleStylePreset: String = "Standard",
+    val subtitleTextColorArgb: Long = 0xFFFFFFFFL,
+    val subtitleBackgroundColorArgb: Long = 0x00000000L,
+    val subtitleOutlineColorArgb: Long = 0xFF000000L,
+    val subtitleOutlineWidth: Float = 2f,
     val speed: Float = 1f,
     val aspectMode: String = "Fit",
 )
@@ -479,6 +485,10 @@ class PlaybackPreferences(
             primarySubtitle = primarySubtitle?.normalized(),
             secondarySubtitle = secondarySubtitle?.normalized(),
             audioDelayMs = audioDelayMs.coerceIn(-10_000L, 10_000L),
+            audioEnhancement =
+                audioEnhancement.takeIf { stored ->
+                    AudioEnhancementMode.entries.any { it.name == stored }
+                } ?: AudioEnhancementMode.Off.name,
             subtitleOffsetMs = subtitleOffsetMs.coerceIn(-60_000L, 60_000L),
             subtitleScale = subtitleScale.coerceIn(0.6f, 1.8f),
             subtitleBrightness = subtitleBrightness.coerceIn(0.35f, 1f),
@@ -487,6 +497,10 @@ class PlaybackPreferences(
                 subtitleStylePreset.takeIf { stored ->
                     stored in setOf("Standard", "Cinema", "Compact", "Accessible", "Custom")
                 } ?: "Standard",
+            subtitleTextColorArgb = subtitleTextColorArgb and 0xFFFFFFFFL,
+            subtitleBackgroundColorArgb = subtitleBackgroundColorArgb and 0xFFFFFFFFL,
+            subtitleOutlineColorArgb = subtitleOutlineColorArgb and 0xFFFFFFFFL,
+            subtitleOutlineWidth = subtitleOutlineWidth.coerceIn(0f, 6f),
             speed = speed.coerceIn(0.25f, 4f),
             aspectMode = aspectMode.takeIf { it in SERIES_ASPECT_MODES } ?: "Fit",
         )

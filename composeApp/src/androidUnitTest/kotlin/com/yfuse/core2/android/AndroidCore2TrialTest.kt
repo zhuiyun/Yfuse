@@ -4,6 +4,7 @@ import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.playback.PlaybackDrmScheme
+import com.yfuse.feature.player.PlayerExternalSubtitle
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
 import kotlin.test.Test
@@ -84,6 +85,18 @@ class AndroidCore2TrialTest {
             subtitleItem.copy(externalSubtitleUri = "ftp://media.example.test/movie.srt")
         val ttmlSubtitleItem =
             subtitleItem.copy(externalSubtitleUri = "file:///offline/movie.ttml")
+        val providerSidecars =
+            mediaItem("https://media.example.test/movie.mkv").copy(
+                externalSubtitles =
+                    listOf(
+                        PlayerExternalSubtitle(
+                            uri = "https://media.example.test/subtitle/1",
+                            language = "zho",
+                            codec = "srt",
+                            default = true,
+                        ),
+                    ),
+            )
         val discVersion =
             PlayerMediaVersion(
                 id = "disc",
@@ -105,6 +118,7 @@ class AndroidCore2TrialTest {
         assertTrue(listOf(subtitleItem).canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(unsupportedSubtitleItem).canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(ttmlSubtitleItem).canUseCore2Trial(startIndex = 0))
+        assertFalse(listOf(providerSidecars).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(discItem).canUseCore2Trial(startIndex = 0))
         assertTrue(
             listOf(mediaItem("https://media/movie"), subtitleItem)

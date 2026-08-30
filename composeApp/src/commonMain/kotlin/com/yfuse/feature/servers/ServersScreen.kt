@@ -67,6 +67,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.semanticPrimaryButtonShadow
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
 
@@ -144,6 +145,24 @@ fun ServersScreen(component: ServersComponent) {
                     )
                     // `--pg-card` over 1px `--pg-border`, `radius:16px`, `padding:4px`.
                     Column(Modifier.fillMaxWidth().glass(GlassShapes.card).padding(4.dp)) {
+                        FormField(label = "服务类型", divider = true) {
+                            Row(
+                                modifier = Modifier.selectableGroup(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                listOf(
+                                    MediaServerKind.Emby to "Emby",
+                                    MediaServerKind.Jellyfin to "Jellyfin",
+                                    MediaServerKind.Plex to "Plex",
+                                ).forEach { (kind, label) ->
+                                    ProtocolSegment(
+                                        label = label,
+                                        selected = form.kind == kind,
+                                        modifier = Modifier.weight(1f),
+                                    ) { store.accept(ServersIntent.ProviderChanged(kind)) }
+                                }
+                            }
+                        }
                         FormField(label = "协议", divider = true) {
                             Row(
                                 modifier = Modifier.selectableGroup(),
@@ -187,21 +206,33 @@ fun ServersScreen(component: ServersComponent) {
                             divider = true,
                             onValueChange = { store.accept(ServersIntent.BasePathChanged(it)) },
                         )
-                        FormInput(
-                            label = "用户名",
-                            value = form.username,
-                            enabled = !form.submitting,
-                            divider = true,
-                            onValueChange = { store.accept(ServersIntent.UsernameChanged(it)) },
-                        )
-                        FormInput(
-                            label = "密码",
-                            value = form.password,
-                            enabled = !form.submitting,
-                            password = true,
-                            divider = false,
-                            onValueChange = { store.accept(ServersIntent.PasswordChanged(it)) },
-                        )
+                        if (form.kind == MediaServerKind.Plex) {
+                            FormInput(
+                                label = "Plex Token",
+                                value = form.password,
+                                placeholder = "输入 X-Plex-Token",
+                                enabled = !form.submitting,
+                                password = true,
+                                divider = false,
+                                onValueChange = { store.accept(ServersIntent.PasswordChanged(it)) },
+                            )
+                        } else {
+                            FormInput(
+                                label = "用户名",
+                                value = form.username,
+                                enabled = !form.submitting,
+                                divider = true,
+                                onValueChange = { store.accept(ServersIntent.UsernameChanged(it)) },
+                            )
+                            FormInput(
+                                label = "密码",
+                                value = form.password,
+                                enabled = !form.submitting,
+                                password = true,
+                                divider = false,
+                                onValueChange = { store.accept(ServersIntent.PasswordChanged(it)) },
+                            )
+                        }
                     }
 
                     Spacer(Modifier.height(10.dp))
@@ -239,7 +270,7 @@ fun ServersScreen(component: ServersComponent) {
 
             item {
                 Text(
-                    "支持 HTTP / HTTPS · 登录后即可浏览媒体库",
+                    "支持 Emby / Jellyfin / Plex · 登录后即可浏览媒体库",
                     style = AppTypography.caption.regular.copy(lineHeight = 17.6.sp),
                     color = palette.hint,
                     textAlign = TextAlign.Center,

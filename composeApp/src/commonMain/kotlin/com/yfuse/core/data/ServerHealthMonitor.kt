@@ -165,7 +165,7 @@ class ServerHealthMonitor(
                         async {
                             route to
                                 probePermits.withPermit {
-                                    repository.probeAddress(route.url, server.accessToken)
+                                    repository.probeAddress(route.url, server.accessToken, server.kind)
                                 }
                         }
                     }.awaitAll()
