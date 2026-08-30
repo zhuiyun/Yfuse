@@ -305,7 +305,17 @@ jobs:
             echo "::error::TV APK signing certificate mismatch"
             exit 1
           }
-          jarsigner -verify -strict "$aab"
+          unzip -tq "$aab"
+          if ! aab_verify_output="$(jarsigner -verify -verbose:summary -certs "$aab" 2>&1)"; then
+            echo "::error::TV AAB signature or entry integrity verification failed"
+            printf '%s\n' "$aab_verify_output"
+            exit 1
+          fi
+          grep -Fq 'jar verified.' <<<"$aab_verify_output" || {
+            echo "::error::TV AAB is not a verified signed bundle"
+            printf '%s\n' "$aab_verify_output"
+            exit 1
+          }
           bundle_cert="$(
             keytool -printcert -jarfile "$aab" |
               sed -n 's/^[[:space:]]*SHA256: //p' |
