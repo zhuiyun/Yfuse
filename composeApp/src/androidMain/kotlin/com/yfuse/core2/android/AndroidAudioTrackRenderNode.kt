@@ -224,8 +224,7 @@ private fun buildAudioTrack(format: MediaFormat): AudioTrack {
                 channelCount = channelCount,
                 encoding = encoding,
             ),
-        )
-        .build()
+        ).build()
         .also { track ->
             check(track.state == AudioTrack.STATE_INITIALIZED) { "AudioTrack failed to initialize" }
         }

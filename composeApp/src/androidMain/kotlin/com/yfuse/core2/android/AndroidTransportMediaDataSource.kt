@@ -369,9 +369,15 @@ private fun checkWorkerThread() {
     check(Looper.myLooper() != Looper.getMainLooper()) { "Remote media I/O is forbidden on the main thread" }
 }
 
-private fun Long.saturatedAdd(other: Long): Long = if (other > 0L && this > Long.MAX_VALUE - other) Long.MAX_VALUE else this + other
+private fun Long.saturatedAdd(other: Long): Long {
+    if (other <= 0L || this <= Long.MAX_VALUE - other) return this + other
+    return Long.MAX_VALUE
+}
 
-private fun Long.saturatedMultiply(other: Long): Long = if (other > 0L && this > Long.MAX_VALUE / other) Long.MAX_VALUE else this * other
+private fun Long.saturatedMultiply(other: Long): Long {
+    if (other <= 0L || this <= Long.MAX_VALUE / other) return this * other
+    return Long.MAX_VALUE
+}
 
 private const val MIN_TRANSPORT_BLOCK_BYTES = 256 * 1024
 private const val DEFAULT_TRANSPORT_CACHE_BYTES = 64L * 1024L * 1024L
