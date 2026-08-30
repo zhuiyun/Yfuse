@@ -28,10 +28,15 @@ executors. It does not introduce another decoder or rendering kernel.
   unscrobble, resume snapshot import and provider-id matching use the same UI/player contracts as
   Emby and Jellyfin.
 - Plex local collections and video playlists now use the shared container directory/detail routes;
-  people hubs and actor filters use the shared search/person routes. Generated `sd` BIF indexes are
+  their local-PMS add/remove operations preserve Plex source URIs and `playlistItemID` row identity.
+  People hubs and actor filters use the shared search/person routes. Generated `sd` BIF indexes are
   exposed as authenticated, timestamp-addressed 1x1 storyboards to the existing seek preview UI.
-- Plex account OAuth, cloud Watchlist, server-side collection/playlist editing, remote
-  subtitle-store installation and offline downloads remain outside this local-server loop.
+- Plex external subtitle keys are authenticated per media version and all sidecars are mounted in
+  Exo/mpv with language, codec, default and forced metadata. YCore's current single-sidecar contract
+  intentionally hands provider multi-track items to the compatibility backend instead of dropping
+  tracks.
+- Plex account OAuth, cloud Watchlist, remote subtitle-store installation and offline downloads
+  remain outside this local-server loop.
 
 ## Required external verification
 
@@ -41,5 +46,6 @@ executors. It does not introduce another decoder or rendering kernel.
 3. Run the physical Chromecast matrix in `castReceiver/README.md`.
 4. Run Emby and Jellyfin playback/reporting smoke tests.
 5. Run Plex Media Server smoke tests for token login, movie/episode direct play, HLS fallback,
-   embedded/external tracks, collections/playlists, actor filters, BIF seek previews, seek/resume,
-   watched state, Cast and token expiry/re-login.
+   embedded/external track selection, collection/playlist add/remove (including duplicate playlist
+   entries), actor filters, BIF seek previews, seek/resume, watched state, Cast and token
+   expiry/re-login.

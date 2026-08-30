@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackMethod
+import com.yfuse.core.model.SubtitleTrackInfo
 import com.yfuse.core.model.VideoStreamInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,6 +30,17 @@ class PlexPlaybackRouteTest {
                     directStreamUrl =
                         "http://plex:32400/library/parts/12/file.mkv?X-Plex-Token=secret",
                     addApiKeyToDirectStreamUrl = false,
+                    subtitleTracks =
+                        listOf(
+                            SubtitleTrackInfo(
+                                codec = "srt",
+                                language = "中文",
+                                external = true,
+                                default = true,
+                                uri =
+                                    "http://plex:32400/library/streams/3?X-Plex-Token=secret",
+                            ),
+                        ),
                     transcodingUrl =
                         "http://plex:32400/video/:/transcode/universal/start.m3u8?X-Plex-Token=secret",
                 ),
@@ -44,6 +56,9 @@ class PlexPlaybackRouteTest {
         assertTrue("/library/parts/12/file.mkv" in route.url)
         assertTrue("X-Plex-Token=secret" in route.url)
         assertFalse("/Videos/100/stream" in route.url)
+        assertEquals(1, route.externalSubtitles.size)
+        assertEquals("srt", route.externalSubtitles.single().codec)
+        assertTrue(route.externalSubtitles.single().default)
 
         val rebound = route.withFreshPlaySession()
         assertTrue("session=${rebound.playSessionId}" in rebound.transcodeUrl)

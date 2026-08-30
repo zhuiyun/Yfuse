@@ -41,6 +41,10 @@ data class PlexHubDto(
 data class PlexMetadataDto(
     val key: String? = null,
     val ratingKey: String? = null,
+    /** Row identity returned for dumb-playlist contents; membership removal must use this. */
+    val playlistItemID: JsonPrimitive? = null,
+    /** Boolean or legacy 0/1 depending on PMS version. Smart containers are read-only here. */
+    val smart: JsonPrimitive? = null,
     val type: String? = null,
     val title: String? = null,
     val titleSort: String? = null,

@@ -36,6 +36,22 @@ import kotlinx.serialization.Serializable
 private const val DISC_SOURCE_TRANSCODE_REASON =
     "ISO/DVD/Blu-ray 光盘源需要服务器解析主标题，已使用服务器转码"
 
+/** One authenticated sidecar exposed by the active media version. */
+@Serializable
+data class PlayerExternalSubtitle(
+    val uri: String,
+    val language: String? = null,
+    val codec: String? = null,
+    val default: Boolean = false,
+    val forced: Boolean = false,
+) {
+    val label: String
+        get() =
+            listOfNotNull(language, codec?.uppercase(), "强制".takeIf { forced })
+                .joinToString(" · ")
+                .ifBlank { "外挂字幕" }
+}
+
 /**
  * One selectable file behind a queue entry, with its stream URLs already built.
  *
@@ -96,6 +112,8 @@ data class PlayerMediaVersion(
     val sourceAudio: String? = null,
     /** Lets an engine distinguish a genuinely silent file from a missing audio track. */
     val audioTrackCount: Int = 0,
+    /** Sidecars belong to a physical version and change atomically with its media URL. */
+    val externalSubtitles: List<PlayerExternalSubtitle> = emptyList(),
     /** Initial method approved by PlaybackInfo for [url]. */
     val playMethod: PlaybackMethod = PlaybackMethod.DirectPlay,
     /** True only when PlaybackInfo explicitly approved a server-transcoded representation. */
@@ -259,6 +277,21 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                         ?: version.audioTracks.firstOrNull()
                 )?.label,
             audioTrackCount = version.audioTracks.size,
+            externalSubtitles =
+                version.subtitleTracks
+                    .mapNotNull { track ->
+                        track.uri
+                            ?.takeIf { track.external && it.isNotBlank() }
+                            ?.let { uri ->
+                                PlayerExternalSubtitle(
+                                    uri = uri,
+                                    language = track.language,
+                                    codec = track.codec,
+                                    default = track.default,
+                                    forced = track.forced,
+                                )
+                            }
+                    }.distinctBy(PlayerExternalSubtitle::uri),
         )
     }
 
@@ -398,6 +431,8 @@ data class PlayerMediaItem(
     /** Optional process-local offline sidecar; never contains an account token. */
     val externalSubtitleUri: String? = null,
     val externalSubtitleLanguage: String? = null,
+    /** Online provider sidecars for the active version; legacy offline fields remain supported. */
+    val externalSubtitles: List<PlayerExternalSubtitle> = emptyList(),
     /**
      * Exact copies on other servers, resolved before the player starts.
      *
@@ -445,6 +480,7 @@ data class PlayerMediaItem(
             playMethod = version.playMethod,
             serverTranscodeSupported = version.serverTranscodeSupported,
             drmConfiguration = version.drmConfiguration,
+            externalSubtitles = version.externalSubtitles,
             forcedTranscodeReason =
                 when {
                     version.discSource && version.playMethod == PlaybackMethod.Transcode ->
@@ -491,6 +527,23 @@ data class TrickplayStoryboard(
         )
     }
 }
+
+/** Merges the legacy offline sidecar with provider-owned online tracks without duplicate URLs. */
+internal fun PlayerMediaItem.playbackExternalSubtitles(): List<PlayerExternalSubtitle> =
+    buildList {
+        externalSubtitleUri
+            ?.takeIf(String::isNotBlank)
+            ?.let { uri ->
+                add(
+                    PlayerExternalSubtitle(
+                        uri = uri,
+                        language = externalSubtitleLanguage,
+                        default = true,
+                    ),
+                )
+            }
+        addAll(externalSubtitles)
+    }.distinctBy(PlayerExternalSubtitle::uri)
 
 data class TrickplayFrame(
     val url: String,
@@ -954,6 +1007,7 @@ class PlayerStoreFactory(
                         progress = progress,
                         caption = caption,
                         durationMsHint = runtimeTicks?.takeIf { it > 0L }?.div(10_000L) ?: 0L,
+                        externalSubtitles = unqualified.externalSubtitles,
                     )
                 }
 
@@ -1360,6 +1414,7 @@ class PlayerStoreFactory(
                     DISC_SOURCE_TRANSCODE_REASON.takeIf {
                         playable.discSource && playable.playMethod == PlaybackMethod.Transcode
                     },
+                externalSubtitles = playable.externalSubtitles,
                 serverFallbacks = emptyList(),
                 durationMsHint = detail.runtimeTicks?.takeIf { it > 0L }?.div(10_000L) ?: 0L,
             )

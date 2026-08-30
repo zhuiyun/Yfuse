@@ -45,10 +45,13 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.accept
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.put
 import io.ktor.http.ContentType
+import io.ktor.http.encodeURLPathPart
 import io.ktor.http.encodeURLParameter
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.TimeSource
@@ -195,6 +198,73 @@ internal class PlexMediaServerAdapter(
                     .mapNotNull { it.tag.takeIf(String::isNotBlank) }
                     .distinct()
                     .sorted()
+            }
+        }
+
+    /** Adds one local-PMS title to an existing dumb collection or video playlist. */
+    suspend fun addItemToMediaContainer(
+        server: SavedServer,
+        containerId: String,
+        kind: MediaContainerKind,
+        itemId: String,
+    ): Result<Unit> =
+        embyApiCall("plex_add_item_to_media_container") {
+            requireEditableContainer(server, containerId, kind)
+            val machineId = machineIdentifier(server)
+            val sourceUri =
+                "server://$machineId/com.plexapp.plugins.library/library/metadata/" +
+                    plexNumericId(itemId, "itemId")
+            val path =
+                when (kind) {
+                    MediaContainerKind.BoxSet ->
+                        "/library/collections/${plexNumericId(containerId, "collectionId")}/items"
+                    MediaContainerKind.Playlist ->
+                        "/playlists/${plexNumericId(containerId, "playlistId")}/items"
+                }
+            client.put("${normalizeBaseUrl(server.baseUrl)}$path") {
+                plexHeaders(server.accessToken)
+                parameter("uri", sourceUri)
+            }
+        }
+
+    /**
+     * Removes one membership using the provider-owned identity required by Plex.
+     *
+     * Collections use the media rating key and, unusually, a PUT endpoint. Dumb playlists use
+     * DELETE with the row's playlistItemID so repeated titles cannot remove the wrong occurrence.
+     */
+    suspend fun removeItemFromMediaContainer(
+        server: SavedServer,
+        containerId: String,
+        kind: MediaContainerKind,
+        itemId: String,
+        playlistItemId: String?,
+    ): Result<Unit> =
+        embyApiCall("plex_remove_item_from_media_container") {
+            requireEditableContainer(server, containerId, kind)
+            when (kind) {
+                MediaContainerKind.BoxSet ->
+                    client.put(
+                        "${normalizeBaseUrl(server.baseUrl)}/library/collections/" +
+                            "${plexNumericId(containerId, "collectionId")}/items/" +
+                            plexNumericId(itemId, "itemId"),
+                    ) {
+                        plexHeaders(server.accessToken)
+                    }
+
+                MediaContainerKind.Playlist -> {
+                    val entryId =
+                        requireNotNull(playlistItemId?.takeIf(String::isNotBlank)) {
+                            "playlistItemID is required to remove a Plex playlist entry"
+                        }
+                    client.delete(
+                        "${normalizeBaseUrl(server.baseUrl)}/playlists/" +
+                            "${plexNumericId(containerId, "playlistId")}/items/" +
+                            plexNumericId(entryId, "playlistItemID"),
+                    ) {
+                        plexHeaders(server.accessToken)
+                    }
+                }
             }
         }
 
@@ -947,6 +1017,37 @@ internal class PlexMediaServerAdapter(
             }.body<PlexResponseDto>()
             .MediaContainer
 
+    private suspend fun machineIdentifier(server: SavedServer): String =
+        requireNotNull(container(server, "/identity").machineIdentifier?.takeIf(String::isNotBlank)) {
+            "Plex Media Server 未返回 machineIdentifier"
+        }
+
+    private suspend fun requireEditableContainer(
+        server: SavedServer,
+        containerId: String,
+        kind: MediaContainerKind,
+    ) {
+        val numericId =
+            plexNumericId(
+                containerId,
+                if (kind == MediaContainerKind.BoxSet) "collectionId" else "playlistId",
+            )
+        val path =
+            if (kind == MediaContainerKind.BoxSet) {
+                "/library/collections/$numericId"
+            } else {
+                "/playlists/$numericId"
+            }
+        val metadata =
+            container(server, path)
+                .allMetadata()
+                .firstOrNull()
+                ?: error("Plex 中找不到目标合集或播放列表")
+        require(metadata.smart.toPlexBoolean() != true) {
+            "Plex 智能合集或播放列表由规则生成，Yfuse 不会替换其规则"
+        }
+    }
+
     private fun HttpRequestBuilder.plexHeaders(
         token: String,
         sessionId: String? = null,
@@ -1029,6 +1130,7 @@ internal class PlexMediaServerAdapter(
             ProviderIds = providerIds(),
             DateModified = updatedAt?.toString(),
             Chapters = markers(),
+            PlaylistItemId = playlistItemID?.content?.takeIf(String::isNotBlank),
         )
     }
 
@@ -1054,7 +1156,7 @@ internal class PlexMediaServerAdapter(
             Size = part.size,
             Bitrate = bitrate.toBitsPerSecond(),
             Path = part.file,
-            MediaStreams = streams(part),
+            MediaStreams = streams(server, part),
             // Yfuse's generated DirectPlay URL is Emby-shaped. Force the negotiated Plex part
             // through DirectStream so the actual `/library/parts/...` address is selected.
             SupportsDirectPlay = false,
@@ -1066,9 +1168,12 @@ internal class PlexMediaServerAdapter(
         )
     }
 
-    private fun PlexMediaDto.streams(part: PlexPartDto): List<MediaStreamDto> {
+    private fun PlexMediaDto.streams(
+        server: SavedServer,
+        part: PlexPartDto,
+    ): List<MediaStreamDto> {
         val declared = part.Stream
-        if (declared.isNotEmpty()) return declared.map { it.toMediaStream() }
+        if (declared.isNotEmpty()) return declared.map { it.toMediaStream(server) }
         return buildList {
             add(
                 MediaStreamDto(
@@ -1096,7 +1201,7 @@ internal class PlexMediaServerAdapter(
         }
     }
 
-    private fun PlexStreamDto.toMediaStream(): MediaStreamDto {
+    private fun PlexStreamDto.toMediaStream(server: SavedServer): MediaStreamDto {
         val titleValue = extendedDisplayTitle ?: displayTitle ?: title
         val range =
             when {
@@ -1123,8 +1228,12 @@ internal class PlexMediaServerAdapter(
             DisplayLanguage = language,
             Channels = channels,
             IsForced = forced,
-            IsDefault = default ?: selected,
+            IsDefault = default == true || selected == true,
             IsExternal = key != null,
+            DeliveryUrl =
+                key
+                    ?.takeIf { streamType == 3 && it.isNotBlank() }
+                    ?.let { plexAuthenticatedUrl(server.baseUrl, it, server.accessToken) },
             BitRate = bitrate.toBitsPerSecond(),
             SampleRate = samplingRate,
             BitDepth = bitDepth,
@@ -1250,6 +1359,7 @@ private fun PlexMetadataDto.toMediaContainer(
         serverId = server.id,
         posterTag = thumb.plexArtworkTag(),
         itemCount = childCount.toPlexInt() ?: leafCount.toPlexInt(),
+        editable = smart.toPlexBoolean() != true,
     )
 }
 
@@ -1330,6 +1440,22 @@ private fun String?.toFrameRate(): Double? {
 private fun String?.mentions(value: String): Boolean = this?.contains(value, ignoreCase = true) == true
 
 private fun JsonPrimitive?.toPlexInt(): Int? = this?.content?.toIntOrNull()
+
+private fun JsonPrimitive?.toPlexBoolean(): Boolean? =
+    when (this?.content?.trim()?.lowercase()) {
+        "true", "1" -> true
+        "false", "0" -> false
+        else -> null
+    }
+
+private fun plexNumericId(
+    value: String,
+    field: String,
+): String {
+    val normalized = value.trim()
+    require(normalized.toLongOrNull() != null) { "$field must be a numeric Plex id" }
+    return normalized.encodeURLPathPart()
+}
 
 private fun Boolean.toPresenceFlag(): Int = if (this) 1 else 0
 

@@ -65,6 +65,8 @@ data class MediaContainer(
     val serverId: String,
     val posterTag: String? = null,
     val itemCount: Int? = null,
+    /** False for rule-driven Plex smart containers, whose URI update would replace the rules. */
+    val editable: Boolean = true,
 )
 
 /** One horizontal row on the home screen (e.g. "电影-国产电影 · 最新"). */

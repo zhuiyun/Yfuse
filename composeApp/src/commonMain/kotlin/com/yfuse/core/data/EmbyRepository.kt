@@ -293,7 +293,7 @@ class EmbyRepository(
         itemId: String,
     ): Result<Unit> =
         if (server.kind == MediaServerKind.Plex) {
-            Result.failure(UnsupportedOperationException("Plex 合集编辑尚未开放"))
+            plex.addItemToMediaContainer(server, containerId, kind, itemId)
         } else {
             browseService.addItemToMediaContainer(server, containerId, kind, itemId)
         }
@@ -306,7 +306,13 @@ class EmbyRepository(
         playlistItemId: String? = null,
     ): Result<Unit> =
         if (server.kind == MediaServerKind.Plex) {
-            Result.failure(UnsupportedOperationException("Plex 合集编辑尚未开放"))
+            plex.removeItemFromMediaContainer(
+                server,
+                containerId,
+                kind,
+                itemId,
+                playlistItemId,
+            )
         } else {
             browseService.removeItemFromMediaContainer(
                 server,

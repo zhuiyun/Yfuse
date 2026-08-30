@@ -5,6 +5,7 @@ import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.json
 import com.yfuse.feature.testRepo
+import io.ktor.http.HttpMethod
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -102,6 +103,10 @@ class PlexMediaServerAdapterTest {
                     .subtitleTracks
                     .single()
                     .index,
+            )
+            assertEquals(
+                "http://plex:32400/library/streams/3?X-Plex-Token=secret-token",
+                detail.versions.single().subtitleTracks.single().uri,
             )
             assertEquals(false, source.SupportsDirectPlay)
             assertEquals(true, source.SupportsDirectStream)
@@ -213,6 +218,130 @@ class PlexMediaServerAdapterTest {
             assertEquals("周末播放", playlist.title)
             assertEquals(8, playlist.itemCount)
             assertEquals("沙丘", items.items.single().title)
+        }
+
+    @Test
+    fun playlist_contents_preserve_plex_row_identity_for_exact_removal() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    assertEquals("/playlists/600/items", request.url.encodedPath)
+                    json(
+                        """{"MediaContainer":{"Metadata":[{"ratingKey":"100","playlistItemID":9001,""" +
+                            """"type":"movie","title":"沙丘"}]}}""",
+                    )
+                }
+
+            val items =
+                repo
+                    .mediaContainerItems(
+                        server = server,
+                        containerId = "600",
+                        kind = MediaContainerKind.Playlist,
+                    ).getOrThrow()
+
+            assertEquals("9001", items.items.single().playlistItemId)
+        }
+
+    @Test
+    fun local_collection_and_playlist_writes_follow_official_plex_contract() =
+        runTest {
+            data class Seen(
+                val method: HttpMethod,
+                val path: String,
+                val uri: String?,
+            )
+
+            val requests = mutableListOf<Seen>()
+            val repo =
+                testRepo { request ->
+                    assertEquals("secret-token", request.headers["X-Plex-Token"])
+                    requests +=
+                        Seen(
+                            request.method,
+                            request.url.encodedPath,
+                            request.url.parameters["uri"],
+                        )
+                    when (request.url.encodedPath) {
+                        "/identity" ->
+                            json("""{"MediaContainer":{"machineIdentifier":"machine-1"}}""")
+                        "/library/collections/500" ->
+                            json(
+                                """{"MediaContainer":{"Metadata":[{"ratingKey":"500","smart":false}]}}""",
+                            )
+                        "/playlists/600" ->
+                            json(
+                                """{"MediaContainer":{"Metadata":[{"ratingKey":"600","smart":0}]}}""",
+                            )
+                        else -> json("""{"MediaContainer":{"size":0}}""")
+                    }
+                }
+
+            repo
+                .addItemToMediaContainer(server, "500", MediaContainerKind.BoxSet, "100")
+                .getOrThrow()
+            repo
+                .addItemToMediaContainer(server, "600", MediaContainerKind.Playlist, "101")
+                .getOrThrow()
+            repo
+                .removeItemFromMediaContainer(server, "500", MediaContainerKind.BoxSet, "100")
+                .getOrThrow()
+            repo
+                .removeItemFromMediaContainer(
+                    server,
+                    "600",
+                    MediaContainerKind.Playlist,
+                    itemId = "101",
+                    playlistItemId = "9001",
+                ).getOrThrow()
+
+            assertEquals(
+                listOf(
+                    Seen(HttpMethod.Get, "/library/collections/500", null),
+                    Seen(HttpMethod.Get, "/identity", null),
+                    Seen(
+                        HttpMethod.Put,
+                        "/library/collections/500/items",
+                        "server://machine-1/com.plexapp.plugins.library/library/metadata/100",
+                    ),
+                    Seen(HttpMethod.Get, "/playlists/600", null),
+                    Seen(HttpMethod.Get, "/identity", null),
+                    Seen(
+                        HttpMethod.Put,
+                        "/playlists/600/items",
+                        "server://machine-1/com.plexapp.plugins.library/library/metadata/101",
+                    ),
+                    Seen(HttpMethod.Get, "/library/collections/500", null),
+                    Seen(HttpMethod.Put, "/library/collections/500/items/100", null),
+                    Seen(HttpMethod.Get, "/playlists/600", null),
+                    Seen(HttpMethod.Delete, "/playlists/600/items/9001", null),
+                ),
+                requests,
+            )
+        }
+
+    @Test
+    fun smart_plex_playlist_is_read_only_and_never_receives_a_uri_write() =
+        runTest {
+            val requests = mutableListOf<Pair<HttpMethod, String>>()
+            val repo =
+                testRepo { request ->
+                    requests += request.method to request.url.encodedPath
+                    json(
+                        """{"MediaContainer":{"Metadata":[{"ratingKey":"600","smart":true}]}}""",
+                    )
+                }
+
+            val result =
+                repo.addItemToMediaContainer(
+                    server,
+                    "600",
+                    MediaContainerKind.Playlist,
+                    "101",
+                )
+
+            assertTrue(result.isFailure)
+            assertEquals(listOf(HttpMethod.Get to "/playlists/600"), requests)
         }
 
     @Test

@@ -52,14 +52,19 @@ internal fun mpvScaleModeProperties(mode: VideoScaleMode): MpvScaleModePropertie
     )
 
 internal fun externalSubtitleMpvCommand(item: PlayerMediaItem): Array<String>? {
-    val uri = item.externalSubtitleUri?.takeIf(String::isNotBlank) ?: return null
-    val language = item.externalSubtitleLanguage?.takeIf(String::isNotBlank)
-    return if (language == null) {
-        arrayOf("sub-add", uri, "select", "外挂字幕")
-    } else {
-        arrayOf("sub-add", uri, "select", "外挂字幕", language)
-    }
+    return externalSubtitleMpvCommands(item).firstOrNull()
 }
+
+internal fun externalSubtitleMpvCommands(item: PlayerMediaItem): List<Array<String>> =
+    item.playbackExternalSubtitles().map { subtitle ->
+        val language = subtitle.language?.takeIf(String::isNotBlank)
+        val selection = if (subtitle.default) "select" else "auto"
+        if (language == null) {
+            arrayOf("sub-add", subtitle.uri, selection, subtitle.label)
+        } else {
+            arrayOf("sub-add", subtitle.uri, selection, subtitle.label, language)
+        }
+    }
 
 internal fun mpvAudioOutputReadiness(
     outputDriver: String?,
@@ -637,8 +642,9 @@ class MpvVideoEngine(
                         }
                         items
                             .getOrNull(_state.value.currentIndex)
-                            ?.let(::externalSubtitleMpvCommand)
-                            ?.let { command -> withMpv { it.command(command) } }
+                            ?.let(::externalSubtitleMpvCommands)
+                            .orEmpty()
+                            .forEach { command -> withMpv { it.command(command) } }
                         readTracks()
                         readDiscNavigation()
                         readVideoSize()
