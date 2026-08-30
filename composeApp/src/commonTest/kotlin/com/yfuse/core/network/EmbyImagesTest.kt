@@ -5,6 +5,8 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.Person
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -83,6 +85,25 @@ class EmbyImagesTest {
             "http://emby/Items/item1/Images/Backdrop/3?tag=btag&maxWidth=1280&quality=85&format=webp&api_key=t",
             url,
         )
+    }
+
+    @Test
+    fun plex_artwork_tag_uses_photo_transcode_and_plex_token() {
+        val url =
+            EmbyImages.primary(
+                "http://plex:32400",
+                "100",
+                "plex:/library/metadata/100/thumb/1",
+                accessToken = "plex token",
+            )
+
+        assertNotNull(url)
+        assertTrue("/photo/:/transcode" in url)
+        assertTrue(
+            "X-Plex-Token=plex+token" in url ||
+                "X-Plex-Token=plex%20token" in url,
+        )
+        assertFalse("api_key=" in url)
     }
 
     @Test

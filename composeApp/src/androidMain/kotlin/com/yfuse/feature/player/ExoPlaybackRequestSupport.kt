@@ -11,10 +11,10 @@ import com.yfuse.core.playback.PlaybackDrmScheme
 internal fun sanitizePlaybackUrl(value: String): String {
     val querySafe =
         value.replace(
-            Regex("(?i)(api_key|x-emby-token)=([^&\\s]+)"),
+            Regex("(?i)(api_key|x-emby-token|x-plex-token)=([^&\\s]+)"),
         ) { match -> "${match.groupValues[1]}=<redacted>" }
     return querySafe.replace(
-        Regex("(?i)(\"?(?:api_key|x-emby-token)\"?\\s*:\\s*\")([^\"]+)(\")"),
+        Regex("(?i)(\"?(?:api_key|x-emby-token|x-plex-token)\"?\\s*:\\s*\")([^\"]+)(\")"),
     ) { match -> "${match.groupValues[1]}<redacted>${match.groupValues[3]}" }
 }
 

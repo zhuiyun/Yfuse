@@ -1,8 +1,10 @@
 package com.yfuse.core.network
 
+import com.yfuse.core.data.plexArtworkPath
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.Person
+import io.ktor.http.encodeURLParameter
 
 /**
  * Builds Emby image URLs.
@@ -53,6 +55,15 @@ object EmbyImages {
         accessToken: String? = null,
     ): String? {
         if (baseUrl.isBlank() || itemId.isBlank()) return null
+        tag.plexArtworkPath()?.let { path ->
+            return plexImage(
+                baseUrl,
+                path,
+                maxWidth = maxHeight * 2,
+                maxHeight = maxHeight,
+                accessToken = accessToken,
+            )
+        }
         val tagQuery = tag?.let { "tag=$it&" }.orEmpty()
         return "${normalizeBaseUrl(
             baseUrl,
@@ -90,6 +101,15 @@ object EmbyImages {
         accessToken: String? = null,
     ): String? {
         if (baseUrl.isBlank() || itemId.isBlank() || index < 0) return null
+        tag.plexArtworkPath()?.let { path ->
+            return plexImage(
+                baseUrl,
+                path,
+                maxWidth = maxWidth,
+                maxHeight = maxWidth,
+                accessToken = accessToken,
+            )
+        }
         val tagQuery = tag?.let { "tag=$it&" }.orEmpty()
         return "${normalizeBaseUrl(
             baseUrl,
@@ -134,6 +154,23 @@ object EmbyImages {
         maxHeight: Int = 200,
         accessToken: String? = null,
     ): String? = primary(baseUrl, person.id, person.primaryImageTag, maxHeight, accessToken)
+
+    private fun plexImage(
+        baseUrl: String,
+        path: String,
+        maxWidth: Int,
+        maxHeight: Int,
+        accessToken: String?,
+    ): String {
+        val token =
+            accessToken
+                ?.takeIf(String::isNotBlank)
+                ?.let { "&X-Plex-Token=${it.encodeURLParameter()}" }
+                .orEmpty()
+        return "${normalizeBaseUrl(baseUrl)}/photo/:/transcode" +
+            "?width=$maxWidth&height=$maxHeight&minSize=1&upscale=0" +
+            "&url=${path.encodeURLParameter()}$token"
+    }
 
     /** Every builder already ends in a query string, so the token is always an `&` away. */
     private fun String.withToken(accessToken: String?): String =

@@ -147,7 +147,7 @@ private fun ByteArray.redactedManifestPreview(): String =
         .trim()
         .take(HLS_PREVIEW_CHARS)
         .replace(
-            Regex("(?i)(api_key|x-emby-token|access_token|token)=([^&\\s\\\"']+)"),
+            Regex("(?i)(api_key|x-emby-token|x-plex-token|access_token|token)=([^&\\s\\\"']+)"),
             "$1=<redacted>",
         )
 

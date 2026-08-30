@@ -165,6 +165,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                     rawUrl = raw,
                     token = token,
                     playSessionId = sessionId,
+                    addApiKey = !raw.contains("X-Plex-Token=", ignoreCase = true),
                     localCleartextConfirmed = localCleartextConfirmed,
                 )
             }
@@ -179,6 +180,9 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
                 version.supportsDirectStream == true &&
                 directStream != null &&
                 version.directStreamUrl.isLinearMediaStreamUrl()
+        val providerDirectStream =
+            directStream != null &&
+                version.directStreamUrl?.contains("X-Plex-Token=", ignoreCase = true) == true
         val hlsTranscode =
             when {
                 negotiatedTranscode != null ->
@@ -191,6 +195,9 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             }
         val method =
             when {
+                // Plex's negotiated `/library/parts/...` URL is the original file. It must win
+                // over the Emby-shaped generated DirectPlay fallback, including for Dolby media.
+                providerDirectStream -> PlaybackMethod.DirectStream
                 // A concrete .m2ts/.ts/etc address means the server already selected and
                 // remuxed a title. A generic or static DirectStreamUrl can still be the raw
                 // ISO bytes, which no Android backend can consume as a linear stream.
@@ -513,11 +520,22 @@ internal const val MAX_TRICKPLAY_CACHE_ENTRIES = 8
 
 private fun String.withPlaySessionId(sessionId: String): String {
     if (isBlank()) return this
+    val plexSession = Regex("([?&])session=[^&]*")
+    val withProviderSession =
+        if (contains("/video/:/transcode/universal/", ignoreCase = true)) {
+            if (plexSession.containsMatchIn(this)) {
+                replace(plexSession, "$1session=$sessionId")
+            } else {
+                "$this${if ('?' in this) '&' else '?'}session=$sessionId"
+            }
+        } else {
+            this
+        }
     val parameter = Regex("([?&])PlaySessionId=[^&]*")
-    return if (parameter.containsMatchIn(this)) {
-        replace(parameter, "$1PlaySessionId=$sessionId")
+    return if (parameter.containsMatchIn(withProviderSession)) {
+        withProviderSession.replace(parameter, "$1PlaySessionId=$sessionId")
     } else {
-        "$this${if ('?' in this) '&' else '?'}PlaySessionId=$sessionId"
+        "$withProviderSession${if ('?' in withProviderSession) '&' else '?'}PlaySessionId=$sessionId"
     }
 }
 

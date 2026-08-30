@@ -21,11 +21,14 @@ executors. It does not introduce another decoder or rendering kernel.
 - Jellyfin is detected from `/System/Info/Public` and persisted as a distinct provider while using
   the shared MediaBrowser-compatible API and playback profile. This avoids silently labelling a
   Jellyfin session as Emby and preserves the provider across sync/backup.
-- Player, external-player and Cast queue contracts consume already-resolved HTTP media URLs and are
-  provider-neutral, so a Plex adapter can feed them without changing a playback engine.
-- Plex authentication, library browsing, metadata parsing and progress reporting are **not**
-  implemented by this milestone. External playback of an already-resolved Plex URL is supported;
-  full Plex server support requires a separate provider adapter and conformance corpus.
+- Plex now has a native provider adapter. Manual server setup accepts a server URL plus
+  `X-Plex-Token`; identity validation keeps the token in headers, then encrypted server storage.
+- Plex libraries, home rows, search, movie/show/season/episode metadata, versions, embedded and
+  sidecar track metadata, direct part URLs, universal-HLS fallback, timeline reporting, scrobble /
+  unscrobble, resume snapshot import and provider-id matching use the same UI/player contracts as
+  Emby and Jellyfin.
+- Plex account OAuth, cloud Watchlist, server-side collection editing, remote subtitle-store
+  installation, actor search and BIF trickplay remain outside this local-server minimum loop.
 
 ## Required external verification
 
@@ -33,5 +36,6 @@ executors. It does not introduce another decoder or rendering kernel.
    the execution environment).
 2. Google Cast Console must show receiver `E9107559` as published with at least one sender app.
 3. Run the physical Chromecast matrix in `castReceiver/README.md`.
-4. Run Emby and Jellyfin playback/reporting smoke tests; run Plex only after the provider adapter is
-   implemented rather than treating external-player fallback as full compatibility.
+4. Run Emby and Jellyfin playback/reporting smoke tests.
+5. Run Plex Media Server smoke tests for token login, movie/episode direct play, HLS fallback,
+   embedded/external tracks, seek/resume, watched state, Cast and token expiry/re-login.

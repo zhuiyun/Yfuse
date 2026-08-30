@@ -223,6 +223,7 @@ class EmbyRepository(
     private val serverService = EmbyServerService(client)
     private val subtitleService = EmbySubtitleService(client)
     private val userDataService = EmbyUserDataService(client)
+    private val plex = PlexMediaServerAdapter(client, progressProjection)
 
     suspend fun publicUsers(baseUrl: String): Result<List<PublicUserDto>> = authService.publicUsers(baseUrl)
 
@@ -230,26 +231,47 @@ class EmbyRepository(
         baseUrl: String,
         username: String,
         password: String,
-    ): Result<AuthedServer> = authService.authenticate(baseUrl, username, password)
+        kind: MediaServerKind = MediaServerKind.Emby,
+    ): Result<AuthedServer> =
+        if (kind == MediaServerKind.Plex) {
+            plex.authenticate(baseUrl, password)
+        } else {
+            authService.authenticate(baseUrl, username, password)
+        }
 
     suspend fun libraries(server: SavedServer): Result<List<MediaLibrary>> =
-        embyApiCall("libraries") { libraryService.views(server) }
+        if (server.kind == MediaServerKind.Plex) {
+            plex.libraries(server)
+        } else {
+            embyApiCall("libraries") { libraryService.views(server) }
+        }
 
     suspend fun mediaContainers(server: SavedServer): Result<List<MediaContainer>> =
-        browseService.mediaContainers(server)
+        if (server.kind == MediaServerKind.Plex) Result.success(emptyList()) else browseService.mediaContainers(server)
 
     suspend fun mediaContainersPage(
         server: SavedServer,
         kind: MediaContainerKind,
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
-    ): Result<MediaContainerPage> = browseService.mediaContainersPage(server, kind, startIndex, limit)
+    ): Result<MediaContainerPage> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.success(MediaContainerPage(startIndex = startIndex))
+        } else {
+            browseService.mediaContainersPage(server, kind, startIndex, limit)
+        }
 
     suspend fun setFavorite(
         server: SavedServer,
         itemId: String,
         favorite: Boolean,
-    ): Result<Unit> = userDataService.setFavorite(server, itemId, favorite)
+    ): Result<Unit> =
+        if (server.kind == MediaServerKind.Plex) {
+            // Plex has no first-class favorite flag equivalent to Emby/Jellyfin UserData.
+            Result.failure(UnsupportedOperationException("Plex 不支持 Emby 收藏状态同步"))
+        } else {
+            userDataService.setFavorite(server, itemId, favorite)
+        }
 
     suspend fun setPlayed(
         server: SavedServer,
@@ -258,6 +280,8 @@ class EmbyRepository(
     ): Result<Unit> =
         if (progressProjection.localOnly) {
             Result.success(Unit)
+        } else if (server.kind == MediaServerKind.Plex) {
+            plex.setPlayed(server, itemId, played)
         } else {
             userDataService.setPlayed(server, itemId, played)
         }
@@ -267,7 +291,12 @@ class EmbyRepository(
         containerId: String,
         kind: MediaContainerKind,
         itemId: String,
-    ): Result<Unit> = browseService.addItemToMediaContainer(server, containerId, kind, itemId)
+    ): Result<Unit> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.failure(UnsupportedOperationException("Plex 合集编辑尚未开放"))
+        } else {
+            browseService.addItemToMediaContainer(server, containerId, kind, itemId)
+        }
 
     suspend fun removeItemFromMediaContainer(
         server: SavedServer,
@@ -276,28 +305,43 @@ class EmbyRepository(
         itemId: String,
         playlistItemId: String? = null,
     ): Result<Unit> =
-        browseService.removeItemFromMediaContainer(
-            server,
-            containerId,
-            kind,
-            itemId,
-            playlistItemId,
-        )
+        if (server.kind == MediaServerKind.Plex) {
+            Result.failure(UnsupportedOperationException("Plex 合集编辑尚未开放"))
+        } else {
+            browseService.removeItemFromMediaContainer(
+                server,
+                containerId,
+                kind,
+                itemId,
+                playlistItemId,
+            )
+        }
 
     suspend fun addToWatchLater(
         server: SavedServer,
         itemId: String,
-    ): Result<Unit> = browseService.addToWatchLater(server, itemId)
+    ): Result<Unit> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.failure(UnsupportedOperationException("Plex Watchlist 需要云端账号接口"))
+        } else {
+            browseService.addToWatchLater(server, itemId)
+        }
 
     suspend fun isInWatchLater(
         server: SavedServer,
         itemId: String,
-    ): Result<Boolean> = browseService.isInWatchLater(server, itemId)
+    ): Result<Boolean> =
+        if (server.kind == MediaServerKind.Plex) Result.success(false) else browseService.isInWatchLater(server, itemId)
 
     suspend fun removeFromWatchLater(
         server: SavedServer,
         itemId: String,
-    ): Result<Unit> = browseService.removeFromWatchLater(server, itemId)
+    ): Result<Unit> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.failure(UnsupportedOperationException("Plex Watchlist 需要云端账号接口"))
+        } else {
+            browseService.removeFromWatchLater(server, itemId)
+        }
 
     suspend fun reportPlaybackStarted(
         server: SavedServer,
@@ -309,6 +353,8 @@ class EmbyRepository(
     ): Result<Unit> =
         if (progressProjection.localOnly) {
             Result.success(Unit)
+        } else if (server.kind == MediaServerKind.Plex) {
+            plex.reportPlayback(server, itemId, playSessionId, positionTicks, isPaused, stopped = false)
         } else {
             playbackService.reportStarted(
                 server = server,
@@ -330,6 +376,8 @@ class EmbyRepository(
     ): Result<Unit> =
         if (progressProjection.localOnly) {
             Result.success(Unit)
+        } else if (server.kind == MediaServerKind.Plex) {
+            plex.reportPlayback(server, itemId, playSessionId, positionTicks, isPaused, stopped = false)
         } else {
             playbackService.reportProgress(
                 server = server,
@@ -351,6 +399,8 @@ class EmbyRepository(
     ): Result<Unit> =
         if (progressProjection.localOnly) {
             Result.success(Unit)
+        } else if (server.kind == MediaServerKind.Plex) {
+            plex.reportPlayback(server, itemId, playSessionId, positionTicks, isPaused, stopped = true)
         } else {
             playbackService.reportStopped(
                 server = server,
@@ -374,28 +424,42 @@ class EmbyRepository(
         startPositionTicks: Long = 0L,
         playSessionId: String,
     ): Result<PlaybackInfoResponseDto> =
-        playbackService.playbackInfo(
-            server = server,
-            itemId = itemId,
-            mediaSourceId = mediaSourceId,
-            startPositionTicks = startPositionTicks,
-            playSessionId = playSessionId,
-        )
+        if (server.kind == MediaServerKind.Plex) {
+            plex.playbackInfo(server, itemId, mediaSourceId, playSessionId)
+        } else {
+            playbackService.playbackInfo(
+                server = server,
+                itemId = itemId,
+                mediaSourceId = mediaSourceId,
+                startPositionTicks = startPositionTicks,
+                playSessionId = playSessionId,
+            )
+        }
 
-    suspend fun probeServer(server: SavedServer): Result<Long> = serverService.probe(server)
+    suspend fun probeServer(server: SavedServer): Result<Long> =
+        if (server.kind == MediaServerKind.Plex) plex.probe(server) else serverService.probe(server)
 
     suspend fun probeAddress(
         baseUrl: String,
         accessToken: String,
-    ): Result<Long> = serverService.probeAddress(baseUrl, accessToken)
+        kind: MediaServerKind = MediaServerKind.Emby,
+    ): Result<Long> =
+        if (kind == MediaServerKind.Plex) {
+            plex.probeAddress(baseUrl, accessToken)
+        } else {
+            serverService.probeAddress(baseUrl, accessToken)
+        }
 
     /** Server-wide Movie/Series totals, for the server cards' at-a-glance figures. */
     suspend fun itemCounts(server: SavedServer): Result<LibraryCounts> =
-        embyApiCall("item_counts") {
-            libraryService.counts(server)
+        if (server.kind == MediaServerKind.Plex) {
+            plex.itemCounts(server)
+        } else {
+            embyApiCall("item_counts") { libraryService.counts(server) }
         }
 
-    suspend fun homeContent(server: SavedServer): Result<HomeContent> = homeService.homeContent(server)
+    suspend fun homeContent(server: SavedServer): Result<HomeContent> =
+        if (server.kind == MediaServerKind.Plex) plex.homeContent(server) else homeService.homeContent(server)
 
     suspend fun mediaContainerItems(
         server: SavedServer,
@@ -407,13 +471,22 @@ class EmbyRepository(
         limit: Int = LIBRARY_PAGE_SIZE,
         resolution: LibraryResolution = LibraryResolution.All,
     ): Result<LibraryPage> =
-        browseService.mediaContainerItems(server, containerId, kind, sort, genre, startIndex, limit, resolution)
+        if (server.kind == MediaServerKind.Plex) {
+            Result.success(LibraryPage(startIndex = startIndex))
+        } else {
+            browseService.mediaContainerItems(server, containerId, kind, sort, genre, startIndex, limit, resolution)
+        }
 
     suspend fun mediaContainerGenres(
         server: SavedServer,
         containerId: String,
         kind: MediaContainerKind,
-    ): Result<List<String>> = browseService.mediaContainerGenres(server, containerId, kind)
+    ): Result<List<String>> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.success(emptyList())
+        } else {
+            browseService.mediaContainerGenres(server, containerId, kind)
+        }
 
     suspend fun libraryItems(
         server: SavedServer,
@@ -423,37 +496,68 @@ class EmbyRepository(
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
         resolution: LibraryResolution = LibraryResolution.All,
-    ): Result<LibraryPage> = browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
+    ): Result<LibraryPage> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
+        } else {
+            browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
+        }
 
     suspend fun libraryGenres(
         server: SavedServer,
         libraryId: String,
-    ): Result<List<String>> = browseService.libraryGenres(server, libraryId)
+    ): Result<List<String>> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.libraryGenres(server, libraryId)
+        } else {
+            browseService.libraryGenres(server, libraryId)
+        }
 
     suspend fun similarItems(
         server: SavedServer,
         itemId: String,
         limit: Int = 12,
-    ): Result<List<MediaItem>> = detailService.similarItems(server, itemId, limit)
+    ): Result<List<MediaItem>> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.similarItems(server, itemId, limit)
+        } else {
+            detailService.similarItems(server, itemId, limit)
+        }
 
     suspend fun resolvePlayTarget(
         server: SavedServer,
         detail: MediaDetail,
-    ): Result<PlayTarget> = detailService.resolvePlayTarget(server, detail)
+    ): Result<PlayTarget> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.resolvePlayTarget(server, detail)
+        } else {
+            detailService.resolvePlayTarget(server, detail)
+        }
 
     /** Libraries available to advanced search filters. */
-    suspend fun mediaLibraries(server: SavedServer): Result<List<MediaLibrary>> =
-        embyApiCall("search_libraries") { libraryService.views(server) }
+    suspend fun mediaLibraries(server: SavedServer): Result<List<MediaLibrary>> = libraries(server)
 
     suspend fun searchGenres(
         server: SavedServer,
         parentId: String? = null,
-    ): Result<List<String>> = searchService.genres(server, parentId)
+    ): Result<List<String>> =
+        if (server.kind == MediaServerKind.Plex && parentId != null) {
+            plex.libraryGenres(server, parentId)
+        } else if (server.kind == MediaServerKind.Plex) {
+            Result.success(emptyList())
+        } else {
+            searchService.genres(server, parentId)
+        }
 
     suspend fun nextUpEpisodes(
         server: SavedServer,
         limit: Int = 12,
-    ): Result<List<MediaItem>> = detailService.nextUpEpisodes(server, limit)
+    ): Result<List<MediaItem>> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.nextUpEpisodes(server, limit)
+        } else {
+            detailService.nextUpEpisodes(server, limit)
+        }
 
     /** Title search with filters executed by Emby rather than against a truncated client list. */
     suspend fun search(
@@ -477,7 +581,12 @@ class EmbyRepository(
         startIndex: Int = 0,
         limit: Int = 24,
         filter: MediaSearchFilter = MediaSearchFilter(),
-    ): Result<MediaSearchPage> = searchService.searchPage(server, query, startIndex, limit, filter)
+    ): Result<MediaSearchPage> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.searchPage(server, query, startIndex, limit, filter)
+        } else {
+            searchService.searchPage(server, query, startIndex, limit, filter)
+        }
 
     /**
      * People whose name matches the query, for the search tab's 演员 row.
@@ -488,21 +597,32 @@ class EmbyRepository(
         server: SavedServer,
         query: String,
         limit: Int = PERSON_SEARCH_LIMIT,
-    ): List<Person> = searchService.searchPeople(server, query, limit)
+    ): List<Person> =
+        if (server.kind == MediaServerKind.Plex) emptyList() else searchService.searchPeople(server, query, limit)
 
     /** Everything on this server that credits one person, newest first. */
     suspend fun itemsByPerson(
         server: SavedServer,
         personId: String,
         limit: Int = PERSON_ITEMS_LIMIT,
-    ): Result<List<MediaItem>> = searchService.itemsByPerson(server, personId, limit)
+    ): Result<List<MediaItem>> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.success(emptyList())
+        } else {
+            searchService.itemsByPerson(server, personId, limit)
+        }
 
     /** Complete paged user-state snapshot used by the multi-server sync coordinator. */
     suspend fun userLibrarySnapshot(
         server: SavedServer,
         includeProgress: Boolean = true,
         includeFavorites: Boolean = true,
-    ): Result<List<SyncedUserItem>> = userDataService.snapshot(server, includeProgress, includeFavorites)
+    ): Result<List<SyncedUserItem>> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.userLibrarySnapshot(server, includeProgress)
+        } else {
+            userDataService.snapshot(server, includeProgress, includeFavorites)
+        }
 
     /**
      * Asks the server to end the encoding started for [playSessionId] on this device.
@@ -514,23 +634,43 @@ class EmbyRepository(
     suspend fun stopTranscoding(
         server: SavedServer,
         playSessionId: String,
-    ): Result<Unit> = playbackService.stopTranscoding(server, playSessionId)
+    ): Result<Unit> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.stopTranscoding(server, playSessionId)
+        } else {
+            playbackService.stopTranscoding(server, playSessionId)
+        }
 
     suspend fun findByTmdbId(
         server: SavedServer,
         tmdbId: Int,
         mediaType: String,
-    ): Result<MediaItem?> = lookupService.findByTmdbId(server, tmdbId, mediaType)
+    ): Result<MediaItem?> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.findByTmdbId(server, tmdbId, mediaType)
+        } else {
+            lookupService.findByTmdbId(server, tmdbId, mediaType)
+        }
 
     suspend fun findByMediaKey(
         server: SavedServer,
         mediaKey: String,
-    ): Result<MediaItem?> = lookupService.findByMediaKey(server, mediaKey)
+    ): Result<MediaItem?> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.findByMediaKey(server, mediaKey)
+        } else {
+            lookupService.findByMediaKey(server, mediaKey)
+        }
 
     suspend fun itemDetail(
         server: SavedServer,
         itemId: String,
-    ): Result<MediaDetail> = detailService.itemDetail(server, itemId)
+    ): Result<MediaDetail> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.itemDetail(server, itemId)
+        } else {
+            detailService.itemDetail(server, itemId)
+        }
 
     suspend fun compareSources(
         servers: List<SavedServer>,
@@ -541,31 +681,66 @@ class EmbyRepository(
         year: Int? = null,
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
-    ): List<ServerSource> =
-        sourceService.compareSources(
-            servers = servers,
-            currentServerId = currentServerId,
-            title = title,
-            tmdbId = tmdbId,
-            mediaType = mediaType,
-            year = year,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-        )
+    ): List<ServerSource> {
+        val compatibleServers = servers.filterNot { it.kind == MediaServerKind.Plex }
+        val compatible =
+            sourceService.compareSources(
+                servers = compatibleServers,
+                currentServerId = currentServerId,
+                title = title,
+                tmdbId = tmdbId,
+                mediaType = mediaType,
+                year = year,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+            )
+        val plexSources =
+            servers.filter { it.kind == MediaServerKind.Plex }.map { server ->
+                plex.compareSource(
+                    server = server,
+                    currentServerId = currentServerId,
+                    title = title,
+                    tmdbId = tmdbId,
+                    mediaType = mediaType,
+                    year = year,
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
+                )
+            }
+        val byId = (compatible + plexSources).associateBy(ServerSource::serverId)
+        return servers.mapNotNull { byId[it.id] }
+    }
 
     suspend fun seasons(
         server: SavedServer,
         seriesId: String,
-    ): Result<List<Season>> = detailService.seasons(server, seriesId)
+    ): Result<List<Season>> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.seasons(server, seriesId)
+        } else {
+            detailService.seasons(server, seriesId)
+        }
 
     suspend fun seriesProviderIndex(server: SavedServer): Result<Map<String, String>> =
-        lookupService.seriesProviderIndex(server)
+        if (server.kind == MediaServerKind.Plex) {
+            plex.seriesProviderIndex(server)
+        } else {
+            lookupService.seriesProviderIndex(server)
+        }
 
     suspend fun seriesIdentityCatalog(server: SavedServer): Result<List<LibrarySeriesIdentity>> =
-        lookupService.seriesIdentityCatalog(server)
+        if (server.kind == MediaServerKind.Plex) {
+            plex.seriesIdentityCatalog(server)
+        } else {
+            lookupService.seriesIdentityCatalog(server)
+        }
 
     suspend fun movieProviderIndex(server: SavedServer): Result<Map<String, ProviderHit>> =
-        lookupService.movieProviderIndex(server)
+        if (server.kind == MediaServerKind.Plex) {
+            plex.movieProviderIndex(server)
+        } else {
+            lookupService.movieProviderIndex(server)
+        }
 
     /** Episodes of a season (or of the whole series when [seasonId] is null). */
     suspend fun episodes(
@@ -575,28 +750,47 @@ class EmbyRepository(
         includeMediaSources: Boolean = false,
         seasonNumber: Int? = null,
     ): Result<List<Episode>> =
-        detailService.episodes(
-            server = server,
-            seriesId = seriesId,
-            seasonId = seasonId,
-            includeMediaSources = includeMediaSources,
-            seasonNumber = seasonNumber,
-        )
+        if (server.kind == MediaServerKind.Plex) {
+            plex.episodes(server, seriesId, seasonId, includeMediaSources, seasonNumber)
+        } else {
+            detailService.episodes(
+                server = server,
+                seriesId = seriesId,
+                seasonId = seasonId,
+                includeMediaSources = includeMediaSources,
+                seasonNumber = seasonNumber,
+            )
+        }
 
     suspend fun trickplayInfo(
         server: SavedServer,
         itemId: String,
-    ): Result<TrickplayInfo?> = detailService.trickplayInfo(server, itemId)
+    ): Result<TrickplayInfo?> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.success(null)
+        } else {
+            detailService.trickplayInfo(server, itemId)
+        }
 
     suspend fun searchRemoteSubtitles(
         server: SavedServer,
         itemId: String,
         language: String = "zh",
-    ): Result<List<RemoteSubtitleInfoDto>> = subtitleService.search(server, itemId, language)
+    ): Result<List<RemoteSubtitleInfoDto>> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.success(emptyList())
+        } else {
+            subtitleService.search(server, itemId, language)
+        }
 
     suspend fun downloadRemoteSubtitle(
         server: SavedServer,
         itemId: String,
         subtitleId: String,
-    ): Result<Unit> = subtitleService.download(server, itemId, subtitleId)
+    ): Result<Unit> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.failure(UnsupportedOperationException("Plex 不支持 Emby 字幕商店接口"))
+        } else {
+            subtitleService.download(server, itemId, subtitleId)
+        }
 }

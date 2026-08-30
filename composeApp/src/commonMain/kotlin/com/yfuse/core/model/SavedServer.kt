@@ -8,7 +8,7 @@ enum class MediaServerKind {
     Emby,
     Jellyfin,
 
-    /** Reserved for the provider adapter; Emby-compatible endpoints never masquerade as Plex. */
+    /** Native Plex Media Server adapter; Emby-compatible endpoints never masquerade as Plex. */
     Plex,
 }
 

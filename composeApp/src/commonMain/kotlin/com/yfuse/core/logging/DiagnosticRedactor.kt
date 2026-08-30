@@ -8,7 +8,7 @@ private const val SENSITIVE_IDENTITY_PATTERN =
     "(?:access[_-]?token|api[_-]?key|authorization|client[_-]?secret|cookie|" +
         "device[_-]?id|domain|host(?:name)?|ip|password|play[_-]?session[_-]?id|pw|" +
         "ray[_-]?id|refresh[_-]?token|secret|server[_-]?id|session[_-]?id|set-cookie|" +
-        "token|user[_-]?id|x-emby-token|zone)"
+        "token|user[_-]?id|x-emby-token|x-plex-token|zone)"
 private const val PUBLIC_DOMAIN_SUFFIX_PATTERN =
     "(?:app|cc|cloud|cn|co|com|dev|example|io|jp|me|net|online|org|site|store|" +
         "tech|test|top|tv|uk|xyz)"
@@ -55,6 +55,7 @@ private val sensitiveKeys =
         "userid",
         "user_id",
         "x-emby-token",
+        "x-plex-token",
         "zone",
     )
 
