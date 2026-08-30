@@ -393,6 +393,14 @@ jobs:
           grep -Fq "package: name='com.yfuse'" <<<"$badging"
           grep -Fq "versionCode='$VERSION_CODE'" <<<"$badging"
           grep -Fq "versionName='$VERSION_NAME'" <<<"$badging"
+          receiver_id="$(awk -F= '$1 == "yfuseCastReceiverApplicationId" { print $2 }' gradle.properties)"
+          [[ "$receiver_id" == "E9107559" ]]
+          dex_dir="$(mktemp -d)"
+          unzip -qq "$apk" 'classes*.dex' -d "$dex_dir"
+          if ! strings "$dex_dir"/classes*.dex | grep -F "$receiver_id" >/dev/null; then
+            echo "::error::Release APK does not contain the configured Cast receiver application ID"
+            exit 1
+          fi
           expected_cert="$(
             tr -d ':[:space:]' <<<"$EXPECTED_ANDROID_CERT_SHA256" |
               tr '[:upper:]' '[:lower:]'
