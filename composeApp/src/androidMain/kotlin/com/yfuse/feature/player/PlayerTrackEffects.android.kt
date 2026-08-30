@@ -96,6 +96,12 @@ internal fun PlayerTrackEffects(
             requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
         }
     }
+    LaunchedEffect(backendExtensions, engineKind, audioControls.enhancement) {
+        val applied = backendExtensions.setAudioEnhancement(audioControls.enhancement)
+        if (!applied && audioControls.enhancement != AudioEnhancementMode.Off) {
+            requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
+        }
+    }
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.scale) {
         if (engineKind != PlayerEngine.Exo) {
             val applied = backendExtensions.setSubtitleScale(subtitleControls.scale)
@@ -105,7 +111,12 @@ internal fun PlayerTrackEffects(
         }
     }
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.brightness) {
-        val applied = backendExtensions.setSubtitleBrightness(subtitleControls.brightness)
+        val applied =
+            if (backendExtensions.supportsSubtitleAppearance) {
+                true
+            } else {
+                backendExtensions.setSubtitleBrightness(subtitleControls.brightness)
+            }
         if (!applied && subtitleControls.brightness != 1f) {
             requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
         }
@@ -114,6 +125,22 @@ internal fun PlayerTrackEffects(
         if (engineKind != PlayerEngine.Exo) {
             val applied = backendExtensions.setSubtitlePosition(subtitleControls.position)
             if (!applied && subtitleControls.position != DEFAULT_SUBTITLE_POSITION) {
+                requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
+            }
+        }
+    }
+    LaunchedEffect(
+        backendExtensions,
+        engineKind,
+        subtitleControls.appearance,
+        subtitleControls.brightness,
+    ) {
+        if (engineKind != PlayerEngine.Exo) {
+            val applied =
+                backendExtensions.setSubtitleAppearance(
+                    subtitleControls.appearance.withBrightness(subtitleControls.brightness),
+                )
+            if (!applied && subtitleControls.appearance != SubtitleAppearance()) {
                 requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
             }
         }

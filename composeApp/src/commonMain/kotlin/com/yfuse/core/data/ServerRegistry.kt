@@ -2,6 +2,7 @@ package com.yfuse.core.data
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServersData
@@ -54,6 +55,7 @@ private data class PersistedServer(
     @SerialName("ie") val iconEmoji: String? = null,
     @SerialName("it") val iconTint: Long? = null,
     @SerialName("lc") val localCleartextConfirmed: Boolean = false,
+    @SerialName("k") val kind: MediaServerKind = MediaServerKind.Emby,
 )
 
 @Serializable
@@ -74,6 +76,7 @@ private data class PortableServer(
     @SerialName("rt") val routes: List<ServerRoute> = emptyList(),
     @SerialName("ie") val iconEmoji: String? = null,
     @SerialName("it") val iconTint: Long? = null,
+    @SerialName("k") val kind: MediaServerKind = MediaServerKind.Emby,
 )
 
 private data class LoadedRegistry(
@@ -436,6 +439,7 @@ class ServerRegistry(
                         iconEmoji = server.iconEmoji,
                         iconTint = server.iconTint,
                         localCleartextConfirmed = deviceConfirmation,
+                        kind = server.kind,
                     )
                 }
             require(normalized.map { it.id }.distinct().size == normalized.size) {
@@ -485,6 +489,7 @@ class ServerRegistry(
                                         routes = it.routes,
                                         iconEmoji = it.iconEmoji,
                                         iconTint = it.iconTint,
+                                        kind = it.kind,
                                     )
                                 },
                         ),
@@ -621,6 +626,7 @@ class ServerRegistry(
                                 routes = it.routes,
                                 iconEmoji = it.iconEmoji,
                                 iconTint = it.iconTint,
+                                kind = it.kind,
                             )
                         },
                 ),
@@ -655,6 +661,7 @@ class ServerRegistry(
                     routes = portable.routes,
                     iconEmoji = portable.iconEmoji,
                     iconTint = portable.iconTint,
+                    kind = portable.kind,
                 )
             }
         require(imported.map { it.id }.distinct().size == imported.size) { "迁移包中包含重复服务器" }
@@ -884,6 +891,7 @@ class ServerRegistry(
                             iconEmoji = sanitizeIconEmoji(stored.iconEmoji),
                             iconTint = stored.iconTint,
                             localCleartextConfirmed = stored.localCleartextConfirmed,
+                            kind = stored.kind,
                         ).withNormalizedRoutes()
                     val primaryValidation =
                         validateEmbyServerEndpoint(
@@ -1027,6 +1035,7 @@ class ServerRegistry(
                             iconEmoji = server.iconEmoji,
                             iconTint = server.iconTint,
                             localCleartextConfirmed = server.localCleartextConfirmed,
+                            kind = server.kind,
                         )
                     },
             )
@@ -1118,6 +1127,7 @@ class ServerRegistry(
         iconEmoji: String? = null,
         iconTint: Long? = null,
         localCleartextConfirmed: Boolean = false,
+        kind: MediaServerKind = MediaServerKind.Emby,
     ): SavedServer {
         val normalizedBaseUrl = baseUrl.trim().trimEnd('/')
         val primaryValidation =
@@ -1154,6 +1164,7 @@ class ServerRegistry(
                     .trim()
                     .take(128),
             accessToken = token,
+            kind = kind,
             previousIds = recentPreviousIds(id, previousIds.take(MAX_SERVER_PREVIOUS_IDS)),
             // The imported list is untrusted input: rebuild the primary from the address the
             // id was just derived from and keep only the backups, so a package can never

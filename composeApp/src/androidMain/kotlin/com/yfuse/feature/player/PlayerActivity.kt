@@ -1182,16 +1182,23 @@ class PlayerActivity : ComponentActivity() {
         val deviceId = cast.activeDeviceId ?: return
         val fallbackUrl = item.transcodeUrl.ifBlank { item.fallbackTranscodeUrl }
         lifecycleScope.launch {
-            if (
-                castManager.play(
-                    deviceId = deviceId,
-                    mediaUrl = item.url,
-                    title = item.title,
-                    positionMs = 0L,
-                    fallbackMediaUrl = fallbackUrl,
-                    mediaProfile = item.castMediaProfile(),
-                )
-            ) {
+            val queued =
+                if (offset < 0) {
+                    castManager.queuePrevious()
+                } else {
+                    castManager.queueNext()
+                }
+            val loaded =
+                queued ||
+                    castManager.play(
+                        deviceId = deviceId,
+                        mediaUrl = item.url,
+                        title = item.title,
+                        positionMs = 0L,
+                        fallbackMediaUrl = fallbackUrl,
+                        mediaProfile = item.castMediaProfile(),
+                    )
+            if (loaded) {
                 activePlayer?.selectItem(targetIndex)
                 activePlayer?.pause()
             }

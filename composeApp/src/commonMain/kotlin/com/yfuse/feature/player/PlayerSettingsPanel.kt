@@ -103,6 +103,7 @@ internal fun SettingsPanel(
     onNextDiscTitle: () -> Unit,
     onNextDiscChapter: () -> Unit,
     onShowDiscMenu: () -> Unit,
+    onExternalPlayer: (() -> Unit)?,
     onDiscoverCast: () -> Unit,
     onCastTo: (String) -> Unit,
     onStopCast: () -> Unit,
@@ -251,6 +252,52 @@ internal fun SettingsPanel(
                         } else {
                             UnsupportedSubtitleControl(subtitleControls.unavailableReason)
                         }
+                        GroupLabel("字幕颜色")
+                        if (subtitleControls.appearanceAvailable) {
+                            listOf(
+                                0xFFFFFFFFL to "白色",
+                                0xFFFFF2CCL to "暖黄",
+                                0xFFBFE3FFL to "浅蓝",
+                                0xFFBFFFD0L to "浅绿",
+                            ).forEach { (color, label) ->
+                                OptionRow(
+                                    label,
+                                    subtitleControls.appearance.textColorArgb == color,
+                                    onClick = { subtitleActions.onTextColor(color) },
+                                )
+                            }
+                            GroupLabel("字幕背景")
+                            listOf(
+                                0x00000000L to "透明",
+                                0x66000000L to "半透明黑",
+                                0x99000000L to "深色背景",
+                            ).forEach { (color, label) ->
+                                OptionRow(
+                                    label,
+                                    subtitleControls.appearance.backgroundColorArgb == color,
+                                    onClick = { subtitleActions.onBackgroundColor(color) },
+                                )
+                            }
+                            GroupLabel("字幕描边")
+                            listOf(0f to "关闭", 1f to "细", 2f to "标准", 4f to "粗")
+                                .forEach { (width, label) ->
+                                    OptionRow(
+                                        label,
+                                        subtitleControls.appearance.outlineWidth == width,
+                                        onClick = { subtitleActions.onOutlineWidth(width) },
+                                    )
+                                }
+                            listOf(0xFF000000L to "黑色描边", 0xFFFFFFFFL to "白色描边")
+                                .forEach { (color, label) ->
+                                    OptionRow(
+                                        label,
+                                        subtitleControls.appearance.outlineColorArgb == color,
+                                        onClick = { subtitleActions.onOutlineColor(color) },
+                                    )
+                                }
+                        } else {
+                            UnsupportedSubtitleControl(subtitleControls.unavailableReason)
+                        }
                     } else if (trackPanelMode == TrackPanelMode.Subtitle) {
                         Text(
                             "当前版本没有可用字幕，可继续搜索第三方字幕。",
@@ -308,6 +355,27 @@ internal fun SettingsPanel(
                         } else {
                             Text(
                                 audioControls.unavailableReason ?: "当前播放模式不支持音频延迟。",
+                                style = AppTypography.caption.medium,
+                                color = Color.White.copy(alpha = 0.68f),
+                            )
+                        }
+                        GroupLabel("音频增强")
+                        if (audioControls.enhancementAvailable) {
+                            AudioEnhancementMode.entries.forEach { mode ->
+                                OptionRow(
+                                    mode.label,
+                                    audioControls.enhancement == mode,
+                                    onClick = { audioActions.onEnhancement(mode) },
+                                )
+                            }
+                            Text(
+                                "夜间人声会压缩动态范围；直通输出时需由兼容内核接管并解码为 PCM。",
+                                style = AppTypography.caption.medium,
+                                color = Color.White.copy(alpha = 0.68f),
+                            )
+                        } else {
+                            Text(
+                                "当前锁定内核不支持音量增强或夜间人声。",
                                 style = AppTypography.caption.medium,
                                 color = Color.White.copy(alpha = 0.68f),
                             )
@@ -638,6 +706,9 @@ internal fun SettingsPanel(
                             }
                             OptionRow("锁定控制", false, onClick = onLock)
                             OptionRow("手势说明", false, onClick = onOpenGestureHelp)
+                            onExternalPlayer?.let { open ->
+                                OptionRow("使用外部播放器", false, onClick = open)
+                            }
                             if (watch.available || watch.connected) {
                                 OptionRow(
                                     if (watch.connected) {
@@ -670,7 +741,7 @@ internal fun SettingsPanel(
                         }
 
                         AdvancedPage.Engine -> {
-                            PopupBackLabel("播放内核", "切换后重新加载") {
+                            PopupBackLabel("播放内核", "仅当前视频 · 切换后重新加载") {
                                 advancedPage = AdvancedPage.Root
                             }
                             engineOptions.forEachIndexed { index, (label, selected) ->

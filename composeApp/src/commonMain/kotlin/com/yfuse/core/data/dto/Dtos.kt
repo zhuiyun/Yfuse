@@ -22,6 +22,7 @@ data class PublicInfoDto(
     val ServerName: String? = null,
     val Version: String? = null,
     val Id: String? = null,
+    val ProductName: String? = null,
 )
 
 @Serializable

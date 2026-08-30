@@ -5,6 +5,7 @@ import com.yfuse.core.data.dto.AuthResultDto
 import com.yfuse.core.data.dto.PublicInfoDto
 import com.yfuse.core.data.dto.PublicUserDto
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.normalizeBaseUrl
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -38,7 +39,7 @@ internal class EmbyAuthService(
                     }.body()
             val serverInfo =
                 runCatching {
-                    client.get("$url/System/Info/Public").body<PublicInfoDto>().ServerName
+                    client.get("$url/System/Info/Public").body<PublicInfoDto>()
                 }.onFailure {
                     AppLog.warning(
                         category = "emby",
@@ -47,6 +48,22 @@ internal class EmbyAuthService(
                         throwable = it,
                     )
                 }
-            AuthedServer(url, serverInfo.getOrNull() ?: url, auth.User.Id, auth.User.Name, auth.AccessToken)
+            val publicInfo = serverInfo.getOrNull()
+            val kind = publicInfo.mediaServerKind()
+            AuthedServer(
+                url,
+                publicInfo?.ServerName ?: url,
+                auth.User.Id,
+                auth.User.Name,
+                auth.AccessToken,
+                kind,
+            )
         }
 }
+
+internal fun PublicInfoDto?.mediaServerKind(): MediaServerKind =
+    if (this?.ProductName?.contains("Jellyfin", ignoreCase = true) == true) {
+        MediaServerKind.Jellyfin
+    } else {
+        MediaServerKind.Emby
+    }

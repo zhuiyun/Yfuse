@@ -1022,6 +1022,30 @@ class MpvVideoEngine(
             instance.setPropertyDouble("audio-delay", delayMs.coerceIn(-10_000L, 10_000L) / 1000.0)
         }
 
+    override val supportsAudioEnhancement: Boolean = true
+
+    override fun setAudioEnhancement(mode: AudioEnhancementMode): Boolean =
+        withMpvResult { instance ->
+            val filter =
+                when (mode) {
+                    AudioEnhancementMode.Off -> ""
+                    AudioEnhancementMode.VolumeBoost -> "lavfi=[volume=1.5]"
+                    AudioEnhancementMode.NightVoice ->
+                        "lavfi=[acompressor=threshold=-20dB:ratio=4:attack=5:release=200:makeup=5dB]"
+                }
+            instance.setPropertyString("af", filter)
+            // Audio filters operate on PCM. Never claim/pass an encoded Atmos route while boost or
+            // night voice is active; turning the feature off restores the configured safe list.
+            instance.setPropertyString(
+                "audio-spdif",
+                if (mode == AudioEnhancementMode.Off) {
+                    mpvAudioSpdifOption(audioPassthroughMode, currentDirectAudioFormats()).orEmpty()
+                } else {
+                    ""
+                },
+            )
+        }
+
     override fun selectSubtitleTrack(id: String) = selectTrack("sid", id)
 
     override fun selectDiscTitle(index: Int): Boolean {
@@ -1047,6 +1071,8 @@ class MpvVideoEngine(
     override val supportsSubtitleBrightness: Boolean = true
 
     override val supportsSubtitlePosition: Boolean = true
+
+    override val supportsSubtitleAppearance: Boolean = true
 
     override fun selectSecondarySubtitleTrack(id: String): Boolean =
         withMpvResult { instance ->
@@ -1089,6 +1115,15 @@ class MpvVideoEngine(
             val percent = position.coerceIn(0.60f, 0.96f) * 100.0
             instance.setPropertyDouble("sub-pos", percent)
             instance.setPropertyDouble("secondary-sub-pos", percent)
+        }
+
+    override fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean =
+        withMpvResult { instance ->
+            instance.setPropertyString("sub-color", subtitleArgbMpvColor(appearance.textColorArgb))
+            instance.setPropertyString("sub-back-color", subtitleArgbMpvColor(appearance.backgroundColorArgb))
+            instance.setPropertyString("sub-border-color", subtitleArgbMpvColor(appearance.outlineColorArgb))
+            instance.setPropertyDouble("sub-border-size", appearance.outlineWidth.coerceIn(0f, 6f).toDouble())
+            instance.setPropertyString("sub-ass-override", "force")
         }
 
     override fun setPauseAtEndOfCurrentItem(enabled: Boolean) {

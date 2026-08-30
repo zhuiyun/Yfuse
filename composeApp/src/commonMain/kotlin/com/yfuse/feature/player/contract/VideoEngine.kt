@@ -217,6 +217,42 @@ enum class VideoScaleMode(
     fun next(): VideoScaleMode = entries[(ordinal + 1) % entries.size]
 }
 
+/** Engine-neutral audio post-processing. Unsupported backends must report false, not imitate it. */
+enum class AudioEnhancementMode(
+    val label: String,
+) {
+    Off("关闭"),
+    VolumeBoost("音量增强"),
+    NightVoice("夜间人声"),
+}
+
+/**
+ * Explicit subtitle presentation for the current title/series.
+ *
+ * Colours use ARGB longs so common code does not depend on Android or Compose colour classes.
+ * [backgroundColorArgb] may be transparent; [outlineWidth] is a relative renderer-independent
+ * strength and is intentionally bounded by preferences before reaching a backend.
+ */
+data class SubtitleAppearance(
+    val textColorArgb: Long = 0xFFFFFFFFL,
+    val backgroundColorArgb: Long = 0x00000000L,
+    val outlineColorArgb: Long = 0xFF000000L,
+    val outlineWidth: Float = 2f,
+)
+
+internal fun SubtitleAppearance.withBrightness(brightness: Float): SubtitleAppearance {
+    val factor = brightness.coerceIn(MIN_SUBTITLE_BRIGHTNESS, 1f)
+    fun dim(argb: Long): Long {
+        val value = argb and 0xFFFFFFFFL
+        val alpha = value and 0xFF000000L
+        val red = (((value ushr 16) and 0xFF) * factor).roundToInt().toLong()
+        val green = (((value ushr 8) and 0xFF) * factor).roundToInt().toLong()
+        val blue = ((value and 0xFF) * factor).roundToInt().toLong()
+        return alpha or (red shl 16) or (green shl 8) or blue
+    }
+    return copy(textColorArgb = dim(textColorArgb))
+}
+
 /** Everything the glass control layer needs to render, engine-agnostic. */
 data class PlaybackState(
     val playing: Boolean = false,
@@ -328,6 +364,11 @@ interface VideoEngine {
     /** Positive values delay audio; negative values play it earlier. */
     fun setAudioDelayMs(delayMs: Long): Boolean = delayMs == 0L
 
+    val supportsAudioEnhancement: Boolean get() = false
+
+    /** Applies session-local post-processing; [AudioEnhancementMode.Off] must always be safe. */
+    fun setAudioEnhancement(mode: AudioEnhancementMode): Boolean = mode == AudioEnhancementMode.Off
+
     /** [EngineTrack.OFF] disables subtitles. */
     fun selectSubtitleTrack(id: String)
 
@@ -368,6 +409,11 @@ interface VideoEngine {
 
     /** Fraction from the top edge, where 0 is top and 1 is bottom. */
     fun setSubtitlePosition(position: Float): Boolean = position == DEFAULT_SUBTITLE_POSITION
+
+    val supportsSubtitleAppearance: Boolean get() = false
+
+    fun setSubtitleAppearance(appearance: SubtitleAppearance): Boolean =
+        appearance == SubtitleAppearance()
 
     /** Temporarily prevents automatic queue advance after the current entry finishes. */
     fun setPauseAtEndOfCurrentItem(enabled: Boolean) = Unit
@@ -424,6 +470,17 @@ internal fun subtitleBrightnessRgba(brightness: Float): String {
 internal fun subtitleBrightnessMpvColor(brightness: Float): String {
     val channel = subtitleBrightnessByte(brightness).toString(16).padStart(2, '0')
     return "#ff$channel$channel$channel"
+}
+
+/** mpv accepts CSS-style RRGGBBAA, while persisted colours use Android/Compose-style AARRGGBB. */
+internal fun subtitleArgbMpvColor(argb: Long): String {
+    val value = argb and 0xFFFFFFFFL
+    val alpha = (value ushr 24) and 0xFF
+    val red = (value ushr 16) and 0xFF
+    val green = (value ushr 8) and 0xFF
+    val blue = value and 0xFF
+    fun Long.hexByte(): String = toString(16).padStart(2, '0')
+    return "#${red.hexByte()}${green.hexByte()}${blue.hexByte()}${alpha.hexByte()}"
 }
 
 internal const val MIN_SUBTITLE_BRIGHTNESS = 0.35f

@@ -62,6 +62,7 @@ internal fun Core2Surface(
     subtitleScale: Float,
     subtitleBrightness: Float,
     subtitlePosition: Float,
+    subtitleAppearance: SubtitleAppearance,
     modifier: Modifier = Modifier,
 ) {
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
@@ -104,6 +105,7 @@ internal fun Core2Surface(
             scale = subtitleScale,
             brightness = subtitleBrightness,
             position = subtitlePosition,
+            appearance = subtitleAppearance,
             modifier = surfaceModifier,
         )
         DiscNavigationOverlay(engine = engine, layoutSize = layoutSize)
@@ -117,6 +119,7 @@ private fun Core2SubtitleOverlay(
     scale: Float,
     brightness: Float,
     position: Float,
+    appearance: SubtitleAppearance,
     modifier: Modifier,
 ) {
     val playerState by engine.player.state.collectAsState()
@@ -170,14 +173,20 @@ private fun Core2SubtitleOverlay(
         activeText.forEach { payload ->
             val cueStyle = payload.style
             val authoredColor = cueStyle.primaryColorArgb?.let(::Color) ?: Color.White
+            val useAuthoredColor = appearance == SubtitleAppearance()
+            val requestedColor = Color(appearance.textColorArgb.toULong())
+            val backgroundColor = Color(appearance.backgroundColorArgb.toULong())
+            val outlineColor = Color(appearance.outlineColorArgb.toULong())
             val textScale = scale.coerceIn(0.6f, 1.8f)
             val authoredSize = cueStyle.fontSizePoints?.coerceIn(10f, 64f) ?: 22f
             val alignment = cueStyle.alignment.toComposeAlignment()
             Text(
                 text = payload.plainText,
                 color =
-                    authoredColor.copy(
-                        alpha = authoredColor.alpha * brightness.coerceIn(0.35f, 1f),
+                    (if (useAuthoredColor) authoredColor else requestedColor).copy(
+                        alpha =
+                            (if (useAuthoredColor) authoredColor.alpha else requestedColor.alpha) *
+                                brightness.coerceIn(0.35f, 1f),
                     ),
                 fontSize = (authoredSize * textScale).sp,
                 lineHeight = (authoredSize * 1.23f * textScale).sp,
@@ -187,11 +196,20 @@ private fun Core2SubtitleOverlay(
                 textDecoration = if (cueStyle.underline) TextDecoration.Underline else TextDecoration.None,
                 style =
                     androidx.compose.ui.text.TextStyle(
+                        background = backgroundColor,
                         shadow =
                             Shadow(
-                                color = Color.Black,
+                                color = outlineColor,
                                 offset = Offset(0f, cueStyle.shadow ?: 2f),
-                                blurRadius = maxOf(2f, (cueStyle.outline ?: 2f) * 2.5f),
+                                blurRadius =
+                                    if (appearance.outlineWidth <= 0f) {
+                                        0f
+                                    } else {
+                                        maxOf(
+                                            2f,
+                                            maxOf(cueStyle.outline ?: 0f, appearance.outlineWidth) * 2.5f,
+                                        )
+                                    },
                             ),
                     ),
                 modifier =

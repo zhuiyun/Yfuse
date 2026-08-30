@@ -101,6 +101,7 @@ private val LiquidProgressViolet = Color(0xFF7D5FF6)
 internal fun PlaybackErrorOverlay(
     message: String,
     onRetry: () -> Unit,
+    onExternalPlayer: (() -> Unit)?,
     onBack: () -> Unit,
 ) {
     Box(
@@ -148,6 +149,21 @@ internal fun PlaybackErrorOverlay(
                             ).noRippleClickable(onRetry)
                             .padding(horizontal = 18.dp, vertical = 9.dp),
                 )
+                onExternalPlayer?.let { open ->
+                    Text(
+                        "外部播放器",
+                        style = AppTypography.body.strong,
+                        color = Color.White,
+                        modifier =
+                            Modifier
+                                .glass(
+                                    shape = AppShapes.pill,
+                                    fill = Color.White.copy(alpha = 0.16f),
+                                    border = Color.White.copy(alpha = 0.36f),
+                                ).noRippleClickable(open)
+                                .padding(horizontal = 18.dp, vertical = 9.dp),
+                    )
+                }
             }
         }
     }

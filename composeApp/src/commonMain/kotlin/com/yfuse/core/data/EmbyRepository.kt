@@ -15,6 +15,7 @@ import com.yfuse.core.model.MediaContainerPage
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaLibrary
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.SavedServer
@@ -34,6 +35,7 @@ data class AuthedServer(
     val userId: String,
     val userName: String,
     val accessToken: String,
+    val kind: MediaServerKind = MediaServerKind.Emby,
 ) {
     fun toSavedServer(
         serverName: String? = null,
@@ -45,6 +47,7 @@ data class AuthedServer(
         userId = userId,
         userName = userName,
         accessToken = accessToken,
+        kind = kind,
         localCleartextConfirmed = localCleartextConfirmed,
     )
 }

@@ -133,6 +133,31 @@ class CastStateMachineTest {
     }
 
     @Test
+    fun receiver_queue_and_track_state_are_revision_local() {
+        val remote =
+            CastState()
+                .connectingTo(receiver, positionMs = 0L)
+                .remoteUpdate(
+                    status = CastPlaybackStatus.Playing,
+                    queueSize = 3,
+                    currentQueueIndex = 2,
+                    tracks =
+                        listOf(
+                            CastTrack(7L, CastTrackKind.Audio, "国语", "zh", selected = true),
+                            CastTrack(9L, CastTrackKind.Subtitle, "简体", "zh", selected = false),
+                        ),
+                )
+
+        assertEquals(3, remote.queueSize)
+        assertEquals(2, remote.currentQueueIndex)
+        assertEquals(7L, remote.tracks.single { it.selected }.id)
+
+        val nextLoad = remote.connectingTo(receiver, positionMs = 0L)
+        assertEquals(0, nextLoad.queueSize)
+        assertTrue(nextLoad.tracks.isEmpty())
+    }
+
+    @Test
     fun dlna_time_and_cast_start_position_are_bounded_and_precise() {
         assertEquals(3_723_500L, parseDlnaTimeMillis("01:02:03.500"))
         assertEquals("00:01:30", formatDlnaTime(90_999L))

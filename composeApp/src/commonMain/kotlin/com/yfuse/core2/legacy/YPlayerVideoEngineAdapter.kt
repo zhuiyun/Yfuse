@@ -62,6 +62,8 @@ internal class YPlayerVideoEngineAdapter(
 
     override val supportsSubtitlePosition: Boolean = true
 
+    override val supportsSubtitleAppearance: Boolean = true
+
     override fun setSubtitleOffsetMs(offsetMs: Long): Boolean = true
 
     override fun setSubtitleScale(scale: Float): Boolean = true
@@ -69,6 +71,8 @@ internal class YPlayerVideoEngineAdapter(
     override fun setSubtitleBrightness(brightness: Float): Boolean = true
 
     override fun setSubtitlePosition(position: Float): Boolean = true
+
+    override fun setSubtitleAppearance(appearance: com.yfuse.feature.player.SubtitleAppearance): Boolean = true
 
     override fun selectItem(index: Int) = player.selectItem(index)
 
