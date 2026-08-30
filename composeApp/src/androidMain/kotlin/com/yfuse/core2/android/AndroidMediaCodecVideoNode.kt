@@ -164,8 +164,7 @@ internal class AndroidMediaCodecVideoNode(
                     codecInfos
                         .filter { info -> info.supportsProfile(MIME_DOLBY_VISION, exactProfile) }
                         .map { it.name }
-                }
-                .orEmpty()
+                }.orEmpty()
         val preferredDecoderName = runCatching { codecList.findDecoderForFormat(format) }.getOrNull()
         val candidateNames =
             orderedVideoDecoderNames(
