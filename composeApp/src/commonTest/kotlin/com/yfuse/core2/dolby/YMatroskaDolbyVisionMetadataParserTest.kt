@@ -21,9 +21,10 @@ class YMatroskaDolbyVisionMetadataParserTest {
             )
         val document = matroskaDocument(videoTrack(dolbyMapping(TYPE_DVVC, config.toConfigurationBytes())))
 
-        val result = assertIs<YMatroskaDolbyVisionMetadataResult.Found>(
-            YMatroskaDolbyVisionMetadataParser.parse(document),
-        )
+        val result =
+            assertIs<YMatroskaDolbyVisionMetadataResult.Found>(
+                YMatroskaDolbyVisionMetadataParser.parse(document),
+            )
 
         assertEquals("V_MPEGH/ISO/HEVC", result.metadata.codecId)
         assertEquals(TYPE_DVVC, result.metadata.blockAddIdType)
@@ -52,9 +53,10 @@ class YMatroskaDolbyVisionMetadataParserTest {
                     element(ID_BLOCK_ADD_ID_VALUE, unsigned(TYPE_DVCC)),
             )
 
-        val result = assertIs<YMatroskaDolbyVisionMetadataResult.Found>(
-            YMatroskaDolbyVisionMetadataParser.parse(matroskaDocument(videoTrack(mapping))),
-        )
+        val result =
+            assertIs<YMatroskaDolbyVisionMetadataResult.Found>(
+                YMatroskaDolbyVisionMetadataParser.parse(matroskaDocument(videoTrack(mapping))),
+            )
 
         assertEquals(5, result.metadata.config.profile)
         assertEquals(TYPE_DVCC, result.metadata.blockAddIdType)

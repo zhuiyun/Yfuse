@@ -284,7 +284,9 @@ private fun AndroidMediaExtractorDemuxNode.matroskaDolbyVisionConfigOrNull(
                     message = "YCore recovered Dolby Vision configuration from Matroska metadata",
                     attributes =
                         mapOf(
-                            "profile" to result.metadata.config.profile.toString(),
+                            "profile" to
+                                result.metadata.config.profile
+                                    .toString(),
                             "codec" to result.metadata.codecId,
                             "mappingType" to result.metadata.blockAddIdType.toString(16),
                         ),

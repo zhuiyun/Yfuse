@@ -198,9 +198,16 @@ internal class AndroidMediaExtractorDemuxNode(
         timeline.establish(requireExtractor().validSampleTimeUs())
     }
 
-    private fun MediaExtractor.validSampleTimeUs(): Long = sampleTime.takeUnless { it == MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE } ?: 0L
+    private fun MediaExtractor.validSampleTimeUs(): Long =
+        sampleTime
+            .takeUnless {
+                it == MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE
+            } ?: 0L
 
-    private fun requireExtractor(): MediaExtractor = checkNotNull(extractor) { "MediaExtractor demux node has not been opened" }
+    private fun requireExtractor(): MediaExtractor =
+        checkNotNull(extractor) {
+            "MediaExtractor demux node has not been opened"
+        }
 
     private fun MediaExtractor.setPrivateDataSource(source: YAndroidMediaSource) {
         val parsed = Uri.parse(source.uri)
