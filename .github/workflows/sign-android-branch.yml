@@ -234,6 +234,15 @@ jobs:
           grep -Fq "versionCode='$version_code'" <<<"$badging"
           grep -Fq "versionName='$version_name'" <<<"$badging"
 
+          receiver_id="$(awk -F= '$1 == "yfuseCastReceiverApplicationId" { print $2 }' gradle.properties)"
+          [[ "$receiver_id" == "E9107559" ]]
+          dex_dir="$(mktemp -d)"
+          unzip -qq "$apk" 'classes*.dex' -d "$dex_dir"
+          if ! strings "$dex_dir"/classes*.dex | grep -F "$receiver_id" >/dev/null; then
+            echo "::error::Signed APK does not contain the configured Cast receiver application ID"
+            exit 1
+          fi
+
           file_name="Yfuse-${version_code}-${version_name}-signed.apk"
           mkdir -p build/signed-artifact
           cp "$apk" "build/signed-artifact/$file_name"

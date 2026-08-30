@@ -5,6 +5,7 @@ Cast device and connected display, validates the requested media types, and emit
 only after the receiver reaches `PLAYING` for the matching load revision.
 
 Production receiver URL: <https://zhuiyun.github.io/yfuse-cast/>
+Receiver application ID: `E9107559`
 
 The deployed copy lives in the public `zhuiyun/zhuiyun.github.io` repository so this URL remains
 available if the main Yfuse repository becomes private. Keep the deployed `index.html` and
@@ -14,7 +15,8 @@ To activate it:
 
 1. Register the production URL above as a Custom Web Receiver in the Google Cast Developer Console.
 2. Copy the generated eight-character Receiver Application ID.
-3. Build the Android app with `-PyfuseCastReceiverApplicationId=XXXXXXXX`.
+3. Keep `yfuseCastReceiverApplicationId=E9107559` in the checked-in `gradle.properties` file.
 
-Without that property the app intentionally uses Google's Default Media Receiver. Playback still
-works through the existing H.264/AAC fallback, while Dolby capabilities and output remain unknown.
+If that property is removed, the app intentionally uses Google's Default Media Receiver. Playback
+still works through the existing H.264/AAC fallback, while Dolby capabilities and output remain
+unknown.
