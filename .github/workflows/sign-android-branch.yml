@@ -5,6 +5,7 @@ on:
     branches:
       - codex/merge-all-sign-20260815
       - codex/android-tv-p0-20260830
+      - codex/ycore-sign-20260830
   pull_request:
     branches:
       - master
