@@ -16,6 +16,7 @@ import java.util.UUID
 internal data class YAndroidMediaSource(
     val uri: String,
     val headers: Map<String, String> = emptyMap(),
+    val bitrateBitsPerSecond: Long = 0L,
     val cacheIdentity: YCacheIdentity? = null,
     val cacheMaximumBytes: Long = 0L,
 )
@@ -236,6 +237,7 @@ internal class AndroidMediaExtractorDemuxNode(
                                 YSourceProtocol.Http
                             },
                         headers = source.headers,
+                        initialMediaBitRateBitsPerSecond = source.bitrateBitsPerSecond,
                         cacheDirectory = appContext.cacheDir,
                         cacheIdentity = source.cacheIdentity,
                         cacheMaximumBytes = source.cacheMaximumBytes,
@@ -260,6 +262,7 @@ internal class AndroidMediaExtractorDemuxNode(
                         uri = normalizedUri,
                         protocol = if (tls) YSourceProtocol.WebDavTls else YSourceProtocol.WebDav,
                         headers = source.headers,
+                        initialMediaBitRateBitsPerSecond = source.bitrateBitsPerSecond,
                         cacheDirectory = appContext.cacheDir,
                         cacheIdentity = source.cacheIdentity,
                         cacheMaximumBytes = source.cacheMaximumBytes,
@@ -274,6 +277,7 @@ internal class AndroidMediaExtractorDemuxNode(
                         uri = source.uri,
                         protocol = YSourceProtocol.Smb,
                         headers = source.headers,
+                        initialMediaBitRateBitsPerSecond = source.bitrateBitsPerSecond,
                         cacheDirectory = appContext.cacheDir,
                         cacheIdentity = source.cacheIdentity,
                         cacheMaximumBytes = source.cacheMaximumBytes,

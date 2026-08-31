@@ -121,6 +121,8 @@ data class YMediaItem(
 
 data class YMediaSourceHints(
     val container: String? = null,
+    /** Server-confirmed overall source bitrate used to size NativeDirect compressed read-ahead. */
+    val bitrateBitsPerSecond: Long = 0L,
     val videoCodec: String? = null,
     val dynamicRange: String? = null,
     val dolbyVision: Boolean = false,
@@ -129,7 +131,11 @@ data class YMediaSourceHints(
     val dolbyEnhancementLayerPresent: Boolean? = null,
     val dolbyBaseLayerPresent: Boolean? = null,
     val dolbyBaseLayerCompatibilityId: Int? = null,
-)
+) {
+    init {
+        require(bitrateBitsPerSecond >= 0L)
+    }
+}
 
 data class YExternalSubtitleSource(
     val uri: String,

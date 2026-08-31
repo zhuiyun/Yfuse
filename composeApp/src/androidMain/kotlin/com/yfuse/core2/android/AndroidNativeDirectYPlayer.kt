@@ -526,8 +526,11 @@ internal class AndroidNativeDirectYPlayer(
             )
             audioInputFormat = audioTrackIndex?.let(demux::trackFormat)
             val sourceBitRateBitsPerSecond =
-                listOfNotNull(videoFormat, audioInputFormat)
-                    .sumOf { it.longOrZero(MediaFormat.KEY_BIT_RATE) }
+                maxOf(
+                    item.sourceHints?.bitrateBitsPerSecond ?: 0L,
+                    listOfNotNull(videoFormat, audioInputFormat)
+                        .sumOf { it.longOrZero(MediaFormat.KEY_BIT_RATE) },
+                )
             demux.setMediaBitRateBitsPerSecond(sourceBitRateBitsPerSecond)
             item.drmConfiguration?.let { configuration ->
                 val initializationData =
@@ -1808,6 +1811,7 @@ private fun YMediaItem.toAndroidSource(): YAndroidMediaSource =
     YAndroidMediaSource(
         uri = uri,
         headers = headers,
+        bitrateBitsPerSecond = sourceHints?.bitrateBitsPerSecond ?: 0L,
         cacheIdentity = cacheIdentity,
         cacheMaximumBytes = cacheMaximumBytes,
     )

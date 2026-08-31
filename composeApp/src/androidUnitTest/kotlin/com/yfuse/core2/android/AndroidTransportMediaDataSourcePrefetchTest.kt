@@ -91,6 +91,27 @@ class AndroidTransportMediaDataSourcePrefetchTest {
             ),
         )
     }
+
+    @Test
+    fun `server bitrate sizes prefetch before extractor opens and missing track bitrate cannot erase it`() {
+        val media = ByteArray(256)
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = { MemoryRangeTransport(media) { _, _ -> } },
+                initialMediaBitRateBitsPerSecond = 37_932_765L,
+                blockSizeOverride = 2 * 1024 * 1024,
+            )
+        try {
+            assertEquals(8, source.qoeSnapshot().depthBlocks)
+            source.setMediaBitRateBitsPerSecond(0L)
+            assertEquals(8, source.qoeSnapshot().depthBlocks)
+        } finally {
+            source.close()
+        }
+    }
 }
 
 private class MemoryRangeTransport(

@@ -28,6 +28,7 @@ internal class AndroidTransportMediaDataSource(
     private val protocol: YSourceProtocol,
     private val headers: Map<String, String>,
     private val createTransport: () -> YMediaTransport,
+    initialMediaBitRateBitsPerSecond: Long = 0L,
     cacheDirectory: File? = null,
     cacheIdentity: YCacheIdentity? = null,
     cacheMaximumBytes: Long = 0L,
@@ -72,8 +73,12 @@ internal class AndroidTransportMediaDataSource(
     private var knownSize = diskCache?.contentLength ?: -1L
     private val prefetchedBlocks = LinkedHashMap<Long, YTransportBlockPrefetch>()
     private var prefetchSuppressed = false
-    private var mediaBitRateBitsPerSecond = 0L
-    private var prefetchDepthBlocks = DEFAULT_TRANSPORT_PREFETCH_DEPTH_BLOCKS
+    private var mediaBitRateBitsPerSecond = initialMediaBitRateBitsPerSecond.coerceAtLeast(0L)
+    private var prefetchDepthBlocks =
+        transportPrefetchDepthBlocks(
+            blockSize = blockSize,
+            mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
+        )
     private var prefetchHitCount = 0L
     private var synchronousLoadCount = 0L
     private var maximumResolveWaitMs = 0L
@@ -125,7 +130,9 @@ internal class AndroidTransportMediaDataSource(
      */
     @Synchronized
     fun setMediaBitRateBitsPerSecond(value: Long) {
-        mediaBitRateBitsPerSecond = value.coerceAtLeast(0L)
+        // MediaExtractor often omits bitrate for Matroska. Never let that zero erase the
+        // server-confirmed bitrate that was available before setDataSource opened the first range.
+        mediaBitRateBitsPerSecond = maxOf(mediaBitRateBitsPerSecond, value.coerceAtLeast(0L))
         prefetchDepthBlocks =
             transportPrefetchDepthBlocks(
                 blockSize = blockSize,

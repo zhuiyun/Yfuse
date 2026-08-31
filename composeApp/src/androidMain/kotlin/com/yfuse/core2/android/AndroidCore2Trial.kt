@@ -408,6 +408,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
                 ?.let { source ->
                     YMediaSourceHints(
                         container = source.container,
+                        bitrateBitsPerSecond = source.sourceBitrateBps?.toLong() ?: 0L,
                         videoCodec = source.sourceVideoCodec,
                         dynamicRange = source.sourceDynamicRange,
                         dolbyVision = source.dolbyVision,
