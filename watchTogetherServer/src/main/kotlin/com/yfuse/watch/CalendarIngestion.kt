@@ -438,12 +438,14 @@ internal enum class OcrAgreement {
     PartialSubset,
     CoordinateIntersection,
     SemanticCorroboration,
+    Majority,
 }
 
 internal data class OcrReading(
     val providerId: String,
     val text: String,
     val episodes: Map<Int, String>,
+    val independenceGroup: String = providerId,
 )
 
 private data class OcrConsensusCapture(
@@ -523,6 +525,7 @@ internal object CalendarEvidenceGate {
                                         OcrAgreement.PartialSubset -> "two-ocr-subset-coordinate-agreement"
                                         OcrAgreement.CoordinateIntersection -> "two-ocr-coordinate-intersection"
                                         OcrAgreement.SemanticCorroboration -> "two-ocr-schedule-rule-corroboration"
+                                        OcrAgreement.Majority -> "three-ocr-two-provider-majority"
                                         OcrAgreement.None -> "two-independent-ocr-results-agree"
                                     },
                             ),
@@ -786,6 +789,7 @@ internal data class OcrConsensusResolution(
     val episodes: Map<Int, String> = emptyMap(),
     val agreement: OcrAgreement = OcrAgreement.None,
     val conflict: Boolean = false,
+    val providerIds: Set<String> = emptySet(),
 )
 
 internal object OcrConfidenceGate {
@@ -794,55 +798,84 @@ internal object OcrConfidenceGate {
         defaultYear: Int,
         accessTier: String,
     ): OcrConsensusResolution {
-        if (readings.size != MAX_OCR_PROVIDERS || readings.map(OcrReading::providerId).distinct().size != readings.size) {
+        val distinct = readings.distinctBy(OcrReading::providerId)
+        if (distinct.size !in MIN_OCR_PROVIDERS..MAX_OCR_PROVIDERS) {
             return OcrConsensusResolution()
         }
-        val first = readings[0]
-        val second = readings[1]
-        val dailyGrids = readings.map { dailyGridCoordinates(it.text, defaultYear, accessTier) }
+        val pairs = distinct.indices.flatMap { first ->
+            ((first + 1) until distinct.size).mapNotNull { second ->
+                val left = distinct[first]
+                val right = distinct[second]
+                if (left.independenceGroup == right.independenceGroup) null else left to right
+            }
+        }
+        if (pairs.isEmpty()) return OcrConsensusResolution()
+        val pairResolutions = pairs.map { (first, second) -> resolvePair(first, second, defaultYear, accessTier) }
+        if (distinct.size == MIN_OCR_PROVIDERS) return pairResolutions.single()
+        val accepted = pairResolutions.filter { it.episodes.isNotEmpty() && it.agreement != OcrAgreement.None }
+        if (accepted.isEmpty()) return OcrConsensusResolution(conflict = pairResolutions.any { it.conflict })
+        val merged = mergeWithoutConflict(accepted.map(OcrConsensusResolution::episodes))
+            ?: return OcrConsensusResolution(conflict = true)
+        return OcrConsensusResolution(
+            episodes = merged,
+            agreement = OcrAgreement.Majority,
+            providerIds = accepted.flatMap(OcrConsensusResolution::providerIds).toSet(),
+        )
+    }
+
+    private fun resolvePair(
+        first: OcrReading,
+        second: OcrReading,
+        defaultYear: Int,
+        accessTier: String,
+    ): OcrConsensusResolution {
+        val providerIds = setOf(first.providerId, second.providerId)
+        val pair = listOf(first, second)
+        val dailyGrids = pair.map { dailyGridCoordinates(it.text, defaultYear, accessTier) }
         if (dailyGrids.all { it.isNotEmpty() } && dailyGrids.distinct().size == 1) {
-            return OcrConsensusResolution(dailyGrids.first(), OcrAgreement.SemanticCorroboration)
+            return OcrConsensusResolution(dailyGrids.first(), OcrAgreement.SemanticCorroboration, providerIds = providerIds)
         }
         val sharedEpisodes = first.episodes.keys intersect second.episodes.keys
         if (sharedEpisodes.any { first.episodes[it] != second.episodes[it] }) {
             return OcrConsensusResolution(conflict = true)
         }
         if (first.episodes.isNotEmpty() && first.episodes == second.episodes) {
-            return OcrConsensusResolution(first.episodes, OcrAgreement.Exact)
+            return OcrConsensusResolution(first.episodes, OcrAgreement.Exact, providerIds = providerIds)
         }
 
-        val nonEmpty = readings.filter { it.episodes.isNotEmpty() }
+        val nonEmpty = pair.filter { it.episodes.isNotEmpty() }
         if (nonEmpty.size == 2) {
             val smaller = nonEmpty.minBy { it.episodes.size }
             val larger = nonEmpty.maxBy { it.episodes.size }
             val smallerIsSubset = smaller.episodes.all { (episode, date) -> larger.episodes[episode] == date }
             if (smaller.episodes.size >= MIN_PARTIAL_OCR_COORDINATES && smallerIsSubset) {
-                return OcrConsensusResolution(larger.episodes, OcrAgreement.PartialSubset)
+                return OcrConsensusResolution(larger.episodes, OcrAgreement.PartialSubset, providerIds = providerIds)
             }
             val intersection =
                 sharedEpisodes
                     .filter { first.episodes[it] == second.episodes[it] }
                     .associateWith { first.episodes.getValue(it) }
             if (intersection.size >= MIN_PARTIAL_OCR_COORDINATES) {
-                return OcrConsensusResolution(intersection, OcrAgreement.CoordinateIntersection)
+                return OcrConsensusResolution(intersection, OcrAgreement.CoordinateIntersection, providerIds = providerIds)
             }
         }
 
-        val fullReleaseDates = readings.map { fullReleaseDate(it.text, defaultYear, accessTier) }
+        val fullReleaseDates = pair.map { fullReleaseDate(it.text, defaultYear, accessTier) }
         if (fullReleaseDates.all { it != null } && fullReleaseDates.distinct().size == 1) {
-            val episodeCount = readings.maxOfOrNull { fullSeriesEpisodeCount(it.text) } ?: 0
+            val episodeCount = pair.maxOfOrNull { fullSeriesEpisodeCount(it.text) } ?: 0
             if (episodeCount in 2..MAX_CALENDAR_EPISODES) {
                 val airDate = fullReleaseDates.first()!!.toString()
                 return OcrConsensusResolution(
                     episodes = (1..episodeCount).associateWith { airDate },
                     agreement = OcrAgreement.SemanticCorroboration,
+                    providerIds = providerIds,
                 )
             }
         }
 
         val candidate = nonEmpty.maxByOrNull { it.episodes.size }?.episodes.orEmpty()
-        if (candidate.isNotEmpty() && semanticallyCorroborated(candidate, readings, defaultYear, accessTier)) {
-            return OcrConsensusResolution(candidate, OcrAgreement.SemanticCorroboration)
+        if (candidate.isNotEmpty() && semanticallyCorroborated(candidate, pair, defaultYear, accessTier)) {
+            return OcrConsensusResolution(candidate, OcrAgreement.SemanticCorroboration, providerIds = providerIds)
         }
         return OcrConsensusResolution()
     }
@@ -1046,6 +1079,7 @@ private class CalendarIngestionRuntime(
     private val outputFile: File?,
     private val tmdbToken: String?,
     private val scheduleStore: CalendarScheduleStore,
+    private val ocrCache: CalendarOcrCache,
 ) {
     private val http =
         HttpClient.newBuilder()
@@ -1058,9 +1092,11 @@ private class CalendarIngestionRuntime(
     private val ocrRequests = Semaphore(OCR_REQUEST_CONCURRENCY)
     private val paddleRequests = Semaphore(PADDLE_REQUEST_CONCURRENCY)
     private val ocrSpaceRequests = Semaphore(OCR_SPACE_REQUEST_CONCURRENCY)
+    private val imageFingerprintCache = ConcurrentHashMap<String, String>()
 
     suspend fun runOnce(): Boolean =
         withContext(Dispatchers.IO) {
+            imageFingerprintCache.clear()
             val config = ingestionJson.decodeFromString<CalendarIngestionConfig>(configFile.readText())
             validateConfig(config)
             val generatedAt = Instant.now().toString()
@@ -1077,6 +1113,7 @@ private class CalendarIngestionRuntime(
                 candidates = domesticDiscovery.counts,
             )
             val ingestionShows = mergeIngestionShows(config.shows + discoveredShows)
+            CalendarIngestionHealth.registerShows(ingestionShows)
             val fallbackSchedules =
                 (existing?.schedules.orEmpty() + DEFAULT_CALENDAR_SCHEDULES)
                     .distinctBy(CalendarSeries::tmdbId)
@@ -1281,6 +1318,7 @@ private class CalendarIngestionRuntime(
         if (identity == null) {
             logCalendarRejection(show, "identity")
             return fallback?.copy(revision = revision)
+                .also { CalendarIngestionHealth.completed(show, if (it == null) "rejected" else "retained") }
         }
         if (show.origin == "Foreign") {
             val compiled = collectOverseasSchedule(show, identity, revision, generatedAt)
@@ -1300,7 +1338,17 @@ private class CalendarIngestionRuntime(
         if (sources.isEmpty()) logCalendarRejection(show, "source-empty")
         val compiled = CalendarEvidenceGate.compile(show, identity, sources, revision, generatedAt)
         if (compiled == null) logCalendarRejection(show, "evidence-gate")
-        return compiled ?: fallbackSchedules.firstOrNull { it.tmdbId == identity.tmdbId }?.copy(revision = revision)
+        val retained = fallbackSchedules.firstOrNull { it.tmdbId == identity.tmdbId }?.copy(revision = revision)
+        return (compiled ?: retained).also {
+            CalendarIngestionHealth.completed(
+                show,
+                when {
+                    compiled != null -> "published"
+                    retained != null -> "retained"
+                    else -> "rejected"
+                },
+            )
+        }
     }
 
     private suspend fun collectOverseasSchedule(
@@ -1381,30 +1429,30 @@ private class CalendarIngestionRuntime(
                 extractedImages = extractCalendarImages(source.url, rendered)
             }
         }
-        val imageUrls =
-            (if (source.imageUrls.isNotEmpty()) source.imageUrls else extractedImages)
-                .distinct()
-                .take(MAX_IMAGES_PER_SOURCE)
+        val imageUrls = prioritizeCalendarImages(
+            if (source.imageUrls.isNotEmpty()) source.imageUrls else extractedImages,
+        ).take(MAX_OCR_IMAGES_PER_SOURCE)
         val ocrCaptures = mutableListOf<OcrConsensusCapture>()
         imageUrls.forEach { imageUrl ->
+            val imageHash = fetchCalendarImageHash(imageUrl)
             val readings =
                 coroutineScope {
-                    config.ocrProviders.take(MAX_OCR_PROVIDERS).map { provider ->
+                    config.ocrProviders.take(MIN_OCR_PROVIDERS).map { provider ->
                         async {
                             ocrRequests.withPermit {
-                                ocr(provider, imageUrl)?.let { text ->
-                                    OcrReading(
-                                        providerId = provider.id,
-                                        text = text,
-                                        episodes = ChineseScheduleParser.parse(text, show.year, show.accessTier),
-                                    )
-                                }
+                                ocrReading(provider, imageUrl, imageHash, show)
                             }
                         }
                     }.awaitAll()
                         .filterNotNull()
-                }
-            if (readings.size != MAX_OCR_PROVIDERS) {
+                }.toMutableList()
+            var resolution = OcrConfidenceGate.resolve(readings, show.year, show.accessTier)
+            config.ocrProviders.drop(MIN_OCR_PROVIDERS).firstOrNull()
+                ?.takeIf { resolution.conflict || resolution.episodes.isEmpty() || resolution.agreement == OcrAgreement.None }
+                ?.let { fallback -> ocrRequests.withPermit { ocrReading(fallback, imageUrl, imageHash, show) } }
+                ?.let(readings::add)
+            resolution = OcrConfidenceGate.resolve(readings, show.year, show.accessTier)
+            if (readings.size < MIN_OCR_PROVIDERS) {
                 val successfulProviders =
                     readings.map(OcrReading::providerId)
                         .sorted()
@@ -1415,7 +1463,6 @@ private class CalendarIngestionRuntime(
                 logCalendarRejection(show, "ocr-provider-count-${readings.size}-$successfulProviders")
                 return@forEach
             }
-            val resolution = OcrConfidenceGate.resolve(readings, show.year, show.accessTier)
             if (resolution.conflict) {
                 logCalendarRejection(show, "ocr-conflict")
                 return null
@@ -1428,7 +1475,9 @@ private class CalendarIngestionRuntime(
                 OcrConsensusCapture(
                     imageUrl = imageUrl,
                     episodes = resolution.episodes,
-                    readingHashes = readings.map { reading -> reading.providerId to reading.text.sha256() },
+                    readingHashes = readings
+                        .filter { it.providerId in resolution.providerIds }
+                        .map { reading -> reading.providerId to reading.text.sha256() },
                     agreement = resolution.agreement,
                 )
         }
@@ -1550,6 +1599,7 @@ private class CalendarIngestionRuntime(
         show: CalendarIngestionShow,
         stage: String,
     ) {
+        CalendarIngestionHealth.rejected(show, stage)
         val safeTitle = show.title.replace(Regex("[\\r\\n\\t]"), " ").take(120)
         System.err.println("calendar ingestion rejected title=$safeTitle stage=$stage")
     }
@@ -1573,6 +1623,61 @@ private class CalendarIngestionRuntime(
             else -> null
         }
     }
+
+    private suspend fun ocrReading(
+        provider: CalendarOcrProviderConfig,
+        imageUrl: String,
+        imageHash: String?,
+        show: CalendarIngestionShow,
+    ): OcrReading? {
+        val providerKey = ocrProviderCacheKey(provider)
+        val cachedText = imageHash?.let { hash ->
+            when (val cached = ocrCache.lookup(providerKey, hash)) {
+                is CalendarOcrCacheLookup.Success -> {
+                    CalendarIngestionHealth.ocrCacheHit(false)
+                    cached.text
+                }
+                CalendarOcrCacheLookup.RecentFailure -> {
+                    CalendarIngestionHealth.ocrCacheHit(true)
+                    return null
+                }
+                CalendarOcrCacheLookup.Miss -> null
+            }
+        }
+        val text = cachedText ?: run {
+            CalendarIngestionHealth.ocrProviderRequest()
+            val captured = ocr(provider, imageUrl)
+            if (imageHash != null) {
+                if (captured == null) ocrCache.putFailure(providerKey, imageHash)
+                else ocrCache.putSuccess(providerKey, imageHash, captured)
+            }
+            captured
+        }
+        return text?.let {
+            OcrReading(
+                providerId = provider.id,
+                text = it,
+                episodes = ChineseScheduleParser.parse(it, show.year, show.accessTier),
+                independenceGroup = provider.independenceGroup?.takeIf(String::isNotBlank) ?: provider.id,
+            )
+        }
+    }
+
+    private fun fetchCalendarImageHash(imageUrl: String): String? =
+        imageFingerprintCache.computeIfAbsent(imageUrl) { url ->
+            val uri = runCatching { requireHttps(url) }.getOrNull() ?: return@computeIfAbsent ""
+            val request = HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofSeconds(20))
+                .header("User-Agent", "YfuseCalendarBot/1.1 (+official-schedule-evidence)")
+                .header("Accept", "image/*")
+                .GET()
+                .build()
+            val response = runCatching { http.send(request, HttpResponse.BodyHandlers.ofInputStream()) }
+                .getOrNull() ?: return@computeIfAbsent ""
+            val body = response.body().use { it.readNBytes(MAX_CALENDAR_IMAGE_BYTES + 1) }
+            if (response.statusCode() !in 200..299 || body.isEmpty() || body.size > MAX_CALENDAR_IMAGE_BYTES) ""
+            else body.sha256()
+        }.takeIf(String::isNotBlank)
 
     private fun bridgeOcr(
         provider: CalendarOcrProviderConfig,
@@ -1978,25 +2083,37 @@ internal fun CoroutineScope.launchCalendarIngestionFromEnvironment(
             ?.takeIf(String::isNotBlank)
             ?.let(::File)
     if (outputFile == null && scheduleStore === NoOpCalendarScheduleStore) return null
+    val cacheFile = System.getenv("YFUSE_CALENDAR_OCR_CACHE_PATH")
+        ?.takeIf(String::isNotBlank)?.let(::File)
+        ?: outputFile?.resolveSibling("calendar-ocr-cache.db")
+        ?: File("/var/lib/yfuse/calendar-ocr-cache.db")
+    val ocrCache = runCatching { CalendarOcrCache.sqlite(cacheFile) }.getOrElse { failure ->
+        System.err.println("calendar OCR cache disabled: ${failure.message}")
+        NoOpCalendarOcrCache
+    }
     val runtime =
         CalendarIngestionRuntime(
             configFile = File(configPath),
             outputFile = outputFile,
             tmdbToken = System.getenv("TMDB_TOKEN"),
             scheduleStore = scheduleStore,
+            ocrCache = ocrCache,
         )
     return launch {
-        while (isActive) {
-            runCatching { runtime.runOnce() }
-                .onFailure { failure ->
-                    CalendarIngestionHealth.failed(failure)
-                    System.err.println("calendar ingestion failed: ${failure.message}")
-                }
-            val minutes =
-                runCatching {
+        try {
+            while (isActive) {
+                runCatching { runtime.runOnce() }
+                    .onFailure { failure ->
+                        CalendarIngestionHealth.failed(failure)
+                        System.err.println("calendar ingestion failed: ${failure.message}")
+                    }
+                val minutes = runCatching {
                     ingestionJson.decodeFromString<CalendarIngestionConfig>(File(configPath).readText()).refreshMinutes
                 }.getOrDefault(30)
-            delay(minutes.coerceIn(15, 1_440) * 60_000L)
+                delay(minutes.coerceIn(15, 1_440) * 60_000L)
+            }
+        } finally {
+            ocrCache.close()
         }
     }
 }
@@ -2018,6 +2135,7 @@ private fun ocrConfidenceBonus(agreement: OcrAgreement): Int =
         OcrAgreement.PartialSubset -> 15
         OcrAgreement.CoordinateIntersection -> 10
         OcrAgreement.SemanticCorroboration -> 15
+        OcrAgreement.Majority -> 20
         OcrAgreement.None -> 0
     }
 
@@ -2642,6 +2760,14 @@ internal fun validateOcrProviders(providers: List<CalendarOcrProviderConfig>) {
 private fun String.sha256(): String =
     MessageDigest.getInstance("SHA-256").digest(toByteArray()).joinToString("") { "%02x".format(it) }
 
+private fun ByteArray.sha256(): String =
+    MessageDigest.getInstance("SHA-256").digest(this).joinToString("") { "%02x".format(it) }
+
+private fun ocrProviderCacheKey(provider: CalendarOcrProviderConfig): String =
+    listOf(provider.id, provider.protocol, provider.endpoint, provider.model.orEmpty(),
+        provider.engine?.toString().orEmpty(), provider.language.orEmpty(), provider.independenceGroup.orEmpty())
+        .joinToString("|").sha256()
+
 private val PLATFORM_HOSTS =
     mapOf(
         "爱奇艺" to setOf("iqiyi.com"),
@@ -2651,8 +2777,13 @@ private val PLATFORM_HOSTS =
     )
 
 private const val MAX_IMAGES_PER_SOURCE = 6
+private const val MAX_OCR_IMAGES_PER_SOURCE = 4
+private const val MAX_CALENDAR_IMAGE_BYTES = 12 * 1024 * 1024
 private const val MAX_CALENDAR_EPISODES = 500
-private const val MAX_OCR_PROVIDERS = 2
+private const val MIN_OCR_PROVIDERS = 2
+private const val MAX_OCR_PROVIDERS = 3
+private const val MAX_STATUS_SHOW_DIAGNOSTICS = 200
+private const val MAX_STATUS_REASONS_PER_SHOW = 8
 private const val MIN_PARTIAL_OCR_COORDINATES = 3
 private const val MAX_SOURCES_PER_SHOW = 9
 private const val MAX_EVIDENCE_PER_SERIES = 20

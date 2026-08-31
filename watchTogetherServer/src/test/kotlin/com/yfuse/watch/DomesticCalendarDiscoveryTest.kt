@@ -68,7 +68,7 @@ class DomesticCalendarDiscoveryTest {
             """
             <a href="/v/wake.html" title="醒来 热度：7009"><img alt="醒来"></a>
             <a href="/channel/tv">电视剧频道</a>
-            <script>window.__DATA__={"albumName":"师兄太稳健","displayName":"立即播放"};</script>
+            <script>window.__DATA__={"albumName":"师兄太稳健","displayName":"立即播放","name":"腾讯视频","title":"美不拘刻板，美自有万千模样"};</script>
             """.trimIndent()
 
         val candidates = DomesticCandidateParser.parsePlatformCatalog(html, feed, 2026)
