@@ -428,6 +428,57 @@ class CalendarIngestionTest {
     }
 
     @Test
+    fun third_independent_provider_can_resolve_a_two_provider_conflict() {
+        val expected = mapOf(1 to "2026-08-26", 2 to "2026-08-27", 3 to "2026-08-28")
+        val resolution =
+            OcrConfidenceGate.resolve(
+                listOf(
+                    OcrReading("paddle", "", expected),
+                    OcrReading("ocr-space", "", expected + (1 to "2026-08-25")),
+                    OcrReading("third", "", expected),
+                ),
+                defaultYear = 2026,
+                accessTier = "Member",
+            )
+
+        assertEquals(OcrAgreement.Majority, resolution.agreement)
+        assertEquals(expected, resolution.episodes)
+        assertEquals(setOf("paddle", "third"), resolution.providerIds)
+    }
+
+    @Test
+    fun providers_in_the_same_independence_group_do_not_form_consensus() {
+        val episodes = mapOf(1 to "2026-08-26")
+        val resolution =
+            OcrConfidenceGate.resolve(
+                listOf(
+                    OcrReading("model-a", "", episodes, independenceGroup = "same-upstream"),
+                    OcrReading("model-b", "", episodes, independenceGroup = "same-upstream"),
+                ),
+                defaultYear = 2026,
+                accessTier = "Member",
+            )
+
+        assertEquals(OcrAgreement.None, resolution.agreement)
+        assertTrue(resolution.episodes.isEmpty())
+    }
+
+    @Test
+    fun calendar_image_priority_prefers_calendar_and_large_variants() {
+        val prioritized =
+            prioritizeCalendarImages(
+                listOf(
+                    "https://wx1.sinaimg.cn/thumbnail/poster.jpg",
+                    "https://wx1.sinaimg.cn/large/poster.jpg",
+                    "https://wx1.sinaimg.cn/large/calendar.jpg",
+                ),
+            )
+
+        assertEquals("https://wx1.sinaimg.cn/large/calendar.jpg", prioritized.first())
+        assertEquals(2, prioritized.size)
+    }
+
+    @Test
     fun verified_account_plus_explicit_coordinates_and_tmdb_is_official() {
         val series =
             CalendarEvidenceGate.compile(
