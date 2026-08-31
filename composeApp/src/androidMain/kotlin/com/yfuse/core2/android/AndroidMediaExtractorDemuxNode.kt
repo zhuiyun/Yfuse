@@ -113,6 +113,14 @@ internal class AndroidMediaExtractorDemuxNode(
             ?.get(schemeUuid)
             ?.copyOf()
 
+    fun setMediaBitRateBitsPerSecond(value: Long) {
+        (mediaDataSource as? AndroidTransportMediaDataSource)
+            ?.setMediaBitRateBitsPerSecond(value)
+    }
+
+    fun transportQoeSnapshot(): YTransportPrefetchQoeSnapshot? =
+        (mediaDataSource as? AndroidTransportMediaDataSource)?.qoeSnapshot()
+
     fun findFirstTrack(mimePrefix: String): Int? =
         (0 until trackCount).firstOrNull { index ->
             trackFormat(index)

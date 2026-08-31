@@ -17,18 +17,15 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /** HTTP/2 + HTTP/3/QUIC streaming transport. Cronet negotiates down to HTTP/2/1.1 when required. */
 internal class AndroidCronetMediaTransport(
     context: Context,
-    private val engine: CronetEngine =
-        CronetEngine
-            .Builder(context.applicationContext)
-            .enableHttp2(true)
-            .enableQuic(true)
-            .build(),
+    private val engine: CronetEngine = AndroidCronetRuntime.engine(context.applicationContext),
+    private val callbackExecutor: ExecutorService = AndroidCronetRuntime.callbackExecutor,
 ) : YMediaTransport {
     override val supportedProtocols: Set<YSourceProtocol> =
         setOf(YSourceProtocol.Http, YSourceProtocol.Https, YSourceProtocol.WebDav, YSourceProtocol.WebDavTls)
@@ -41,10 +38,6 @@ internal class AndroidCronetMediaTransport(
             YTransportFeature.RandomAccess,
         )
 
-    private val callbackExecutor =
-        Executors.newSingleThreadExecutor { task ->
-            Thread(task, "YCore-Cronet").apply { isDaemon = true }
-        }
     private val chunks = ArrayBlockingQueue<CronetChunk>(2)
     private var request: UrlRequest? = null
     private var activeChunk: ByteArray? = null
@@ -222,6 +215,28 @@ internal class AndroidCronetMediaTransport(
     }
 }
 
+/** Process-wide Cronet runtime so parallel range prefetch shares one HTTP/2/HTTP/3 connection pool. */
+private object AndroidCronetRuntime {
+    val callbackExecutor: ExecutorService =
+        Executors.newFixedThreadPool(CRONET_CALLBACK_THREADS) { task ->
+            Thread(task, "YCore-Cronet").apply { isDaemon = true }
+        }
+
+    @Volatile
+    private var sharedEngine: CronetEngine? = null
+
+    fun engine(context: Context): CronetEngine =
+        sharedEngine ?: synchronized(this) {
+            sharedEngine
+                ?: CronetEngine
+                    .Builder(context.applicationContext)
+                    .enableHttp2(true)
+                    .enableQuic(true)
+                    .build()
+                    .also { sharedEngine = it }
+        }
+}
+
 private sealed interface CronetChunk {
     data class Data(
         val bytes: ByteArray,
@@ -238,5 +253,6 @@ private fun UrlResponseInfo.headerValue(name: String): String? =
 private fun String.isSafeCronetHeader(): Boolean = isNotBlank() && '\r' !in this && '\n' !in this
 
 private const val CRONET_READ_BYTES = 256 * 1024
+private const val CRONET_CALLBACK_THREADS = 4
 private const val CRONET_OPEN_TIMEOUT_SECONDS = 8L
 private const val CRONET_READ_TIMEOUT_SECONDS = 8L

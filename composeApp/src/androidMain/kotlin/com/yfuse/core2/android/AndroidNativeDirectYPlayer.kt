@@ -525,6 +525,10 @@ internal class AndroidNativeDirectYPlayer(
                 extractedMime = videoFormat?.getString(MediaFormat.KEY_MIME),
             )
             audioInputFormat = audioTrackIndex?.let(demux::trackFormat)
+            val sourceBitRateBitsPerSecond =
+                listOfNotNull(videoFormat, audioInputFormat)
+                    .sumOf { it.longOrZero(MediaFormat.KEY_BIT_RATE) }
+            demux.setMediaBitRateBitsPerSecond(sourceBitRateBitsPerSecond)
             item.drmConfiguration?.let { configuration ->
                 val initializationData =
                     checkNotNull(demux.drmInitializationData(configuration.scheme.yCorePlatformUuid())) {
@@ -594,9 +598,7 @@ internal class AndroidNativeDirectYPlayer(
                             videoHeight = videoFormat?.intOrZero(MediaFormat.KEY_HEIGHT) ?: 0,
                             frameRate = videoFormat?.floatOrZero(MediaFormat.KEY_FRAME_RATE) ?: 0f,
                             audioCodec = audioInputFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
-                            bitrateBitsPerSecond =
-                                listOfNotNull(videoFormat, audioInputFormat)
-                                    .sumOf { it.longOrZero(MediaFormat.KEY_BIT_RATE) },
+                            bitrateBitsPerSecond = sourceBitRateBitsPerSecond,
                             dynamicRange = videoFormat.dynamicRangeLabel(),
                             videoOutput = if (videoConfigured) "等待首帧" else "等待 Surface",
                             audioOutput = waitingAudioOutputLabel(),
@@ -1193,6 +1195,7 @@ internal class AndroidNativeDirectYPlayer(
         ) {
             if (nowNs - lastQoePublishNs < QOE_PUBLISH_INTERVAL_NS) return
             lastQoePublishNs = nowNs
+            val transportQoe = demux.transportQoeSnapshot()
             AppLog.info(
                 category = "player.core2",
                 event = "native_direct_qoe",
@@ -1219,6 +1222,14 @@ internal class AndroidNativeDirectYPlayer(
                             (!isAudioPassthrough() && audioRenderer.clockStalled).toString(),
                         "slowPumps" to slowPumpCount.toString(),
                         "maximumPumpMs" to (maximumPumpDurationNs / NANOS_PER_MILLISECOND).toString(),
+                        "sourcePrefetchDepth" to (transportQoe?.depthBlocks?.toString() ?: ""),
+                        "sourcePrefetchHits" to (transportQoe?.hitCount?.toString() ?: ""),
+                        "sourceSynchronousLoads" to
+                            (transportQoe?.synchronousLoadCount?.toString() ?: ""),
+                        "sourceMaximumWaitMs" to
+                            (transportQoe?.maximumResolveWaitMs?.toString() ?: ""),
+                        "sourceMaximumLoadMs" to
+                            (transportQoe?.maximumRemoteLoadMs?.toString() ?: ""),
                         "avOffsetMs" to (lastAvSyncOffsetUs?.div(MICROS_PER_MILLISECOND)?.toString() ?: ""),
                     ),
             )
