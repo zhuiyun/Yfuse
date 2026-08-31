@@ -1,0 +1,342 @@
+name: Apply YCore Dolby Vision runtime truth fix
+
+on:
+  push:
+    branches:
+      - fix/ycore-dolby-profile-runtime-probe
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    if: ${{ !contains(github.event.head_commit.message, '[ycore-dv-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply guarded source and test patch
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path_string: str, old: str, new: str) -> None:
+              path = Path(path_string)
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          trial = "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2Trial.kt"
+          replace_once(
+              trial,
+              '''        // Only the profiles covered by YCore's strict Dolby router enter runtime probing. Unknown
+          // profiles remain fail-closed; a vendor decoder/private-surface rejection is recorded for
+          // the exact route and falls back without promoting the route to verified support.
+          val unsupportedDolbyProfile =
+              version?.dolbyVision == true && version.dolbyProfile !in CORE2_DOLBY_TRIAL_PROFILES
+          ''',
+              '',
+          )
+          replace_once(
+              trial,
+              '''        !unsupportedDolbyProfile &&
+              (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
+          ''',
+              '''        (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
+          ''',
+          )
+          replace_once(
+              trial,
+              '''            dolbyVision = version?.dolbyVision == true,
+              dolbyVisionSupported =
+                  version?.dolbyVision != true || version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
+          ''',
+              '''            dolbyVision = version?.dolbyVision == true,
+              // Provider metadata is advisory; runtime bitstream probing is the Dolby truth source.
+              dolbyVisionSupported = true,
+          ''',
+          )
+          replace_once(
+              trial,
+              '''private val CORE2_DOLBY_TRIAL_PROFILES = setOf(5, 7, 8)
+
+          ''',
+              '',
+          )
+          replace_once(
+              trial,
+              '''        drmConfiguration = drmConfiguration ?: version?.drmConfiguration,
+              externalSubtitle =
+          ''',
+              '''        drmConfiguration = drmConfiguration ?: version?.drmConfiguration,
+              expectedDolbyVision = !usingServerTranscode && version?.dolbyVision == true,
+              externalSubtitle =
+          ''',
+          )
+
+          yplayer = "composeApp/src/commonMain/kotlin/com/yfuse/core2/api/YPlayer.kt"
+          replace_once(
+              yplayer,
+              '''    /** Credential-bearing DRM configuration; its own toString is redacted. */
+              val drmConfiguration: PlaybackDrmConfiguration? = null,
+          ) {
+          ''',
+              '''    /** Credential-bearing DRM configuration; its own toString is redacted. */
+              val drmConfiguration: PlaybackDrmConfiguration? = null,
+              /**
+               * Provider metadata hint used only to require an independent runtime Dolby truth probe.
+               * This is never treated as proof of a profile, decoder capability, or valid output.
+               */
+              val expectedDolbyVision: Boolean = false,
+          ) {
+          ''',
+          )
+
+          enhanced = "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbe.kt"
+          replace_once(
+              enhanced,
+              '''import com.yfuse.core2.capability.YAudioRequirement
+          import com.yfuse.core2.capability.YVideoRequirement
+          ''',
+              '''import com.yfuse.core2.capability.YAudioRequirement
+          import com.yfuse.core2.capability.YHdrType
+          import com.yfuse.core2.capability.YVideoRequirement
+          ''',
+          )
+          replace_once(
+              enhanced,
+              '''internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
+              val request = playbackRequest
+              return shouldRequestEnhancedProbe(
+                  container = request.container,
+                  videoCodec = request.video.codec,
+                  audioCodec = request.audio?.codec,
+              )
+          }
+          ''',
+              '''internal fun YCore2ProbeResult.Success.hasConfirmedDolbyVisionTruth(): Boolean =
+              playbackRequest.video.hdrType != YHdrType.DolbyVision || dolbyVisionConfig != null
+
+          internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
+              if (!hasConfirmedDolbyVisionTruth()) return true
+              val request = playbackRequest
+              return shouldRequestEnhancedProbe(
+                  container = request.container,
+                  videoCodec = request.video.codec,
+                  audioCodec = request.audio?.codec,
+              )
+          }
+          ''',
+          )
+
+          media_probe = "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2MediaProbe.kt"
+          replace_once(
+              media_probe,
+              '''        val platform = platformProbe.probe(item) as? YCore2ProbeResult.Success
+              val resolved =
+                  when {
+                      platform == null && item.drmConfiguration != null -> null
+                      platform == null -> enhancedProbe.probe(item) as? YCore2ProbeResult.Success
+                      item.drmConfiguration != null -> platform
+                      platform.requiresEnhancedTruthProbe() -> {
+                          val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
+                          if (
+                              deep != null &&
+                              (deep.materiallyOverrides(platform) || deep.dolbyVisionStreamEvidence != null)
+                          ) {
+                              deep
+                          } else {
+                              platform
+                          }
+                      }
+                      else -> platform
+                  } ?: return null
+              val requested =
+          ''',
+              '''        val platform = platformProbe.probe(item) as? YCore2ProbeResult.Success
+              val declaredDolbyNeedsRuntimeTruth =
+                  item.expectedDolbyVision && platform?.dolbyVisionConfig == null
+              val resolved =
+                  when {
+                      platform == null && item.drmConfiguration != null -> null
+                      platform == null -> enhancedProbe.probe(item) as? YCore2ProbeResult.Success
+                      item.drmConfiguration != null ->
+                          platform.takeIf {
+                              !declaredDolbyNeedsRuntimeTruth && it.hasConfirmedDolbyVisionTruth()
+                          }
+                      declaredDolbyNeedsRuntimeTruth || platform.requiresEnhancedTruthProbe() -> {
+                          val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
+                          when {
+                              deep != null &&
+                                  (
+                                      declaredDolbyNeedsRuntimeTruth ||
+                                          deep.materiallyOverrides(platform) ||
+                                          deep.dolbyVisionStreamEvidence != null
+                                  ) -> deep
+                              declaredDolbyNeedsRuntimeTruth ||
+                                  !platform.hasConfirmedDolbyVisionTruth() -> null
+                              else -> platform
+                          }
+                      }
+                      else -> platform
+                  } ?: return null
+              if (!resolved.hasConfirmedDolbyVisionTruth()) return null
+
+              val requested =
+          ''',
+          )
+
+          guard = "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidCore2DolbyTrialGuardTest.kt"
+          replace_once(guard, 'import kotlin.test.assertFalse\n', '')
+          replace_once(
+              guard,
+              '''    @Test
+              fun unknown_dolby_profile_stays_on_legacy_even_when_old_metadata_marked_it_safe() {
+                  assertFalse(
+          ''',
+              '''    @Test
+              fun unknown_dolby_profile_enters_fail_closed_runtime_truth_probing() {
+                  assertTrue(
+          ''',
+          )
+          replace_once(
+              guard,
+              '''    private fun item(
+          ''',
+              '''    @Test
+              fun dolby_profile_10_is_not_rejected_by_a_stale_product_whitelist() {
+                  assertTrue(
+                      listOf(
+                          item(
+                              dolbyProfile = 10,
+                              needsDolbyDecoder = true,
+                          ),
+                      ).canUseCore2Trial(startIndex = 0),
+                  )
+              }
+
+              @Test
+              fun provider_dolby_hint_is_forwarded_to_the_runtime_probe() {
+                  val mapped =
+                      listOf(
+                          item(
+                              dolbyProfile = null,
+                              needsDolbyDecoder = false,
+                          ),
+                      ).toCore2MediaItems(customUserAgent = "").single()
+
+                  assertTrue(mapped.expectedDolbyVision)
+              }
+
+              private fun item(
+          ''',
+          )
+
+          truth_test = Path(
+              "composeApp/src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidEnhancedMediaProbeTruthTest.kt"
+          )
+          if truth_test.exists():
+              raise SystemExit(f"{truth_test}: file already exists")
+          truth_test.write_text(
+              '''package com.yfuse.core2.android
+
+          import com.yfuse.core2.capability.YContainer
+          import com.yfuse.core2.capability.YHdrType
+          import com.yfuse.core2.capability.YVideoCodec
+          import com.yfuse.core2.capability.YVideoRequirement
+          import com.yfuse.core2.dolby.YDolbyVisionConfig
+          import com.yfuse.core2.strategy.YPlaybackRequest
+          import kotlin.test.Test
+          import kotlin.test.assertFalse
+          import kotlin.test.assertTrue
+
+          class AndroidEnhancedMediaProbeTruthTest {
+              @Test
+              fun mp4_dolby_vision_without_semantic_config_forces_deep_probe() {
+                  val result = platformProbe(hdrType = YHdrType.DolbyVision)
+
+                  assertTrue(result.requiresEnhancedTruthProbe())
+                  assertFalse(result.hasConfirmedDolbyVisionTruth())
+              }
+
+              @Test
+              fun ordinary_mp4_hevc_stays_on_the_platform_truth_path() {
+                  val result = platformProbe(hdrType = YHdrType.Sdr)
+
+                  assertFalse(result.requiresEnhancedTruthProbe())
+                  assertTrue(result.hasConfirmedDolbyVisionTruth())
+              }
+
+              @Test
+              fun confirmed_mp4_dolby_profile_does_not_repeat_the_deep_probe() {
+                  val config =
+                      YDolbyVisionConfig(
+                          versionMajor = 1,
+                          versionMinor = 0,
+                          profile = 8,
+                          level = 6,
+                          rpuPresent = true,
+                          enhancementLayerPresent = false,
+                          baseLayerPresent = true,
+                          baseLayerCompatibilityId = 1,
+                          metadataCompression = 0,
+                      )
+                  val result =
+                      platformProbe(
+                          hdrType = YHdrType.DolbyVision,
+                          dolbyVisionConfig = config,
+                      )
+
+                  assertFalse(result.requiresEnhancedTruthProbe())
+                  assertTrue(result.hasConfirmedDolbyVisionTruth())
+              }
+
+              private fun platformProbe(
+                  hdrType: YHdrType,
+                  dolbyVisionConfig: YDolbyVisionConfig? = null,
+              ): YCore2ProbeResult.Success =
+                  YCore2ProbeResult.Success(
+                      playbackRequest =
+                          YPlaybackRequest(
+                              container = YContainer.Mp4,
+                              video =
+                                  YVideoRequirement(
+                                      codec = YVideoCodec.H265,
+                                      hdrType = hdrType,
+                                  ),
+                              platformDemuxSupported = true,
+                              enhancedDemuxSupported = true,
+                          ),
+                      videoMime =
+                          if (hdrType == YHdrType.DolbyVision) {
+                              "video/dolby-vision"
+                          } else {
+                              "video/hevc"
+                          },
+                      audioMime = null,
+                      durationMs = 0L,
+                      dolbyVisionConfig = dolbyVisionConfig,
+                  )
+          }
+          ''',
+              encoding="utf-8",
+          )
+
+          workflow = Path(".github/workflows/apply-ycore-dolby-profile-fix.yml")
+          workflow.unlink()
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: route unknown Dolby Vision profiles through runtime truth probe [ycore-dv-patched]"
+          git push
