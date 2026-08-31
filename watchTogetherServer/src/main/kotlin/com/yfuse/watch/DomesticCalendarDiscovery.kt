@@ -211,6 +211,7 @@ private fun cleanDomesticCandidateTitle(value: String): String {
 private fun isPlausibleDomesticTitle(value: String): Boolean {
     if (value.length !in 2..40 || value.none { it.code in 0x3400..0x9FFF }) return false
     if (PLATFORM_CATALOG_NAVIGATION_WORDS.any { value.equals(it, true) || value.contains(it, true) }) return false
+    if (PLATFORM_CATALOG_MARKETING_COPY.containsMatchIn(value)) return false
     if (value.count(Char::isWhitespace) > 5) return false
     return normalizeTitle(value).length in 2..40
 }
@@ -263,6 +264,14 @@ private val PLATFORM_CATALOG_METADATA_MARKER =
     Regex("(?:热度|评分|上线时间|更新状态|简介|演职员|主演|立即播放)[:：]?")
 private val PLATFORM_CATALOG_NAVIGATION_WORDS =
     setOf(
+        "爱奇艺",
+        "爱奇艺电视剧",
+        "优酷",
+        "优酷视频",
+        "腾讯视频",
+        "腾讯电视剧",
+        "芒果TV",
+        "芒果电视剧",
         "首页",
         "电视剧",
         "电视剧频道",
@@ -278,3 +287,5 @@ private val PLATFORM_CATALOG_NAVIGATION_WORDS =
         "猜你喜欢",
         "VIP会员",
     )
+private val PLATFORM_CATALOG_MARKETING_COPY =
+    Regex("(?:美不拘刻板.*美自有万千模样|精彩内容尽在|开启.{0,8}(?:追剧|观影)之旅|立即(?:观看|下载|体验))")

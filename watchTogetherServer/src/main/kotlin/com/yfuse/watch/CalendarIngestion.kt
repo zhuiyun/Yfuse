@@ -37,6 +37,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.absoluteValue
 
 private val ingestionJson =
@@ -60,19 +61,36 @@ internal data class CalendarIngestionStatus(
     val domesticEvidenceMatchedShows: Int = 0,
     val overseasDiscoveredShows: Int = 0,
     val publishedShows: Int = 0,
+    val ocrCacheHits: Int = 0,
+    val ocrFailureCacheHits: Int = 0,
+    val ocrProviderRequests: Int = 0,
+    val showDiagnostics: List<CalendarShowDiagnostic> = emptyList(),
     val message: String? = null,
+)
+
+@Serializable
+internal data class CalendarShowDiagnostic(
+    val title: String,
+    val state: String = "pending",
+    val reasons: List<String> = emptyList(),
+    val sourceCount: Int = 0,
+    val imageCount: Int = 0,
 )
 
 internal object CalendarIngestionHealth {
     @Volatile
     private var value = CalendarIngestionStatus()
+    private val diagnostics = linkedMapOf<String, CalendarShowDiagnostic>()
 
-    fun snapshot(): CalendarIngestionStatus = value
+    @Synchronized
+    fun snapshot(): CalendarIngestionStatus = value.copy(showDiagnostics = diagnostics.values.toList())
 
+    @Synchronized
     fun running(
         configuredShows: Int,
         discoveredShows: Int,
     ) {
+        diagnostics.clear()
         value =
             CalendarIngestionStatus(
                 state = "running",
@@ -82,6 +100,7 @@ internal object CalendarIngestionHealth {
             )
     }
 
+    @Synchronized
     fun succeeded(
         changed: Boolean,
         publishedShows: Int,
@@ -96,6 +115,7 @@ internal object CalendarIngestionHealth {
             )
     }
 
+    @Synchronized
     fun discovered(
         domestic: Int,
         overseas: Int,
@@ -113,6 +133,7 @@ internal object CalendarIngestionHealth {
             )
     }
 
+    @Synchronized
     fun failed(failure: Throwable) {
         value =
             value.copy(
@@ -121,6 +142,50 @@ internal object CalendarIngestionHealth {
                 changed = false,
                 message = failure.message?.take(240) ?: failure::class.simpleName,
             )
+    }
+
+    @Synchronized
+    fun registerShows(shows: List<CalendarIngestionShow>) {
+        shows.asSequence().filter { it.origin == "Domestic" }.take(MAX_STATUS_SHOW_DIAGNOSTICS).forEach { show ->
+            diagnostics.putIfAbsent(
+                normalizeTitle(show.title),
+                CalendarShowDiagnostic(
+                    title = show.title,
+                    sourceCount = show.sources.size,
+                    imageCount = show.sources.sumOf { it.imageUrls.size },
+                ),
+            )
+        }
+    }
+
+    @Synchronized
+    fun rejected(show: CalendarIngestionShow, reason: String) {
+        val key = normalizeTitle(show.title)
+        val previous = diagnostics[key] ?: CalendarShowDiagnostic(show.title)
+        diagnostics[key] =
+            previous.copy(
+                state = "rejected",
+                reasons = (previous.reasons + reason).distinct().take(MAX_STATUS_REASONS_PER_SHOW),
+            )
+    }
+
+    @Synchronized
+    fun completed(show: CalendarIngestionShow, state: String) {
+        val key = normalizeTitle(show.title)
+        val previous = diagnostics[key] ?: CalendarShowDiagnostic(show.title)
+        diagnostics[key] = previous.copy(state = state)
+    }
+
+    @Synchronized
+    fun ocrCacheHit(failure: Boolean) {
+        value =
+            if (failure) value.copy(ocrFailureCacheHits = value.ocrFailureCacheHits + 1)
+            else value.copy(ocrCacheHits = value.ocrCacheHits + 1)
+    }
+
+    @Synchronized
+    fun ocrProviderRequest() {
+        value = value.copy(ocrProviderRequests = value.ocrProviderRequests + 1)
     }
 }
 
@@ -192,6 +257,7 @@ internal data class CalendarOcrProviderConfig(
     val model: String? = null,
     val engine: Int? = null,
     val language: String? = null,
+    val independenceGroup: String? = null,
     val pollIntervalMillis: Long = 2_000,
     val pollTimeoutSeconds: Long = 120,
 )
@@ -2421,6 +2487,32 @@ private fun isLikelyCalendarMediaUrl(url: String): Boolean {
     val host = runCatching { URI(url).host.lowercase() }.getOrNull() ?: return false
     return CALENDAR_MEDIA_HOST_SUFFIXES.any { host == it || host.endsWith(".$it") }
 }
+
+internal fun prioritizeCalendarImages(urls: List<String>): List<String> =
+    urls
+        .asSequence()
+        .filter(::isLikelyCalendarMediaUrl)
+        .mapIndexed { index, url ->
+            val lower = url.lowercase()
+            val score =
+                when {
+                    listOf("calendar", "schedule", "%e6%97%a5%e5%8e%86", "%e6%8e%92%e6%9c%9f").any(lower::contains) -> 100
+                    listOf("large", "largest", "original", "mw2000", "ori").any(lower::contains) -> 50
+                    listOf("thumb", "thumbnail", "small", "square").any(lower::contains) -> -50
+                    else -> 0
+                }
+            Triple(url, score, index)
+        }.sortedWith(compareByDescending<Triple<String, Int, Int>> { it.second }.thenBy { it.third })
+        .distinctBy { (url) ->
+            runCatching { URI(url) }.getOrNull()?.let { uri ->
+                if (uri.host.endsWith(".sinaimg.cn", true) || uri.host.equals("sinaimg.cn", true)) {
+                    "sinaimg:${uri.path.substringAfterLast('/')}"
+                } else {
+                    url
+                }
+            } ?: url
+        }.map { it.first }
+        .toList()
 
 private fun mergeIngestionShows(shows: List<CalendarIngestionShow>): List<CalendarIngestionShow> =
     shows
