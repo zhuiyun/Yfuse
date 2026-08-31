@@ -355,6 +355,7 @@ internal class AndroidNativeDirectYPlayer(
         private val externalSubtitleLoader = AndroidExternalSubtitleLoader(context)
         private val wallClock = YMediaClock(positionUs = request.startPositionMs * MICROS_PER_MILLISECOND)
         private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
+        private var monotonicPositionFloorUs = request.startPositionMs * MICROS_PER_MILLISECOND
 
         private var currentIndex = request.startIndex
         private var sourceRemote = false
@@ -475,6 +476,7 @@ internal class AndroidNativeDirectYPlayer(
 
         private fun prepareCurrent(positionUs: Long) {
             releaseMedia()
+            monotonicPositionFloorUs = positionUs.coerceAtLeast(0L)
             val item = request.items[currentIndex]
             mutableState.value =
                 mutableState.value.copy(
@@ -523,6 +525,13 @@ internal class AndroidNativeDirectYPlayer(
                 extractedMime = videoFormat?.getString(MediaFormat.KEY_MIME),
             )
             audioInputFormat = audioTrackIndex?.let(demux::trackFormat)
+            val sourceBitRateBitsPerSecond =
+                maxOf(
+                    item.sourceHints?.bitrateBitsPerSecond ?: 0L,
+                    listOfNotNull(videoFormat, audioInputFormat)
+                        .sumOf { it.longOrZero(MediaFormat.KEY_BIT_RATE) },
+                )
+            demux.setMediaBitRateBitsPerSecond(sourceBitRateBitsPerSecond)
             item.drmConfiguration?.let { configuration ->
                 val initializationData =
                     checkNotNull(demux.drmInitializationData(configuration.scheme.yCorePlatformUuid())) {
@@ -592,9 +601,7 @@ internal class AndroidNativeDirectYPlayer(
                             videoHeight = videoFormat?.intOrZero(MediaFormat.KEY_HEIGHT) ?: 0,
                             frameRate = videoFormat?.floatOrZero(MediaFormat.KEY_FRAME_RATE) ?: 0f,
                             audioCodec = audioInputFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
-                            bitrateBitsPerSecond =
-                                listOfNotNull(videoFormat, audioInputFormat)
-                                    .sumOf { it.longOrZero(MediaFormat.KEY_BIT_RATE) },
+                            bitrateBitsPerSecond = sourceBitRateBitsPerSecond,
                             dynamicRange = videoFormat.dynamicRangeLabel(),
                             videoOutput = if (videoConfigured) "等待首帧" else "等待 Surface",
                             audioOutput = waitingAudioOutputLabel(),
@@ -742,6 +749,7 @@ internal class AndroidNativeDirectYPlayer(
             seekTargetAudioUs = targetUs
             lastVideoPresentationUs = targetUs
             lastQueuedPresentationUs = targetUs
+            monotonicPositionFloorUs = targetUs
             firstVideoFrameRendered = false
             wallClock.seek(targetUs, System.nanoTime())
             mutableState.value =
@@ -1190,6 +1198,7 @@ internal class AndroidNativeDirectYPlayer(
         ) {
             if (nowNs - lastQoePublishNs < QOE_PUBLISH_INTERVAL_NS) return
             lastQoePublishNs = nowNs
+            val transportQoe = demux.transportQoeSnapshot()
             AppLog.info(
                 category = "player.core2",
                 event = "native_direct_qoe",
@@ -1206,24 +1215,45 @@ internal class AndroidNativeDirectYPlayer(
                         "audioUnderruns" to audioRenderer.underrunCount.toString(),
                         "audioBackpressure" to audioBackpressureCount.toString(),
                         "pendingAudioBytes" to (pendingAudioOutput?.data?.remaining() ?: 0).toString(),
+                        "audioClockSource" to
+                            if (isAudioPassthrough()) {
+                                "EncodedAudioTrack"
+                            } else {
+                                audioRenderer.clockSource
+                            },
+                        "audioClockStalled" to
+                            (!isAudioPassthrough() && audioRenderer.clockStalled).toString(),
                         "slowPumps" to slowPumpCount.toString(),
                         "maximumPumpMs" to (maximumPumpDurationNs / NANOS_PER_MILLISECOND).toString(),
+                        "sourcePrefetchDepth" to (transportQoe?.depthBlocks?.toString() ?: ""),
+                        "sourcePrefetchHits" to (transportQoe?.hitCount?.toString() ?: ""),
+                        "sourceSynchronousLoads" to
+                            (transportQoe?.synchronousLoadCount?.toString() ?: ""),
+                        "sourceMaximumWaitMs" to
+                            (transportQoe?.maximumResolveWaitMs?.toString() ?: ""),
+                        "sourceMaximumLoadMs" to
+                            (transportQoe?.maximumRemoteLoadMs?.toString() ?: ""),
                         "avOffsetMs" to (lastAvSyncOffsetUs?.div(MICROS_PER_MILLISECOND)?.toString() ?: ""),
                     ),
             )
             maximumPumpDurationNs = 0L
         }
 
-        private fun currentPositionUs(): Long =
-            audioClockSnapshot()?.positionUs
-                ?: if (requestedPlay) {
-                    wallClock.positionUs(System.nanoTime())
-                } else {
-                    maxOf(
-                        mutableState.value.positionMs * MICROS_PER_MILLISECOND,
-                        lastVideoPresentationUs,
-                    )
-                }
+        private fun currentPositionUs(): Long {
+            val candidateUs =
+                audioClockSnapshot()?.positionUs
+                    ?: if (requestedPlay) {
+                        wallClock.positionUs(System.nanoTime())
+                    } else {
+                        maxOf(
+                            mutableState.value.positionMs * MICROS_PER_MILLISECOND,
+                            lastVideoPresentationUs,
+                        )
+                    }
+            return maxOf(candidateUs, monotonicPositionFloorUs).also { positionUs ->
+                monotonicPositionFloorUs = positionUs
+            }
+        }
 
         private fun finishIfEnded() {
             if (!isEnded()) return
@@ -1781,6 +1811,7 @@ private fun YMediaItem.toAndroidSource(): YAndroidMediaSource =
     YAndroidMediaSource(
         uri = uri,
         headers = headers,
+        bitrateBitsPerSecond = sourceHints?.bitrateBitsPerSecond ?: 0L,
         cacheIdentity = cacheIdentity,
         cacheMaximumBytes = cacheMaximumBytes,
     )

@@ -20,6 +20,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Adapts protocol transports to MediaExtractor without ever materializing the full remote file. */
 internal class AndroidTransportMediaDataSource(
@@ -27,6 +28,7 @@ internal class AndroidTransportMediaDataSource(
     private val protocol: YSourceProtocol,
     private val headers: Map<String, String>,
     private val createTransport: () -> YMediaTransport,
+    initialMediaBitRateBitsPerSecond: Long = 0L,
     cacheDirectory: File? = null,
     cacheIdentity: YCacheIdentity? = null,
     cacheMaximumBytes: Long = 0L,
@@ -58,18 +60,31 @@ internal class AndroidTransportMediaDataSource(
             null
         }
     private val blocks = LinkedHashMap<Long, ByteArray>(16, 0.75f, true)
+    private val prefetchThreadIndex = AtomicInteger()
     private val prefetchExecutor: ExecutorService =
-        Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, TRANSPORT_PREFETCH_THREAD_NAME).apply { isDaemon = true }
+        Executors.newFixedThreadPool(MAX_TRANSPORT_PREFETCH_CONCURRENCY) { runnable ->
+            Thread(
+                runnable,
+                "$TRANSPORT_PREFETCH_THREAD_NAME-${prefetchThreadIndex.incrementAndGet()}",
+            ).apply { isDaemon = true }
         }
     private val prefetchTransportLock = Any()
     private var cachedBytes = 0L
     private var knownSize = diskCache?.contentLength ?: -1L
-    private var prefetchedBlock: YTransportBlockPrefetch? = null
+    private val prefetchedBlocks = LinkedHashMap<Long, YTransportBlockPrefetch>()
     private var prefetchSuppressed = false
+    private var mediaBitRateBitsPerSecond = initialMediaBitRateBitsPerSecond.coerceAtLeast(0L)
+    private var prefetchDepthBlocks =
+        transportPrefetchDepthBlocks(
+            blockSize = blockSize,
+            mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
+        )
+    private var prefetchHitCount = 0L
+    private var synchronousLoadCount = 0L
+    private var maximumResolveWaitMs = 0L
+    private var maximumRemoteLoadMs = 0L
 
-    @Volatile
-    private var activePrefetchTransport: YMediaTransport? = null
+    private val activePrefetchTransports = mutableSetOf<YMediaTransport>()
 
     @Volatile
     private var closed = false
@@ -105,8 +120,54 @@ internal class AndroidTransportMediaDataSource(
         return if (copied == 0) -1 else copied
     }
 
+    /**
+     * Expands compressed-byte read-ahead after MediaExtractor exposes the real stream bitrate.
+     *
+     * A single 2 MiB look-ahead block is less than half a second for the 38 Mbps Dolby Vision
+     * source seen on affected devices. Range-request latency would therefore block the one media
+     * pump that also drains AudioTrack and MediaCodec. Keeping a bounded three-second window makes
+     * those reads finish off the media pump without changing the direct-play route.
+     */
+    @Synchronized
+    fun setMediaBitRateBitsPerSecond(value: Long) {
+        // MediaExtractor often omits bitrate for Matroska. Never let that zero erase the
+        // server-confirmed bitrate that was available before setDataSource opened the first range.
+        mediaBitRateBitsPerSecond = maxOf(mediaBitRateBitsPerSecond, value.coerceAtLeast(0L))
+        prefetchDepthBlocks =
+            transportPrefetchDepthBlocks(
+                blockSize = blockSize,
+                mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
+            )
+    }
+
+    @Synchronized
+    fun qoeSnapshot(): YTransportPrefetchQoeSnapshot =
+        YTransportPrefetchQoeSnapshot(
+            depthBlocks = prefetchDepthBlocks,
+            hitCount = prefetchHitCount,
+            synchronousLoadCount = synchronousLoadCount,
+            maximumResolveWaitMs = maximumResolveWaitMs,
+            maximumRemoteLoadMs = maximumRemoteLoadMs,
+        )
+
     private fun resolveBlock(blockIndex: Long): ByteArray {
-        val loaded = takePrefetchedBlock(blockIndex) ?: loadBlockNow(blockIndex)
+        val startedNs = System.nanoTime()
+        val prefetched = takePrefetchedBlock(blockIndex)
+        val loaded =
+            if (prefetched != null) {
+                prefetchHitCount++
+                prefetched
+            } else {
+                synchronousLoadCount++
+                cancelPrefetchOutside(emptySet())
+                loadBlockNow(blockIndex)
+            }
+        maximumResolveWaitMs =
+            maxOf(
+                maximumResolveWaitMs,
+                ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(0L),
+            )
+        maximumRemoteLoadMs = maxOf(maximumRemoteLoadMs, loaded.remoteLoadDurationMs)
         loaded.contentLength?.let { contentLength ->
             if (knownSize >= 0L) require(knownSize == contentLength) { "Remote media size changed during playback" }
             knownSize = contentLength
@@ -225,6 +286,8 @@ internal class AndroidTransportMediaDataSource(
                 YLoadedTransportBlock(
                     bytes = output.copyOf(total),
                     contentLength = responseContentLength,
+                    remoteLoadDurationMs =
+                        ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
                 )
             } finally {
                 blockTransport.close()
@@ -232,12 +295,22 @@ internal class AndroidTransportMediaDataSource(
         }
 
     private fun schedulePrefetch(blockIndex: Long) {
-        if (!shouldPrefetchTransportBlock(blockIndex, blockSize, knownSize) || blocks.containsKey(blockIndex)) return
-        val existing = prefetchedBlock
-        if (existing?.blockIndex == blockIndex) return
-        existing?.future?.cancel(true)
+        if (prefetchSuppressed) return
+        val desired =
+            (0 until prefetchDepthBlocks)
+                .map { offset -> blockIndex.saturatedAdd(offset.toLong()) }
+                .filter { candidate ->
+                    shouldPrefetchTransportBlock(candidate, blockSize, knownSize) &&
+                        !blocks.containsKey(candidate)
+                }.toSet()
+        cancelPrefetchOutside(desired)
+        desired.sorted().forEach(::schedulePrefetchBlock)
+    }
+
+    private fun schedulePrefetchBlock(blockIndex: Long) {
+        if (prefetchedBlocks.containsKey(blockIndex) || blocks.containsKey(blockIndex)) return
         val knownSizeSnapshot = knownSize
-        prefetchedBlock =
+        prefetchedBlocks[blockIndex] =
             YTransportBlockPrefetch(
                 blockIndex = blockIndex,
                 future =
@@ -248,12 +321,7 @@ internal class AndroidTransportMediaDataSource(
                         val prefetchTransport = createTransport()
                         val rejected =
                             synchronized(prefetchTransportLock) {
-                                if (closed) {
-                                    true
-                                } else {
-                                    activePrefetchTransport = prefetchTransport
-                                    false
-                                }
+                                closed || !activePrefetchTransports.add(prefetchTransport)
                             }
                         if (rejected) {
                             runBlocking { prefetchTransport.close() }
@@ -263,7 +331,7 @@ internal class AndroidTransportMediaDataSource(
                             loadRemoteBlockWithRetries(blockIndex, prefetchTransport, knownSizeSnapshot)
                         } finally {
                             synchronized(prefetchTransportLock) {
-                                if (activePrefetchTransport === prefetchTransport) activePrefetchTransport = null
+                                activePrefetchTransports.remove(prefetchTransport)
                             }
                         }
                     },
@@ -271,8 +339,7 @@ internal class AndroidTransportMediaDataSource(
     }
 
     private fun takePrefetchedBlock(blockIndex: Long): YLoadedTransportBlock? {
-        val prefetch = prefetchedBlock?.takeIf { it.blockIndex == blockIndex } ?: return null
-        prefetchedBlock = null
+        val prefetch = prefetchedBlocks.remove(blockIndex) ?: return null
         return try {
             prefetch.future.get()
         } catch (_: CancellationException) {
@@ -282,6 +349,17 @@ internal class AndroidTransportMediaDataSource(
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             null
+        }
+    }
+
+    private fun cancelPrefetchOutside(retained: Set<Long>) {
+        val iterator = prefetchedBlocks.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (entry.key !in retained) {
+                entry.value.future.cancel(true)
+                iterator.remove()
+            }
         }
     }
 
@@ -304,17 +382,16 @@ internal class AndroidTransportMediaDataSource(
     override fun close() {
         if (closed) return
         closed = true
-        prefetchedBlock?.future?.cancel(true)
-        prefetchedBlock = null
+        cancelPrefetchOutside(emptySet())
         prefetchExecutor.shutdownNow()
-        val prefetchTransport =
+        val prefetchTransports =
             synchronized(prefetchTransportLock) {
-                activePrefetchTransport.also { activePrefetchTransport = null }
+                activePrefetchTransports.toList().also { activePrefetchTransports.clear() }
             }
         blocks.clear()
         cachedBytes = 0L
         runBlocking {
-            prefetchTransport?.close()
+            prefetchTransports.forEach { prefetchTransport -> prefetchTransport.close() }
             transport.close()
         }
     }
@@ -333,6 +410,35 @@ internal class AndroidTransportMediaDataSource(
     }
 }
 
+internal data class YTransportPrefetchQoeSnapshot(
+    val depthBlocks: Int,
+    val hitCount: Long,
+    val synchronousLoadCount: Long,
+    val maximumResolveWaitMs: Long,
+    val maximumRemoteLoadMs: Long,
+)
+
+internal fun transportPrefetchDepthBlocks(
+    blockSize: Int,
+    mediaBitRateBitsPerSecond: Long,
+): Int {
+    if (blockSize <= 0 || mediaBitRateBitsPerSecond <= 0L) {
+        return DEFAULT_TRANSPORT_PREFETCH_DEPTH_BLOCKS
+    }
+    val targetBytes =
+        mediaBitRateBitsPerSecond
+            .saturatedMultiply(TARGET_TRANSPORT_PREFETCH_WINDOW_MS)
+            .div(BITS_PER_BYTE * MILLIS_PER_SECOND)
+    val requiredBlocks =
+        ((targetBytes + blockSize - 1L) / blockSize)
+            .coerceAtLeast(1L)
+    return (requiredBlocks + TRANSPORT_PREFETCH_SAFETY_BLOCKS)
+        .coerceIn(
+            DEFAULT_TRANSPORT_PREFETCH_DEPTH_BLOCKS.toLong(),
+            MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS.toLong(),
+        ).toInt()
+}
+
 internal fun shouldPrefetchTransportBlock(
     blockIndex: Long,
     blockSize: Int,
@@ -345,6 +451,7 @@ internal fun shouldPrefetchTransportBlock(
 private data class YLoadedTransportBlock(
     val bytes: ByteArray,
     val contentLength: Long?,
+    val remoteLoadDurationMs: Long = 0L,
 )
 
 private data class YTransportBlockPrefetch(
@@ -385,3 +492,11 @@ private fun Long.saturatedMultiply(other: Long): Long {
 private const val MIN_TRANSPORT_BLOCK_BYTES = 256 * 1024
 private const val DEFAULT_TRANSPORT_CACHE_BYTES = 64L * 1024L * 1024L
 private const val TRANSPORT_PREFETCH_THREAD_NAME = "YCore-TransportPrefetch"
+private const val DEFAULT_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 2
+private const val MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 12
+private const val MAX_TRANSPORT_PREFETCH_CONCURRENCY = 8
+private const val TARGET_TRANSPORT_PREFETCH_WINDOW_MS = 3_000L
+private const val TRANSPORT_PREFETCH_SAFETY_BLOCKS = 1L
+private const val BITS_PER_BYTE = 8L
+private const val MILLIS_PER_SECOND = 1_000L
+private const val NANOS_PER_MILLISECOND = 1_000_000L

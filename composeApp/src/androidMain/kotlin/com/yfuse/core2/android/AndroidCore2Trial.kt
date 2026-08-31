@@ -69,7 +69,7 @@ internal object AndroidCore2TrialFactory {
                 null
             }
         val yCoreProxy =
-            if (nativeOnly) {
+            if (nativeOnly && items.any { item -> item.requiresYCoreAdaptiveProxy() }) {
                 runCatching {
                     AndroidYCoreHttpProxy(
                         context = context.applicationContext,
@@ -85,32 +85,41 @@ internal object AndroidCore2TrialFactory {
                 items =
                     items.toCore2MediaItems(
                         customUserAgent = customUserAgent,
-                        cacheMaximumBytes = if (nativeOnly) 0L else videoCacheBytes,
+                        cacheMaximumBytes = videoCacheBytes,
                         localize = { item, upstreamUrl ->
                             val cacheable =
                                 item.persistentPlaybackCacheUrl(item.startsWithServerTranscode()) ==
                                     upstreamUrl.trim()
                             if (nativeOnly) {
-                                requireNotNull(yCoreProxy).localUrl(
-                                    upstreamUri = upstreamUrl,
-                                    cacheable = cacheable,
-                                    cacheIdentity = item.yCoreCacheIdentity(),
-                                    maximumWidth = item.activeVersion?.sourceWidth,
-                                    maximumHeight = item.activeVersion?.sourceHeight,
-                                    hlsManifest =
-                                        upstreamUrl.isHlsManifest() ||
-                                            item.activeVersion?.container.isHlsContainer(),
-                                    dashManifest =
-                                        upstreamUrl.isDashManifest() ||
-                                            item.activeVersion?.container.isDashContainer(),
-                                    drmProtected =
-                                        item.drmConfiguration != null ||
-                                            item.activeVersion?.drmConfiguration != null,
-                                    // The authored HLS master is the source of truth. Emby metadata
-                                    // can omit rendition-level Dolby facts that AVFoundation sees.
-                                    allowDolbyVisionHls = allowDolbyVisionHls,
-                                    allowDolbyAtmosHls = allowDolbyAtmosHls,
-                                )
+                                // Static MP4/MKV/ISO sources already have a protocol-aware YCore
+                                // MediaDataSource. Sending them through the loopback manifest proxy
+                                // creates two nested range caches and repeats the upstream size
+                                // probe for every block. Keep the proxy only for authored adaptive
+                                // manifests that actually require URI rewriting.
+                                if (item.requiresYCoreAdaptiveProxy(upstreamUrl)) {
+                                    requireNotNull(yCoreProxy).localUrl(
+                                        upstreamUri = upstreamUrl,
+                                        cacheable = cacheable,
+                                        cacheIdentity = item.yCoreCacheIdentity(),
+                                        maximumWidth = item.activeVersion?.sourceWidth,
+                                        maximumHeight = item.activeVersion?.sourceHeight,
+                                        hlsManifest =
+                                            upstreamUrl.isHlsManifest() ||
+                                                item.activeVersion?.container.isHlsContainer(),
+                                        dashManifest =
+                                            upstreamUrl.isDashManifest() ||
+                                                item.activeVersion?.container.isDashContainer(),
+                                        drmProtected =
+                                            item.drmConfiguration != null ||
+                                                item.activeVersion?.drmConfiguration != null,
+                                        // The authored HLS master is the source of truth. Emby metadata
+                                        // can omit rendition-level Dolby facts that AVFoundation sees.
+                                        allowDolbyVisionHls = allowDolbyVisionHls,
+                                        allowDolbyAtmosHls = allowDolbyAtmosHls,
+                                    )
+                                } else {
+                                    upstreamUrl
+                                }
                             } else if (cacheable) {
                                 cacheProxy?.localUrl(upstreamUrl, cacheable = true) ?: upstreamUrl
                             } else {
@@ -182,6 +191,19 @@ internal object AndroidCore2TrialFactory {
         }
     }
 }
+
+private fun PlayerMediaItem.requiresYCoreAdaptiveProxy(): Boolean =
+    requiresYCoreAdaptiveProxy(url) ||
+        transcodeUrl.isHlsManifest() ||
+        transcodeUrl.isDashManifest() ||
+        fallbackTranscodeUrl.isHlsManifest() ||
+        fallbackTranscodeUrl.isDashManifest()
+
+internal fun PlayerMediaItem.requiresYCoreAdaptiveProxy(upstreamUrl: String): Boolean =
+    upstreamUrl.isHlsManifest() ||
+        activeVersion?.container.isHlsContainer() ||
+        upstreamUrl.isDashManifest() ||
+        activeVersion?.container.isDashContainer()
 
 private fun PlaybackFrameRateMatch.toCore2Mode(): YFrameRateSwitchMode =
     when (this) {
@@ -386,6 +408,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
                 ?.let { source ->
                     YMediaSourceHints(
                         container = source.container,
+                        bitrateBitsPerSecond = source.sourceBitrateBps?.toLong() ?: 0L,
                         videoCodec = source.sourceVideoCodec,
                         dynamicRange = source.sourceDynamicRange,
                         dolbyVision = source.dolbyVision,

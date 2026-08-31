@@ -23,6 +23,7 @@ class AndroidTransportMediaDataSourcePrefetchTest {
         val openedRanges = CopyOnWriteArrayList<Long>()
         val secondBlockOpened = CountDownLatch(1)
         val secondBlockCompleted = CountDownLatch(1)
+        val thirdBlockOpened = CountDownLatch(1)
         val source =
             AndroidTransportMediaDataSource(
                 uri = "https://example.invalid/video.mp4",
@@ -33,6 +34,7 @@ class AndroidTransportMediaDataSourcePrefetchTest {
                         if (!completed) {
                             openedRanges += start
                             if (start == TEST_BLOCK_BYTES.toLong()) secondBlockOpened.countDown()
+                            if (start == TEST_BLOCK_BYTES.toLong() * 2L) thirdBlockOpened.countDown()
                         } else if (start == TEST_BLOCK_BYTES.toLong()) {
                             secondBlockCompleted.countDown()
                         }
@@ -47,6 +49,7 @@ class AndroidTransportMediaDataSourcePrefetchTest {
             assertContentEquals(media.copyOfRange(0, 16), first)
             assertTrue(secondBlockOpened.await(2, TimeUnit.SECONDS))
             assertTrue(secondBlockCompleted.await(2, TimeUnit.SECONDS))
+            assertTrue(thirdBlockOpened.await(2, TimeUnit.SECONDS))
 
             val second = ByteArray(16)
             assertEquals(
@@ -69,6 +72,45 @@ class AndroidTransportMediaDataSourcePrefetchTest {
         assertTrue(shouldPrefetchTransportBlock(blockIndex = 1L, blockSize = 64, knownSize = -1L))
         assertTrue(shouldPrefetchTransportBlock(blockIndex = 3L, blockSize = 64, knownSize = 256L))
         assertFalse(shouldPrefetchTransportBlock(blockIndex = 4L, blockSize = 64, knownSize = 256L))
+    }
+
+    @Test
+    fun `high bitrate source keeps a bounded multi second prefetch window`() {
+        assertEquals(
+            8,
+            transportPrefetchDepthBlocks(
+                blockSize = 2 * 1024 * 1024,
+                mediaBitRateBitsPerSecond = 37_932_765L,
+            ),
+        )
+        assertEquals(
+            2,
+            transportPrefetchDepthBlocks(
+                blockSize = 2 * 1024 * 1024,
+                mediaBitRateBitsPerSecond = 0L,
+            ),
+        )
+    }
+
+    @Test
+    fun `server bitrate sizes prefetch before extractor opens and missing track bitrate cannot erase it`() {
+        val media = ByteArray(256)
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = { MemoryRangeTransport(media) { _, _ -> } },
+                initialMediaBitRateBitsPerSecond = 37_932_765L,
+                blockSizeOverride = 2 * 1024 * 1024,
+            )
+        try {
+            assertEquals(8, source.qoeSnapshot().depthBlocks)
+            source.setMediaBitRateBitsPerSecond(0L)
+            assertEquals(8, source.qoeSnapshot().depthBlocks)
+        } finally {
+            source.close()
+        }
     }
 }
 

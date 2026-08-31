@@ -33,6 +33,9 @@ internal class AndroidAudioTrackRenderNode(
     private var basePresentationTimeUs: Long? = null
     private var requestedPlay = false
     private var speed = 1f
+    private val clockProgressGuard = AndroidAudioClockProgressGuard()
+    private var lastClockSource: YAudioClockFrameSource? = null
+    private var staleClockFallback = false
     private val spatialAudioProbe = context?.let(::AndroidSpatialAudioProbe)
     private var spatialAudioState = AndroidSpatialAudioState()
 
@@ -42,6 +45,12 @@ internal class AndroidAudioTrackRenderNode(
     val headTrackingAvailable: Boolean
         get() = spatialAudioOutput && spatialAudioState.headTrackerAvailable
 
+    val clockSource: String
+        get() = lastClockSource?.name ?: if (staleClockFallback) "WallClockFallback" else "Unavailable"
+
+    val clockStalled: Boolean
+        get() = staleClockFallback
+
     fun configure(format: MediaFormat) {
         release()
         sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
@@ -50,6 +59,7 @@ internal class AndroidAudioTrackRenderNode(
         basePresentationTimeUs = null
         requestedPlay = false
         speed = 1f
+        resetClockProgress()
     }
 
     fun play() {
@@ -128,19 +138,28 @@ internal class AndroidAudioTrackRenderNode(
         val audioTrack = track ?: return null
         val baseUs = basePresentationTimeUs ?: return null
         if (sampleRate <= 0) return null
+        val nowNs = System.nanoTime()
         val timestamp = AudioTimestamp()
         val hasTimestamp = runCatching { audioTrack.getTimestamp(timestamp) }.getOrDefault(false)
-        val frames =
-            if (hasTimestamp) {
-                timestamp.framePosition
-            } else {
-                audioTrack.playbackHeadPosition.toLong() and 0xffff_ffffL
-            }
-        val positionUs = baseUs + frames * MICROS_PER_SECOND / sampleRate
-        val realtimeNs = if (hasTimestamp) timestamp.nanoTime else System.nanoTime()
+        val selection =
+            clockProgressGuard.select(
+                nowNs = nowNs,
+                playing = requestedPlay && audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING,
+                timestampFrames = timestamp.framePosition.takeIf { hasTimestamp },
+                timestampRealtimeNs = timestamp.nanoTime.takeIf { hasTimestamp },
+                playbackHeadFrames = audioTrack.playbackHeadPosition.toLong() and 0xffff_ffffL,
+            )
+        if (selection == null) {
+            lastClockSource = null
+            staleClockFallback = true
+            return null
+        }
+        lastClockSource = selection.source
+        staleClockFallback = false
+        val positionUs = baseUs + selection.framePosition * MICROS_PER_SECOND / sampleRate
         return YAudioClockSnapshot(
             positionUs = positionUs.coerceAtLeast(0L),
-            realtimeNs = realtimeNs,
+            realtimeNs = selection.realtimeNs,
         )
     }
 
@@ -160,6 +179,7 @@ internal class AndroidAudioTrackRenderNode(
         if (audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING) audioTrack.pause()
         audioTrack.flush()
         basePresentationTimeUs = null
+        resetClockProgress()
         if (resume) audioTrack.play()
     }
 
@@ -169,12 +189,19 @@ internal class AndroidAudioTrackRenderNode(
         requestedPlay = false
         sampleRate = 0
         basePresentationTimeUs = null
+        resetClockProgress()
         spatialAudioState = AndroidSpatialAudioState()
         if (audioTrack != null) {
             runCatching { audioTrack.pause() }
             runCatching { audioTrack.flush() }
             runCatching { audioTrack.release() }
         }
+    }
+
+    private fun resetClockProgress() {
+        clockProgressGuard.reset()
+        lastClockSource = null
+        staleClockFallback = false
     }
 }
 

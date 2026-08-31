@@ -201,6 +201,7 @@ class AndroidCore2TrialTest {
                 container = "MKV",
                 sourceVideoCodec = "hevc",
                 sourceDynamicRange = "Dolby Vision",
+                sourceBitrateBps = 37_932_765,
                 dolbyVision = true,
                 dolbyProfile = null,
             )
@@ -216,6 +217,23 @@ class AndroidCore2TrialTest {
         assertTrue(mapped.sourceHints?.dolbyVision == true)
         assertEquals(null, mapped.sourceHints?.dolbyVisionProfile)
         assertEquals("hevc", mapped.sourceHints?.videoCodec)
+        assertEquals(37_932_765L, mapped.sourceHints?.bitrateBitsPerSecond)
+    }
+
+    @Test
+    fun native_static_files_bypass_the_adaptive_loopback_proxy() {
+        assertFalse(
+            mediaItem("https://media.example.test/movie.mkv")
+                .requiresYCoreAdaptiveProxy("https://media.example.test/movie.mkv"),
+        )
+        assertTrue(
+            mediaItem("https://media.example.test/master.m3u8")
+                .requiresYCoreAdaptiveProxy("https://media.example.test/master.m3u8"),
+        )
+        assertTrue(
+            mediaItem("https://media.example.test/manifest.mpd")
+                .requiresYCoreAdaptiveProxy("https://media.example.test/manifest.mpd"),
+        )
     }
 
     @Test
