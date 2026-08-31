@@ -62,15 +62,21 @@ data class DetailState(
     val actionMessage: String? = null,
     /** Current route's optimistic/server-confirmed membership in Yfuse's 稍后观看 playlist. */
     val watchLater: Boolean = false,
-    /** Membership is loading or a playlist mutation is still in flight. */
-    val watchLaterBusy: Boolean = false,
+    /** Initial membership lookup. This is background enrichment and must not look like a user sync. */
+    val watchLaterLoading: Boolean = false,
+    /** An explicit add/remove operation is still in flight. */
+    val watchLaterMutating: Boolean = false,
     val sourceFailure: SourceSelectionFailure? = null,
     val organizationContainers: List<MediaContainer> = emptyList(),
     val organizationLoading: Boolean = false,
     val organizationError: String? = null,
     val addingContainerIds: Set<String> = emptySet(),
     val addedContainerIds: Set<String> = emptySet(),
-)
+) {
+    /** Compatibility/readiness view used by store tests and non-visual consumers. */
+    val watchLaterBusy: Boolean
+        get() = watchLaterLoading || watchLaterMutating
+}
 
 sealed interface DetailIntent {
     data object Retry : DetailIntent

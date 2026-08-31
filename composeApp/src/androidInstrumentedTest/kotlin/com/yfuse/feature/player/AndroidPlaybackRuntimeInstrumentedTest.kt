@@ -8,6 +8,8 @@ import android.media.AudioTrack
 import android.view.Surface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.yfuse.BuildConfig
+import com.yfuse.core2.android.FfmpegNativeBridge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,15 +20,28 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class AndroidPlaybackRuntimeInstrumentedTest {
     @Test
-    fun packaged_native_player_libraries_load_on_the_device() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-
-        Class.forName("dev.jdtech.mpv.MPVLib", true, javaClass.classLoader)
-
-        assertEquals("com.yfuse", context.packageName)
+    fun packaged_player_runtime_matches_the_selected_profile() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val declaredTargetPackage =
+            context.packageManager
+                .getInstrumentationInfo(instrumentation.componentName, 0)
+                .targetPackage
+        assertEquals(declaredTargetPackage, context.packageName)
         val nativeDirectory = File(context.applicationInfo.nativeLibraryDir)
-        assertTrue(File(nativeDirectory, "libmpv.so").isFile)
-        assertTrue(File(nativeDirectory, "libplayer.so").isFile)
+        if (BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME) {
+            assertFalse(File(nativeDirectory, "libmpv.so").isFile)
+            assertFalse(File(nativeDirectory, "libplayer.so").isFile)
+            assertFalse(File(nativeDirectory, "libmdk.so").isFile)
+            assertTrue(File(nativeDirectory, "libycore_demux.so").isFile)
+            assertTrue(File(nativeDirectory, "libycore_gpu.so").isFile)
+            assertClassUnavailable("androidx.media3.exoplayer.ExoPlayer")
+            assertClassUnavailable("dev.jdtech.mpv.MPVLib")
+        } else {
+            Class.forName("dev.jdtech.mpv.MPVLib", true, javaClass.classLoader)
+            assertTrue(File(nativeDirectory, "libmpv.so").isFile)
+            assertTrue(File(nativeDirectory, "libplayer.so").isFile)
+        }
     }
 
     @Test
@@ -80,7 +95,23 @@ class AndroidPlaybackRuntimeInstrumentedTest {
         }
     }
 
+    @Test
+    fun standalone_ycore_native_apis_load_from_the_packaged_artifact() {
+        if (!BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME) return
+
+        assertTrue("FFmpeg JNI bridge failed to load", FfmpegNativeBridge.available)
+        assertTrue("FFmpeg software decode API is missing", FfmpegNativeBridge.softwareDecodeAvailable)
+        assertTrue("libass renderer API is missing", FfmpegNativeBridge.assRendererAvailable)
+        assertTrue("libbluray disc API is missing", FfmpegNativeBridge.discNavigationAvailable)
+    }
+
     private companion object {
         const val SAMPLE_RATE_HZ = 48_000
+
+        fun assertClassUnavailable(className: String) {
+            val result = runCatching { Class.forName(className, false, javaClass.classLoader) }
+            assertTrue("$className unexpectedly entered the native-only APK", result.isFailure)
+            assertTrue(result.exceptionOrNull() is ClassNotFoundException)
+        }
     }
 }

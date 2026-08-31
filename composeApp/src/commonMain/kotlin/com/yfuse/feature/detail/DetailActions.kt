@@ -65,7 +65,7 @@ internal fun DetailActionDock(
     resolving: Boolean,
     favorite: Boolean,
     watchLater: Boolean,
-    watchLaterBusy: Boolean,
+    watchLaterMutating: Boolean,
     /** Shown only when there is progress to discard. */
     canPlayFromStart: Boolean,
     onPlay: () -> Unit,
@@ -223,14 +223,14 @@ internal fun DetailActionDock(
                 icon = if (watchLater) AppIcons.Check else AppIcons.Bookmark,
                 label =
                     when {
-                        watchLaterBusy -> "同步中"
+                        watchLaterMutating -> "同步中"
                         watchLater -> "已加入"
                         else -> "稍后观看"
                     },
                 active = watchLater,
                 accent = accent,
-                enabled = !watchLaterBusy,
-                loading = watchLaterBusy,
+                enabled = !watchLaterMutating,
+                loading = watchLaterMutating,
                 onClick = onWatchLater,
                 modifier = Modifier.weight(1f),
             )

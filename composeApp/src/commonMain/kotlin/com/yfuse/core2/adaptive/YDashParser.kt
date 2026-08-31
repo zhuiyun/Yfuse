@@ -24,6 +24,11 @@ fun parseYDashManifest(
         isLive = live,
         minimumUpdatePeriodUs = mpd.attribute("minimumupdateperiod")?.parseIsoDurationUs(),
         mediaPresentationDurationUs = mpd.attribute("mediapresentationduration")?.parseIsoDurationUs(),
+        availabilityStartTime = mpd.attribute("availabilitystarttime"),
+        publishTime = mpd.attribute("publishtime"),
+        timeShiftBufferDepthUs = mpd.attribute("timeshiftbufferdepth")?.parseIsoDurationUs(),
+        suggestedPresentationDelayUs = mpd.attribute("suggestedpresentationdelay")?.parseIsoDurationUs(),
+        periodStartUs = periods.singleOrNull()?.attribute("start")?.parseIsoDurationUsAllowZero(),
         representations = representations,
     )
 }
@@ -37,6 +42,7 @@ private fun parseAdaptationSet(
             ?: inheritedBaseUri
     val adaptationTemplate = adaptation.firstChild("segmenttemplate")?.toDashSegmentTemplate()
     val adaptationProtection = adaptation.children("contentprotection").map(XmlNode::toContentProtection)
+    val adaptationSupplemental = adaptation.children("supplementalproperty").map(XmlNode::toDashDescriptor)
     val adaptationMime = adaptation.attribute("mimetype")
     val adaptationType = adaptation.attribute("contenttype")
     val adaptationLanguage = adaptation.attribute("lang")
@@ -88,6 +94,11 @@ private fun parseAdaptationSet(
                             protection.psshBase64,
                         )
                     },
+            supplementalProperties =
+                (
+                    adaptationSupplemental +
+                        representation.children("supplementalproperty").map(XmlNode::toDashDescriptor)
+                ).distinctBy { it.schemeIdUri.lowercase() to it.value.orEmpty().lowercase() },
         )
     }
 }
@@ -148,6 +159,12 @@ private fun XmlNode.toContentProtection(): YDashContentProtection {
         licenseUri = licenseNode?.attribute("licenseurl") ?: licenseNode?.textValue(),
     )
 }
+
+private fun XmlNode.toDashDescriptor(): YDashDescriptor =
+    YDashDescriptor(
+        schemeIdUri = attribute("schemeiduri") ?: error("DASH SupplementalProperty has no schemeIdUri"),
+        value = attribute("value"),
+    )
 
 /** Expands one DASH URL template without accepting arbitrary format expressions. */
 fun renderDashTemplate(
@@ -249,6 +266,11 @@ private fun String.parseIsoDurationUs(): Long {
     val totalSeconds = days * 86_400.0 + hours * 3_600.0 + minutes * 60.0 + seconds
     require(totalSeconds.isFinite() && totalSeconds > 0.0)
     return (totalSeconds * 1_000_000.0).roundToLong()
+}
+
+private fun String.parseIsoDurationUsAllowZero(): Long {
+    if (trim().equals("PT0S", ignoreCase = true)) return 0L
+    return parseIsoDurationUs()
 }
 
 private data class XmlNode(

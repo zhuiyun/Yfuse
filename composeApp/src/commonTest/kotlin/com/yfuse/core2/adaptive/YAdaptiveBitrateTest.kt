@@ -5,6 +5,57 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class YAdaptiveBitrateTest {
+    @Test
+    fun dash_switching_ladder_excludes_different_init_codec_and_timeline() {
+        val shared =
+            YDashSegmentTemplate(
+                initialization = "shared-init.mp4",
+                media = "video-${'$'}RepresentationID${'$'}-${'$'}Number${'$'}.m4s",
+                timescale = 1_000L,
+                duration = 2_000L,
+            )
+        fun representation(
+            id: String,
+            bitrate: Long,
+            codecs: List<String> = listOf("avc1.640028"),
+            template: YDashSegmentTemplate = shared,
+        ) = YDashRepresentation(
+            id = id,
+            baseUri = "https://media.example.test/",
+            bandwidthBitsPerSecond = bitrate,
+            contentType = YDashContentType.Video,
+            mimeType = "video/mp4",
+            codecs = codecs,
+            segmentTemplate = template,
+        )
+        val manifest =
+            YDashManifest(
+                isLive = false,
+                mediaPresentationDurationUs = 20_000_000L,
+                representations =
+                    listOf(
+                        representation("low", 800_000L),
+                        representation("selected", 2_000_000L),
+                        representation("hevc", 1_500_000L, codecs = listOf("hvc1.2.4.L120")),
+                        representation(
+                            "different-init",
+                            3_000_000L,
+                            template = shared.copy(initialization = "other-init.mp4"),
+                        ),
+                        representation(
+                            "different-timeline",
+                            4_000_000L,
+                            template = shared.copy(duration = 4_000L),
+                        ),
+                    ),
+            )
+
+        assertEquals(
+            listOf("low", "selected"),
+            alignYDashSwitchingRepresentations(manifest, "selected").map { it.id },
+        )
+    }
+
     private val variants =
         listOf(
             variant("low", 500_000L, 640, 360),

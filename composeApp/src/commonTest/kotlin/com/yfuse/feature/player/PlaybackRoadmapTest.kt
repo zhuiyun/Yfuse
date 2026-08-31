@@ -227,6 +227,30 @@ class PlaybackRoadmapTest {
     }
 
     @Test
+    fun emby_seek_preview_selects_the_latest_exact_timeline_frame() {
+        val storyboard =
+            TrickplayStoryboard(
+                urlPattern = "unused",
+                width = 320,
+                height = 180,
+                tileColumns = 1,
+                tileRows = 1,
+                intervalMs = 10_000L,
+                thumbnailCount = 3,
+                frames =
+                    listOf(
+                        TrickplayStoryboardFrame(0L, "frame-0"),
+                        TrickplayStoryboardFrame(10_000L, "frame-10"),
+                        TrickplayStoryboardFrame(25_000L, "frame-25"),
+                    ),
+            )
+
+        assertEquals(TrickplayFrame("frame-0", 0, 0), storyboard.frameAt(9_999L))
+        assertEquals(TrickplayFrame("frame-10", 0, 0), storyboard.frameAt(24_999L))
+        assertEquals(TrickplayFrame("frame-25", 0, 0), storyboard.frameAt(Long.MAX_VALUE))
+    }
+
+    @Test
     fun advancedSubtitleCodecsRequestStyledRenderer() {
         assertTrue(EngineTrack("1", "ASS", null, false, "ass").requiresStyledRenderer)
         assertTrue(EngineTrack("2", "PGS", null, false, "application/pgs").requiresStyledRenderer)

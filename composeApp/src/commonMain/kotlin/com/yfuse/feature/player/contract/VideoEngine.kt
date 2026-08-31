@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackFailureKind
+import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.roundToInt
 
@@ -159,6 +160,12 @@ data class PlaybackDiagnostics(
     val dolbyVisionEnhancementLayerComposed: Boolean = false,
     /** A compatible immersive carrier is active, without positive object-rendering proof. */
     val immersiveAudioCarrierOutput: Boolean = false,
+    /** The selected source track was positively identified as carrying Dolby Atmos. */
+    val dolbyAtmosSourceDetected: Boolean = false,
+    /** Exact active-sink result; distinguishes JOC, TrueHD carrier and spatialized PCM. */
+    val dolbyAtmosOutputMode: YDolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+    val audioOutputRoute: String = "",
+    val audioOutputRouteVerified: Boolean = false,
     /** Format-specific system Spatializer output evidence, separate from Atmos passthrough. */
     val spatialAudioOutput: Boolean = false,
     val headTrackingAvailable: Boolean = false,
@@ -192,6 +199,9 @@ data class PlaybackDiagnostics(
     val bufferedDurationMs: Long = 0L,
     val bufferEvents: Int = 0,
     val networkBitsPerSecond: Long = 0L,
+    val sourceQueueBytes: Long = 0L,
+    val sourceBufferedMs: Long = 0L,
+    val sourceStarvationCount: Long = 0L,
     /** Machine-readable evidence for the current load attempt. */
     val outputEvidence: PlaybackOutputEvidence = PlaybackOutputEvidence(),
 )

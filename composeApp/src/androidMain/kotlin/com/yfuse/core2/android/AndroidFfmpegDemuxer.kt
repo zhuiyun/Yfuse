@@ -63,7 +63,8 @@ internal class AndroidFfmpegDemuxer :
         var openedHandle = 0L
         return try {
             discSource = source.uri.startsWith("ycorebd://", ignoreCase = true)
-            openedHandle = FfmpegNativeBridge.open(source.uri, source.headers)
+            val request = ffmpegSourceRequest(source)
+            openedHandle = FfmpegNativeBridge.open(request.uri, request.headers)
             handle = openedHandle
             val tracks =
                 (0 until FfmpegNativeBridge.trackCount(handle))
@@ -185,8 +186,8 @@ internal class AndroidFfmpegDemuxer :
         val track =
             requireOpenResult().tracks.firstOrNull { it.id == sample.trackId }
                 ?: error("Subtitle sample does not belong to this demux session")
-        require(track.subtitle?.format in BITMAP_SUBTITLE_FORMATS) {
-            "Only FFmpeg bitmap subtitle tracks use the native subtitle decoder"
+        require(track.subtitle?.format?.let(::supportsSubtitleFormat) == true) {
+            "This subtitle track is not supported by the native subtitle decoder"
         }
         val decoded =
             FfmpegNativeBridge.decodeSubtitle(
@@ -200,6 +201,10 @@ internal class AndroidFfmpegDemuxer :
             ) ?: return emptyList()
         return decoded.toBitmapSubtitleCues(sample)
     }
+
+    override fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
+        format in BITMAP_SUBTITLE_FORMATS ||
+            (format in ASS_SUBTITLE_FORMATS && FfmpegNativeBridge.assRendererAvailable)
 
     val softwareDecodeAvailable: Boolean get() = FfmpegNativeBridge.softwareDecodeAvailable
 
@@ -385,6 +390,28 @@ internal class AndroidFfmpegDemuxer :
     private fun requireHandle(): Long = handle.takeIf { it != 0L } ?: error("FFmpeg demux session has not been opened")
 
     private fun requireOpenResult(): YDemuxOpenResult = checkNotNull(openResult) { "FFmpeg demux session has not been opened" }
+}
+
+internal data class YFfmpegSourceRequest(
+    val uri: String,
+    val headers: Map<String, String>,
+)
+
+internal fun ffmpegSourceRequest(source: YDemuxSource): YFfmpegSourceRequest {
+    val scheme = source.uri.substringBefore(':', missingDelimiterValue = "").lowercase()
+    val normalizedUri =
+        when (scheme) {
+            "webdav" -> source.uri.replaceFirst(Regex("(?i)^webdav://"), "http://")
+            "webdavs" -> source.uri.replaceFirst(Regex("(?i)^webdavs://"), "https://")
+            else -> source.uri
+        }
+    val headers =
+        if (scheme in setOf("http", "https", "webdav", "webdavs")) {
+            source.headers.withHttpBasicCredentials(source.transportCredentials)
+        } else {
+            source.headers
+        }
+    return YFfmpegSourceRequest(uri = normalizedUri, headers = headers)
 }
 
 internal fun ByteArray.toBitmapSubtitleCues(sample: YCompressedSample): List<YSubtitleCue> {
@@ -652,6 +679,7 @@ private fun rationalToFloat(
 private val DTS_HD_PROFILES = setOf(50, 60)
 private val DTS_X_PROFILES = setOf(61, 62)
 private val BITMAP_SUBTITLE_FORMATS = setOf(YSubtitleFormat.Pgs, YSubtitleFormat.VobSub)
+private val ASS_SUBTITLE_FORMATS = setOf(YSubtitleFormat.Ass, YSubtitleFormat.Ssa)
 private const val ATMOS_PROFILE = 30
 private const val INITIAL_PACKET_BUFFER_BYTES = 2 * 1024 * 1024
 private const val MAX_PACKET_BUFFER_BYTES = 64 * 1024 * 1024

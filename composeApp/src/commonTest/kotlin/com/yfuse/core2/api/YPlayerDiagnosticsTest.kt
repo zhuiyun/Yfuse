@@ -21,9 +21,10 @@ class YPlayerDiagnosticsTest {
         assertFalse(videoOnly.nativeDualDolbyOutput)
 
         assertTrue(
-            videoOnly.copy(
-                audioOutputVerified = true,
-            ).nativeDualDolbyOutput,
+            videoOnly
+                .copy(
+                    audioOutputVerified = true,
+                ).nativeDualDolbyOutput,
         )
     }
 
@@ -41,5 +42,37 @@ class YPlayerDiagnosticsTest {
 
         assertFalse(videoVerified.nativeDualDolbyOutput)
         assertTrue(videoVerified.copy(dolbyAtmosOutput = true).nativeDualDolbyOutput)
+    }
+
+    @Test
+    fun `spatialized Atmos source qualifies only for presentation parity`() {
+        val diagnostics =
+            YPlayerDiagnostics(
+                videoOutputVerified = true,
+                audioOutputVerified = true,
+                dolbyVisionOutput = true,
+                dolbyAtmosSourceDetected = true,
+                dolbyAtmosOutputMode = YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm,
+                spatialAudioOutput = true,
+            )
+
+        assertFalse(diagnostics.nativeDualDolbyOutput)
+        assertTrue(diagnostics.nativeDualDolbyPresentationOutput)
+    }
+
+    @Test
+    fun `carrier without exact object evidence is never dual Dolby`() {
+        val diagnostics =
+            YPlayerDiagnostics(
+                videoOutputVerified = true,
+                audioOutputVerified = true,
+                dolbyVisionOutput = true,
+                dolbyAtmosSourceDetected = true,
+                immersiveAudioCarrierOutput = true,
+                dolbyAtmosOutputMode = YDolbyAtmosOutputMode.TrueHdCarrierPassthrough,
+            )
+
+        assertFalse(diagnostics.nativeDualDolbyOutput)
+        assertFalse(diagnostics.nativeDualDolbyPresentationOutput)
     }
 }

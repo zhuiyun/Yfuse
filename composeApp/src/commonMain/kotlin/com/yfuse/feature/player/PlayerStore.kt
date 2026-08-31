@@ -26,6 +26,7 @@ import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
+import com.yfuse.core2.network.YTransportCredentials
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -442,6 +443,8 @@ data class PlayerMediaItem(
     val serverFallbacks: List<PlayerMediaItem> = emptyList(),
     /** Exact server runtime used until the active engine reports an authoritative duration. */
     val durationMsHint: Long = 0L,
+    /** In-memory credentials for direct SMB/WebDAV/HTTP sources; diagnostics remain redacted. */
+    val transportCredentials: YTransportCredentials? = null,
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.
@@ -510,8 +513,25 @@ data class TrickplayStoryboard(
     val intervalMs: Long,
     val thumbnailCount: Int,
     val urlIndexMultiplier: Long = 1L,
+    val frames: List<TrickplayStoryboardFrame> = emptyList(),
 ) {
     fun frameAt(positionMs: Long): TrickplayFrame {
+        if (frames.isNotEmpty()) {
+            val target = positionMs.coerceAtLeast(0L)
+            var low = 0
+            var high = frames.lastIndex
+            var match = 0
+            while (low <= high) {
+                val middle = (low + high).ushr(1)
+                if (frames[middle].positionMs <= target) {
+                    match = middle
+                    low = middle + 1
+                } else {
+                    high = middle - 1
+                }
+            }
+            return TrickplayFrame(frames[match].url, column = 0, row = 0)
+        }
         val frame =
             (positionMs.coerceAtLeast(0L) / intervalMs.coerceAtLeast(1L))
                 .coerceAtMost((thumbnailCount - 1).coerceAtLeast(0).toLong())
@@ -526,6 +546,12 @@ data class TrickplayStoryboard(
         )
     }
 }
+
+@Serializable
+data class TrickplayStoryboardFrame(
+    val positionMs: Long,
+    val url: String,
+)
 
 /** Merges the legacy offline sidecar with provider-owned online tracks without duplicate URLs. */
 internal fun PlayerMediaItem.playbackExternalSubtitles(): List<PlayerExternalSubtitle> =
@@ -941,27 +967,6 @@ class PlayerStoreFactory(
                             DISC_SOURCE_TRANSCODE_REASON.takeIf {
                                 unqualified.discSource &&
                                     unqualified.playMethod == PlaybackMethod.Transcode
-                            },
-                        trickplay =
-                            (if (id == effectiveItemId) negotiatedTrickplay else null)?.let { info ->
-                                TrickplayStoryboard(
-                                    urlPattern =
-                                        info.urlPattern
-                                            ?: EmbyStream.trickplayTilePattern(
-                                                baseUrl = server.baseUrl,
-                                                itemId = id,
-                                                mediaSourceId = unqualified.id,
-                                                width = info.width,
-                                                token = server.accessToken,
-                                            ),
-                                    width = info.width,
-                                    height = info.height,
-                                    tileColumns = info.tileColumns,
-                                    tileRows = info.tileRows,
-                                    intervalMs = info.intervalMs,
-                                    thumbnailCount = info.thumbnailCount,
-                                    urlIndexMultiplier = info.urlIndexMultiplier,
-                                )
                             },
                         serverId = server.id,
                         playbackSegments = playbackSegments,

@@ -54,8 +54,9 @@ really compiles, links and passes verification.
 
 ## Remote ISO transport
 
-`HttpRangeDiscBlockSource` and `NativeRemoteBluRayBlockSource` implement the transport side expected
-by libbluray/libudfread:
+The retained legacy route uses `HttpRangeDiscBlockSource` and `NativeRemoteBluRayBlockSource`.
+The pure-YCore route instead uses `AndroidTransportDiscBlockSource`, which exposes the same 2048-byte
+libbluray/libudfread callback over HTTP(S), WebDAV(S), or SMB without routing playback through mpv:
 
 - 2048-byte UDF logical blocks;
 - 64-bit byte offsets and 100 GiB+ safe arithmetic;
@@ -67,8 +68,14 @@ by libbluray/libudfread:
   the playback item;
 - one 401/403 retry with freshly resolved authentication and no unbounded auth loop;
 - 416 with `bytes */N` treated as EOF;
-- 64 KiB read-ahead, a 512 KiB hard ceiling per callback and a bounded ~4 MiB LRU media-byte cache;
+- 256 KiB aligned read-ahead and a bounded 2 MiB LRU media-byte cache in the pure-YCore route
+  (the legacy route retains its own 64 KiB/~4 MiB policy);
 - source URL/token excluded from diagnostics.
+
+The pure-YCore source is registered before FFmpeg's disc worker starts, but it performs no synchronous
+network probe on Android's main thread. Strict range validation happens inside the native/libbluray
+worker callback and fails closed there. HTTP `416` is EOF only when `Content-Range: bytes */N` proves
+that the requested start is at or beyond the known image length.
 
 Before native registration, the exact raw-disc endpoint is probed on `Dispatchers.IO` with a one-byte
 Range request. A source is changed to `yfusebd://` only after the origin proves the same strict 206 and

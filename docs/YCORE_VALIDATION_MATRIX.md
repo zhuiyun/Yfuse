@@ -92,13 +92,16 @@ shipping the route, all of the following must pass:
 
 ### Remote raw ISO transport gates
 
-`HttpRangeDiscBlockSource` is the transport contract for the libbluray `bd_open_stream` bridge. Before
-native remote ISO is release-enabled, the following must pass:
+`AndroidTransportDiscBlockSource` is the pure-YCore transport contract for the libbluray
+`bd_open_stream` bridge. It accepts HTTP(S), WebDAV(S), and SMB through the same `YMediaTransport`
+random-access boundary; the older `HttpRangeDiscBlockSource` belongs only to the retained legacy
+route. Before native remote ISO is release-enabled, the following must pass:
 
 - logical UDF blocks are exactly 2048 bytes and LBA-to-byte conversion uses 64-bit offsets; test at
   least one range whose start is above 4 GiB and one real image above 80 GiB;
-- every random read receives HTTP `206 Partial Content` with a matching `Content-Range`; ordinary
-  `200 OK` is a hard failure so Yfuse never turns a one-block request into a whole-image download;
+- HTTP/WebDAV random reads receive `206 Partial Content` with a matching `Content-Range`; ordinary
+  `200 OK` is a hard failure so Yfuse never turns a one-block request into a whole-image download.
+  SMB must expose the equivalent exact random-access contract;
 - requests force `Accept-Encoding: identity` and `Cache-Control: no-transform`; a compressed/rewritten
   range response is rejected because byte offsets are no longer trustworthy;
 - redirects are not followed while authorization headers are attached. A redirecting origin must fail
@@ -108,8 +111,9 @@ native remote ISO is release-enabled, the following must pass:
 - HTTP `416` with `Content-Range: bytes */N` is accepted as EOF and records the total image length;
 - the reader must never perform blocking range I/O on Android's main thread and must become inert after
   close;
-- read-ahead/cache remains bounded, preserves exact requested blocks, and does not retain stale data
-  after session close or source switch;
+- the pure-YCore reader uses 256 KiB aligned read-ahead with a 2 MiB LRU ceiling, preserves exact
+  requested blocks, bounds repeated zero-progress reads, and retains no data after session close or
+  source switch;
 - transport unit tests are necessary but not sufficient: release additionally requires the actual JNI
   `bd_open_stream` callback, libbluray title/seek/event integration, cancellation and physical-device
   seeks across the image.
@@ -131,8 +135,10 @@ native remote ISO is release-enabled, the following must pass:
 
 - PGS may change the local backend to the native subtitle renderer, but must not change a valid
   direct-stream URL into a server transcode.
-- TrueHD/Atmos or DTS-HD is reported as passthrough only when the active Android route proves encoded
-  output; speaker/Bluetooth fallback to PCM is a passing outcome.
+- E-AC3 JOC is reported as Atmos passthrough only when the advancing AudioTrack's active routed
+  device exposes the exact JOC encoding. TrueHD capability proves only a carrier until independent
+  receiver evidence proves the Atmos object extension. Speaker/headphone PCM spatialization is
+  reported as a separate Atmos-source presentation mode and never as encoded passthrough.
 - Dolby Vision source metadata must preserve RPU/EL/BL presence flags. A P7 source with EL present is
   a dual-layer source, but `ElPresentFlag` alone is not accepted as evidence of MEL/FEL type or FEL
   composition.

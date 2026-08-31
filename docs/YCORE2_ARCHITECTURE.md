@@ -114,9 +114,12 @@ Planned handling:
 
 “Native dual Dolby” is a same-session output result, not a media badge. YCore reports it only after
 the active video decoder presents a verified native Dolby Vision frame and the active encoded
-`AudioTrack` establishes a verified E-AC3 JOC or TrueHD Atmos output clock. A decoded PCM path,
-server transcode, HDR-compatible-base fallback, missing display capability, or rejected audio route
-keeps the combined state false while preserving the two independent fallback reasons.
+`AudioTrack` establishes an exact routed-device E-AC3 JOC or independently verified TrueHD Atmos
+output clock. `nativeDualDolbyPresentationOutput` separately models iOS-style mobile/headphone
+presentation: an Atmos source decoded to an advancing PCM sink while Android's format-specific
+Spatializer is active. A compatible TrueHD carrier, server transcode, HDR-compatible-base fallback,
+missing display capability, or rejected audio route keeps strict bitstream dual Dolby false while
+preserving the independent output reasons.
 
 ## Migration phases
 
@@ -185,8 +188,10 @@ keeps the combined state false while preserving the two independent fallback rea
 - keep BD-J and licensed/protected-disc runtime as explicit capability boundaries.
 
 Current milestone: direct Blu-ray/ISO/BDMV items now prefer `AndroidYCoreDiscRouteFactory`.
-`AndroidYCoreBluRaySource` exposes local paths, content-URI or authenticated range blocks to the
-private libbluray registry. Persisted SAF BDMV trees use YCore's read-only `bd_open_files` JNI VFS;
+`AndroidYCoreBluRaySource` exposes local paths, content-URI or authenticated HTTP(S), WebDAV(S), and
+SMB random-access blocks to the private libbluray registry. Remote images use 256 KiB aligned
+read-ahead with a bounded 2 MiB LRU cache and never probe the network on Android's main thread.
+Persisted SAF BDMV trees use YCore's read-only `bd_open_files` JNI VFS;
 absolute/traversal paths and filesystem escapes are rejected before I/O. Libbluray selects the title
 and FFmpeg feeds the ordinary YCore Enhanced decode, clock, audio, subtitle and Surface graph. Title,
 chapter and angle navigation therefore no longer requires mpv. The compatibility executor remains

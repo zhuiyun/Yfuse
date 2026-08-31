@@ -255,15 +255,73 @@ class DetailStoreTest {
                     }
                 }
                 assertEquals("正在切换资源，完成后将自动播放", store.state.actionMessage)
+                assertTrue(store.state.resolvingPlay)
 
                 release.complete(Unit)
                 assertEquals(
                     DetailLabel.Play("two", "m2", 90_000_000L, "w1"),
                     awaitItem(),
                 )
+                assertTrue(!store.state.resolvingPlay)
                 cancelAndConsumeRemainingEvents()
             }
             store.dispose()
+        }
+
+    @Test
+    fun initial_playback_enrichment_only_spins_after_play_is_requested() =
+        runBlocking {
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val store =
+                seriesStore(
+                    beforeInitialEpisodes = {
+                        started.complete(Unit)
+                        release.await()
+                    },
+                )
+            try {
+                awaitRealTime { started.await() }
+                assertTrue(store.state.selectionLoading)
+                assertTrue(!store.state.resolvingPlay)
+
+                store.labels.test(timeout = 10.seconds) {
+                    store.accept(DetailIntent.Play)
+                    assertTrue(store.state.resolvingPlay)
+                    release.complete(Unit)
+                    assertEquals(
+                        DetailLabel.Play("one", "e1", 10_000_000L, "ev1"),
+                        awaitItem(),
+                    )
+                    assertTrue(!store.state.resolvingPlay)
+                    cancelAndConsumeRemainingEvents()
+                }
+            } finally {
+                release.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun playback_resolution_has_a_deadline_and_clears_the_spinner() =
+        runTest {
+            val store =
+                seriesStore(
+                    beforeInitialEpisodes = { awaitCancellation() },
+                    playbackResolutionTimeoutMs = 50L,
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.detail != null && !it.selectionLoading }
+                assertTrue(!store.state.resolvingPlay)
+
+                store.accept(DetailIntent.Play)
+                store.states.first { it.actionMessage == "播放信息加载超时，请检查网络后重试" }
+
+                assertTrue(!store.state.resolvingPlay)
+            } finally {
+                store.dispose()
+            }
         }
 
     @Test
@@ -404,6 +462,25 @@ class DetailStoreTest {
                 }
             } finally {
                 releaseCatalog.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
+    fun initial_series_directory_is_reused_for_the_episode_list() =
+        runTest {
+            var episodeDirectoryRequests = 0
+            val store =
+                seriesStore(
+                    onFirstEpisodesRequest = { episodeDirectoryRequests++ },
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                )
+            try {
+                store.states.first { it.playTarget?.id == "e1" && it.episodes.size == 2 }
+
+                assertEquals(1, episodeDirectoryRequests)
+                assertEquals(listOf("e1", "e2"), store.state.episodes.map { it.id })
+            } finally {
                 store.dispose()
             }
         }
@@ -887,6 +964,33 @@ class DetailStoreTest {
         }
 
     @Test
+    fun initial_watch_later_lookup_is_not_presented_as_a_user_sync() =
+        runBlocking {
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val store =
+                movieStore(
+                    beforeWatchLaterLookup = {
+                        started.complete(Unit)
+                        release.await()
+                    },
+                )
+            try {
+                awaitRealTime { started.await() }
+
+                assertTrue(store.state.watchLaterLoading)
+                assertTrue(!store.state.watchLaterMutating)
+
+                release.complete(Unit)
+                awaitRealTime { store.states.first { !it.watchLaterBusy } }
+                assertTrue(!store.state.watchLaterMutating)
+            } finally {
+                release.complete(Unit)
+                store.dispose()
+            }
+        }
+
+    @Test
     fun failedWatchLaterRemovalRollsBackMembership() =
         runTest {
             val store =
@@ -920,6 +1024,7 @@ class DetailStoreTest {
         watchLaterEntryIds: List<String> = emptyList(),
         watchLaterDeleteFailure: (() -> Throwable?)? = null,
         onWatchLaterDelete: (String?) -> Unit = {},
+        beforeWatchLaterLookup: suspend () -> Unit = {},
         mainContext: CoroutineDispatcher = Dispatchers.Unconfined,
     ): com.arkivanov.mvikotlin.core.store.Store<
         DetailIntent,
@@ -961,7 +1066,8 @@ class DetailStoreTest {
                         }
                     }
                     request.url.parameters["IncludeItemTypes"] == "Playlist" &&
-                        request.url.parameters["SearchTerm"] == "稍后观看" ->
+                        request.url.parameters["SearchTerm"] == "稍后观看" -> {
+                        beforeWatchLaterLookup()
                         json(
                             if (watchLaterEntryIds.isEmpty()) {
                                 """{"Items":[]}"""
@@ -969,6 +1075,7 @@ class DetailStoreTest {
                                 """{"Items":[{"Id":"yfuse-watch-later","Name":"稍后观看","Type":"Playlist"}]}"""
                             },
                         )
+                    }
                     path.endsWith("/Items/m1") -> json(movieOneBody)
                     path.endsWith("/Items/m2") -> {
                         beforeM2Detail()
@@ -1019,6 +1126,8 @@ class DetailStoreTest {
     private fun seriesStore(
         includeSecondSource: Boolean = false,
         beforeEpisodeTwoDetail: suspend () -> Unit = {},
+        beforeInitialEpisodes: suspend () -> Unit = {},
+        onFirstEpisodesRequest: (String?) -> Unit = {},
         beforeFirstSeasons: suspend () -> Unit = {},
         beforeSecondEpisodes: suspend () -> Unit = {},
         secondEpisodesBody: String = """{"Items":[$ALT_EPISODE_ONE]}""",
@@ -1026,6 +1135,7 @@ class DetailStoreTest {
         onSecondNextUp: () -> Unit = {},
         seasonTwoEpisodesFailure: (() -> Throwable?)? = null,
         sourceSelectionTimeoutMs: Long = 45_000L,
+        playbackResolutionTimeoutMs: Long = PLAYBACK_RESOLUTION_TIMEOUT_MS,
         mainContext: CoroutineDispatcher = Dispatchers.Unconfined,
     ): com.arkivanov.mvikotlin.core.store.Store<
         DetailIntent,
@@ -1092,6 +1202,10 @@ class DetailStoreTest {
                             """{"Items":[{"Id":"aseason1","Name":"第 1 季","IndexNumber":1}]}""",
                         )
                     path.endsWith("/Shows/s1/Episodes") -> {
+                        onFirstEpisodesRequest(request.url.parameters["SeasonId"])
+                        if (request.url.parameters["SeasonId"] == null) {
+                            beforeInitialEpisodes()
+                        }
                         if (request.url.parameters["SeasonId"] == "season2") {
                             seasonTwoEpisodesFailure?.invoke()?.let { throw it }
                             json("""{"Items":[$EPISODE_THREE]}""")
@@ -1122,6 +1236,7 @@ class DetailStoreTest {
             itemId = "s1",
             serverId = "one",
             sourceSelectionTimeoutMs = sourceSelectionTimeoutMs,
+            playbackResolutionTimeoutMs = playbackResolutionTimeoutMs,
             mainContext = mainContext,
             playbackTrackRequest = testPlaybackTrackRequest,
             syncManager = testSyncManager,

@@ -4,6 +4,7 @@ import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.playback.DolbyVisionP7OutputEvidence
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core.playback.PlaybackDrmScheme
+import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -80,16 +81,35 @@ class PlaybackTruthTest {
 
         assertFalse(outputClaims.hasNativeDualDolbyOutput())
         assertFalse(
-            outputClaims.copy(
-                videoReadiness = PlaybackOutputReadiness.Rendering,
-            ).hasNativeDualDolbyOutput(),
+            outputClaims
+                .copy(
+                    videoReadiness = PlaybackOutputReadiness.Rendering,
+                ).hasNativeDualDolbyOutput(),
         )
         assertTrue(
-            outputClaims.copy(
+            outputClaims
+                .copy(
+                    videoReadiness = PlaybackOutputReadiness.Rendering,
+                    audioReadiness = PlaybackOutputReadiness.Rendering,
+                ).hasNativeDualDolbyOutput(),
+        )
+    }
+
+    @Test
+    fun spatialized_atmos_source_is_visible_without_becoming_bitstream_output() {
+        val diagnostics =
+            PlaybackDiagnostics(
                 videoReadiness = PlaybackOutputReadiness.Rendering,
                 audioReadiness = PlaybackOutputReadiness.Rendering,
-            ).hasNativeDualDolbyOutput(),
-        )
+                dolbyVisionOutput = true,
+                dolbyAtmosSourceDetected = true,
+                dolbyAtmosOutputMode = YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm,
+                spatialAudioOutput = true,
+            )
+
+        assertTrue(diagnostics.hasActiveDolbyAtmosOutput())
+        assertFalse(diagnostics.hasNativeDualDolbyOutput())
+        assertTrue(diagnostics.hasNativeDualDolbyPresentationOutput())
     }
 
     /**

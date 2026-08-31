@@ -6,6 +6,7 @@ import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFeature
+import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.network.YTransportMethod
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,6 +14,7 @@ import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
+import okhttp3.Credentials
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.InputStream
@@ -46,7 +48,7 @@ internal class AndroidHttpMediaTransport(
             require(request.protocol in supportedProtocols) { "Unsupported HTTP transport protocol" }
             closeCurrent()
             var targetUri = request.uri
-            var activeHeaders = request.headers
+            var activeHeaders = request.headers.withHttpBasicCredentials(request.credentials)
             var redirectCount = 0
             var opened: Response? = null
             while (true) {
@@ -105,6 +107,7 @@ internal class AndroidHttpMediaTransport(
                 statusCode = finalResponse.code,
                 contentLength =
                     parseContentRange(finalResponse.header("Content-Range"))?.total
+                        ?: parseUnsatisfiedContentRangeLength(finalResponse.header("Content-Range"))
                         ?: finalResponse.body?.contentLength()?.takeIf { it >= 0L },
                 acceptedRange = acceptedRange,
                 features =
@@ -169,6 +172,15 @@ private fun String.isCredentialHeader(): Boolean {
         normalized.contains("token") ||
         normalized.contains("api-key") ||
         normalized.contains("apikey")
+}
+
+internal fun Map<String, String>.withHttpBasicCredentials(
+    credentials: YTransportCredentials?,
+): Map<String, String> {
+    if (keys.any { it.equals("Authorization", ignoreCase = true) }) return this
+    val usernamePassword = credentials as? YTransportCredentials.UsernamePassword ?: return this
+    return this +
+        ("Authorization" to Credentials.basic(usernamePassword.username, usernamePassword.password))
 }
 
 private val sharedMediaTransportClient =

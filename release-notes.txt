@@ -1,6 +1,10 @@
-1.0.11
+1.0.21
 
-• 追剧日历自动覆盖正在观看、收藏和最近入库的新剧，按精确 TMDB 剧集身份查询整季排期。
-• 新增 IMDb、TVDB、剧名与年份的自动匹配，缺少 TMDB ID 的媒体库新剧也可补全排期身份。
-• 国产新剧增加按首播日期发现，无海报条目不再被过滤，降低新上线剧集因热度低而漏排期的情况。
-• 修正追剧日历协程调用与依赖工具链兼容性，提高 Debug/Release 构建和签名发布的可重复性。
+• 播放运行时切换为 YCore native-only：生产 APK 独立携带 FFmpeg、YCore GPU、libass、libbluray/libudfread，并对 ExoPlayer、mpv、MDK 运行组件执行打包门禁。
+• 网络读取、FFmpeg 拆包、音视频解码与渲染分离执行；新增有界读前、码率感知水位、背压、启动缓冲及断流恢复迟滞，恢复前冻结音视频时钟。
+• 完善 HLS/DASH/CMAF、自适应码率、Widevine/MediaDrm、持久缓存、HTTP Range、SMB/WebDAV 与蓝光原盘读取链路。
+• 完善 ASS/SSA、PGS/VobSub、HDR10/HDR10+/HLG、Dolby Vision 与 Atmos 输出证据；未获得设备实际输出证据时不再按片源标签宣称双杜比。
+• 加强非阻塞音频输出、音频设备切换、Surface 恢复、动态分辨率、丢帧与音画同步诊断。
+• 追剧日历补充 TMDB/IMDb/TVDB 身份匹配、国产新剧发现与整季排期，并修正详情页和 Trickplay 数据链路。
+
+说明：实体设备的 Dolby Vision + Atmos、长播、功耗、温度、1,000 次 seek/Surface 重建及多芯片矩阵仍以应用内 YCore 验收报告的真实测量结果为准，不以代码存在或片源标签代替。

@@ -409,7 +409,6 @@ internal class AndroidAdaptiveCore2YPlayer(
             singleRequest: YPlayerOpenRequest,
             decision: YCore2RouteDecision?,
         ): YPlayer? {
-            if (nativeOnly) return null
             if (item.drmConfiguration != null) return null
             val inputHdrType =
                 decision
@@ -449,7 +448,6 @@ internal class AndroidAdaptiveCore2YPlayer(
             singleRequest: YPlayerOpenRequest,
             decision: YCore2RouteDecision?,
         ): YPlayer? {
-            if (nativeOnly) return null
             if (item.drmConfiguration != null) return null
             val inputHdrType =
                 decision
@@ -506,7 +504,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             val tunnelAllowed =
                 allowTunnel &&
                     item.drmConfiguration == null &&
-                    item.externalSubtitle == null &&
+                    item.allExternalSubtitles.isEmpty() &&
                     kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
             val singleRequest =
                 YPlayerOpenRequest(
@@ -581,6 +579,19 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
             if (!bypassLearnedRouteMemory && failureLedger.isBlocked(decision.toFailureKey())) return null
             val plan = decision.plan
+            val remoteReadAheadPlan =
+                plan.takeIf {
+                    it.route == YPlaybackRoute.NativeDirect &&
+                        item.uri.isCore2RemoteMediaUri() &&
+                        item.drmConfiguration == null &&
+                        decision.probe.playbackRequest.enhancedDemuxSupported
+                }?.copy(
+                    route = YPlaybackRoute.NativeEnhanced,
+                    demuxPath = YDemuxPath.Enhanced,
+                    reason =
+                        "${plan.reason}; remote source uses the isolated YCore demux read-ahead " +
+                            "and startup/rebuffer gate",
+                )
             pendingFailureKey = decision.toFailureKey()
             return when {
                 !forceSoftwareFallback && tunnelAllowed && decision.nativeTunnelExecutable ->
@@ -590,6 +601,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                         routeEvaluator,
                         allowAudioPassthrough,
                         frameRateSwitchMode,
+                    )
+                !forceSoftwareFallback && remoteReadAheadPlan != null ->
+                    AndroidNativeEnhancedYPlayer(
+                        context = context,
+                        request = singleRequest,
+                        routeEvaluator = routeEvaluator,
+                        allowAudioPassthrough = allowAudioPassthrough,
+                        frameRateSwitchMode = frameRateSwitchMode,
+                        forcedPlan = remoteReadAheadPlan,
+                        requireDolbyVisionIdentity =
+                            decision.probe.playbackRequest.video.hdrType == YHdrType.DolbyVision,
                     )
                 !forceSoftwareFallback &&
                     decision.nativeDirectExecutable &&
@@ -607,7 +629,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         requireDolbyVisionIdentity =
                             decision.probe.playbackRequest.video.hdrType == YHdrType.DolbyVision,
                     )
-                !nativeOnly && !forceSoftwareFallback && decision.nativeEnhancedExecutable ->
+                !forceSoftwareFallback && decision.nativeEnhancedExecutable ->
                     AndroidNativeEnhancedYPlayer(
                         context,
                         singleRequest,
@@ -615,8 +637,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         allowAudioPassthrough,
                         frameRateSwitchMode,
                     )
-                !nativeOnly &&
-                    plan.route == YPlaybackRoute.SoftwareFallback &&
+                plan.route == YPlaybackRoute.SoftwareFallback &&
                     plan.demuxPath == YDemuxPath.Enhanced &&
                     item.drmConfiguration == null &&
                     yCoreSoftwarePlanExecutable(plan) ->
@@ -628,7 +649,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         frameRateSwitchMode = frameRateSwitchMode,
                         forcedPlan = plan,
                     )
-                !nativeOnly && plan.route == YPlaybackRoute.GpuEnhanced -> {
+                plan.route == YPlaybackRoute.GpuEnhanced -> {
                     val routeGpuProbe =
                         AndroidYCoreGpuRuntime.probe(
                             context,
@@ -811,20 +832,16 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     return@collect
                                 }
                                 YPlaybackRecoveryAction.FallbackToEnhanced -> {
-                                    if (!nativeOnly) {
-                                        commands.trySend(
-                                            Command.FallbackToEnhanced(childIndex, childState.positionMs),
-                                        )
-                                        return@collect
-                                    }
+                                    commands.trySend(
+                                        Command.FallbackToEnhanced(childIndex, childState.positionMs),
+                                    )
+                                    return@collect
                                 }
                                 YPlaybackRecoveryAction.FallbackToSoftware -> {
-                                    if (!nativeOnly) {
-                                        commands.trySend(
-                                            Command.FallbackToSoftware(childIndex, childState.positionMs),
-                                        )
-                                        return@collect
-                                    }
+                                    commands.trySend(
+                                        Command.FallbackToSoftware(childIndex, childState.positionMs),
+                                    )
+                                    return@collect
                                 }
                                 YPlaybackRecoveryAction.Stop -> Unit
                             }

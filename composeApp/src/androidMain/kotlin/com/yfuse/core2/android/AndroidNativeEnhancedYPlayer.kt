@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
@@ -160,11 +161,21 @@ internal class AndroidNativeEnhancedYPlayer(
             YTrackType.Subtitle -> {
                 val command =
                     when (id) {
-                        SUBTITLE_OFF -> Command.SelectSubtitleTrack(null, external = false)
-                        EXTERNAL_SUBTITLE_TRACK_ID -> Command.SelectSubtitleTrack(null, external = true)
+                        SUBTITLE_OFF -> Command.SelectSubtitleTrack(null, externalTrackId = null)
+                        EXTERNAL_SUBTITLE_TRACK_ID ->
+                            Command.SelectSubtitleTrack(
+                                null,
+                                externalTrackId = mutableState.value.subtitleTracks.firstOrNull {
+                                    it.id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)
+                                }?.id,
+                            )
                         else -> {
-                            val trackId = id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull() ?: return
-                            Command.SelectSubtitleTrack(trackId, external = false)
+                            if (id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)) {
+                                Command.SelectSubtitleTrack(null, externalTrackId = id)
+                            } else {
+                                val trackId = id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull() ?: return
+                                Command.SelectSubtitleTrack(trackId, externalTrackId = null)
+                            }
                         }
                     }
                 if (id == SUBTITLE_OFF || mutableState.value.subtitleTracks.any { it.id == id && !it.selected }) {
@@ -233,8 +244,8 @@ internal class AndroidNativeEnhancedYPlayer(
         var speed = 1f
         var prepared = false
         var lastPublishNs = 0L
-        var externalSubtitle: AndroidLoadedExternalSubtitle? = null
-        var externalSubtitleSelected = false
+        var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
+        var selectedExternalSubtitleId: String? = null
         var activePlan: YPlaybackPlan? = null
         var activeDolbyProfile: Int? = null
 
@@ -287,6 +298,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             headers = item.headers,
                             cacheIdentity = item.cacheIdentity,
                             cacheMaximumBytes = item.cacheMaximumBytes,
+                            transportCredentials = item.transportCredentials,
                         ),
                     plan = playbackPlan,
                     surface = output,
@@ -299,15 +311,28 @@ internal class AndroidNativeEnhancedYPlayer(
             speed = mutableState.value.speed
             session.setSpeed(speed)
             val tracks = result.toAudioTracks()
-            externalSubtitle =
-                item.externalSubtitle?.let { source ->
-                    runCatching { externalSubtitleLoader.load(source, item.headers) }.getOrNull()
+            val sidecarSources = item.allExternalSubtitles
+            externalSubtitles =
+                sidecarSources.mapIndexed { index, source ->
+                    externalSubtitleLoader.load(
+                        source = source,
+                        headers = item.headers,
+                        trackId = externalSubtitleTrackId(index),
+                    )
                 }
-            externalSubtitleSelected = externalSubtitle != null
+            selectedExternalSubtitleId =
+                sidecarSources.indexOfFirst { it.forced || it.default }
+                    .takeIf { it >= 0 }
+                    ?.let(::externalSubtitleTrackId)
+                    ?: externalSubtitles.singleOrNull()?.track?.id
+            if (selectedExternalSubtitleId != null) session.selectSubtitleTrack(null)
             val subtitleTracks =
                 result.toSubtitleTracks() +
-                    listOfNotNull(externalSubtitle?.track?.copy(selected = externalSubtitleSelected))
+                    externalSubtitles.map { subtitle ->
+                        subtitle.track.copy(selected = subtitle.track.id == selectedExternalSubtitleId)
+                    }
             val video = result.tracks.firstOrNull { it.type == YDemuxTrackType.Video }?.video
+            val audio = result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio }?.audio
             activeDolbyProfile = video?.dolbyVisionConfig?.profile
             mutableState.updateState {
                 it.copy(
@@ -319,7 +344,10 @@ internal class AndroidNativeEnhancedYPlayer(
                     itemCount = request.items.size,
                     audioTracks = tracks,
                     subtitleTracks = subtitleTracks,
-                    subtitleCues = externalSubtitle?.cues.orEmpty(),
+                    subtitleCues =
+                        selectedExternalSubtitleId
+                            ?.let { id -> externalSubtitles.firstOrNull { it.track.id == id }?.cues }
+                            .orEmpty(),
                     error = null,
                     errorCategory = null,
                     diagnostics =
@@ -348,6 +376,10 @@ internal class AndroidNativeEnhancedYPlayer(
                             dolbyVisionEnhancementLayerDelivered = false,
                             dolbyVisionFelComposed = false,
                             immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = audio?.codec.isDolbyAtmosSource(),
+                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                            audioOutputRoute = "",
+                            audioOutputRouteVerified = false,
                             dolbyAtmosOutput = false,
                             spatialAudioOutput = false,
                             headTrackingAvailable = false,
@@ -371,9 +403,12 @@ internal class AndroidNativeEnhancedYPlayer(
                     buffering = snapshot.buffering,
                     playbackRequested = requestedPlay && !snapshot.ended,
                     positionMs = snapshot.positionUs / MICROS_PER_MILLISECOND,
+                    bufferedPositionMs =
+                        (snapshot.positionUs + snapshot.sourceBufferedUs) /
+                            MICROS_PER_MILLISECOND,
                     subtitleCues =
-                        if (externalSubtitleSelected) {
-                            externalSubtitle?.cues.orEmpty()
+                        if (selectedExternalSubtitleId != null) {
+                            externalSubtitles.firstOrNull { it.track.id == selectedExternalSubtitleId }?.cues.orEmpty()
                         } else {
                             snapshot.subtitleCues
                         },
@@ -396,15 +431,31 @@ internal class AndroidNativeEnhancedYPlayer(
                                 },
                             audioOutput =
                                 if (snapshot.audioRendering) {
-                                    when {
-                                        snapshot.dolbyAtmosOutput -> "Dolby Atmos 原码 · AudioTrack"
-                                        snapshot.immersiveAudioCarrierOutput ->
+                                    when (snapshot.dolbyAtmosOutputMode) {
+                                        YDolbyAtmosOutputMode.Eac3JocPassthrough ->
+                                            "Dolby Atmos · E-AC-3 JOC 原码 · AudioTrack"
+                                        YDolbyAtmosOutputMode.TrueHdAtmosPassthrough ->
+                                            "Dolby Atmos · TrueHD 原码 · AudioTrack"
+                                        YDolbyAtmosOutputMode.TrueHdCarrierPassthrough ->
+                                            "TrueHD 载波 · AudioTrack（未验证 Atmos 对象输出）"
+                                        YDolbyAtmosOutputMode.CarrierOnly ->
                                             "沉浸音频载波 · AudioTrack（未验证对象输出）"
-                                        snapshot.audioPassthrough -> "原码直通 · AudioTrack"
-                                        snapshot.spatialAudioOutput && snapshot.headTrackingAvailable ->
-                                            "系统空间音频 · PCM · 头部跟踪可用"
-                                        snapshot.spatialAudioOutput -> "系统空间音频 · PCM"
-                                        else -> "PCM · AudioTrack"
+                                        YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm ->
+                                            if (snapshot.headTrackingAvailable) {
+                                                "Dolby Atmos 源 · 系统空间音频 · PCM · 头部跟踪可用"
+                                            } else {
+                                                "Dolby Atmos 源 · 系统空间音频 · PCM"
+                                            }
+                                        YDolbyAtmosOutputMode.None ->
+                                            when {
+                                                snapshot.immersiveAudioCarrierOutput ->
+                                                    "沉浸音频载波 · AudioTrack（未验证对象输出）"
+                                                snapshot.audioPassthrough -> "原码直通 · AudioTrack"
+                                                snapshot.spatialAudioOutput && snapshot.headTrackingAvailable ->
+                                                    "系统空间音频 · PCM · 头部跟踪可用"
+                                                snapshot.spatialAudioOutput -> "系统空间音频 · PCM"
+                                                else -> "PCM · AudioTrack"
+                                            }
                                     }
                                 } else {
                                     it.diagnostics.audioOutput
@@ -424,10 +475,17 @@ internal class AndroidNativeEnhancedYPlayer(
                                 snapshot.dolbyVisionEnhancementLayerDelivered,
                             dolbyVisionFelComposed = snapshot.dolbyVisionFelComposed,
                             immersiveAudioCarrierOutput = snapshot.immersiveAudioCarrierOutput,
+                            dolbyAtmosSourceDetected = snapshot.dolbyAtmosSourceDetected,
+                            dolbyAtmosOutputMode = snapshot.dolbyAtmosOutputMode,
+                            audioOutputRoute = snapshot.audioOutputRoute,
+                            audioOutputRouteVerified = snapshot.audioOutputRouteVerified,
                             dolbyAtmosOutput = snapshot.dolbyAtmosOutput,
                             spatialAudioOutput = snapshot.spatialAudioOutput,
                             headTrackingAvailable = snapshot.headTrackingAvailable,
                             audioUnderrunCount = snapshot.audioFallbackCount,
+                            sourceQueueBytes = snapshot.sourceQueueBytes,
+                            sourceBufferedMs = snapshot.sourceBufferedUs / MICROS_PER_MILLISECOND,
+                            sourceStarvationCount = snapshot.sourceStarvationCount,
                             droppedFrames = snapshot.droppedFrames,
                             avSyncOffsetMs = snapshot.avSyncOffsetUs?.div(MICROS_PER_MILLISECOND),
                             avSyncMeasurement =
@@ -527,13 +585,16 @@ internal class AndroidNativeEnhancedYPlayer(
                             }
                             is Command.SelectSubtitleTrack -> {
                                 if (prepared) {
-                                    if (!command.external || externalSubtitle != null) {
+                                    if (
+                                        command.externalTrackId == null ||
+                                        externalSubtitles.any { it.track.id == command.externalTrackId }
+                                    ) {
                                         session.selectSubtitleTrack(command.trackId?.let(::YTrackId))
-                                        externalSubtitleSelected = command.external
+                                        selectedExternalSubtitleId = command.externalTrackId
                                     }
                                     val selectedTrackId =
                                         when {
-                                            externalSubtitleSelected -> EXTERNAL_SUBTITLE_TRACK_ID
+                                            selectedExternalSubtitleId != null -> selectedExternalSubtitleId
                                             command.trackId != null -> "$SUBTITLE_TRACK_PREFIX${command.trackId}"
                                             else -> null
                                         }
@@ -544,8 +605,10 @@ internal class AndroidNativeEnhancedYPlayer(
                                                     track.copy(selected = track.id == selectedTrackId)
                                                 },
                                             subtitleCues =
-                                                if (externalSubtitleSelected) {
-                                                    externalSubtitle?.cues.orEmpty()
+                                                if (selectedExternalSubtitleId != null) {
+                                                    externalSubtitles.firstOrNull {
+                                                        it.track.id == selectedExternalSubtitleId
+                                                    }?.cues.orEmpty()
                                                 } else {
                                                     emptyList()
                                                 },
@@ -589,6 +652,10 @@ internal class AndroidNativeEnhancedYPlayer(
                                         dolbyVisionEnhancementLayerDelivered = false,
                                         dolbyVisionFelComposed = false,
                                         immersiveAudioCarrierOutput = false,
+                                        dolbyAtmosSourceDetected = false,
+                                        dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                                        audioOutputRoute = "",
+                                        audioOutputRouteVerified = false,
                                         dolbyAtmosOutput = false,
                                         spatialAudioOutput = false,
                                         headTrackingAvailable = false,
@@ -606,7 +673,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 if (!handled && !didWork) delay(PUMP_IDLE_DELAY_MS)
             }
         } finally {
-            session.close()
+            session.release()
         }
     }
 
@@ -635,7 +702,7 @@ internal class AndroidNativeEnhancedYPlayer(
 
         data class SelectSubtitleTrack(
             val trackId: Int?,
-            val external: Boolean,
+            val externalTrackId: String?,
         ) : Command
 
         data class SelectItem(

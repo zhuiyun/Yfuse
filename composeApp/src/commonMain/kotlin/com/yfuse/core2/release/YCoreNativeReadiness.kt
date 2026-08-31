@@ -4,7 +4,9 @@ package com.yfuse.core2.release
 enum class YCoreNativeRuntimeDependency {
     AndroidPlatform,
     YCoreNative,
+    YCoreGpu,
     Ffmpeg,
+    Libass,
     Libbluray,
     ExoPlayer,
     Mpv,
@@ -42,7 +44,13 @@ enum class YCoreNativeBaselineCapability {
     Hdr10PlusOutput,
     HlgOutput,
     DolbyVisionRouting,
+    Eac3JocAtmosPassthrough,
+    TrueHdAtmosPassthrough,
+    DolbyAtmosSpatializedPcmOutput,
+    DolbyVisionAtmosSimultaneousOutput,
+    DolbyVisionAtmosSpatializedSimultaneousOutput,
     BluRayTitleChapterAngle,
+    BluRayHdmvMenu,
     AudioVideoSync,
     Seek,
     SurfaceRecovery,
@@ -130,11 +138,22 @@ fun evaluateYCoreNativeBaseline(
             YCoreNativeRuntimeDependency.Mpv,
             YCoreNativeRuntimeDependency.Mdk,
         )
+    val requiredDependencies =
+        setOf(
+            YCoreNativeRuntimeDependency.AndroidPlatform,
+            YCoreNativeRuntimeDependency.YCoreNative,
+            YCoreNativeRuntimeDependency.YCoreGpu,
+            YCoreNativeRuntimeDependency.Ffmpeg,
+            YCoreNativeRuntimeDependency.Libass,
+            YCoreNativeRuntimeDependency.Libbluray,
+        )
     return YCoreNativeBaselineReport(
         dependencyPurity =
             when {
                 evidence.runtimeDependencies.isEmpty() -> YCoreNativeGateStatus.NotMeasured
                 evidence.runtimeDependencies.any(legacyDependencies::contains) ->
+                    YCoreNativeGateStatus.Fail
+                !evidence.runtimeDependencies.containsAll(requiredDependencies) ->
                     YCoreNativeGateStatus.Fail
                 else -> YCoreNativeGateStatus.Pass
             },

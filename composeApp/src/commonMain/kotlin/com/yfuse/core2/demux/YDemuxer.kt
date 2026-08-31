@@ -8,6 +8,7 @@ import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.hdr.YHdrStaticMetadata
 import com.yfuse.core2.network.YCacheIdentity
+import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
 
@@ -148,14 +149,15 @@ data class YDemuxSource(
     val headers: Map<String, String> = emptyMap(),
     val cacheIdentity: YCacheIdentity? = null,
     val cacheMaximumBytes: Long = 0L,
+    val transportCredentials: YTransportCredentials? = null,
 )
 
 /**
  * Common compressed-media contract for platform, FFmpeg and disc demuxers.
  *
- * Implementations may be blocking internally but must be single-owner: one playback session calls
- * open/select/read/seek/close serially from its media worker. This keeps FFmpeg AVFormatContext and
- * platform extractor lifetimes deterministic and avoids lock-heavy hot paths.
+ * Implementations may be blocking internally but must be single-owner: one media-source executor
+ * calls open/select/read/seek/close serially. This keeps FFmpeg AVFormatContext and platform
+ * extractor lifetimes deterministic while allowing codec/render workers to remain non-blocking.
  */
 interface YDemuxer {
     val name: String
@@ -175,5 +177,7 @@ interface YDemuxer {
 
 /** Optional side node for image subtitles; normal video/audio demux remains compressed-only. */
 interface YSubtitlePacketDecoder {
+    fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean
+
     fun decodeSubtitle(sample: YCompressedSample): List<YSubtitleCue>
 }

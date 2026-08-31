@@ -60,7 +60,7 @@ interface PlaybackOfflineLicenseManager {
     /** Deletes only the local encrypted key and metadata after an unrecoverable server release. */
     suspend fun forget(licenseId: String)
 
-    /** Materializes the secret only at the Media3 boundary. */
+    /** Materializes the secret only at the Android MediaDrm playback boundary. */
     fun configurationWithLicense(
         licenseId: String,
         configuration: PlaybackDrmConfiguration,

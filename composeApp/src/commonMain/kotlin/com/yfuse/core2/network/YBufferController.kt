@@ -20,6 +20,66 @@ data class YBufferPlan(
     val maximumBytes: Long,
 )
 
+enum class YPlaybackBufferPhase {
+    Ready,
+    Startup,
+    Rebuffering,
+}
+
+data class YPlaybackBufferDecision(
+    val phase: YPlaybackBufferPhase,
+    val outputAllowed: Boolean,
+) {
+    val buffering: Boolean get() = !outputAllowed
+}
+
+/**
+ * Startup/rebuffer hysteresis for remote playback.
+ *
+ * A starvation signal closes the output gate instead of allowing the audio/video clocks to keep
+ * advancing through an empty source queue. Playback resumes only after the configured low-water
+ * mark has been rebuilt. Local sources remain latency-first and never wait on this gate.
+ */
+class YPlaybackBufferGate(
+    private val remote: Boolean,
+    private val resumePlaybackUs: Long,
+) {
+    init {
+        require(resumePlaybackUs >= 0L)
+    }
+
+    var phase: YPlaybackBufferPhase = initialPhase()
+        private set
+
+    fun reset() {
+        phase = initialPhase()
+    }
+
+    fun markStarved() {
+        if (remote) phase = YPlaybackBufferPhase.Rebuffering
+    }
+
+    fun evaluate(
+        bufferedDurationUs: Long,
+        endOfInput: Boolean,
+    ): YPlaybackBufferDecision {
+        if (!remote) phase = YPlaybackBufferPhase.Ready
+        if (
+            phase != YPlaybackBufferPhase.Ready &&
+            (bufferedDurationUs.coerceAtLeast(0L) >= resumePlaybackUs || endOfInput)
+        ) {
+            phase = YPlaybackBufferPhase.Ready
+        }
+        return YPlaybackBufferDecision(
+            phase = phase,
+            outputAllowed = phase == YPlaybackBufferPhase.Ready,
+        )
+    }
+
+    private fun initialPhase(): YPlaybackBufferPhase =
+        if (remote) YPlaybackBufferPhase.Startup else YPlaybackBufferPhase.Ready
+}
+
 /** Bitrate-aware compressed-input policy shared by HTTP, SMB/WebDAV and future cache sources. */
 object YBufferController {
     fun plan(conditions: YBufferConditions): YBufferPlan {

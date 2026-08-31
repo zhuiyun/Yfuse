@@ -13,6 +13,7 @@ KOTLIN_ANDROID_PLUGIN_VERSION="2.2.21"
 LIBBLURAY_TAG="1.4.1"
 LIBBLURAY_COMMIT="7d94f2660af5bfc16015291a03539329135c18f1"
 LIBUDFREAD_COMMIT="139a2194525f2745b98a98e4d8fa627d07440176"
+LIBASS_VERSION="0.17.4"
 MPV_FACADE_CLASS_PATH="dev/jdtech/mpv/MPVLib.class"
 CAPABILITY_CLASS_PATH="dev/yfuse/mpv/YfuseMpvCapabilities.class"
 REGISTRY_CLASS_PATH="dev/yfuse/mpv/YfuseBluRayRegistry.class"
@@ -423,6 +424,7 @@ sha256sum "$DEST" | tee "$DEST.sha256"
   printf 'kotlin-android-plugin=%s\n' "$KOTLIN_ANDROID_PLUGIN_VERSION"
   printf 'libbluray=%s\n' "$LIBBLURAY_COMMIT"
   printf 'libudfread=%s\n' "$LIBUDFREAD_COMMIT"
+  printf 'libass=%s\n' "$LIBASS_VERSION"
   printf 'bdj_jar=disabled\n'
   printf 'remote-raw-bluray=true\n'
   printf 'bdmv-vfs=true\n'

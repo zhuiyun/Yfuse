@@ -74,6 +74,46 @@ fun alignYHlsVariantSegments(
     }
 }
 
+/**
+ * Builds the DASH representations that can safely share one initialization segment and decoder
+ * configuration. YCore switches only inside this ladder; a different init URI, timeline,
+ * encryption descriptor, codec family, or segment coordinate scheme requires a decoder rebuild
+ * and is intentionally excluded from seamless ABR.
+ */
+fun alignYDashSwitchingRepresentations(
+    manifest: YDashManifest,
+    selectedRepresentationId: String,
+    maximumRepresentations: Int = 8,
+): List<YDashRepresentation> {
+    require(maximumRepresentations > 0)
+    val selected =
+        manifest.representations.singleOrNull { it.id == selectedRepresentationId }
+            ?: error("Selected DASH representation is missing")
+    require(selected.contentType == YDashContentType.Video) { "DASH ABR selection must be video" }
+    val selectedTemplate = requireNotNull(selected.segmentTemplate) { "Selected DASH representation has no template" }
+    val selectedInitialization = selected.resolvedInitializationUriOrNull()
+    val selectedCodecFamilies = selected.codecFamilies()
+    return manifest.representations
+        .asSequence()
+        .filter { candidate ->
+            candidate.id == selected.id ||
+                selectedInitialization != null &&
+                selectedCodecFamilies.isNotEmpty() &&
+                candidate.contentType == YDashContentType.Video &&
+                candidate.codecFamilies() == selectedCodecFamilies &&
+                candidate.mimeType == selected.mimeType &&
+                candidate.contentProtections == selected.contentProtections &&
+                candidate.supplementalProperties == selected.supplementalProperties &&
+                candidate.segmentTemplate.switchCompatibleWith(selectedTemplate) &&
+                candidate.resolvedInitializationUriOrNull() == selectedInitialization
+        }.sortedBy(YDashRepresentation::bandwidthBitsPerSecond)
+        .take(maximumRepresentations)
+        .toList()
+        .also { ladder ->
+            require(ladder.any { it.id == selected.id }) { "Selected DASH representation left its own ladder" }
+        }
+}
+
 /** Throughput EWMA that ignores zero-length and implausibly short samples. */
 class YAdaptiveBandwidthEstimator(
     private val previousWeightPermille: Int = 700,
@@ -165,6 +205,38 @@ private fun YAdaptiveVariant.codecFamilies(): List<String> =
     codecs
         .map { codec -> codec.substringBefore('.').trim().lowercase() }
         .filter(String::isNotEmpty)
+
+private fun YDashRepresentation.codecFamilies(): List<String> =
+    codecs
+        .map { codec -> codec.substringBefore('.').trim().lowercase() }
+        .filter(String::isNotEmpty)
+
+private fun YDashRepresentation.resolvedInitializationUriOrNull(): String? {
+    val template = segmentTemplate ?: return null
+    val initialization = template.initialization ?: return null
+    return runCatching {
+        renderDashTemplate(
+            template = initialization,
+            representation = this,
+            number = template.startNumber,
+            time = template.timeline.firstOrNull()?.startTime ?: 0L,
+        )
+    }.getOrNull()
+}
+
+private fun YDashSegmentTemplate?.switchCompatibleWith(reference: YDashSegmentTemplate): Boolean {
+    this ?: return false
+    return timescale == reference.timescale &&
+        duration == reference.duration &&
+        startNumber == reference.startNumber &&
+        timeline == reference.timeline &&
+        media.usesDashNumberCoordinate() == reference.media.usesDashNumberCoordinate() &&
+        media.usesDashTimeCoordinate() == reference.media.usesDashTimeCoordinate()
+}
+
+private fun String.usesDashNumberCoordinate(): Boolean = contains("\$Number", ignoreCase = false)
+
+private fun String.usesDashTimeCoordinate(): Boolean = contains("\$Time", ignoreCase = false)
 
 private fun YAdaptiveSegment.switchCompatibleWith(reference: YAdaptiveSegment): Boolean =
     kotlin.math.abs(durationUs - reference.durationUs) <=

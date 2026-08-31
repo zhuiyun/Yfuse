@@ -6,6 +6,7 @@ import android.media.MediaFormat
 import android.os.Process
 import android.view.Surface
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -20,6 +21,8 @@ import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.yPlaybackStage
+import com.yfuse.core2.bitstream.YBitstream
+import com.yfuse.core2.bitstream.YSamplePacking
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
@@ -173,12 +176,23 @@ internal class AndroidNativeDirectYPlayer(
                 }
             YTrackType.Subtitle -> {
                 when (id) {
-                    SUBTITLE_OFF -> commands.trySend(Command.SelectSubtitleTrack(null, external = false))
+                    SUBTITLE_OFF -> commands.trySend(Command.SelectSubtitleTrack(null, externalTrackId = null))
                     EXTERNAL_SUBTITLE_TRACK_ID ->
-                        commands.trySend(Command.SelectSubtitleTrack(null, external = true))
+                        commands.trySend(
+                            Command.SelectSubtitleTrack(
+                                null,
+                                externalTrackId = mutableState.value.subtitleTracks.firstOrNull {
+                                    it.id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)
+                                }?.id,
+                            ),
+                        )
                     else -> {
-                        val trackIndex = id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull() ?: return
-                        commands.trySend(Command.SelectSubtitleTrack(trackIndex, external = false))
+                        if (id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)) {
+                            commands.trySend(Command.SelectSubtitleTrack(null, externalTrackId = id))
+                        } else {
+                            val trackIndex = id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull() ?: return
+                            commands.trySend(Command.SelectSubtitleTrack(trackIndex, externalTrackId = null))
+                        }
                     }
                 }
             }
@@ -323,6 +337,10 @@ internal class AndroidNativeDirectYPlayer(
                         audioOutputVerified = false,
                         dolbyVisionOutput = false,
                         immersiveAudioCarrierOutput = false,
+                        dolbyAtmosSourceDetected = false,
+                        dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                        audioOutputRoute = "",
+                        audioOutputRouteVerified = false,
                         dolbyAtmosOutput = false,
                         spatialAudioOutput = false,
                         headTrackingAvailable = false,
@@ -363,14 +381,16 @@ internal class AndroidNativeDirectYPlayer(
         private var videoTrackIndex: Int? = null
         private var audioTrackIndex: Int? = null
         private var videoFormat: MediaFormat? = null
+        private var inspectHdr10PlusSamples = false
         private var audioInputFormat: MediaFormat? = null
         private var subtitleTrackIndex: Int? = null
         private val subtitleCues = mutableListOf<YSubtitleCue>()
-        private var externalSubtitle: AndroidLoadedExternalSubtitle? = null
-        private var externalSubtitleSelected = false
+        private var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
+        private var selectedExternalSubtitleId: String? = null
         private var audioTrackFormat: YAudioTrackFormat? = null
         private var audioOutputPath = YAudioOutputPath.None
         private var audioRendererConfigured = false
+        private var observedAudioRoutingGeneration = 0L
         private val rejectedPassthroughTracks = mutableSetOf<Int>()
         private var drmSession: AndroidYCoreDrmSession? = null
         private var drmBinding: AndroidYCoreDrmBinding? = null
@@ -395,6 +415,7 @@ internal class AndroidNativeDirectYPlayer(
         private var audioOutputEnded = false
         private var pendingVideoOutput: YCodecOutputResult.Buffer? = null
         private var pendingAudioOutput: YPendingDecodedAudioOutput? = null
+        private var pendingEncodedAudioInput: YPendingEncodedAudioInput? = null
         private var seekPrerollVideoOutput: YCodecOutputResult.Buffer? = null
         private var emptyTailSeekRetries = 0
         private var lastQueuedPresentationUs = 0L
@@ -440,7 +461,8 @@ internal class AndroidNativeDirectYPlayer(
                 is Command.SetSpeed -> updateSpeed(command.speed)
                 is Command.SetVideoOutput -> setSurface(command.output)
                 is Command.SelectAudioTrack -> selectAudioTrack(command.trackIndex)
-                is Command.SelectSubtitleTrack -> selectSubtitleTrack(command.trackIndex, command.external)
+                is Command.SelectSubtitleTrack ->
+                    selectSubtitleTrack(command.trackIndex, command.externalTrackId)
                 is Command.SelectItem -> {
                     currentIndex = command.index
                     prepareCurrent(0L)
@@ -461,6 +483,8 @@ internal class AndroidNativeDirectYPlayer(
                         session.refreshKeysIfNeeded()
                     }
                 }
+                didWork = handleAudioRoutingChange() || didWork
+                didWork = drainPendingEncodedAudioInput() || didWork
                 didWork = drainAudio() || didWork
                 didWork = drainVideo() || didWork
                 didWork = feedInput() || didWork
@@ -497,11 +521,20 @@ internal class AndroidNativeDirectYPlayer(
             ) {
                 demux.open(item.toAndroidSource())
             }
-            externalSubtitle =
-                item.externalSubtitle?.let { source ->
-                    runCatching { externalSubtitleLoader.load(source, item.headers) }.getOrNull()
+            val sidecarSources = item.allExternalSubtitles
+            externalSubtitles =
+                sidecarSources.mapIndexed { index, source ->
+                    externalSubtitleLoader.load(
+                        source = source,
+                        headers = item.headers,
+                        trackId = externalSubtitleTrackId(index),
+                    )
                 }
-            externalSubtitleSelected = externalSubtitle != null
+            selectedExternalSubtitleId =
+                sidecarSources.indexOfFirst { it.forced || it.default }
+                    .takeIf { it >= 0 }
+                    ?.let(::externalSubtitleTrackId)
+                    ?: externalSubtitles.singleOrNull()?.track?.id
             videoTrackIndex =
                 demux.findFirstTrack(VIDEO_MIME_PREFIX)
                     ?: throw YPlaybackException(
@@ -520,6 +553,16 @@ internal class AndroidNativeDirectYPlayer(
                             format.setString(MediaFormat.KEY_MIME, DOLBY_VISION_MIME)
                         }
                     }
+            inspectHdr10PlusSamples =
+                videoFormat?.containsKey(MediaFormat.KEY_HDR10_PLUS_INFO) == true ||
+                    item.sourceHints
+                        ?.dynamicRange
+                        .orEmpty()
+                        .replace(" ", "")
+                        .let { range ->
+                            range.contains("hdr10+", ignoreCase = true) ||
+                                range.contains("hdr10plus", ignoreCase = true)
+                        }
             validateNativeDirectDolbyIdentity(
                 required = requireDolbyVisionIdentity,
                 extractedMime = videoFormat?.getString(MediaFormat.KEY_MIME),
@@ -609,6 +652,10 @@ internal class AndroidNativeDirectYPlayer(
                             audioOutputVerified = false,
                             dolbyVisionOutput = false,
                             immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                            audioOutputRoute = "",
+                            audioOutputRouteVerified = false,
                             dolbyAtmosOutput = false,
                             spatialAudioOutput = false,
                             headTrackingAvailable = false,
@@ -730,6 +777,7 @@ internal class AndroidNativeDirectYPlayer(
             if (!prepared) return
             val targetUs = positionUs.coerceAtLeast(0L)
             if (!tailRetry) emptyTailSeekRetries = 0
+            pendingEncodedAudioInput = null
             yPlaybackStage(
                 category = sourceFailureCategory(),
                 stage = YPlaybackFailureStage.Seek,
@@ -768,6 +816,10 @@ internal class AndroidNativeDirectYPlayer(
                             audioOutputVerified = false,
                             dolbyVisionOutput = false,
                             immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                            audioOutputRoute = "",
+                            audioOutputRouteVerified = false,
                             dolbyAtmosOutput = false,
                             spatialAudioOutput = false,
                             headTrackingAvailable = false,
@@ -810,16 +862,25 @@ internal class AndroidNativeDirectYPlayer(
                         mutableState.value.diagnostics.copy(
                             audioOutput = waitingAudioOutputLabel(),
                             audioOutputVerified = false,
+                            immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                            audioOutputRoute = "",
+                            audioOutputRouteVerified = false,
+                            dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
                         ),
                 )
         }
 
         private fun selectSubtitleTrack(
             trackIndex: Int?,
-            external: Boolean,
+            externalTrackId: String?,
         ) {
-            if (!prepared || (external && externalSubtitle == null)) return
-            if (external == externalSubtitleSelected && trackIndex == subtitleTrackIndex) return
+            if (!prepared) return
+            if (externalTrackId != null && externalSubtitles.none { it.track.id == externalTrackId }) return
+            if (externalTrackId == selectedExternalSubtitleId && trackIndex == subtitleTrackIndex) return
             val nextFormat = trackIndex?.takeIf { it in 0 until demux.trackCount }?.let(demux::trackFormat)
             val nextSubtitleFormat = nextFormat?.subtitleFormatOrNull()
             if (trackIndex != null && nextSubtitleFormat?.textOverlaySupported != true) return
@@ -827,7 +888,7 @@ internal class AndroidNativeDirectYPlayer(
             subtitleTrackIndex?.let(demux::unselectTrack)
             trackIndex?.let(demux::selectTrack)
             subtitleTrackIndex = trackIndex
-            externalSubtitleSelected = external
+            selectedExternalSubtitleId = externalTrackId
             subtitleCues.clear()
             seekTo(positionUs)
             mutableState.value =
@@ -838,6 +899,7 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         private fun feedInput(): Boolean {
+            if (pendingEncodedAudioInput != null) return false
             if (inputEnded) {
                 var queued = false
                 if (!videoInputEnded && videoConfigured) {
@@ -878,6 +940,7 @@ internal class AndroidNativeDirectYPlayer(
                 when (sample.trackIndex) {
                     videoTrackIndex ->
                         if (videoConfigured) {
+                            applyHdr10PlusMetadata(sample.data)
                             videoDecoder.queueAccessUnit(
                                 sample.data,
                                 sample.presentationTimeUs,
@@ -907,6 +970,13 @@ internal class AndroidNativeDirectYPlayer(
             return true
         }
 
+        /** MediaExtractor does not consistently forward per-frame ST 2094-40 metadata. */
+        private fun applyHdr10PlusMetadata(data: ByteBuffer) {
+            if (!inspectHdr10PlusSamples || !data.hasRemaining()) return
+            val payload = extractNativeDirectHdr10PlusPayload(data) ?: return
+            videoDecoder.setHdr10PlusMetadata(payload)
+        }
+
         private fun drainAudio(): Boolean {
             if (audioInputFormat == null || audioOutputEnded) return false
             if (isAudioPassthrough()) return false
@@ -916,6 +986,7 @@ internal class AndroidNativeDirectYPlayer(
                 is YAudioCodecOutputResult.FormatChanged -> {
                     audioRenderer.configure(output.format)
                     audioRendererConfigured = true
+                    captureAudioRoutingGeneration()
                     audioRenderer.setSpeed(speed)
                     if (requestedPlay) audioRenderer.play()
                     mutableState.value =
@@ -983,13 +1054,26 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         private fun verifyPcmAudioOutput(writtenBytes: Int) {
-            if (writtenBytes <= 0 || mutableState.value.diagnostics.audioOutputVerified) return
+            if (writtenBytes <= 0) return
+            val spatialized = audioRenderer.spatialAudioOutput
+            val atmosSource = audioTrackFormat?.codec.isDolbyAtmosSource()
+            val outputMode =
+                if (spatialized && atmosSource) {
+                    YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm
+                } else {
+                    YDolbyAtmosOutputMode.None
+                }
             mutableState.value =
                 mutableState.value.copy(
                     diagnostics =
                         mutableState.value.diagnostics.copy(
                             audioOutput =
                                 when {
+                                    outputMode == YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm &&
+                                        audioRenderer.headTrackingAvailable ->
+                                        "Dolby Atmos 源 · 系统空间音频 · PCM · 头部跟踪可用"
+                                    outputMode == YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm ->
+                                        "Dolby Atmos 源 · 系统空间音频 · PCM"
                                     audioRenderer.spatialAudioOutput && audioRenderer.headTrackingAvailable ->
                                         "系统空间音频 · PCM · 头部跟踪可用"
                                     audioRenderer.spatialAudioOutput -> "系统空间音频 · PCM"
@@ -997,8 +1081,12 @@ internal class AndroidNativeDirectYPlayer(
                                 },
                             audioOutputVerified = true,
                             immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = atmosSource,
+                            dolbyAtmosOutputMode = outputMode,
+                            audioOutputRoute = audioRenderer.audioRouteLabel,
+                            audioOutputRouteVerified = audioRenderer.audioRouteVerified,
                             dolbyAtmosOutput = false,
-                            spatialAudioOutput = audioRenderer.spatialAudioOutput,
+                            spatialAudioOutput = spatialized,
                             headTrackingAvailable = audioRenderer.headTrackingAvailable,
                         ),
                 )
@@ -1341,6 +1429,7 @@ internal class AndroidNativeDirectYPlayer(
                 }
                 else -> error("Selected NativeDirect audio track has no platform output path")
             }
+            captureAudioRoutingGeneration()
         }
 
         private fun releaseAudioPath() {
@@ -1351,6 +1440,8 @@ internal class AndroidNativeDirectYPlayer(
             audioRendererConfigured = false
             audioOutputPath = YAudioOutputPath.None
             audioTrackFormat = null
+            pendingEncodedAudioInput = null
+            captureAudioRoutingGeneration()
         }
 
         private fun queueAudioSample(
@@ -1365,7 +1456,21 @@ internal class AndroidNativeDirectYPlayer(
             require(cryptoInfo == null) { "Encrypted audio cannot use passthrough" }
             if (presentationTimeUs >= seekTargetAudioUs) {
                 try {
-                    encodedAudioRenderer.write(data, presentationTimeUs)
+                    val copy =
+                        ByteBuffer
+                            .allocateDirect(data.remaining())
+                            .put(data.duplicate())
+                            .also(ByteBuffer::flip)
+                    val written = encodedAudioRenderer.writeNonBlocking(copy, presentationTimeUs)
+                    if (copy.hasRemaining()) {
+                        pendingEncodedAudioInput =
+                            YPendingEncodedAudioInput(
+                                data = copy,
+                                presentationTimeUs = presentationTimeUs,
+                            )
+                        if (written == 0) audioBackpressureCount++
+                        return YCodecQueueResult.TryAgain
+                    }
                 } catch (_: Exception) {
                     val resumeUs = currentPositionUs()
                     rejectedPassthroughTracks += requireNotNull(audioTrackIndex)
@@ -1374,21 +1479,57 @@ internal class AndroidNativeDirectYPlayer(
                     return YCodecQueueResult.TryAgain
                 }
                 seekTargetAudioUs = 0L
-                if (!mutableState.value.diagnostics.audioOutputVerified) {
-                    mutableState.value =
-                        mutableState.value.copy(
-                            diagnostics =
-                                mutableState.value.diagnostics.copy(
-                                    audioOutput = activeAudioOutputLabel(),
-                                    audioOutputVerified = true,
-                                    immersiveAudioCarrierOutput =
-                                        encodedAudioRenderer.immersiveCarrierOutput,
-                                    dolbyAtmosOutput = encodedAudioRenderer.dolbyAtmosOutput,
-                                ),
-                        )
-                }
+                verifyEncodedAudioOutput()
             }
             return YCodecQueueResult.Queued
+        }
+
+        private fun drainPendingEncodedAudioInput(): Boolean {
+            val pending = pendingEncodedAudioInput ?: return false
+            return try {
+                val written =
+                    encodedAudioRenderer.writeNonBlocking(
+                        pending.data,
+                        pending.presentationTimeUs,
+                    )
+                if (written == 0) audioBackpressureCount++
+                if (pending.data.hasRemaining()) {
+                    written > 0
+                } else {
+                    pendingEncodedAudioInput = null
+                    seekTargetAudioUs = 0L
+                    verifyEncodedAudioOutput()
+                    lastQueuedPresentationUs =
+                        maxOf(lastQueuedPresentationUs, pending.presentationTimeUs)
+                    demux.advance()
+                    true
+                }
+            } catch (_: Exception) {
+                val resumeUs = currentPositionUs()
+                audioTrackIndex?.let(rejectedPassthroughTracks::add)
+                pendingEncodedAudioInput = null
+                switchPassthroughToPcm(countFailure = true)
+                seekTo(resumeUs)
+                true
+            }
+        }
+
+        private fun verifyEncodedAudioOutput() {
+            val outputMode = encodedAudioRenderer.dolbyAtmosOutputMode
+            mutableState.value =
+                mutableState.value.copy(
+                    diagnostics =
+                        mutableState.value.diagnostics.copy(
+                            audioOutput = activeAudioOutputLabel(),
+                            audioOutputVerified = true,
+                            immersiveAudioCarrierOutput = encodedAudioRenderer.immersiveCarrierOutput,
+                            dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            dolbyAtmosOutputMode = outputMode,
+                            audioOutputRoute = encodedAudioRenderer.audioRouteLabel,
+                            audioOutputRouteVerified = encodedAudioRenderer.audioRouteVerified,
+                            dolbyAtmosOutput = outputMode.encodedPassthrough,
+                        ),
+                )
         }
 
         private fun switchPassthroughToPcm(countFailure: Boolean) {
@@ -1396,9 +1537,11 @@ internal class AndroidNativeDirectYPlayer(
             runCatching(encodedAudioRenderer::release)
             runCatching(audioRenderer::release)
             runCatching(audioDecoder::release)
+            pendingEncodedAudioInput = null
             audioOutputPath = YAudioOutputPath.DecodePcm
             audioRendererConfigured = false
             audioDecoder.configure(format, drmBinding?.mediaCrypto)
+            captureAudioRoutingGeneration()
             mutableState.value =
                 mutableState.value.copy(
                     diagnostics =
@@ -1406,6 +1549,10 @@ internal class AndroidNativeDirectYPlayer(
                             audioOutput = "原码不可用 · 自动回落 PCM",
                             audioOutputVerified = false,
                             immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                            audioOutputRoute = "",
+                            audioOutputRouteVerified = false,
                             dolbyAtmosOutput = false,
                             spatialAudioOutput = false,
                             headTrackingAvailable = false,
@@ -1414,6 +1561,59 @@ internal class AndroidNativeDirectYPlayer(
                                     if (countFailure) 1 else 0,
                         ),
                 )
+        }
+
+        private fun handleAudioRoutingChange(): Boolean {
+            val generation =
+                if (isAudioPassthrough()) {
+                    encodedAudioRenderer.routingChangeGeneration
+                } else {
+                    audioRenderer.routingChangeGeneration
+                }
+            if (generation == observedAudioRoutingGeneration) return false
+            observedAudioRoutingGeneration = generation
+            val coreFormat = audioTrackFormat ?: return false
+            if (!isAudioPassthrough()) return true
+
+            val capabilities = capabilityProvider.current()
+            val nextPath =
+                capabilities.audioOutputPath(
+                    YAudioRequirement(
+                        codec = coreFormat.codec,
+                        channelCount = coreFormat.channelCount,
+                        sampleRate = coreFormat.sampleRate,
+                    ),
+                )
+            if (nextPath != YAudioOutputPath.Passthrough) {
+                val resumeUs = currentPositionUs()
+                audioTrackIndex?.let(rejectedPassthroughTracks::add)
+                switchPassthroughToPcm(countFailure = true)
+                seekTo(resumeUs)
+            } else {
+                encodedAudioRenderer.updateExactDolbyAtmosTransport(
+                    capabilities.hasExactDolbyAtmosPassthrough(coreFormat.codec),
+                )
+            }
+            refreshActiveAudioEvidence()
+            return true
+        }
+
+        private fun refreshActiveAudioEvidence() {
+            if (!mutableState.value.diagnostics.audioOutputVerified) return
+            if (isAudioPassthrough()) {
+                verifyEncodedAudioOutput()
+            } else {
+                verifyPcmAudioOutput(writtenBytes = 1)
+            }
+        }
+
+        private fun captureAudioRoutingGeneration() {
+            observedAudioRoutingGeneration =
+                if (isAudioPassthrough()) {
+                    encodedAudioRenderer.routingChangeGeneration
+                } else {
+                    audioRenderer.routingChangeGeneration
+                }
         }
 
         private fun isAudioPassthrough(): Boolean =
@@ -1529,11 +1729,20 @@ internal class AndroidNativeDirectYPlayer(
             }
 
         private fun activeAudioOutputLabel(): String =
-            when {
-                encodedAudioRenderer.dolbyAtmosOutput -> "Dolby Atmos 原码 · AudioTrack"
-                encodedAudioRenderer.immersiveCarrierOutput ->
+            when (encodedAudioRenderer.dolbyAtmosOutputMode) {
+                YDolbyAtmosOutputMode.Eac3JocPassthrough -> "Dolby Atmos · E-AC-3 JOC 原码 · AudioTrack"
+                YDolbyAtmosOutputMode.TrueHdAtmosPassthrough -> "Dolby Atmos · TrueHD 原码 · AudioTrack"
+                YDolbyAtmosOutputMode.TrueHdCarrierPassthrough ->
+                    "TrueHD 载波 · AudioTrack（未验证 Atmos 对象输出）"
+                YDolbyAtmosOutputMode.CarrierOnly ->
                     "沉浸音频载波 · AudioTrack（未验证对象输出）"
-                else -> "原码直通 · AudioTrack"
+                YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm,
+                YDolbyAtmosOutputMode.None,
+                -> if (encodedAudioRenderer.immersiveCarrierOutput) {
+                    "沉浸音频载波 · AudioTrack（未验证对象输出）"
+                } else {
+                    "原码直通 · AudioTrack"
+                }
             }
 
         private fun audioTracks(): List<YTrack> =
@@ -1566,17 +1775,19 @@ internal class AndroidNativeDirectYPlayer(
                         label = language?.takeIf(String::isNotBlank) ?: "Subtitle ${index + 1}",
                         language = language,
                         codec = format.getString(MediaFormat.KEY_MIME) ?: subtitleFormat.name,
-                        selected = !externalSubtitleSelected && index == subtitleTrackIndex,
+                        selected = selectedExternalSubtitleId == null && index == subtitleTrackIndex,
                     )
                 }
             return embedded +
-                listOfNotNull(
-                    externalSubtitle?.track?.copy(selected = externalSubtitleSelected),
-                )
+                externalSubtitles.map { subtitle ->
+                    subtitle.track.copy(selected = subtitle.track.id == selectedExternalSubtitleId)
+                }
         }
 
         private fun activeSubtitleCues(): List<YSubtitleCue> =
-            if (externalSubtitleSelected) externalSubtitle?.cues.orEmpty() else subtitleCues.toList()
+            selectedExternalSubtitleId
+                ?.let { id -> externalSubtitles.firstOrNull { it.track.id == id }?.cues }
+                ?: subtitleCues.toList()
 
         private fun sourceFailureCategory(): YPlaybackFailureCategory =
             if (sourceRemote) YPlaybackFailureCategory.Network else YPlaybackFailureCategory.Container
@@ -1607,6 +1818,7 @@ internal class AndroidNativeDirectYPlayer(
             }
             pendingVideoOutput = null
             releasePendingAudioOutput()
+            pendingEncodedAudioInput = null
             runCatching(audioRenderer::release)
             runCatching(encodedAudioRenderer::release)
             runCatching(audioDecoder::release)
@@ -1623,13 +1835,15 @@ internal class AndroidNativeDirectYPlayer(
             audioTrackIndex = null
             subtitleTrackIndex = null
             subtitleCues.clear()
-            externalSubtitle = null
-            externalSubtitleSelected = false
+            externalSubtitles = emptyList()
+            selectedExternalSubtitleId = null
             sourceRemote = false
             videoFormat = null
+            inspectHdr10PlusSamples = false
             audioInputFormat = null
             audioTrackFormat = null
             audioOutputPath = YAudioOutputPath.None
+            observedAudioRoutingGeneration = 0L
             rejectedPassthroughTracks.clear()
             firstVideoFrameRendered = false
             droppedFrames = 0
@@ -1692,7 +1906,7 @@ internal class AndroidNativeDirectYPlayer(
 
         data class SelectSubtitleTrack(
             val trackIndex: Int?,
-            val external: Boolean,
+            val externalTrackId: String?,
         ) : Command
 
         data class SelectItem(
@@ -1723,6 +1937,11 @@ internal fun decodedAudioDrainProgress(
 private data class YPendingDecodedAudioOutput(
     val output: YAudioCodecOutputResult.Buffer,
     val data: ByteBuffer,
+)
+
+private data class YPendingEncodedAudioInput(
+    val data: ByteBuffer,
+    val presentationTimeUs: Long,
 )
 
 private fun createNativeDirectPlaybackDispatcher(): ExecutorCoroutineDispatcher =
@@ -1811,6 +2030,7 @@ private fun YMediaItem.toAndroidSource(): YAndroidMediaSource =
     YAndroidMediaSource(
         uri = uri,
         headers = headers,
+        credentials = transportCredentials,
         bitrateBitsPerSecond = sourceHints?.bitrateBitsPerSecond ?: 0L,
         cacheIdentity = cacheIdentity,
         cacheMaximumBytes = cacheMaximumBytes,
@@ -1909,6 +2129,17 @@ private fun MediaFormat?.dynamicRangeLabel(): String {
     }
 }
 
+internal fun extractNativeDirectHdr10PlusPayload(data: ByteBuffer): ByteArray? {
+    if (!data.hasRemaining()) return null
+    val bytes = ByteArray(data.remaining())
+    data.duplicate().get(bytes)
+    return HDR10_PLUS_SAMPLE_PACKINGS
+        .asSequence()
+        .mapNotNull { packing ->
+            runCatching { YBitstream.hdr10PlusItuT35Payload(bytes, packing) }.getOrNull()
+        }.firstOrNull()
+}
+
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     value = transform(value)
 }
@@ -1951,3 +2182,11 @@ private const val NATIVE_DIRECT_THREAD_NAME = "YCore-NativeDirect"
 private const val COLOR_TRANSFER_ST2084 = 6
 private const val COLOR_TRANSFER_HLG = 7
 private const val ATMOS_PROFILE = 30
+
+private val HDR10_PLUS_SAMPLE_PACKINGS =
+    listOf(
+        YSamplePacking.AnnexB,
+        YSamplePacking.LengthPrefixed(4),
+        YSamplePacking.LengthPrefixed(2),
+        YSamplePacking.LengthPrefixed(1),
+    )

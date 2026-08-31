@@ -32,6 +32,7 @@ internal class AndroidEnhancedMediaProbe(
                         headers = item.headers,
                         cacheIdentity = item.cacheIdentity,
                         cacheMaximumBytes = item.cacheMaximumBytes,
+                        transportCredentials = item.transportCredentials,
                     ),
                 )
             val videoTrack =

@@ -184,7 +184,9 @@ private fun String?.toPlaybackVideoCodec(): PlaybackVideoCodec? {
  */
 internal fun PlaybackDiagnostics.hasActiveDolbyVisionOutput(): Boolean = dolbyVisionOutput
 
-internal fun PlaybackDiagnostics.hasActiveDolbyAtmosOutput(): Boolean = dolbyAtmosOutput
+internal fun PlaybackDiagnostics.hasActiveDolbyAtmosOutput(): Boolean =
+    dolbyAtmosOutput ||
+        (dolbyAtmosSourceDetected && dolbyAtmosOutputMode.verifiedAtmosOutput)
 
 /** Both native outputs must be live in this exact playback session; source flags do not qualify. */
 internal fun PlaybackDiagnostics.hasNativeDualDolbyOutput(): Boolean =
@@ -193,6 +195,15 @@ internal fun PlaybackDiagnostics.hasNativeDualDolbyOutput(): Boolean =
         audioReadiness == PlaybackOutputReadiness.Rendering &&
         dolbyVisionOutput &&
         dolbyAtmosOutput
+
+/** Includes iOS-style Atmos-source PCM spatialization while preserving bitstream truth separately. */
+internal fun PlaybackDiagnostics.hasNativeDualDolbyPresentationOutput(): Boolean =
+    !engine.startsWith("远程投屏") &&
+        videoReadiness == PlaybackOutputReadiness.Rendering &&
+        audioReadiness == PlaybackOutputReadiness.Rendering &&
+        dolbyVisionOutput &&
+        dolbyAtmosSourceDetected &&
+        dolbyAtmosOutputMode.verifiedAtmosOutput
 
 internal fun PlayerMediaItem.sourceDynamicRange(transcoding: Boolean): String =
     activeVersion

@@ -12,7 +12,11 @@ It is not a substitute for a release-time legal review or the generated SBOM.
 | FFmpeg | Included by native player engines | <https://ffmpeg.org/legal.html> | LGPL/GPL obligations depend on enabled components and link/build options. |
 | MDK SDK | `mdk-sdk` v0.37.0 | <https://github.com/wang-bin/mdk-sdk> | The artifact README states that free use is limited to specified categories. Commercial or other distribution requires confirming eligibility or obtaining an appropriate license. |
 | dav1d | Included by MDK | <https://code.videolan.org/videolan/dav1d/-/blob/master/COPYING> | BSD 2-Clause. |
-| libass | Included by MDK | <https://github.com/libass/libass/blob/master/COPYING> | ISC license. |
+| libass | Statically linked into the standalone YCore native runtime | <https://github.com/libass/libass/blob/master/COPYING> | ISC license. |
+| FreeType | Statically linked into the standalone YCore native runtime through libass | <https://gitlab.freedesktop.org/freetype/freetype/-/blob/master/docs/FTL.TXT> | FreeType License or GPLv2; YCore uses the FreeType License option. |
+| FriBidi | Statically linked into the standalone YCore native runtime through libass | <https://github.com/fribidi/fribidi/blob/master/COPYING> | LGPL-2.1-or-later. |
+| HarfBuzz | Statically linked into the standalone YCore native runtime through libass | <https://github.com/harfbuzz/harfbuzz/blob/main/COPYING> | Old MIT license. |
+| libunibreak | Statically linked into the standalone YCore native runtime through libass | <https://github.com/adah1972/libunibreak/blob/master/LICENCE> | zlib/libpng license. |
 | jcifs-ng | `eu.agno3.jcifs:jcifs-ng:2.1.10` | <https://github.com/AgNO3/jcifs-ng/tree/jcifs-ng-2.1.10> | LGPL-2.1; used for the SMB2/SMB3 random-access transport. Preserve notices and relinking/source obligations. |
 | Cronet | `com.google.android.gms:play-services-cronet:18.0.1` | <https://developer.android.com/develop/connectivity/cronet> | Chromium networking API distributed through Google Play services; enables negotiated HTTP/2 and HTTP/3/QUIC. |
 | Manrope font | App font asset | [Manrope-OFL.txt](Manrope-OFL.txt) | SIL Open Font License 1.1. |

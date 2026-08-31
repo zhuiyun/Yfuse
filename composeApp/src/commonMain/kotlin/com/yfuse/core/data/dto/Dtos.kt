@@ -321,6 +321,19 @@ data class TrickplayInfoDto(
     val Interval: Long = 0L,
 )
 
+/** Emby's per-timestamp preview catalogue exposed by `/Items/{id}/ThumbnailSet`. */
+@Serializable
+data class EmbyThumbnailSetDto(
+    val AspectRatio: Double? = null,
+    val Thumbnails: List<EmbyThumbnailDto> = emptyList(),
+)
+
+@Serializable
+data class EmbyThumbnailDto(
+    val PositionTicks: Long = 0L,
+    val ImageTag: String? = null,
+)
+
 /** Resume (and most list endpoints) wrap items; `Items/Latest` returns a raw array. */
 @Serializable
 data class ItemsResponseDto(
@@ -648,11 +661,13 @@ fun BaseItemDto.toEpisode() =
         runtimeTicks = RunTimeTicks?.takeIf { it > 0L },
     )
 
-fun BaseItemDto.bestTrickplay(): TrickplayInfo? =
-    Trickplay
-        .orEmpty()
-        .values
-        .filterNotNull()
+fun BaseItemDto.bestTrickplay(mediaSourceId: String? = null): TrickplayInfo? =
+    (
+        mediaSourceId
+            ?.let { Trickplay.orEmpty()[it] }
+            ?.let(::listOf)
+            ?: Trickplay.orEmpty().values.filterNotNull()
+    )
         .flatMap { it.values }
         .filter { it.Width > 0 && it.Height > 0 && it.TileWidth > 0 && it.TileHeight > 0 && it.Interval > 0L }
         .minWithOrNull(compareBy<TrickplayInfoDto> { kotlin.math.abs(it.Width - 320) }.thenBy { it.Width })

@@ -306,7 +306,7 @@ internal fun PlayerRoot(
                 videoSupport = videoSupport,
                 dolbyVisionRuntime = dolbyVisionRuntime,
             )
-        return if (plan.requiresServerTranscode) {
+        return if (!core2NativeOnlyActive && plan.requiresServerTranscode) {
             item.withForcedServerTranscode(
                 plan.reason ?: "当前设备无法直接呈现片源，已预先选择服务器转码",
             )
@@ -326,6 +326,7 @@ internal fun PlayerRoot(
             effectiveOptimizationMode,
             sessionEngineSelection,
             dolbyVisionRuntime,
+            core2NativeOnlyActive,
         ) {
             activeItems.map(::preflightItem)
         }
@@ -832,6 +833,9 @@ internal fun PlayerRoot(
         )
     LaunchedEffect(activeProbe.probeDepth, activeProbe.capabilitySignature) {
         if (castAuthoritative) return@LaunchedEffect
+        // Pure YCore is fail-closed: an unsupported local path is reported to the user and must
+        // never be rewritten to a server transcode behind the playback engine.
+        if (core2NativeOnlyActive) return@LaunchedEffect
 
         // A remote disc image is never probed. `PlaybackMediaProbeService` returns Skipped for
         // it on purpose — the answer is already settled, because libdvdnav and libbluray need a
@@ -1002,6 +1006,8 @@ internal fun PlayerRoot(
         state.diagnostics.audioReadiness,
         state.diagnostics.dolbyVisionOutput,
         state.diagnostics.dolbyAtmosOutput,
+        state.diagnostics.dolbyAtmosOutputMode,
+        state.diagnostics.audioOutputRouteVerified,
         state.diagnostics.dolbyVisionRpuApplied,
         state.diagnostics.dolbyVisionEnhancementLayerComposed,
         state.transcoding,
@@ -1023,8 +1029,14 @@ internal fun PlayerRoot(
                 "audioOutput" to state.diagnostics.audioOutput,
                 "dolbyVisionOutput" to state.diagnostics.dolbyVisionOutput.toString(),
                 "dolbyAtmosBitstreamOutput" to state.diagnostics.dolbyAtmosOutput.toString(),
+                "dolbyAtmosSourceDetected" to state.diagnostics.dolbyAtmosSourceDetected.toString(),
+                "dolbyAtmosOutputMode" to state.diagnostics.dolbyAtmosOutputMode.name,
+                "audioOutputRoute" to state.diagnostics.audioOutputRoute,
+                "audioOutputRouteVerified" to state.diagnostics.audioOutputRouteVerified.toString(),
                 "nativeDualDolbyOutput" to
                     state.diagnostics.hasNativeDualDolbyOutput().toString(),
+                "nativeDualDolbyPresentationOutput" to
+                    state.diagnostics.hasNativeDualDolbyPresentationOutput().toString(),
                 "p7OutputEvidence" to p7.evidence.name,
                 "felClaimAllowed" to p7.canClaimFel.toString(),
                 "serverTranscode" to state.transcoding.toString(),
@@ -1177,13 +1189,14 @@ internal fun PlayerRoot(
         if (item.trickplay != null || trickplayCache.containsKey(key)) return@LaunchedEffect
         val server = remoteSubtitleRegistry.serverById(key.serverId) ?: return@LaunchedEffect
         remoteSubtitleRepository
-            .trickplayInfo(server, key.itemId)
+            .trickplayInfo(server, key.itemId, key.mediaSourceId)
             .onSuccess { info ->
                 val storyboard =
                     info?.let {
                         TrickplayStoryboard(
                             urlPattern =
                                 it.urlPattern
+                                    ?: it.frames.firstOrNull()?.url
                                     ?: EmbyStream.trickplayTilePattern(
                                         baseUrl = server.baseUrl,
                                         itemId = key.itemId,
@@ -1198,6 +1211,10 @@ internal fun PlayerRoot(
                             intervalMs = it.intervalMs,
                             thumbnailCount = it.thumbnailCount,
                             urlIndexMultiplier = it.urlIndexMultiplier,
+                            frames =
+                                it.frames.map { frame ->
+                                    TrickplayStoryboardFrame(frame.positionMs, frame.url)
+                                },
                         )
                     }
                 trickplayCache = trickplayCache.withTrickplayResult(key, storyboard)
@@ -1734,7 +1751,7 @@ internal fun PlayerRoot(
             )
         val decoderChanged = selectionPlan.decoderMode != effectiveDecoderMode
         effectiveDecoderMode = selectionPlan.decoderMode
-        if (selectionPlan.requiresServerTranscode && !state.transcoding) {
+        if (!core2NativeOnlyActive && selectionPlan.requiresServerTranscode && !state.transcoding) {
             backendExtensions.switchToTranscode(selectionPlan.reason)
         }
         if (selectionPlan.primaryEngine != kind) {
@@ -2773,13 +2790,14 @@ internal fun PlayerRoot(
                 // engines with no way out of a file the device can't decode.
                 transcodeLabel =
                     "转码播放".takeIf {
+                        !core2NativeOnlyActive &&
                         currentItem?.let { item ->
                             item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
                         } == true
                     },
                 transcodeActive = state.transcoding,
                 onTranscode = {
-                    if (!state.transcoding) {
+                    if (!core2NativeOnlyActive && !state.transcoding) {
                         backendExtensions.switchToTranscode("用户手动选择服务器转码")
                     }
                 },

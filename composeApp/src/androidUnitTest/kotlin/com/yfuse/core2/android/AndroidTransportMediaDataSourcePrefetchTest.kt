@@ -6,6 +6,7 @@ import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFeature
+import com.yfuse.core2.network.YTransportCredentials
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -17,6 +18,32 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AndroidTransportMediaDataSourcePrefetchTest {
+    @Test
+    fun `random access forwards credentials to every transport request`() {
+        val media = ByteArray(128) { it.toByte() }
+        val opened = CopyOnWriteArrayList<YMediaTransportRequest>()
+        val credentials = YTransportCredentials.UsernamePassword("viewer", "secret", "media")
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "smb://nas/videos/movie.mkv",
+                protocol = YSourceProtocol.Smb,
+                headers = emptyMap(),
+                credentials = credentials,
+                createTransport = { CapturingRangeTransport(media, opened) },
+                blockSizeOverride = TEST_BLOCK_BYTES,
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            val output = ByteArray(8)
+            assertEquals(8, worker.submit<Int> { source.readAt(0, output, 0, output.size) }.get(2, TimeUnit.SECONDS))
+            assertTrue(opened.isNotEmpty())
+            assertTrue(opened.all { it.credentials === credentials })
+        } finally {
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
     @Test
     fun `sequential read starts the following range before the extractor requests it`() {
         val media = ByteArray(256) { index -> index.toByte() }
@@ -147,6 +174,38 @@ private class MemoryRangeTransport(
         media.copyInto(destination, offset, position, position + count)
         position += count
         if (position == endExclusive) onRange(start.toLong(), true)
+        return count
+    }
+
+    override suspend fun close() = Unit
+}
+
+private class CapturingRangeTransport(
+    private val media: ByteArray,
+    private val opened: MutableList<YMediaTransportRequest>,
+) : YMediaTransport {
+    override val supportedProtocols = setOf(YSourceProtocol.Smb)
+    override val features = setOf(YTransportFeature.ByteRange)
+    private var position = 0
+    private var endExclusive = 0
+
+    override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
+        opened += request
+        val range = requireNotNull(request.range)
+        position = range.startInclusive.toInt()
+        endExclusive = minOf((range.endInclusive ?: media.lastIndex.toLong()).toInt() + 1, media.size)
+        return YMediaTransportResponse(
+            statusCode = 206,
+            contentLength = media.size.toLong(),
+            acceptedRange = YByteRange(position.toLong(), (endExclusive - 1).toLong()),
+        )
+    }
+
+    override suspend fun read(destination: ByteArray, offset: Int, length: Int): Int {
+        if (position >= endExclusive) return -1
+        val count = minOf(length, endExclusive - position)
+        media.copyInto(destination, offset, position, position + count)
+        position += count
         return count
     }
 

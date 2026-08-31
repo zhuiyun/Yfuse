@@ -8,13 +8,16 @@ import com.yfuse.core2.adaptive.YAdaptiveEncryptionMethod
 import com.yfuse.core2.adaptive.YAdaptiveSelectionConditions
 import com.yfuse.core2.adaptive.YAdaptiveVariant
 import com.yfuse.core2.adaptive.YAdaptiveVariantSelector
+import com.yfuse.core2.adaptive.YDashPlaybackCapabilities
 import com.yfuse.core2.adaptive.YDashRepresentation
 import com.yfuse.core2.adaptive.YDashResourceKind
+import com.yfuse.core2.adaptive.YDashSegmentTemplate
 import com.yfuse.core2.adaptive.YHlsAlignedSegment
 import com.yfuse.core2.adaptive.YHlsPlaybackCapabilities
 import com.yfuse.core2.adaptive.YHlsPlaylist
 import com.yfuse.core2.adaptive.YHlsResourceKind
 import com.yfuse.core2.adaptive.YHlsVariantMediaPlaylist
+import com.yfuse.core2.adaptive.alignYDashSwitchingRepresentations
 import com.yfuse.core2.adaptive.alignYHlsVariantSegments
 import com.yfuse.core2.adaptive.buildYDashPlaybackManifest
 import com.yfuse.core2.adaptive.buildYHlsPlaybackMaster
@@ -28,6 +31,7 @@ import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
+import com.yfuse.core2.network.YTransportCredentials
 import kotlinx.coroutines.runBlocking
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
@@ -65,6 +69,8 @@ internal class AndroidYCoreHttpProxy(
 ) : Closeable {
     private data class Route(
         val upstreamUri: String,
+        val upstreamHeaders: Map<String, String>,
+        val credentials: YTransportCredentials?,
         val cacheable: Boolean,
         val cacheIdentity: YCacheIdentity?,
         val maximumWidth: Int?,
@@ -75,6 +81,7 @@ internal class AndroidYCoreHttpProxy(
         val allowDolbyVisionHls: Boolean,
         val allowDolbyAtmosHls: Boolean,
         val dashTemplate: DashTemplateRoute? = null,
+        val dashAbrResource: DashAbrResourceRoute? = null,
         val hlsAbrResource: HlsAbrResourceRoute? = null,
     )
 
@@ -84,6 +91,15 @@ internal class AndroidYCoreHttpProxy(
         val usesNumber: Boolean,
         val usesTime: Boolean,
         val localExtension: String,
+        val switchingRepresentations: List<YDashRepresentation> = emptyList(),
+        val abrSession: DashAbrSession? = null,
+    )
+
+    private data class DashAbrResourceRoute(
+        val session: DashAbrSession,
+        val sequence: Long,
+        val durationUs: Long,
+        val selectedRepresentationId: String,
     )
 
     private data class HlsPlaybackManifest(
@@ -166,6 +182,69 @@ internal class AndroidYCoreHttpProxy(
         }
     }
 
+    private class DashAbrSession(
+        initialRepresentationId: String,
+        private val isMeteredNetwork: () -> Boolean,
+    ) {
+        private val bandwidthEstimator = YAdaptiveBandwidthEstimator()
+        private var currentRepresentationId = initialRepresentationId
+        private var bufferedDurationUs = STARTUP_BUFFER_US
+        private var updatedAtNs = System.nanoTime()
+        private var lastCompletedSequence: Long? = null
+
+        @Synchronized
+        fun select(representations: List<YDashRepresentation>): YDashRepresentation {
+            require(representations.isNotEmpty())
+            drainBuffer(System.nanoTime())
+            val variants = representations.map(YDashRepresentation::asAdaptiveVariant)
+            val selected =
+                YAdaptiveVariantSelector.select(
+                    variants = variants,
+                    conditions =
+                        YAdaptiveSelectionConditions(
+                            estimatedBandwidthBitsPerSecond =
+                                bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
+                                    ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
+                            bufferedDurationUs = bufferedDurationUs,
+                            metered = isMeteredNetwork(),
+                        ),
+                    currentVariantId = currentRepresentationId,
+                )
+            currentRepresentationId = selected.id
+            return representations.first { it.id == selected.id }
+        }
+
+        @Synchronized
+        fun recordNetworkSample(
+            bytes: Long,
+            durationMs: Long,
+        ) {
+            bandwidthEstimator.addSample(bytes, durationMs)
+        }
+
+        @Synchronized
+        fun complete(
+            sequence: Long,
+            durationUs: Long,
+        ) {
+            drainBuffer(System.nanoTime())
+            if (lastCompletedSequence == sequence) return
+            bufferedDurationUs =
+                if (lastCompletedSequence == null || sequence == lastCompletedSequence?.plus(1L)) {
+                    (bufferedDurationUs + durationUs).coerceAtMost(MAX_ABR_BUFFER_US)
+                } else {
+                    durationUs.coerceAtMost(MAX_ABR_BUFFER_US)
+                }
+            lastCompletedSequence = sequence
+        }
+
+        private fun drainBuffer(nowNs: Long) {
+            val elapsedUs = ((nowNs - updatedAtNs).coerceAtLeast(0L) / NANOS_PER_MICROSECOND)
+            bufferedDurationUs = (bufferedDurationUs - elapsedUs).coerceAtLeast(0L)
+            updatedAtNs = nowNs
+        }
+    }
+
     private val cacheDirectory = context.applicationContext.cacheDir
     private val routesLock = Any()
     private val routes = LinkedHashMap<String, Route>()
@@ -184,6 +263,8 @@ internal class AndroidYCoreHttpProxy(
 
     fun localUrl(
         upstreamUri: String,
+        upstreamHeaders: Map<String, String> = emptyMap(),
+        credentials: YTransportCredentials? = null,
         cacheable: Boolean,
         cacheIdentity: YCacheIdentity?,
         maximumWidth: Int? = null,
@@ -198,6 +279,8 @@ internal class AndroidYCoreHttpProxy(
         val route =
             Route(
                 upstreamUri = upstreamUri,
+                upstreamHeaders = upstreamHeaders,
+                credentials = credentials,
                 cacheable = cacheable,
                 cacheIdentity = cacheIdentity,
                 maximumWidth = maximumWidth,
@@ -320,17 +403,35 @@ internal class AndroidYCoreHttpProxy(
                 templateRoute.usesTime -> first
                 else -> null
             }
+        val activeRepresentation =
+            templateRoute.abrSession
+                ?.select(templateRoute.switchingRepresentations)
+                ?: templateRoute.representation
+        val activeTemplate = requireNotNull(activeRepresentation.segmentTemplate)
         val resolvedUri =
             renderDashTemplate(
-                template = templateRoute.upstreamTemplate,
-                representation = templateRoute.representation,
+                template = activeTemplate.media,
+                representation = activeRepresentation,
                 number = number,
                 time = time,
             )
+        val dashAbrResource =
+            templateRoute.abrSession?.let { session ->
+                DashAbrResourceRoute(
+                    session = session,
+                    sequence = number,
+                    durationUs = activeTemplate.segmentDurationUs(number, time),
+                    selectedRepresentationId = activeRepresentation.id,
+                )
+            }
         return copy(
             upstreamUri = resolvedUri,
-            cacheIdentity = cacheIdentity?.forAdaptiveResource(resolvedUri),
+            cacheIdentity =
+                cacheIdentity?.forAdaptiveResourceKey(
+                    "dash-segment:${activeRepresentation.id}:$number:${time ?: "none"}",
+                ),
             dashTemplate = null,
+            dashAbrResource = dashAbrResource,
         )
     }
 
@@ -339,7 +440,10 @@ internal class AndroidYCoreHttpProxy(
         val selected = abr.session.select(abr.segment)
         return copy(
             upstreamUri = selected.uri,
-            cacheIdentity = cacheIdentity?.forAdaptiveResource(selected.uri),
+            cacheIdentity =
+                cacheIdentity?.forAdaptiveResourceKey(
+                    "hls-segment:${selected.variant.id}:${abr.segment.sequence}",
+                ),
             hlsAbrResource = abr.copy(selectedVariantId = selected.variant.id),
         )
     }
@@ -363,8 +467,10 @@ internal class AndroidYCoreHttpProxy(
         route: Route,
         method: String,
     ) {
-        val rootText = loadBounded(route.upstreamUri, MAX_HLS_MANIFEST_BYTES).decodeToString()
-        require(!rootText.hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
+        val rootText = loadBounded(route.upstreamUri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
+        require(route.drmProtected || !rootText.hasHlsSessionKey()) {
+            "HLS session keys require the native DRM route"
+        }
         val root = parseYHlsPlaylist(rootText, route.upstreamUri)
         if (root is YHlsPlaylist.Master && rootText.hasSeparateYCoreHlsRenditions()) {
             val conditions =
@@ -385,12 +491,14 @@ internal class AndroidYCoreHttpProxy(
                             dolbyAtmosOutput = route.allowDolbyAtmosHls,
                         ),
                 )
-            val localizedMaster =
+            val selectedMaster =
                 buildYHlsPlaybackMaster(playback) { upstreamUri, _ ->
                     localUrl(
                         upstreamUri = upstreamUri,
+                        upstreamHeaders = route.upstreamHeaders,
+                        credentials = route.credentials,
                         cacheable = false,
-                        cacheIdentity = route.cacheIdentity?.forAdaptiveResource(upstreamUri),
+                        cacheIdentity = route.cacheIdentity?.forStableAdaptiveUri(upstreamUri),
                         maximumWidth = route.maximumWidth,
                         maximumHeight = route.maximumHeight,
                         hlsManifest = true,
@@ -399,7 +507,11 @@ internal class AndroidYCoreHttpProxy(
                         allowDolbyVisionHls = route.allowDolbyVisionHls,
                         allowDolbyAtmosHls = route.allowDolbyAtmosHls,
                     )
-                }.encodeToByteArray()
+                }
+            val localizedMaster =
+                selectedMaster
+                    .withLocalizedHlsSessionKeysFrom(rootText, route)
+                    .encodeToByteArray()
             writeHeaders(
                 socket = socket,
                 status = 200,
@@ -416,12 +528,7 @@ internal class AndroidYCoreHttpProxy(
                 is YHlsPlaylist.Media -> HlsPlaybackManifest(rootText, route.upstreamUri, root)
                 is YHlsPlaylist.Master -> loadHlsPlaybackManifest(root, route)
             }
-        require(
-            playback.media.segments.none { segment ->
-                segment.encryption?.method in
-                    setOf(YAdaptiveEncryptionMethod.SampleAes, YAdaptiveEncryptionMethod.Other)
-            },
-        ) { "HLS sample encryption requires the native DRM route" }
+        playback.media.requireSupportedEncryption(route.drmProtected)
         var segmentIndex = 0
         val rewritten =
             rewriteYHlsResourceUris(playback.text, playback.uri) { upstreamUri, kind ->
@@ -444,13 +551,27 @@ internal class AndroidYCoreHttpProxy(
                 } else {
                     localUrl(
                         upstreamUri = upstreamUri,
+                        upstreamHeaders = route.upstreamHeaders,
+                        credentials = route.credentials,
                         cacheable = persistent,
-                        cacheIdentity = route.cacheIdentity?.forAdaptiveResource(upstreamUri),
+                        cacheIdentity =
+                            when {
+                                mediaSegment != null ->
+                                    route.cacheIdentity?.forAdaptiveResourceKey(
+                                        "hls-segment:${mediaSegment.sequence}:${stableAdaptiveResourceKey(upstreamUri)}",
+                                    )
+                                kind == YHlsResourceKind.InitializationSegment ->
+                                    route.cacheIdentity?.forAdaptiveResourceKey(
+                                        "hls-init:${stableAdaptiveResourceKey(upstreamUri)}",
+                                    )
+                                else -> route.cacheIdentity?.forStableAdaptiveUri(upstreamUri)
+                            },
                         maximumWidth = route.maximumWidth,
                         maximumHeight = route.maximumHeight,
                         hlsManifest =
                             kind in
                                 setOf(YHlsResourceKind.VariantPlaylist, YHlsResourceKind.RenditionPlaylist),
+                        drmProtected = route.drmProtected,
                     )
                 }
             }.encodeToByteArray()
@@ -481,8 +602,8 @@ internal class AndroidYCoreHttpProxy(
                         metered = isMeteredNetwork(),
                     ),
             )
-        val selectedText = loadBounded(selected.uri, MAX_HLS_MANIFEST_BYTES).decodeToString()
-        val selectedMedia = selectedText.requireExecutableHlsMedia(selected.uri)
+        val selectedText = loadBounded(selected.uri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
+        val selectedMedia = selectedText.requireExecutableHlsMedia(selected.uri, route.drmProtected)
         if (selectedMedia.isLive || selectedText.hasLowLatencyHlsParts()) {
             return HlsPlaybackManifest(selectedText, selected.uri, selectedMedia)
         }
@@ -496,9 +617,12 @@ internal class AndroidYCoreHttpProxy(
                 add(YHlsVariantMediaPlaylist(selected, selectedMedia))
                 eligibleAlternates.mapNotNullTo(this) { variant ->
                     runCatching {
-                        val text = loadBounded(variant.uri, MAX_HLS_MANIFEST_BYTES).decodeToString()
+                        val text = loadBounded(variant.uri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
                         if (text.hasLowLatencyHlsParts()) return@runCatching null
-                        YHlsVariantMediaPlaylist(variant, text.requireExecutableHlsMedia(variant.uri))
+                        YHlsVariantMediaPlaylist(
+                            variant,
+                            text.requireExecutableHlsMedia(variant.uri, route.drmProtected),
+                        )
                     }.getOrNull()
                 }
             }.filterNotNull()
@@ -515,17 +639,69 @@ internal class AndroidYCoreHttpProxy(
         )
     }
 
-    private fun String.requireExecutableHlsMedia(uri: String): YHlsPlaylist.Media {
-        require(!hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
+    private fun String.requireExecutableHlsMedia(
+        uri: String,
+        drmProtected: Boolean,
+    ): YHlsPlaylist.Media {
+        require(drmProtected || !hasHlsSessionKey()) { "HLS session keys require the native DRM route" }
         val media = parseYHlsPlaylist(this, uri) as? YHlsPlaylist.Media
         requireNotNull(media) { "Nested HLS master playlists are not executable" }
-        require(
-            media.segments.none { segment ->
-                segment.encryption?.method in
-                    setOf(YAdaptiveEncryptionMethod.SampleAes, YAdaptiveEncryptionMethod.Other)
-            },
-        ) { "HLS sample encryption requires the native DRM route" }
+        media.requireSupportedEncryption(drmProtected)
         return media
+    }
+
+    private fun YHlsPlaylist.Media.requireSupportedEncryption(drmProtected: Boolean) {
+        val encryption = segments.mapNotNull { it.encryption }.distinct()
+        require(encryption.none { it.method == YAdaptiveEncryptionMethod.Other }) {
+            "HLS encryption method is unsupported by YCore"
+        }
+        val sampleEncryption = encryption.filter { it.method == YAdaptiveEncryptionMethod.SampleAes }
+        require(drmProtected || sampleEncryption.isEmpty()) {
+            "HLS sample encryption requires the native DRM route"
+        }
+        require(
+            sampleEncryption.all { protection ->
+                protection.keyFormat.orEmpty().let { keyFormat ->
+                    keyFormat.contains(WIDEVINE_SYSTEM_ID, ignoreCase = true) ||
+                        keyFormat.contains("widevine", ignoreCase = true)
+                }
+            },
+        ) { "YCore currently supports Widevine HLS sample encryption only" }
+    }
+
+    private fun String.withLocalizedHlsSessionKeysFrom(
+        authoredMaster: String,
+        route: Route,
+    ): String {
+        val sessionKeys =
+            authoredMaster
+                .lineSequence()
+                .map(String::trim)
+                .filter { it.startsWith("#EXT-X-SESSION-KEY:", ignoreCase = true) }
+                .toList()
+        if (sessionKeys.isEmpty()) return this
+        val localized =
+            rewriteYHlsResourceUris(
+                text = (listOf("#EXTM3U") + sessionKeys).joinToString("\n"),
+                baseUri = route.upstreamUri,
+            ) { upstreamUri, _ ->
+                localUrl(
+                    upstreamUri = upstreamUri,
+                    upstreamHeaders = route.upstreamHeaders,
+                    credentials = route.credentials,
+                    cacheable = false,
+                    cacheIdentity = null,
+                    drmProtected = true,
+                )
+            }.lineSequence()
+                .drop(1)
+                .joinToString("\n")
+        val lines = lineSequence().toList()
+        return buildString {
+            appendLine(lines.firstOrNull() ?: "#EXTM3U")
+            appendLine(localized)
+            append(lines.drop(1).joinToString("\n"))
+        }.trimEnd()
     }
 
     private fun localHlsAbrUrl(
@@ -539,7 +715,7 @@ internal class AndroidYCoreHttpProxy(
             parent.copy(
                 upstreamUri = selected.uri,
                 cacheable = cacheable,
-                cacheIdentity = parent.cacheIdentity?.forAdaptiveResource(selected.uri),
+                cacheIdentity = parent.cacheIdentity,
                 hlsManifest = false,
                 dashManifest = false,
                 hlsAbrResource = HlsAbrResourceRoute(session, segment),
@@ -557,7 +733,7 @@ internal class AndroidYCoreHttpProxy(
         route: Route,
         method: String,
     ) {
-        val sourceXml = loadBounded(route.upstreamUri, MAX_DASH_MANIFEST_BYTES).decodeToString()
+        val sourceXml = loadBounded(route.upstreamUri, MAX_DASH_MANIFEST_BYTES, route).decodeToString()
         require(DASH_PERIOD_TAG.findAll(sourceXml).count() == 1) {
             "Multi-period DASH requires the period controller"
         }
@@ -573,7 +749,21 @@ internal class AndroidYCoreHttpProxy(
                         maximumHeight = route.maximumHeight,
                         metered = isMeteredNetwork(),
                     ),
+                capabilities =
+                    YDashPlaybackCapabilities(
+                        dolbyVisionOutput = route.allowDolbyVisionHls,
+                        dolbyAtmosOutput = route.allowDolbyAtmosHls,
+                    ),
             )
+        val switchingRepresentations =
+            alignYDashSwitchingRepresentations(
+                manifest = manifest,
+                selectedRepresentationId = selection.video.id,
+                maximumRepresentations = MAX_DASH_ABR_REPRESENTATIONS,
+            )
+        val dashAbrSession =
+            DashAbrSession(selection.video.id, isMeteredNetwork)
+                .takeIf { switchingRepresentations.size > 1 }
         val rewritten =
             buildYDashPlaybackManifest(
                 manifest = manifest,
@@ -596,8 +786,13 @@ internal class AndroidYCoreHttpProxy(
                             )
                         localUrl(
                             upstreamUri = upstreamUri,
+                            upstreamHeaders = route.upstreamHeaders,
+                            credentials = route.credentials,
                             cacheable = route.cacheable,
-                            cacheIdentity = route.cacheIdentity?.forAdaptiveResource(upstreamUri),
+                            cacheIdentity =
+                                route.cacheIdentity?.forAdaptiveResourceKey(
+                                    "dash-init:${representation.id}",
+                                ),
                             hlsManifest = false,
                             dashManifest = false,
                         )
@@ -607,6 +802,10 @@ internal class AndroidYCoreHttpProxy(
                             route = route,
                             representation = representation,
                             upstreamTemplate = template,
+                            switchingRepresentations =
+                                switchingRepresentations.takeIf { representation.id == selection.video.id }
+                                    .orEmpty(),
+                            abrSession = dashAbrSession.takeIf { representation.id == selection.video.id },
                         )
                 }
             }.encodeToByteArray()
@@ -625,6 +824,8 @@ internal class AndroidYCoreHttpProxy(
         route: Route,
         representation: YDashRepresentation,
         upstreamTemplate: String,
+        switchingRepresentations: List<YDashRepresentation> = emptyList(),
+        abrSession: DashAbrSession? = null,
     ): String {
         val usesNumber = DASH_NUMBER_TOKEN.containsMatchIn(upstreamTemplate)
         val usesTime = DASH_TIME_TOKEN.containsMatchIn(upstreamTemplate)
@@ -649,9 +850,53 @@ internal class AndroidYCoreHttpProxy(
                         usesNumber = usesNumber,
                         usesTime = usesTime,
                         localExtension = extension,
+                        switchingRepresentations = switchingRepresentations,
+                        abrSession = abrSession,
                     ),
             )
         return localRouteUrl(templateRoute, "/$localTemplate")
+    }
+
+    private fun YDashSegmentTemplate.segmentDurationUs(
+        number: Long,
+        time: Long?,
+    ): Long {
+        val rawDuration =
+            duration
+                ?: timeline.durationForCoordinate(number = number, time = time, startNumber = startNumber)
+                ?: timescale
+                    .coerceAtMost(Long.MAX_VALUE / DEFAULT_DASH_SEGMENT_DURATION_SECONDS)
+                    .times(DEFAULT_DASH_SEGMENT_DURATION_SECONDS)
+        return rawDuration
+            .coerceAtMost(Long.MAX_VALUE / MICROS_PER_SECOND_LONG)
+            .times(MICROS_PER_SECOND_LONG)
+            .div(timescale)
+            .coerceAtLeast(1L)
+    }
+
+    private fun List<com.yfuse.core2.adaptive.YDashTimelineEntry>.durationForCoordinate(
+        number: Long,
+        time: Long?,
+        startNumber: Long,
+    ): Long? {
+        var nextTime = 0L
+        var nextNumber = startNumber
+        for (entry in this) {
+            val entryStart = entry.startTime ?: nextTime
+            if (time != null && time >= entryStart && (time - entryStart) % entry.duration == 0L) {
+                val offset = (time - entryStart) / entry.duration
+                if (entry.repeat < 0 || offset <= entry.repeat.toLong()) return entry.duration
+            }
+            if (number >= nextNumber) {
+                val offset = number - nextNumber
+                if (entry.repeat < 0 || offset <= entry.repeat.toLong()) return entry.duration
+            }
+            if (entry.repeat < 0) return null
+            val count = entry.repeat.toLong() + 1L
+            nextNumber += count
+            nextTime = entryStart + entry.duration * count
+        }
+        return null
     }
 
     private fun serveBinary(
@@ -673,14 +918,23 @@ internal class AndroidYCoreHttpProxy(
             AndroidTransportMediaDataSource(
                 uri = route.upstreamUri,
                 protocol = requireNotNull(route.upstreamUri.sourceProtocolOrNull()),
-                headers = upstreamHeaders(),
+                headers = route.upstreamHeadersWithUserAgent(),
+                credentials = route.credentials,
                 createTransport = createTransport,
                 cacheDirectory = cacheDirectory.takeIf { route.cacheable },
                 cacheIdentity = route.cacheIdentity.takeIf { route.cacheable },
                 cacheMaximumBytes = cacheMaximumBytes.takeIf { route.cacheable } ?: 0L,
                 onNetworkSample =
-                    route.hlsAbrResource?.let { abr ->
-                        { bytes: Long, durationMs: Long -> abr.session.recordNetworkSample(bytes, durationMs) }
+                    when {
+                        route.hlsAbrResource != null -> {
+                            val abr = route.hlsAbrResource
+                            { bytes: Long, durationMs: Long -> abr.session.recordNetworkSample(bytes, durationMs) }
+                        }
+                        route.dashAbrResource != null -> {
+                            val abr = route.dashAbrResource
+                            { bytes: Long, durationMs: Long -> abr.session.recordNetworkSample(bytes, durationMs) }
+                        }
+                        else -> null
                     },
             )
         try {
@@ -715,6 +969,9 @@ internal class AndroidYCoreHttpProxy(
             route.hlsAbrResource?.let { abr ->
                 abr.session.complete(abr.segment.sequence, abr.segment.durationUs)
             }
+            route.dashAbrResource?.let { abr ->
+                abr.session.complete(abr.sequence, abr.durationUs)
+            }
         } finally {
             source.close()
         }
@@ -732,7 +989,8 @@ internal class AndroidYCoreHttpProxy(
                     YMediaTransportRequest(
                         uri = route.upstreamUri,
                         protocol = requireNotNull(route.upstreamUri.sourceProtocolOrNull()),
-                        headers = upstreamHeaders(),
+                        headers = route.upstreamHeadersWithUserAgent(),
+                        credentials = route.credentials,
                     ),
                 )
             require(response.statusCode in 200..299) { "Upstream returned ${response.statusCode}" }
@@ -772,6 +1030,7 @@ internal class AndroidYCoreHttpProxy(
     private fun loadBounded(
         upstreamUri: String,
         maximumBytes: Int,
+        route: Route,
     ): ByteArray =
         runBlocking {
             val transport = createTransport()
@@ -781,7 +1040,8 @@ internal class AndroidYCoreHttpProxy(
                         YMediaTransportRequest(
                             uri = upstreamUri,
                             protocol = requireNotNull(upstreamUri.sourceProtocolOrNull()),
-                            headers = upstreamHeaders(),
+                            headers = route.upstreamHeadersWithUserAgent(),
+                            credentials = route.credentials,
                         ),
                     )
                 require(response.statusCode in 200..299) { "Manifest returned ${response.statusCode}" }
@@ -822,12 +1082,12 @@ internal class AndroidYCoreHttpProxy(
         output.flush()
     }
 
-    private fun upstreamHeaders(): Map<String, String> =
-        userAgent
-            .trim()
-            .takeIf(String::isNotEmpty)
-            ?.let { mapOf("User-Agent" to it) }
-            .orEmpty()
+    private fun Route.upstreamHeadersWithUserAgent(): Map<String, String> =
+        yCoreProxyUpstreamRequestContext(
+            upstreamHeaders = upstreamHeaders,
+            configuredUserAgent = userAgent,
+            credentials = credentials,
+        ).headers
 
     private fun writeHeaders(
         socket: Socket,
@@ -882,6 +1142,29 @@ internal data class YCoreHttpByteRange(
     val startInclusive: Long,
     val endInclusive: Long?,
 )
+
+internal data class YCoreProxyUpstreamRequestContext(
+    val headers: Map<String, String>,
+    val credentials: YTransportCredentials?,
+)
+
+internal fun yCoreProxyUpstreamRequestContext(
+    upstreamHeaders: Map<String, String>,
+    configuredUserAgent: String,
+    credentials: YTransportCredentials?,
+): YCoreProxyUpstreamRequestContext {
+    val headers =
+        if (upstreamHeaders.keys.any { it.equals("User-Agent", ignoreCase = true) }) {
+            upstreamHeaders
+        } else {
+            configuredUserAgent
+                .trim()
+                .takeIf(String::isNotEmpty)
+                ?.let { upstreamHeaders + ("User-Agent" to it) }
+                ?: upstreamHeaders
+        }
+    return YCoreProxyUpstreamRequestContext(headers = headers, credentials = credentials)
+}
 
 internal fun parseYCoreHttpByteRange(value: String?): YCoreHttpByteRange? {
     val match = value?.trim()?.let(HTTP_BYTE_RANGE::matchEntire) ?: return null
@@ -981,15 +1264,47 @@ private fun String.safeTemplateExtension(): String? =
         .lowercase()
         .takeIf(SAFE_SYNTHETIC_EXTENSIONS::contains)
 
-private fun YCacheIdentity.forAdaptiveResource(upstreamUri: String): YCacheIdentity =
+private fun YCacheIdentity.forStableAdaptiveUri(upstreamUri: String): YCacheIdentity =
+    forAdaptiveResourceKey(stableAdaptiveResourceKey(upstreamUri))
+
+private fun YCacheIdentity.forAdaptiveResourceKey(resourceKey: String): YCacheIdentity =
     copy(
         version =
             buildString {
                 append(version)
                 append(':')
-                append(upstreamUri.sha256())
+                append(resourceKey.sha256())
             },
     )
+
+internal fun stableAdaptiveResourceKey(uri: String): String =
+    runCatching {
+        val parsed = URI(uri)
+        buildString {
+            parsed.scheme?.let { append(it.lowercase()).append("://") }
+            parsed.host?.let { host ->
+                append(host.lowercase())
+                if (parsed.port >= 0) append(':').append(parsed.port)
+            }
+            append(parsed.path.orEmpty())
+            val stableQuery =
+                parsed.rawQuery
+                    ?.split('&')
+                    ?.filter(String::isNotBlank)
+                    ?.filterNot { parameter ->
+                        parameter.substringBefore('=').isEphemeralMediaCredentialParameter()
+                    }?.sorted()
+                    .orEmpty()
+            if (stableQuery.isNotEmpty()) append('?').append(stableQuery.joinToString("&"))
+        }.takeIf(String::isNotBlank)
+    }.getOrNull() ?: uri.substringBefore('?').substringBefore('#')
+
+private fun String.isEphemeralMediaCredentialParameter(): Boolean {
+    val normalized = lowercase().replace("-", "").replace("_", "")
+    return normalized in EPHEMERAL_MEDIA_QUERY_NAMES ||
+        normalized.contains("signature") ||
+        normalized.endsWith("token")
+}
 
 private fun String.sha256(): String =
     MessageDigest
@@ -1013,10 +1328,14 @@ private const val INITIAL_BANDWIDTH_BITS_PER_SECOND = 25_000_000L
 private const val STARTUP_BUFFER_US = 10_000_000L
 private const val MAX_ABR_BUFFER_US = 30_000_000L
 private const val MAX_HLS_ABR_VARIANTS = 8
+private const val MAX_DASH_ABR_REPRESENTATIONS = 8
 private const val NANOS_PER_MICROSECOND = 1_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
+private const val MICROS_PER_SECOND_LONG = 1_000_000L
+private const val DEFAULT_DASH_SEGMENT_DURATION_SECONDS = 2L
 private const val HLS_CONTENT_TYPE = "application/vnd.apple.mpegurl"
 private const val DASH_CONTENT_TYPE = "application/dash+xml"
+private const val WIDEVINE_SYSTEM_ID = "edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"
 private val ALLOWED_METHODS = setOf("GET", "HEAD")
 private val HTTP_BYTE_RANGE = Regex("^bytes=(\\d+)-(\\d*)$", RegexOption.IGNORE_CASE)
 private val DASH_PERIOD_TAG = Regex("<\\s*(?:[A-Za-z0-9_.-]+:)?Period(?:\\s|>)", RegexOption.IGNORE_CASE)
@@ -1024,3 +1343,26 @@ private val DASH_NUMBER_TOKEN = Regex("\\\$Number(?:%0\\d+d)?\\\$")
 private val DASH_TIME_TOKEN = Regex("\\\$Time(?:%0\\d+d)?\\\$")
 private val SAFE_SYNTHETIC_EXTENSIONS =
     setOf("aac", "bin", "key", "m3u8", "m4s", "m4v", "mkv", "mov", "mp4", "mpd", "m2ts", "mts", "ts", "vtt", "webm")
+private val EPHEMERAL_MEDIA_QUERY_NAMES =
+    setOf(
+        "authorization",
+        "auth",
+        "token",
+        "accesstoken",
+        "apikey",
+        "expires",
+        "expiry",
+        "sig",
+        "hmac",
+        "hdnts",
+        "hdnea",
+        "policy",
+        "keypairid",
+        "xamzalgorithm",
+        "xamzcredential",
+        "xamzdate",
+        "xamzexpires",
+        "xamzsecuritytoken",
+        "xamzsignature",
+        "xamzsignedheaders",
+    )

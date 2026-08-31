@@ -129,6 +129,14 @@ for ABI in "${ABIS[@]}"; do
   read -r -a BLURAY_LINK_ARGS <<<"$BLURAY_LINK_FLAGS"
   [[ ${#BLURAY_LINK_ARGS[@]} -gt 0 ]] ||
     fail "libbluray pkg-config returned no linker flags for $ABI"
+  [[ -f "$BLURAY_PC_DIR/libass.pc" ]] ||
+    fail "missing libass pkg-config metadata for $ABI"
+  ASS_LINK_FLAGS="$(
+    PKG_CONFIG_LIBDIR="$BLURAY_PC_DIR" pkg-config --static --libs libass
+  )"
+  read -r -a ASS_LINK_ARGS <<<"$ASS_LINK_FLAGS"
+  [[ ${#ASS_LINK_ARGS[@]} -gt 0 ]] ||
+    fail "libass pkg-config returned no linker flags for $ABI"
   CXX="$TOOLCHAIN/bin/$(compiler_for_abi "$ABI")"
   [[ -x "$CXX" ]] || fail "missing compiler for $ABI: $CXX"
 
@@ -154,6 +162,7 @@ for ABI in "${ABIS[@]}"; do
     -lswscale \
     -lswresample \
     -lavutil \
+    "${ASS_LINK_ARGS[@]}" \
     "${BLURAY_LINK_ARGS[@]}" \
     -o "$OUT"
 
@@ -220,6 +229,8 @@ awk -F= '
   $1 != "ycore-demux-ffmpeg" &&
   $1 != "ycore-demux-source" &&
   $1 != "ycore-tone-map-source" &&
+  $1 != "ycore-libass" &&
+  $1 != "ycore-libass-api" &&
   $1 != "ycore-software-decoder-api" &&
   $1 != "ycore-disc-api" &&
   $1 != "ycore-bdmv-vfs" &&
@@ -246,6 +257,8 @@ awk -F= '
   echo "ycore-demux-ffmpeg=$FFMPEG_REVISION"
   echo "ycore-demux-source=scripts/native/ycore_demux_jni.cpp"
   echo "ycore-tone-map-source=scripts/native/ycore_tone_map.h"
+  echo "ycore-libass=$(manifest_value libass)"
+  echo "ycore-libass-api=1"
   echo "ycore-software-decoder-api=2"
   echo "ycore-disc-api=2"
   echo "ycore-bdmv-vfs=read-only-saf"

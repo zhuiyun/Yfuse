@@ -12,11 +12,19 @@ stage="$(mktemp -d)"
 trap 'rm -f "$entries"; rm -rf "$stage"' EXIT
 unzip -Z1 "$APK" > "$entries"
 
-if grep -E '^lib/[^/]+/(libycore_demux|libycore_gpu|libmpv|libplayer|libmdk|libavcodec|libavformat|libavutil|libswresample|libswscale)\.so$' "$entries" >/dev/null; then
-  echo "error: system-native APK contains a forbidden player/demux/codec runtime" >&2
-  grep -E '^lib/[^/]+/(libycore_demux|libycore_gpu|libmpv|libplayer|libmdk|libavcodec|libavformat|libavutil|libswresample|libswscale)\.so$' "$entries" >&2
+legacy_native='^lib/[^/]+/(libmpv|libplayer|libmdk)\.so$'
+if grep -E "$legacy_native" "$entries" >/dev/null; then
+  echo "error: native-only APK contains a forbidden legacy player runtime" >&2
+  grep -E "$legacy_native" "$entries" >&2
   exit 1
 fi
+
+for required in libycore_demux.so libycore_gpu.so libavcodec.so libavformat.so libavutil.so; do
+  if ! grep -E "^lib/[^/]+/$required$" "$entries" >/dev/null; then
+    echo "error: native-only APK is missing required YCore runtime $required" >&2
+    exit 1
+  fi
+done
 if grep -E '^lib/(armeabi-v7a|x86|x86_64)/' "$entries" >/dev/null; then
   echo "error: native-only APK contains an unsupported ABI" >&2
   exit 1
@@ -44,4 +52,38 @@ while IFS= read -r library; do
   }
 done < <(find "$stage/lib" -type f -name '*.so' -print | sort)
 
-echo "verified system-native APK: external player/demux/codec runtimes absent, native libraries 16 KiB aligned"
+apkanalyzer_bin="${APKANALYZER:-}"
+if [[ -z "$apkanalyzer_bin" ]]; then
+  apkanalyzer_bin="$(command -v apkanalyzer || true)"
+fi
+if [[ -z "$apkanalyzer_bin" ]]; then
+  for sdk_root in "${ANDROID_SDK_ROOT:-}" "${ANDROID_HOME:-}"; do
+    [[ -n "$sdk_root" ]] || continue
+    candidate="$sdk_root/cmdline-tools/latest/bin/apkanalyzer"
+    if [[ -x "$candidate" ]]; then
+      apkanalyzer_bin="$candidate"
+      break
+    fi
+  done
+fi
+[[ -n "$apkanalyzer_bin" && -x "$apkanalyzer_bin" ]] || {
+  echo "error: apkanalyzer is required to prove that legacy runtime classes are absent" >&2
+  exit 1
+}
+
+defined_classes="$stage/defined-classes.txt"
+"$apkanalyzer_bin" dex packages --defined-only "$APK" > "$defined_classes"
+for forbidden_package in androidx.media3.exoplayer dev.jdtech.mpv com.mediadevkit.sdk; do
+  # apkanalyzer also prints method signatures, whose parameter types may mention a compile-only
+  # API. Only P/C records prove that the forbidden package or one of its classes is defined in
+  # the APK; matching arbitrary signature text would reject valid compile-only isolation.
+  escaped_package="${forbidden_package//./\\.}"
+  defined_pattern="^[PC][[:space:]]+d[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+${escaped_package}([.[:space:]]|$)"
+  if grep -E "$defined_pattern" "$defined_classes" >/dev/null; then
+    echo "error: native-only APK defines forbidden playback runtime $forbidden_package" >&2
+    grep -E "$defined_pattern" "$defined_classes" | head -n 20 >&2
+    exit 1
+  fi
+done
+
+echo "verified native-only APK: dependency-closed YCore present, legacy native and DEX runtimes absent"

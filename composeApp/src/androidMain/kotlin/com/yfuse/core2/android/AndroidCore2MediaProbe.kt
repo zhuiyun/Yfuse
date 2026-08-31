@@ -316,7 +316,6 @@ internal class AndroidCore2RouteEvaluator(
     private val codecConfigurationProbe: AndroidCodecConfigurationProbe = AndroidCodecConfigurationProbe(),
     private val codecSampleProbe: AndroidCodecSampleProbe = AndroidCodecSampleProbe(context),
     private val nativeGpuRuntimeProbe: YNativeGpuRuntimeProbe = AndroidYCoreGpuRuntime.probe(context),
-    private val nativeOnly: Boolean = false,
 ) {
     private val platformProbe = AndroidCore2MediaProbe(context)
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
@@ -338,12 +337,6 @@ internal class AndroidCore2RouteEvaluator(
         val sourceClaimsDolbyVision = item.sourceHints?.dolbyVision == true
         val resolved =
             when {
-                nativeOnly && platform == null -> null
-                nativeOnly &&
-                    sourceClaimsDolbyVision &&
-                    platform?.dolbyVisionConfig == null &&
-                    platform?.unconfiguredDolbyVisionSignal != true -> null
-                nativeOnly -> platform
                 platform == null && item.drmConfiguration != null -> null
                 platform == null ->
                     (enhancedProbe.probe(item) as? YCore2ProbeResult.Success)
@@ -381,7 +374,7 @@ internal class AndroidCore2RouteEvaluator(
             } ?: return null
         val requested =
             resolved.playbackRequest.copy(
-                enhancedDemuxSupported = resolved.playbackRequest.enhancedDemuxSupported && !nativeOnly,
+                enhancedDemuxSupported = resolved.playbackRequest.enhancedDemuxSupported,
                 preferTunnel = preferTunnel && !resolved.unconfiguredDolbyVisionSignal,
                 allowAudioPassthrough = allowAudioPassthrough,
                 decoderPreference =
@@ -560,6 +553,7 @@ private fun YMediaItem.toProbeSource(): YAndroidMediaSource =
     YAndroidMediaSource(
         uri = uri,
         headers = headers,
+        credentials = transportCredentials,
         cacheIdentity = cacheIdentity,
         cacheMaximumBytes = cacheMaximumBytes,
     )

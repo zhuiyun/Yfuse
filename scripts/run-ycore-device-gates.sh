@@ -48,6 +48,25 @@ fi
 
 command -v adb >/dev/null || { echo "error: adb is required" >&2; exit 2; }
 command -v python3 >/dev/null || { echo "error: python3 is required" >&2; exit 2; }
+command -v git >/dev/null || { echo "error: git is required for source binding" >&2; exit 2; }
+
+actual_commit="$(git -C "$ROOT_DIR" rev-parse HEAD | tr '[:upper:]' '[:lower:]')"
+[[ "${COMMIT_SHA,,}" == "$actual_commit" ]] || {
+  echo "error: YCORE_COMMIT_SHA does not match the checked-out HEAD" >&2
+  exit 2
+}
+if ! git -C "$ROOT_DIR" diff --quiet || ! git -C "$ROOT_DIR" diff --cached --quiet; then
+  echo "error: release evidence requires a clean tracked worktree" >&2
+  exit 2
+fi
+untracked_source="$({
+  git -C "$ROOT_DIR" ls-files --others --exclude-standard -- \
+    build.gradle.kts settings.gradle.kts gradle composeApp scripts media-tests docs
+} | head -n 1)"
+[[ -z "$untracked_source" ]] || {
+  echo "error: release evidence cannot bind untracked source file: $untracked_source" >&2
+  exit 2
+}
 
 adb_command=(adb)
 if [[ -n "$DEVICE_SERIAL" ]]; then

@@ -22,10 +22,12 @@ import com.yfuse.core2.release.evaluateCore2NativeBaseline
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDecoderPreference
 import com.yfuse.core2.strategy.YOptimizationPreference
+import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.feature.player.AndroidPlaybackHttpProxy
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
 import com.yfuse.feature.player.externalSubtitleFormatHint
+import com.yfuse.feature.player.playbackExternalSubtitles
 import com.yfuse.feature.player.persistentPlaybackCacheUrl
 import com.yfuse.feature.player.startsWithServerTranscode
 
@@ -99,6 +101,13 @@ internal object AndroidCore2TrialFactory {
                                 if (item.requiresYCoreAdaptiveProxy(upstreamUrl)) {
                                     requireNotNull(yCoreProxy).localUrl(
                                         upstreamUri = upstreamUrl,
+                                        upstreamHeaders =
+                                            customUserAgent
+                                                .trim()
+                                                .takeIf(String::isNotEmpty)
+                                                ?.let { mapOf(USER_AGENT_HEADER to it) }
+                                                .orEmpty(),
+                                        credentials = item.transportCredentials,
                                         cacheable = cacheable,
                                         cacheIdentity = item.yCoreCacheIdentity(),
                                         maximumWidth = item.activeVersion?.sourceWidth,
@@ -155,7 +164,6 @@ internal object AndroidCore2TrialFactory {
                 decoderPreference = decoderMode.toCore2Preference(),
                 optimizationPreference = optimizationMode.toCore2Preference(),
                 nativeGpuRuntimeProbe = nativeGpuRuntimeProbe,
-                nativeOnly = nativeOnly,
             )
         val discFactory =
             AndroidYCoreDiscRouteFactory(
@@ -241,8 +249,7 @@ internal fun List<PlayerMediaItem>.canUseCore2Trial(startIndex: Int): Boolean {
         val drmConfiguration = item.drmConfiguration ?: version?.drmConfiguration
         !knownUnsupportedDolbyProfile &&
             (drmConfiguration == null || item.supportsCore2Drm(drmConfiguration.scheme)) &&
-            item.externalSubtitles.isEmpty() &&
-            item.externalSubtitleUri.isCore2SubtitleSourceSupported() &&
+            item.playbackExternalSubtitles().all { subtitle -> subtitle.uri.isCore2SubtitleSourceSupported() } &&
             item.url.substringBefore(':').lowercase() in CORE2_SOURCE_SCHEMES
     }
 }
@@ -271,12 +278,10 @@ internal fun List<PlayerMediaItem>.core2NativeBaselineBlockReason(startIndex: In
                 version?.dolbyVision != true ||
                     version?.dolbyProfile == null ||
                     version?.dolbyProfile in CORE2_DOLBY_TRIAL_PROFILES,
-            // YCore currently exposes one sidecar source. Provider-owned multi-track lists stay
-            // on Exo/mpv so every Plex track remains selectable instead of silently dropping all
-            // but one.
             externalSubtitleSupported =
-                item.externalSubtitles.isEmpty() &&
-                    item.externalSubtitleUri.isCore2SubtitleSourceSupported(),
+                item.playbackExternalSubtitles().all { subtitle ->
+                    subtitle.uri.isCore2SubtitleSourceSupported()
+                },
         )
     return evaluateCore2NativeBaseline(source)?.userMessage()
 }
@@ -286,10 +291,10 @@ private fun Core2NativeBaselineBlock.userMessage(): String =
         Core2NativeBaselineBlock.MissingMetadata -> "YCore Native 缺少片源格式元数据"
         Core2NativeBaselineBlock.UnsupportedScheme -> "YCore Native 暂不支持当前来源协议"
         Core2NativeBaselineBlock.ServerTranscode -> "YCore Native 基线仅验证直连片源"
-        Core2NativeBaselineBlock.AdaptiveManifest -> "YCore Native 当前仅支持已验证的 HLS / 静态 DASH 子集"
-        Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 当前仅验证 MP4/MKV"
+        Core2NativeBaselineBlock.AdaptiveManifest -> "YCore Native 不支持当前 HLS / DASH 清单结构"
+        Core2NativeBaselineBlock.UnsupportedContainer -> "YCore Native 不支持当前封装格式"
         Core2NativeBaselineBlock.UnsupportedVideoCodec ->
-            "YCore Native 当前仅验证 H.264/HEVC"
+            "YCore Native 不支持当前视频编码；已支持 H.264/HEVC/VP9/AV1/VC-1/MPEG-2/ProRes"
         Core2NativeBaselineBlock.Disc -> "YCore Native 当前只支持可寻址的 Blu-ray / BDMV / Blu-ray ISO"
         Core2NativeBaselineBlock.Drm -> "YCore Native 当前只支持已验证容器中的 Widevine DRM"
         Core2NativeBaselineBlock.DolbyVision -> "YCore Native 尚未验证当前杜比视界 Profile"
@@ -330,7 +335,7 @@ internal fun supportsYCoreNativeDiscSource(
     when (kind) {
         PlaybackDiscKind.BluRay,
         PlaybackDiscKind.Iso,
-        -> scheme in setOf("file", "content", "http", "https")
+        -> scheme in setOf("file", "content", "http", "https", "webdav", "webdavs", "smb")
         PlaybackDiscKind.Bdmv -> scheme in setOf("file", "content")
         PlaybackDiscKind.Dvd,
         PlaybackDiscKind.None,
@@ -357,8 +362,9 @@ private fun PlayerMediaItem.supportsCore2Drm(scheme: PlaybackDrmScheme): Boolean
             .orEmpty()
             .trim()
             .lowercase()
-    if (url.isHlsManifest()) return false
-    return url.isDashManifest() || container in setOf("dash", "mpd", "mp4", "m4v")
+    return url.isDashManifest() ||
+        url.isHlsManifest() ||
+        container in setOf("dash", "mpd", "hls", "m3u8", "mp4", "m4v", "cmaf")
 }
 
 internal fun List<PlayerMediaItem>.toCore2MediaItems(
@@ -419,13 +425,22 @@ private fun PlayerMediaItem.toCore2MediaItem(
                         dolbyBaseLayerCompatibilityId = source.sourceDolbyBaseLayerCompatibility,
                     )
                 },
-        externalSubtitle =
-            externalSubtitleUri
-                ?.takeIf(String::isNotBlank)
-                ?.let { uri ->
+        transportCredentials = transportCredentials,
+        externalSubtitles =
+            playbackExternalSubtitles().map { subtitle ->
                     YExternalSubtitleSource(
-                        uri = uri,
-                        language = externalSubtitleLanguage,
+                        uri = subtitle.uri,
+                        language = subtitle.language,
+                        format =
+                            when ((subtitle.codec ?: externalSubtitleFormatHint(subtitle.uri))?.lowercase()) {
+                                "srt", "subrip" -> YSubtitleFormat.Srt
+                                "vtt", "webvtt" -> YSubtitleFormat.WebVtt
+                                "ass" -> YSubtitleFormat.Ass
+                                "ssa" -> YSubtitleFormat.Ssa
+                                else -> null
+                            },
+                        default = subtitle.default,
+                        forced = subtitle.forced,
                     )
                 },
         disc =

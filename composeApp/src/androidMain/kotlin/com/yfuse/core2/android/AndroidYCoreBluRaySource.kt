@@ -12,12 +12,11 @@ import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.bluRayDiscRoot
 import com.yfuse.core2.api.YDiscKind
 import com.yfuse.core2.api.YMediaItem
-import com.yfuse.feature.player.HttpRangeDiscBlockSource
+import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.feature.player.HdmvDiscSession
 import com.yfuse.feature.player.NativeBluRayOverlayFrame
 import com.yfuse.feature.player.NativeLocalBdmvSource
 import com.yfuse.feature.player.NativeRemoteBluRaySessionRegistry
-import com.yfuse.feature.player.RemoteDiscHeaderProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,7 +33,7 @@ import java.io.File
 internal class AndroidYCoreBluRaySource private constructor(
     private val discPath: String?,
     private val descriptor: ParcelFileDescriptor?,
-    private val remoteSource: HttpRangeDiscBlockSource?,
+    private val remoteSource: YCoreDiscBlockSource?,
     private val bdmvSource: NativeLocalBdmvSource?,
 ) {
     private val mutableNavigation =
@@ -304,17 +303,39 @@ internal class AndroidYCoreBluRaySource private constructor(
                     )
                 }
 
-                "http", "https" -> {
+                "http", "https", "webdav", "webdavs", "smb" -> {
                     if (disc.kind == YDiscKind.Bdmv) return null
+                    val scheme = uri.scheme?.lowercase().orEmpty()
+                    val tls = scheme == "https" || scheme == "webdavs"
+                    val normalizedUri =
+                        if (scheme == "webdav" || scheme == "webdavs") {
+                            item.uri.replaceFirst(
+                                Regex("(?i)^webdavs?://"),
+                                if (tls) "https://" else "http://",
+                            )
+                        } else {
+                            item.uri
+                        }
                     val source =
-                        HttpRangeDiscBlockSource(
-                            sourceUrl = item.uri,
-                            headerProvider = RemoteDiscHeaderProvider { item.headers },
+                        AndroidTransportDiscBlockSource(
+                            uri = normalizedUri,
+                            protocol =
+                                when (scheme) {
+                                    "smb" -> YSourceProtocol.Smb
+                                    "webdav" -> YSourceProtocol.WebDav
+                                    "webdavs" -> YSourceProtocol.WebDavTls
+                                    "https" -> YSourceProtocol.Https
+                                    else -> YSourceProtocol.Http
+                                },
+                            headers = item.headers,
+                            credentials = item.transportCredentials,
+                            createTransport =
+                                if (scheme == "smb") {
+                                    ::AndroidSmbMediaTransport
+                                } else {
+                                    { AndroidHttpMediaTransport(followSafeRedirects = false) }
+                                },
                         )
-                    if (!source.probeRangeSupport()) {
-                        source.close()
-                        return null
-                    }
                     AndroidYCoreBluRaySource(
                         discPath = null,
                         descriptor = null,

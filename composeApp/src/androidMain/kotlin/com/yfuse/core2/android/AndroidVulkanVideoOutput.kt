@@ -38,7 +38,10 @@ internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) cons
     private val activeColorConfig = AtomicReference(colorConfig)
     private val thread = HandlerThread("YCore-Vulkan-Frames").apply { start() }
     private val handler = Handler(thread.looper)
-    private val imageReader = createPrivateImageReader(width.coerceAtLeast(16), height.coerceAtLeast(16))
+    @Volatile
+    private var imageReader = createPrivateImageReader(width.coerceAtLeast(16), height.coerceAtLeast(16))
+    private val decoderWidth = AtomicInteger(width.coerceAtLeast(16))
+    private val decoderHeight = AtomicInteger(height.coerceAtLeast(16))
     private val rendererLock = Any()
     private val renderer = AtomicLong(AndroidYCoreGpuNativeBridge.createRenderer(target, colorConfig.outputTransfer))
     private val featureMask = AtomicLong(AndroidYCoreGpuNativeBridge.rendererFeatureMask(renderer.get()))
@@ -84,10 +87,13 @@ internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) cons
         return true
     }
 
-    fun updateDecodedFormat(format: MediaFormat) {
+    fun updateDecodedFormat(
+        format: MediaFormat,
+        switchDecoderSurface: (Surface) -> Unit,
+    ): Boolean {
+        val decodedWidth = format.integerOrNull(MediaFormat.KEY_WIDTH)?.coerceAtLeast(16) ?: decoderWidth.get()
+        val decodedHeight = format.integerOrNull(MediaFormat.KEY_HEIGHT)?.coerceAtLeast(16) ?: decoderHeight.get()
         activeColorConfig.updateAndGet { current ->
-            val decodedWidth = format.integerOrNull(MediaFormat.KEY_WIDTH)?.coerceAtLeast(1) ?: width
-            val decodedHeight = format.integerOrNull(MediaFormat.KEY_HEIGHT)?.coerceAtLeast(1) ?: height
             val cropLeft = format.integerOrNull("crop-left")?.coerceIn(0, decodedWidth - 1) ?: current.geometry.cropLeft
             val cropTop = format.integerOrNull("crop-top")?.coerceIn(0, decodedHeight - 1) ?: current.geometry.cropTop
             val cropRightCoordinate = format.integerOrNull("crop-right")
@@ -122,9 +128,29 @@ internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) cons
                             ?: current.geometry.cropRight,
                         cropBottom = cropBottomCoordinate?.let { (decodedHeight - 1 - it).coerceAtLeast(0) }
                             ?: current.geometry.cropBottom,
-                    ),
+                ),
             )
         }
+        if (decodedWidth == decoderWidth.get() && decodedHeight == decoderHeight.get()) return false
+
+        val replacement = createPrivateImageReader(decodedWidth, decodedHeight)
+        attachImageListener(replacement)
+        try {
+            switchDecoderSurface(replacement.surface)
+        } catch (failure: Throwable) {
+            replacement.setOnImageAvailableListener(null, null)
+            replacement.close()
+            throw failure
+        }
+        val previous = imageReader
+        imageReader = replacement
+        decoderWidth.set(decodedWidth)
+        decoderHeight.set(decodedHeight)
+        handler.post {
+            previous.setOnImageAvailableListener(null, null)
+            runCatching(previous::close)
+        }
+        return true
     }
 
     fun queueHdr10PlusMetadata(
@@ -137,7 +163,11 @@ internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) cons
     }
 
     init {
-        imageReader.setOnImageAvailableListener(
+        attachImageListener(imageReader)
+    }
+
+    private fun attachImageListener(reader: ImageReader) {
+        reader.setOnImageAvailableListener(
             { reader ->
                 val image = runCatching(reader::acquireLatestImage).getOrNull() ?: return@setOnImageAvailableListener
                 image.use {

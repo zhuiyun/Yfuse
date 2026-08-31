@@ -69,6 +69,26 @@ object EmbyStream {
         "${normalizeBaseUrl(baseUrl)}/Videos/$itemId/Trickplay/$width/{index}.jpg" +
             "?MediaSourceId=${mediaSourceId.queryValue()}&api_key=${token.queryValue()}"
 
+    /** One exact frame from Emby's generated video-preview thumbnail set. */
+    fun videoPreviewThumbnail(
+        baseUrl: String,
+        itemId: String,
+        mediaSourceId: String,
+        positionTicks: Long,
+        imageTag: String?,
+        token: String,
+        maxWidth: Int = 320,
+    ): String =
+        buildString {
+            append("${normalizeBaseUrl(baseUrl)}/Items/$itemId/Images/Thumbnail")
+            append("?PositionTicks=${positionTicks.coerceAtLeast(0L)}")
+            append("&MediaSourceId=${mediaSourceId.queryValue()}")
+            append("&maxWidth=${maxWidth.coerceAtLeast(1)}")
+            append("&quality=90")
+            imageTag?.takeIf(String::isNotBlank)?.let { append("&tag=${it.queryValue()}") }
+            append("&api_key=${token.queryValue()}")
+        }
+
     /**
      * Resolves a URL returned by PlaybackInfo and completes its authentication.
      * Relative and same-origin absolute URLs remain authenticated against the saved server.

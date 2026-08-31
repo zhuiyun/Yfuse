@@ -14,6 +14,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <unistd.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -27,6 +28,7 @@ extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/mastering_display_metadata.h>
 #include <libavutil/mem.h>
+#include <ass/ass.h>
 #include <libbluray/bluray.h>
 #include <libbluray/filesystem.h>
 #include <libbluray/keys.h>
@@ -78,6 +80,7 @@ constexpr int kSoftwareFrameEof = 2;
 constexpr int kSoftwareFrameGrowBuffer = -1;
 constexpr int kSoftwareDecoderApiVersion = 2;
 constexpr int kDiscApiVersion = 2;
+constexpr int kAssRendererApiVersion = 1;
 constexpr int kDiscBlockSize = 2048;
 constexpr int kDiscAvioBufferBytes = 64 * 1024;
 constexpr int64_t kBlurayClock = 90000;
@@ -172,9 +175,18 @@ struct DemuxSession {
     bool remote_source = false;
     std::vector<uint8_t> selected;
     std::vector<AVCodecContext*> subtitle_decoders;
+    ASS_Library* ass_library = nullptr;
+    ASS_Renderer* ass_renderer = nullptr;
+    std::vector<ASS_Track*> ass_tracks;
     std::vector<std::unique_ptr<SoftwareDecoder>> software_decoders;
 
     ~DemuxSession() {
+        for (ASS_Track*& track : ass_tracks) {
+            if (track) ass_free_track(track);
+            track = nullptr;
+        }
+        if (ass_renderer) ass_renderer_done(ass_renderer);
+        if (ass_library) ass_library_done(ass_library);
         for (AVCodecContext*& decoder : subtitle_decoders) {
             avcodec_free_context(&decoder);
         }
@@ -1153,6 +1165,91 @@ AVCodecContext* subtitle_decoder(JNIEnv* env, DemuxSession* session, jint index)
     return existing;
 }
 
+bool is_ass_subtitle_codec(AVCodecID codec_id) {
+    return codec_id == AV_CODEC_ID_ASS || codec_id == AV_CODEC_ID_SSA;
+}
+
+bool subtitle_canvas(const DemuxSession* session, int* width, int* height) {
+    if (!session || !session->format || !width || !height) return false;
+    for (unsigned int index = 0; index < session->format->nb_streams; ++index) {
+        const AVCodecParameters* parameters = session->format->streams[index]->codecpar;
+        if (parameters && parameters->codec_type == AVMEDIA_TYPE_VIDEO &&
+            parameters->width > 0 && parameters->height > 0) {
+            *width = parameters->width;
+            *height = parameters->height;
+            return true;
+        }
+    }
+    return false;
+}
+
+const char* android_ass_fallback_font() {
+    static constexpr const char* kCandidates[] = {
+        "/system/fonts/NotoSansCJK-Regular.ttc",
+        "/system/fonts/Roboto-Regular.ttf",
+        "/system/fonts/DroidSans.ttf",
+    };
+    for (const char* candidate : kCandidates) {
+        if (access(candidate, R_OK) == 0) return candidate;
+    }
+    return nullptr;
+}
+
+void configure_ass_fonts(ASS_Renderer* renderer) {
+    if (!renderer) return;
+    ass_set_fonts(
+        renderer,
+        android_ass_fallback_font(),
+        "sans-serif",
+        ASS_FONTPROVIDER_AUTODETECT,
+        nullptr,
+        1);
+}
+
+ASS_Track* ass_subtitle_track(JNIEnv* env, DemuxSession* session, jint index) {
+    AVStream* stream = checked_stream(env, session, index);
+    if (!stream) return nullptr;
+    if (stream->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE ||
+        !is_ass_subtitle_codec(stream->codecpar->codec_id)) {
+        throw_illegal_argument(env, "Requested track is not ASS/SSA");
+        return nullptr;
+    }
+    ASS_Track*& existing = session->ass_tracks[index];
+    if (existing) return existing;
+
+    if (!session->ass_library) {
+        session->ass_library = ass_library_init();
+        if (!session->ass_library) {
+            throw_illegal_state(env, "Unable to initialize libass");
+            return nullptr;
+        }
+        ass_set_fonts_dir(session->ass_library, "/system/fonts");
+    }
+    if (!session->ass_renderer) {
+        session->ass_renderer = ass_renderer_init(session->ass_library);
+        if (!session->ass_renderer) {
+            throw_illegal_state(env, "Unable to initialize libass renderer");
+            return nullptr;
+        }
+        configure_ass_fonts(session->ass_renderer);
+    }
+
+    ASS_Track* track = ass_new_track(session->ass_library);
+    if (!track) {
+        throw_illegal_state(env, "Unable to create libass subtitle track");
+        return nullptr;
+    }
+    const AVCodecParameters* parameters = stream->codecpar;
+    if (parameters->extradata && parameters->extradata_size > 0) {
+        ass_process_codec_private(
+            track,
+            reinterpret_cast<char*>(parameters->extradata),
+            parameters->extradata_size);
+    }
+    existing = track;
+    return existing;
+}
+
 SoftwareDecoder* software_decoder(
     JNIEnv* env,
     DemuxSession* session,
@@ -1358,6 +1455,62 @@ bool append_bitmap_rect(std::vector<uint8_t>* output, const AVSubtitleRect* rect
                 std::memcpy(&color, rect->data[1] + palette_index * sizeof(color), sizeof(color));
             }
             append_u32(output, color);
+        }
+    }
+    return true;
+}
+
+bool append_ass_image(
+    std::vector<uint8_t>* output,
+    const ASS_Image* image,
+    int canvas_width,
+    int canvas_height) {
+    if (!output || !image || !image->bitmap || image->w <= 0 || image->h <= 0 ||
+        image->stride < image->w || canvas_width <= 0 || canvas_height <= 0) {
+        return false;
+    }
+    const int left = std::max(0, image->dst_x);
+    const int top = std::max(0, image->dst_y);
+    const int right = std::min(canvas_width, image->dst_x + image->w);
+    const int bottom = std::min(canvas_height, image->dst_y + image->h);
+    const int width = right - left;
+    const int height = bottom - top;
+    if (width <= 0 || height <= 0) return false;
+
+    const size_t pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
+    const size_t required = 7U * sizeof(uint32_t) + pixel_count * sizeof(uint32_t);
+    if (pixel_count > kMaxSubtitlePayloadBytes / sizeof(uint32_t) ||
+        required > kMaxSubtitlePayloadBytes ||
+        output->size() > kMaxSubtitlePayloadBytes - required) {
+        return false;
+    }
+
+    append_u32(output, static_cast<uint32_t>(left));
+    append_u32(output, static_cast<uint32_t>(top));
+    append_u32(output, static_cast<uint32_t>(width));
+    append_u32(output, static_cast<uint32_t>(height));
+    append_u32(output, 1U);  // libass-rendered rectangle
+    append_u32(output, static_cast<uint32_t>(pixel_count));
+    append_u32(output, 0U);
+
+    const uint8_t red = static_cast<uint8_t>(image->color >> 24);
+    const uint8_t green = static_cast<uint8_t>(image->color >> 16);
+    const uint8_t blue = static_cast<uint8_t>(image->color >> 8);
+    const uint8_t opacity = static_cast<uint8_t>(255U - (image->color & 0xffU));
+    const int source_x = left - image->dst_x;
+    const int source_y = top - image->dst_y;
+    for (int y = 0; y < height; ++y) {
+        const uint8_t* coverage =
+            image->bitmap + static_cast<size_t>(source_y + y) * image->stride + source_x;
+        for (int x = 0; x < width; ++x) {
+            const uint32_t alpha =
+                (static_cast<uint32_t>(coverage[x]) * opacity + 127U) / 255U;
+            append_u32(
+                output,
+                (alpha << 24) |
+                    (static_cast<uint32_t>(red) << 16) |
+                    (static_cast<uint32_t>(green) << 8) |
+                    static_cast<uint32_t>(blue));
         }
     }
     return true;
@@ -1700,6 +1853,7 @@ jlong native_open(
 
     session->selected.assign(session->format->nb_streams, 0);
     session->subtitle_decoders.assign(session->format->nb_streams, nullptr);
+    session->ass_tracks.assign(session->format->nb_streams, nullptr);
     session->software_decoders.resize(session->format->nb_streams);
     return to_handle(session.release());
 }
@@ -2059,13 +2213,67 @@ jbyteArray native_decode_subtitle(
     DemuxSession* session = from_handle(handle);
     AVStream* stream = checked_stream(env, session, index);
     if (!stream || !encoded) return nullptr;
-    AVCodecContext* decoder = subtitle_decoder(env, session, index);
-    if (!decoder || env->ExceptionCheck()) return nullptr;
 
     const jsize encoded_size = env->GetArrayLength(encoded);
     if (encoded_size <= 0 || static_cast<size_t>(encoded_size) > kMaxSubtitlePayloadBytes) {
         return nullptr;
     }
+    if (is_ass_subtitle_codec(stream->codecpar->codec_id)) {
+        ASS_Track* track = ass_subtitle_track(env, session, index);
+        if (!track || env->ExceptionCheck()) return nullptr;
+        int canvas_width = 0;
+        int canvas_height = 0;
+        if (!subtitle_canvas(session, &canvas_width, &canvas_height)) return nullptr;
+
+        std::vector<char> chunk(static_cast<size_t>(encoded_size));
+        env->GetByteArrayRegion(encoded, 0, encoded_size, reinterpret_cast<jbyte*>(chunk.data()));
+        if (env->ExceptionCheck()) return nullptr;
+        const int64_t start_ms =
+            presentation_time_us == kNoTimestamp
+            ? 0
+            : std::max<int64_t>(0, presentation_time_us / 1000);
+        const int64_t duration_ms =
+            duration_us > 0 ? std::max<int64_t>(1, duration_us / 1000) : 5000;
+        ass_set_frame_size(session->ass_renderer, canvas_width, canvas_height);
+        ass_set_storage_size(session->ass_renderer, canvas_width, canvas_height);
+        ass_process_chunk(track, chunk.data(), encoded_size, start_ms, duration_ms);
+        int changed = 0;
+        ASS_Image* images = ass_render_frame(session->ass_renderer, track, start_ms, &changed);
+        if (!images) return nullptr;
+
+        std::vector<uint8_t> output;
+        output.reserve(1024);
+        append_u32(&output, kSubtitlePayloadMagic);
+        append_u32(&output, kSubtitlePayloadVersion);
+        append_u32(&output, static_cast<uint32_t>(canvas_width));
+        append_u32(&output, static_cast<uint32_t>(canvas_height));
+        append_u32(&output, 0U);
+        append_u32(
+            &output,
+            static_cast<uint32_t>(std::min<int64_t>(duration_ms, UINT32_MAX)));
+        const size_t rect_count_offset = output.size();
+        append_u32(&output, 0U);
+        uint32_t rect_count = 0;
+        for (ASS_Image* image = images; image && rect_count < 64U; image = image->next) {
+            if (append_ass_image(&output, image, canvas_width, canvas_height)) ++rect_count;
+        }
+        if (rect_count == 0 || output.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+            return nullptr;
+        }
+        write_u32(&output, rect_count_offset, rect_count);
+        jbyteArray result = env->NewByteArray(static_cast<jsize>(output.size()));
+        if (result) {
+            env->SetByteArrayRegion(
+                result,
+                0,
+                static_cast<jsize>(output.size()),
+                reinterpret_cast<const jbyte*>(output.data()));
+        }
+        return result;
+    }
+
+    AVCodecContext* decoder = subtitle_decoder(env, session, index);
+    if (!decoder || env->ExceptionCheck()) return nullptr;
     AVPacket* packet = av_packet_alloc();
     if (!packet || av_new_packet(packet, encoded_size) < 0) {
         av_packet_free(&packet);
@@ -2149,6 +2357,10 @@ jbyteArray native_decode_subtitle(
 
 jint native_software_decoder_api_version(JNIEnv*, jclass) {
     return kSoftwareDecoderApiVersion;
+}
+
+jint native_ass_renderer_api_version(JNIEnv*, jclass) {
+    return kAssRendererApiVersion;
 }
 
 void native_configure_software_decoder(
@@ -2489,6 +2701,9 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
     for (AVCodecContext* decoder : session->subtitle_decoders) {
         if (decoder) avcodec_flush_buffers(decoder);
     }
+    for (ASS_Track* track : session->ass_tracks) {
+        if (track) ass_flush_events(track);
+    }
     for (const std::unique_ptr<SoftwareDecoder>& decoder : session->software_decoders) {
         if (!decoder) continue;
         avcodec_flush_buffers(decoder->codec);
@@ -2505,6 +2720,7 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
 
 static const JNINativeMethod kMethods[] = {
     {"nativeDiscApiVersion", "()I", reinterpret_cast<void*>(native_disc_api_version)},
+    {"nativeAssRendererApiVersion", "()I", reinterpret_cast<void*>(native_ass_renderer_api_version)},
     {"nativeRegisterBluRaySource", "(Ljava/lang/Object;)J", reinterpret_cast<void*>(native_register_bluray_source)},
     {"nativeUnregisterBluRaySource", "(J)V", reinterpret_cast<void*>(native_unregister_bluray_source)},
     {"nativeSelectDiscTitle", "(JI)Z", reinterpret_cast<void*>(native_select_disc_title)},

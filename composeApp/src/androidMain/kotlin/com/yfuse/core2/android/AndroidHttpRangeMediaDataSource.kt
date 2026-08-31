@@ -210,6 +210,11 @@ internal fun parseContentRange(value: String?): YHttpContentRange? {
     return YHttpContentRange(start, end, total)
 }
 
+internal fun parseUnsatisfiedContentRangeLength(value: String?): Long? {
+    val match = UNSATISFIED_CONTENT_RANGE.matchEntire(value?.trim().orEmpty()) ?: return null
+    return match.groupValues[1].toLongOrNull()?.takeIf { it >= 0L }
+}
+
 private fun classifiedHttpFailure(
     category: YPlaybackFailureCategory,
     detail: String,
@@ -243,6 +248,7 @@ private fun Long.saturatedMultiply(other: Long): Long =
 private fun Long.saturatedAdd(other: Long): Long = if (this > Long.MAX_VALUE - other) Long.MAX_VALUE else this + other
 
 private val CONTENT_RANGE = Regex("bytes\\s+(\\d+)-(\\d+)/(\\d+|\\*)", RegexOption.IGNORE_CASE)
+private val UNSATISFIED_CONTENT_RANGE = Regex("bytes\\s+\\*/(\\d+)", RegexOption.IGNORE_CASE)
 private const val UNKNOWN_SIZE = -1L
 private const val MIN_BLOCK_BYTES = 64 * 1024
 private const val MAX_BLOCK_BYTES = 2 * 1024 * 1024

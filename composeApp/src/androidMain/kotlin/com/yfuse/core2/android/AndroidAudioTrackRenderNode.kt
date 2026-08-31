@@ -3,12 +3,14 @@ package com.yfuse.core2.android
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioRouting
 import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.media.MediaFormat
 import android.media.PlaybackParams
 import com.yfuse.core2.graph.YAudioRenderNode
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicLong
 
 internal data class YAudioClockSnapshot(
     val positionUs: Long,
@@ -34,16 +36,43 @@ internal class AndroidAudioTrackRenderNode(
     private var requestedPlay = false
     private var speed = 1f
     private val clockProgressGuard = AndroidAudioClockProgressGuard()
+    private val routedOutputProgress = AndroidRoutedOutputProgress()
     private var lastClockSource: YAudioClockFrameSource? = null
     private var staleClockFallback = false
     private val spatialAudioProbe = context?.let(::AndroidSpatialAudioProbe)
+
+    @Volatile
     private var spatialAudioState = AndroidSpatialAudioState()
 
+    @Volatile
+    private var configuredFormat: MediaFormat? = null
+
+    private val routingGeneration = AtomicLong()
+    private val routingListener =
+        AudioRouting.OnRoutingChangedListener {
+            routingGeneration.incrementAndGet()
+            configuredFormat?.let { format ->
+                spatialAudioState = spatialAudioProbe?.current(format) ?: AndroidSpatialAudioState()
+            }
+        }
+
+    val routingChangeGeneration: Long get() = routingGeneration.get()
+
     val spatialAudioOutput: Boolean
-        get() = clockSnapshot() != null && spatialAudioState.active
+        get() = currentRouteOutputAdvancing() && spatialAudioState.active
 
     val headTrackingAvailable: Boolean
         get() = spatialAudioOutput && spatialAudioState.headTrackerAvailable
+
+    private val routeEvidence: AndroidAudioRouteEvidence
+        get() {
+            val activeTrack = track ?: return AndroidAudioRouteEvidence()
+            return activeTrack.activeRouteEvidence(clockAdvancing = currentRouteOutputAdvancing())
+        }
+
+    val audioRouteLabel: String get() = routeEvidence.label
+
+    val audioRouteVerified: Boolean get() = routeEvidence.verified
 
     val clockSource: String
         get() = lastClockSource?.name ?: if (staleClockFallback) "WallClockFallback" else "Unavailable"
@@ -54,7 +83,8 @@ internal class AndroidAudioTrackRenderNode(
     fun configure(format: MediaFormat) {
         release()
         sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-        track = createTrack(format)
+        track = createTrack(format).also { it.addOnRoutingChangedListener(routingListener, null) }
+        configuredFormat = format
         spatialAudioState = spatialAudioProbe?.current(format) ?: AndroidSpatialAudioState()
         basePresentationTimeUs = null
         requestedPlay = false
@@ -186,12 +216,14 @@ internal class AndroidAudioTrackRenderNode(
     override fun release() {
         val audioTrack = track
         track = null
+        configuredFormat = null
         requestedPlay = false
         sampleRate = 0
         basePresentationTimeUs = null
         resetClockProgress()
         spatialAudioState = AndroidSpatialAudioState()
         if (audioTrack != null) {
+            runCatching { audioTrack.removeOnRoutingChangedListener(routingListener) }
             runCatching { audioTrack.pause() }
             runCatching { audioTrack.flush() }
             runCatching { audioTrack.release() }
@@ -200,8 +232,18 @@ internal class AndroidAudioTrackRenderNode(
 
     private fun resetClockProgress() {
         clockProgressGuard.reset()
+        routedOutputProgress.reset()
         lastClockSource = null
         staleClockFallback = false
+    }
+
+    private fun currentRouteOutputAdvancing(): Boolean {
+        val audioTrack = track ?: return false
+        return routedOutputProgress.observe(
+            currentRouteGeneration = routingGeneration.get(),
+            clock = clockSnapshot(),
+            playing = requestedPlay && audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING,
+        )
     }
 }
 

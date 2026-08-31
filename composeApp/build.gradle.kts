@@ -45,9 +45,14 @@ val includeYCoreGpuCompanion =
             .asFile
             .isFile
 
-// The system-native profile is deliberately MediaExtractor/MediaCodec-only. GPU/FFmpeg carriers
-// belong to the full compatibility package and must never enter a native-only APK.
-val packagedYCoreGpu = includeYCoreGpuCompanion
+// Native-only owns the dependency-closed YCore AAR. Compatibility packages receive only the
+// isolated GPU companion because libmpv already supplies the demux/FFmpeg dependency closure.
+val packagedYCoreGpu =
+    if (nativeOnlyRuntime) {
+        layout.projectDirectory.file("libs/ycore-native.aar").asFile.isFile
+    } else {
+        includeYCoreGpuCompanion
+    }
 
 /**
  * Keeps feature code on the semantic design-system surface. These are deliberately simple
@@ -253,7 +258,10 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ycore-demux-ffmpeg=b79d4c4c0a160fc46988e98505af6039a53ad53e",
             "ycore-software-decoder-api=2",
             "ycore-tone-map-source=scripts/native/ycore_tone_map.h",
+            "ycore-libass=0.17.4",
+            "ycore-libass-api=1",
             "ycore-disc-api=2",
+            "ycore-bdmv-vfs=read-only-saf",
             "ycore-gpu-api=2",
             "ycore-gpu-source=scripts/native/ycore_vulkan_jni.cpp",
             "ycore-gpu-renderer-source=scripts/native/ycore_vulkan_renderer.cpp",
@@ -618,7 +626,8 @@ kotlin {
             if (includeMdk) {
                 implementation(project(":mdkAndroid"))
             } else {
-                // Compile the adapter but omit its Java facade and native runtime from compact APKs.
+                // Keep the legacy adapter source-compatible during migration without defining or
+                // packaging the MDK facade/runtime in a pure-YCore APK.
                 compileOnly(project(":mdkAndroid"))
             }
             implementation(libs.ktor.okhttp)
@@ -630,13 +639,26 @@ kotlin {
             implementation(libs.androidx.camera.camera2)
             implementation(libs.androidx.camera.lifecycle)
             implementation(libs.androidx.camera.view)
-            implementation(libs.media3.exoplayer)
-            implementation(libs.media3.ui)
-            implementation(libs.media3.hls)
-            implementation(libs.media3.dash)
-            // Native-only builds compile compatibility adapters but package no third-party player
-            // runtime. Their executable path is Android MediaExtractor/MediaCodec/AudioTrack.
+            // Cache/data-source utilities remain temporarily while their YCore replacements are
+            // completed. None of these modules contains the ExoPlayer playback runtime.
+            implementation(libs.media3.common)
+            implementation(libs.media3.database)
+            implementation(libs.media3.datasource)
             if (nativeOnlyRuntime) {
+                // Compatibility adapters remain source-compatible until the final deletion stage,
+                // but their third-party playback runtime must not enter a pure YCore APK.
+                compileOnly(libs.media3.exoplayer)
+                compileOnly(libs.media3.ui)
+                compileOnly(libs.media3.hls)
+                compileOnly(libs.media3.dash)
+            } else {
+                implementation(libs.media3.exoplayer)
+                implementation(libs.media3.ui)
+                implementation(libs.media3.hls)
+                implementation(libs.media3.dash)
+            }
+            if (nativeOnlyRuntime) {
+                implementation(files("libs/ycore-native.aar"))
                 compileOnly(files("libs/libmpv-release.aar"))
             } else {
                 implementation(files("libs/libmpv-release.aar"))
@@ -658,10 +680,14 @@ kotlin {
             // so signed calendar revisions need a bundled verifier on older devices.
             implementation(libs.bouncycastle.provider)
         }
-
         androidUnitTest.dependencies {
             implementation(libs.okhttp.mockwebserver)
             implementation(libs.okhttp.tls)
+            if (nativeOnlyRuntime) {
+                // Legacy adapter tests still compile during the migration, but this dependency is
+                // confined to the host-side test process and never reaches an application APK.
+                implementation(libs.media3.exoplayer)
+            }
         }
 
         androidInstrumentedTest.dependencies {
@@ -1056,7 +1082,11 @@ tasks.register<BumpVersionTask>("bumpVersion") {
 
 tasks.configureEach {
     if (name == "preBuild") {
-        dependsOn(verifyCustomMpvArtifact)
+        if (nativeOnlyRuntime) {
+            dependsOn(verifyStandaloneYCoreArtifact)
+        } else {
+            dependsOn(verifyCustomMpvArtifact)
+        }
         if (includeYCoreGpuCompanion) {
             dependsOn(verifyYCoreGpuCompanionArtifact)
         }

@@ -112,7 +112,7 @@ internal class AndroidCronetMediaTransport(
             val builder = engine.newUrlRequestBuilder(request.uri, callback, callbackExecutor)
             builder.addHeader("Accept-Encoding", "identity")
             builder.addHeader("Cache-Control", "no-transform")
-            request.headers.forEach { (name, value) ->
+            request.headers.withHttpBasicCredentials(request.credentials).forEach { (name, value) ->
                 require(name.isSafeCronetHeader() && value.isSafeCronetHeader())
                 builder.addHeader(name, value)
             }
@@ -133,12 +133,14 @@ internal class AndroidCronetMediaTransport(
                     closeRequest()
                     throw IOException("Cronet response metadata is unavailable")
                 }
-            val contentRange = info.headerValue("Content-Range")?.let(::parseContentRange)
+            val rawContentRange = info.headerValue("Content-Range")
+            val contentRange = rawContentRange?.let(::parseContentRange)
             val protocol = info.negotiatedProtocol.lowercase()
             YMediaTransportResponse(
                 statusCode = info.httpStatusCode,
                 contentLength =
                     contentRange?.total
+                        ?: parseUnsatisfiedContentRangeLength(rawContentRange)
                         ?: info.headerValue("Content-Length")?.toLongOrNull(),
                 acceptedRange = contentRange?.let { YByteRange(it.start, it.end) },
                 features =

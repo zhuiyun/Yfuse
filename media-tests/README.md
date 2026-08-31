@@ -107,16 +107,25 @@ python3 scripts/ycore-release-evidence.py verify \
 `verify` exits nonzero unless every gate is `Pass`. Missing measurements stay `NotMeasured`; a
 partial matrix or insufficient count is `Fail`. Reports store only a SHA-256 hash of the adb serial,
 not the raw serial. The temporary instrumentation log remains local and is deleted after collection.
+The runner also refuses a mismatched commit, tracked changes, or untracked source files, and the
+verified decision records the canonical suite SHA-256. This prevents a locally modified APK or a
+reduced one-case suite from being presented as evidence for a clean release commit.
 
 Dolby gates use machine evidence, not labels. P5/P8/P10 require verified native-DV output. P7
 requires an observed RPU/EL to reach the exact Dolby decoder, then a rendered native-DV frame before
 RPU is considered applied. EL delivery is reported independently and never satisfies the P7 FEL
 gate; FEL remains `Fail`/`NotMeasured` until an independent output trace proves EL contribution.
 
-Atmos and dual-Dolby gates are equally strict. E-AC3 JOC and TrueHD Atmos cases must report a
-verified encoded `AudioTrack` output, not just an Atmos source codec. A dual-Dolby case passes only
-when that Atmos evidence and verified native Dolby Vision output occur in the same healthy,
-non-transcoded observation. Separate successful video and audio runs are never combined.
+Atmos and dual-Dolby gates are equally strict. E-AC3 JOC and TrueHD Atmos cases must report an
+advancing encoded `AudioTrack`, the active routed device, an Atmos source identity, and an exact
+`Eac3JocPassthrough` or independently verified `TrueHdAtmosPassthrough` output mode. A generic
+TrueHD carrier remains `TrueHdCarrierPassthrough` and cannot satisfy the Atmos gate. A dual-Dolby
+case passes only when that Atmos evidence and verified native Dolby Vision output occur in the same
+healthy, non-transcoded observation. Separate successful video and audio runs are never combined.
+
+Mobile/headphone parity is recorded separately as `AtmosSourceSpatializedPcm`: it requires an Atmos
+source, advancing PCM `AudioTrack`, a verified active route and Android's format-specific
+Spatializer. It may satisfy presentation diagnostics, but never the encoded-passthrough gate.
 
 For development, the individual instrumentation methods can still be invoked directly with
 `ycoreMediaManifest`, `ycoreSmokeMedia`, or `ycoreSoakMedia`. Direct invocations are useful for

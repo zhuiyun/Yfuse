@@ -19,6 +19,8 @@ class AndroidCore2TrialTest {
         assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Bdmv, "content"))
         assertFalse(supportsYCoreNativeDiscSource(PlaybackDiscKind.Bdmv, "https"))
         assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Iso, "https"))
+        assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Iso, "webdavs"))
+        assertTrue(supportsYCoreNativeDiscSource(PlaybackDiscKind.Iso, "smb"))
         assertFalse(supportsYCoreNativeDiscSource(PlaybackDiscKind.Dvd, "file"))
     }
 
@@ -67,7 +69,7 @@ class AndroidCore2TrialTest {
                 fallbackTranscodeUrl = "",
                 container = "mp4",
             )
-        val unsupportedDrmItem =
+        val cmafHlsDrmItem =
             mediaItem("https://media.example.test/secure.m3u8").copy(
                 versions = listOf(misleadingHlsVersion),
                 versionId = misleadingHlsVersion.id,
@@ -95,6 +97,11 @@ class AndroidCore2TrialTest {
                             codec = "srt",
                             default = true,
                         ),
+                        PlayerExternalSubtitle(
+                            uri = "https://media.example.test/subtitle/2.ass",
+                            language = "eng",
+                            codec = "ass",
+                        ),
                     ),
             )
         val discVersion =
@@ -114,11 +121,11 @@ class AndroidCore2TrialTest {
             )
 
         assertTrue(listOf(drmItem).canUseCore2Trial(startIndex = 0))
-        assertFalse(listOf(unsupportedDrmItem).canUseCore2Trial(startIndex = 0))
+        assertTrue(listOf(cmafHlsDrmItem).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(subtitleItem).canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(unsupportedSubtitleItem).canUseCore2Trial(startIndex = 0))
         assertFalse(listOf(ttmlSubtitleItem).canUseCore2Trial(startIndex = 0))
-        assertFalse(listOf(providerSidecars).canUseCore2Trial(startIndex = 0))
+        assertTrue(listOf(providerSidecars).canUseCore2Trial(startIndex = 0))
         assertTrue(listOf(discItem).canUseCore2Trial(startIndex = 0))
         assertTrue(
             listOf(mediaItem("https://media/movie"), subtitleItem)
@@ -183,8 +190,9 @@ class AndroidCore2TrialTest {
         assertEquals(item.id, mapped.cacheIdentity?.mediaId)
         assertEquals(512L * 1024L * 1024L, mapped.cacheMaximumBytes)
         assertEquals("Yfuse-Test/2.0", mapped.headers["User-Agent"])
-        assertEquals(item.externalSubtitleUri, mapped.externalSubtitle?.uri)
-        assertEquals(item.externalSubtitleLanguage, mapped.externalSubtitle?.language)
+        assertEquals(item.externalSubtitleUri, mapped.externalSubtitles.single().uri)
+        assertEquals(item.externalSubtitleLanguage, mapped.externalSubtitles.single().language)
+        assertTrue(mapped.externalSubtitles.single().default)
         assertEquals(drm, mapped.drmConfiguration)
     }
 

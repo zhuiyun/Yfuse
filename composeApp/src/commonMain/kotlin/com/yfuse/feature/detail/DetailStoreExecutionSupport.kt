@@ -33,6 +33,8 @@ internal data class ResolvedPlaybackSelection(
     val seasons: List<Season>? = null,
     val selectedSeasonId: String? = null,
     val episodes: List<Episode>? = null,
+    /** Complete lightweight directory captured while resolving NextUp; not committed before filtering. */
+    val catalogEpisodes: List<Episode>? = null,
 )
 
 internal data class EpisodeCoordinate(
@@ -43,6 +45,9 @@ internal data class EpisodeCoordinate(
 internal const val SOURCE_SELECTION_MAX_ATTEMPTS = 3
 internal const val SOURCE_SELECTION_RETRY_BASE_DELAY_MS = 250L
 internal const val SOURCE_SELECTION_TIMEOUT_MS = 45_000L
+internal const val PLAYBACK_RESOLUTION_TIMEOUT_MS = 5_000L
+
+internal class PlaybackResolutionTimeoutException : Exception("playback resolution timed out")
 
 internal sealed interface DetailMsg {
     data object Loading : DetailMsg
@@ -129,7 +134,13 @@ internal sealed interface DetailMsg {
         val value: Boolean,
     ) : DetailMsg
 
-    data class WatchLaterBusy(
+    data class WatchLaterLoading(
+        val serverId: String,
+        val itemId: String,
+        val value: Boolean,
+    ) : DetailMsg
+
+    data class WatchLaterMutating(
         val serverId: String,
         val itemId: String,
         val value: Boolean,

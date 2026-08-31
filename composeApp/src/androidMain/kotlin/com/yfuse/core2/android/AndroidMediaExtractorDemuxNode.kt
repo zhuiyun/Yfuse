@@ -8,14 +8,19 @@ import android.media.MediaFormat
 import android.net.Uri
 import com.yfuse.core2.graph.YDemuxNode
 import com.yfuse.core2.network.YCacheIdentity
+import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
+import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.sync.YMediaTimestampTimeline
+import kotlinx.coroutines.runBlocking
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.UUID
 
 internal data class YAndroidMediaSource(
     val uri: String,
     val headers: Map<String, String> = emptyMap(),
+    val credentials: YTransportCredentials? = null,
     val bitrateBitsPerSecond: Long = 0L,
     val cacheIdentity: YCacheIdentity? = null,
     val cacheMaximumBytes: Long = 0L,
@@ -108,11 +113,32 @@ internal class AndroidMediaExtractorDemuxNode(
         }
     }
 
-    fun drmInitializationData(schemeUuid: UUID): ByteArray? =
+    fun drmInitializationData(schemeUuid: UUID): ByteArray? {
         requireExtractor()
             .psshInfo
             ?.get(schemeUuid)
             ?.copyOf()
+            ?.let { return it }
+        if (schemeUuid != WIDEVINE_UUID) return null
+        val source = currentSource ?: return null
+        val root =
+            readBoundedUri(
+                source.uri,
+                source.headers,
+                source.credentials,
+                MAX_ADAPTIVE_DRM_MANIFEST_BYTES,
+            )
+            ?.decodeToString()
+            ?: return null
+        return resolveWidevineAdaptiveInitializationData(root, source.uri) { childUri ->
+            readBoundedUri(
+                childUri,
+                source.headers,
+                source.credentials,
+                MAX_ADAPTIVE_DRM_MANIFEST_BYTES,
+            )?.decodeToString()
+        }
+    }
 
     fun setMediaBitRateBitsPerSecond(value: Long) {
         (mediaDataSource as? AndroidTransportMediaDataSource)
@@ -218,6 +244,65 @@ internal class AndroidMediaExtractorDemuxNode(
             "MediaExtractor demux node has not been opened"
         }
 
+    private fun readBoundedUri(
+        uri: String,
+        headers: Map<String, String>,
+        credentials: YTransportCredentials?,
+        maximumBytes: Int,
+    ): ByteArray? {
+        require(maximumBytes > 0)
+        val parsed = Uri.parse(uri)
+        return when (parsed.scheme?.lowercase()) {
+            "content", "android.resource", "file" ->
+                appContext.contentResolver.openInputStream(parsed)?.use { input ->
+                    input.readBounded(maximumBytes)
+                }
+            "http", "https" ->
+                runBlocking {
+                    val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
+                    try {
+                        val response =
+                            transport.open(
+                                YMediaTransportRequest(
+                                    uri = uri,
+                                    protocol =
+                                        if (parsed.scheme.equals("https", ignoreCase = true)) {
+                                            YSourceProtocol.Https
+                                        } else {
+                                            YSourceProtocol.Http
+                                        },
+                                    headers = headers,
+                                    credentials = credentials,
+                                ),
+                            )
+                        require(response.statusCode in 200..299) {
+                            "Adaptive DRM manifest request failed"
+                        }
+                        response.contentLength?.let { length ->
+                            require(length <= maximumBytes.toLong()) {
+                                "Adaptive DRM manifest is too large"
+                            }
+                        }
+                        val output = ByteArrayOutputStream()
+                        val buffer = ByteArray(DRM_MANIFEST_IO_BUFFER_BYTES)
+                        while (true) {
+                            val count = transport.read(buffer, 0, buffer.size)
+                            if (count < 0) break
+                            if (count == 0) continue
+                            require(output.size() <= maximumBytes - count) {
+                                "Adaptive DRM manifest is too large"
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                        output.toByteArray()
+                    } finally {
+                        transport.close()
+                    }
+                }
+            else -> null
+        }
+    }
+
     private fun MediaExtractor.setPrivateDataSource(source: YAndroidMediaSource) {
         val parsed = Uri.parse(source.uri)
         when (parsed.scheme?.lowercase()) {
@@ -237,6 +322,7 @@ internal class AndroidMediaExtractorDemuxNode(
                                 YSourceProtocol.Http
                             },
                         headers = source.headers,
+                        credentials = source.credentials,
                         initialMediaBitRateBitsPerSecond = source.bitrateBitsPerSecond,
                         cacheDirectory = appContext.cacheDir,
                         cacheIdentity = source.cacheIdentity,
@@ -262,6 +348,7 @@ internal class AndroidMediaExtractorDemuxNode(
                         uri = normalizedUri,
                         protocol = if (tls) YSourceProtocol.WebDavTls else YSourceProtocol.WebDav,
                         headers = source.headers,
+                        credentials = source.credentials,
                         initialMediaBitRateBitsPerSecond = source.bitrateBitsPerSecond,
                         cacheDirectory = appContext.cacheDir,
                         cacheIdentity = source.cacheIdentity,
@@ -277,6 +364,7 @@ internal class AndroidMediaExtractorDemuxNode(
                         uri = source.uri,
                         protocol = YSourceProtocol.Smb,
                         headers = source.headers,
+                        credentials = source.credentials,
                         initialMediaBitRateBitsPerSecond = source.bitrateBitsPerSecond,
                         cacheDirectory = appContext.cacheDir,
                         cacheIdentity = source.cacheIdentity,
@@ -289,6 +377,19 @@ internal class AndroidMediaExtractorDemuxNode(
             else -> setDataSource(source.uri, source.headers)
         }
     }
+}
+
+private fun java.io.InputStream.readBounded(maximumBytes: Int): ByteArray {
+    val output = ByteArrayOutputStream()
+    val buffer = ByteArray(DRM_MANIFEST_IO_BUFFER_BYTES)
+    while (true) {
+        val count = read(buffer)
+        if (count < 0) break
+        if (count == 0) continue
+        require(output.size() <= maximumBytes - count) { "Adaptive DRM manifest is too large" }
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray()
 }
 
 internal fun MediaFormat.maxInputSizeOr(defaultBytes: Int): Int =
@@ -308,13 +409,20 @@ private fun String.isAdaptiveManifestUri(): Boolean {
 }
 
 private fun MediaCodec.CryptoInfo.toExtractorCryptoInfo(): YExtractorCryptoInfo =
-    YExtractorCryptoInfo(
-        numberOfSubSamples = numSubSamples,
-        clearBytes = numBytesOfClearData?.copyOf(),
-        encryptedBytes = numBytesOfEncryptedData?.copyOf(),
-        key = requireNotNull(key).copyOf(),
-        initializationVector = requireNotNull(iv).copyOf(),
-        mode = mode,
-    )
+    getPattern().let { pattern ->
+        YExtractorCryptoInfo(
+            numberOfSubSamples = numSubSamples,
+            clearBytes = numBytesOfClearData?.copyOf(),
+            encryptedBytes = numBytesOfEncryptedData?.copyOf(),
+            key = requireNotNull(key).copyOf(),
+            initializationVector = requireNotNull(iv).copyOf(),
+            mode = mode,
+            encryptedBlocks = pattern.encryptBlocks,
+            clearBlocks = pattern.skipBlocks,
+        )
+    }
 
 private const val MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE = -1L
+private const val MAX_ADAPTIVE_DRM_MANIFEST_BYTES = 8 * 1024 * 1024
+private const val DRM_MANIFEST_IO_BUFFER_BYTES = 32 * 1024
+private val WIDEVINE_UUID: UUID = UUID.fromString("edef8ba9-79d6-4ace-a3c8-27dcd51d21ed")

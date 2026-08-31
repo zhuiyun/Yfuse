@@ -754,6 +754,18 @@ class EmbyRepository(
             detailService.resolvePlayTarget(server, detail)
         }
 
+    /** Playback target plus a reusable series directory when the provider can return both cheaply. */
+    internal suspend fun resolvePlayTargetWithEpisodes(
+        server: SavedServer,
+        detail: MediaDetail,
+    ): Result<PlayTargetResolution> {
+        if (server.kind != MediaServerKind.Plex) {
+            return detailService.resolvePlayTargetWithEpisodes(server, detail)
+        }
+        val target = plex.resolvePlayTarget(server, detail).getOrElse { return Result.failure(it) }
+        return Result.success(PlayTargetResolution(target))
+    }
+
     /** Libraries available to advanced search filters. */
     suspend fun mediaLibraries(server: SavedServer): Result<List<MediaLibrary>> = libraries(server)
 
@@ -989,11 +1001,12 @@ class EmbyRepository(
     suspend fun trickplayInfo(
         server: SavedServer,
         itemId: String,
+        mediaSourceId: String = itemId,
     ): Result<TrickplayInfo?> =
         if (server.kind == MediaServerKind.Plex) {
             plex.trickplayInfo(server, itemId)
         } else {
-            detailService.trickplayInfo(server, itemId)
+            detailService.trickplayInfo(server, itemId, mediaSourceId)
         }
 
     suspend fun searchRemoteSubtitles(

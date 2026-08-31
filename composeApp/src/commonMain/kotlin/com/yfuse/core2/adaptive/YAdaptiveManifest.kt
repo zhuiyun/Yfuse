@@ -141,7 +141,7 @@ sealed interface YHlsPlaylist {
     }
 }
 
-private fun String.isDolbyVisionHlsCodec(): Boolean {
+internal fun String.isDolbyVisionHlsCodec(): Boolean {
     val normalized = trim().lowercase()
     return normalized.startsWith("dvhe") ||
         normalized.startsWith("dvh1") ||
@@ -165,6 +165,16 @@ data class YDashContentProtection(
 ) {
     init {
         require(schemeIdUri.isNotBlank())
+    }
+}
+
+data class YDashDescriptor(
+    val schemeIdUri: String,
+    val value: String? = null,
+) {
+    init {
+        require(schemeIdUri.isNotBlank() && schemeIdUri.isSafeDashMetadata())
+        require(value == null || value.isSafeDashMetadata())
     }
 }
 
@@ -211,6 +221,7 @@ data class YDashRepresentation(
     val language: String? = null,
     val segmentTemplate: YDashSegmentTemplate? = null,
     val contentProtections: List<YDashContentProtection> = emptyList(),
+    val supplementalProperties: List<YDashDescriptor> = emptyList(),
 ) {
     init {
         require(id.isNotBlank())
@@ -232,17 +243,41 @@ data class YDashRepresentation(
             frameRate = frameRate,
             codecs = codecs,
         )
+
+    val isDolbyVision: Boolean
+        get() = codecs.any(String::isDolbyVisionHlsCodec)
+
+    val isDolbyAtmos: Boolean
+        get() =
+            contentType == YDashContentType.Audio &&
+                supplementalProperties.any { descriptor ->
+                    descriptor.value.orEmpty().contains("JOC", ignoreCase = true) ||
+                        descriptor.schemeIdUri.contains("EC3_ExtensionType", ignoreCase = true) &&
+                        descriptor.value.orEmpty().contains("2018", ignoreCase = true)
+                }
 }
 
 data class YDashManifest(
     val isLive: Boolean,
     val minimumUpdatePeriodUs: Long? = null,
     val mediaPresentationDurationUs: Long? = null,
+    val availabilityStartTime: String? = null,
+    val publishTime: String? = null,
+    val timeShiftBufferDepthUs: Long? = null,
+    val suggestedPresentationDelayUs: Long? = null,
+    val periodStartUs: Long? = null,
     val representations: List<YDashRepresentation>,
 ) {
     init {
         require(minimumUpdatePeriodUs == null || minimumUpdatePeriodUs > 0L)
         require(mediaPresentationDurationUs == null || mediaPresentationDurationUs > 0L)
+        require(availabilityStartTime == null || availabilityStartTime.isSafeDashMetadata())
+        require(publishTime == null || publishTime.isSafeDashMetadata())
+        require(timeShiftBufferDepthUs == null || timeShiftBufferDepthUs > 0L)
+        require(suggestedPresentationDelayUs == null || suggestedPresentationDelayUs > 0L)
+        require(periodStartUs == null || periodStartUs >= 0L)
         require(representations.isNotEmpty())
     }
 }
+
+private fun String.isSafeDashMetadata(): Boolean = isNotBlank() && none { it == '\r' || it == '\n' }

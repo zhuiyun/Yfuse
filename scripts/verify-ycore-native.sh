@@ -69,6 +69,8 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
   fail "YCore software decoder API v2 is missing"
 [[ "$(manifest_value ycore-tone-map-source)" == "scripts/native/ycore_tone_map.h" ]] ||
   fail "YCore HDR tone-map provenance is missing"
+[[ "$(manifest_value ycore-libass)" == "0.17.4" ]] || fail "unexpected libass revision"
+[[ "$(manifest_value ycore-libass-api)" == "1" ]] || fail "YCore libass renderer API v1 is missing"
 [[ "$(manifest_value ycore-disc-api)" == "2" ]] || fail "YCore disc API v2 (HDMV overlay/input) is missing"
 [[ "$(manifest_value ycore-bdmv-vfs)" == "read-only-saf" ]] ||
   fail "YCore read-only filesystem/SAF BDMV VFS is missing"
@@ -156,6 +158,10 @@ for bridge in "${bridges[@]}"; do
     grep -F "$symbol" "$symbols" >/dev/null ||
       fail "$abi bridge is missing software-decode symbol $symbol"
   done
+  grep -F 'nativeAssRendererApiVersion' "$bridge_strings" >/dev/null ||
+    fail "$abi bridge is missing the registered libass renderer API"
+  grep -F 'Unable to create libass subtitle track' "$bridge_strings" >/dev/null ||
+    fail "$abi bridge does not contain the executable ASS/SSA render path"
   if grep -E 'avcodec_(send_frame|receive_packet)' "$symbols" >/dev/null; then
     fail "$abi bridge unexpectedly links FFmpeg encode entry points"
   fi
@@ -201,6 +207,7 @@ done
 
 printf 'verified standalone YCore runtime: %s\n' "$AAR"
 printf 'FFmpeg: %s; demux + software decode + HDR tone map\n' "$FFMPEG_REVISION"
+printf 'Subtitles: statically linked libass 0.17.4 plus FFmpeg bitmap subtitle decode\n'
 printf 'Blu-ray: libbluray 1.4.1 through opaque block I/O and read-only SAF BDMV VFS\n'
 printf 'GPU: ImageReader/AHardwareBuffer + Vulkan YCbCr shader + measured swapchain presentation\n'
 printf 'purity: no mpv, player, MDK, or Java engine classes\n'

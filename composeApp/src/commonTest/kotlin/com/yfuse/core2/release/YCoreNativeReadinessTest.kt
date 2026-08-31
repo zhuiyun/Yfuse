@@ -38,6 +38,20 @@ class YCoreNativeReadinessTest {
     }
 
     @Test
+    fun absence_of_a_required_native_component_fails_dependency_purity() {
+        val report =
+            evaluateYCoreNativeBaseline(
+                completeEvidence().copy(
+                    runtimeDependencies =
+                        completeEvidence().runtimeDependencies - YCoreNativeRuntimeDependency.Libass,
+                ),
+            )
+
+        assertFalse(report.releaseReady)
+        assertEquals(YCoreNativeGateStatus.Fail, report.dependencyPurity)
+    }
+
+    @Test
     fun complete_pure_evidence_releases_the_baseline() {
         val report = evaluateYCoreNativeBaseline(completeEvidence())
 
@@ -90,7 +104,10 @@ class YCoreNativeReadinessTest {
             setOf(
                 YCoreNativeRuntimeDependency.AndroidPlatform,
                 YCoreNativeRuntimeDependency.YCoreNative,
+                YCoreNativeRuntimeDependency.YCoreGpu,
                 YCoreNativeRuntimeDependency.Ffmpeg,
+                YCoreNativeRuntimeDependency.Libass,
+                YCoreNativeRuntimeDependency.Libbluray,
             ),
     ) = YCoreNativeBaselineEvidence(
         runtimeDependencies = dependencies,

@@ -2,14 +2,13 @@ package com.yfuse.core2.android
 
 import android.media.MediaDataSource
 import android.os.Looper
-import com.yfuse.core2.network.YByteRange
 import com.yfuse.core2.network.YCacheConditions
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YCachePlanner
 import com.yfuse.core2.network.YMediaTransport
-import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFailureKind
+import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.network.mediaRangeRetryDelayMs
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -27,6 +26,7 @@ internal class AndroidTransportMediaDataSource(
     private val uri: String,
     private val protocol: YSourceProtocol,
     private val headers: Map<String, String>,
+    private val credentials: YTransportCredentials? = null,
     private val createTransport: () -> YMediaTransport,
     initialMediaBitRateBitsPerSecond: Long = 0L,
     cacheDirectory: File? = null,
@@ -230,11 +230,13 @@ internal class AndroidTransportMediaDataSource(
             try {
                 val response =
                     blockTransport.open(
-                        YMediaTransportRequest(
+                        yCoreRandomAccessRequest(
                             uri = uri,
                             protocol = protocol,
-                            range = YByteRange(position, end),
+                            startInclusive = position,
+                            endInclusive = end,
                             headers = headers,
+                            credentials = credentials,
                         ),
                     )
                 if (response.statusCode != 206) {

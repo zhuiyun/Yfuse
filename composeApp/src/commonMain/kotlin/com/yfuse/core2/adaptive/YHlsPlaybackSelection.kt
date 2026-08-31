@@ -9,6 +9,7 @@ data class YHlsPlaybackSet(
     val initialVariant: YAdaptiveVariant,
     val variants: List<YAdaptiveVariant>,
     val renditions: List<YHlsRendition>,
+    val selectedAudioRendition: YHlsRendition? = null,
 )
 
 /**
@@ -66,14 +67,19 @@ fun selectYHlsPlaybackSet(
     val auxiliary =
         master.renditions.filter { rendition ->
             when (rendition.type) {
-                YHlsRenditionType.Audio -> rendition == selectedAudio
+                YHlsRenditionType.Audio -> rendition.groupId == initial.audioGroupId
                 YHlsRenditionType.Video -> rendition.groupId == initial.videoGroupId
                 YHlsRenditionType.Subtitles -> rendition.groupId == initial.subtitleGroupId
                 YHlsRenditionType.ClosedCaptions -> rendition.groupId == initial.closedCaptionsGroupId
                 YHlsRenditionType.Unknown -> false
             }
         }
-    return YHlsPlaybackSet(initialVariant = initial, variants = ladder, renditions = auxiliary)
+    return YHlsPlaybackSet(
+        initialVariant = initial,
+        variants = ladder,
+        renditions = auxiliary,
+        selectedAudioRendition = selectedAudio,
+    )
 }
 
 /** Renders a bounded master containing only the selected Dolby family and its adaptive ladder. */
@@ -90,8 +96,14 @@ fun buildYHlsPlaybackMaster(
             append(",GROUP-ID=").appendQuoted(rendition.groupId)
             append(",NAME=").appendQuoted(rendition.name)
             rendition.language?.let { append(",LANGUAGE=").appendQuoted(it) }
-            val selectedAudio = rendition.type == YHlsRenditionType.Audio
-            append(",DEFAULT=").append(if (selectedAudio || rendition.default) "YES" else "NO")
+            val selectedAudio = rendition == playback.selectedAudioRendition
+            val default =
+                if (rendition.type == YHlsRenditionType.Audio && playback.selectedAudioRendition != null) {
+                    selectedAudio
+                } else {
+                    rendition.default
+                }
+            append(",DEFAULT=").append(if (default) "YES" else "NO")
             append(",AUTOSELECT=").append(if (selectedAudio || rendition.autoselect) "YES" else "NO")
             if (rendition.type == YHlsRenditionType.Subtitles) {
                 append(",FORCED=").append(if (rendition.forced) "YES" else "NO")

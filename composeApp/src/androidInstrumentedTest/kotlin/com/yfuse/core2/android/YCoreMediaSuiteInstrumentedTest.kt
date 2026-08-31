@@ -267,6 +267,17 @@ class YCoreMediaSuiteInstrumentedTest {
             }
 
             repeat(surfaceRecreationIterations) { iteration ->
+                val beforeRecreation = player.state.value
+                if (
+                    beforeRecreation.phase == YPlaybackPhase.Ended ||
+                    beforeRecreation.durationMs > 0L &&
+                    beforeRecreation.positionMs >= beforeRecreation.durationMs - SURFACE_STRESS_END_GUARD_MS
+                ) {
+                    awaitFreshVideoOutput(player, "${testCase.id}:surface-reposition-${iteration + 1}") {
+                        player.seekTo(stressSeekTarget(beforeRecreation.durationMs, iteration))
+                        player.play()
+                    }
+                }
                 player.pause()
                 assertTrue(player.setVideoOutput(null))
                 awaitVideoOutputDetached(player, "${testCase.id}:surface-detach-${iteration + 1}")
@@ -284,7 +295,12 @@ class YCoreMediaSuiteInstrumentedTest {
                 }
                 completedSurfaceRecreations += 1
                 health.sample(player.state.value)
-                reportProgress("${testCase.id}: completed Surface recreation ${iteration + 1}")
+                if (
+                    (iteration + 1) % SURFACE_PROGRESS_INTERVAL == 0 ||
+                    iteration + 1 == surfaceRecreationIterations
+                ) {
+                    reportProgress("${testCase.id}: completed Surface recreation ${iteration + 1}")
+                }
             }
 
             player.pause()
@@ -690,6 +706,11 @@ class YCoreMediaSuiteInstrumentedTest {
                 // must opt in explicitly instead of silently inheriting false.
                 serverTranscodeUsed = false,
                 audioOutputVerified = state.diagnostics.audioOutputVerified,
+                audioOutputRoute = state.diagnostics.audioOutputRoute.takeIf(String::isNotBlank),
+                audioOutputRouteVerified = state.diagnostics.audioOutputRouteVerified,
+                dolbyAtmosSourceDetected = state.diagnostics.dolbyAtmosSourceDetected,
+                dolbyAtmosOutputMode = state.diagnostics.dolbyAtmosOutputMode.name,
+                spatialAudioOutput = state.diagnostics.spatialAudioOutput,
                 dolbyAtmosOutput = state.diagnostics.dolbyAtmosOutput,
                 dolbyVisionOutput = state.diagnostics.dolbyVisionOutput,
                 dolbyRpuApplied = state.diagnostics.dolbyVisionRpuApplied,
@@ -765,6 +786,7 @@ private const val SURFACE_ITERATIONS_ARGUMENT = "ycoreSurfaceIterations"
 private const val PLAYBACK_TIMEOUT_MS = 30_000L
 private const val POLL_INTERVAL_MS = 100L
 private const val SURFACE_DETACH_SETTLE_MS = 150L
+private const val SURFACE_STRESS_END_GUARD_MS = 1_000L
 private const val BASELINE_SEEK_ITERATIONS = 100
 private const val BASELINE_SURFACE_RECREATIONS = 8
 private const val MATRIX_SEEK_ITERATIONS = 10
@@ -776,6 +798,7 @@ private const val MIN_SEEK_TARGET_MS = 250L
 private const val SEEK_END_GUARD_MS = 750L
 private const val SEEK_TARGET_STEP_MS = 791L
 private const val PROGRESS_INTERVAL = 5
+private const val SURFACE_PROGRESS_INTERVAL = 10
 private const val PROGRESS_STATUS_CODE = 2
 private const val RESULT_STATUS_CODE = 3
 private const val RESULT_BUNDLE_KEY = "ycoreResult"

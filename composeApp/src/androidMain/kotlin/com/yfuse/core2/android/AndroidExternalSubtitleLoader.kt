@@ -5,15 +5,16 @@ import android.net.Uri
 import com.yfuse.core2.api.YExternalSubtitleSource
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
+import com.yfuse.core2.network.YMediaTransportRequest
+import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YTextSubtitleParser
 import com.yfuse.core2.subtitle.decodeExternalSubtitleText
 import com.yfuse.core2.subtitle.externalTextSubtitleFormat
+import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 internal data class AndroidLoadedExternalSubtitle(
     val track: YTrack,
@@ -29,6 +30,7 @@ internal class AndroidExternalSubtitleLoader(
     fun load(
         source: YExternalSubtitleSource,
         headers: Map<String, String>,
+        trackId: String = EXTERNAL_SUBTITLE_TRACK_ID,
     ): AndroidLoadedExternalSubtitle {
         val loaded = read(source.uri, headers)
         val text = decodeExternalSubtitleText(loaded.data)
@@ -48,7 +50,7 @@ internal class AndroidExternalSubtitleLoader(
         return AndroidLoadedExternalSubtitle(
             track =
                 YTrack(
-                    id = EXTERNAL_SUBTITLE_TRACK_ID,
+                    id = trackId,
                     type = YTrackType.Subtitle,
                     label = source.language?.takeIf(String::isNotBlank) ?: "External subtitle",
                     language = source.language,
@@ -81,27 +83,48 @@ internal class AndroidExternalSubtitleLoader(
     private fun readHttp(
         uri: String,
         headers: Map<String, String>,
-    ): LoadedBytes {
-        val connection = URL(uri).openConnection() as HttpURLConnection
-        return try {
-            connection.instanceFollowRedirects = true
-            connection.connectTimeout = HTTP_CONNECT_TIMEOUT_MS
-            connection.readTimeout = HTTP_READ_TIMEOUT_MS
-            headers.forEach(connection::setRequestProperty)
-            connection.connect()
-            require(connection.responseCode in 200..299) { "External subtitle request failed" }
-            val declaredLength = connection.contentLengthLong
-            require(declaredLength < 0L || declaredLength <= MAX_EXTERNAL_SUBTITLE_BYTES) {
-                "External subtitle exceeds the size limit"
+    ): LoadedBytes =
+        runBlocking {
+            val protocol =
+                if (Uri.parse(uri).scheme.equals("https", ignoreCase = true)) {
+                    YSourceProtocol.Https
+                } else {
+                    YSourceProtocol.Http
+                }
+            val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
+            try {
+                val response =
+                    transport.open(
+                        YMediaTransportRequest(
+                            uri = uri,
+                            protocol = protocol,
+                            headers = headers,
+                        ),
+                    )
+                require(response.statusCode in 200..299) { "External subtitle request failed" }
+                response.contentLength?.let { declaredLength ->
+                    require(declaredLength <= MAX_EXTERNAL_SUBTITLE_BYTES) {
+                        "External subtitle exceeds the size limit"
+                    }
+                }
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(READ_BUFFER_BYTES)
+                var total = 0
+                while (true) {
+                    val count = transport.read(buffer, 0, buffer.size)
+                    if (count < 0) break
+                    if (count == 0) continue
+                    total += count
+                    require(total <= MAX_EXTERNAL_SUBTITLE_BYTES) {
+                        "External subtitle exceeds the size limit"
+                    }
+                    output.write(buffer, 0, count)
+                }
+                LoadedBytes(data = output.toByteArray(), mimeType = null)
+            } finally {
+                transport.close()
             }
-            LoadedBytes(
-                data = connection.inputStream.use(InputStream::readBoundedSubtitleBytes),
-                mimeType = connection.contentType,
-            )
-        } finally {
-            connection.disconnect()
         }
-    }
 }
 
 private data class LoadedBytes(
@@ -134,8 +157,12 @@ private fun YSubtitleFormat.externalMimeType(): String =
     }
 
 internal const val EXTERNAL_SUBTITLE_TRACK_ID = "subtitle:external"
+internal const val EXTERNAL_SUBTITLE_TRACK_PREFIX = "$EXTERNAL_SUBTITLE_TRACK_ID:"
+
+internal fun externalSubtitleTrackId(index: Int): String {
+    require(index >= 0)
+    return "$EXTERNAL_SUBTITLE_TRACK_PREFIX$index"
+}
 private const val FORMAT_SNIFF_CHARACTERS = 4_096
 private const val MAX_EXTERNAL_SUBTITLE_BYTES = 8 * 1024 * 1024
 private const val READ_BUFFER_BYTES = 16 * 1024
-private const val HTTP_CONNECT_TIMEOUT_MS = 10_000
-private const val HTTP_READ_TIMEOUT_MS = 20_000

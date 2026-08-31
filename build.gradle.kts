@@ -29,6 +29,8 @@ val securityOverrides =
     java.util.Properties().apply {
         rootProject.file("scripts/security-overrides.properties").inputStream().use { load(it) }
     }
+val nativeOnlyRuntimeRequested =
+    providers.gradleProperty("yfuseNativeOnlyRuntime").orNull?.trim()?.lowercase() in setOf("", "true")
 
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
@@ -70,6 +72,11 @@ subprojects {
         // Security-overridden modules are reproducibly pinned by security-overrides.properties,
         // so an older committed lock entry must not veto the centrally forced patched version.
         securityOverrides.stringPropertyNames().forEach { ignoredDependencies.add(it) }
+        if (nativeOnlyRuntimeRequested) {
+            // The pure profile deliberately removes locked compatibility runtimes. LENIENT still
+            // pins every dependency that remains resolved while allowing those stale entries out.
+            lockMode.set(org.gradle.api.artifacts.dsl.LockMode.LENIENT)
+        }
         lockAllConfigurations()
     }
 

@@ -3,13 +3,16 @@ package com.yfuse.core2.android
 import android.annotation.SuppressLint
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioRouting
 import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.os.Build
+import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.demux.YAudioTrackFormat
 import com.yfuse.core2.graph.YAudioRenderNode
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicLong
 
 /** Encoded AudioTrack sink used only after the active output route proves direct support. */
 internal class AndroidEncodedAudioTrackRenderNode(
@@ -19,17 +22,46 @@ internal class AndroidEncodedAudioTrackRenderNode(
 
     private var track: AudioTrack? = null
     private var format: YAudioTrackFormat? = null
+    private var sinkCodec: YAudioCodec? = null
     private var basePresentationTimeUs: Long? = null
     private var requestedPlay = false
+    private val routedOutputProgress = AndroidRoutedOutputProgress()
+
+    @Volatile
     private var exactDolbyAtmosTransport = false
+
+    private val routingGeneration = AtomicLong()
+    private val routingListener = AudioRouting.OnRoutingChangedListener { routingGeneration.incrementAndGet() }
+
+    val routingChangeGeneration: Long get() = routingGeneration.get()
+
+    private val routeEvidence: AndroidAudioRouteEvidence
+        get() {
+            val activeTrack = track ?: return AndroidAudioRouteEvidence()
+            return activeTrack.activeRouteEvidence(clockAdvancing = currentRouteOutputAdvancing())
+        }
+
+    val dolbyAtmosOutputMode: YDolbyAtmosOutputMode
+        get() =
+            resolveDolbyAtmosOutputMode(
+                sourceCodec = format?.codec,
+                sinkCodec = sinkCodec,
+                outputAdvancing = currentRouteOutputAdvancing(),
+                route = routeEvidence,
+                declaredExactTransport = exactDolbyAtmosTransport,
+            )
 
     val immersiveCarrierOutput: Boolean
         get() =
-            clockSnapshot() != null &&
+            currentRouteOutputAdvancing() &&
                 format?.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos, YAudioCodec.DtsX)
 
     val dolbyAtmosOutput: Boolean
-        get() = immersiveCarrierOutput && exactDolbyAtmosTransport
+        get() = dolbyAtmosOutputMode.encodedPassthrough
+
+    val audioRouteLabel: String get() = routeEvidence.label
+
+    val audioRouteVerified: Boolean get() = routeEvidence.verified
 
     fun configure(
         format: YAudioTrackFormat,
@@ -43,13 +75,21 @@ internal class AndroidEncodedAudioTrackRenderNode(
         requireNotNull(androidEncodedAudioEncoding(sinkFormat.codec)) {
             "${format.codec} has no Android encoded AudioTrack mapping"
         }
-        track = createTrack(sinkFormat)
+        track = createTrack(sinkFormat).also { it.addOnRoutingChangedListener(routingListener, null) }
         this.format = format
+        this.sinkCodec = sinkFormat.codec
         this.exactDolbyAtmosTransport =
             exactDolbyAtmosTransport &&
             format.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos)
         basePresentationTimeUs = null
         requestedPlay = false
+        routedOutputProgress.reset()
+    }
+
+    fun updateExactDolbyAtmosTransport(value: Boolean) {
+        exactDolbyAtmosTransport =
+            value &&
+            format?.codec in setOf(YAudioCodec.Eac3Joc, YAudioCodec.TrueHdAtmos)
     }
 
     fun play() {
@@ -82,6 +122,28 @@ internal class AndroidEncodedAudioTrackRenderNode(
             total += written
         }
         return total
+    }
+
+    /**
+     * Writes only the bytes accepted immediately by the encoded sink.
+     *
+     * Passthrough buffers can be much larger than PCM codec fragments and Android may apply HDMI
+     * backpressure while the receiver locks to a carrier. Keeping this call non-blocking prevents
+     * that device-side wait from stopping video dequeue and Surface release on the playback lane.
+     */
+    fun writeNonBlocking(
+        data: ByteBuffer,
+        presentationTimeUs: Long,
+    ): Int {
+        val audioTrack = checkNotNull(track) { "Encoded AudioTrack has not been configured" }
+        if (!data.hasRemaining()) return 0
+        val shouldAnchorClock = basePresentationTimeUs == null
+        val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_NON_BLOCKING)
+        check(written >= 0) { "Encoded AudioTrack.write failed with code $written" }
+        if (shouldAnchorClock && written > 0) {
+            basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
+        }
+        return written
     }
 
     fun clockSnapshot(): YAudioClockSnapshot? {
@@ -117,6 +179,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
         if (audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING) audioTrack.pause()
         audioTrack.flush()
         basePresentationTimeUs = null
+        routedOutputProgress.reset()
         if (resume) audioTrack.play()
     }
 
@@ -124,14 +187,26 @@ internal class AndroidEncodedAudioTrackRenderNode(
         val audioTrack = track
         track = null
         format = null
+        sinkCodec = null
         requestedPlay = false
         basePresentationTimeUs = null
         exactDolbyAtmosTransport = false
+        routedOutputProgress.reset()
         if (audioTrack != null) {
+            runCatching { audioTrack.removeOnRoutingChangedListener(routingListener) }
             runCatching { audioTrack.pause() }
             runCatching { audioTrack.flush() }
             runCatching { audioTrack.release() }
         }
+    }
+
+    private fun currentRouteOutputAdvancing(): Boolean {
+        val audioTrack = track ?: return false
+        return routedOutputProgress.observe(
+            currentRouteGeneration = routingGeneration.get(),
+            clock = clockSnapshot(),
+            playing = requestedPlay && audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING,
+        )
     }
 }
 

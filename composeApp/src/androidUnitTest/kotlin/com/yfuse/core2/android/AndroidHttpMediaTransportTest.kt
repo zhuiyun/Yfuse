@@ -1,8 +1,10 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.network.YByteRange
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
+import com.yfuse.core2.network.YTransportCredentials
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -12,6 +14,98 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 
 class AndroidHttpMediaTransportTest {
+    @Test
+    fun `FFmpeg enhanced WebDAV source keeps authorization after scheme normalization`() {
+        val request =
+            ffmpegSourceRequest(
+                YDemuxSource(
+                    uri = "webdavs://media.example/library/movie.mkv",
+                    headers = mapOf("X-Media-Key" to "opaque"),
+                    transportCredentials = YTransportCredentials.UsernamePassword("alice", "secret"),
+                ),
+            )
+
+        assertEquals("https://media.example/library/movie.mkv", request.uri)
+        assertEquals("opaque", request.headers["X-Media-Key"])
+        assertEquals("Basic YWxpY2U6c2VjcmV0", request.headers["Authorization"])
+    }
+
+    @Test
+    fun `FFmpeg enhanced source never replaces explicit authorization`() {
+        val request =
+            ffmpegSourceRequest(
+                YDemuxSource(
+                    uri = "https://media.example/movie.mkv",
+                    headers = mapOf("authorization" to "Bearer signed"),
+                    transportCredentials = YTransportCredentials.UsernamePassword("alice", "secret"),
+                ),
+            )
+
+        assertEquals(mapOf("authorization" to "Bearer signed"), request.headers)
+    }
+
+    @Test
+    fun `range 416 exposes total length for exact EOF handling`() =
+        runTest {
+            val server = MockWebServer()
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(416)
+                    .setHeader("Content-Range", "bytes */8192"),
+            )
+            server.start()
+            try {
+                val transport = AndroidHttpMediaTransport()
+                val response =
+                    transport.open(
+                        YMediaTransportRequest(
+                            uri = server.url("movie.iso").toString(),
+                            protocol = YSourceProtocol.Http,
+                            range = YByteRange(8192, 10239),
+                        ),
+                    )
+                assertEquals(416, response.statusCode)
+                assertEquals(8192L, response.contentLength)
+                transport.close()
+            } finally {
+                server.shutdown()
+            }
+        }
+
+    @Test
+    fun `WebDAV credentials become basic authorization without overriding an explicit header`() =
+        runTest {
+            val server = MockWebServer()
+            server.enqueue(MockResponse().setResponseCode(200).setBody("media"))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("media"))
+            server.start()
+            try {
+                val transport = AndroidHttpMediaTransport()
+                val credentials = YTransportCredentials.UsernamePassword("alice", "secret")
+
+                transport.open(
+                    YMediaTransportRequest(
+                        uri = server.url("dav/movie.mkv").toString(),
+                        protocol = YSourceProtocol.WebDav,
+                        credentials = credentials,
+                    ),
+                )
+                assertEquals("Basic YWxpY2U6c2VjcmV0", server.takeRequest().getHeader("Authorization"))
+                transport.open(
+                    YMediaTransportRequest(
+                        uri = server.url("dav/movie.mkv").toString(),
+                        protocol = YSourceProtocol.WebDav,
+                        headers = mapOf("Authorization" to "Bearer provider-token"),
+                        credentials = credentials,
+                    ),
+                )
+                assertEquals("Bearer provider-token", server.takeRequest().getHeader("Authorization"))
+                transport.close()
+            } finally {
+                server.shutdown()
+            }
+        }
+
     @Test
     fun `opens strict byte range and reads response incrementally`() =
         runTest {

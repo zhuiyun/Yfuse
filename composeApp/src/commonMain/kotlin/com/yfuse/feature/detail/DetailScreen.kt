@@ -495,10 +495,10 @@ fun DetailScreen(component: DetailComponent) {
                                         label = if (state.playPositionTicks > 0L) "继续播放" else "播放",
                                         detailLine = playDetailLine,
                                         resumeTimeLabel = formatResumePosition(state.playPositionTicks),
-                                        resolving = state.resolvingPlay || state.selectionLoading,
+                                        resolving = state.resolvingPlay,
                                         favorite = detail.isFavorite,
                                         watchLater = state.watchLater,
-                                        watchLaterBusy = state.watchLaterBusy,
+                                        watchLaterMutating = state.watchLaterMutating,
                                         canPlayFromStart = state.playPositionTicks > 0L,
                                         onPlay = { component.store.accept(DetailIntent.Play) },
                                         onPlayFromStart = {

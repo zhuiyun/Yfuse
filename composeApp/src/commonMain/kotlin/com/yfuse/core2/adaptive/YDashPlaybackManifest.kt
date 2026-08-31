@@ -3,6 +3,13 @@ package com.yfuse.core2.adaptive
 data class YDashPlaybackSelection(
     val video: YDashRepresentation,
     val audio: YDashRepresentation?,
+    val alternateAudio: List<YDashRepresentation> = emptyList(),
+    val text: List<YDashRepresentation> = emptyList(),
+)
+
+data class YDashPlaybackCapabilities(
+    val dolbyVisionOutput: Boolean = false,
+    val dolbyAtmosOutput: Boolean = false,
 )
 
 enum class YDashResourceKind {
@@ -14,16 +21,38 @@ enum class YDashResourceKind {
 fun selectYDashPlaybackRepresentations(
     manifest: YDashManifest,
     conditions: YAdaptiveSelectionConditions,
+    capabilities: YDashPlaybackCapabilities = YDashPlaybackCapabilities(),
 ): YDashPlaybackSelection {
-    val videos = manifest.representations.filter { it.contentType == YDashContentType.Video }
+    var videos = manifest.representations.filter { it.contentType == YDashContentType.Video }
     require(videos.isNotEmpty()) { "DASH manifest has no video representation" }
+    val preferredVideos = videos.filter { it.isDolbyVision == capabilities.dolbyVisionOutput }
+    if (preferredVideos.isNotEmpty()) videos = preferredVideos
     val video = YAdaptiveVariantSelector.select(videos.map(YDashRepresentation::asAdaptiveVariant), conditions)
     val selectedVideo = videos.first { it.id == video.id }
-    val selectedAudio =
+    var selectedAudioTracks =
         manifest.representations
-            .filter { it.contentType == YDashContentType.Audio }
-            .maxByOrNull(YDashRepresentation::bandwidthBitsPerSecond)
-    return YDashPlaybackSelection(video = selectedVideo, audio = selectedAudio)
+            .filter { it.contentType == YDashContentType.Audio && it.segmentTemplate != null }
+            .groupBy(YDashRepresentation::audioTrackIdentity)
+            .values
+            .map { tracks -> tracks.maxBy(YDashRepresentation::bandwidthBitsPerSecond) }
+            .sortedWith(
+                compareBy<YDashRepresentation> { it.language.orEmpty() }
+                    .thenByDescending(YDashRepresentation::bandwidthBitsPerSecond),
+            ).take(MAX_DASH_AUDIO_TRACKS)
+    val preferredAudio = selectedAudioTracks.filter { it.isDolbyAtmos == capabilities.dolbyAtmosOutput }
+    if (preferredAudio.isNotEmpty()) selectedAudioTracks = preferredAudio
+    val selectedAudio = selectedAudioTracks.maxByOrNull(YDashRepresentation::bandwidthBitsPerSecond)
+    val text =
+        manifest.representations
+            .filter { it.contentType == YDashContentType.Text && it.segmentTemplate != null }
+            .distinctBy(YDashRepresentation::textTrackIdentity)
+            .take(MAX_DASH_TEXT_TRACKS)
+    return YDashPlaybackSelection(
+        video = selectedVideo,
+        audio = selectedAudio,
+        alternateAudio = selectedAudioTracks.filterNot { it.id == selectedAudio?.id },
+        text = text,
+    )
 }
 
 /**
@@ -36,9 +65,19 @@ fun buildYDashPlaybackManifest(
     allowContentProtection: Boolean = false,
     localize: (representation: YDashRepresentation, template: String, kind: YDashResourceKind) -> String,
 ): String {
-    require(!manifest.isLive) { "Dynamic DASH requires the live-window controller" }
-    val durationUs = requireNotNull(manifest.mediaPresentationDurationUs) { "Static DASH duration is missing" }
-    val representations = listOfNotNull(selection.video, selection.audio)
+    val durationUs =
+        if (manifest.isLive) {
+            manifest.mediaPresentationDurationUs
+        } else {
+            requireNotNull(manifest.mediaPresentationDurationUs) { "Static DASH duration is missing" }
+        }
+    val representations =
+        buildList {
+            add(selection.video)
+            selection.audio?.let(::add)
+            addAll(selection.alternateAudio)
+            addAll(selection.text)
+        }
     require(representations.distinctBy(YDashRepresentation::id).size == representations.size) {
         "DASH selected representation ids are not unique"
     }
@@ -51,13 +90,31 @@ fun buildYDashPlaybackManifest(
     }
     return buildString {
         append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        append("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:cenc=\"urn:mpeg:cenc:2013\" type=\"static\"")
-        append(" mediaPresentationDuration=\"")
-        append(durationUs.toDashDuration())
-        append("\" minBufferTime=\"PT1.5S\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\">\n")
-        append("  <Period start=\"PT0S\">\n")
+        append("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:cenc=\"urn:mpeg:cenc:2013\"")
+        appendXmlAttribute("type", if (manifest.isLive) "dynamic" else "static")
+        durationUs?.let { appendXmlAttribute("mediaPresentationDuration", it.toDashDuration()) }
+        manifest.minimumUpdatePeriodUs?.let { appendXmlAttribute("minimumUpdatePeriod", it.toDashDuration()) }
+        manifest.availabilityStartTime?.let { appendXmlAttribute("availabilityStartTime", it) }
+        manifest.publishTime?.let { appendXmlAttribute("publishTime", it) }
+        manifest.timeShiftBufferDepthUs?.let { appendXmlAttribute("timeShiftBufferDepth", it.toDashDuration()) }
+        manifest.suggestedPresentationDelayUs?.let {
+            appendXmlAttribute("suggestedPresentationDelay", it.toDashDuration())
+        }
+        appendXmlAttribute("minBufferTime", "PT1.5S")
+        appendXmlAttribute(
+            "profiles",
+            if (manifest.isLive) {
+                "urn:mpeg:dash:profile:isoff-live:2011"
+            } else {
+                "urn:mpeg:dash:profile:isoff-on-demand:2011"
+            },
+        )
+        append(">\n")
+        append("  <Period")
+        appendXmlAttribute("start", (manifest.periodStartUs ?: 0L).toDashDuration())
+        append(">\n")
         representations.forEach { representation ->
-            appendRepresentation(representation, allowContentProtection, localize)
+            appendRepresentation(representation, allowContentProtection, manifest.isLive, localize)
         }
         append("  </Period>\n")
         append("</MPD>\n")
@@ -67,6 +124,7 @@ fun buildYDashPlaybackManifest(
 private fun StringBuilder.appendRepresentation(
     representation: YDashRepresentation,
     allowContentProtection: Boolean,
+    live: Boolean,
     localize: (YDashRepresentation, String, YDashResourceKind) -> String,
 ) {
     val template = requireNotNull(representation.segmentTemplate)
@@ -79,6 +137,7 @@ private fun StringBuilder.appendRepresentation(
     if (allowContentProtection) {
         representation.contentProtections.forEach(::appendContentProtection)
     }
+    representation.supplementalProperties.forEach(::appendSupplementalProperty)
     append("      <SegmentTemplate")
     appendXmlAttribute("timescale", template.timescale.toString())
     template.duration?.let { appendXmlAttribute("duration", it.toString()) }
@@ -99,11 +158,11 @@ private fun StringBuilder.appendRepresentation(
         append(">\n")
         append("        <SegmentTimeline>\n")
         template.timeline.forEach { entry ->
-            require(entry.repeat >= 0) { "Open-ended DASH timeline requires the live-window controller" }
+            require(entry.repeat >= 0 || live) { "Open-ended DASH timeline requires a dynamic presentation" }
             append("          <S")
             entry.startTime?.let { appendXmlAttribute("t", it.toString()) }
             appendXmlAttribute("d", entry.duration.toString())
-            if (entry.repeat > 0) appendXmlAttribute("r", entry.repeat.toString())
+            if (entry.repeat != 0) appendXmlAttribute("r", entry.repeat.toString())
             append("/>\n")
         }
         append("        </SegmentTimeline>\n")
@@ -136,6 +195,13 @@ private fun StringBuilder.appendContentProtection(protection: YDashContentProtec
     }
 }
 
+private fun StringBuilder.appendSupplementalProperty(descriptor: YDashDescriptor) {
+    append("      <SupplementalProperty")
+    appendXmlAttribute("schemeIdUri", descriptor.schemeIdUri)
+    descriptor.value?.let { appendXmlAttribute("value", it) }
+    append("/>\n")
+}
+
 private fun StringBuilder.appendXmlAttribute(
     name: String,
     value: String,
@@ -165,6 +231,17 @@ private fun YDashContentType.xmlValue(): String =
         YDashContentType.Unknown -> error("Unknown DASH content type is not executable")
     }
 
+private fun YDashRepresentation.audioTrackIdentity(): String =
+    listOf(
+        language.orEmpty().lowercase(),
+        mimeType.orEmpty().lowercase(),
+        codecs.joinToString(",") { it.substringBefore('.').lowercase() },
+        if (isDolbyAtmos) "atmos" else "base",
+    ).joinToString("|")
+
+private fun YDashRepresentation.textTrackIdentity(): String =
+    listOf(language.orEmpty().lowercase(), mimeType.orEmpty().lowercase(), codecs.joinToString(",")).joinToString("|")
+
 private fun Long.toDashDuration(): String {
     val seconds = this / MICROS_PER_SECOND
     val micros = this % MICROS_PER_SECOND
@@ -176,3 +253,5 @@ private fun Long.toDashDuration(): String {
 }
 
 private const val MICROS_PER_SECOND = 1_000_000L
+private const val MAX_DASH_AUDIO_TRACKS = 16
+private const val MAX_DASH_TEXT_TRACKS = 32

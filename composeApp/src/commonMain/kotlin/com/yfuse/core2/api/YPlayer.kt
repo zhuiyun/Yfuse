@@ -4,6 +4,7 @@ import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackDrmConfiguration
 import com.yfuse.core2.network.YCacheIdentity
+import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import kotlinx.coroutines.flow.StateFlow
@@ -99,6 +100,8 @@ data class YMediaItem(
     val disc: YDiscMedia? = null,
     /** Optional sidecar subtitle rendered independently above the direct video Surface. */
     val externalSubtitle: YExternalSubtitleSource? = null,
+    /** All selectable sidecars. The singular field remains for source compatibility. */
+    val externalSubtitles: List<YExternalSubtitleSource> = emptyList(),
     /** Credential-free identity for YCore-owned persistent media blocks. */
     val cacheIdentity: YCacheIdentity? = null,
     /** Per-item cache budget inherited from the user's playback setting. */
@@ -113,10 +116,18 @@ data class YMediaItem(
      * active Dolby output from these values alone.
      */
     val sourceHints: YMediaSourceHints? = null,
+    /** In-memory source credentials forwarded only to the selected YCore transport. */
+    val transportCredentials: YTransportCredentials? = null,
 ) {
     init {
         require(cacheMaximumBytes >= 0L)
+        require(allExternalSubtitles.distinctBy { it.uri }.size == allExternalSubtitles.size) {
+            "External subtitle URIs must be unique"
+        }
     }
+
+    val allExternalSubtitles: List<YExternalSubtitleSource>
+        get() = listOfNotNull(externalSubtitle).plus(externalSubtitles).distinctBy { it.uri }
 }
 
 data class YMediaSourceHints(
@@ -141,6 +152,8 @@ data class YExternalSubtitleSource(
     val uri: String,
     val language: String? = null,
     val format: YSubtitleFormat? = null,
+    val default: Boolean = false,
+    val forced: Boolean = false,
 ) {
     init {
         require(uri.isNotBlank()) { "External subtitle URI must not be blank" }
@@ -229,6 +242,43 @@ enum class YPlaybackRoute {
     SoftwareFallback,
 }
 
+/**
+ * Machine-readable Dolby audio result for the active sink.
+ *
+ * The source codec, compatible carrier and verified object-audio output are deliberately separate:
+ * Android can advertise a TrueHD carrier without exposing evidence that an attached receiver
+ * rendered the Atmos extension. Spatialized PCM is also kept distinct from encoded passthrough so
+ * mobile/headphone playback can be reported truthfully without pretending to be HDMI bitstream.
+ */
+enum class YDolbyAtmosOutputMode {
+    None,
+
+    /** An immersive source is flowing through a compatible carrier, but object output is unproven. */
+    CarrierOnly,
+
+    /** The active AudioTrack route accepts the format-specific E-AC-3 JOC encoding. */
+    Eac3JocPassthrough,
+
+    /** TrueHD is flowing, but the active sink has not supplied independent Atmos evidence. */
+    TrueHdCarrierPassthrough,
+
+    /** TrueHD Atmos has independent active-sink evidence in addition to the TrueHD carrier. */
+    TrueHdAtmosPassthrough,
+
+    /** An Atmos source was decoded to PCM and Android's format-specific Spatializer is active. */
+    AtmosSourceSpatializedPcm,
+    ;
+
+    val verifiedAtmosOutput: Boolean
+        get() =
+            this == Eac3JocPassthrough ||
+                this == TrueHdAtmosPassthrough ||
+                this == AtmosSourceSpatializedPcm
+
+    val encodedPassthrough: Boolean
+        get() = this == Eac3JocPassthrough || this == TrueHdAtmosPassthrough
+}
+
 data class YPlayerDiagnostics(
     val route: YPlaybackRoute = YPlaybackRoute.Legacy,
     val container: String = "",
@@ -246,6 +296,11 @@ data class YPlayerDiagnostics(
     val droppedFramesMeasured: Boolean = false,
     val codecResetCount: Int = 0,
     val audioUnderrunCount: Int = 0,
+    /** Bounded compressed queue owned by the source/demux worker, not codec buffers. */
+    val sourceQueueBytes: Long = 0L,
+    val sourceBufferedMs: Long = 0L,
+    /** Number of non-EOF polls that found the read-ahead queue empty. */
+    val sourceStarvationCount: Long = 0L,
     /** Source/track metadata. Never use this field alone as proof of active HDR/DV output. */
     val dynamicRange: String = "",
     val videoOutput: String = "",
@@ -263,6 +318,14 @@ data class YPlayerDiagnostics(
     val dolbyVisionFelComposed: Boolean = false,
     /** A compatible object-audio carrier is flowing; this alone is not verified Atmos output. */
     val immersiveAudioCarrierOutput: Boolean = false,
+    /** The selected source track was positively identified as E-AC-3 JOC or TrueHD Atmos. */
+    val dolbyAtmosSourceDetected: Boolean = false,
+    /** Exact result for the active sink; use this instead of parsing [audioOutput]. */
+    val dolbyAtmosOutputMode: YDolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+    /** Active AudioTrack route label, redacted to device type/product name only. */
+    val audioOutputRoute: String = "",
+    /** True only after AudioTrack reports a routed device while its clock is advancing. */
+    val audioOutputRouteVerified: Boolean = false,
     val dolbyAtmosOutput: Boolean = false,
     /** Android's format-specific system Spatializer is active on the decoded PCM sink. */
     val spatialAudioOutput: Boolean = false,
@@ -284,6 +347,18 @@ data class YPlayerDiagnostics(
                 audioOutputVerified &&
                 dolbyVisionOutput &&
                 dolbyAtmosOutput
+
+    /**
+     * iOS-style presentation parity: verified Dolby Vision plus either encoded Atmos output or an
+     * Atmos source actively rendered through Android's format-specific PCM Spatializer.
+     */
+    val nativeDualDolbyPresentationOutput: Boolean
+        get() =
+            videoOutputVerified &&
+                audioOutputVerified &&
+                dolbyVisionOutput &&
+                dolbyAtmosSourceDetected &&
+                dolbyAtmosOutputMode.verifiedAtmosOutput
 }
 
 data class YPlayerState(

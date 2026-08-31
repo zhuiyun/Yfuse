@@ -3,6 +3,7 @@ package com.yfuse.core2.android
 import android.media.MediaCodec
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 
@@ -30,7 +31,26 @@ class AndroidYCoreCryptoInfoTest {
     }
 
     @Test
-    fun non_ctr_sample_encryption_remains_fail_closed() {
+    fun cbcs_snapshot_preserves_crypt_and_skip_pattern() {
+        val snapshot =
+            YExtractorCryptoInfo(
+                numberOfSubSamples = 1,
+                clearBytes = intArrayOf(32),
+                encryptedBytes = intArrayOf(4_096),
+                key = ByteArray(16),
+                initializationVector = ByteArray(16),
+                mode = MediaCodec.CRYPTO_MODE_AES_CBC,
+                encryptedBlocks = 1,
+                clearBlocks = 9,
+            ).toMediaCodecCryptoSnapshot()
+
+        assertEquals(MediaCodec.CRYPTO_MODE_AES_CBC, snapshot.mode)
+        assertEquals(1, snapshot.encryptedBlocks)
+        assertEquals(9, snapshot.clearBlocks)
+    }
+
+    @Test
+    fun unsupported_sample_encryption_remains_fail_closed() {
         assertFailsWith<IllegalArgumentException> {
             YExtractorCryptoInfo(
                 numberOfSubSamples = 1,
@@ -38,7 +58,7 @@ class AndroidYCoreCryptoInfoTest {
                 encryptedBytes = intArrayOf(16),
                 key = ByteArray(16),
                 initializationVector = ByteArray(16),
-                mode = 2,
+                mode = Int.MAX_VALUE,
             )
         }
     }

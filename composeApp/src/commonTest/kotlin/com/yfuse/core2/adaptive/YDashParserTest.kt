@@ -138,7 +138,53 @@ class YDashParserTest {
     }
 
     @Test
-    fun playback_mpd_rejects_dynamic_and_protected_presentations() {
+    fun playback_mpd_keeps_distinct_audio_languages_and_text_tracks() {
+        val manifest =
+            parseYDashManifest(
+                xml =
+                    """
+                    <MPD type="static" mediaPresentationDuration="PT30S"><Period>
+                      <AdaptationSet contentType="video" mimeType="video/mp4">
+                        <SegmentTemplate duration="2" initialization="v-init.mp4" media="v-${'$'}Number${'$'}.m4s"/>
+                        <Representation id="v" bandwidth="2000000" codecs="avc1.640028"/>
+                      </AdaptationSet>
+                      <AdaptationSet contentType="audio" mimeType="audio/mp4" lang="zh-CN">
+                        <SegmentTemplate duration="2" initialization="a-zh-init.mp4" media="a-zh-${'$'}Number${'$'}.m4s"/>
+                        <Representation id="a-zh-low" bandwidth="96000" codecs="mp4a.40.2"/>
+                        <Representation id="a-zh-high" bandwidth="192000" codecs="mp4a.40.2"/>
+                      </AdaptationSet>
+                      <AdaptationSet contentType="audio" mimeType="audio/mp4" lang="en">
+                        <SegmentTemplate duration="2" initialization="a-en-init.mp4" media="a-en-${'$'}Number${'$'}.m4s"/>
+                        <Representation id="a-en" bandwidth="128000" codecs="mp4a.40.2"/>
+                      </AdaptationSet>
+                      <AdaptationSet contentType="text" mimeType="application/mp4" lang="zh-CN">
+                        <SegmentTemplate duration="2" initialization="s-init.mp4" media="s-${'$'}Number${'$'}.m4s"/>
+                        <Representation id="s-zh" bandwidth="1000" codecs="wvtt"/>
+                      </AdaptationSet>
+                    </Period></MPD>
+                    """.trimIndent(),
+                baseUri = "https://media.example.test/manifest.mpd",
+            )
+        val selection =
+            selectYDashPlaybackRepresentations(
+                manifest,
+                YAdaptiveSelectionConditions(5_000_000L, 10_000_000L),
+            )
+        val playback = buildYDashPlaybackManifest(manifest, selection) { _, template, _ -> template }
+
+        assertEquals(
+            setOf("a-zh-high", "a-en"),
+            (listOfNotNull(selection.audio) + selection.alternateAudio).map { it.id }.toSet(),
+        )
+        assertEquals(listOf("s-zh"), selection.text.map { it.id })
+        assertTrue("id=\"a-zh-high\"" in playback)
+        assertTrue("id=\"a-en\"" in playback)
+        assertFalse("id=\"a-zh-low\"" in playback)
+        assertTrue("id=\"s-zh\"" in playback)
+    }
+
+    @Test
+    fun playback_mpd_requires_drm_opt_in_and_preserves_dynamic_live_window() {
         val protected =
             parseYDashManifest(
                 xml =
@@ -167,13 +213,71 @@ class YDashParserTest {
         assertTrue("schemeIdUri=\"urn:mpeg:dash:mp4protection:2011\"" in protectedPlayback)
 
         val dynamic =
-            protected.copy(
-                isLive = true,
-                representations = protected.representations.map { it.copy(contentProtections = emptyList()) },
+            parseYDashManifest(
+                xml =
+                    """
+                    <MPD type="dynamic" availabilityStartTime="2026-08-31T00:00:00Z"
+                         publishTime="2026-08-31T00:01:00Z" minimumUpdatePeriod="PT2S"
+                         timeShiftBufferDepth="PT60S" suggestedPresentationDelay="PT8S"><Period start="PT0S">
+                      <AdaptationSet contentType="video" mimeType="video/mp4">
+                        <SegmentTemplate timescale="1000" initialization="init.mp4" media="s-${'$'}Number${'$'}.m4s">
+                          <SegmentTimeline><S t="0" d="2000" r="-1"/></SegmentTimeline>
+                        </SegmentTemplate>
+                        <Representation id="live-v1" bandwidth="1000000" codecs="avc1.64001f"/>
+                      </AdaptationSet>
+                    </Period></MPD>
+                    """.trimIndent(),
+                baseUri = "https://media.example.test/live.mpd",
             )
         val dynamicSelection = selectYDashPlaybackRepresentations(dynamic, conditions)
-        assertFailsWith<IllegalArgumentException> {
-            buildYDashPlaybackManifest(dynamic, dynamicSelection) { _, template, _ -> template }
-        }
+        val dynamicPlayback = buildYDashPlaybackManifest(dynamic, dynamicSelection) { _, template, _ -> template }
+        assertTrue("type=\"dynamic\"" in dynamicPlayback)
+        assertTrue("availabilityStartTime=\"2026-08-31T00:00:00Z\"" in dynamicPlayback)
+        assertTrue("minimumUpdatePeriod=\"PT2S\"" in dynamicPlayback)
+        assertTrue("timeShiftBufferDepth=\"PT60S\"" in dynamicPlayback)
+        assertTrue("suggestedPresentationDelay=\"PT8S\"" in dynamicPlayback)
+        assertTrue("r=\"-1\"" in dynamicPlayback)
+    }
+
+    @Test
+    fun selects_and_preserves_the_Dolby_Vision_Atmos_family() {
+        val manifest =
+            parseYDashManifest(
+                xml =
+                    """
+                    <MPD type="static" mediaPresentationDuration="PT10S"><Period>
+                      <AdaptationSet contentType="video" mimeType="video/mp4">
+                        <SegmentTemplate duration="5" initialization="v-init.mp4" media="v-${'$'}RepresentationID${'$'}-${'$'}Number${'$'}.m4s"/>
+                        <Representation id="sdr" bandwidth="1000000" codecs="hvc1.2.4.L120"/>
+                        <Representation id="dv" bandwidth="2000000" codecs="dvh1.08.06"/>
+                      </AdaptationSet>
+                      <AdaptationSet contentType="audio" mimeType="audio/mp4">
+                        <SegmentTemplate duration="5" initialization="a-init.mp4" media="a-${'$'}RepresentationID${'$'}-${'$'}Number${'$'}.m4s"/>
+                        <Representation id="eac3" bandwidth="256000" codecs="ec-3"/>
+                        <Representation id="joc" bandwidth="768000" codecs="ec-3">
+                          <SupplementalProperty schemeIdUri="tag:dolby.com,2018:dash:EC3_ExtensionType:2018" value="JOC"/>
+                        </Representation>
+                      </AdaptationSet>
+                    </Period></MPD>
+                    """.trimIndent(),
+                baseUri = "https://media.example.test/dolby.mpd",
+            )
+        val selection =
+            selectYDashPlaybackRepresentations(
+                manifest = manifest,
+                conditions = YAdaptiveSelectionConditions(5_000_000L, 10_000_000L),
+                capabilities =
+                    YDashPlaybackCapabilities(
+                        dolbyVisionOutput = true,
+                        dolbyAtmosOutput = true,
+                    ),
+            )
+
+        assertEquals("dv", selection.video.id)
+        assertEquals("joc", selection.audio?.id)
+        assertTrue(selection.audio?.isDolbyAtmos == true)
+        val playback = buildYDashPlaybackManifest(manifest, selection) { _, template, _ -> template }
+        assertTrue("EC3_ExtensionType" in playback)
+        assertTrue("value=\"JOC\"" in playback)
     }
 }

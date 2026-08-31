@@ -23,6 +23,10 @@ internal object FfmpegNativeBridge {
         available && runCatching { nativeSoftwareDecoderApiVersion() >= SOFTWARE_DECODER_API_VERSION }.getOrDefault(false)
     }
 
+    val assRendererAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        available && runCatching { nativeAssRendererApiVersion() >= ASS_RENDERER_API_VERSION }.getOrDefault(false)
+    }
+
     val discNavigationAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         available && runCatching { nativeDiscApiVersion() >= DISC_API_VERSION }.getOrDefault(false)
     }
@@ -314,6 +318,8 @@ internal object FfmpegNativeBridge {
 
     private external fun nativeSoftwareDecoderApiVersion(): Int
 
+    private external fun nativeAssRendererApiVersion(): Int
+
     private external fun nativeDiscApiVersion(): Int
 
     private external fun nativeRegisterBluRaySource(source: Any): Long
@@ -422,5 +428,6 @@ internal const val FFMPEG_PACKING_ANNEX_B = 1L
 internal const val FFMPEG_PACKING_LENGTH_PREFIXED = 2L
 private const val LIBRARY_NAME = "ycore_demux"
 private const val SOFTWARE_DECODER_API_VERSION = 2
+private const val ASS_RENDERER_API_VERSION = 1
 private const val DISC_API_VERSION = 2
 private const val SOFTWARE_PACKET_ACCEPTED = 0

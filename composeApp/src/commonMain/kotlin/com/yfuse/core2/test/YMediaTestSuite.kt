@@ -159,6 +159,9 @@ data class YMediaTestSuite(
         buildList {
             if (version != CURRENT_VERSION) add("manifest version must be $CURRENT_VERSION")
             if (cases.isEmpty()) add("media test suite contains no cases")
+            if (cases.size < MINIMUM_RELEASE_CASES) {
+                add("media test suite requires at least $MINIMUM_RELEASE_CASES cases")
+            }
             val duplicateIds =
                 cases
                     .groupingBy { it.id }
@@ -238,6 +241,11 @@ data class YMediaTestObservation(
     val audioOutputMode: String? = null,
     val serverTranscodeUsed: Boolean = false,
     val audioOutputVerified: Boolean = false,
+    val audioOutputRoute: String? = null,
+    val audioOutputRouteVerified: Boolean = false,
+    val dolbyAtmosSourceDetected: Boolean = false,
+    val dolbyAtmosOutputMode: String? = null,
+    val spatialAudioOutput: Boolean = false,
     val dolbyAtmosOutput: Boolean = false,
     val dolbyVisionOutput: Boolean = false,
     val dolbyRpuApplied: Boolean = false,
@@ -294,12 +302,25 @@ private val REQUIRED_OPERATIONS =
         "finish",
         "next_episode",
     )
-private val REQUIRED_VIDEO_VARIANTS = setOf("h264:8", "h264:10", "hevc:8", "hevc:10", "av1:8", "av1:10")
+private val REQUIRED_VIDEO_VARIANTS =
+    setOf(
+        "h264:8",
+        "h264:10",
+        "hevc:8",
+        "hevc:10",
+        "vp9:10",
+        "av1:8",
+        "av1:10",
+        "vc1:8",
+        "prores:10",
+    )
 private val REQUIRED_DOLBY_VARIANTS = setOf("p5", "p7_mel", "p7_fel", "p8.1", "p8.4")
 private val REQUIRED_HDR_VARIANTS = setOf("hdr10", "hdr10+", "hlg")
-private val REQUIRED_CONTAINERS = setOf("mp4", "mkv", "ts", "m2ts", "iso")
-private val REQUIRED_AUDIO = setOf("aac", "ac3", "eac3", "truehd", "dts-hd")
+private val REQUIRED_CONTAINERS = setOf("mp4", "mkv", "ts", "m2ts", "iso", "hls", "dash")
+private val REQUIRED_AUDIO =
+    setOf("aac", "ac3", "eac3", "truehd", "dts-hd", "flac", "opus", "vorbis", "pcm_s24le")
 private val REQUIRED_DOLBY_AUDIO = setOf("eac3-joc", "truehd-atmos")
 private val REQUIRED_SUBTITLES = setOf("srt", "ass", "pgs")
 private val REQUIRED_FRAME_RATES = listOf(23.976, 24.0, 25.0, 29.97, 50.0, 59.94, 120.0)
 private const val FPS_EPSILON = 0.002
+private const val MINIMUM_RELEASE_CASES = 18

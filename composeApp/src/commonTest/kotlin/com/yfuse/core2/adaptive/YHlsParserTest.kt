@@ -90,6 +90,36 @@ class YHlsParserTest {
     }
 
     @Test
+    fun playback_master_keeps_alternate_audio_renditions_in_the_selected_group() {
+        val master =
+            assertIs<YHlsPlaylist.Master>(
+                parseYHlsPlaylist(
+                    text =
+                        """
+                        #EXTM3U
+                        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="main",NAME="中文",LANGUAGE="zh-CN",DEFAULT=YES,AUTOSELECT=YES,URI="audio/zh.m3u8"
+                        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="main",NAME="English",LANGUAGE="en",DEFAULT=NO,AUTOSELECT=YES,URI="audio/en.m3u8"
+                        #EXT-X-STREAM-INF:BANDWIDTH=4000000,CODECS="avc1.640028,mp4a.40.2",AUDIO="main"
+                        video/main.m3u8
+                        """.trimIndent(),
+                    baseUri = "https://media.example.test/master.m3u8",
+                ),
+            )
+        val playback =
+            selectYHlsPlaybackSet(
+                master,
+                YAdaptiveSelectionConditions(8_000_000L, 10_000_000L),
+                YHlsPlaybackCapabilities(),
+            )
+        val rendered = buildYHlsPlaybackMaster(playback) { uri, _ -> uri }
+
+        assertEquals(listOf("中文", "English"), playback.renditions.map { it.name })
+        assertTrue("audio/zh.m3u8" in rendered)
+        assertTrue("audio/en.m3u8" in rendered)
+        assertEquals(1, Regex("DEFAULT=YES").findAll(rendered).count())
+    }
+
+    @Test
     fun media_playlist_preserves_init_ranges_encryption_and_timeline() {
         val playlist =
             parseYHlsPlaylist(

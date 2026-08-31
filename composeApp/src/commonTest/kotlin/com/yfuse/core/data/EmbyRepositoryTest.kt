@@ -6,6 +6,7 @@ import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaDetail
+import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
@@ -51,6 +52,68 @@ class EmbyRepositoryTest {
             }
         return """{"Items":[$items]}"""
     }
+
+    @Test
+    fun emby_thumbnail_set_exposes_exact_authenticated_seek_frames() =
+        runTest {
+            val embyServer = server.copy(kind = MediaServerKind.Emby)
+            val repo =
+                testRepo { request ->
+                    assertEquals("/Items/movie-1/ThumbnailSet", request.url.encodedPath)
+                    assertEquals("source-a", request.url.parameters["MediaSourceId"])
+                    assertEquals("tok", request.headers["X-Emby-Token"])
+                    json(
+                        """{
+                            "AspectRatio":2.0,
+                            "Thumbnails":[
+                                {"PositionTicks":100000000,"ImageTag":"tag/second"},
+                                {"PositionTicks":0,"ImageTag":"tag-first"}
+                            ]
+                        }""".trimIndent(),
+                    )
+                }
+
+            val info = assertNotNull(repo.trickplayInfo(embyServer, "movie-1", "source-a").getOrThrow())
+
+            assertEquals(320, info.width)
+            assertEquals(160, info.height)
+            assertEquals(10_000L, info.intervalMs)
+            assertEquals(listOf(0L, 10_000L), info.frames.map { it.positionMs })
+            assertEquals(
+                "http://host:8096/Items/movie-1/Images/Thumbnail" +
+                    "?PositionTicks=100000000&MediaSourceId=source-a&maxWidth=320&quality=90" +
+                    "&tag=tag%2Fsecond&api_key=tok",
+                info.frames.last().url,
+            )
+        }
+
+    @Test
+    fun jellyfin_trickplay_uses_the_active_media_source_layout() =
+        runTest {
+            val jellyfinServer = server.copy(kind = MediaServerKind.Jellyfin)
+            val repo =
+                testRepo { request ->
+                    assertEquals("/Users/u1/Items/movie-1", request.url.encodedPath)
+                    assertEquals("Trickplay", request.url.parameters["Fields"])
+                    json(
+                        """{
+                            "Id":"movie-1",
+                            "Name":"Movie",
+                            "Type":"Movie",
+                            "Trickplay":{
+                                "source-a":{"160":{"Width":160,"Height":90,"TileWidth":5,"TileHeight":5,"ThumbnailCount":25,"Interval":10000}},
+                                "source-b":{"320":{"Width":320,"Height":180,"TileWidth":10,"TileHeight":10,"ThumbnailCount":100,"Interval":5000}}
+                            }
+                        }""".trimIndent(),
+                    )
+                }
+
+            val info = assertNotNull(repo.trickplayInfo(jellyfinServer, "movie-1", "source-b").getOrThrow())
+
+            assertEquals(320, info.width)
+            assertEquals(5_000L, info.intervalMs)
+            assertEquals(100, info.thumbnailCount)
+        }
 
     @Test
     fun relevance_ranking_promotes_exact_then_prefix_matches_without_reordering_ties() {
@@ -1211,6 +1274,31 @@ class EmbyRepositoryTest {
             assertEquals("e9", res.getOrThrow().itemId)
             assertEquals(123_450_000L, res.getOrThrow().startPositionTicks)
             assertTrue(paths.none { it.contains("NextUp") }, paths.toString())
+        }
+
+    @Test
+    fun resolvePlayTargetWithEpisodes_reuses_the_scanned_series_directory() =
+        runTest {
+            var directoryRequests = 0
+            val repo =
+                testRepo { request ->
+                    if (request.url.encodedPath.endsWith("/Shows/s1/Episodes")) {
+                        directoryRequests++
+                    }
+                    json(
+                        """{"Items":[{"Id":"e1","Name":"第1集","Type":"Episode"},""" +
+                            """{"Id":"e2","Name":"第2集","Type":"Episode"}]}""",
+                    )
+                }
+
+            val resolution =
+                repo
+                    .resolvePlayTargetWithEpisodes(server, detail("s1", "Series"))
+                    .getOrThrow()
+
+            assertEquals("e1", resolution.target.itemId)
+            assertEquals(listOf("e1", "e2"), resolution.episodes?.map { it.id })
+            assertEquals(1, directoryRequests)
         }
 
     @Test

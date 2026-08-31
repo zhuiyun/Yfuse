@@ -87,6 +87,7 @@ class YMediaTestSuiteTest {
             )
 
         val errors = suite.validationErrors().joinToString("\n")
+        assertTrue("requires at least 18 cases" in errors)
         assertTrue("missing operations" in errors)
         assertTrue("missing video" in errors)
         assertTrue("missing Dolby Vision" in errors)

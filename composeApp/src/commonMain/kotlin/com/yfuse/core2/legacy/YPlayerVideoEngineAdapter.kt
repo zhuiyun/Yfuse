@@ -173,6 +173,10 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
                 dolbyVisionRpuApplied = diagnostics.dolbyVisionRpuApplied,
                 dolbyVisionEnhancementLayerComposed = diagnostics.dolbyVisionFelComposed,
                 immersiveAudioCarrierOutput = diagnostics.immersiveAudioCarrierOutput,
+                dolbyAtmosSourceDetected = diagnostics.dolbyAtmosSourceDetected,
+                dolbyAtmosOutputMode = diagnostics.dolbyAtmosOutputMode,
+                audioOutputRoute = diagnostics.audioOutputRoute,
+                audioOutputRouteVerified = diagnostics.audioOutputRouteVerified,
                 dolbyAtmosOutput = diagnostics.dolbyAtmosOutput,
                 spatialAudioOutput = diagnostics.spatialAudioOutput,
                 headTrackingAvailable = diagnostics.headTrackingAvailable,
@@ -184,6 +188,9 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
                 bitrateBitsPerSecond = diagnostics.bitrateBitsPerSecond,
                 frameRate = diagnostics.frameRate,
                 droppedFrames = diagnostics.droppedFrames,
+                sourceQueueBytes = diagnostics.sourceQueueBytes,
+                sourceBufferedMs = diagnostics.sourceBufferedMs,
+                sourceStarvationCount = diagnostics.sourceStarvationCount,
             ),
     )
 

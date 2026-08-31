@@ -33,6 +33,7 @@ internal class DetailExecutor(
     private val itemId: String,
     private val serverId: String?,
     private val sourceSelectionTimeoutMs: Long,
+    private val playbackResolutionTimeoutMs: Long,
     private val playbackTrackRequest: PlaybackTrackRequest,
     private val syncManager: ServerSyncManager,
     private val playbackFailoverRequest: PlaybackFailoverRequest,
@@ -259,7 +260,11 @@ internal class DetailExecutor(
         detail: MediaDetail,
     ) {
         scope.launch {
-            resolveInitialPlaybackSelection(server, detail)
+            val result =
+                withTimeoutOrNull(playbackResolutionTimeoutMs) {
+                    resolveInitialPlaybackSelection(server, detail)
+                } ?: Result.failure(PlaybackResolutionTimeoutException())
+            result
                 .onSuccess { selection ->
                     // Initial enrichment may finish after the user starts or completes a
                     // cross-server switch. It must never overwrite that newer choice.
@@ -280,8 +285,8 @@ internal class DetailExecutor(
                         state().playServer?.id == server.id &&
                         state().playSourceDetail?.id == detail.id
                     ) {
-                        clearQueuedPlay()
                         dispatch(DetailMsg.SelectionLoading(false))
+                        retryQueuedPlayAfterSelectionFailure()
                     }
                     AppLog.warning(
                         category = "feature.detail",
@@ -313,13 +318,14 @@ internal class DetailExecutor(
                 )
             }
 
-            val resolvedTarget = repo.resolvePlayTarget(server, sourceDetail).getOrThrow()
-            val targetDetail = repo.itemDetail(server, resolvedTarget.itemId).getOrThrow()
+            val resolution = repo.resolvePlayTargetWithEpisodes(server, sourceDetail).getOrThrow()
+            val targetDetail = repo.itemDetail(server, resolution.target.itemId).getOrThrow()
             ResolvedPlaybackSelection(
                 server = server,
                 sourceDetail = sourceDetail,
                 target = targetDetail,
-                positionTicks = resolvedTarget.startPositionTicks,
+                positionTicks = resolution.target.startPositionTicks,
+                catalogEpisodes = resolution.episodes,
             )
         }
 
@@ -337,7 +343,7 @@ internal class DetailExecutor(
                             server = selection.server,
                             seriesId = seriesId,
                             target = selection.target,
-                            allEpisodes = null,
+                            allEpisodes = selection.catalogEpisodes,
                         )
                     }.onSuccess { catalog ->
                         if (
@@ -510,7 +516,7 @@ internal class DetailExecutor(
                 )
             }
 
-            val allEpisodes =
+            var allEpisodes =
                 preferredEpisode?.let {
                     // Failure is not the same as "this server lacks the episode". Treating both
                     // as an empty list silently selected NextUp and bypassed the retry policy.
@@ -537,7 +543,9 @@ internal class DetailExecutor(
                         matchedEpisode.resumePositionTicks ?: 0L,
                     )
                 } else {
-                    repo.resolvePlayTarget(server, sourceDetail).getOrThrow()
+                    val resolution = repo.resolvePlayTargetWithEpisodes(server, sourceDetail).getOrThrow()
+                    allEpisodes = resolution.episodes
+                    resolution.target
                 }
             val targetDetail = repo.itemDetail(server, resolvedTarget.itemId).getOrThrow()
             val catalog =
@@ -968,14 +976,26 @@ internal class DetailExecutor(
             val sourceDetail = current.playSourceDetail ?: return
             dispatch(DetailMsg.Resolving(true))
             scope.launch {
-                resolvePlaybackSelection(server, sourceDetail, preferredEpisode = null)
+                val result =
+                    withTimeoutOrNull(playbackResolutionTimeoutMs) {
+                        resolvePlaybackSelection(server, sourceDetail, preferredEpisode = null)
+                    } ?: Result.failure(PlaybackResolutionTimeoutException())
+                result
                     .onSuccess { selection ->
                         dispatchPlaybackSelection(selection)
                         dispatch(DetailMsg.Resolving(false))
                         publishPlay(state(), fromStart)
                     }.onFailure {
                         dispatch(DetailMsg.Resolving(false))
-                        dispatch(DetailMsg.ActionMessage(it.toUserMessage("无法播放，请重试")))
+                        dispatch(
+                            DetailMsg.ActionMessage(
+                                if (it is PlaybackResolutionTimeoutException) {
+                                    "播放信息加载超时，请检查网络后重试"
+                                } else {
+                                    it.toUserMessage("无法播放，请重试")
+                                },
+                            ),
+                        )
                     }
             }
             return
@@ -1013,12 +1033,22 @@ internal class DetailExecutor(
     ) {
         playWhenSelectionReady = true
         playFromStartWhenSelectionReady = fromStart
+        dispatch(DetailMsg.Resolving(true))
         dispatch(DetailMsg.ActionMessage(message))
     }
 
     private fun clearQueuedPlay() {
+        val wasQueued = playWhenSelectionReady
         playWhenSelectionReady = false
         playFromStartWhenSelectionReady = false
+        if (wasQueued) dispatch(DetailMsg.Resolving(false))
+    }
+
+    private fun retryQueuedPlayAfterSelectionFailure() {
+        if (!playWhenSelectionReady) return
+        val fromStart = playFromStartWhenSelectionReady
+        clearQueuedPlay()
+        play(fromStart)
     }
 
     private fun playQueuedSelectionIfReady() {
@@ -1204,20 +1234,20 @@ internal class DetailExecutor(
         itemId: String,
     ) {
         val generation = ++watchLaterLoadGeneration
-        dispatch(DetailMsg.WatchLaterBusy(server.id, itemId, true))
+        dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, true))
         scope.launch {
             repo
                 .isInWatchLater(server, itemId)
                 .onSuccess { value ->
                     if (generation == watchLaterLoadGeneration && isVisibleSource(server.id, itemId)) {
                         dispatch(DetailMsg.WatchLaterChanged(server.id, itemId, value))
-                        dispatch(DetailMsg.WatchLaterBusy(server.id, itemId, false))
+                        dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, false))
                     }
                 }.onFailure {
                     if (generation != watchLaterLoadGeneration || !isVisibleSource(server.id, itemId)) {
                         return@onFailure
                     }
-                    dispatch(DetailMsg.WatchLaterBusy(server.id, itemId, false))
+                    dispatch(DetailMsg.WatchLaterLoading(server.id, itemId, false))
                     AppLog.warning(
                         category = "feature.detail",
                         event = "watch_later_status_failed",
@@ -1233,11 +1263,13 @@ internal class DetailExecutor(
         val current = state()
         val detail = current.detail ?: return
         val server = current.server ?: return
-        if (current.watchLaterBusy) return
+        if (current.watchLaterMutating) return
         val target = !current.watchLater
 
+        watchLaterLoadGeneration++
+        dispatch(DetailMsg.WatchLaterLoading(server.id, detail.id, false))
         dispatch(DetailMsg.WatchLaterChanged(server.id, detail.id, target))
-        dispatch(DetailMsg.WatchLaterBusy(server.id, detail.id, true))
+        dispatch(DetailMsg.WatchLaterMutating(server.id, detail.id, true))
         scope.launch {
             val result =
                 if (target) {
@@ -1248,7 +1280,7 @@ internal class DetailExecutor(
             result
                 .onSuccess {
                     if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(DetailMsg.WatchLaterBusy(server.id, detail.id, false))
+                        dispatch(DetailMsg.WatchLaterMutating(server.id, detail.id, false))
                         dispatch(
                             DetailMsg.ActionMessage(
                                 if (target) "已加入稍后观看" else "已从稍后观看移除",
@@ -1258,7 +1290,7 @@ internal class DetailExecutor(
                 }.onFailure {
                     if (!isVisibleSource(server.id, detail.id)) return@onFailure
                     dispatch(DetailMsg.WatchLaterChanged(server.id, detail.id, !target))
-                    dispatch(DetailMsg.WatchLaterBusy(server.id, detail.id, false))
+                    dispatch(DetailMsg.WatchLaterMutating(server.id, detail.id, false))
                     AppLog.warning(
                         category = "feature.detail",
                         event = "watch_later_failed",

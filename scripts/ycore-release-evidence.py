@@ -34,6 +34,21 @@ COUNT_FIELDS = (
     "continuousSoakMinutes",
     "queueSoakMinutes",
 )
+MINIMUM_MEDIA_CASES = 18
+REQUIRED_OPERATIONS = {
+    "open", "play", "seek", "pause", "resume", "track_switch", "subtitle_switch",
+    "surface_recreate", "background", "foreground", "finish", "next_episode",
+}
+REQUIRED_VIDEO_VARIANTS = {
+    "h264:8", "h264:10", "hevc:8", "hevc:10", "vp9:10", "av1:8", "av1:10",
+    "vc1:8", "prores:10",
+}
+REQUIRED_DOLBY_PROFILES = {"p5", "p7_mel", "p7_fel", "p8.1", "p8.4"}
+REQUIRED_HDR = {"hdr10", "hdr10+", "hlg", "dolbyvision"}
+REQUIRED_CONTAINERS = {"mp4", "mkv", "ts", "m2ts", "iso", "mov", "webm", "hls", "dash"}
+REQUIRED_AUDIO = {"aac", "ac3", "eac3", "truehd", "dts-hd", "flac", "opus", "vorbis", "pcm_s24le"}
+REQUIRED_SUBTITLES = {"srt", "ass", "pgs"}
+REQUIRED_FRAME_RATES = (23.976, 24.0, 25.0, 29.97, 50.0, 59.94, 120.0)
 
 
 class EvidenceError(ValueError):
@@ -110,9 +125,15 @@ def validate_observation(value: Any) -> None:
             raise EvidenceError(f"{value['caseId']}: {field} must be a boolean")
     if "audioCodec" in value and value["audioCodec"] is not None and not isinstance(value["audioCodec"], str):
         raise EvidenceError(f"{value['caseId']}: audioCodec must be a string or null")
+    for field in ("audioOutputRoute", "dolbyAtmosOutputMode"):
+        if field in value and value[field] is not None and not isinstance(value[field], str):
+            raise EvidenceError(f"{value['caseId']}: {field} must be a string or null")
     for field in (
         "serverTranscodeUsed",
         "audioOutputVerified",
+        "audioOutputRouteVerified",
+        "dolbyAtmosSourceDetected",
+        "spatialAudioOutput",
         "dolbyAtmosOutput",
         "dolbyVisionOutput",
         "dolbyRpuApplied",
@@ -125,6 +146,76 @@ def validate_observation(value: Any) -> None:
         number = value.get(field, 0)
         if not isinstance(number, int) or isinstance(number, bool) or number < 0:
             raise EvidenceError(f"{value['caseId']}: {field} must be a non-negative integer")
+
+
+def validate_suite(suite: dict[str, Any]) -> None:
+    if suite.get("version") != 1:
+        raise EvidenceError("suite version must be 1")
+    operations = suite.get("operations")
+    if not isinstance(operations, list) or not all(isinstance(item, str) for item in operations):
+        raise EvidenceError("suite operations must be a string array")
+    missing_operations = REQUIRED_OPERATIONS - {item.strip().lower() for item in operations}
+    if missing_operations:
+        raise EvidenceError(f"suite is missing operations: {', '.join(sorted(missing_operations))}")
+    cases = suite.get("cases")
+    if not isinstance(cases, list) or len(cases) < MINIMUM_MEDIA_CASES:
+        raise EvidenceError(f"suite requires at least {MINIMUM_MEDIA_CASES} cases")
+    if not all(isinstance(case, dict) for case in cases):
+        raise EvidenceError("every suite case must be an object")
+    case_ids = [str(case.get("id", "")).strip() for case in cases]
+    if any(not case_id for case_id in case_ids) or len(case_ids) != len(set(case_ids)):
+        raise EvidenceError("suite case IDs must be non-empty and unique")
+    for case in cases:
+        relative = str(case.get("relativePath", "")).replace("\\", "/")
+        parts = relative.split("/")
+        if (
+            not relative
+            or relative.startswith("/")
+            or ":" in parts[0]
+            or any(part in {"", ".", ".."} for part in parts)
+        ):
+            raise EvidenceError(f"{case.get('id')}: suite relativePath is unsafe")
+
+    def values(name: str) -> set[str]:
+        return {
+            str(case[name]).strip().lower()
+            for case in cases
+            if case.get(name) is not None
+        }
+
+    video_variants = {
+        f"{str(case.get('videoCodec', '')).strip().lower()}:{case.get('bitDepth')}"
+        for case in cases
+    }
+    requirements = (
+        ("video variants", REQUIRED_VIDEO_VARIANTS, video_variants),
+        ("Dolby Vision profiles", REQUIRED_DOLBY_PROFILES, values("dolbyVisionProfile")),
+        ("HDR families", REQUIRED_HDR, values("hdr")),
+        ("containers", REQUIRED_CONTAINERS, values("container")),
+        ("audio codecs", REQUIRED_AUDIO, values("audioCodec")),
+        ("subtitle families", REQUIRED_SUBTITLES, values("subtitle")),
+    )
+    for label, required, actual in requirements:
+        missing = required - actual
+        if missing:
+            raise EvidenceError(f"suite is missing {label}: {', '.join(sorted(missing))}")
+    try:
+        frame_rates = [float(case.get("frameRate", 0.0)) for case in cases]
+        heights = [int(case.get("height", 0)) for case in cases]
+        bitrates = [int(case.get("bitrateBitsPerSecond", 0)) for case in cases]
+    except (TypeError, ValueError) as error:
+        raise EvidenceError("suite contains non-numeric frame-rate, height, or bitrate data") from error
+    missing_frame_rates = [
+        required
+        for required in REQUIRED_FRAME_RATES
+        if not any(abs(actual - required) < 0.002 for actual in frame_rates)
+    ]
+    if missing_frame_rates:
+        raise EvidenceError(f"suite is missing frame rates: {missing_frame_rates}")
+    if not any(height <= 720 for height in heights) or not any(height >= 4320 for height in heights):
+        raise EvidenceError("suite must cover both 720p-or-lower and 8K")
+    if not any(value <= 1_000_000 for value in bitrates) or not any(value >= 150_000_000 for value in bitrates):
+        raise EvidenceError("suite must cover both 1 Mbps-or-lower and 150 Mbps-or-higher")
 
 
 def instrumentation_succeeded(log_text: str, observations: list[dict[str, Any]]) -> bool:
@@ -309,8 +400,15 @@ def observation_is_healthy(observation: dict[str, Any]) -> bool:
     )
 
 
-def verify_evidence(report: dict[str, Any], suite: dict[str, Any]) -> dict[str, Any]:
+def verify_evidence(
+    report: dict[str, Any],
+    suite: dict[str, Any],
+    *,
+    enforce_suite_contract: bool = True,
+) -> dict[str, Any]:
     validate_report(report)
+    if enforce_suite_contract:
+        validate_suite(suite)
     cases = suite.get("cases")
     if not isinstance(cases, list) or not cases:
         raise EvidenceError("suite cases must be a non-empty array")
@@ -528,16 +626,22 @@ def verify_evidence(report: dict[str, Any], suite: dict[str, Any]) -> dict[str, 
             atmos_observations,
             atmos_case_ids,
             lambda item: item.get("audioOutputVerified") is True
-            and item.get("dolbyAtmosOutput") is True,
-            "Every Atmos case must produce verified encoded AudioTrack output; a source codec label is insufficient.",
+            and item.get("audioOutputRouteVerified") is True
+            and item.get("dolbyAtmosSourceDetected") is True
+            and item.get("dolbyAtmosOutput") is True
+            and item.get("dolbyAtmosOutputMode") in {"Eac3JocPassthrough", "TrueHdAtmosPassthrough"},
+            "Every Atmos case must prove the active routed device and exact JOC/TrueHD-Atmos output mode; a source codec or carrier label is insufficient.",
         ),
         "nativeDualDolbyOutput": case_gate(
             dual_dolby_observations,
             dual_dolby_case_ids,
             lambda item: item.get("dolbyVisionOutput") is True
             and item.get("audioOutputVerified") is True
-            and item.get("dolbyAtmosOutput") is True,
-            "Dolby Vision video and encoded Atmos audio must be verified in the same healthy playback observation.",
+            and item.get("audioOutputRouteVerified") is True
+            and item.get("dolbyAtmosSourceDetected") is True
+            and item.get("dolbyAtmosOutput") is True
+            and item.get("dolbyAtmosOutputMode") in {"Eac3JocPassthrough", "TrueHdAtmosPassthrough"},
+            "Dolby Vision video and exact routed-device Atmos output must be verified in the same healthy observation.",
         ),
         "dolbyVisionNativeOutput": dolby_gate(
             native_dolby,
@@ -571,6 +675,7 @@ def verify_evidence(report: dict[str, Any], suite: dict[str, Any]) -> dict[str, 
         "artifactSha256": report["artifactSha256"],
         "testedApkSha256": report["testedApkSha256"],
         "testedTestApkSha256": report["testedTestApkSha256"],
+        "suiteSha256": sha256_bytes(canonical_bytes(suite)),
         "verifiedAtUtc": utc_now(),
         "releaseReady": release_ready,
         "gates": gates,
@@ -610,6 +715,22 @@ def verify_command(args: argparse.Namespace) -> int:
 
 
 class EvidenceSelfTest(unittest.TestCase):
+    def test_release_suite_contract_rejects_reduced_or_relabelled_corpus(self) -> None:
+        example = load_json(Path(__file__).resolve().parent.parent / "media-tests/ycore-suite.example.json")
+        validate_suite(example)
+
+        reduced = copy.deepcopy(example)
+        reduced["cases"] = reduced["cases"][:1]
+        with self.assertRaisesRegex(EvidenceError, "at least 18"):
+            validate_suite(reduced)
+
+        missing_hdr10_plus = copy.deepcopy(example)
+        for case in missing_hdr10_plus["cases"]:
+            if str(case.get("hdr", "")).lower() == "hdr10+":
+                case["hdr"] = "HDR10"
+        with self.assertRaisesRegex(EvidenceError, "HDR families"):
+            validate_suite(missing_hdr10_plus)
+
     def test_instrumentation_parser_requires_successful_runner_completion(self) -> None:
         payload = {
             "caseId": "baseline-smoke",
@@ -680,11 +801,11 @@ class EvidenceSelfTest(unittest.TestCase):
             ]
         )
         report = self.report(runs)
-        self.assertTrue(verify_evidence(report, suite)["releaseReady"])
+        self.assertTrue(verify_evidence(report, suite, enforce_suite_contract=False)["releaseReady"])
 
         partial = copy.deepcopy(report)
         partial["runs"][0]["observations"].pop()
-        result = verify_evidence(partial, suite)
+        result = verify_evidence(partial, suite, enforce_suite_contract=False)
         self.assertFalse(result["releaseReady"])
         self.assertEqual("Fail", result["gates"]["matrixDevices"]["status"])
 
@@ -698,7 +819,7 @@ class EvidenceSelfTest(unittest.TestCase):
                 [observation("soak-single-item-2", continuousSoakMinutes=240)],
             )
         )
-        result = verify_evidence(short_soaks, suite)
+        result = verify_evidence(short_soaks, suite, enforce_suite_contract=False)
         self.assertFalse(result["releaseReady"])
         self.assertEqual(240, result["gates"]["continuousSoakMinutes"]["actual"])
 
@@ -716,7 +837,7 @@ class EvidenceSelfTest(unittest.TestCase):
             "dolbyEnhancementLayerComposed": False,
         }
         report = self.report([self.device_run("device-0", "matrix", "chip-0", [observation])])
-        result = verify_evidence(report, suite)
+        result = verify_evidence(report, suite, enforce_suite_contract=False)
         self.assertEqual("Pass", result["gates"]["dolbyVisionP7Rpu"]["status"])
         self.assertEqual("Pass", result["gates"]["dolbyVisionP7EnhancementDelivery"]["status"])
         self.assertEqual("Fail", result["gates"]["dolbyVisionP7FelComposition"]["status"])
@@ -725,7 +846,7 @@ class EvidenceSelfTest(unittest.TestCase):
         proven["runs"][0]["observations"][0]["dolbyEnhancementLayerComposed"] = True
         self.assertEqual(
             "Pass",
-            verify_evidence(proven, suite)["gates"]["dolbyVisionP7FelComposition"]["status"],
+            verify_evidence(proven, suite, enforce_suite_contract=False)["gates"]["dolbyVisionP7FelComposition"]["status"],
         )
 
     def test_native_dual_dolby_requires_video_and_audio_evidence_in_one_observation(self) -> None:
@@ -750,13 +871,17 @@ class EvidenceSelfTest(unittest.TestCase):
             "dolbyAtmosOutput": False,
         }
         report = self.report([self.device_run("device-0", "matrix", "chip-0", [observation])])
-        result = verify_evidence(report, suite)
+        result = verify_evidence(report, suite, enforce_suite_contract=False)
         self.assertEqual("Fail", result["gates"]["dolbyAtmosPassthrough"]["status"])
         self.assertEqual("Fail", result["gates"]["nativeDualDolbyOutput"]["status"])
 
         proven = copy.deepcopy(report)
         proven["runs"][0]["observations"][0]["dolbyAtmosOutput"] = True
-        result = verify_evidence(proven, suite)
+        proven["runs"][0]["observations"][0]["audioOutputRoute"] = "HDMI eARC"
+        proven["runs"][0]["observations"][0]["audioOutputRouteVerified"] = True
+        proven["runs"][0]["observations"][0]["dolbyAtmosSourceDetected"] = True
+        proven["runs"][0]["observations"][0]["dolbyAtmosOutputMode"] = "Eac3JocPassthrough"
+        result = verify_evidence(proven, suite, enforce_suite_contract=False)
         self.assertEqual("Pass", result["gates"]["dolbyAtmosPassthrough"]["status"])
         self.assertEqual("Pass", result["gates"]["nativeDualDolbyOutput"]["status"])
 
