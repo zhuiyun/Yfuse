@@ -42,14 +42,10 @@ import com.yfuse.core.designsystem.ArtworkAccent
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
-import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
-import com.yfuse.core.designsystem.OverlayHeader
-import com.yfuse.core.designsystem.OverlayOptionRow
-import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.backdropSource
@@ -713,117 +709,71 @@ fun DetailScreen(component: DetailComponent) {
                 }
 
                 if (moreSheetOpen && detail != null) {
-                    GlassDialog(liquidButtons = false, onDismiss = { moreSheetOpen = false }) {
-                        OverlayHeader(
-                            title = detail.title,
-                            subtitle = "更多操作",
-                            onClose = { moreSheetOpen = false },
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
-                            OverlayOptionRow(
-                                label = "下载到本地",
-                                selected = false,
-                                onClick = {
-                                    moreSheetOpen = false
-                                    downloadSheetOpen = true
-                                },
-                            )
-                            if (detail.type.equals("Series", ignoreCase = true)) {
-                                OverlayOptionRow(
-                                    label = "查看播出日历",
-                                    description = "当前剧集的已播与待播集数",
-                                    selected = false,
-                                    onClick = {
-                                        moreSheetOpen = false
+                    DetailMoreActionsDialog(
+                        title = detail.title,
+                        artworkUrls = heroUrls,
+                        isSeries = detail.type.equals("Series", ignoreCase = true),
+                        followed = detailIsFollowed,
+                        played = detail.played,
+                        isPlex = state.server?.kind == com.yfuse.core.model.MediaServerKind.Plex,
+                        watchAvailable = watchAvailable,
+                        watchActive = watchState.roomCode != null,
+                        onDownload = {
+                            moreSheetOpen = false
+                            downloadSheetOpen = true
+                        },
+                        onCalendar = {
+                            moreSheetOpen = false
+                            airingCalendarOpen = true
+                        },
+                        onToggleFollow = {
+                            moreSheetOpen = false
+                            detailScope.launch {
+                                component.toggleSeriesFollow(detail).onFailure { error ->
+                                    if (error is CalendarIdentityAmbiguousException) {
+                                        followAfterIdentitySelection = true
+                                        airingCalendarCandidates = error.candidates
+                                        airingCalendarError = error.message
                                         airingCalendarOpen = true
-                                    },
-                                )
-                                OverlayOptionRow(
-                                    label = if (detailIsFollowed) "取消追剧" else "追剧并提醒",
-                                    description = if (detailIsFollowed) "停止出现在正在追和更新提醒中" else "优先查询排期并在更新时提醒",
-                                    selected = detailIsFollowed,
-                                    onClick = {
-                                        moreSheetOpen = false
-                                        detailScope.launch {
-                                            component.toggleSeriesFollow(detail).onFailure { error ->
-                                                if (error is CalendarIdentityAmbiguousException) {
-                                                    followAfterIdentitySelection = true
-                                                    airingCalendarCandidates = error.candidates
-                                                    airingCalendarError = error.message
-                                                    airingCalendarOpen = true
-                                                } else {
-                                                    airingCalendarError = error.toUserMessage("追剧设置失败，请重试")
-                                                }
-                                            }
-                                        }
-                                    },
-                                )
-                            }
-                            OverlayOptionRow(
-                                label = if (detail.played) "标记未看" else "标记已看",
-                                selected = detail.played,
-                                onClick = {
-                                    moreSheetOpen = false
-                                    component.store.accept(DetailIntent.TogglePlayed)
-                                },
-                            )
-                            OverlayOptionRow(
-                                label = "加入合集或播放列表",
-                                selected = false,
-                                onClick = {
-                                    moreSheetOpen = false
-                                    organizationSheetOpen = true
-                                    component.store.accept(DetailIntent.LoadOrganizationContainers)
-                                },
-                            )
-                            OverlayOptionRow(
-                                label = "刷新服务器元数据",
-                                description = "保留已锁定字段与现有图片",
-                                selected = false,
-                                onClick = {
-                                    moreSheetOpen = false
-                                    detailScope.launch {
-                                        component.refreshServerMetadata(detail)
+                                    } else {
+                                        airingCalendarError = error.toUserMessage("追剧设置失败，请重试")
                                     }
-                                },
+                                }
+                            }
+                        },
+                        onTogglePlayed = {
+                            moreSheetOpen = false
+                            component.store.accept(DetailIntent.TogglePlayed)
+                        },
+                        onOrganization = {
+                            moreSheetOpen = false
+                            organizationSheetOpen = true
+                            component.store.accept(DetailIntent.LoadOrganizationContainers)
+                        },
+                        onRefresh = {
+                            moreSheetOpen = false
+                            detailScope.launch {
+                                component.refreshServerMetadata(detail)
+                            }
+                        },
+                        onAnalyze = {
+                            moreSheetOpen = false
+                            detailScope.launch {
+                                component.analyzeServerMetadata(detail)
+                            }
+                        },
+                        // Playback is intentionally not started here. The invite sheet owns the
+                        // handoff so the host can share the room before entering the player.
+                        onWatchTogether = {
+                            moreSheetOpen = false
+                            watchTogether.createRoom(
+                                endpoint = watchEndpoint,
+                                mediaKey = detail.providerIds.watchKey(detail.id),
                             )
-                            if (state.server?.kind == com.yfuse.core.model.MediaServerKind.Plex) {
-                                OverlayOptionRow(
-                                    label = "分析 Plex 媒体",
-                                    description = "重新分析文件、音视频轨与章节",
-                                    selected = false,
-                                    onClick = {
-                                        moreSheetOpen = false
-                                        detailScope.launch {
-                                            component.analyzeServerMetadata(detail)
-                                        }
-                                    },
-                                )
-                            }
-                            // 一起看 belongs where the decision is made — at the point of choosing
-                            // what to watch, not in the settings of a player you must already have
-                            // open.
-                            //
-                            // Playback is *not* started here. It used to be, in the same tap, and the
-                            // player activity that came up covered the invite sheet this opens — the
-                            // host reached the film without ever being shown the link they created it
-                            // for. The sheet starts playback itself, once the invite has been sent.
-                            if (watchAvailable) {
-                                OverlayOptionRow(
-                                    label = "一起看",
-                                    selected = watchState.roomCode != null,
-                                    onClick = {
-                                        moreSheetOpen = false
-                                        watchTogether.createRoom(
-                                            endpoint = watchEndpoint,
-                                            mediaKey = detail.providerIds.watchKey(detail.id),
-                                        )
-                                        shareSheetOpen = true
-                                    },
-                                )
-                            }
-                        }
-                    }
+                            shareSheetOpen = true
+                        },
+                        onDismiss = { moreSheetOpen = false },
+                    )
                 }
 
                 val downloadTarget = state.playTarget
