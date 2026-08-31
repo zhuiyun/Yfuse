@@ -47,6 +47,7 @@ import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.data.SeriesPlaybackPreference
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
+import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
@@ -134,6 +135,7 @@ internal fun PlayerRoot(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val themePreferences = remember { GlobalContext.get().get<ThemePreferences>() }
     val playbackNetworkFlow = remember { playbackNetworkClasses() }
     val playbackNetworkClass by
         playbackNetworkFlow.collectAsState(initial = currentPlaybackNetworkClass())
