@@ -869,6 +869,8 @@ fun DetailScreen(component: DetailComponent) {
                         days = airingCalendarDays,
                         loading = airingCalendarLoading,
                         error = airingCalendarError,
+                        artworkUrls = heroUrls,
+                        artworkColorUrl = artworkColorUrl,
                         identityCandidates = airingCalendarCandidates,
                         followed = detailIsFollowed,
                         reminderMode = detailFollow?.reminderMode ?: CalendarReminderMode.Off,

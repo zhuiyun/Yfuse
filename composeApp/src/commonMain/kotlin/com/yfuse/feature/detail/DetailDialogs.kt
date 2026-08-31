@@ -1,10 +1,8 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,24 +18,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.CalendarReminderMode
-import com.yfuse.core.data.TmdbSeriesIdentityCandidate
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButtonRow
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
-import com.yfuse.core.designsystem.flatGlass
-import com.yfuse.core.model.AiringScheduleAuthority
-import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.Episode
-import com.yfuse.core.model.LibraryStatus
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaContainerKind
 import com.yfuse.core.model.MediaDetail
@@ -45,261 +35,8 @@ import com.yfuse.core.offline.OfflineBatchMode
 import com.yfuse.core.offline.OfflineDownloadQuality
 import com.yfuse.core.offline.OfflineDownloadSelection
 import com.yfuse.core.offline.estimateOfflineDownloadBytes
-import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.daysBetweenIso
-import com.yfuse.core.util.isoWeekdayLabel
 import com.yfuse.feature.profile.formatDownloadBytes
-
-@Composable
-internal fun SeriesAiringCalendarDialog(
-    title: String,
-    days: List<CalendarDay>,
-    loading: Boolean,
-    error: String?,
-    identityCandidates: List<TmdbSeriesIdentityCandidate> = emptyList(),
-    followed: Boolean = false,
-    reminderMode: CalendarReminderMode = CalendarReminderMode.Off,
-    remindBeforeMinutes: Int = 30,
-    onSelectIdentity: (TmdbSeriesIdentityCandidate) -> Unit = {},
-    onToggleFollow: () -> Unit = {},
-    onSetReminder: (CalendarReminderMode, Int) -> Unit = { _, _ -> },
-    onRebindIdentity: () -> Unit = {},
-    onRetry: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val palette = LocalPalette.current
-    val uriHandler = LocalUriHandler.current
-    val today = currentIsoDate()
-    val episodeCount = days.sumOf { it.entries.size }
-    val libraryEpisodeCount =
-        days.flatMap(CalendarDay::entries).mapNotNull { it.libraryEpisodeCount }.maxOrNull()
-    val trustedSchedule =
-        days
-            .asSequence()
-            .flatMap { it.entries.asSequence() }
-            .map { it.episode }
-            .firstOrNull { it.scheduleAuthority != AiringScheduleAuthority.Tmdb }
-    val scheduleSubtitle =
-        when {
-            trustedSchedule != null ->
-                buildList {
-                    add("$episodeCount 集排期")
-                    libraryEpisodeCount?.let { add("Emby 已入库 $it 集") }
-                    add(
-                        when (trustedSchedule.scheduleAuthority) {
-                            AiringScheduleAuthority.Official -> "官方会员日历"
-                            AiringScheduleAuthority.Verified -> "多源确认排期"
-                            else -> "预计排期"
-                        },
-                    )
-                    trustedSchedule.scheduleConfidence?.let { add("可信度 $it") }
-                    trustedSchedule.releaseAtBeijing
-                        ?.takeIf { trustedSchedule.origin == com.yfuse.core.model.ShowOrigin.Foreign && it.length >= 16 }
-                        ?.substring(11, 16)
-                        ?.let { time -> add("北京时间 $time") }
-                        ?: trustedSchedule.airTime?.let { time ->
-                        add(
-                            if (trustedSchedule.timeZoneId == "Asia/Shanghai") {
-                                "北京时间 $time"
-                            } else {
-                                "$time (${trustedSchedule.timeZoneId ?: "原播时区"})"
-                            },
-                        )
-                        }
-                    trustedSchedule.platforms
-                        .takeIf { it.isNotEmpty() }
-                        ?.joinToString("/")
-                        ?.let(::add)
-                }.joinToString(" · ")
-            episodeCount > 0 -> "$episodeCount 集 · 按原产地播出日期"
-            else -> "按原产地播出日期"
-        }
-    GlassDialog(liquidButtons = false, onDismiss = onDismiss, scrollable = false) {
-        OverlayHeader(
-            title = "$title · 播出日历",
-            subtitle = scheduleSubtitle,
-            onClose = onDismiss,
-        )
-        trustedSchedule?.sourceUrl?.let { sourceUrl ->
-            val publishers =
-                trustedSchedule.scheduleEvidence
-                    .map { it.publisher }
-                    .filter(String::isNotBlank)
-                    .distinct()
-                    .take(3)
-                    .joinToString(" / ")
-            OverlayOptionRow(
-                label = "查看排期来源",
-                description =
-                    buildList {
-                        publishers.takeIf(String::isNotBlank)?.let(::add)
-                        trustedSchedule.scheduleUpdatedAt?.let { add("更新于 $it") }
-                    }.joinToString(" · ").ifBlank { "打开官方证据页面" },
-                selected = false,
-                onClick = { runCatching { uriHandler.openUri(sourceUrl) } },
-            )
-        }
-        if (identityCandidates.isEmpty()) {
-            OverlayOptionRow(
-                label = if (followed) "已加入追剧" else "加入追剧",
-                description = if (followed) "在追剧中心优先显示该剧" else "关注排期和入库状态",
-                selected = followed,
-                onClick = onToggleFollow,
-            )
-            if (followed) {
-                Text(
-                    "更新提醒",
-                    style = AppTypography.caption.strong,
-                    color = palette.sub2,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-                listOf(
-                    CalendarReminderMode.Off to "关闭",
-                    CalendarReminderMode.BeforeAndAtBroadcast to "播出前和播出时",
-                    CalendarReminderMode.AtBroadcast to "播出时",
-                    CalendarReminderMode.WhenAvailable to "新入库时",
-                ).forEach { (mode, label) ->
-                    OverlayOptionRow(
-                        label = label,
-                        description =
-                            if (mode == CalendarReminderMode.BeforeAndAtBroadcast) {
-                                "提前 $remindBeforeMinutes 分钟"
-                            } else {
-                                null
-                            },
-                        selected = reminderMode == mode,
-                        onClick = { onSetReminder(mode, remindBeforeMinutes) },
-                    )
-                }
-                if (reminderMode == CalendarReminderMode.BeforeAndAtBroadcast) {
-                    Text(
-                        "提前时间",
-                        style = AppTypography.caption.strong,
-                        color = palette.sub2,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(listOf(10, 30, 60, 120, 360)) { minutes ->
-                            OverlayOptionRow(
-                                label = if (minutes < 60) "$minutes 分钟" else "${minutes / 60} 小时",
-                                selected = remindBeforeMinutes == minutes,
-                                onClick = {
-                                    onSetReminder(
-                                        CalendarReminderMode.BeforeAndAtBroadcast,
-                                        minutes,
-                                    )
-                                },
-                                modifier = Modifier.width(92.dp),
-                            )
-                        }
-                    }
-                }
-            }
-            OverlayOptionRow(
-                label = "重新匹配剧集",
-                description = "排期不对时，重新选择 TMDB 条目",
-                selected = false,
-                onClick = onRebindIdentity,
-            )
-        }
-        when {
-            identityCandidates.isNotEmpty() -> {
-                Text(
-                    "媒体库缺少可靠的 TMDB 标识，请选择一次；选择结果会保存到本机。",
-                    style = AppTypography.body.regular,
-                    color = palette.sub,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-                identityCandidates.forEach { candidate ->
-                    OverlayOptionRow(
-                        label = candidate.title,
-                        description =
-                            listOfNotNull(
-                                candidate.year?.toString(),
-                                "TMDB ${candidate.tmdbId}",
-                            ).joinToString(" · "),
-                        selected = false,
-                        onClick = { onSelectIdentity(candidate) },
-                    )
-                }
-            }
-
-            loading && days.isEmpty() ->
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 28.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CircularProgressIndicator(Modifier.size(22.dp))
-                    Text("正在读取该剧播出安排…", style = AppTypography.body.regular, color = palette.sub)
-                }
-
-            error != null && days.isEmpty() -> {
-                Text(
-                    error,
-                    style = AppTypography.body.regular,
-                    color = palette.sub,
-                    modifier = Modifier.padding(vertical = 12.dp),
-                )
-                OverlayOptionRow(label = "重新加载", selected = false, onClick = onRetry)
-            }
-
-            days.isEmpty() ->
-                Text(
-                    "TMDB 暂未提供该剧当前播出季的集数日期。",
-                    style = AppTypography.body.regular,
-                    color = palette.sub,
-                    modifier = Modifier.padding(vertical = 20.dp),
-                )
-
-            else ->
-                LazyColumn(
-                    Modifier.fillMaxWidth().heightIn(max = 520.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(days, key = { it.date }) { day ->
-                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    seriesCalendarDayLabel(day.date, today),
-                                    style = AppTypography.body.strong,
-                                    color = palette.text,
-                                )
-                                Text(
-                                    "${day.date} · ${isoWeekdayLabel(day.date)}",
-                                    style = AppTypography.caption.regular,
-                                    color = palette.sub2,
-                                )
-                            }
-                            day.entries.forEach { entry ->
-                                val (status, tint) = seriesCalendarStatus(entry.status, palette.error, palette.sub2)
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .flatGlass(GlassShapes.chip, palette.card2, palette.border)
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        entry.episode.episodeLabel,
-                                        style = AppTypography.body.medium,
-                                        color = palette.text,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Text(status, style = AppTypography.caption.strong, color = tint)
-                                }
-                            }
-                        }
-                    }
-                }
-        }
-    }
-}
 
 internal fun reminderModeLabel(
     mode: CalendarReminderMode,
@@ -329,20 +66,6 @@ internal fun seriesCalendarDayLabel(
         1 -> "明天"
         -1 -> "昨天"
         else -> if (delta > 0) "$delta 天后" else "${-delta} 天前"
-    }
-
-private fun seriesCalendarStatus(
-    status: LibraryStatus,
-    errorColor: androidx.compose.ui.graphics.Color,
-    mutedColor: androidx.compose.ui.graphics.Color,
-): Pair<String, androidx.compose.ui.graphics.Color> =
-    when (status) {
-        LibraryStatus.Unaired -> "未播出" to mutedColor
-        LibraryStatus.Missing -> "未入库" to errorColor
-        LibraryStatus.Available -> "可播放" to Brand.Online
-        LibraryStatus.InProgress -> "观看中" to Brand.Online
-        LibraryStatus.Watched -> "已看" to mutedColor
-        LibraryStatus.Unknown -> "仅供参考" to mutedColor
     }
 
 @Composable
