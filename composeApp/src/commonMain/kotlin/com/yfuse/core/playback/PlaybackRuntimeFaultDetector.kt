@@ -23,6 +23,7 @@ class PlaybackRuntimeFaultDetector(
     private var lastPositionMs = initialPositionMs
     private var lastProgressAtEpochMs = startedAtEpochMs
     private var outputHasBeenVerified = false
+    private var unverifiableOutputHasAdvanced = false
     private var positionAdvancementWasExpected = false
     private var firstFrameWaitSinceEpochMs: Long? = startedAtEpochMs
     private var missingVideoSinceEpochMs: Long? = null
@@ -57,8 +58,18 @@ class PlaybackRuntimeFaultDetector(
                 (observation.audioExpected && observation.audioReady)
         if (verifiedOutputPresent) outputHasBeenVerified = true
         val renderedProgressMs = (observation.positionMs - initialPositionMs).coerceAtLeast(0L)
+        val hasVerifiableExpectedOutput =
+            (observation.videoExpected && observation.videoOutputVerifiable) ||
+                (observation.audioExpected && observation.audioOutputVerifiable)
+        if (!hasVerifiableExpectedOutput && renderedProgressMs >= MIN_PROGRESS_STEP_MS) {
+            // Legacy adapters cannot report a rendered frame. For those adapters only, a moving
+            // media position remains the best available proof that startup completed. NativeDirect
+            // can verify output and must never use its synthetic clock as first-frame evidence.
+            unverifiableOutputHasAdvanced = true
+        }
+        val outputHasStarted = outputHasBeenVerified || unverifiableOutputHasAdvanced
         val awaitingFirstOutput =
-            !outputHasBeenVerified &&
+            !outputHasStarted &&
                 (
                     (observation.videoExpected && !observation.videoReady) ||
                         (
@@ -75,7 +86,7 @@ class PlaybackRuntimeFaultDetector(
         // Keep the startup watchdog alive until the backend proves that output reached its sink.
         // A synthetic wall/audio clock may advance while MediaExtractor is still blocked on a
         // remote byte range, so position movement is not first-frame evidence.
-        if (!observation.playing && !observation.buffering && outputHasBeenVerified) {
+        if (!observation.playing && !observation.buffering && outputHasStarted) {
             resetClocks(now)
             return null
         }
@@ -89,12 +100,14 @@ class PlaybackRuntimeFaultDetector(
 
         val videoMissing =
             observation.playing &&
+                outputHasBeenVerified &&
                 observation.videoExpected &&
                 observation.videoOutputVerifiable &&
                 !observation.videoReady &&
                 renderedProgressMs >= MISSING_OUTPUT_PROGRESS_MS
         val audioMissing =
             observation.playing &&
+                outputHasBeenVerified &&
                 observation.audioExpected &&
                 observation.audioOutputVerifiable &&
                 !observation.audioReady &&
@@ -149,7 +162,7 @@ class PlaybackRuntimeFaultDetector(
                         "播放进度前进但没有可验证的音频输出",
                     )
                 observation.playing &&
-                    outputHasBeenVerified &&
+                    outputHasStarted &&
                     !awaitingFirstOutput &&
                     (observation.videoExpected || observation.audioExpected) &&
                     now - lastProgressAtEpochMs >= POSITION_STALL_TIMEOUT_MS ->

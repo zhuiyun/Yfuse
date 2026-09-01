@@ -82,9 +82,10 @@ class PlaybackRuntimeFaultDetectorTest {
     }
 
     @Test
-    fun progress_without_verifiable_video_is_reported_after_the_grace_window() {
+    fun video_that_disappears_after_verified_output_is_reported_after_the_grace_window() {
         val detector = detector()
 
+        assertNull(detector.observe(observation(now = 1_000L, positionMs = 1_000L, videoReady = true)))
         assertNull(detector.observe(observation(now = 4_000L, positionMs = 4_000L)))
         assertNull(
             detector.observe(observation(now = 7_000L, positionMs = 7_000L)),
@@ -94,6 +95,21 @@ class PlaybackRuntimeFaultDetectorTest {
 
         assertEquals(PlaybackRuntimeFaultKind.VideoOutputMissing, assertNotNull(fault).kind)
         assertEquals(PlaybackFailureKind.Renderer, fault.kind.failureKind)
+    }
+
+    @Test
+    fun synthetic_progress_before_first_frame_remains_on_the_startup_budget() {
+        val detector = detector()
+
+        assertNull(detector.observe(observation(now = 4_000L, positionMs = 4_000L)))
+        assertNull(
+            detector.observe(observation(now = 8_000L, positionMs = 8_000L)),
+            "a verifiable backend's clock is not proof that its decoder rendered output",
+        )
+        assertEquals(
+            PlaybackRuntimeFaultKind.StartupTimeout,
+            assertNotNull(detector.observe(observation(now = 15_000L, positionMs = 15_000L))).kind,
+        )
     }
 
     /**
