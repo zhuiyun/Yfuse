@@ -133,8 +133,8 @@ internal class AndroidTransportMediaDataSource(
      *
      * A single 2 MiB look-ahead block is less than half a second for the 38 Mbps Dolby Vision
      * source seen on affected devices. Range-request latency would therefore block the one media
-     * pump that also drains AudioTrack and MediaCodec. Keeping a bounded three-second window makes
-     * those reads finish off the media pump without changing the direct-play route.
+     * pump that also drains AudioTrack and MediaCodec. Keeping a bounded ten-second window absorbs
+     * the long-tail range latency seen behind media redirects without changing the direct-play route.
      */
     @Synchronized
     fun setMediaBitRateBitsPerSecond(value: Long) {
@@ -642,7 +642,7 @@ private const val TRANSPORT_PREFETCH_THREAD_NAME = "YCore-TransportPrefetch"
 private const val DEFAULT_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 2
 private const val MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 12
 private const val MAX_TRANSPORT_PREFETCH_CONCURRENCY = 8
-private const val TARGET_TRANSPORT_PREFETCH_WINDOW_MS = 3_000L
+private const val TARGET_TRANSPORT_PREFETCH_WINDOW_MS = 10_000L
 private const val TRANSPORT_PREFETCH_SAFETY_BLOCKS = 1L
 private const val BITS_PER_BYTE = 8L
 private const val MILLIS_PER_SECOND = 1_000L

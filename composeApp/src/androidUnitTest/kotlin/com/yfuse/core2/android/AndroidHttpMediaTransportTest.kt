@@ -269,6 +269,122 @@ class AndroidHttpMediaTransportTest {
         }
 
     @Test
+    fun `resolved cross origin media route is reused by later byte ranges`() =
+        runTest {
+            val origin = MockWebServer()
+            val cdn = MockWebServer()
+            cdn.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 0-3/8")
+                    .setBody("0123"),
+            )
+            cdn.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 4-7/8")
+                    .setBody("4567"),
+            )
+            cdn.start()
+            origin.enqueue(MockResponse().setResponseCode(302).setHeader("Location", cdn.url("movie.mkv")))
+            origin.start()
+            try {
+                val redirectState = AndroidHttpMediaRedirectState()
+                val sourceUri = origin.url("redirect").toString()
+                listOf(YByteRange(0L, 3L), YByteRange(4L, 7L)).forEach { range ->
+                    val transport =
+                        AndroidHttpMediaTransport(
+                            followSafeRedirects = true,
+                            redirectState = redirectState,
+                        )
+                    assertEquals(
+                        206,
+                        transport
+                            .open(
+                                YMediaTransportRequest(
+                                    uri = sourceUri,
+                                    protocol = YSourceProtocol.Http,
+                                    headers =
+                                        mapOf(
+                                            "X-Emby-Token" to "private",
+                                            "User-Agent" to "Yfuse-test",
+                                        ),
+                                    range = range,
+                                ),
+                            ).statusCode,
+                    )
+                    transport.close()
+                }
+
+                assertEquals(1, origin.requestCount)
+                assertEquals(2, cdn.requestCount)
+                assertEquals("private", origin.takeRequest().getHeader("X-Emby-Token"))
+                assertEquals(null, cdn.takeRequest().getHeader("X-Emby-Token"))
+                assertEquals(null, cdn.takeRequest().getHeader("X-Emby-Token"))
+            } finally {
+                origin.shutdown()
+                cdn.shutdown()
+            }
+        }
+
+    @Test
+    fun `expired cached media route refreshes through the authenticated origin`() =
+        runTest {
+            val origin = MockWebServer()
+            val cdn = MockWebServer()
+            cdn.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 0-3/8")
+                    .setBody("0123"),
+            )
+            cdn.enqueue(MockResponse().setResponseCode(403))
+            cdn.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 4-7/8")
+                    .setBody("4567"),
+            )
+            cdn.start()
+            origin.enqueue(MockResponse().setResponseCode(302).setHeader("Location", cdn.url("old.mkv")))
+            origin.enqueue(MockResponse().setResponseCode(302).setHeader("Location", cdn.url("new.mkv")))
+            origin.start()
+            try {
+                val redirectState = AndroidHttpMediaRedirectState()
+                val sourceUri = origin.url("redirect").toString()
+                listOf(YByteRange(0L, 3L), YByteRange(4L, 7L)).forEach { range ->
+                    val transport =
+                        AndroidHttpMediaTransport(
+                            followSafeRedirects = true,
+                            redirectState = redirectState,
+                        )
+                    assertEquals(
+                        206,
+                        transport
+                            .open(
+                                YMediaTransportRequest(
+                                    uri = sourceUri,
+                                    protocol = YSourceProtocol.Http,
+                                    headers = mapOf("X-Emby-Token" to "private"),
+                                    range = range,
+                                ),
+                            ).statusCode,
+                    )
+                    transport.close()
+                }
+
+                assertEquals(2, origin.requestCount)
+                assertEquals(3, cdn.requestCount)
+                assertEquals("private", origin.takeRequest().getHeader("X-Emby-Token"))
+                assertEquals("private", origin.takeRequest().getHeader("X-Emby-Token"))
+                repeat(3) { assertEquals(null, cdn.takeRequest().getHeader("X-Emby-Token")) }
+            } finally {
+                origin.shutdown()
+                cdn.shutdown()
+            }
+        }
+
+    @Test
     fun `native media transport follows secure to cleartext redirect without leaking credentials`() =
         runTest {
             val certificate =

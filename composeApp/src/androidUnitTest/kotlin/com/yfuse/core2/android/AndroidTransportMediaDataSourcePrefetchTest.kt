@@ -103,12 +103,26 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     }
 
     @Test
-    fun `high bitrate source keeps a bounded multi second prefetch window`() {
+    fun `remote media keeps a bounded ten second prefetch window`() {
         assertEquals(
-            8,
+            12,
             transportPrefetchDepthBlocks(
                 blockSize = 2 * 1024 * 1024,
                 mediaBitRateBitsPerSecond = 37_932_765L,
+            ),
+        )
+        assertEquals(
+            11,
+            transportPrefetchDepthBlocks(
+                blockSize = 2 * 1024 * 1024,
+                mediaBitRateBitsPerSecond = 15_221_411L,
+            ),
+        )
+        assertEquals(
+            7,
+            transportPrefetchDepthBlocks(
+                blockSize = 2 * 1024 * 1024,
+                mediaBitRateBitsPerSecond = 9_045_792L,
             ),
         )
         assertEquals(
@@ -133,9 +147,9 @@ class AndroidTransportMediaDataSourcePrefetchTest {
                 blockSizeOverride = 2 * 1024 * 1024,
             )
         try {
-            assertEquals(8, source.qoeSnapshot().depthBlocks)
+            assertEquals(12, source.qoeSnapshot().depthBlocks)
             source.setMediaBitRateBitsPerSecond(0L)
-            assertEquals(8, source.qoeSnapshot().depthBlocks)
+            assertEquals(12, source.qoeSnapshot().depthBlocks)
         } finally {
             source.close()
         }

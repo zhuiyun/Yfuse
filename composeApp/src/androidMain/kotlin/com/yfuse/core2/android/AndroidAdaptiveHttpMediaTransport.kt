@@ -9,14 +9,17 @@ import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.YTransportFeature
 import kotlinx.coroutines.CancellationException
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Prefers Cronet HTTP/2/HTTP/3 and falls back to the pinned OkHttp transport when unavailable. */
 internal class AndroidAdaptiveHttpMediaTransport(
+    private val routeState: AndroidAdaptiveHttpRouteState = AndroidAdaptiveHttpRouteState(),
     private val createCronet: () -> YMediaTransport,
     private val createOkHttp: () -> YMediaTransport = {
         AndroidHttpMediaTransport(
             followSafeRedirects = true,
             allowCrossProtocolRedirects = true,
+            redirectState = routeState.redirectState,
         )
     },
 ) : YMediaTransport {
@@ -37,12 +40,11 @@ internal class AndroidAdaptiveHttpMediaTransport(
     private var activeExpectedBytes: Long? = null
     private var activeBytesRead = 0L
     private var activeIsCronet = false
-    private var cronetUnavailable = false
 
     override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
         require(request.protocol in supportedProtocols)
         closeActive(propagateCancellation = true)
-        if (!cronetUnavailable) {
+        if (routeState.cronetAvailable) {
             val cronet = preferred ?: runCatching(createCronet).getOrNull()
             if (cronet != null) {
                 preferred = cronet
@@ -61,10 +63,10 @@ internal class AndroidAdaptiveHttpMediaTransport(
                 } catch (_: Throwable) {
                     closeTransport(cronet, propagateCancellation = false)
                     preferred = null
-                    cronetUnavailable = true
+                    routeState.disableCronet()
                 }
             } else {
-                cronetUnavailable = true
+                routeState.disableCronet()
             }
         }
         return openOkHttp(request)
@@ -115,7 +117,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
     ): Int {
         val request = checkNotNull(activeRequest) { "Cronet request metadata is unavailable" }
         val resumedRequest = request.resumeAfter(activeBytesRead) ?: return -1
-        cronetUnavailable = true
+        routeState.disableCronet()
         preferred = null
         closeActive(propagateCancellation = true)
         try {
@@ -191,6 +193,26 @@ internal class AndroidAdaptiveHttpMediaTransport(
             // A failed transport is already being abandoned; its close error must not prevent the
             // bounded OkHttp recovery path from opening the exact remaining byte range.
         }
+    }
+}
+
+/**
+ * Per-media HTTP route memory shared by the primary reader and every prefetch transport.
+ *
+ * A provider redirect that Cronet cannot safely follow must disable that probe for the whole
+ * source, not only for one 2 MiB block. The same state also remembers OkHttp's credential-safe
+ * final media URL so later byte ranges do not repeat a slow origin/redirect chain.
+ */
+internal class AndroidAdaptiveHttpRouteState(
+    val redirectState: AndroidHttpMediaRedirectState = AndroidHttpMediaRedirectState(),
+) {
+    private val cronetDisabled = AtomicBoolean(false)
+
+    val cronetAvailable: Boolean
+        get() = !cronetDisabled.get()
+
+    fun disableCronet() {
+        cronetDisabled.set(true)
     }
 }
 

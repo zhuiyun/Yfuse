@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -77,6 +78,35 @@ class AndroidAdaptiveHttpMediaTransportTest {
             assertEquals(1, cronet.openCalls)
             assertEquals(2, fallback.openCalls)
             assertTrue(cronet.closeCalls >= 1)
+        }
+
+    @Test
+    fun cronet_failure_is_shared_by_every_range_transport_for_the_same_media_source() =
+        runBlocking {
+            val routeState = AndroidAdaptiveHttpRouteState()
+            val cronetCreations = AtomicInteger()
+            val request =
+                YMediaTransportRequest(
+                    uri = "https://media.example.test/movie.mkv",
+                    protocol = YSourceProtocol.Https,
+                    range = YByteRange(0L, 3L),
+                )
+
+            repeat(2) {
+                val transport =
+                    AndroidAdaptiveHttpMediaTransport(
+                        routeState = routeState,
+                        createCronet = {
+                            cronetCreations.incrementAndGet()
+                            FakeTransport(failOpen = true)
+                        },
+                        createOkHttp = { FakeTransport() },
+                    )
+                assertEquals(206, transport.open(request).statusCode)
+                transport.close()
+            }
+
+            assertEquals(1, cronetCreations.get())
         }
 
     @Test

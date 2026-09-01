@@ -313,6 +313,7 @@ internal class AndroidMediaExtractorDemuxNode(
                     setDataSource(source.uri, source.headers)
                     return
                 }
+                val routeState = AndroidAdaptiveHttpRouteState()
                 val rangeSource =
                     AndroidTransportMediaDataSource(
                         uri = source.uri,
@@ -331,11 +332,19 @@ internal class AndroidMediaExtractorDemuxNode(
                         onBlockingReadStateChanged = onBlockingReadStateChanged,
                         createTransport = {
                             AndroidAdaptiveHttpMediaTransport(
+                                routeState = routeState,
                                 createCronet = {
                                     AndroidCronetMediaTransport(
                                         context = appContext,
                                         followMediaRedirects = true,
                                         allowCrossProtocolRedirects = true,
+                                    )
+                                },
+                                createOkHttp = {
+                                    AndroidHttpMediaTransport(
+                                        followSafeRedirects = true,
+                                        allowCrossProtocolRedirects = true,
+                                        redirectState = routeState.redirectState,
                                     )
                                 },
                             )

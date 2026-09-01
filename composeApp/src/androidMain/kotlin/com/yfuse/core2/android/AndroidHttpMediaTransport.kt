@@ -25,6 +25,7 @@ internal class AndroidHttpMediaTransport(
     private val client: OkHttpClient = sharedMediaTransportClient,
     private val followSafeRedirects: Boolean = false,
     private val allowCrossProtocolRedirects: Boolean = false,
+    private val redirectState: AndroidHttpMediaRedirectState? = null,
 ) : YMediaTransport {
     override val supportedProtocols: Set<YSourceProtocol> =
         setOf(YSourceProtocol.Http, YSourceProtocol.Https, YSourceProtocol.WebDav, YSourceProtocol.WebDavTls)
@@ -49,10 +50,15 @@ internal class AndroidHttpMediaTransport(
         withContext(Dispatchers.IO) {
             require(request.protocol in supportedProtocols) { "Unsupported HTTP transport protocol" }
             closeCurrent()
-            var targetUri = request.uri
-            var activeHeaders = request.headers.withHttpBasicCredentials(request.credentials)
+            val originalUri = request.uri
+            val originalHeaders = request.headers.withHttpBasicCredentials(request.credentials)
+            val cachedRoute = redirectState?.resolve(originalUri)
+            var targetUri = cachedRoute?.targetUri ?: originalUri
+            var activeHeaders = originalHeaders.withoutCredentials(cachedRoute?.stripCredentials == true)
             var redirectCount = 0
             var cleartextRedirect = false
+            var strippedCredentials = cachedRoute?.stripCredentials == true
+            var usingCachedRoute = cachedRoute != null
             var opened: Response? = null
             while (true) {
                 val builder =
@@ -73,6 +79,17 @@ internal class AndroidHttpMediaTransport(
                 }
                 request.range?.let { range -> builder.header("Range", range.toHttpRange()) }
                 val candidate = activeClient.newCall(builder.build()).execute()
+                if (usingCachedRoute && candidate.code in STALE_MEDIA_ROUTE_STATUS_CODES) {
+                    candidate.close()
+                    redirectState?.invalidate(originalUri, targetUri)
+                    targetUri = originalUri
+                    activeHeaders = originalHeaders
+                    redirectCount = 0
+                    cleartextRedirect = false
+                    strippedCredentials = false
+                    usingCachedRoute = false
+                    continue
+                }
                 val redirectTarget =
                     if (followSafeRedirects && request.method == YTransportMethod.Get) {
                         candidate.safeMediaRedirectTarget()
@@ -97,11 +114,19 @@ internal class AndroidHttpMediaTransport(
                 cleartextRedirect = cleartextRedirect || redirectsToCleartext
                 if (!previous.hasSameOrigin(redirectTarget)) {
                     activeHeaders = activeHeaders.filterKeys { !it.isCredentialHeader() }
+                    strippedCredentials = true
                 }
                 targetUri = redirectTarget.toString()
                 candidate.close()
             }
             val finalResponse = checkNotNull(opened)
+            if (followSafeRedirects && finalResponse.isSuccessful && finalResponse.request.url.toString() != originalUri) {
+                redirectState?.remember(
+                    sourceUri = originalUri,
+                    targetUri = finalResponse.request.url.toString(),
+                    stripCredentials = strippedCredentials,
+                )
+            }
             response = finalResponse
             input = finalResponse.body?.byteStream()
             val acceptedRange =
@@ -163,6 +188,43 @@ internal class AndroidHttpMediaTransport(
     }
 }
 
+/** One-source, memory-only redirect target shared across random-access transports. */
+internal class AndroidHttpMediaRedirectState {
+    private var route: AndroidHttpMediaRedirectRoute? = null
+
+    @Synchronized
+    fun resolve(sourceUri: String): AndroidHttpMediaRedirectRoute? =
+        route?.takeIf { cached -> cached.sourceUri == sourceUri }
+
+    @Synchronized
+    fun remember(
+        sourceUri: String,
+        targetUri: String,
+        stripCredentials: Boolean,
+    ) {
+        route =
+            AndroidHttpMediaRedirectRoute(
+                sourceUri = sourceUri,
+                targetUri = targetUri,
+                stripCredentials = stripCredentials,
+            )
+    }
+
+    @Synchronized
+    fun invalidate(
+        sourceUri: String,
+        targetUri: String,
+    ) {
+        if (route?.sourceUri == sourceUri && route?.targetUri == targetUri) route = null
+    }
+}
+
+internal data class AndroidHttpMediaRedirectRoute(
+    val sourceUri: String,
+    val targetUri: String,
+    val stripCredentials: Boolean,
+)
+
 private fun Response.safeMediaRedirectTarget(): HttpUrl? {
     if (code !in SAFE_MEDIA_REDIRECT_CODES) return null
     val location = header("Location")?.trim().orEmpty()
@@ -174,6 +236,9 @@ internal fun HttpUrl.hasSameOrigin(other: HttpUrl): Boolean =
     scheme == other.scheme && host == other.host && port == other.port
 
 private fun YByteRange.toHttpRange(): String = "bytes=$startInclusive-${endInclusive ?: ""}"
+
+private fun Map<String, String>.withoutCredentials(required: Boolean): Map<String, String> =
+    if (required) filterKeys { name -> !name.isCredentialHeader() } else this
 
 private fun String.isSafeTransportHeader(): Boolean = isNotBlank() && none { it == '\r' || it == '\n' || it == ':' }
 
@@ -210,5 +275,6 @@ private val sharedMediaTransportClient =
         .build()
 
 private val SAFE_MEDIA_REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+private val STALE_MEDIA_ROUTE_STATUS_CODES = setOf(401, 403, 404, 410)
 internal const val MAX_SAFE_MEDIA_REDIRECTS = 8
 internal const val NATIVE_MEDIA_TRANSPORT_TIMEOUT_SECONDS = 20L
