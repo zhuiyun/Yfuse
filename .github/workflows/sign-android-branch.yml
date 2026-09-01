@@ -90,12 +90,20 @@ jobs:
 
       - name: Download player engines
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if ! command -v 7z >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y p7zip-full
           fi
+          mkdir -p composeApp/libs
+          gh release download native-mpv-b955aa2-yfuse-dolby1-arm64-20260824 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern libmpv-release.aar \
+            --dir composeApp/libs \
+            --clobber
           chmod +x gradlew scripts/fetch-engines.sh
           scripts/fetch-engines.sh
           test -f composeApp/libs/libmpv-release.aar
