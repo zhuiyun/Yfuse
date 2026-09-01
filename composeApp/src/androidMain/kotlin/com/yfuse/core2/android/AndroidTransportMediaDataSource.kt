@@ -356,6 +356,7 @@ internal class AndroidTransportMediaDataSource(
         failureKind: YTransportFailureKind?,
         failure: Exception,
     ) {
+        if (closed || Thread.currentThread().isInterrupted || failure.isTransportCancellation()) return
         if (!transportFailureLogged.compareAndSet(false, true)) return
         val statusCode =
             when (failure) {
@@ -570,6 +571,13 @@ private fun Throwable.safeTransportExceptionChain(): String =
     generateSequence(this) { current -> current.cause }
         .take(MAX_SAFE_EXCEPTION_CHAIN_DEPTH)
         .joinToString(">") { current -> current.javaClass.simpleName.ifBlank { "Throwable" } }
+
+private fun Throwable.isTransportCancellation(): Boolean =
+    generateSequence(this) { current -> current.cause }
+        .take(MAX_SAFE_EXCEPTION_CHAIN_DEPTH)
+        .any { current ->
+            current is CancellationException || current is InterruptedException
+        }
 
 private fun Int.toRangeFailureKind(): YTransportFailureKind =
     when (this) {

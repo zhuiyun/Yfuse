@@ -239,6 +239,7 @@ internal fun PlayerRoot(
         )
     }
     var engineGeneration by remember { mutableIntStateOf(0) }
+    var runtimeSessionGeneration by remember { mutableIntStateOf(0) }
     var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
     var handoverItemId by remember { mutableStateOf<String?>(null) }
     var audioRestore by remember { mutableStateOf<TrackRestorePreference?>(null) }
@@ -830,6 +831,7 @@ internal fun PlayerRoot(
             state = localState,
             networkRecoveryAttempts = networkRecoveryAttempts,
             networkRecoverySuccesses = networkRecoverySuccesses,
+            sessionRevision = runtimeSessionGeneration,
         )
     LaunchedEffect(activeProbe.probeDepth, activeProbe.capabilitySignature) {
         if (castAuthoritative) return@LaunchedEffect
@@ -1809,14 +1811,15 @@ internal fun PlayerRoot(
                         subtitleDelayMs = subtitleControls.offsetMs,
                         audioDelayMs = audioControls.delayMs,
                     )
-                // Rebuild the YCore player itself. This releases MediaCodec, the Surface binding,
-                // AudioTrack, demux/transport state and stale frame callbacks, but never selects a
-                // Legacy engine or asks the server to transcode.
-                engineGeneration++
+                // Restart the existing Core2 worker in place. Its command queue serializes
+                // releaseMedia(), source reopen and decoder configuration, so a blocked outgoing
+                // extractor cannot overlap a second MediaCodec instance on the same Surface.
+                runtimeSessionGeneration++
+                player.retry()
                 AppLog.warning(
                     category = "player.core2",
                     event = "native_only_runtime_recovery",
-                    message = "YCore Native rebuilt its local pipeline after a silent output fault",
+                    message = "YCore Native restarted its local pipeline after a silent output fault",
                     attributes =
                         mapOf(
                             "engine" to kind.name,

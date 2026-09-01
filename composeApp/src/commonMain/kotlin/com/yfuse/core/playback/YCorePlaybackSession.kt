@@ -146,8 +146,12 @@ class YCorePlaybackSession(
 internal fun playbackStartupTimeoutMs(probe: PlaybackMediaProbe): Long =
     when {
         probe.discSource || probe.discKind != PlaybackDiscKind.None -> 180_000L
+        probe.isHugeRemoteMov -> 180_000L
+        !probe.localSource && (probe.sourceSizeBytes ?: 0L) >= LARGE_REMOTE_SOURCE_BYTES -> 120_000L
         probe.normalizedContainer == "MOV" ||
             probe.source.videoRequirements.codec == PlaybackVideoCodec.ProRes -> 60_000L
-        !probe.localSource -> 30_000L
+        !probe.localSource -> 60_000L
         else -> 15_000L
     }
+
+private const val LARGE_REMOTE_SOURCE_BYTES = 4L * 1_024L * 1_024L * 1_024L

@@ -128,21 +128,33 @@ internal class AndroidMediaCodecVideoNode(
             )
             return
         }
-        val decoder =
-            createPlannedVideoDecoder(
-                mime = mime,
-                decoderName = secureDecoderName ?: decoderName,
-                createByType = createDecoder,
-                createByName = createDecoderByName,
-            )
+        var decoder: MediaCodec? = null
+        val requestedDecoderName = secureDecoderName ?: decoderName
         try {
-            decoder.configure(format, surface, mediaCrypto, 0)
-            decoder.start()
-            codec = decoder
+            val candidate =
+                createPlannedVideoDecoder(
+                    mime = mime,
+                    decoderName = requestedDecoderName,
+                    createByType = createDecoder,
+                    createByName = createDecoderByName,
+                )
+            decoder = candidate
+            candidate.configure(format, surface, mediaCrypto, 0)
+            candidate.start()
+            codec = candidate
             started = true
         } catch (throwable: Throwable) {
-            runCatching { decoder.release() }
-            throw throwable
+            val attemptedDecoderName =
+                decoder
+                    ?.let { candidate -> runCatching { candidate.name }.getOrNull() }
+                    .orEmpty()
+                    .ifBlank { requestedDecoderName.orEmpty().ifBlank { mime } }
+            runCatching { decoder?.release() }
+            throw throwable.toVideoDecoderConfigurationException(
+                mime = mime,
+                profile = format.integerOrNull(MediaFormat.KEY_PROFILE),
+                decoderName = attemptedDecoderName,
+            )
         }
     }
 
@@ -431,7 +443,7 @@ internal class YVideoDecoderConfigurationException(
     val mime: String,
     val profile: Int?,
     val failures: List<YVideoDecoderAttemptFailure>,
-) : RuntimeException("No local MediaCodec decoder accepted the Dolby Vision format")
+) : RuntimeException("No local MediaCodec decoder accepted $mime")
 
 internal fun orderedVideoDecoderNames(
     plannedDecoderName: String?,
@@ -510,6 +522,17 @@ private fun Throwable.toVideoDecoderAttemptFailure(decoderName: String): YVideoD
             errorType = this::class.simpleName ?: "unknown",
         )
     }
+
+internal fun Throwable.toVideoDecoderConfigurationException(
+    mime: String,
+    profile: Int?,
+    decoderName: String,
+): YVideoDecoderConfigurationException =
+    YVideoDecoderConfigurationException(
+        mime = mime,
+        profile = profile,
+        failures = listOf(toVideoDecoderAttemptFailure(decoderName)),
+    )
 
 /** Keeps API 31-only verifier types out of [AndroidMediaCodecVideoNode] on Android 10 and older. */
 @RequiresApi(Build.VERSION_CODES.S)

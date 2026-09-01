@@ -43,6 +43,45 @@ class PlaybackRuntimeFaultDetectorTest {
     }
 
     @Test
+    fun a_synthetic_clock_does_not_count_as_first_frame_evidence() {
+        val detector = detector()
+
+        assertNull(
+            detector.observe(
+                observation(
+                    now = 14_000L,
+                    positionMs = 14_000L,
+                    playing = false,
+                    buffering = true,
+                ),
+            ),
+        )
+        val fault =
+            detector.observe(
+                observation(
+                    now = 15_000L,
+                    positionMs = 15_000L,
+                    playing = false,
+                    buffering = true,
+                ),
+            )
+
+        assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, assertNotNull(fault).kind)
+    }
+
+    @Test
+    fun position_stall_is_not_armed_before_verified_output() {
+        val detector = detector()
+
+        detector.observe(observation(now = 1_000L, positionMs = 1_000L))
+
+        assertNull(
+            detector.observe(observation(now = 13_500L, positionMs = 1_000L)),
+            "a parsed format or synthetic clock is not proof that playback started",
+        )
+    }
+
+    @Test
     fun progress_without_verifiable_video_is_reported_after_the_grace_window() {
         val detector = detector()
 

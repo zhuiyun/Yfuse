@@ -95,6 +95,22 @@ class AndroidMediaCodecVideoNodePolicyTest {
     }
 
     @Test
+    fun genericDecoderConfigureFailureRetainsMimeAndAttemptedDecoder() {
+        val failure =
+            IllegalArgumentException("framework detail that must not become the user message")
+                .toVideoDecoderConfigurationException(
+                    mime = "video/hevc",
+                    profile = 2,
+                    decoderName = "c2.qti.hevc.decoder",
+                )
+
+        assertEquals("video/hevc", failure.mime)
+        assertEquals(2, failure.profile)
+        assertEquals("c2.qti.hevc.decoder", failure.failures.single().decoderName)
+        assertEquals("IllegalArgumentException", failure.failures.single().errorType)
+    }
+
+    @Test
     fun dolbyVisionRetriesOptionalMetadataOnAndroid10AndNewer() {
         assertEquals(
             listOf(

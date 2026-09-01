@@ -46,14 +46,14 @@ class YCorePlaybackSessionTest {
         val memory = PlaybackFailureMemory(failureThreshold = 1)
         val session = session(memory)
         val waiting =
-            observation(now = 30_000L, droppedFrames = 0).copy(
+            observation(now = 60_000L, droppedFrames = 0).copy(
                 positionMs = 0L,
                 videoReady = false,
                 videoExpected = true,
             )
 
         val first = session.observe(waiting)
-        val second = session.observe(waiting.copy(nowEpochMs = 31_000L))
+        val second = session.observe(waiting.copy(nowEpochMs = 61_000L))
 
         assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, first.runtimeFault?.kind)
         assertEquals(null, second.runtimeFault)
@@ -86,12 +86,19 @@ class YCorePlaybackSessionTest {
                 sourceSizeBytes = 195_738_044_172L,
             )
 
-        assertEquals(60_000L, playbackStartupTimeoutMs(probe))
+        assertEquals(180_000L, playbackStartupTimeoutMs(probe))
     }
 
     @Test
     fun remote_direct_media_gets_time_for_transport_recovery() {
-        assertEquals(30_000L, playbackStartupTimeoutMs(probe()))
+        assertEquals(60_000L, playbackStartupTimeoutMs(probe()))
+    }
+
+    @Test
+    fun large_remote_source_gets_time_for_multiple_random_access_reads() {
+        val probe = probe().copy(sourceSizeBytes = 5_071_883_233L)
+
+        assertEquals(120_000L, playbackStartupTimeoutMs(probe))
     }
 
     @Test

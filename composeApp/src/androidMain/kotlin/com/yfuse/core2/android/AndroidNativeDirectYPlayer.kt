@@ -39,6 +39,7 @@ import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.sync.YAvSync
 import com.yfuse.core2.sync.YClockSnapshot
 import com.yfuse.core2.sync.YMediaClock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
@@ -257,8 +258,10 @@ internal class AndroidNativeDirectYPlayer(
                 }
                 val handledCommand = pendingCommands.isNotEmpty()
                 for (command in coalesceNativeDirectCommands(pendingCommands)) {
+                    if (released || !scope.isActive) return
                     val failure = runCatching { session.handle(command) }.exceptionOrNull()
                     if (failure != null) {
+                        if (failure is CancellationException && (released || !scope.isActive)) return
                         fail(session, failure)
                         // Commands in this batch were captured before the failure. Processing a
                         // stale Play/Seek/Surface command after releaseMedia() can partially revive
@@ -271,9 +274,11 @@ internal class AndroidNativeDirectYPlayer(
                 val canPump = session.canPump
                 val didWork =
                     if (canPump) {
-                        runCatching { session.pump() }
-                            .onFailure { fail(session, it) }
-                            .getOrDefault(false)
+                        val result = runCatching { session.pump() }
+                        val failure = result.exceptionOrNull()
+                        if (failure is CancellationException && (released || !scope.isActive)) return
+                        failure?.let { fail(session, it) }
+                        result.getOrDefault(false)
                     } else {
                         false
                     }
@@ -283,8 +288,9 @@ internal class AndroidNativeDirectYPlayer(
                         delay(PUMP_IDLE_DELAY_MS)
                     } else {
                         val command = commands.receiveCatching().getOrNull() ?: break
-                        runCatching { session.handle(command) }
-                            .onFailure { fail(session, it) }
+                        val failure = runCatching { session.handle(command) }.exceptionOrNull()
+                        if (failure is CancellationException && (released || !scope.isActive)) return
+                        failure?.let { fail(session, it) }
                     }
                 }
             }
@@ -297,6 +303,7 @@ internal class AndroidNativeDirectYPlayer(
         session: NativeSession,
         throwable: Throwable,
     ) {
+        if (released || throwable is CancellationException) return
         session.releaseMedia()
         val typed = throwable as? YPlaybackException
         val codecConfigurationFailure = typed?.cause as? YVideoDecoderConfigurationException
@@ -398,6 +405,8 @@ internal class AndroidNativeDirectYPlayer(
         private var drmBinding: AndroidYCoreDrmBinding? = null
         private var prepared = false
         private var videoConfigured = false
+
+        @Volatile
         private var requestedPlay = request.autoPlay
 
         @Volatile
@@ -424,6 +433,8 @@ internal class AndroidNativeDirectYPlayer(
         private var lastVideoPresentationUs = request.startPositionMs * MICROS_PER_MILLISECOND
         private var seekTargetVideoUs = request.startPositionMs * MICROS_PER_MILLISECOND
         private var seekTargetAudioUs = request.startPositionMs * MICROS_PER_MILLISECOND
+
+        @Volatile
         private var firstVideoFrameRendered = false
         private var droppedFrames = 0
         private var runtimeRenderRecorded = false
@@ -455,6 +466,7 @@ internal class AndroidNativeDirectYPlayer(
                     !isEnded()
 
         fun handle(command: Command) {
+            abortIfReleased()
             when (command) {
                 Command.Prepare -> prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
                 Command.Play -> startPlayback()
@@ -538,6 +550,7 @@ internal class AndroidNativeDirectYPlayer(
             ) {
                 demux.open(item.toAndroidSource())
             }
+            abortIfReleased()
             val sidecarSources = item.allExternalSubtitles
             externalSubtitles =
                 sidecarSources.mapIndexed { index, source ->
@@ -547,6 +560,7 @@ internal class AndroidNativeDirectYPlayer(
                         trackId = externalSubtitleTrackId(index),
                     )
                 }
+            abortIfReleased()
             selectedExternalSubtitleId =
                 sidecarSources.indexOfFirst { it.forced || it.default }
                     .takeIf { it >= 0 }
@@ -627,6 +641,7 @@ internal class AndroidNativeDirectYPlayer(
             surfaceOutput?.surface?.takeIf { it.isValid }?.let { surface ->
                 configureVideoDecoder(surface)
             }
+            abortIfReleased()
 
             prepared = true
             resetEndState()
@@ -1188,21 +1203,6 @@ internal class AndroidNativeDirectYPlayer(
                 }
                 lastVideoPresentationUs = output.presentationTimeUs
                 seekTargetVideoUs = 0L
-                if (decision is YVideoFrameReleaseDecision.Render && !firstVideoFrameRendered) {
-                    firstVideoFrameRendered = true
-                    mutableState.value =
-                        mutableState.value.copy(
-                            phase = YPlaybackPhase.Ready,
-                            playing = requestedPlay,
-                            buffering = false,
-                            diagnostics =
-                                mutableState.value.diagnostics.copy(
-                                    videoOutput = "Surface 直出",
-                                    videoOutputVerified = true,
-                                    dolbyVisionOutput = nativeDolbyVisionOutputVerified(),
-                                ),
-                        )
-                }
             } else {
                 pendingVideoOutput = null
                 videoDecoder.releaseOutput(output, render = false)
@@ -1218,18 +1218,6 @@ internal class AndroidNativeDirectYPlayer(
             lastVideoPresentationUs = candidate.presentationTimeUs
             seekTargetVideoUs = 0L
             videoOutputEnded = true
-            if (!firstVideoFrameRendered) {
-                firstVideoFrameRendered = true
-                mutableState.value =
-                    mutableState.value.copy(
-                        diagnostics =
-                            mutableState.value.diagnostics.copy(
-                                videoOutput = "Surface 直出 · 尾段最近帧",
-                                videoOutputVerified = true,
-                                dolbyVisionOutput = nativeDolbyVisionOutputVerified(),
-                            ),
-                    )
-            }
         }
 
         private fun retryEmptyTailSeek(output: YCodecOutputResult.Buffer): Boolean {
@@ -1289,6 +1277,7 @@ internal class AndroidNativeDirectYPlayer(
             nowNs: Long,
             positionUs: Long,
         ) {
+            if (released) return
             if (nowNs - lastQoePublishNs < QOE_PUBLISH_INTERVAL_NS) return
             lastQoePublishNs = nowNs
             val transportQoe = demux.transportQoeSnapshot()
@@ -1676,7 +1665,7 @@ internal class AndroidNativeDirectYPlayer(
             frameRateManager.attach(surface, format.directFrameRateHint())
             val generation = ++renderCallbackGeneration
             videoDecoder.setOnFrameRenderedListener { presentationTimeUs, realtimeNs ->
-                if (generation != renderCallbackGeneration) return@setOnFrameRenderedListener
+                if (released || generation != renderCallbackGeneration) return@setOnFrameRenderedListener
                 val previousRealtimeNs = lastRenderedRealtimeNs
                 if (previousRealtimeNs > 0L && realtimeNs > previousRealtimeNs) {
                     val gapNs = realtimeNs - previousRealtimeNs
@@ -1685,6 +1674,7 @@ internal class AndroidNativeDirectYPlayer(
                 }
                 lastRenderedRealtimeNs = realtimeNs
                 renderedFrameCount++
+                markFirstVideoFrameRendered()
                 if (!runtimeRenderRecorded) {
                     runtimeRenderRecorded = true
                     runtimeCapabilityKey?.let(runtimeCapabilities::recordRendered)
@@ -1701,6 +1691,39 @@ internal class AndroidNativeDirectYPlayer(
                     }
             }
             videoConfigured = true
+        }
+
+        private fun markFirstVideoFrameRendered() {
+            if (firstVideoFrameRendered || released) return
+            firstVideoFrameRendered = true
+            mutableState.updateState { current ->
+                if (released) {
+                    current
+                } else {
+                    current.copy(
+                        phase =
+                            if (current.phase == YPlaybackPhase.Ended) {
+                                YPlaybackPhase.Ended
+                            } else {
+                                YPlaybackPhase.Ready
+                            },
+                        playing = requestedPlay && current.phase != YPlaybackPhase.Ended,
+                        buffering = false,
+                        diagnostics =
+                            current.diagnostics.copy(
+                                videoOutput = "Surface 直出",
+                                videoOutputVerified = true,
+                                dolbyVisionOutput = nativeDolbyVisionOutputVerified(),
+                            ),
+                    )
+                }
+            }
+        }
+
+        private fun abortIfReleased() {
+            if (released || !scope.isActive) {
+                throw CancellationException("NativeDirect player was released")
+            }
         }
 
         private fun audioPresentationTimeNs(

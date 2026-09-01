@@ -105,13 +105,14 @@ internal fun rememberYCoreRuntimeAssessment(
     state: PlaybackState,
     networkRecoveryAttempts: Int = 0,
     networkRecoverySuccesses: Int = 0,
+    sessionRevision: Int = 0,
 ): YCoreRuntimeAssessment {
     val qoeReporter =
         remember {
             runCatching { GlobalContext.get().get<PlaybackQoeReporter>() }.getOrNull()
         }
     val session =
-        remember(player, probe.capabilitySignature) {
+        remember(player, probe.capabilitySignature, sessionRevision) {
             createYCorePlaybackSession(
                 engine = engineKind,
                 probe = probe,
@@ -211,9 +212,7 @@ internal fun PlaybackState.runtimeObservation(
         // `contains` versus `startsWith`. Media presence and output verifiability are separate:
         // Unknown withholds a missing-output judgement, while the shared position-stall clock
         // still detects a backend that goes completely silent.
-        videoReady =
-            videoHeight > 0 ||
-                diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
+        videoReady = diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
         videoExpected = probe.source.videoCodec != null,
         videoOutputVerifiable = diagnostics.effectiveVideoReadiness.verifiable,
         // A selected track proves only demux/selection, not that an AudioTrack or native output

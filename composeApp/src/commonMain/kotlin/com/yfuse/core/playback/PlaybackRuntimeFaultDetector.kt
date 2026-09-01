@@ -22,7 +22,7 @@ class PlaybackRuntimeFaultDetector(
 ) {
     private var lastPositionMs = initialPositionMs
     private var lastProgressAtEpochMs = startedAtEpochMs
-    private var playbackHasAdvanced = false
+    private var outputHasBeenVerified = false
     private var positionAdvancementWasExpected = false
     private var firstFrameWaitSinceEpochMs: Long? = startedAtEpochMs
     private var missingVideoSinceEpochMs: Long? = null
@@ -42,7 +42,6 @@ class PlaybackRuntimeFaultDetector(
         } else if (observation.positionMs > lastPositionMs + MIN_PROGRESS_STEP_MS) {
             lastPositionMs = observation.positionMs
             lastProgressAtEpochMs = now
-            playbackHasAdvanced = true
         }
         if (
             !observation.playbackRequested ||
@@ -53,9 +52,13 @@ class PlaybackRuntimeFaultDetector(
             return null
         }
 
+        val verifiedOutputPresent =
+            (observation.videoExpected && observation.videoReady) ||
+                (observation.audioExpected && observation.audioReady)
+        if (verifiedOutputPresent) outputHasBeenVerified = true
         val renderedProgressMs = (observation.positionMs - initialPositionMs).coerceAtLeast(0L)
         val awaitingFirstOutput =
-            renderedProgressMs == 0L &&
+            !outputHasBeenVerified &&
                 (
                     (observation.videoExpected && !observation.videoReady) ||
                         (
@@ -64,16 +67,15 @@ class PlaybackRuntimeFaultDetector(
                                 !observation.audioReady
                         )
                 )
-        val verifiedOutputPresent =
-            (observation.videoExpected && observation.videoReady) ||
-                (observation.audioExpected && observation.audioReady)
 
         // playbackRequested is user intent, not proof that the backend is currently advancing.
         // During an audio-focus pause some adapters can briefly keep that intent true while
-        // PlaybackState.playing is already false. Once this binding has produced output or moved
-        // its clock, that state is an intentional/externally imposed pause — not a renderer stall.
-        // Keep the startup watchdog alive only for a binding that has never produced anything.
-        if (!observation.playing && (playbackHasAdvanced || verifiedOutputPresent)) {
+        // PlaybackState.playing is already false. Once this binding has produced verified output,
+        // that state is an intentional/externally imposed pause — not a renderer stall.
+        // Keep the startup watchdog alive until the backend proves that output reached its sink.
+        // A synthetic wall/audio clock may advance while MediaExtractor is still blocked on a
+        // remote byte range, so position movement is not first-frame evidence.
+        if (!observation.playing && !observation.buffering && outputHasBeenVerified) {
             resetClocks(now)
             return null
         }
@@ -147,6 +149,7 @@ class PlaybackRuntimeFaultDetector(
                         "播放进度前进但没有可验证的音频输出",
                     )
                 observation.playing &&
+                    outputHasBeenVerified &&
                     !awaitingFirstOutput &&
                     (observation.videoExpected || observation.audioExpected) &&
                     now - lastProgressAtEpochMs >= POSITION_STALL_TIMEOUT_MS ->

@@ -66,6 +66,25 @@ class PlaybackOutputReadinessTest {
     }
 
     @Test
+    fun parsed_video_dimensions_do_not_claim_that_a_frame_reached_the_surface() {
+        val state =
+            PlaybackState(
+                videoHeight = 2160,
+                diagnostics = PlaybackDiagnostics(videoReadiness = PlaybackOutputReadiness.Waiting),
+            )
+
+        val observation =
+            state.runtimeObservation(
+                playbackRequested = true,
+                probe = probe(videoExpected = true, audioExpected = false),
+                runtimeEnvironment = PlaybackRuntimeEnvironment.normal(),
+            )
+
+        assertFalse(observation.videoReady)
+        assertTrue(observation.videoOutputVerifiable)
+    }
+
+    @Test
     fun mpv_audio_requires_output_driver_and_output_format() {
         assertTrue(
             mpvAudioOutputReadiness("aaudio", "s16") == PlaybackOutputReadiness.Rendering,
