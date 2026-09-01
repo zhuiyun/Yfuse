@@ -11,6 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -138,6 +139,98 @@ class AndroidTransportMediaDataSourcePrefetchTest {
         } finally {
             source.close()
         }
+    }
+
+    @Test
+    fun `a synchronous range wait exposes buffering state to the playback clock`() {
+        val states = CopyOnWriteArrayList<Boolean>()
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mp4",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = { MemoryRangeTransport(ByteArray(256)) { _, _ -> } },
+                onBlockingReadStateChanged = states::add,
+                blockSizeOverride = TEST_BLOCK_BYTES,
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            assertEquals(1, worker.submit<Int> { source.readAt(0L, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS))
+            assertEquals(listOf(true, false), states.take(2))
+        } finally {
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `random extractor seek closes cancelled range prefetch transports`() {
+        val media = ByteArray(TEST_BLOCK_BYTES * 8) { it.toByte() }
+        val created = AtomicInteger()
+        val prefetchOpened = CountDownLatch(1)
+        val prefetchClosed = CountDownLatch(1)
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mp4",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = {
+                    if (created.getAndIncrement() == 0) {
+                        MemoryRangeTransport(media) { _, _ -> }
+                    } else {
+                        BlockingPrefetchTransport(media, prefetchOpened, prefetchClosed)
+                    }
+                },
+                blockSizeOverride = TEST_BLOCK_BYTES,
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            assertEquals(1, worker.submit<Int> { source.readAt(0L, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS))
+            assertTrue(prefetchOpened.await(2, TimeUnit.SECONDS))
+            assertEquals(
+                1,
+                worker
+                    .submit<Int> {
+                        source.readAt(TEST_BLOCK_BYTES.toLong() * 6L, ByteArray(1), 0, 1)
+                    }.get(2, TimeUnit.SECONDS),
+            )
+            assertTrue(prefetchClosed.await(2, TimeUnit.SECONDS))
+        } finally {
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+}
+
+private class BlockingPrefetchTransport(
+    private val media: ByteArray,
+    private val opened: CountDownLatch,
+    private val closed: CountDownLatch,
+) : YMediaTransport {
+    override val supportedProtocols = setOf(YSourceProtocol.Http, YSourceProtocol.Https)
+    override val features = setOf(YTransportFeature.ByteRange)
+    private var start = 0L
+    private var end = 0L
+
+    override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
+        val range = requireNotNull(request.range)
+        start = range.startInclusive
+        end = minOf(range.endInclusive ?: media.lastIndex.toLong(), media.lastIndex.toLong())
+        opened.countDown()
+        return YMediaTransportResponse(
+            statusCode = 206,
+            contentLength = media.size.toLong(),
+            acceptedRange = YByteRange(start, end),
+        )
+    }
+
+    override suspend fun read(destination: ByteArray, offset: Int, length: Int): Int {
+        closed.await(5, TimeUnit.SECONDS)
+        return -1
+    }
+
+    override suspend fun close() {
+        closed.countDown()
     }
 }
 

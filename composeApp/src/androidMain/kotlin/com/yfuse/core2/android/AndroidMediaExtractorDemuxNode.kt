@@ -47,6 +47,7 @@ internal data class YExtractorSample(
 internal class AndroidMediaExtractorDemuxNode(
     context: Context,
     private val createExtractor: () -> MediaExtractor = ::MediaExtractor,
+    private val onBlockingReadStateChanged: ((Boolean) -> Unit)? = null,
 ) : YDemuxNode {
     override val name: String = "MediaExtractor"
 
@@ -327,6 +328,7 @@ internal class AndroidMediaExtractorDemuxNode(
                         cacheDirectory = appContext.cacheDir,
                         cacheIdentity = source.cacheIdentity,
                         cacheMaximumBytes = source.cacheMaximumBytes,
+                        onBlockingReadStateChanged = onBlockingReadStateChanged,
                         createTransport = {
                             AndroidAdaptiveHttpMediaTransport(
                                 createCronet = {
@@ -359,6 +361,7 @@ internal class AndroidMediaExtractorDemuxNode(
                         cacheDirectory = appContext.cacheDir,
                         cacheIdentity = source.cacheIdentity,
                         cacheMaximumBytes = source.cacheMaximumBytes,
+                        onBlockingReadStateChanged = onBlockingReadStateChanged,
                         createTransport = ::AndroidHttpMediaTransport,
                     )
                 mediaDataSource = rangeSource
@@ -375,6 +378,7 @@ internal class AndroidMediaExtractorDemuxNode(
                         cacheDirectory = appContext.cacheDir,
                         cacheIdentity = source.cacheIdentity,
                         cacheMaximumBytes = source.cacheMaximumBytes,
+                        onBlockingReadStateChanged = onBlockingReadStateChanged,
                         createTransport = ::AndroidSmbMediaTransport,
                     )
                 mediaDataSource = rangeSource

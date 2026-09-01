@@ -372,7 +372,11 @@ internal class AndroidNativeDirectYPlayer(
     private inner class NativeSession(
         context: Context,
     ) {
-        private val demux = AndroidMediaExtractorDemuxNode(context)
+        private val demux =
+            AndroidMediaExtractorDemuxNode(
+                context = context,
+                onBlockingReadStateChanged = ::onTransportBlockingReadStateChanged,
+            )
         private val videoDecoder = AndroidMediaCodecVideoNode()
         private val audioDecoder = AndroidMediaCodecAudioNode()
         private val audioRenderer = AndroidAudioTrackRenderNode(context)
@@ -436,6 +440,9 @@ internal class AndroidNativeDirectYPlayer(
 
         @Volatile
         private var firstVideoFrameRendered = false
+
+        @Volatile
+        private var transportReadBlocked = false
         private var droppedFrames = 0
         private var runtimeRenderRecorded = false
         private var lastStatePublishNs = 0L
@@ -772,8 +779,8 @@ internal class AndroidNativeDirectYPlayer(
             mutableState.value =
                 mutableState.value.copy(
                     playbackRequested = true,
-                    playing = firstVideoFrameRendered,
-                    buffering = !firstVideoFrameRendered,
+                    playing = firstVideoFrameRendered && !transportReadBlocked,
+                    buffering = !firstVideoFrameRendered || transportReadBlocked,
                     phase = if (isEnded()) YPlaybackPhase.Ended else YPlaybackPhase.Ready,
                 )
         }
@@ -1250,8 +1257,8 @@ internal class AndroidNativeDirectYPlayer(
                 mutableState.value.copy(
                     positionMs = positionUs / MICROS_PER_MILLISECOND,
                     subtitleCues = activeSubtitleCues(),
-                    playing = requestedPlay && firstVideoFrameRendered && !isEnded(),
-                    buffering = requestedPlay && !firstVideoFrameRendered && !isEnded(),
+                    playing = requestedPlay && firstVideoFrameRendered && !transportReadBlocked && !isEnded(),
+                    buffering = requestedPlay && (!firstVideoFrameRendered || transportReadBlocked) && !isEnded(),
                     diagnostics =
                         mutableState.value.diagnostics.copy(
                             droppedFrames = droppedFrames,
@@ -1707,14 +1714,44 @@ internal class AndroidNativeDirectYPlayer(
                             } else {
                                 YPlaybackPhase.Ready
                             },
-                        playing = requestedPlay && current.phase != YPlaybackPhase.Ended,
-                        buffering = false,
+                        playing =
+                            requestedPlay &&
+                                !transportReadBlocked &&
+                                current.phase != YPlaybackPhase.Ended,
+                        buffering = requestedPlay && transportReadBlocked,
                         diagnostics =
                             current.diagnostics.copy(
                                 videoOutput = "Surface 直出",
                                 videoOutputVerified = true,
                                 dolbyVisionOutput = nativeDolbyVisionOutputVerified(),
                             ),
+                    )
+                }
+            }
+        }
+
+        private fun onTransportBlockingReadStateChanged(blocked: Boolean) {
+            if (transportReadBlocked == blocked || released) return
+            val nowNs = System.nanoTime()
+            if (blocked) {
+                val frozenPositionUs = currentPositionUs()
+                monotonicPositionFloorUs = frozenPositionUs
+                wallClock.pause(frozenPositionUs, nowNs)
+            } else if (requestedPlay) {
+                val resumePositionUs =
+                    audioClockSnapshot()?.positionUs
+                        ?: wallClock.positionUs(nowNs)
+                monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, resumePositionUs)
+                wallClock.start(monotonicPositionFloorUs, nowNs)
+            }
+            transportReadBlocked = blocked
+            mutableState.updateState { current ->
+                if (released || current.phase == YPlaybackPhase.Failed || current.phase == YPlaybackPhase.Ended) {
+                    current
+                } else {
+                    current.copy(
+                        playing = requestedPlay && firstVideoFrameRendered && !blocked,
+                        buffering = requestedPlay && (blocked || !firstVideoFrameRendered),
                     )
                 }
             }
@@ -1885,6 +1922,7 @@ internal class AndroidNativeDirectYPlayer(
             observedAudioRoutingGeneration = 0L
             rejectedPassthroughTracks.clear()
             firstVideoFrameRendered = false
+            transportReadBlocked = false
             droppedFrames = 0
             runtimeRenderRecorded = false
             renderedFrameCount = 0L

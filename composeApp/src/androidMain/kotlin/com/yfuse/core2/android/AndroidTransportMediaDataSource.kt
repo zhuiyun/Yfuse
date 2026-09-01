@@ -38,6 +38,7 @@ internal class AndroidTransportMediaDataSource(
     cacheIdentity: YCacheIdentity? = null,
     cacheMaximumBytes: Long = 0L,
     private val onNetworkSample: ((bytes: Long, durationMs: Long) -> Unit)? = null,
+    private val onBlockingReadStateChanged: ((Boolean) -> Unit)? = null,
     blockSizeOverride: Int? = null,
 ) : MediaDataSource() {
     private val transport = createTransport()
@@ -159,31 +160,36 @@ internal class AndroidTransportMediaDataSource(
 
     private fun resolveBlock(blockIndex: Long): ByteArray {
         val startedNs = System.nanoTime()
-        val prefetched = takePrefetchedBlock(blockIndex)
-        val loaded =
-            if (prefetched != null) {
-                prefetchHitCount++
-                prefetched
-            } else {
-                synchronousLoadCount++
-                cancelPrefetchOutside(emptySet())
-                loadBlockNow(blockIndex)
+        onBlockingReadStateChanged?.invoke(true)
+        try {
+            val prefetched = takePrefetchedBlock(blockIndex)
+            val loaded =
+                if (prefetched != null) {
+                    prefetchHitCount++
+                    prefetched
+                } else {
+                    synchronousLoadCount++
+                    cancelPrefetchOutside(emptySet())
+                    loadBlockNow(blockIndex)
+                }
+            maximumResolveWaitMs =
+                maxOf(
+                    maximumResolveWaitMs,
+                    ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(0L),
+                )
+            maximumRemoteLoadMs = maxOf(maximumRemoteLoadMs, loaded.remoteLoadDurationMs)
+            loaded.contentLength?.let { contentLength ->
+                if (knownSize >= 0L) require(knownSize == contentLength) { "Remote media size changed during playback" }
+                knownSize = contentLength
             }
-        maximumResolveWaitMs =
-            maxOf(
-                maximumResolveWaitMs,
-                ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(0L),
-            )
-        maximumRemoteLoadMs = maxOf(maximumRemoteLoadMs, loaded.remoteLoadDurationMs)
-        loaded.contentLength?.let { contentLength ->
-            if (knownSize >= 0L) require(knownSize == contentLength) { "Remote media size changed during playback" }
-            knownSize = contentLength
+            cache(blockIndex, loaded.bytes)
+            if (loaded.bytes.isNotEmpty()) {
+                diskCache?.writeBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
+            }
+            return loaded.bytes
+        } finally {
+            onBlockingReadStateChanged?.invoke(false)
         }
-        cache(blockIndex, loaded.bytes)
-        if (loaded.bytes.isNotEmpty()) {
-            diskCache?.writeBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
-        }
-        return loaded.bytes
     }
 
     private fun loadBlockNow(blockIndex: Long): YLoadedTransportBlock {
@@ -410,32 +416,33 @@ internal class AndroidTransportMediaDataSource(
     private fun schedulePrefetchBlock(blockIndex: Long) {
         if (prefetchedBlocks.containsKey(blockIndex) || blocks.containsKey(blockIndex)) return
         val knownSizeSnapshot = knownSize
-        prefetchedBlocks[blockIndex] =
-            YTransportBlockPrefetch(
-                blockIndex = blockIndex,
-                future =
-                    prefetchExecutor.submit<YLoadedTransportBlock> {
-                        diskCache?.readBlock(blockIndex, blockSize)?.let { cached ->
-                            return@submit YLoadedTransportBlock(cached, diskCache.contentLength)
-                        }
-                        val prefetchTransport = createTransport()
-                        val rejected =
-                            synchronized(prefetchTransportLock) {
-                                closed || !activePrefetchTransports.add(prefetchTransport)
-                            }
-                        if (rejected) {
-                            runBlocking { prefetchTransport.close() }
-                            throw CancellationException("Transport data source closed")
-                        }
-                        try {
-                            loadRemoteBlockWithRetries(blockIndex, prefetchTransport, knownSizeSnapshot)
-                        } finally {
-                            synchronized(prefetchTransportLock) {
-                                activePrefetchTransports.remove(prefetchTransport)
-                            }
-                        }
-                    },
-            )
+        val prefetch = YTransportBlockPrefetch(blockIndex)
+        prefetchedBlocks[blockIndex] = prefetch
+        prefetch.future =
+            prefetchExecutor.submit<YLoadedTransportBlock> {
+                diskCache?.readBlock(blockIndex, blockSize)?.let { cached ->
+                    return@submit YLoadedTransportBlock(cached, diskCache.contentLength)
+                }
+                val prefetchTransport = createTransport()
+                val rejected =
+                    synchronized(prefetchTransportLock) {
+                        closed ||
+                            !prefetch.bind(prefetchTransport) ||
+                            !activePrefetchTransports.add(prefetchTransport)
+                    }
+                if (rejected) {
+                    runBlocking { prefetchTransport.close() }
+                    throw CancellationException("Transport data source closed")
+                }
+                try {
+                    loadRemoteBlockWithRetries(blockIndex, prefetchTransport, knownSizeSnapshot)
+                } finally {
+                    prefetch.unbind(prefetchTransport)
+                    synchronized(prefetchTransportLock) {
+                        activePrefetchTransports.remove(prefetchTransport)
+                    }
+                }
+            }
     }
 
     private fun takePrefetchedBlock(blockIndex: Long): YLoadedTransportBlock? {
@@ -457,7 +464,7 @@ internal class AndroidTransportMediaDataSource(
         while (iterator.hasNext()) {
             val entry = iterator.next()
             if (entry.key !in retained) {
-                entry.value.future.cancel(true)
+                entry.value.cancel()
                 iterator.remove()
             }
         }
@@ -554,10 +561,35 @@ private data class YLoadedTransportBlock(
     val remoteLoadDurationMs: Long = 0L,
 )
 
-private data class YTransportBlockPrefetch(
+private class YTransportBlockPrefetch(
     val blockIndex: Long,
-    val future: Future<YLoadedTransportBlock>,
-)
+) {
+    private val cancelled = AtomicBoolean(false)
+    private var activeTransport: YMediaTransport? = null
+
+    lateinit var future: Future<YLoadedTransportBlock>
+
+    @Synchronized
+    fun bind(transport: YMediaTransport): Boolean {
+        if (cancelled.get()) return false
+        activeTransport = transport
+        if (!cancelled.get()) return true
+        activeTransport = null
+        return false
+    }
+
+    @Synchronized
+    fun unbind(transport: YMediaTransport) {
+        if (activeTransport === transport) activeTransport = null
+    }
+
+    fun cancel() {
+        cancelled.set(true)
+        future.cancel(true)
+        val transport = synchronized(this) { activeTransport.also { activeTransport = null } }
+        transport?.let { active -> runCatching { runBlocking { active.close() } } }
+    }
+}
 
 private class YRangeReadException(
     val failureKind: YTransportFailureKind,
