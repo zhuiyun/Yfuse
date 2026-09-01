@@ -42,4 +42,39 @@ class SeriesAiringCalendarTest {
             nextReminderMode(CalendarReminderMode.WhenAvailable),
         )
     }
+
+    @Test
+    fun calendar_opens_on_the_date_closest_to_today() {
+        val dates = listOf("2026-08-26", "2026-08-27", "2026-09-02")
+
+        assertEquals("2026-09-02", seriesCalendarInitialDate(dates, "2026-08-31"))
+        assertNull(seriesCalendarInitialDate(emptyList(), "2026-08-31"))
+    }
+
+    @Test
+    fun date_selector_keeps_three_days_around_the_selection() {
+        val dates =
+            listOf(
+                "2026-08-25",
+                "2026-08-26",
+                "2026-08-27",
+                "2026-08-28",
+                "2026-08-29",
+            )
+
+        assertEquals(
+            listOf("2026-08-26", "2026-08-27", "2026-08-28"),
+            seriesCalendarDateWindow(dates, "2026-08-27"),
+        )
+        assertEquals(
+            listOf("2026-08-27", "2026-08-28", "2026-08-29"),
+            seriesCalendarDateWindow(dates, "2026-08-29"),
+        )
+    }
+
+    @Test
+    fun date_selector_uses_compact_chinese_month_day_copy() {
+        assertEquals("8月26日", seriesCalendarMonthDay("2026-08-26"))
+        assertEquals("unknown", seriesCalendarMonthDay("unknown"))
+    }
 }

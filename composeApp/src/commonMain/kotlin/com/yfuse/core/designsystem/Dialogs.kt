@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -41,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -89,7 +91,7 @@ fun ReportOverlayVisible(enabled: Boolean = true) {
     }
 }
 
-/** The one centred modal material used outside player chrome. */
+/** The shared modal material used outside player chrome. */
 @Composable
 fun GlassDialog(
     onDismiss: () -> Unit,
@@ -97,6 +99,9 @@ fun GlassDialog(
     scrollable: Boolean = true,
     liquidButtons: Boolean = true,
     contentPadding: Dp = 18.dp,
+    alignment: Alignment = Alignment.Center,
+    windowPadding: PaddingValues = PaddingValues(horizontal = 26.dp, vertical = 20.dp),
+    shape: Shape = OverlayShape,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var leaving by remember { mutableStateOf(false) }
@@ -124,22 +129,22 @@ fun GlassDialog(
                     .graphicsLayer { alpha = progress() }
                     .background(ScrimColor.copy(alpha = 0.46f))
                     .pointerInput(requestDismiss) { detectTapGestures { requestDismiss() } },
-                contentAlignment = Alignment.Center,
+                contentAlignment = alignment,
             ) {
                 val panelScrollState = rememberScrollState()
                 Column(
                     Modifier
                         .safeDrawingPadding()
-                        .padding(horizontal = 26.dp, vertical = 20.dp)
+                        .padding(windowPadding)
                         .widthIn(max = OverlayMaxWidth)
                         .fillMaxWidth()
                         .graphicsLayer {
                             val entered = progress()
                             alpha = entered
                             translationY = modalOffset * (1f - entered)
-                        }.shadow(Shadows.sheet, OverlayShape)
+                        }.shadow(Shadows.sheet, shape)
                         .liquidGlass(
-                            shape = OverlayShape,
+                            shape = shape,
                             fill =
                                 if (palette.isDark) {
                                     Color(0xFF111A29).copy(alpha = 0.94f)
