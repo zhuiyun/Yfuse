@@ -2,10 +2,14 @@ package com.yfuse.core2.android
 
 import android.media.MediaDataSource
 import android.os.Looper
+import com.yfuse.core.logging.AppLog
+import com.yfuse.core2.network.YByteRange
 import com.yfuse.core2.network.YCacheConditions
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YCachePlanner
 import com.yfuse.core2.network.YMediaTransport
+import com.yfuse.core2.network.YMediaTransportRequest
+import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.YTransportCredentials
@@ -19,6 +23,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Adapts protocol transports to MediaExtractor without ever materializing the full remote file. */
@@ -85,6 +90,8 @@ internal class AndroidTransportMediaDataSource(
     private var maximumRemoteLoadMs = 0L
 
     private val activePrefetchTransports = mutableSetOf<YMediaTransport>()
+    private val transportRouteLogged = AtomicBoolean(false)
+    private val transportFailureLogged = AtomicBoolean(false)
 
     @Volatile
     private var closed = false
@@ -203,10 +210,28 @@ internal class AndroidTransportMediaDataSource(
                 val failureKind =
                     when (failure) {
                         is YRangeReadException -> failure.failureKind
+                        is AndroidRangeResponseException -> failure.failureKind
                         is IOException -> YTransportFailureKind.TransientIo
-                        else -> throw failure
+                        else -> {
+                            reportTransportFailure(
+                                blockIndex = blockIndex,
+                                completedRetries = completedRetries,
+                                failureKind = null,
+                                failure = failure,
+                            )
+                            throw failure
+                        }
                     }
-                val delayMs = mediaRangeRetryDelayMs(completedRetries, failureKind) ?: throw failure
+                val delayMs = mediaRangeRetryDelayMs(completedRetries, failureKind)
+                if (delayMs == null) {
+                    reportTransportFailure(
+                        blockIndex = blockIndex,
+                        completedRetries = completedRetries,
+                        failureKind = failureKind,
+                        failure = failure,
+                    )
+                    throw failure
+                }
                 completedRetries++
                 try {
                     Thread.sleep(delayMs)
@@ -243,14 +268,21 @@ internal class AndroidTransportMediaDataSource(
                     throw YRangeReadException(
                         failureKind = response.statusCode.toRangeFailureKind(),
                         safeMessage = "Random-access transport did not accept byte range",
+                        statusCode = response.statusCode,
+                        expectedRangeStart = position,
+                        acceptedRangeStart = response.acceptedRange?.startInclusive,
                     )
                 }
                 if (response.acceptedRange?.startInclusive != position) {
                     throw YRangeReadException(
                         failureKind = YTransportFailureKind.InvalidRange,
                         safeMessage = "Random-access transport returned mismatched range metadata",
+                        statusCode = response.statusCode,
+                        expectedRangeStart = position,
+                        acceptedRangeStart = response.acceptedRange?.startInclusive,
                     )
                 }
+                reportTransportRoute(response)
                 val responseContentLength = response.contentLength?.takeIf { it >= 0L }
                 responseContentLength?.let { total ->
                     if (knownSizeSnapshot >= 0L) {
@@ -279,6 +311,9 @@ internal class AndroidTransportMediaDataSource(
                     throw YRangeReadException(
                         failureKind = YTransportFailureKind.PrematureEof,
                         safeMessage = "Random-access transport ended before the accepted block range",
+                        statusCode = response.statusCode,
+                        expectedRangeStart = position,
+                        acceptedRangeStart = response.acceptedRange?.startInclusive,
                     )
                 }
                 onNetworkSample?.invoke(
@@ -295,6 +330,68 @@ internal class AndroidTransportMediaDataSource(
                 blockTransport.close()
             }
         }
+
+    private fun reportTransportRoute(response: YMediaTransportResponse) {
+        if (!transportRouteLogged.compareAndSet(false, true)) return
+        AppLog.info(
+            category = "player.core2",
+            event = "transport_range_opened",
+            message = "YCore opened the first validated media byte range",
+            attributes =
+                mapOf(
+                    "implementation" to response.implementation.ifBlank { "unknown" },
+                    "status" to response.statusCode.toString(),
+                    "negotiatedProtocol" to response.negotiatedProtocol.ifBlank { "unknown" },
+                    "redirectCount" to response.redirectCount.toString(),
+                    "finalProtocol" to (response.finalProtocol?.name ?: "unknown"),
+                    "cleartextRedirect" to response.cleartextRedirect.toString(),
+                    "contentLengthKnown" to (response.contentLength != null).toString(),
+                ),
+        )
+    }
+
+    private fun reportTransportFailure(
+        blockIndex: Long,
+        completedRetries: Int,
+        failureKind: YTransportFailureKind?,
+        failure: Exception,
+    ) {
+        if (!transportFailureLogged.compareAndSet(false, true)) return
+        val statusCode =
+            when (failure) {
+                is YRangeReadException -> failure.statusCode
+                is AndroidRangeResponseException -> failure.statusCode
+                else -> null
+            }
+        val expectedRangeStart =
+            when (failure) {
+                is YRangeReadException -> failure.expectedRangeStart
+                is AndroidRangeResponseException -> failure.expectedRangeStart
+                else -> null
+            }
+        val acceptedRangeStart =
+            when (failure) {
+                is YRangeReadException -> failure.acceptedRangeStart
+                is AndroidRangeResponseException -> failure.acceptedRangeStart
+                else -> null
+            }
+        AppLog.warning(
+            category = "player.core2",
+            event = "transport_range_failed",
+            message = "YCore exhausted a media byte-range request without exposing credentials",
+            attributes =
+                mapOf(
+                    "failureKind" to (failureKind?.name ?: "Unknown"),
+                    "exceptionChain" to failure.safeTransportExceptionChain(),
+                    "status" to (statusCode?.toString() ?: "unavailable"),
+                    "expectedRangeStart" to
+                        (expectedRangeStart?.toString()
+                            ?: blockIndex.saturatedMultiply(blockSize.toLong()).toString()),
+                    "acceptedRangeStart" to (acceptedRangeStart?.toString() ?: "unavailable"),
+                    "attemptCount" to (completedRetries + 1).toString(),
+                ),
+        )
+    }
 
     private fun schedulePrefetch(blockIndex: Long) {
         if (prefetchSuppressed) return
@@ -464,7 +561,15 @@ private data class YTransportBlockPrefetch(
 private class YRangeReadException(
     val failureKind: YTransportFailureKind,
     safeMessage: String,
+    val statusCode: Int? = null,
+    val expectedRangeStart: Long? = null,
+    val acceptedRangeStart: Long? = null,
 ) : IOException(safeMessage)
+
+private fun Throwable.safeTransportExceptionChain(): String =
+    generateSequence(this) { current -> current.cause }
+        .take(MAX_SAFE_EXCEPTION_CHAIN_DEPTH)
+        .joinToString(">") { current -> current.javaClass.simpleName.ifBlank { "Throwable" } }
 
 private fun Int.toRangeFailureKind(): YTransportFailureKind =
     when (this) {
@@ -502,3 +607,4 @@ private const val TRANSPORT_PREFETCH_SAFETY_BLOCKS = 1L
 private const val BITS_PER_BYTE = 8L
 private const val MILLIS_PER_SECOND = 1_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
+private const val MAX_SAFE_EXCEPTION_CHAIN_DEPTH = 4

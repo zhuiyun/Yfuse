@@ -7,8 +7,10 @@ import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFeature
+import com.yfuse.core2.network.YTransportMethod
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetException
 import org.chromium.net.UrlRequest
@@ -26,6 +28,8 @@ internal class AndroidCronetMediaTransport(
     context: Context,
     private val engine: CronetEngine = AndroidCronetRuntime.engine(context.applicationContext),
     private val callbackExecutor: ExecutorService = AndroidCronetRuntime.callbackExecutor,
+    private val followMediaRedirects: Boolean = false,
+    private val allowCrossProtocolRedirects: Boolean = false,
 ) : YMediaTransport {
     override val supportedProtocols: Set<YSourceProtocol> =
         setOf(YSourceProtocol.Http, YSourceProtocol.Https, YSourceProtocol.WebDav, YSourceProtocol.WebDavTls)
@@ -55,8 +59,13 @@ internal class AndroidCronetMediaTransport(
             activeChunk = null
             activeOffset = 0
             endOfStream = false
+            val requestHeaders = request.headers
+            val requestMethod = request.method
             val responseReady = CountDownLatch(1)
             var responseInfo: UrlResponseInfo? = null
+            var activeUrl = request.uri.toHttpUrlOrNull()
+            var redirectCount = 0
+            var cleartextRedirect = false
             val callback =
                 object : UrlRequest.Callback() {
                     override fun onRedirectReceived(
@@ -64,10 +73,39 @@ internal class AndroidCronetMediaTransport(
                         info: UrlResponseInfo,
                         newLocationUrl: String,
                     ) {
-                        callbackFailure = IllegalStateException("HTTP redirect requires provider re-resolution")
-                        request.cancel()
-                        responseReady.countDown()
-                        chunks.offer(CronetChunk.Failed)
+                        val previous = activeUrl
+                        val target = newLocationUrl.toHttpUrlOrNull()
+                        val redirectsToCleartext = previous?.isHttps == true && target?.isHttps == false
+                        val crossesOrigin =
+                            previous == null ||
+                                target == null ||
+                                !previous.hasSameOrigin(target)
+                        val carriesCredentials =
+                            requestHeaders.keys.any(String::isCredentialHeader)
+                        val canFollow =
+                            followMediaRedirects &&
+                                requestMethod == YTransportMethod.Get &&
+                                redirectCount < MAX_SAFE_MEDIA_REDIRECTS &&
+                                target != null &&
+                                (!redirectsToCleartext || allowCrossProtocolRedirects) &&
+                                (!crossesOrigin || !carriesCredentials)
+                        if (!canFollow) {
+                            callbackFailure =
+                                IOException("Cronet media redirect requires OkHttp policy fallback")
+                            request.cancel()
+                            responseReady.countDown()
+                            chunks.offer(CronetChunk.Failed)
+                            return
+                        }
+                        redirectCount += 1
+                        cleartextRedirect = cleartextRedirect || redirectsToCleartext
+                        activeUrl = target
+                        runCatching(request::followRedirect).onFailure { failure ->
+                            callbackFailure = failure
+                            request.cancel()
+                            responseReady.countDown()
+                            chunks.offer(CronetChunk.Failed)
+                        }
                     }
 
                     override fun onResponseStarted(
@@ -151,6 +189,16 @@ internal class AndroidCronetMediaTransport(
                         if (protocol == "h2") add(YTransportFeature.Http2)
                         if (protocol.startsWith("h3") || "quic" in protocol) add(YTransportFeature.Http3)
                     },
+                implementation = "Cronet",
+                negotiatedProtocol = protocol,
+                redirectCount = redirectCount,
+                finalProtocol =
+                    if (activeUrl?.isHttps == true) {
+                        YSourceProtocol.Https
+                    } else {
+                        YSourceProtocol.Http
+                    },
+                cleartextRedirect = cleartextRedirect,
             )
         }
 
@@ -256,5 +304,5 @@ private fun String.isSafeCronetHeader(): Boolean = isNotBlank() && '\r' !in this
 
 private const val CRONET_READ_BYTES = 256 * 1024
 private const val CRONET_CALLBACK_THREADS = 4
-private const val CRONET_OPEN_TIMEOUT_SECONDS = 8L
-private const val CRONET_READ_TIMEOUT_SECONDS = 8L
+private const val CRONET_OPEN_TIMEOUT_SECONDS = NATIVE_MEDIA_TRANSPORT_TIMEOUT_SECONDS
+private const val CRONET_READ_TIMEOUT_SECONDS = NATIVE_MEDIA_TRANSPORT_TIMEOUT_SECONDS

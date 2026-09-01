@@ -9,6 +9,8 @@ import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.tls.HandshakeCertificates
+import okhttp3.tls.HeldCertificate
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -263,6 +265,83 @@ class AndroidHttpMediaTransportTest {
             } finally {
                 origin.shutdown()
                 cdn.shutdown()
+            }
+        }
+
+    @Test
+    fun `native media transport follows secure to cleartext redirect without leaking credentials`() =
+        runTest {
+            val certificate =
+                HeldCertificate
+                    .Builder()
+                    .addSubjectAlternativeName("localhost")
+                    .build()
+            val serverCertificates =
+                HandshakeCertificates
+                    .Builder()
+                    .heldCertificate(certificate)
+                    .build()
+            val clientCertificates =
+                HandshakeCertificates
+                    .Builder()
+                    .addTrustedCertificate(certificate.certificate)
+                    .build()
+            val origin = MockWebServer().apply { useHttps(serverCertificates.sslSocketFactory(), false) }
+            val media = MockWebServer()
+            media.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes 4-7/10")
+                    .setBody("4567"),
+            )
+            media.start()
+            origin.enqueue(MockResponse().setResponseCode(302).setHeader("Location", media.url("movie.mkv")))
+            origin.start()
+            try {
+                val client =
+                    OkHttpClient
+                        .Builder()
+                        .sslSocketFactory(
+                            clientCertificates.sslSocketFactory(),
+                            clientCertificates.trustManager,
+                        )
+                        .followRedirects(false)
+                        .followSslRedirects(false)
+                        .build()
+                val transport =
+                    AndroidHttpMediaTransport(
+                        client = client,
+                        followSafeRedirects = true,
+                        allowCrossProtocolRedirects = true,
+                    )
+
+                val response =
+                    transport.open(
+                        YMediaTransportRequest(
+                            uri = origin.url("redirect").toString(),
+                            protocol = YSourceProtocol.Https,
+                            headers =
+                                mapOf(
+                                    "X-Emby-Token" to "private",
+                                    "User-Agent" to "Yfuse-test",
+                                ),
+                            range = YByteRange(4, 7),
+                        ),
+                    )
+
+                assertEquals(206, response.statusCode)
+                assertEquals(1, response.redirectCount)
+                assertEquals(YSourceProtocol.Http, response.finalProtocol)
+                assertEquals(true, response.cleartextRedirect)
+                assertEquals("private", origin.takeRequest().getHeader("X-Emby-Token"))
+                val redirected = media.takeRequest()
+                assertEquals(null, redirected.getHeader("X-Emby-Token"))
+                assertEquals("Yfuse-test", redirected.getHeader("User-Agent"))
+                assertEquals("bytes=4-7", redirected.getHeader("Range"))
+                transport.close()
+            } finally {
+                origin.shutdown()
+                media.shutdown()
             }
         }
 }

@@ -5,14 +5,19 @@ import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
+import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.YTransportFeature
 import kotlinx.coroutines.CancellationException
+import java.io.IOException
 
 /** Prefers Cronet HTTP/2/HTTP/3 and falls back to the pinned OkHttp transport when unavailable. */
 internal class AndroidAdaptiveHttpMediaTransport(
     private val createCronet: () -> YMediaTransport,
     private val createOkHttp: () -> YMediaTransport = {
-        AndroidHttpMediaTransport(followSafeRedirects = true)
+        AndroidHttpMediaTransport(
+            followSafeRedirects = true,
+            allowCrossProtocolRedirects = true,
+        )
     },
 ) : YMediaTransport {
     override val supportedProtocols: Set<YSourceProtocol> =
@@ -191,11 +196,41 @@ internal class AndroidAdaptiveHttpMediaTransport(
 
 private fun YMediaTransportResponse.requireAcceptedRange(request: YMediaTransportRequest) {
     val requestedRange = request.range ?: return
-    require(statusCode == 206) { "Random-access transport did not accept byte range" }
-    require(acceptedRange?.startInclusive == requestedRange.startInclusive) {
-        "Random-access transport returned mismatched range metadata"
+    if (statusCode != 206) {
+        throw AndroidRangeResponseException(
+            failureKind = statusCode.toAdaptiveRangeFailureKind(),
+            statusCode = statusCode,
+            expectedRangeStart = requestedRange.startInclusive,
+            acceptedRangeStart = acceptedRange?.startInclusive,
+            safeMessage = "Random-access transport did not accept byte range",
+        )
+    }
+    if (acceptedRange?.startInclusive != requestedRange.startInclusive) {
+        throw AndroidRangeResponseException(
+            failureKind = YTransportFailureKind.InvalidRange,
+            statusCode = statusCode,
+            expectedRangeStart = requestedRange.startInclusive,
+            acceptedRangeStart = acceptedRange?.startInclusive,
+            safeMessage = "Random-access transport returned mismatched range metadata",
+        )
     }
 }
+
+internal class AndroidRangeResponseException(
+    val failureKind: YTransportFailureKind,
+    val statusCode: Int,
+    val expectedRangeStart: Long,
+    val acceptedRangeStart: Long?,
+    safeMessage: String,
+) : IOException(safeMessage)
+
+private fun Int.toAdaptiveRangeFailureKind(): YTransportFailureKind =
+    when (this) {
+        401, 403 -> YTransportFailureKind.Authorization
+        408, 425, 429 -> YTransportFailureKind.ServerBusy
+        in 500..599 -> YTransportFailureKind.ServerBusy
+        else -> YTransportFailureKind.InvalidRange
+    }
 
 private fun YMediaTransportRequest.resumeAfter(bytesRead: Long): YMediaTransportRequest? {
     if (bytesRead <= 0L) return this

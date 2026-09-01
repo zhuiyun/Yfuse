@@ -18,11 +18,13 @@ import okhttp3.Credentials
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.InputStream
+import java.util.concurrent.TimeUnit
 
 /** Stateful random-access HTTP/WebDAV transport. A seek is expressed by closing and reopening it. */
 internal class AndroidHttpMediaTransport(
     private val client: OkHttpClient = sharedMediaTransportClient,
     private val followSafeRedirects: Boolean = false,
+    private val allowCrossProtocolRedirects: Boolean = false,
 ) : YMediaTransport {
     override val supportedProtocols: Set<YSourceProtocol> =
         setOf(YSourceProtocol.Http, YSourceProtocol.Https, YSourceProtocol.WebDav, YSourceProtocol.WebDavTls)
@@ -50,6 +52,7 @@ internal class AndroidHttpMediaTransport(
             var targetUri = request.uri
             var activeHeaders = request.headers.withHttpBasicCredentials(request.credentials)
             var redirectCount = 0
+            var cleartextRedirect = false
             var opened: Response? = null
             while (true) {
                 val builder =
@@ -85,11 +88,13 @@ internal class AndroidHttpMediaTransport(
                     error("Too many media redirects")
                 }
                 val previous = candidate.request.url
-                if (previous.scheme == "https" && redirectTarget.scheme != "https") {
+                val redirectsToCleartext = previous.scheme == "https" && redirectTarget.scheme == "http"
+                if (redirectsToCleartext && !allowCrossProtocolRedirects) {
                     candidate.close()
                     error("Secure media redirect cannot downgrade to HTTP")
                 }
                 redirectCount += 1
+                cleartextRedirect = cleartextRedirect || redirectsToCleartext
                 if (!previous.hasSameOrigin(redirectTarget)) {
                     activeHeaders = activeHeaders.filterKeys { !it.isCredentialHeader() }
                 }
@@ -122,6 +127,16 @@ internal class AndroidHttpMediaTransport(
                             add(YTransportFeature.Http2)
                         }
                     },
+                implementation = "OkHttp",
+                negotiatedProtocol = finalResponse.protocol.toString(),
+                redirectCount = redirectCount,
+                finalProtocol =
+                    if (finalResponse.request.url.isHttps) {
+                        YSourceProtocol.Https
+                    } else {
+                        YSourceProtocol.Http
+                    },
+                cleartextRedirect = cleartextRedirect,
             )
         }
 
@@ -155,14 +170,14 @@ private fun Response.safeMediaRedirectTarget(): HttpUrl? {
     return request.url.resolve(location)
 }
 
-private fun HttpUrl.hasSameOrigin(other: HttpUrl): Boolean =
+internal fun HttpUrl.hasSameOrigin(other: HttpUrl): Boolean =
     scheme == other.scheme && host == other.host && port == other.port
 
 private fun YByteRange.toHttpRange(): String = "bytes=$startInclusive-${endInclusive ?: ""}"
 
 private fun String.isSafeTransportHeader(): Boolean = isNotBlank() && none { it == '\r' || it == '\n' || it == ':' }
 
-private fun String.isCredentialHeader(): Boolean {
+internal fun String.isCredentialHeader(): Boolean {
     val normalized = trim().lowercase()
     return normalized == "authorization" ||
         normalized == "proxy-authorization" ||
@@ -189,7 +204,11 @@ private val sharedMediaTransportClient =
         .followRedirects(false)
         .followSslRedirects(false)
         .retryOnConnectionFailure(true)
+        .connectTimeout(NATIVE_MEDIA_TRANSPORT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(NATIVE_MEDIA_TRANSPORT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .writeTimeout(NATIVE_MEDIA_TRANSPORT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
 
 private val SAFE_MEDIA_REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
-private const val MAX_SAFE_MEDIA_REDIRECTS = 8
+internal const val MAX_SAFE_MEDIA_REDIRECTS = 8
+internal const val NATIVE_MEDIA_TRANSPORT_TIMEOUT_SECONDS = 20L

@@ -5,6 +5,7 @@ import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
+import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.YTransportFeature
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
@@ -13,6 +14,7 @@ import java.util.ArrayDeque
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class AndroidAdaptiveHttpMediaTransportTest {
@@ -201,6 +203,32 @@ class AndroidAdaptiveHttpMediaTransportTest {
 
             assertContentEquals(byteArrayOf(5, 6, 7, 8), bytes)
             assertEquals(YByteRange(2L, 3L), fallback.requests.single().range)
+        }
+
+    @Test
+    fun authorization_range_failure_keeps_the_status_for_non_retryable_diagnostics() =
+        runBlocking {
+            val cronet = FakeTransport(statusCode = 403)
+            val fallback = FakeTransport(statusCode = 403)
+            val transport =
+                AndroidAdaptiveHttpMediaTransport(
+                    createCronet = { cronet },
+                    createOkHttp = { fallback },
+                )
+            val request =
+                YMediaTransportRequest(
+                    uri = "https://media.example.test/movie.mkv",
+                    protocol = YSourceProtocol.Https,
+                    range = YByteRange(0L, 3L),
+                )
+
+            val failure = assertFailsWith<AndroidRangeResponseException> { transport.open(request) }
+
+            assertEquals(YTransportFailureKind.Authorization, failure.failureKind)
+            assertEquals(403, failure.statusCode)
+            assertEquals(0L, failure.expectedRangeStart)
+            assertEquals(1, cronet.openCalls)
+            assertEquals(1, fallback.openCalls)
         }
 }
 

@@ -95,6 +95,12 @@ data class YMediaTransportResponse(
     val contentLength: Long? = null,
     val acceptedRange: YByteRange? = null,
     val features: Set<YTransportFeature> = emptySet(),
+    /** Credential-free transport facts exported with playback diagnostics. */
+    val implementation: String = "",
+    val negotiatedProtocol: String = "",
+    val redirectCount: Int = 0,
+    val finalProtocol: YSourceProtocol? = null,
+    val cleartextRedirect: Boolean = false,
 )
 
 interface YMediaTransport {

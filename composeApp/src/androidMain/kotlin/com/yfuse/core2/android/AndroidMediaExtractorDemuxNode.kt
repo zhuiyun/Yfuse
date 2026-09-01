@@ -329,7 +329,13 @@ internal class AndroidMediaExtractorDemuxNode(
                         cacheMaximumBytes = source.cacheMaximumBytes,
                         createTransport = {
                             AndroidAdaptiveHttpMediaTransport(
-                                createCronet = { AndroidCronetMediaTransport(appContext) },
+                                createCronet = {
+                                    AndroidCronetMediaTransport(
+                                        context = appContext,
+                                        followMediaRedirects = true,
+                                        allowCrossProtocolRedirects = true,
+                                    )
+                                },
                             )
                         },
                     )
