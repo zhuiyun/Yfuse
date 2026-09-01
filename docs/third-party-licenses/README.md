@@ -17,6 +17,7 @@ It is not a substitute for a release-time legal review or the generated SBOM.
 | FriBidi | Statically linked into the standalone YCore native runtime through libass | <https://github.com/fribidi/fribidi/blob/master/COPYING> | LGPL-2.1-or-later. |
 | HarfBuzz | Statically linked into the standalone YCore native runtime through libass | <https://github.com/harfbuzz/harfbuzz/blob/main/COPYING> | Old MIT license. |
 | libunibreak | Statically linked into the standalone YCore native runtime through libass | <https://github.com/adah1972/libunibreak/blob/master/LICENCE> | zlib/libpng license. |
+| libdvdnav / libdvdread | Not bundled in the ordinary YCore package | <https://code.videolan.org/videolan/libdvdnav> / <https://code.videolan.org/videolan/libdvdread> | FFmpeg's `dvdvideo` demuxer requires these GPL libraries and a GPL-enabled FFmpeg build. DVD remains fail-closed unless a separately reviewed compatible distribution profile is created. |
 | jcifs-ng | `eu.agno3.jcifs:jcifs-ng:2.1.10` | <https://github.com/AgNO3/jcifs-ng/tree/jcifs-ng-2.1.10> | LGPL-2.1; used for the SMB2/SMB3 random-access transport. Preserve notices and relinking/source obligations. |
 | Cronet | `com.google.android.gms:play-services-cronet:18.0.1` | <https://developer.android.com/develop/connectivity/cronet> | Chromium networking API distributed through Google Play services; enables negotiated HTTP/2 and HTTP/3/QUIC. |
 | Manrope font | App font asset | [Manrope-OFL.txt](Manrope-OFL.txt) | SIL Open Font License 1.1. |

@@ -38,6 +38,16 @@ val includeMdk =
             } ?: true
         )
 
+val releasePackageProfile =
+    when {
+        nativeOnlyRuntime -> "native-only"
+        includeMdk -> "full"
+        else -> "compact"
+    }
+
+val confirmNativeOnlyRelease =
+    providers.gradleProperty("confirmNativeOnlyRelease").orNull?.trim()?.equals("true", ignoreCase = true) == true
+
 val includeYCoreGpuCompanion =
     !nativeOnlyRuntime &&
         layout.projectDirectory
@@ -183,6 +193,11 @@ val verifyCustomMpvArtifact by tasks.registering {
             "Unverified libmpv AAR: accepted=${accepted.sorted()} sidecar=$sidecar actual=$actual"
         }
         val provenance = sourcesFile.readText()
+        require(
+            !provenance.contains(Regex("(?im)^(?:libdvdnav|libdvdread|ycore-dvd-runtime)=")),
+        ) {
+            "The ordinary native-only profile must not silently enable the GPL DVD runtime"
+        }
         listOf(
             "remote-raw-bluray=true",
             "bdmv-vfs=true",
@@ -292,9 +307,15 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
                     .map { it.name }
                     .filter { it.endsWith(".so") }
                     .toList()
-            listOf("libmpv.so", "libplayer.so", "libmdk.so").forEach { forbidden ->
+            listOf(
+                "libmpv.so",
+                "libplayer.so",
+                "libmdk.so",
+                "libdvdnav.so",
+                "libdvdread.so",
+            ).forEach { forbidden ->
                 require(nativeEntries.none { it.endsWith("/$forbidden") }) {
-                    "Standalone YCore AAR contains forbidden legacy runtime $forbidden"
+                    "Standalone YCore AAR contains a forbidden runtime $forbidden"
                 }
             }
             val embedded =
@@ -874,7 +895,7 @@ android {
         buildConfigField(
             "String",
             "YFUSE_PACKAGE_PROFILE",
-            "\"${if (includeMdk) "full" else "compact"}\"",
+            "\"$releasePackageProfile\"",
         )
 
         // Physical ARM64 devices only. Emulator and all 32-bit ABIs are excluded.
@@ -969,6 +990,18 @@ val verifyReleaseSigning by tasks.registering {
                 "Release signing is not fully configured. Provide keystore.properties or " +
                     "use -PallowDebugSigning only for a non-distributable local build.",
             )
+        }
+    }
+}
+
+val verifyReleasePlaybackRuntime by tasks.registering {
+    group = "verification"
+    description = "Prevents an experimental native-only runtime from being shipped accidentally."
+    doLast {
+        require(!nativeOnlyRuntime || confirmNativeOnlyRelease) {
+            "Native-only Release packages have no MPV/Exo compatibility fallback. " +
+                "Build the normal Full/Compact package, or pass " +
+                "-PconfirmNativeOnlyRelease=true only for an intentional test artifact."
         }
     }
 }
@@ -1098,6 +1131,7 @@ tasks.configureEach {
             listOf("assemble", "bundle", "package").any { name.startsWith(it, ignoreCase = true) }
     if (releasePackagingTask) {
         dependsOn(verifyReleaseSigning)
+        dependsOn(verifyReleasePlaybackRuntime)
         dependsOn(verifyProductionMdkRights)
         dependsOn(verifyProductionYCoreGpu)
     }

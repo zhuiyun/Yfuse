@@ -347,15 +347,24 @@ internal class AndroidYCoreHttpProxy(
         val requestLine = reader.readLine()?.take(MAX_REQUEST_LINE_BYTES).orEmpty()
         val requestParts = requestLine.split(' ', limit = 3)
         val method = requestParts.getOrNull(0)?.uppercase().orEmpty()
+        val requestTarget = requestParts.getOrNull(1).orEmpty()
+        val localQuery = requestTarget.substringAfter('?', missingDelimiterValue = "").substringBefore('#')
         val localPath =
-            requestParts
-                .getOrNull(1)
-                ?.substringBefore('?')
+            requestTarget
+                .substringBefore('?')
                 ?.substringAfter("/$ROUTE_PREFIX/", missingDelimiterValue = "")
                 ?.takeIf(String::isNotEmpty)
         val routeId = localPath?.substringBefore('/')
         val routeSuffix = localPath?.substringAfter('/', missingDelimiterValue = "").orEmpty()
-        val route = routeId?.let(::findRoute)?.resolveDashTemplate(routeSuffix)?.resolveHlsAbr()
+        val resolvedRoute = routeId?.let(::findRoute)?.resolveDashTemplate(routeSuffix)?.resolveHlsAbr()
+        val route =
+            resolvedRoute?.let { candidate ->
+                if (candidate.hlsManifest) {
+                    candidate.copy(upstreamUri = mergeYCoreHlsReloadQuery(candidate.upstreamUri, localQuery))
+                } else {
+                    candidate
+                }
+            }
         if (method !in ALLOWED_METHODS || route == null) {
             writeEmptyResponse(socket, 404, "Not Found")
             return
@@ -1174,6 +1183,53 @@ internal fun parseYCoreHttpByteRange(value: String?): YCoreHttpByteRange? {
     return YCoreHttpByteRange(startInclusive = start, endInclusive = end)
 }
 
+/**
+ * Carries only RFC 8216 low-latency reload coordinates from the loopback client to the origin.
+ * Authentication and arbitrary local query parameters must never be able to cross this boundary.
+ */
+internal fun mergeYCoreHlsReloadQuery(
+    upstreamUri: String,
+    localRawQuery: String,
+): String {
+    val accepted = linkedMapOf<String, String>()
+    localRawQuery
+        .split('&')
+        .asSequence()
+        .filter(String::isNotBlank)
+        .take(MAX_HLS_RELOAD_QUERY_PARAMETERS + 1)
+        .forEach { parameter ->
+            val rawName = parameter.substringBefore('=')
+            val rawValue = parameter.substringAfter('=', missingDelimiterValue = "")
+            val canonicalName = HLS_RELOAD_QUERY_NAMES[rawName.lowercase()] ?: return@forEach
+            val valid =
+                when (canonicalName) {
+                    "_HLS_msn" -> rawValue.toLongOrNull()?.let { it >= 0L } == true
+                    "_HLS_part" -> rawValue.toIntOrNull()?.let { it >= 0 } == true
+                    "_HLS_skip" ->
+                        rawValue.equals("YES", ignoreCase = true) || rawValue.equals("v2", ignoreCase = true)
+                    else -> false
+                }
+            if (valid) accepted[canonicalName] = rawValue
+        }
+    if (accepted.isEmpty()) return upstreamUri
+
+    val fragment = upstreamUri.substringAfter('#', missingDelimiterValue = "")
+    val withoutFragment = upstreamUri.substringBefore('#')
+    val path = withoutFragment.substringBefore('?')
+    val retained =
+        withoutFragment
+            .substringAfter('?', missingDelimiterValue = "")
+            .split('&')
+            .filter(String::isNotBlank)
+            .filterNot { parameter -> parameter.substringBefore('=').lowercase() in HLS_RELOAD_QUERY_NAMES }
+    val mergedQuery = (retained + accepted.map { (name, value) -> "$name=$value" }).joinToString("&")
+    return buildString {
+        append(path)
+        if (mergedQuery.isNotEmpty()) append('?').append(mergedQuery)
+        if (fragment.isNotEmpty()) append('#').append(fragment)
+    }
+}
+
 private fun String.sourceProtocolOrNull(): YSourceProtocol? =
     when (runCatching { URI(this).scheme?.lowercase() }.getOrNull()) {
         "http" -> YSourceProtocol.Http
@@ -1324,6 +1380,7 @@ private const val MAX_ROUTES = 50_000
 private const val MAX_REQUEST_LINE_BYTES = 8 * 1024
 private const val MAX_REQUEST_HEADER_BYTES = 8 * 1024
 private const val MAX_REQUEST_HEADER_COUNT = 64
+private const val MAX_HLS_RELOAD_QUERY_PARAMETERS = 8
 private const val INITIAL_BANDWIDTH_BITS_PER_SECOND = 25_000_000L
 private const val STARTUP_BUFFER_US = 10_000_000L
 private const val MAX_ABR_BUFFER_US = 30_000_000L
@@ -1338,6 +1395,12 @@ private const val DASH_CONTENT_TYPE = "application/dash+xml"
 private const val WIDEVINE_SYSTEM_ID = "edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"
 private val ALLOWED_METHODS = setOf("GET", "HEAD")
 private val HTTP_BYTE_RANGE = Regex("^bytes=(\\d+)-(\\d*)$", RegexOption.IGNORE_CASE)
+private val HLS_RELOAD_QUERY_NAMES =
+    mapOf(
+        "_hls_msn" to "_HLS_msn",
+        "_hls_part" to "_HLS_part",
+        "_hls_skip" to "_HLS_skip",
+    )
 private val DASH_PERIOD_TAG = Regex("<\\s*(?:[A-Za-z0-9_.-]+:)?Period(?:\\s|>)", RegexOption.IGNORE_CASE)
 private val DASH_NUMBER_TOKEN = Regex("\\\$Number(?:%0\\d+d)?\\\$")
 private val DASH_TIME_TOKEN = Regex("\\\$Time(?:%0\\d+d)?\\\$")

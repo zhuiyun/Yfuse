@@ -40,6 +40,28 @@ class SkipSegmentPreferencesTest {
         assertNull(credits(prefs.applyTo("series", emptyList(), durationMs = 0L)))
     }
 
+    @Test
+    fun legacy_absolute_credits_are_kept_then_migrated_when_duration_arrives() {
+        val settings =
+            MapSettings().apply {
+                putString(
+                    "player.skip.bySeries",
+                    """{"series":{"introStartSeconds":5,"introEndSeconds":90,"creditsStartSeconds":2580,"seriesName":"剧"}}""",
+                )
+            }
+        val prefs = SkipSegmentPreferences(settings)
+        val durationMs = 2_700_000L
+
+        assertEquals(120L, prefs.timesFor("series")?.effectiveCreditsLeadSeconds(durationMs))
+        assertEquals(2_580_000L, credits(prefs.applyTo("series", emptyList(), durationMs))?.startMs)
+
+        prefs.migrateLegacyCredits("series", durationMs)
+
+        assertEquals(120L, prefs.timesFor("series")?.creditsLeadSeconds)
+        assertEquals(0L, prefs.timesFor("series")?.legacyCreditsStartSeconds)
+        assertEquals(120L, SkipSegmentPreferences(settings).timesFor("series")?.creditsLeadSeconds)
+    }
+
     /** A lead longer than the item would make the whole thing 片尾 — a typo, not an order. */
     @Test
     fun a_lead_longer_than_the_item_is_ignored() {

@@ -27,8 +27,10 @@ import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core2.network.YTransportCredentials
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
@@ -445,6 +447,8 @@ data class PlayerMediaItem(
     val durationMsHint: Long = 0L,
     /** In-memory credentials for direct SMB/WebDAV/HTTP sources; diagnostics remain redacted. */
     val transportCredentials: YTransportCredentials? = null,
+    /** Stable persistence identity for per-series settings; external-provider based when known. */
+    val seriesKey: String? = null,
 ) {
     /**
      * The file currently playing, when the entry's sources were fetched at all.
@@ -713,6 +717,7 @@ class PlayerStoreFactory(
     private val mediaVersionPreference: MediaVersionPreference = MediaVersionPreference.HdrFirst,
     private val failoverRequest: PlaybackFailoverRequest = PlaybackFailoverRequest(),
     private val healthMonitor: ServerHealthMonitor? = null,
+    private val queueLoadTimeoutMs: Long = PLAYER_QUEUE_LOAD_TIMEOUT_MS,
 ) {
     fun create(): Store<PlayerIntent, PlayerState, Nothing> =
         storeFactory.create(
@@ -725,6 +730,9 @@ class PlayerStoreFactory(
 
     private inner class ExecutorImpl :
         CoroutineExecutor<PlayerIntent, PlayerAction, PlayerState, PlayerMsg, Nothing>() {
+        private var loadJob: Job? = null
+        private var loadAttempt = 0L
+
         override fun executeAction(action: PlayerAction) {
             load()
         }
@@ -741,7 +749,9 @@ class PlayerStoreFactory(
 
         private fun load() {
             val primaryServer = serverId?.let(registry::serverById) ?: registry.defaultServer
-            scope.launch {
+            loadJob?.cancel()
+            val attempt = ++loadAttempt
+            val job = scope.launch {
                 if (primaryServer == null) {
                     AppLog.error(
                         category = "feature.player",
@@ -750,7 +760,7 @@ class PlayerStoreFactory(
                     )
                     dispatch(PlayerMsg.Failed("没有可用的服务器"))
                     return@launch
-                }
+            }
 
                 var server = requireNotNull(primaryServer)
                 var effectiveItemId = itemId
@@ -974,6 +984,13 @@ class PlayerStoreFactory(
                         episodeNumber = episodeNumber,
                         seriesId = seriesId,
                         seriesName = seriesName,
+                        seriesKey =
+                            skipSeriesStorageKey(
+                                serverId = server.id,
+                                seriesId = seriesId,
+                                providerSeriesKey =
+                                    seriesId?.let { id -> seriesProviderIds?.watchKey(id) },
+                            ),
                         watchKey =
                             if (seriesProviderIds == null) {
                                 providerIds.watchKey(id)
@@ -1165,6 +1182,7 @@ class PlayerStoreFactory(
                     )
                 }
 
+                var resolvedSeriesProviderIds: Map<String, String> = emptyMap()
                 if (detail?.type == "Episode" && seriesId != null) {
                     // The show's provider ids, not this episode's: they are what makes an
                     // episode recognisable on someone else's server (see episodeWatchKey).
@@ -1172,6 +1190,7 @@ class PlayerStoreFactory(
                     // half of watch-together.
                     val seriesDetail = requireNotNull(seriesDetailDeferred).await().getOrNull()
                     val seriesProviderIds = seriesDetail?.providerIds.orEmpty()
+                    resolvedSeriesProviderIds = seriesProviderIds
                     val seriesPosterUrl =
                         EmbyImages.primary(
                             baseUrl = server.baseUrl,
@@ -1257,6 +1276,11 @@ class PlayerStoreFactory(
                                 title = detail?.title ?: "",
                                 playbackSegments = detail?.playbackSegments.orEmpty(),
                                 providerIds = detail?.providerIds.orEmpty(),
+                                seasonNumber = detail?.seasonNumber,
+                                episodeNumber = detail?.episodeNumber,
+                                seriesId = detail?.seriesId,
+                                seriesName = detail?.seriesName,
+                                seriesProviderIds = resolvedSeriesProviderIds.takeIf { it.isNotEmpty() },
                                 versions = detail?.versions.orEmpty(),
                                 runtimeTicks = detail?.runtimeTicks,
                             ).copy(serverFallbacks = serverFallbacks),
@@ -1271,6 +1295,19 @@ class PlayerStoreFactory(
                     message = "Single-item playback queue prepared",
                     attributes = mapOf("detailAvailable" to (detail != null).toString()),
                 )
+                }
+            loadJob = job
+            scope.launch {
+                delay(queueLoadTimeoutMs)
+                if (loadAttempt != attempt || !job.isActive) return@launch
+                job.cancel()
+                AppLog.warning(
+                    category = "feature.player",
+                    event = "queue_load_timeout",
+                    message = "Playback queue preparation timed out",
+                    attributes = mapOf("timeoutMs" to queueLoadTimeoutMs.toString()),
+                )
+                dispatch(PlayerMsg.Failed("播放准备超时，请检查服务器连接后重试"))
             }
         }
 
@@ -1419,6 +1456,12 @@ class PlayerStoreFactory(
                 episodeNumber = detail.episodeNumber,
                 seriesId = detail.seriesId,
                 seriesName = detail.seriesName,
+                seriesKey =
+                    skipSeriesStorageKey(
+                        serverId = serverId,
+                        seriesId = detail.seriesId,
+                        providerSeriesKey = null,
+                    ),
                 watchKey = mediaKey,
                 matchKeys =
                     watchMatchKeys(
@@ -1473,6 +1516,7 @@ class PlayerStoreFactory(
 private const val SERVER_FALLBACK_CANDIDATE_TIMEOUT_MS = 6_000L
 private const val SERVER_FALLBACK_TOTAL_TIMEOUT_MS = 9_000L
 internal const val PLAYBACK_NEGOTIATION_TIMEOUT_MS = 15_000L
+internal const val PLAYER_QUEUE_LOAD_TIMEOUT_MS = 30_000L
 
 // watchKey now lives in com.yfuse.core.sync alongside the invite payload that carries it.
 

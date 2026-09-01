@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class HomeComponent(
     componentContext: ComponentContext,
@@ -119,47 +120,33 @@ class HomeComponent(
     }
 
     fun openCalendarEntry(entry: CalendarEntry) {
-        val itemId = entry.openItemId
-        if (itemId != null) {
-            val targetServerId =
-                entry.serverId
-                    ?: entry.sources.firstOrNull { it.itemId == itemId || it.seriesItemId == itemId }?.serverId
-                    ?: entry.sources.firstOrNull()?.serverId
-                    ?: registry.defaultServer?.id
-            if (targetServerId != null) {
-                onOpenEmbyItem(targetServerId, itemId)
-                return
-            }
+        val activeServerIds = registry.data.value.servers.mapTo(mutableSetOf()) { it.id }
+        entry.directCalendarOpenTarget(activeServerIds)?.let { target ->
+            onOpenEmbyItem(target.serverId, target.itemId)
+            return
         }
         store.state.calendarOpenTarget(entry)?.let { target ->
             onOpenEmbyItem(target.serverId, target.itemId)
             return
         }
-        if (calendarOpenJob?.isActive == true) return
+
+        entry.tmdbCalendarDetailItem()?.let { item ->
+            calendarOpenJob?.cancel()
+            onOpenTmdbItem(item, null)
+            return
+        }
+
+        // A previous slow server lookup must never make subsequent card taps inert.
+        calendarOpenJob?.cancel()
         calendarOpenJob =
             scope.launch {
-                resolveCalendarOpenTarget(entry)?.let { target ->
+                withTimeoutOrNull(CALENDAR_OPEN_RESOLVE_TIMEOUT_MS) {
+                    resolveCalendarOpenTarget(entry)
+                }?.let { target ->
                     onOpenEmbyItem(target.serverId, target.itemId)
                     return@launch
                 }
-                val tmdbId = entry.episode.showTmdbId
-                if (tmdbId > 0) {
-                    onOpenTmdbItem(
-                        TmdbItem(
-                            id = tmdbId,
-                            title = entry.episode.showTitle,
-                            overview = null,
-                            posterPath = entry.episode.posterPath,
-                            backdropPath = null,
-                            year = entry.episode.airDate.take(4),
-                            mediaType = if (entry.episode.isMovie) "movie" else "tv",
-                            rating = null,
-                        ),
-                        null,
-                    )
-                } else {
-                    onOpenCalendar()
-                }
+                onOpenCalendar()
             }
     }
 
@@ -213,6 +200,35 @@ internal data class HomeCalendarOpenTarget(
     val itemId: String,
 )
 
+/** A persisted calendar identity is safe only while its owning server is still active. */
+internal fun CalendarEntry.directCalendarOpenTarget(activeServerIds: Set<String>): HomeCalendarOpenTarget? {
+    val targetItemId = openItemId ?: return null
+    val targetServerId =
+        serverId?.takeIf(activeServerIds::contains)
+            ?: sources
+                .firstOrNull { source ->
+                    source.serverId in activeServerIds &&
+                        (source.itemId == targetItemId || source.seriesItemId == targetItemId)
+                }?.serverId
+            ?: return null
+    return HomeCalendarOpenTarget(targetServerId, targetItemId)
+}
+
+/** TMDB-backed calendar cards always have an immediate, network-independent detail route. */
+internal fun CalendarEntry.tmdbCalendarDetailItem(): TmdbItem? {
+    val tmdbId = episode.showTmdbId.takeIf { it > 0 } ?: return null
+    return TmdbItem(
+        id = tmdbId,
+        title = episode.showTitle,
+        overview = null,
+        posterPath = episode.posterPath,
+        backdropPath = null,
+        year = episode.airDate.take(4),
+        mediaType = if (episode.isMovie) "movie" else "tv",
+        rating = null,
+    )
+}
+
 private fun String.normalizeCalendarTitle(): String = lowercase().filter(Char::isLetterOrDigit)
 
 /** Resolves an official-only calendar row against media already present on the home screen. */
@@ -261,3 +277,5 @@ data class HomeCalendarState(
     val loading: Boolean = true,
     val error: String? = null,
 )
+
+private const val CALENDAR_OPEN_RESOLVE_TIMEOUT_MS = 3_000L

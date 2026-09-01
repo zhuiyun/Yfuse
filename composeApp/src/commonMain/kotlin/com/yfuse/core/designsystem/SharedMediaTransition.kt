@@ -32,9 +32,8 @@ internal fun mediaLazyItemKey(
 /**
  * Starts a shared transition only for a deliberate forward tap.
  *
- * The key is cleared after the push settles, so a later pop remains the hard cut selected
- * for this app instead of silently re-introducing a return animation through the shared
- * element overlay.
+ * The key is cleared after the push settles, so a later predictive pop remains a simple route
+ * transition instead of silently introducing a reverse artwork morph above the gesture.
  */
 @Stable
 internal class SharedMediaTransitionController {
@@ -48,7 +47,7 @@ internal class SharedMediaTransitionController {
         activeKey = key
     }
 
-    /** A shrinking navigation stack must remain a hard cut, even during a fast back tap. */
+    /** A shrinking navigation stack must not reuse the forward-only artwork morph. */
     fun suppressForPop() {
         popSuppressed = true
     }

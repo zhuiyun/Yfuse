@@ -153,6 +153,36 @@ class YAdaptiveBitrateTest {
         assertEquals(listOf("selected"), aligned.resources.map { it.variant.id })
     }
 
+    @Test
+    fun hls_alignment_never_switches_between_dolby_profiles_or_compatibility_brands() {
+        val selected =
+            variant("dv84", 2_000_000L, 1920, 1080).copy(
+                codecs = listOf("hvc1.2.4.L120.B0"),
+                supplementalCodecs = listOf("dvh1.08.07/db4h"),
+            )
+        val differentBrand =
+            variant("dv81", 1_500_000L, 1920, 1080).copy(
+                codecs = listOf("hvc1.2.4.L120.B0"),
+                supplementalCodecs = listOf("dvh1.08.06/db1p"),
+            )
+        val differentProfile =
+            variant("dv5", 1_000_000L, 1920, 1080).copy(
+                codecs = listOf("dvh1.05.06"),
+            )
+
+        val aligned =
+            alignYHlsVariantSegments(
+                listOf(
+                    YHlsVariantMediaPlaylist(selected, media(segment(10L, "dv84.ts"))),
+                    YHlsVariantMediaPlaylist(differentBrand, media(segment(10L, "dv81.ts"))),
+                    YHlsVariantMediaPlaylist(differentProfile, media(segment(10L, "dv5.ts"))),
+                ),
+                selected.id,
+            ).single()
+
+        assertEquals(listOf("dv84"), aligned.resources.map { it.variant.id })
+    }
+
     private fun variant(
         id: String,
         bandwidth: Long,

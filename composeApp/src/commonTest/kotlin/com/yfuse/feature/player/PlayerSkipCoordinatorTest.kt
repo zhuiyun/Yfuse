@@ -2,6 +2,7 @@ package com.yfuse.feature.player
 
 import com.yfuse.core.model.PlaybackSegmentType
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -15,6 +16,22 @@ class PlayerSkipCoordinatorTest {
     @Test
     fun `episode keeps intro and outro skipping`() {
         assertTrue(skipSegmentsAvailableFor("series-1"))
+    }
+
+    @Test
+    fun `series persistence prefers provider identity and scopes local ids by server`() {
+        assertEquals(
+            "provider:tmdb:1399",
+            skipSeriesStorageKey("server-a", "series-1", "tmdb:1399"),
+        )
+        assertEquals(
+            "server:server-a/series:series-1",
+            skipSeriesStorageKey("server-a", "series-1", "emby:series-1"),
+        )
+        assertEquals(
+            "server:server-b/series:series-1",
+            skipSeriesStorageKey("server-b", "series-1", null),
+        )
     }
 
     @Test

@@ -132,7 +132,7 @@ class RootComponent(
 
     fun selectTab(tab: Tab) {
         if (_activeTab.value != tab) {
-            // Clear the previous tab's replayed event before AnimatedContent composes the new
+            // Clear the previous tab's replayed event before NavDisplay composes the new
             // branch. A very fast second tap can then be replayed safely to that new subscriber.
             _tabReselected.value = null
         }
@@ -145,7 +145,7 @@ class RootComponent(
      * [com.yfuse.core.designsystem.ScrollToTopOnReselect].
      *
      * The occurrence makes repeated taps distinct to StateFlow; the tab identity prevents
-     * AnimatedContent's still-composed outgoing root from acting on another tab's tap.
+     * NavDisplay's still-composed outgoing root from acting on another tab's tap.
      */
     private val _tabReselected = MutableStateFlow<TabReselection?>(null)
     val tabReselected: StateFlow<TabReselection?> = _tabReselected.asStateFlow()

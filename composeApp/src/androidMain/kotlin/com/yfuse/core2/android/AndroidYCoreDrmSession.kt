@@ -122,24 +122,24 @@ internal class AndroidYCoreDrmSession(
 
     /** Renews streaming keys after MediaDrm events or before a reported license reaches expiry. */
     @Synchronized
-    fun refreshKeysIfNeeded() {
+    fun refreshKeysIfNeeded(): Boolean {
         checkWorkerThreadForDrm()
-        if (binding == null) return
+        if (binding == null) return false
         check(!sessionReclaimed.get()) { "DRM session was reclaimed by the platform" }
         check(!keyOutputRestricted.get()) { "DRM keys forbid the active output route" }
         if (configuration.offlineKeySetId != null) {
             check(!keyRenewalRequired.get()) { "Offline DRM keys are no longer usable" }
-            return
+            return false
         }
         val drm = checkNotNull(mediaDrm)
         val openedSession = checkNotNull(sessionId)
         val nowMs = SystemClock.elapsedRealtime()
         val eventRequested = keyRenewalRequired.getAndSet(false)
-        if (!eventRequested && nowMs - lastKeyStatusCheckMs < KEY_STATUS_CHECK_INTERVAL_MS) return
+        if (!eventRequested && nowMs - lastKeyStatusCheckMs < KEY_STATUS_CHECK_INTERVAL_MS) return false
         lastKeyStatusCheckMs = nowMs
         try {
             val status = drm.queryKeyStatus(openedSession)
-            if (!shouldRenewDrmKeys(eventRequested, status)) return
+            if (!shouldRenewDrmKeys(eventRequested, status)) return false
             withProvisioning(drm) {
                 acquireStreamingKeys(
                     drm = drm,
@@ -148,6 +148,7 @@ internal class AndroidYCoreDrmSession(
                     videoMimeType = checkNotNull(videoMimeType),
                 )
             }
+            return true
         } catch (failure: Throwable) {
             if (eventRequested) keyRenewalRequired.set(true)
             throw failure

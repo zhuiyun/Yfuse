@@ -125,10 +125,10 @@ internal fun DiscNavigationPlatformInputEffect(menuActive: Boolean) {
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     if (ActiveDiscNavigation.routeActiveMenuCommand(PlaybackDiscMenuCommand.Back)) return
-                    // Provider disappeared between state publication and the back gesture. Do not
-                    // strand the user: remove this interception and continue the normal dispatcher.
+                    // Provider disappeared between state publication and the back gesture. Finish
+                    // directly: re-entering the dispatcher from its callback breaks predictive back.
                     isEnabled = false
-                    activity.onBackPressedDispatcher.onBackPressed()
+                    activity.finish()
                 }
             }
         activity.onBackPressedDispatcher.addCallback(activity, backCallback)

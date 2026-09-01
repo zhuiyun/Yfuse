@@ -13,6 +13,23 @@ internal data class AndroidAudioRouteEvidence(
     val encodings: Set<Int> = emptySet(),
 )
 
+/** Vendor/HDMI evidence hook; Android's TrueHD encoding bit alone cannot prove Atmos objects. */
+internal fun interface AndroidTrueHdAtmosEvidenceProvider {
+    fun isTrueHdAtmosOutputVerified(
+        sourceCodec: YAudioCodec,
+        sinkCodec: YAudioCodec?,
+        route: AndroidAudioRouteEvidence,
+    ): Boolean
+}
+
+internal object FailClosedAndroidTrueHdAtmosEvidenceProvider : AndroidTrueHdAtmosEvidenceProvider {
+    override fun isTrueHdAtmosOutputVerified(
+        sourceCodec: YAudioCodec,
+        sinkCodec: YAudioCodec?,
+        route: AndroidAudioRouteEvidence,
+    ): Boolean = false
+}
+
 /** Requires clock progress on the current route before output is treated as physically observed. */
 internal class AndroidRoutedOutputProgress(
     private val staleAfterNs: Long = DEFAULT_ROUTED_OUTPUT_STALE_AFTER_NS,

@@ -25,13 +25,21 @@ fun selectYHlsPlaybackSet(
     val resolutionEligible = candidates.filter { it.fits(conditions) }
     if (resolutionEligible.isNotEmpty()) candidates = resolutionEligible
 
+    val dolbyVisionCandidates = candidates.filter(YAdaptiveVariant::isDolbyVision)
     val rangePreferred =
         if (capabilities.dolbyVisionOutput) {
-            candidates.filter(YAdaptiveVariant::isDolbyVision)
+            dolbyVisionCandidates
+                .filter(YAdaptiveVariant::hasUsableDolbyVisionSignaling)
+                .ifEmpty {
+                    if (dolbyVisionCandidates.isEmpty()) candidates else candidates.filterNot(YAdaptiveVariant::isDolbyVision)
+                }
         } else {
             candidates.filterNot(YAdaptiveVariant::isDolbyVision)
         }
-    if (rangePreferred.isNotEmpty()) candidates = rangePreferred
+    require(rangePreferred.isNotEmpty()) {
+        "HLS master has no variant compatible with the active Dolby Vision output route"
+    }
+    candidates = rangePreferred
 
     val audioRenditions = master.renditions.filter { it.type == YHlsRenditionType.Audio }
     val audioPreferredGroups =
@@ -125,6 +133,10 @@ fun buildYHlsPlaybackMaster(
             }
             variant.frameRate?.let { append(",FRAME-RATE=").append(it) }
             if (variant.codecs.isNotEmpty()) append(",CODECS=").appendQuoted(variant.codecs.joinToString(","))
+            if (variant.supplementalCodecs.isNotEmpty()) {
+                append(",SUPPLEMENTAL-CODECS=")
+                    .appendQuoted(variant.supplementalCodecs.joinToString(","))
+            }
             variant.audioGroupId?.let { append(",AUDIO=").appendQuoted(it) }
             variant.videoGroupId?.let { append(",VIDEO=").appendQuoted(it) }
             variant.subtitleGroupId?.let { append(",SUBTITLES=").appendQuoted(it) }

@@ -14,6 +14,7 @@ import com.yfuse.core.data.DanmakuSyncSnapshot
 import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
+import com.yfuse.core.data.SkipTimes
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
@@ -25,6 +26,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class CloudSyncSnapshotTest {
     private val json =
@@ -170,6 +172,34 @@ class CloudSyncSnapshotTest {
 
         assertEquals("", target.userAgent.customValue.value)
         assertEquals(CloudNetworkSettings(), snapshot.network)
+    }
+
+    @Test
+    fun legacy_snapshot_without_skip_domain_does_not_clear_local_boundaries() {
+        val snapshot =
+            json.decodeFromString(
+                CloudSyncSnapshotV1.serializer(),
+                """{"schemaVersion":1}""",
+            )
+        val target = Fixture()
+        target.skip.set("series", SkipTimes(introEndSeconds = 90L))
+
+        target.apply(snapshot).getOrThrow()
+
+        assertEquals(90L, target.skip.timesFor("series")?.introEndSeconds)
+    }
+
+    @Test
+    fun explicit_empty_skip_domain_still_clears_boundaries() {
+        val target = Fixture()
+        target.skip.set("series", SkipTimes(introEndSeconds = 90L))
+
+        target.apply(CloudSyncSnapshotV1(skipTimesBySeries = emptyMap())).getOrThrow()
+
+        assertTrue(
+            target.skip.bySeries.value
+                .isEmpty(),
+        )
     }
 
     @Test

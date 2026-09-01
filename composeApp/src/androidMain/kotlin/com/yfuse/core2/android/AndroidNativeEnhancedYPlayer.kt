@@ -460,6 +460,8 @@ internal class AndroidNativeEnhancedYPlayer(
                                 } else {
                                     it.diagnostics.audioOutput
                                 },
+                            outputEvidenceGeneration = snapshot.outputEvidenceGeneration,
+                            outputEvidenceResetReason = snapshot.outputEvidenceResetReason,
                             videoOutputVerified = snapshot.firstVideoFrameRendered,
                             audioOutputVerified = snapshot.audioRendering,
                             // Native DV output claim requires a verified video frame AND a DV source

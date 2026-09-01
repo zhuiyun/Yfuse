@@ -122,6 +122,12 @@ private fun parseMasterPlaylist(
                         ?.map(String::trim)
                         ?.filter(String::isNotEmpty)
                         .orEmpty(),
+                supplementalCodecs =
+                    attributes["SUPPLEMENTAL-CODECS"]
+                        ?.split(',')
+                        ?.map(String::trim)
+                        ?.filter(String::isNotEmpty)
+                        .orEmpty(),
                 audioGroupId = attributes["AUDIO"]?.takeIf(String::isNotBlank),
                 videoGroupId = attributes["VIDEO"]?.takeIf(String::isNotBlank),
                 subtitleGroupId = attributes["SUBTITLES"]?.takeIf(String::isNotBlank),
@@ -173,7 +179,11 @@ private fun parseMediaPlaylist(
     baseUri: String,
 ): YHlsPlaylist.Media {
     var mediaSequence = 0L
+    var discontinuitySequence = 0L
     var targetDurationUs: Long? = null
+    var partTargetDurationUs: Long? = null
+    var serverControl: YHlsServerControl? = null
+    var skippedSegmentCount = 0
     var pendingDurationUs: Long? = null
     var pendingRange: YAdaptiveByteRange? = null
     var nextRangeOffset = 0L
@@ -182,6 +192,11 @@ private fun parseMediaPlaylist(
     var discontinuity = false
     var startUs = 0L
     val segments = mutableListOf<YAdaptiveSegment>()
+    val partialSegments = mutableListOf<YHlsPartialSegment>()
+    var partialStartUs = 0L
+    var nextPartRangeOffset = 0L
+    var preloadHint: YHlsPreloadHint? = null
+    val renditionReports = mutableListOf<YHlsRenditionReport>()
 
     lines.drop(1).forEach { line ->
         when {
@@ -191,6 +206,33 @@ private fun parseMediaPlaylist(
                         ?: error("Invalid HLS media sequence")
             line.startsWith(TARGET_DURATION_TAG) ->
                 targetDurationUs = line.substringAfter(':').secondsToUs("target duration")
+            line.startsWith(DISCONTINUITY_SEQUENCE_TAG) ->
+                discontinuitySequence =
+                    line.substringAfter(':').toLongOrNull()?.takeIf { it >= 0L }
+                        ?: error("Invalid HLS discontinuity sequence")
+            line.startsWith(PART_INFO_TAG) -> {
+                val attributes = parseHlsAttributes(line.substringAfter(':', ""))
+                partTargetDurationUs =
+                    attributes["PART-TARGET"]?.secondsToUs("part target duration")
+                        ?: error("HLS part info is missing PART-TARGET")
+            }
+            line.startsWith(SERVER_CONTROL_TAG) -> {
+                val attributes = parseHlsAttributes(line.substringAfter(':', ""))
+                serverControl =
+                    YHlsServerControl(
+                        canBlockReload = attributes["CAN-BLOCK-RELOAD"].isHlsYes(),
+                        canSkipUntilUs = attributes["CAN-SKIP-UNTIL"]?.secondsToUs("skip window"),
+                        canSkipDateRanges = attributes["CAN-SKIP-DATERANGES"].isHlsYes(),
+                        holdBackUs = attributes["HOLD-BACK"]?.secondsToUs("hold back"),
+                        partHoldBackUs = attributes["PART-HOLD-BACK"]?.secondsToUs("part hold back"),
+                    )
+            }
+            line.startsWith(SKIP_TAG) -> {
+                val attributes = parseHlsAttributes(line.substringAfter(':', ""))
+                skippedSegmentCount =
+                    attributes["SKIPPED-SEGMENTS"]?.toIntOrNull()?.takeIf { it >= 0 }
+                        ?: error("HLS skip tag is missing SKIPPED-SEGMENTS")
+            }
             line.startsWith(EXTINF_TAG) ->
                 pendingDurationUs =
                     line.substringAfter(':').substringBefore(',').secondsToUs("segment duration")
@@ -212,12 +254,66 @@ private fun parseMediaPlaylist(
                 val attributes = parseHlsAttributes(line.substringAfter(':', ""))
                 encryption = attributes.toAdaptiveEncryption(baseUri)
             }
+            line.startsWith(PART_TAG) -> {
+                val attributes = parseHlsAttributes(line.substringAfter(':', ""))
+                val durationUs =
+                    attributes["DURATION"]?.secondsToUs("partial segment duration")
+                        ?: error("HLS partial segment is missing DURATION")
+                val uri = attributes["URI"] ?: error("HLS partial segment is missing URI")
+                val byteRange = attributes["BYTERANGE"]?.parseByteRange(nextPartRangeOffset)
+                if (byteRange != null) nextPartRangeOffset = byteRange.offset.orZero() + byteRange.length
+                val partStart = maxOf(startUs, partialStartUs)
+                val sequence = mediaSequence + skippedSegmentCount + segments.size
+                partialSegments +=
+                    YHlsPartialSegment(
+                        mediaSequence = sequence,
+                        partIndex = partialSegments.count { it.mediaSequence == sequence },
+                        uri = resolveAdaptiveUri(baseUri, uri),
+                        startTimeUs = partStart,
+                        durationUs = durationUs,
+                        independent = attributes["INDEPENDENT"].isHlsYes(),
+                        gap = attributes["GAP"].isHlsYes(),
+                        byteRange = byteRange,
+                        initialization = initialization,
+                        encryption = encryption,
+                        discontinuity = discontinuity,
+                    )
+                partialStartUs = partStart + durationUs
+            }
+            line.startsWith(PRELOAD_HINT_TAG) -> {
+                val attributes = parseHlsAttributes(line.substringAfter(':', ""))
+                if (attributes["TYPE"].equals("PART", ignoreCase = true)) {
+                    preloadHint =
+                        YHlsPreloadHint(
+                            uri =
+                                resolveAdaptiveUri(
+                                    baseUri,
+                                    attributes["URI"] ?: error("HLS preload hint is missing URI"),
+                                ),
+                            byteRangeStart = attributes["BYTERANGE-START"]?.toLongOrNull()?.takeIf { it >= 0L },
+                            byteRangeLength = attributes["BYTERANGE-LENGTH"]?.toLongOrNull()?.takeIf { it > 0L },
+                        )
+                }
+            }
+            line.startsWith(RENDITION_REPORT_TAG) -> {
+                val attributes = parseHlsAttributes(line.substringAfter(':', ""))
+                renditionReports +=
+                    YHlsRenditionReport(
+                        uri =
+                            resolveAdaptiveUri(
+                                baseUri,
+                                attributes["URI"] ?: error("HLS rendition report is missing URI"),
+                            ),
+                        lastMediaSequence = attributes["LAST-MSN"]?.toLongOrNull()?.takeIf { it >= 0L },
+                        lastPart = attributes["LAST-PART"]?.toIntOrNull()?.takeIf { it >= 0 },
+                    )
+            }
             line == DISCONTINUITY_TAG -> discontinuity = true
             !line.startsWith('#') -> {
                 val durationUs = pendingDurationUs ?: error("HLS segment is missing EXTINF")
                 segments +=
                     YAdaptiveSegment(
-                        sequence = mediaSequence + segments.size,
+                        sequence = mediaSequence + skippedSegmentCount + segments.size,
                         uri = resolveAdaptiveUri(baseUri, line),
                         startTimeUs = startUs,
                         durationUs = durationUs,
@@ -227,6 +323,7 @@ private fun parseMediaPlaylist(
                         discontinuity = discontinuity,
                     )
                 startUs += durationUs
+                partialStartUs = maxOf(partialStartUs, startUs)
                 pendingDurationUs = null
                 pendingRange = null
                 discontinuity = false
@@ -239,6 +336,13 @@ private fun parseMediaPlaylist(
         mediaSequence = mediaSequence,
         targetDurationUs = targetDurationUs,
         segments = segments,
+        discontinuitySequence = discontinuitySequence,
+        partTargetDurationUs = partTargetDurationUs,
+        serverControl = serverControl,
+        skippedSegmentCount = skippedSegmentCount,
+        partialSegments = partialSegments,
+        preloadHint = preloadHint,
+        renditionReports = renditionReports,
     )
 }
 
@@ -385,6 +489,10 @@ private const val HLS_HEADER = "#EXTM3U"
 private const val STREAM_INFO_TAG = "#EXT-X-STREAM-INF:"
 private const val MEDIA_SEQUENCE_TAG = "#EXT-X-MEDIA-SEQUENCE:"
 private const val TARGET_DURATION_TAG = "#EXT-X-TARGETDURATION:"
+private const val DISCONTINUITY_SEQUENCE_TAG = "#EXT-X-DISCONTINUITY-SEQUENCE:"
+private const val PART_INFO_TAG = "#EXT-X-PART-INF:"
+private const val SERVER_CONTROL_TAG = "#EXT-X-SERVER-CONTROL:"
+private const val SKIP_TAG = "#EXT-X-SKIP:"
 private const val EXTINF_TAG = "#EXTINF:"
 private const val BYTE_RANGE_TAG = "#EXT-X-BYTERANGE:"
 private const val MAP_TAG = "#EXT-X-MAP:"

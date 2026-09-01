@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -109,8 +110,9 @@ internal fun rememberHeroScroll(
 @Composable
 internal fun rememberOverscrollPull(reduceMotion: Boolean): Pair<State<Float>, NestedScrollConnection> {
     val raw = remember { mutableFloatStateOf(0f) }
+    val resistanceDistancePx = with(LocalDensity.current) { OVERSCROLL_RESISTANCE_DISTANCE.toPx() }
     val connection =
-        remember(reduceMotion) {
+        remember(reduceMotion, resistanceDistancePx) {
             object : NestedScrollConnection {
                 override fun onPostScroll(
                     consumed: Offset,
@@ -120,7 +122,12 @@ internal fun rememberOverscrollPull(reduceMotion: Boolean): Pair<State<Float>, N
                     if (reduceMotion) return Offset.Zero
                     if (source != NestedScrollSource.UserInput) return Offset.Zero
                     if (available.y <= 0f) return Offset.Zero
-                    raw.floatValue += available.y * OVERSCROLL_DAMPING
+                    raw.floatValue +=
+                        resistedOverscrollDelta(
+                            currentPullPx = raw.floatValue,
+                            inputDeltaPx = available.y,
+                            resistanceDistancePx = resistanceDistancePx,
+                        )
                     // Not consumed: the list's own overscroll effect should still play, and
                     // claiming it here would fight the pull-to-refresh above it.
                     return Offset.Zero
@@ -128,7 +135,11 @@ internal fun rememberOverscrollPull(reduceMotion: Boolean): Pair<State<Float>, N
 
                 override suspend fun onPreFling(available: Velocity): Velocity {
                     if (raw.floatValue != 0f) {
-                        Animatable(raw.floatValue).animateTo(0f, Motion.settle<Float>()) {
+                        Animatable(raw.floatValue).animateTo(
+                            targetValue = 0f,
+                            animationSpec = Motion.overscroll(),
+                            initialVelocity = available.y * OVERSCROLL_VELOCITY_TRANSFER,
+                        ) {
                             raw.floatValue = value
                         }
                     }
@@ -139,8 +150,23 @@ internal fun rememberOverscrollPull(reduceMotion: Boolean): Pair<State<Float>, N
     return remember(raw, connection) { raw to connection }
 }
 
-/** How much of an over-drag the artwork actually takes. */
-private const val OVERSCROLL_DAMPING = 0.5f
+/**
+ * Converts finger travel into rubber-band travel. Resistance rises continuously with distance,
+ * so a long pull never meets a hard cap and a short pull remains responsive.
+ */
+internal fun resistedOverscrollDelta(
+    currentPullPx: Float,
+    inputDeltaPx: Float,
+    resistanceDistancePx: Float,
+): Float {
+    if (inputDeltaPx <= 0f || resistanceDistancePx <= 0f) return 0f
+    val distance = currentPullPx.coerceAtLeast(0f) / resistanceDistancePx
+    return inputDeltaPx * OVERSCROLL_BASE_RESPONSE / ((1f + distance) * (1f + distance))
+}
+
+private val OVERSCROLL_RESISTANCE_DISTANCE = 320.dp
+private const val OVERSCROLL_BASE_RESPONSE = 0.56f
+private const val OVERSCROLL_VELOCITY_TRANSFER = 0.28f
 
 /** 0 while the artwork owns the top edge, 1 once the glass bar has taken over. */
 @Composable
@@ -528,8 +554,9 @@ internal fun detailArtworkFallbackColor(identity: Any?): Color {
             .fold(2_166_136_261u) { hash, character ->
                 (hash xor character.code.toUInt()) * 16_777_619u
             }
-    fun channel(shift: Int): Float =
-        0.24f + (((seed shr shift) and 0xffu).toFloat() / 255f) * 0.52f
+
+    fun channel(shift: Int): Float = 0.24f + (((seed shr shift) and 0xffu).toFloat() / 255f) * 0.52f
+
     return Color(
         red = channel(16),
         green = channel(8),

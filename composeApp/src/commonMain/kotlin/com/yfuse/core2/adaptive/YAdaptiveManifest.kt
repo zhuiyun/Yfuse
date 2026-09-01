@@ -19,6 +19,8 @@ data class YAdaptiveVariant(
     val height: Int? = null,
     val frameRate: Double? = null,
     val codecs: List<String> = emptyList(),
+    /** Enhanced codecs compatible with [codecs], including Dolby Vision `/db1p` and `/db4h`. */
+    val supplementalCodecs: List<String> = emptyList(),
     val audioGroupId: String? = null,
     val videoGroupId: String? = null,
     val subtitleGroupId: String? = null,
@@ -40,7 +42,37 @@ data class YAdaptiveVariant(
         get() = averageBandwidthBitsPerSecond ?: bandwidthBitsPerSecond
 
     val isDolbyVision: Boolean
-        get() = codecs.any(String::isDolbyVisionHlsCodec)
+        get() =
+            codecs.any(String::isDolbyVisionHlsCodec) ||
+                supplementalCodecs.any { it.substringBefore('/').isDolbyVisionHlsCodec() }
+
+    val dolbyVisionCompatibilityBrands: Set<String>
+        get() =
+            supplementalCodecs
+                .filter { it.substringBefore('/').isDolbyVisionHlsCodec() }
+                .flatMap { codec -> codec.split('/').drop(1) }
+                .map(String::lowercase)
+                .filter(String::isNotBlank)
+                .toSet()
+
+    /**
+     * Apple HLS uses `db1p` for a PQ-compatible Dolby Vision base layer and `db4h` for HLG.
+     * Reject contradictory supplemental signalling instead of silently routing it as Dolby Vision.
+     */
+    val hasUsableDolbyVisionSignaling: Boolean
+        get() {
+            val brands = dolbyVisionCompatibilityBrands
+            if (brands.isEmpty()) return true
+            val expectedRanges =
+                brands.mapNotNull { brand ->
+                    when (brand) {
+                        "db1p" -> YHlsVideoRange.Pq
+                        "db4h" -> YHlsVideoRange.Hlg
+                        else -> null
+                    }
+                }.toSet()
+            return expectedRanges.size == 1 && videoRange == expectedRanges.single()
+        }
 }
 
 enum class YHlsVideoRange {
@@ -117,6 +149,67 @@ data class YAdaptiveSegment(
     }
 }
 
+data class YHlsServerControl(
+    val canBlockReload: Boolean = false,
+    val canSkipUntilUs: Long? = null,
+    val canSkipDateRanges: Boolean = false,
+    val holdBackUs: Long? = null,
+    val partHoldBackUs: Long? = null,
+) {
+    init {
+        require(canSkipUntilUs == null || canSkipUntilUs > 0L)
+        require(holdBackUs == null || holdBackUs > 0L)
+        require(partHoldBackUs == null || partHoldBackUs > 0L)
+        require(!canSkipDateRanges || canSkipUntilUs != null)
+    }
+}
+
+data class YHlsPartialSegment(
+    val mediaSequence: Long,
+    val partIndex: Int,
+    val uri: String,
+    val startTimeUs: Long,
+    val durationUs: Long,
+    val independent: Boolean = false,
+    val gap: Boolean = false,
+    val byteRange: YAdaptiveByteRange? = null,
+    val initialization: YAdaptiveInitializationSegment? = null,
+    val encryption: YAdaptiveEncryption? = null,
+    val discontinuity: Boolean = false,
+) {
+    init {
+        require(mediaSequence >= 0L)
+        require(partIndex >= 0)
+        require(uri.isNotBlank())
+        require(startTimeUs >= 0L)
+        require(durationUs > 0L)
+    }
+}
+
+data class YHlsPreloadHint(
+    val uri: String,
+    val byteRangeStart: Long? = null,
+    val byteRangeLength: Long? = null,
+) {
+    init {
+        require(uri.isNotBlank())
+        require(byteRangeStart == null || byteRangeStart >= 0L)
+        require(byteRangeLength == null || byteRangeLength > 0L)
+    }
+}
+
+data class YHlsRenditionReport(
+    val uri: String,
+    val lastMediaSequence: Long? = null,
+    val lastPart: Int? = null,
+) {
+    init {
+        require(uri.isNotBlank())
+        require(lastMediaSequence == null || lastMediaSequence >= 0L)
+        require(lastPart == null || lastPart >= 0)
+    }
+}
+
 sealed interface YHlsPlaylist {
     data class Master(
         val variants: List<YAdaptiveVariant>,
@@ -132,11 +225,21 @@ sealed interface YHlsPlaylist {
         val mediaSequence: Long,
         val targetDurationUs: Long?,
         val segments: List<YAdaptiveSegment>,
+        val discontinuitySequence: Long = 0L,
+        val partTargetDurationUs: Long? = null,
+        val serverControl: YHlsServerControl? = null,
+        val skippedSegmentCount: Int = 0,
+        val partialSegments: List<YHlsPartialSegment> = emptyList(),
+        val preloadHint: YHlsPreloadHint? = null,
+        val renditionReports: List<YHlsRenditionReport> = emptyList(),
     ) : YHlsPlaylist {
         init {
             require(mediaSequence >= 0L)
             require(targetDurationUs == null || targetDurationUs > 0L)
-            require(segments.isNotEmpty())
+            require(discontinuitySequence >= 0L)
+            require(partTargetDurationUs == null || partTargetDurationUs > 0L)
+            require(skippedSegmentCount >= 0)
+            require(segments.isNotEmpty() || partialSegments.isNotEmpty())
         }
     }
 }

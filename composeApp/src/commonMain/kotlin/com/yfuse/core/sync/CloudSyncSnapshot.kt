@@ -28,7 +28,8 @@ data class CloudSyncSnapshotV1(
     val danmaku: DanmakuSyncSnapshot = DanmakuSyncSnapshot(),
     val serverSync: CloudServerSyncSettings = CloudServerSyncSettings(),
     val skipMode: String = SkipMode.Button.name,
-    val skipTimesBySeries: Map<String, SkipTimes> = emptyMap(),
+    /** Null means a legacy snapshot that did not carry this domain; empty means clear it. */
+    val skipTimesBySeries: Map<String, SkipTimes>? = null,
     val calendarFollows: List<FollowedSeries> = emptyList(),
 ) {
     companion object {
@@ -127,9 +128,14 @@ fun applyCloudSyncSnapshot(
         require(snapshot.schemaVersion == CloudSyncSnapshotV1.CURRENT_SCHEMA_VERSION) {
             "暂不支持这个同步数据版本"
         }
-        require(snapshot.skipTimesBySeries.size <= 500) { "片头片尾同步数据过多" }
+        require(snapshot.skipTimesBySeries.orEmpty().size <= 500) { "片头片尾同步数据过多" }
         require(snapshot.calendarFollows.size <= 500) { "追剧同步数据过多" }
-        require(snapshot.skipTimesBySeries.keys.all { it.isNotBlank() && it.length <= 512 }) {
+        require(
+            snapshot.skipTimesBySeries
+                .orEmpty()
+                .keys
+                .all { it.isNotBlank() && it.length <= 512 },
+        ) {
             "片头片尾同步数据无效"
         }
         require(snapshot.network.customUserAgent.length <= MAX_CUSTOM_USER_AGENT_CHARS) {
@@ -166,8 +172,10 @@ fun applyCloudSyncSnapshot(
         serverSync.setFavorites(snapshot.serverSync.syncFavorites)
         serverSync.setAutoSync(snapshot.serverSync.autoSync)
 
-        (skip.bySeries.value.keys - snapshot.skipTimesBySeries.keys).forEach(skip::clear)
-        snapshot.skipTimesBySeries.forEach(skip::set)
+        snapshot.skipTimesBySeries?.let { remoteTimes ->
+            (skip.bySeries.value.keys - remoteTimes.keys).forEach(skip::clear)
+            remoteTimes.forEach(skip::set)
+        }
         skip.setSkipMode(skipMode)
         calendarFollows?.replaceFromSync(snapshot.calendarFollows)?.getOrThrow()
     }

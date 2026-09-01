@@ -55,6 +55,7 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.episodeWatchKey
+import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core.util.lockOrientationOnCompactScreens
 import com.yfuse.core2.api.YPlayer
@@ -824,19 +825,20 @@ class PlayerActivity : ComponentActivity() {
                         ?: versions.firstOrNull()
                         ?: return@onSuccess
                 val refreshed =
-                    item.copy(
-                        url = selected.url,
-                        transcodeUrl = selected.transcodeUrl,
-                        fallbackTranscodeUrl = selected.fallbackTranscodeUrl,
-                        versions = versions,
-                        versionId = selected.id,
-                        playSessionId = selected.playSessionId,
-                        playMethod = selected.playMethod,
-                        forcedTranscodeReason = null,
-                        trickplay = item.trickplay.takeIf { selected.id == sourceId },
-                    ).let { updated ->
-                        if (televisionDevice) updated.withoutServerTranscodeForTv() else updated
-                    }
+                    item
+                        .copy(
+                            url = selected.url,
+                            transcodeUrl = selected.transcodeUrl,
+                            fallbackTranscodeUrl = selected.fallbackTranscodeUrl,
+                            versions = versions,
+                            versionId = selected.id,
+                            playSessionId = selected.playSessionId,
+                            playMethod = selected.playMethod,
+                            forcedTranscodeReason = null,
+                            trickplay = item.trickplay.takeIf { selected.id == sourceId },
+                        ).let { updated ->
+                            if (televisionDevice) updated.withoutServerTranscodeForTv() else updated
+                        }
                 playbackItems.value =
                     playbackItems.value.toMutableList().apply { set(index, refreshed) }
                 queueResume.value = index to positionMs
@@ -948,6 +950,14 @@ class PlayerActivity : ComponentActivity() {
                             playbackSegments = episode.playbackSegments,
                             seasonNumber = episode.seasonNumber,
                             episodeNumber = episode.indexNumber,
+                            seriesId = seriesId,
+                            seriesName = seed.seriesName,
+                            seriesKey =
+                                skipSeriesStorageKey(
+                                    serverId = server.id,
+                                    seriesId = seriesId,
+                                    providerSeriesKey = seriesProviderIds.watchKey(seriesId),
+                                ),
                             stillUrl = stillUrl,
                             posterUrl = seriesPosterUrl,
                             progress = progress,
@@ -995,6 +1005,12 @@ class PlayerActivity : ComponentActivity() {
                                 episodeNumber = episode.indexNumber,
                                 seriesId = seriesId,
                                 seriesName = seed.seriesName,
+                                seriesKey =
+                                    skipSeriesStorageKey(
+                                        serverId = server.id,
+                                        seriesId = seriesId,
+                                        providerSeriesKey = seriesProviderIds.watchKey(seriesId),
+                                    ),
                                 watchKey =
                                     episodeWatchKey(
                                         ownProviderIds = episode.providerIds,

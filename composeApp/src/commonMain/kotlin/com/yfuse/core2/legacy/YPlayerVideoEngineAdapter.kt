@@ -10,8 +10,13 @@ import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.PlaybackDiagnostics
+import com.yfuse.feature.player.PlaybackAudioOutputMode
+import com.yfuse.feature.player.PlaybackDynamicRangeOutputMode
+import com.yfuse.feature.player.PlaybackEvidenceConfidence
+import com.yfuse.feature.player.PlaybackOutputEvidence
 import com.yfuse.feature.player.PlaybackOutputReadiness
 import com.yfuse.feature.player.PlaybackState
+import com.yfuse.feature.player.PlaybackVideoRenderApi
 import com.yfuse.feature.player.VideoEngine
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.flow.FlowCollector
@@ -191,8 +196,70 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
                 sourceQueueBytes = diagnostics.sourceQueueBytes,
                 sourceBufferedMs = diagnostics.sourceBufferedMs,
                 sourceStarvationCount = diagnostics.sourceStarvationCount,
+                outputEvidence = diagnostics.toPlaybackOutputEvidence(phase),
+                outputEvidenceGeneration = diagnostics.outputEvidenceGeneration,
+                outputEvidenceResetReason = diagnostics.outputEvidenceResetReason.name,
             ),
     )
+
+private fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
+    phase: YPlaybackPhase,
+): PlaybackOutputEvidence {
+    val videoReadiness =
+        when {
+            videoOutputVerified -> PlaybackOutputReadiness.Rendering
+            phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
+            else -> PlaybackOutputReadiness.Waiting
+        }
+    val audioReadiness =
+        when {
+            audioOutputVerified -> PlaybackOutputReadiness.Rendering
+            phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
+            else -> PlaybackOutputReadiness.Waiting
+        }
+    return PlaybackOutputEvidence(
+        sessionRevision = if (phase == YPlaybackPhase.Idle) 0L else outputEvidenceGeneration.coerceAtLeast(1L),
+        videoReadiness = videoReadiness,
+        audioReadiness = audioReadiness,
+        videoConfidence =
+            if (videoOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
+        audioConfidence =
+            if (audioOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
+        videoDecoder = decoder.substringBefore(" + "),
+        inputDynamicRange = dynamicRange,
+        outputDynamicRange = dynamicRange.takeIf { videoOutputVerified }.orEmpty(),
+        dynamicRangeOutputMode =
+            if (dolbyVisionOutput) {
+                PlaybackDynamicRangeOutputMode.DolbyVisionMediaCodec
+            } else {
+                PlaybackDynamicRangeOutputMode.Unknown
+            },
+        dolbyVisionRpuRendered = dolbyVisionRpuApplied,
+        dolbyVisionFelComposed = dolbyVisionFelComposed,
+        renderApi =
+            when (route) {
+                com.yfuse.core2.api.YPlaybackRoute.NativeDirect,
+                com.yfuse.core2.api.YPlaybackRoute.NativeEnhanced,
+                com.yfuse.core2.api.YPlaybackRoute.NativeTunnel,
+                -> PlaybackVideoRenderApi.MediaCodecSurface
+                com.yfuse.core2.api.YPlaybackRoute.GpuEnhanced -> PlaybackVideoRenderApi.Vulkan
+                else -> PlaybackVideoRenderApi.Unknown
+            },
+        audioMode =
+            when {
+                !audioOutputVerified -> PlaybackAudioOutputMode.Unknown
+                route == com.yfuse.core2.api.YPlaybackRoute.NativeTunnel -> PlaybackAudioOutputMode.Tunnel
+                dolbyAtmosOutputMode.encodedPassthrough -> PlaybackAudioOutputMode.Passthrough
+                else -> PlaybackAudioOutputMode.Pcm
+            },
+        tunneledPlayback = route == com.yfuse.core2.api.YPlaybackRoute.NativeTunnel,
+        codecResetCount = codecResetCount,
+        audioUnderrunCount = audioUnderrunCount,
+        droppedFramesMeasured = droppedFramesMeasured,
+        avSyncMeasured = avSyncMeasured,
+        rendererDetail = renderer,
+    )
+}
 
 private fun YTrack.toEngineTrack(): EngineTrack =
     EngineTrack(

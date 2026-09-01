@@ -204,6 +204,9 @@ data class PlaybackDiagnostics(
     val sourceStarvationCount: Long = 0L,
     /** Machine-readable evidence for the current load attempt. */
     val outputEvidence: PlaybackOutputEvidence = PlaybackOutputEvidence(),
+    /** YCore physical-output generation and the event that started it, for test/report auditing. */
+    val outputEvidenceGeneration: Long = 0L,
+    val outputEvidenceResetReason: String = "",
 )
 
 internal val PlaybackDiagnostics.effectiveVideoReadiness: PlaybackOutputReadiness

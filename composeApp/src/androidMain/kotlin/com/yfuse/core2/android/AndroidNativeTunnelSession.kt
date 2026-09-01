@@ -203,6 +203,9 @@ internal class AndroidNativeTunnelSession(
     fun setOutputSurface(next: Surface) {
         require(next.isValid) { "Tunnel Surface is invalid" }
         check(prepared)
+        firstVideoFrameRendered = false
+        runtimeRenderRecorded = false
+        renderEvidenceFloorUs = currentPositionUs()
         yPlaybackStage(
             category = YPlaybackFailureCategory.Renderer,
             stage = YPlaybackFailureStage.VideoRenderer,

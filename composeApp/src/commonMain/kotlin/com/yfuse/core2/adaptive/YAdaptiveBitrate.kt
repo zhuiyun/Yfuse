@@ -202,9 +202,22 @@ object YAdaptiveVariantSelector {
 }
 
 private fun YAdaptiveVariant.codecFamilies(): List<String> =
-    codecs
-        .map { codec -> codec.substringBefore('.').trim().lowercase() }
+    (codecs + supplementalCodecs)
+        .map(String::adaptiveSwitchCodecFamily)
         .filter(String::isNotEmpty)
+
+private fun String.adaptiveSwitchCodecFamily(): String {
+    val normalized = trim().lowercase()
+    val codec = normalized.substringBefore('/')
+    val prefix = codec.substringBefore('.')
+    val profile =
+        codec
+            .split('.')
+            .getOrNull(1)
+            ?.takeIf { prefix in setOf("dvh1", "dvhe", "dav1", "dva1") }
+    val compatibilityBrand = normalized.substringAfter('/', missingDelimiterValue = "").trim()
+    return listOfNotNull(prefix, profile, compatibilityBrand.takeIf(String::isNotEmpty)).joinToString("/")
+}
 
 private fun YDashRepresentation.codecFamilies(): List<String> =
     codecs

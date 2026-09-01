@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -88,6 +89,7 @@ import com.yfuse.core.designsystem.RefreshThresholdHaptics
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
+import com.yfuse.core.designsystem.carouselPageVisual
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
@@ -387,7 +389,22 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                 artworkFadeFraction = artworkFadeFraction,
                                                 onPageColor = retainedPageColor::update,
                                                 framed = showSidePreview,
-                                                modifier = Modifier.fillMaxSize(),
+                                                modifier =
+                                                    Modifier
+                                                        .fillMaxSize()
+                                                        .graphicsLayer {
+                                                            val visual =
+                                                                carouselPageVisual(
+                                                                    signedPageOffset =
+                                                                        (pagerState.currentPage - page) +
+                                                                            pagerState.currentPageOffsetFraction,
+                                                                    reduceMotion = reduceMotion,
+                                                                )
+                                                            scaleX = visual.scale
+                                                            scaleY = visual.scale
+                                                            alpha = visual.alpha
+                                                            translationX = size.width * visual.parallaxFraction
+                                                        },
                                                 onClick = { component.onOpenItem(animatedItem.id) },
                                                 onPlay = { component.onPlayItem(animatedItem.id) },
                                                 onToggleFavorite = {

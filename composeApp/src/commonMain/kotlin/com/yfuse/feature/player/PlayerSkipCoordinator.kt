@@ -25,6 +25,24 @@ internal data class PlayerSkipController(
 /** Movies have no series id, so intro/outro controls and automatic skipping are episode-only. */
 internal fun skipSegmentsAvailableFor(seriesId: String?): Boolean = !seriesId.isNullOrBlank()
 
+/** Stable when provider metadata exists, server-scoped otherwise; never collides by raw id alone. */
+internal fun skipSeriesStorageKey(
+    serverId: String?,
+    seriesId: String?,
+    providerSeriesKey: String?,
+): String? {
+    val id = seriesId?.takeIf(String::isNotBlank) ?: return null
+    val external =
+        providerSeriesKey
+            ?.takeIf(String::isNotBlank)
+            ?.takeUnless { it.startsWith("emby:", ignoreCase = true) }
+    return external?.let { "provider:$it" }
+        ?: serverId
+            ?.takeIf(String::isNotBlank)
+            ?.let { "server:$it/series:$id" }
+        ?: "series:$id"
+}
+
 /**
  * A resume position can already be inside the credits. Treating that as a newly reached segment
  * immediately selects the next episode; repeating the same rule on every resumed item can walk
@@ -66,17 +84,47 @@ internal fun rememberPlayerSkipController(
 ): PlayerSkipController {
     val timesBySeries by preferences.bySeries.collectAsState()
     val mode by preferences.skipMode.collectAsState()
-    val skipSeriesId = currentItem?.seriesId?.takeIf(::skipSegmentsAvailableFor)
-    val times = skipSeriesId?.let(timesBySeries::get)
+    val legacySeriesId = currentItem?.seriesId?.takeIf(::skipSegmentsAvailableFor)
+    val skipSeriesKey =
+        currentItem?.seriesKey
+            ?: skipSeriesStorageKey(
+                serverId = currentItem?.serverId,
+                seriesId = legacySeriesId,
+                providerSeriesKey = null,
+            )
+    val storedTimes = skipSeriesKey?.let(timesBySeries::get)
+    val fallbackSeriesKeys =
+        listOfNotNull(
+            skipSeriesStorageKey(
+                serverId = currentItem?.serverId,
+                seriesId = legacySeriesId,
+                providerSeriesKey = null,
+            ),
+            legacySeriesId,
+        ).distinct().filterNot { it == skipSeriesKey }
+    val legacyEntry =
+        fallbackSeriesKeys.firstNotNullOfOrNull { key ->
+            timesBySeries[key]?.let { key to it }
+        }
+    val legacyTimes = legacyEntry?.second
+    val times = storedTimes ?: legacyTimes
+    LaunchedEffect(skipSeriesKey, storedTimes, legacyEntry, playbackState.durationMs) {
+        val key = skipSeriesKey ?: return@LaunchedEffect
+        if (storedTimes == null && legacyTimes != null) {
+            preferences.set(key, legacyTimes)
+            legacyEntry?.first?.let(preferences::clear)
+        }
+        preferences.migrateLegacyCredits(key, playbackState.durationMs)
+    }
     // Credits are stored as a distance back from the end, so duration participates in the key.
     val activeSegment =
-        remember(currentItem, skipSeriesId, timesBySeries, playbackState.durationMs) {
-            if (skipSeriesId == null) {
+        remember(currentItem, skipSeriesKey, timesBySeries, playbackState.durationMs) {
+            if (skipSeriesKey == null) {
                 emptyList()
             } else {
                 preferences.applyTo(
-                    seriesId = skipSeriesId,
-                    serverSegments = currentItem.playbackSegments,
+                    seriesId = skipSeriesKey,
+                    serverSegments = currentItem?.playbackSegments.orEmpty(),
                     durationMs = playbackState.durationMs,
                 )
             }
@@ -160,12 +208,12 @@ internal fun rememberPlayerSkipController(
                         ?.takeIf { mode != SkipMode.Off },
                 countdownSeconds = countdownSeconds,
                 seriesName =
-                    skipSeriesId?.let {
-                        currentItem.seriesName?.ifBlank { null } ?: "本剧"
+                    skipSeriesKey?.let {
+                        currentItem?.seriesName?.ifBlank { null } ?: "本剧"
                     },
                 introStartSeconds = times?.introStartSeconds ?: 0L,
                 introEndSeconds = times?.introEndSeconds ?: 0L,
-                creditsLeadSeconds = times?.creditsLeadSeconds ?: 0L,
+                creditsLeadSeconds = times?.effectiveCreditsLeadSeconds(playbackState.durationMs) ?: 0L,
                 mode = mode,
             ),
         actions =
@@ -173,18 +221,19 @@ internal fun rememberPlayerSkipController(
                 onSkip = skipSegment,
                 onCancelAuto = { settled.value = occurrence },
                 onSetTimes = { introStart, introEnd, creditsLead ->
-                    val seriesId = currentItem?.seriesId?.takeIf(::skipSegmentsAvailableFor)
-                    if (seriesId != null) {
+                    val seriesKey = skipSeriesKey
+                    if (seriesKey != null) {
                         preferences.set(
-                            seriesId = seriesId,
+                            seriesId = seriesKey,
                             times =
                                 SkipTimes(
                                     introStartSeconds = introStart,
                                     introEndSeconds = introEnd,
                                     creditsLeadSeconds = creditsLead,
-                                    seriesName = currentItem.seriesName.orEmpty(),
+                                    seriesName = currentItem?.seriesName.orEmpty(),
                                 ),
                         )
+                        legacyEntry?.first?.let(preferences::clear)
                     }
                 },
                 onSelectMode = preferences::setSkipMode,

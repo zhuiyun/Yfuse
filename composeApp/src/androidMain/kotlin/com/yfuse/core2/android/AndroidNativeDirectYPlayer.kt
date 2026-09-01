@@ -13,6 +13,7 @@ import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
+import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerDiagnostics
 import com.yfuse.core2.api.YPlayerOpenRequest
@@ -20,6 +21,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
+import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.api.yPlaybackStage
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YSamplePacking
@@ -480,7 +482,19 @@ internal class AndroidNativeDirectYPlayer(
                         stage = YPlaybackFailureStage.VideoDecoderQueue,
                         safeDetail = "NativeDirect DRM key refresh",
                     ) {
-                        session.refreshKeysIfNeeded()
+                        if (session.refreshKeysIfNeeded()) {
+                            firstVideoFrameRendered = false
+                            mutableState.value =
+                                mutableState.value.copy(
+                                    diagnostics =
+                                        mutableState.value.diagnostics
+                                            .invalidateOutputEvidence(YOutputEvidenceResetReason.DrmKeysChanged)
+                                            .copy(
+                                                videoOutput = "DRM 密钥已更新 · 等待首帧",
+                                                audioOutput = waitingAudioOutputLabel(),
+                                            ),
+                                )
+                        }
                     }
                 }
                 didWork = handleAudioRoutingChange() || didWork
@@ -511,6 +525,9 @@ internal class AndroidNativeDirectYPlayer(
                     currentIndex = currentIndex,
                     itemCount = request.items.size,
                     error = null,
+                    diagnostics =
+                        mutableState.value.diagnostics
+                            .invalidateOutputEvidence(YOutputEvidenceResetReason.SourceChanged),
                 )
 
             sourceRemote = item.uri.isCore2RemoteMediaUri()
@@ -684,11 +701,9 @@ internal class AndroidNativeDirectYPlayer(
                         playing = false,
                         buffering = requestedPlay,
                         diagnostics =
-                            mutableState.value.diagnostics.copy(
-                                videoOutput = "等待 Surface",
-                                videoOutputVerified = false,
-                                dolbyVisionOutput = false,
-                            ),
+                            mutableState.value.diagnostics
+                                .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
+                                .copy(videoOutput = "等待 Surface"),
                     )
                 return
             }
@@ -699,11 +714,9 @@ internal class AndroidNativeDirectYPlayer(
                     playing = false,
                     buffering = requestedPlay,
                     diagnostics =
-                        mutableState.value.diagnostics.copy(
-                            videoOutput = "硬解已配置 · 等待首帧",
-                            videoOutputVerified = false,
-                            dolbyVisionOutput = false,
-                        ),
+                        mutableState.value.diagnostics
+                            .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
+                            .copy(videoOutput = "硬解已配置 · 等待首帧"),
                 )
             if (videoConfigured && previous?.surface?.isValid == true) {
                 runCatching { videoDecoder.setOutputSurface(newSurface) }
@@ -809,20 +822,12 @@ internal class AndroidNativeDirectYPlayer(
                     subtitleCues = activeSubtitleCues(),
                     error = null,
                     diagnostics =
-                        mutableState.value.diagnostics.copy(
+                        mutableState.value.diagnostics
+                            .invalidateOutputEvidence(YOutputEvidenceResetReason.Seek)
+                            .copy(
                             videoOutput = if (videoConfigured) "硬解已配置 · 等待首帧" else "等待 Surface",
                             audioOutput = waitingAudioOutputLabel(),
-                            videoOutputVerified = false,
-                            audioOutputVerified = false,
-                            dolbyVisionOutput = false,
-                            immersiveAudioCarrierOutput = false,
                             dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
-                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
-                            audioOutputRoute = "",
-                            audioOutputRouteVerified = false,
-                            dolbyAtmosOutput = false,
-                            spatialAudioOutput = false,
-                            headTrackingAvailable = false,
                         ),
                 )
             if (requestedPlay) startPlayback()
@@ -1572,6 +1577,17 @@ internal class AndroidNativeDirectYPlayer(
                 }
             if (generation == observedAudioRoutingGeneration) return false
             observedAudioRoutingGeneration = generation
+            firstVideoFrameRendered = false
+            mutableState.value =
+                mutableState.value.copy(
+                    diagnostics =
+                        mutableState.value.diagnostics
+                            .invalidateOutputEvidence(YOutputEvidenceResetReason.AudioRouteChanged)
+                            .copy(
+                                videoOutput = "音频路由已变化 · 等待新帧",
+                                audioOutput = waitingAudioOutputLabel(),
+                            ),
+                )
             val coreFormat = audioTrackFormat ?: return false
             if (!isAudioPassthrough()) return true
 

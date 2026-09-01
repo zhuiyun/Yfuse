@@ -17,6 +17,8 @@ import java.util.concurrent.atomic.AtomicLong
 /** Encoded AudioTrack sink used only after the active output route proves direct support. */
 internal class AndroidEncodedAudioTrackRenderNode(
     private val createTrack: (YAudioTrackFormat) -> AudioTrack = ::buildEncodedAudioTrack,
+    private val trueHdAtmosEvidenceProvider: AndroidTrueHdAtmosEvidenceProvider =
+        FailClosedAndroidTrueHdAtmosEvidenceProvider,
 ) : YAudioRenderNode {
     override val name: String = "AudioTrack passthrough"
 
@@ -42,14 +44,26 @@ internal class AndroidEncodedAudioTrackRenderNode(
         }
 
     val dolbyAtmosOutputMode: YDolbyAtmosOutputMode
-        get() =
-            resolveDolbyAtmosOutputMode(
+        get() {
+            val sourceCodec = format?.codec
+            val route = routeEvidence
+            val independentTrueHdAtmosEvidence =
+                sourceCodec == YAudioCodec.TrueHdAtmos &&
+                    route.verified &&
+                    trueHdAtmosEvidenceProvider.isTrueHdAtmosOutputVerified(
+                        sourceCodec = sourceCodec,
+                        sinkCodec = sinkCodec,
+                        route = route,
+                    )
+            return resolveDolbyAtmosOutputMode(
                 sourceCodec = format?.codec,
                 sinkCodec = sinkCodec,
                 outputAdvancing = currentRouteOutputAdvancing(),
-                route = routeEvidence,
+                route = route,
                 declaredExactTransport = exactDolbyAtmosTransport,
+                independentTrueHdAtmosSinkEvidence = independentTrueHdAtmosEvidence,
             )
+        }
 
     val immersiveCarrierOutput: Boolean
         get() =

@@ -8,3 +8,12 @@ expect fun PlatformBackHandler(
     enabled: Boolean = true,
     onBack: () -> Unit,
 )
+
+/** Progress-aware bridge for overlays that can follow the Android predictive-back gesture. */
+@Composable
+expect fun PlatformPredictiveBackHandler(
+    enabled: Boolean = true,
+    onProgress: (Float) -> Unit,
+    onBack: () -> Unit,
+    onCancel: () -> Unit,
+)

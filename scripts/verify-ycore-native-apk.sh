@@ -19,6 +19,13 @@ if grep -E "$legacy_native" "$entries" >/dev/null; then
   exit 1
 fi
 
+gpl_dvd_native='^lib/[^/]+/(libdvdnav|libdvdread)\.so$'
+if grep -E "$gpl_dvd_native" "$entries" >/dev/null; then
+  echo "error: ordinary native-only APK unexpectedly contains the GPL DVD runtime" >&2
+  grep -E "$gpl_dvd_native" "$entries" >&2
+  exit 1
+fi
+
 for required in libycore_demux.so libycore_gpu.so libavcodec.so libavformat.so libavutil.so; do
   if ! grep -E "^lib/[^/]+/$required$" "$entries" >/dev/null; then
     echo "error: native-only APK is missing required YCore runtime $required" >&2
@@ -66,13 +73,35 @@ if [[ -z "$apkanalyzer_bin" ]]; then
     fi
   done
 fi
-[[ -n "$apkanalyzer_bin" && -x "$apkanalyzer_bin" ]] || {
+apkanalyzer_is_usable=false
+if [[ -n "$apkanalyzer_bin" && -x "$apkanalyzer_bin" ]]; then
+  apkanalyzer_is_usable=true
+elif [[ -n "$apkanalyzer_bin" && -f "$apkanalyzer_bin" && "$apkanalyzer_bin" =~ \.(bat|cmd)$ ]]; then
+  # Android's Windows command-line tools expose apkanalyzer as a batch launcher.
+  # Git Bash deliberately does not report batch files as executable.
+  apkanalyzer_is_usable=true
+fi
+[[ "$apkanalyzer_is_usable" == true ]] || {
   echo "error: apkanalyzer is required to prove that legacy runtime classes are absent" >&2
   exit 1
 }
 
 defined_classes="$stage/defined-classes.txt"
-"$apkanalyzer_bin" dex packages --defined-only "$APK" > "$defined_classes"
+if [[ "$apkanalyzer_bin" =~ \.(bat|cmd)$ ]]; then
+  command -v cmd.exe >/dev/null || {
+    echo "error: cmd.exe is required to run the Windows apkanalyzer launcher" >&2
+    exit 1
+  }
+  command -v cygpath >/dev/null || {
+    echo "error: cygpath is required to run the Windows apkanalyzer launcher" >&2
+    exit 1
+  }
+  windows_apkanalyzer="$(cygpath -w "$apkanalyzer_bin")"
+  windows_apk="$(cygpath -w "$APK")"
+  cmd.exe //d //c "$windows_apkanalyzer dex packages --defined-only $windows_apk" > "$defined_classes"
+else
+  "$apkanalyzer_bin" dex packages --defined-only "$APK" > "$defined_classes"
+fi
 for forbidden_package in androidx.media3.exoplayer dev.jdtech.mpv com.mediadevkit.sdk; do
   # apkanalyzer also prints method signatures, whose parameter types may mention a compile-only
   # API. Only P/C records prove that the forbidden package or one of its classes is defined in

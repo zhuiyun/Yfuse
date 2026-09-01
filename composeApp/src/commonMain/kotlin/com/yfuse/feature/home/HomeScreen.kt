@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,6 +81,7 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.carouselPageVisual
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
@@ -530,7 +532,22 @@ private fun HomeHeroCarousel(
                     artworkAspectRatio = artworkAspectRatio,
                     artworkFadeFraction = artworkFadeFraction,
                     framed = showSidePreview,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val visual =
+                                    carouselPageVisual(
+                                        signedPageOffset =
+                                            (pagerState.currentPage - page) +
+                                                pagerState.currentPageOffsetFraction,
+                                        reduceMotion = reduceMotion,
+                                    )
+                                scaleX = visual.scale
+                                scaleY = visual.scale
+                                alpha = visual.alpha
+                                translationX = size.width * visual.parallaxFraction
+                            },
                 )
             }
         }
@@ -1185,21 +1202,27 @@ private fun homeCalendarPreviews(
                     ?.value
                     ?.toIntOrNull()
             }.toSet()
+
     fun titles(entries: List<HomeResumeEntry>): Set<String> =
         entries.map { it.item.title.homeCalendarIdentityTitle() }.filter(String::isNotBlank).toSet()
+
     val favoriteIds = tmdbIds(home.favorites)
     val nextIds = tmdbIds(home.nextUp)
     val resumeIds = tmdbIds(home.resume)
     val favoriteTitles = titles(home.favorites)
     val nextTitles = titles(home.nextUp)
     val resumeTitles = titles(home.resume)
+
     fun matches(
         entry: CalendarEntry,
         ids: Set<Int>,
         normalizedTitles: Set<String>,
     ): Boolean =
-        entry.episode.showTmdbId.takeIf { it > 0 }?.let(ids::contains) == true ||
+        entry.episode.showTmdbId
+            .takeIf { it > 0 }
+            ?.let(ids::contains) == true ||
             entry.episode.showTitle.homeCalendarIdentityTitle() in normalizedTitles
+
     return days
         .flatMap { it.entries }
         .groupBy { entry ->

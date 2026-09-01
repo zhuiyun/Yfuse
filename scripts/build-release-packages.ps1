@@ -12,7 +12,11 @@ New-Item -ItemType Directory -Force -Path $destination | Out-Null
 $signingArgs = @()
 if ($AllowDebugSigning) { $signingArgs += '-PallowDebugSigning=true' }
 
-$fullArgs = @(':composeApp:assembleRelease', '-PyfuseIncludeMdk=true') + $signingArgs
+$fullArgs = @(
+    ':composeApp:assembleRelease',
+    '-PyfuseNativeOnlyRuntime=false',
+    '-PyfuseIncludeMdk=true'
+) + $signingArgs
 if ($ConfirmMdkDistributionRights) { $fullArgs += '-PconfirmMdkDistributionRights=true' }
 & (Join-Path $root 'gradlew.bat') @fullArgs
 if ($LASTEXITCODE -ne 0) { throw 'Full release build failed' }
@@ -20,7 +24,11 @@ Copy-Item -Force `
     (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `
     (Join-Path $destination "Yfuse-$($version.VERSION_NAME)-full-arm64.apk")
 
-& (Join-Path $root 'gradlew.bat') ':composeApp:assembleRelease' '-PyfuseIncludeMdk=false' @signingArgs
+& (Join-Path $root 'gradlew.bat') `
+    ':composeApp:assembleRelease' `
+    '-PyfuseNativeOnlyRuntime=false' `
+    '-PyfuseIncludeMdk=false' `
+    @signingArgs
 if ($LASTEXITCODE -ne 0) { throw 'Compact release build failed' }
 Copy-Item -Force `
     (Join-Path $root 'composeApp/build/outputs/apk/release/composeApp-release.apk') `

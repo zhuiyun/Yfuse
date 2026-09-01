@@ -94,6 +94,18 @@ Core2 uses these route tiers:
 The route is selected from media requirements plus runtime capabilities, never from a handset model
 allowlist. Device quirks are a later corrective layer, not the primary capability source.
 
+## Adaptive streaming runtime
+
+YCore owns the HLS/DASH manifest boundary and never hands an upstream adaptive URL directly to a
+legacy player. HLS master/media parsing preserves separate renditions, CMAF maps, byte ranges,
+sample encryption and Dolby supplemental codecs. Low-latency media state includes
+`SERVER-CONTROL`, `PART-INF`, delta `SKIP`, partial segments, preload hints and rendition reports.
+Only validated `_HLS_msn`, `_HLS_part` and `_HLS_skip` reload coordinates may cross from the
+loopback demux client to the upstream origin; local credentials or arbitrary query parameters are
+dropped. Dynamic DASH preserves update period, availability/publish time, live-window depth,
+presentation delay and open-ended SegmentTimeline state. Both formats remain inside the shared
+transport, retry, cache and Widevine boundary.
+
 ## Dolby Vision direction
 
 Core2 must treat Dolby Vision as a bitstream/output route, not a UI badge.
@@ -105,6 +117,8 @@ Planned handling:
   `video/dolby-vision` hardware path where supported;
 - Profile 8.1: native DV first, HDR10 compatible-base fallback second;
 - Profile 8.4: native DV first, HLG compatible-base fallback second;
+- authored HLS: preserve `SUPPLEMENTAL-CODECS`; accept `db1p` only with `VIDEO-RANGE=PQ` and
+  `db4h` only with `VIDEO-RANGE=HLG`, otherwise reject that DV variant;
 - Profile 7: explicit BL/EL/RPU evidence; no FEL claim without verified enhancement-layer
   composition;
 - unsupported native HDR output: hardware decode plus GPU tone mapping only where that representation
@@ -120,6 +134,17 @@ presentation: an Atmos source decoded to an advancing PCM sink while Android's f
 Spatializer is active. A compatible TrueHD carrier, server transcode, HDR-compatible-base fallback,
 missing display capability, or rejected audio route keeps strict bitstream dual Dolby false while
 preserving the independent output reasons.
+
+The proof is generation-scoped. Source changes, seek, Surface replacement, audio-track changes,
+audio-route changes and DRM key renewal invalidate the current generation. Both an output frame and
+an advancing audio route must be observed again before either dual-Dolby result can return. Adaptive
+switching is constrained to one compatible codec/Dolby family; a switch that changes that family
+must open a new playback generation.
+
+Android's public `ENCODING_DOLBY_TRUEHD` flag proves a TrueHD carrier, not Atmos object acceptance,
+and queued Profile-7 EL NAL units prove delivery, not FEL composition. YCore exposes fail-closed
+provider interfaces for receiver/vendor integrations that can supply those independent facts; the
+default native runtime always returns false for both claims.
 
 ## Migration phases
 
@@ -200,6 +225,12 @@ YCore disc API v2 also owns HDMV Interactive Graphics composition, root/popup ev
 authored-coordinate pointer input. BD-J, protected-disc components and physical-disc release
 evidence remain explicit external gates; an unhandled AACS/BD+ disc fails closed as Authorization.
 
+DVD-Video remains a separate distribution profile, not a hidden Blu-ray fallback. FFmpeg's
+`dvdvideo` demuxer requires GPL-enabled FFmpeg plus libdvdnav and libdvdread. The ordinary
+all-rights-reserved Yfuse package therefore rejects DVD until the publisher deliberately adopts a
+compatible distribution/license profile, pins those sources, ships their notices and passes a
+separate native-symbol/device matrix. A `.iso` suffix alone never enables that profile.
+
 ### Phase 7 — GPU and universal fallback
 
 - AHardwareBuffer/Vulkan path;
@@ -211,9 +242,11 @@ Current compatibility milestone: ordinary non-DRM `SoftwareFallback` executes in
 enhanced session through the bundled FFmpeg software decoder, PCM path and Surface presenter.
 HDR10/HDR10+/HLG software fallback is explicitly tone-mapped to SDR. `GpuEnhanced` first attempts
 YCore's AHardwareBuffer/Vulkan compositor when loader, device, swapchain, sampler-YCbCr, decoded-frame
-presentation and persisted measurement gates allow it; the pinned libmpv/libplacebo bridge remains
-the recovery executor when that proof is absent. Dolby Vision compatible-base and Profile 7 FEL
-composition remain explicit truth gates: base-layer presentation is never reported as FEL support.
+presentation and persisted measurement gates allow it. In native-only builds, failed GPU proof
+moves only to an executable YCore software route or an explicit unsupported result; it never loads
+mpv/libplacebo. Compatibility builds may still provide a separately labelled recovery executor.
+Dolby Vision compatible-base and Profile 7 FEL composition remain explicit truth gates: base-layer
+presentation is never reported as FEL support.
 
 ### Phase 8 — Device intelligence and retirement of Legacy
 

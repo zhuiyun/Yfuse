@@ -1,6 +1,10 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,14 +17,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.shadow
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /** Long-form typed/searchable panels keep a stable right-edge drawer geometry. */
 internal val PlayerPanelWidth = 340.dp
@@ -56,17 +75,77 @@ internal fun PlayerSidePanel(
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val initialWidthPx = with(LocalDensity.current) { PlayerPanelWidth.toPx() }
+    var widthPx by remember { mutableFloatStateOf(initialWidthPx) }
+    var offsetPx by remember { mutableFloatStateOf(if (reduceMotion) 0f else initialWidthPx) }
+    var directlyManipulating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    suspend fun settleDrawer(dismiss: Boolean) {
+        if (reduceMotion) {
+            offsetPx = if (dismiss) widthPx else 0f
+        } else {
+            Animatable(offsetPx).animateTo(
+                targetValue = if (dismiss) widthPx else 0f,
+                animationSpec = Motion.drawer(),
+            ) {
+                offsetPx = value
+            }
+        }
+        if (dismiss) onDismiss()
+    }
+
+    LaunchedEffect(reduceMotion) {
+        if (!directlyManipulating) settleDrawer(dismiss = false)
+    }
+
+    PlatformPredictiveBackHandler(
+        onProgress = { progress ->
+            directlyManipulating = true
+            offsetPx = widthPx * predictiveDrawerProgress(progress)
+        },
+        onBack = {
+            offsetPx = widthPx
+            onDismiss()
+        },
+        onCancel = {
+            directlyManipulating = false
+            scope.launch { settleDrawer(dismiss = false) }
+        },
+    )
+
+    val openFraction = (1f - offsetPx / widthPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
     Box(
         Modifier
             .fillMaxSize()
-            .then(if (dim) Modifier.background(Color.Black.copy(alpha = 0.4f)) else Modifier)
-            .noRippleClickable(onDismiss),
+            .then(
+                if (dim) {
+                    Modifier.background(Color.Black.copy(alpha = 0.4f * openFraction))
+                } else {
+                    Modifier
+                },
+            ).noRippleClickable { scope.launch { settleDrawer(dismiss = true) } },
     )
     Column(
         modifier
             .fillMaxHeight()
             .width(PlayerPanelWidth)
-            .shadow(Shadows.playerSheet, PlayerPanelShape)
+            .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
+            .graphicsLayer { translationX = offsetPx }
+            .draggable(
+                state =
+                    rememberDraggableState { delta ->
+                        directlyManipulating = true
+                        offsetPx = drawerDragOffset(offsetPx, delta, widthPx)
+                    },
+                orientation = Orientation.Horizontal,
+                onDragStopped = { velocity ->
+                    val dismiss = drawerShouldDismiss(offsetPx, widthPx, velocity)
+                    directlyManipulating = false
+                    settleDrawer(dismiss)
+                },
+            ).shadow(Shadows.playerSheet, PlayerPanelShape)
             .glass(
                 shape = PlayerPanelShape,
                 fill = PlayerTokens.drawerFillLandscape,
@@ -80,6 +159,40 @@ internal fun PlayerSidePanel(
         content = content,
     )
 }
+
+internal fun drawerDragOffset(
+    currentOffsetPx: Float,
+    deltaPx: Float,
+    widthPx: Float,
+): Float {
+    val candidate = currentOffsetPx + deltaPx
+    return if (candidate < 0f) {
+        candidate * DRAWER_WRONG_WAY_RESISTANCE
+    } else {
+        candidate.coerceAtMost(widthPx.coerceAtLeast(1f) * DRAWER_MAX_TRAVEL)
+    }
+}
+
+internal fun drawerShouldDismiss(
+    offsetPx: Float,
+    widthPx: Float,
+    velocityPxPerSecond: Float,
+): Boolean =
+    velocityPxPerSecond > DRAWER_DISMISS_VELOCITY ||
+        (
+            abs(velocityPxPerSecond) < DRAWER_DISMISS_VELOCITY &&
+                offsetPx > widthPx * DRAWER_DISMISS_FRACTION
+        )
+
+internal fun predictiveDrawerProgress(progress: Float): Float {
+    val clamped = progress.coerceIn(0f, 1f)
+    return 1f - (1f - clamped) * (1f - clamped)
+}
+
+private const val DRAWER_WRONG_WAY_RESISTANCE = 0.18f
+private const val DRAWER_MAX_TRAVEL = 1.08f
+private const val DRAWER_DISMISS_FRACTION = 0.42f
+private const val DRAWER_DISMISS_VELOCITY = 850f
 
 /**
  * The function-menu shell used by playback, tracks, picture, danmaku, cast, and advanced.

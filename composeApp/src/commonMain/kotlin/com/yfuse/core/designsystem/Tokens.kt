@@ -27,12 +27,12 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
-/**
+// ---------------------------------------------------------------- brand colours
+
+/*
  * Design tokens transcribed 1:1 from the "Emby 液态玻璃 UI · 设计规范" spec sheet.
  * CSS px map directly to dp; every literal here has a counterpart in the spec.
  */
-
-// ---------------------------------------------------------------- brand colours
 
 /** 品牌与功能色 — spec section "品牌与功能色". */
 object Brand {
@@ -471,8 +471,34 @@ object Motion {
      */
     fun <T> settle(): SpringSpec<T> = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
 
+    /** Rubber-band release: carries the user's fling home without a visible second bounce. */
+    fun <T> overscroll(): SpringSpec<T> = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessLow)
+
+    /** Right-edge drawers remain interruptible while opening, settling, or cancelling back. */
+    fun <T> drawer(): SpringSpec<T> = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
+
     /** [settle], or an instant cut under 减弱动态效果. */
     fun <T> settle(reduceMotion: Boolean): FiniteAnimationSpec<T> = if (reduceMotion) snap() else settle<T>()
+
+    /**
+     * The edge at the front of the root-tab selection pill. It gets to the new cell first,
+     * briefly pulling the glass wider in the direction of travel.
+     */
+    fun <T> tabIndicatorLeading(): SpringSpec<T> = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMedium)
+
+    /**
+     * The edge behind the moving root-tab selection pill. A softer spring makes it trail the
+     * leading edge, while drawing code caps the stretch so a long jump never spans icons.
+     */
+    fun <T> tabIndicatorTrailing(): SpringSpec<T> = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow)
+
+    /** Selected tab glyphs arrive with one restrained overshoot, then settle at full size. */
+    fun tabIcon(reduceMotion: Boolean): FiniteAnimationSpec<Float> =
+        if (reduceMotion) {
+            snap()
+        } else {
+            spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium)
+        }
 
     /** 推进（详情 / 类型 / 下载）— 右侧 30px 滑入 + 淡入. */
     const val PUSH = EMPHASIZED

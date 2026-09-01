@@ -30,12 +30,12 @@
         android:name="android.hardware.camera"
         android:required="false" />
 
-    <!-- Product decision: retain the classic back behaviour; predictive animations are off. -->
+    <!-- Predictive back is enabled; root back-to-home remains owned by the system. -->
     <application
         android:name="com.yfuse.YfuseApp"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:enableOnBackInvokedCallback="false"
+        android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
         android:label="Yfuse"
@@ -123,9 +123,11 @@
             android:name="com.yfuse.feature.player.PlayerActivity"
             android:exported="false"
             android:launchMode="singleTop"
+            android:screenOrientation="sensorLandscape"
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|density|uiMode"
-            android:theme="@style/Theme.Yfuse.Player" />
+            android:theme="@style/Theme.Yfuse.Player"
+            tools:ignore="LockedOrientationActivity" />
         <activity
             android:name="com.yfuse.feature.profile.QrScannerActivity"
             android:exported="false"

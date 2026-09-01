@@ -1,7 +1,10 @@
 package com.yfuse.app
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +47,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -79,6 +84,7 @@ import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.MiniPlayerTokens
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OfficialNavDisplay
+import com.yfuse.core.designsystem.OfficialNavMotion
 import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonPulseProvider
@@ -105,6 +111,8 @@ import com.yfuse.feature.servers.ServersTabScreen
 import com.yfuse.feature.watch.InviteResolution
 import com.yfuse.feature.watch.WatchInviteSheet
 import com.yfuse.feature.watch.WatchRoomInfoDialog
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 private data class TabItem(
     val tab: Tab,
@@ -347,14 +355,18 @@ fun App(root: RootComponent) {
                                     },
                                 ).backdropSource(backdrop),
                         ) {
+                            val previousRootTab = remember { arrayOf(active) }
+                            val rootMotion = rootTabMotion(previousRootTab[0], active)
+                            SideEffect { previousRootTab[0] = active }
                             // Top-level tabs are a real Navigation 3 back stack, while each tab's
-                            // nested host continues to own its child routes. Back navigation remains
-                            // functional, but its predictive and committed animations are disabled.
+                            // nested host continues to own its child routes. This host opts into
+                            // equal-level root motion; nested stacks own their push/pop gestures.
                             OfficialNavDisplay(
                                 backStack = topLevelBackStack(active),
                                 onBack = { root.selectTab(Tab.Home) },
                                 contentKey = { "tab:${it.name}" },
                                 modifier = Modifier.fillMaxSize(),
+                                motion = rootMotion,
                             ) { tab ->
                                 CompositionLocalProvider(LocalTabIdentity provides tab.name) {
                                     tabStates.SaveableStateProvider(tab.name) {
@@ -757,6 +769,21 @@ private fun SearchButton(
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "searchTint",
     )
+    val fill by animateColorAsState(
+        targetValue = if (selected) navigationGlass.selection else navigationGlass.shell,
+        animationSpec = Motion.settle<Color>(reduceMotion),
+        label = "searchFill",
+    )
+    val border by animateColorAsState(
+        targetValue = if (selected) accent.border else palette.tabbarBorder,
+        animationSpec = Motion.settle<Color>(reduceMotion),
+        label = "searchBorder",
+    )
+    val iconScale by animateFloatAsState(
+        targetValue = if (selected) 1f else INACTIVE_TAB_ICON_SCALE,
+        animationSpec = Motion.tabIcon(reduceMotion),
+        label = "searchIconScale",
+    )
     Box(
         Modifier
             .size(Dimens.tabBarHeight)
@@ -771,12 +798,8 @@ private fun SearchButton(
             .backdropBlur(backdrop, CircleShape)
             .overlayGlass(
                 CircleShape,
-                if (selected) {
-                    navigationGlass.selection
-                } else {
-                    navigationGlass.shell
-                },
-                if (selected) accent.border else palette.tabbarBorder,
+                fill,
+                border,
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -784,7 +807,13 @@ private fun SearchButton(
             AppIcons.SearchTab,
             contentDescription = "搜索",
             tint = tint,
-            modifier = Modifier.size(23.dp),
+            modifier =
+                Modifier
+                    .size(23.dp)
+                    .graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                    },
         )
     }
 }
@@ -814,18 +843,58 @@ private fun GlassTabBar(
     // The shell uses the same semantic material as the rail and detached keys. The glass
     // implementation itself resolves liquid/frosted differences; overriding alpha here used
     // to turn only the phone dock into a near-opaque plate.
-    // The pill travels between cells rather than appearing under the new one. Tabs are
-    // equal-weight quarters of the bar, so its position is the animated index and nothing
-    // has to be measured.
-    //
-    // A spring rather than the 260ms tween it used to run on: this is the one control a
-    // session touches most, and impatient taps across three tabs used to restart a fixed ramp
-    // each time, so the pill fell further behind the finger the faster you moved. A spring
-    // carries its velocity into the next target and arrives with it.
-    val indicator by animateFloatAsState(
-        targetValue = selectedIndex.coerceAtLeast(0).toFloat(),
-        animationSpec = Motion.settle<Float>(reduceMotion),
-        label = "tabIndicator",
+    // Two independently sprung edges make the selected glass pull slightly in the direction
+    // of travel. The draw phase caps that stretch, so a jump across the bar never turns the
+    // indicator into a stripe spanning unrelated icons.
+    val initialIndex = selectedIndex.coerceAtLeast(0).toFloat()
+    val indicatorLeft = remember { Animatable(tabPillTargetLeft(initialIndex)) }
+    val indicatorRight = remember { Animatable(tabPillTargetRight(initialIndex)) }
+    LaunchedEffect(selectedIndex, reduceMotion) {
+        if (selectedIndex < 0) return@LaunchedEffect
+        val targetIndex = selectedIndex.toFloat()
+        val targetLeft = tabPillTargetLeft(targetIndex)
+        val targetRight = tabPillTargetRight(targetIndex)
+        if (reduceMotion) {
+            indicatorLeft.snapTo(targetLeft)
+            indicatorRight.snapTo(targetRight)
+        } else {
+            val currentCenter = (indicatorLeft.value + indicatorRight.value) / 2f
+            val movingRight = targetIndex + 0.5f >= currentCenter
+            coroutineScope {
+                launch {
+                    indicatorLeft.animateTo(
+                        targetValue = targetLeft,
+                        animationSpec =
+                            if (movingRight) {
+                                Motion.tabIndicatorTrailing()
+                            } else {
+                                Motion.tabIndicatorLeading()
+                            },
+                    )
+                }
+                launch {
+                    indicatorRight.animateTo(
+                        targetValue = targetRight,
+                        animationSpec =
+                            if (movingRight) {
+                                Motion.tabIndicatorLeading()
+                            } else {
+                                Motion.tabIndicatorTrailing()
+                            },
+                    )
+                }
+            }
+        }
+    }
+    val indicatorAlpha by animateFloatAsState(
+        targetValue = if (hasSelection) 1f else 0f,
+        animationSpec =
+            if (reduceMotion) {
+                snap()
+            } else {
+                tween(Motion.QUICK, easing = Motion.Curve)
+            },
+        label = "tabIndicatorAlpha",
     )
     Row(
         modifier
@@ -844,20 +913,31 @@ private fun GlassTabBar(
             // After the fill and before the buttons: the pill belongs to the material, not
             // over the icons.
             .drawBehind {
-                if (!hasSelection) return@drawBehind
+                if (indicatorAlpha <= 0f) return@drawBehind
                 val cell = size.width / tabs.size
                 // Search/Profile sit over quiet page backgrounds, where the former 12% pill
                 // nearly disappeared. A slightly larger, stronger indicator stays legible over both
                 // artwork-heavy roots and plain roots without turning into a filled button.
                 // The selected region nearly fills its cell, matching the broad soft island
                 // in the reference instead of reading as a small Material indicator.
-                val pillWidth = cell * 0.82f
+                val bounds =
+                    tabIndicatorBounds(
+                        rawLeft = indicatorLeft.value,
+                        rawRight = indicatorRight.value,
+                        tabCount = tabs.size,
+                    )
+                val pillWidth = cell * bounds.width
                 val pillHeight = size.height * 0.86f
                 drawRoundRect(
-                    color = navigationGlass.selection,
+                    color =
+                        navigationGlass.selection.copy(
+                            alpha =
+                                navigationGlass.selection.alpha *
+                                    indicatorAlpha.coerceIn(0f, 1f),
+                        ),
                     topLeft =
                         Offset(
-                            x = cell * indicator + (cell - pillWidth) / 2f,
+                            x = cell * bounds.left,
                             y = (size.height - pillHeight) / 2f,
                         ),
                     size = Size(pillWidth, pillHeight),
@@ -966,12 +1046,17 @@ private fun RailTabButton(
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "railTabTint",
     )
+    val selection by animateColorAsState(
+        targetValue = if (selected) navigationGlass.selection else Color.Transparent,
+        animationSpec = Motion.settle<Color>(reduceMotion),
+        label = "railTabSelection",
+    )
     Column(
         Modifier
             .width(64.dp)
             .heightIn(min = 58.dp)
             .clip(GlassShapes.card)
-            .background(if (selected) navigationGlass.selection else Color.Transparent)
+            .background(selection)
             .pressable(
                 pressedScale = 0.96f,
                 haptic = HapticSignal.Select,
@@ -1001,12 +1086,13 @@ private fun LiquidGlassTabIcon(
     compact: Boolean = false,
 ) {
     val boxSize = if (compact) 34.dp else 38.dp
-    val iconSize =
-        when {
-            compact -> 25.dp
-            selected -> 28.dp
-            else -> 27.dp
-        }
+    val iconSize = if (compact) 25.dp else 28.dp
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1f else INACTIVE_TAB_ICON_SCALE,
+        animationSpec = Motion.tabIcon(reduceMotion),
+        label = "tabIconScale",
+    )
 
     Box(
         Modifier.size(boxSize),
@@ -1016,7 +1102,55 @@ private fun LiquidGlassTabIcon(
             item.icon,
             contentDescription = item.label,
             tint = tint,
-            modifier = Modifier.size(iconSize),
+            modifier =
+                Modifier
+                    .size(iconSize)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    },
         )
     }
 }
+
+internal data class TabIndicatorBounds(
+    val left: Float,
+    val width: Float,
+)
+
+internal fun tabIndicatorBounds(
+    rawLeft: Float,
+    rawRight: Float,
+    tabCount: Int,
+): TabIndicatorBounds {
+    require(tabCount > 0)
+    val center = (rawLeft + rawRight) / 2f
+    val width =
+        kotlin.math
+            .abs(rawRight - rawLeft)
+            .coerceIn(
+                TAB_PILL_WIDTH_FRACTION * TAB_PILL_MIN_SCALE,
+                TAB_PILL_WIDTH_FRACTION * TAB_PILL_MAX_SCALE,
+            )
+    val left = (center - width / 2f).coerceIn(0f, tabCount.toFloat() - width)
+    return TabIndicatorBounds(left = left, width = width)
+}
+
+private fun tabPillTargetLeft(index: Float): Float = index + (1f - TAB_PILL_WIDTH_FRACTION) / 2f
+
+private fun tabPillTargetRight(index: Float): Float = index + (1f + TAB_PILL_WIDTH_FRACTION) / 2f
+
+internal fun rootTabMotion(
+    previous: Tab,
+    current: Tab,
+): OfficialNavMotion =
+    when {
+        previous != Tab.Search && current == Tab.Search -> OfficialNavMotion.SearchEnter
+        previous == Tab.Search && current != Tab.Search -> OfficialNavMotion.SearchExit
+        else -> OfficialNavMotion.RootTab
+    }
+
+private const val TAB_PILL_WIDTH_FRACTION = 0.82f
+private const val TAB_PILL_MIN_SCALE = 0.94f
+private const val TAB_PILL_MAX_SCALE = 1.12f
+private const val INACTIVE_TAB_ICON_SCALE = 0.94f

@@ -121,6 +121,8 @@ internal object PlaybackDiagnosticReportRegistry {
                     appendLine("surface.rebuilds=${evidence.surfaceRebuildCount}")
                     appendLine("render.api=${evidence.renderApi.name}")
                     appendLine("render.detail=${evidence.rendererDetail}")
+                    appendLine("output.evidence.generation=${diagnostics.outputEvidenceGeneration}")
+                    appendLine("output.evidence.reset=${diagnostics.outputEvidenceResetReason}")
                     appendLine("mpv.rpu.rendered=${evidence.dolbyVisionRpuRendered || mpv.rpuRendered}")
                     appendLine("mpv.fel.composed=${evidence.dolbyVisionFelComposed || mpv.felComposed}")
                     appendLine("mpv.evidence.generation=${mpv.generation}")

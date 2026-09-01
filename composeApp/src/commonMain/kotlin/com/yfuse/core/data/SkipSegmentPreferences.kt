@@ -7,6 +7,7 @@ import com.yfuse.core.model.PlaybackSegmentType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -28,11 +29,14 @@ data class SkipTimes(
      * what actually stays constant, so that is what is stored.
      *
      * Entries written before this changed carried an absolute start under a different
-     * name. There is no runtime to convert those against at load time, and reading an
-     * absolute position as a distance from the end would be far worse than reading
-     * nothing, so they decode to 0 — 片尾 is simply unset again for those shows.
+     * name. [legacyCreditsStartSeconds] retains it until a player duration is available,
+     * then [SkipSegmentPreferences.migrateLegacyCredits] converts it without dropping the
+     * user's boundary.
      */
     val creditsLeadSeconds: Long = 0L,
+    /** Compatibility field for snapshots written before credits became end-relative. */
+    @SerialName("creditsStartSeconds")
+    val legacyCreditsStartSeconds: Long = 0L,
     /** Only for naming the row in 我的; never used to match. */
     val seriesName: String = "",
 ) {
@@ -44,14 +48,27 @@ data class SkipTimes(
      * Treating it as empty threw the first tap away and made the row look broken.
      */
     val configured: Boolean
-        get() = introStartSeconds > 0L || introEndSeconds > 0L || creditsLeadSeconds > 0L
+        get() =
+            introStartSeconds > 0L ||
+                introEndSeconds > 0L ||
+                creditsLeadSeconds > 0L ||
+                legacyCreditsStartSeconds > 0L
 
     /** True once the intro describes a real interval, rather than half of one. */
     val hasIntro: Boolean
         get() = introEndSeconds > introStartSeconds
 
     val hasCredits: Boolean
-        get() = creditsLeadSeconds > 0L
+        get() = creditsLeadSeconds > 0L || legacyCreditsStartSeconds > 0L
+
+    /** End-relative value used by current UI, including an old absolute value when convertible. */
+    fun effectiveCreditsLeadSeconds(durationMs: Long): Long {
+        if (creditsLeadSeconds > 0L) return creditsLeadSeconds
+        val durationSeconds = durationMs / 1_000L
+        return (durationSeconds - legacyCreditsStartSeconds)
+            .takeIf { legacyCreditsStartSeconds > 0L && it > 0L }
+            ?: 0L
+    }
 }
 
 /**
@@ -147,6 +164,7 @@ class SkipSegmentPreferences(
                 introStartSeconds = times.introStartSeconds.coerceIn(0L, MAX_SECONDS),
                 introEndSeconds = times.introEndSeconds.coerceIn(0L, MAX_SECONDS),
                 creditsLeadSeconds = times.creditsLeadSeconds.coerceIn(0L, MAX_SECONDS),
+                legacyCreditsStartSeconds = times.legacyCreditsStartSeconds.coerceIn(0L, MAX_SECONDS),
                 seriesName = times.seriesName.trim().take(80),
             )
         // An entry that configures nothing is indistinguishable from having no entry, and
@@ -164,6 +182,24 @@ class SkipSegmentPreferences(
         if (seriesId !in _bySeries.value) return
         _bySeries.value = _bySeries.value - seriesId
         persist()
+    }
+
+    /** Converts the pre-end-relative credits field once an actual episode duration is known. */
+    fun migrateLegacyCredits(
+        seriesId: String,
+        durationMs: Long,
+    ) {
+        val current = _bySeries.value[seriesId] ?: return
+        if (current.legacyCreditsStartSeconds <= 0L || current.creditsLeadSeconds > 0L) return
+        val leadSeconds = current.effectiveCreditsLeadSeconds(durationMs)
+        if (leadSeconds <= 0L) return
+        set(
+            seriesId,
+            current.copy(
+                creditsLeadSeconds = leadSeconds,
+                legacyCreditsStartSeconds = 0L,
+            ),
+        )
     }
 
     /**
@@ -208,8 +244,20 @@ class SkipSegmentPreferences(
             // end, and hence nothing to place the start against until a duration arrives.
             // A lead longer than the whole file would make the entire item 片尾, which is
             // a mistyped digit rather than an instruction; leave it out.
-            val creditsStartMs = durationMs - times.creditsLeadSeconds * 1000
-            if (times.hasCredits && durationMs > 0L && creditsStartMs > 0L) {
+            val effectiveLeadSeconds = times.effectiveCreditsLeadSeconds(durationMs)
+            val creditsStartMs =
+                when {
+                    effectiveLeadSeconds > 0L && durationMs > 0L ->
+                        durationMs - effectiveLeadSeconds * 1_000L
+                    times.legacyCreditsStartSeconds > 0L ->
+                        times.legacyCreditsStartSeconds * 1_000L
+                    else -> 0L
+                }
+            if (
+                times.hasCredits &&
+                creditsStartMs > 0L &&
+                (durationMs <= 0L || creditsStartMs < durationMs)
+            ) {
                 add(
                     PlaybackSegment(
                         type = PlaybackSegmentType.Credits,

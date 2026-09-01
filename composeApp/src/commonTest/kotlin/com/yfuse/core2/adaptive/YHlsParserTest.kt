@@ -52,6 +52,65 @@ class YHlsParserTest {
     }
 
     @Test
+    fun supplemental_dolby_vision_codec_and_compatibility_brand_survive_rewrite() {
+        val master =
+            assertIs<YHlsPlaylist.Master>(
+                parseYHlsPlaylist(
+                    text =
+                        """
+                        #EXTM3U
+                        #EXT-X-STREAM-INF:BANDWIDTH=8000000,CODECS="hvc1.2.4.L153.b0,ec-3",SUPPLEMENTAL-CODECS="dvh1.08.07/db4h",VIDEO-RANGE=HLG
+                        video/dv84.m3u8
+                        """.trimIndent(),
+                    baseUri = "https://media.example.test/master.m3u8",
+                ),
+            )
+        val variant = master.variants.single()
+
+        assertTrue(variant.isDolbyVision)
+        assertTrue(variant.hasUsableDolbyVisionSignaling)
+        assertEquals(listOf("dvh1.08.07/db4h"), variant.supplementalCodecs)
+        assertEquals(setOf("db4h"), variant.dolbyVisionCompatibilityBrands)
+
+        val playback =
+            selectYHlsPlaybackSet(
+                master,
+                YAdaptiveSelectionConditions(20_000_000L, 10_000_000L),
+                YHlsPlaybackCapabilities(dolbyVisionOutput = true),
+            )
+        val rendered = buildYHlsPlaybackMaster(playback) { uri, _ -> uri }
+        assertTrue("SUPPLEMENTAL-CODECS=\"dvh1.08.07/db4h\"" in rendered)
+    }
+
+    @Test
+    fun supplemental_dolby_vision_with_contradictory_range_is_not_selected() {
+        val master =
+            assertIs<YHlsPlaylist.Master>(
+                parseYHlsPlaylist(
+                    text =
+                        """
+                        #EXTM3U
+                        #EXT-X-STREAM-INF:BANDWIDTH=4000000,CODECS="hvc1.2.4.L120.B0",VIDEO-RANGE=SDR
+                        video/sdr.m3u8
+                        #EXT-X-STREAM-INF:BANDWIDTH=8000000,CODECS="hvc1.2.4.L153.b0",SUPPLEMENTAL-CODECS="dvh1.08.07/db4h",VIDEO-RANGE=PQ
+                        video/invalid-dv.m3u8
+                        """.trimIndent(),
+                    baseUri = "https://media.example.test/master.m3u8",
+                ),
+            )
+        val invalidDolby = master.variants.single(YAdaptiveVariant::isDolbyVision)
+        assertFalse(invalidDolby.hasUsableDolbyVisionSignaling)
+
+        val playback =
+            selectYHlsPlaybackSet(
+                master,
+                YAdaptiveSelectionConditions(20_000_000L, 10_000_000L),
+                YHlsPlaybackCapabilities(dolbyVisionOutput = true),
+            )
+        assertFalse(playback.initialVariant.isDolbyVision)
+    }
+
+    @Test
     fun playback_selection_keeps_dual_dolby_ladder_only_when_output_route_supports_it() {
         val master =
             assertIs<YHlsPlaylist.Master>(
@@ -201,6 +260,73 @@ class YHlsParserTest {
             kinds,
         )
         assertFalse("token=secret" in rewritten)
+    }
+
+    @Test
+    fun low_latency_media_playlist_exposes_reload_window_parts_and_rendition_state() {
+        val playlist =
+            parseYHlsPlaylist(
+                text =
+                    """
+                    #EXTM3U
+                    #EXT-X-TARGETDURATION:4
+                    #EXT-X-PART-INF:PART-TARGET=0.5
+                    #EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,CAN-SKIP-UNTIL=24,CAN-SKIP-DATERANGES=YES,HOLD-BACK=12,PART-HOLD-BACK=1.5
+                    #EXT-X-MEDIA-SEQUENCE:100
+                    #EXT-X-DISCONTINUITY-SEQUENCE:7
+                    #EXT-X-SKIP:SKIPPED-SEGMENTS=2
+                    #EXTINF:4,
+                    segment-102.m4s
+                    #EXT-X-PART:DURATION=0.5,URI="segment-103.0.m4s",INDEPENDENT=YES,BYTERANGE="100@20"
+                    #EXT-X-PART:DURATION=0.5,URI="segment-103.1.m4s",GAP=YES,BYTERANGE="80"
+                    #EXT-X-PRELOAD-HINT:TYPE=PART,URI="segment-103.2.m4s",BYTERANGE-START=200,BYTERANGE-LENGTH=120
+                    #EXT-X-RENDITION-REPORT:URI="../alt/live.m3u8",LAST-MSN=103,LAST-PART=1
+                    """.trimIndent(),
+                baseUri = "https://media.example.test/main/live.m3u8?token=secret",
+            )
+        val media = assertIs<YHlsPlaylist.Media>(playlist)
+
+        assertTrue(media.isLive)
+        assertEquals(7L, media.discontinuitySequence)
+        assertEquals(500_000L, media.partTargetDurationUs)
+        assertEquals(2, media.skippedSegmentCount)
+        assertEquals(102L, media.segments.single().sequence)
+        assertTrue(media.serverControl?.canBlockReload == true)
+        assertEquals(24_000_000L, media.serverControl?.canSkipUntilUs)
+        assertTrue(media.serverControl?.canSkipDateRanges == true)
+        assertEquals(1_500_000L, media.serverControl?.partHoldBackUs)
+        assertEquals(2, media.partialSegments.size)
+        assertEquals(103L, media.partialSegments[0].mediaSequence)
+        assertEquals(0, media.partialSegments[0].partIndex)
+        assertTrue(media.partialSegments[0].independent)
+        assertEquals(YAdaptiveByteRange(100L, 20L), media.partialSegments[0].byteRange)
+        assertEquals(YAdaptiveByteRange(80L, 120L), media.partialSegments[1].byteRange)
+        assertTrue(media.partialSegments[1].gap)
+        assertEquals("https://media.example.test/main/segment-103.2.m4s", media.preloadHint?.uri)
+        assertEquals(200L, media.preloadHint?.byteRangeStart)
+        assertEquals("https://media.example.test/alt/live.m3u8", media.renditionReports.single().uri)
+        assertEquals(103L, media.renditionReports.single().lastMediaSequence)
+    }
+
+    @Test
+    fun low_latency_playlist_can_start_with_partial_segments_only() {
+        val media =
+            assertIs<YHlsPlaylist.Media>(
+                parseYHlsPlaylist(
+                    text =
+                        """
+                        #EXTM3U
+                        #EXT-X-TARGETDURATION:2
+                        #EXT-X-PART-INF:PART-TARGET=0.25
+                        #EXT-X-MEDIA-SEQUENCE:8
+                        #EXT-X-PART:DURATION=0.25,URI="part.m4s",INDEPENDENT=YES
+                        """.trimIndent(),
+                    baseUri = "https://media.example.test/live.m3u8",
+                ),
+            )
+
+        assertTrue(media.segments.isEmpty())
+        assertEquals(8L, media.partialSegments.single().mediaSequence)
     }
 
     private companion object {

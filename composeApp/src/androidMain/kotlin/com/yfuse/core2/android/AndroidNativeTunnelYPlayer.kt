@@ -6,6 +6,7 @@ import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
+import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerDiagnostics
 import com.yfuse.core2.api.YPlayerOpenRequest
@@ -13,6 +14,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
+import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -209,16 +211,11 @@ internal class AndroidNativeTunnelYPlayer(
                     error = "YCore 2.0 Tunnel 路径失败，切换普通原生路径",
                     errorCategory = typed?.category ?: YPlaybackFailureCategory.Unknown,
                     diagnostics =
-                        it.diagnostics.copy(
+                        it.diagnostics
+                            .invalidateOutputEvidence(YOutputEvidenceResetReason.DecoderReconfigured)
+                            .copy(
                             videoOutput = "停止",
                             audioOutput = "停止",
-                            videoOutputVerified = false,
-                            audioOutputVerified = false,
-                            dolbyVisionOutput = false,
-                            immersiveAudioCarrierOutput = false,
-                            dolbyAtmosOutput = false,
-                            spatialAudioOutput = false,
-                            headTrackingAvailable = false,
                             reason =
                                 typed?.stage?.let { stage -> "NativeTunnel failed at ${stage.name}" }
                                     ?: "NativeTunnel failed before typed-stage classification",
@@ -229,6 +226,14 @@ internal class AndroidNativeTunnelYPlayer(
 
         fun prepareCurrent(positionUs: Long) {
             nativeDolbyVisionRoute = false
+            mutableState.updateState {
+                it.copy(
+                    diagnostics =
+                        it.diagnostics.invalidateOutputEvidence(
+                            YOutputEvidenceResetReason.SourceChanged,
+                        ),
+                )
+            }
             val surface = surfaceOutput?.surface?.takeIf { it.isValid }
             if (surface == null) {
                 prepared = false
@@ -378,7 +383,20 @@ internal class AndroidNativeTunnelYPlayer(
                                 if (prepared) session.pause()
                             }
                             is Command.Seek -> {
-                                if (prepared) session.seekTo(command.positionUs)
+                                if (prepared) {
+                                    session.seekTo(command.positionUs)
+                                    mutableState.updateState {
+                                        it.copy(
+                                            diagnostics =
+                                                it.diagnostics
+                                                    .invalidateOutputEvidence(YOutputEvidenceResetReason.Seek)
+                                                    .copy(
+                                                        videoOutput = "等待 Tunnel 首帧",
+                                                        audioOutput = "等待 HW_AV_SYNC 时钟",
+                                                    ),
+                                        )
+                                    }
+                                }
                             }
                             is Command.SetVideoOutput -> {
                                 val previous = surfaceOutput
@@ -398,11 +416,24 @@ internal class AndroidNativeTunnelYPlayer(
                                             playing = false,
                                             buffering = requestedPlay,
                                             positionMs = positionUs / MICROS_PER_MILLISECOND,
-                                            diagnostics = it.diagnostics.copy(videoOutput = "等待 Surface"),
+                                            diagnostics =
+                                                it.diagnostics
+                                                    .invalidateOutputEvidence(
+                                                        YOutputEvidenceResetReason.SurfaceChanged,
+                                                    ).copy(videoOutput = "等待 Surface"),
                                         )
                                     }
                                 } else if (prepared && previous?.surface?.isValid == true) {
                                     session.setOutputSurface(next)
+                                    mutableState.updateState {
+                                        it.copy(
+                                            diagnostics =
+                                                it.diagnostics
+                                                    .invalidateOutputEvidence(
+                                                        YOutputEvidenceResetReason.SurfaceChanged,
+                                                    ).copy(videoOutput = "等待 Tunnel 首帧"),
+                                        )
+                                    }
                                 } else if (!prepared) {
                                     prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
                                 }

@@ -7,6 +7,7 @@ import com.yfuse.core.playback.PlaybackFailureKind
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
+import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerDiagnostics
 import com.yfuse.core2.api.YPlayerState
@@ -52,6 +53,8 @@ class YPlayerVideoEngineAdapterTest {
                         dynamicRange = "Dolby Vision",
                         videoOutput = "Surface 直出",
                         videoOutputVerified = true,
+                        outputEvidenceGeneration = 7L,
+                        outputEvidenceResetReason = YOutputEvidenceResetReason.SurfaceChanged,
                         dolbyVisionOutput = true,
                         dolbyVisionRpuApplied = true,
                         dolbyVisionEnhancementLayerDelivered = true,
@@ -67,6 +70,12 @@ class YPlayerVideoEngineAdapterTest {
         assertTrue(state.diagnostics.dolbyVisionRpuApplied)
         assertFalse(state.diagnostics.dolbyVisionEnhancementLayerComposed)
         assertEquals("c2.vendor.hevc.decoder", state.diagnostics.decoder)
+        assertEquals(7L, state.diagnostics.outputEvidence.sessionRevision)
+        assertEquals("SurfaceChanged", state.diagnostics.outputEvidenceResetReason)
+        assertEquals(
+            com.yfuse.feature.player.PlaybackDynamicRangeOutputMode.DolbyVisionMediaCodec,
+            state.diagnostics.outputEvidence.dynamicRangeOutputMode,
+        )
         assertEquals(8, state.discNavigation.chapterCount)
     }
 

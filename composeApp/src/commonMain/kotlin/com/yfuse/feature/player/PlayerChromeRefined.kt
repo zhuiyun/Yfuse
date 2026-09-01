@@ -1,6 +1,16 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -46,6 +56,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -68,6 +79,7 @@ import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import kotlin.math.abs
 
 /**
  * Player top chrome after the control hierarchy was simplified.
@@ -218,6 +230,7 @@ internal fun RefinedBottomBar(
     artworkIdentity: Any?,
     modifier: Modifier = Modifier,
 ) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     var scrubbed by remember { mutableStateOf<Float?>(null) }
     val duration = state.durationMs.coerceAtLeast(1L)
     val fraction = scrubbed ?: playbackProgressFraction(state.positionMs, state.durationMs)
@@ -251,26 +264,50 @@ internal fun RefinedBottomBar(
                 RefinedTimeText(shownPosition)
             }
             Column(Modifier.weight(1f)) {
-                if (scrubbed != null && trickplay != null) {
-                    val previewHeight =
-                        (
-                            RefinedTrickplayPreviewWidth.value * trickplay.height /
-                                trickplay.width.coerceAtLeast(1)
-                        ).dp + 30.dp
-                    BoxWithConstraints(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(previewHeight + 8.dp),
-                    ) {
-                        val availableWidth = (maxWidth - RefinedTrickplayPreviewWidth).coerceAtLeast(0.dp)
-                        val previewX =
-                            (maxWidth * fraction - RefinedTrickplayPreviewWidth / 2f)
-                                .coerceIn(0.dp, availableWidth)
-                        TrickplayPreview(
-                            storyboard = trickplay,
-                            positionMs = shownPosition,
-                            modifier = Modifier.offset(x = previewX),
-                        )
+                val preview = trickplay
+                AnimatedVisibility(
+                    visible = scrubbed != null && preview != null,
+                    enter =
+                        if (reduceMotion) {
+                            EnterTransition.None
+                        } else {
+                            fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
+                                scaleIn(Motion.settle(), initialScale = 0.92f) +
+                                expandVertically(Motion.settle(), expandFrom = Alignment.Bottom)
+                        },
+                    exit =
+                        if (reduceMotion) {
+                            ExitTransition.None
+                        } else {
+                            fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
+                                scaleOut(tween(Motion.QUICK, easing = Motion.Curve), targetScale = 0.96f) +
+                                shrinkVertically(
+                                    tween(Motion.QUICK, easing = Motion.Curve),
+                                    shrinkTowards = Alignment.Bottom,
+                                )
+                        },
+                ) {
+                    if (preview != null) {
+                        val previewHeight =
+                            (
+                                RefinedTrickplayPreviewWidth.value * preview.height /
+                                    preview.width.coerceAtLeast(1)
+                            ).dp + 30.dp
+                        BoxWithConstraints(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(previewHeight + 8.dp),
+                        ) {
+                            val availableWidth = (maxWidth - RefinedTrickplayPreviewWidth).coerceAtLeast(0.dp)
+                            val previewX =
+                                (maxWidth * fraction - RefinedTrickplayPreviewWidth / 2f)
+                                    .coerceIn(0.dp, availableWidth)
+                            TrickplayPreview(
+                                storyboard = preview,
+                                positionMs = shownPosition,
+                                modifier = Modifier.offset(x = previewX),
+                            )
+                        }
                     }
                 }
                 StandardSeekBar(
@@ -491,10 +528,18 @@ private fun StandardSeekBar(
 ) {
     val haptics = LocalHaptics.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val magnetRadiusPx = with(LocalDensity.current) { SeekMarkerMagnetRadius.toPx() }
     var dragFraction by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
     var widthPx by remember { mutableIntStateOf(1) }
+    var snappedMarkerIndex by remember { mutableStateOf<Int?>(null) }
+    val markerFractions =
+        remember(progressMarkers, durationMs) {
+            progressMarkers.map { marker ->
+                (marker.positionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
+            }
+        }
     val latestOnScrubTo by rememberUpdatedState(onScrubTo)
     val latestOnCommit by rememberUpdatedState(onCommit)
     val latestOnCancel by rememberUpdatedState(onCancel)
@@ -518,6 +563,24 @@ private fun StandardSeekBar(
             latestOnCommit(target.coerceIn(0f, 1f))
             true
         }
+    }
+
+    fun magneticTarget(rawFraction: Float): MagneticSeekTarget =
+        magneticSeekTarget(
+            rawFraction = rawFraction,
+            markerFractions = markerFractions,
+            thresholdFraction =
+                (magnetRadiusPx / widthPx.coerceAtLeast(1)).coerceAtMost(0.04f),
+        )
+
+    fun updateDrag(rawFraction: Float) {
+        val target = magneticTarget(rawFraction)
+        if (target.markerIndex != null && target.markerIndex != snappedMarkerIndex) {
+            haptics.play(HapticSignal.Select)
+        }
+        snappedMarkerIndex = target.markerIndex
+        dragFraction = target.fraction
+        latestOnScrubTo(target.fraction)
     }
 
     Box(
@@ -549,7 +612,8 @@ private fun StandardSeekBar(
                     .pointerInput(enabled) {
                         detectTapGestures { offset ->
                             val width = size.width.toFloat().coerceAtLeast(1f)
-                            if (commit((offset.x / width).coerceIn(0f, 1f))) {
+                            val target = magneticTarget((offset.x / width).coerceIn(0f, 1f))
+                            if (commit(target.fraction)) {
                                 haptics.play(HapticSignal.Select)
                             }
                         }
@@ -558,24 +622,25 @@ private fun StandardSeekBar(
                             onDragStart = { offset ->
                                 val width = size.width.toFloat().coerceAtLeast(1f)
                                 dragging = true
-                                dragFraction = (offset.x / width).coerceIn(0f, 1f)
+                                snappedMarkerIndex = null
                                 haptics.play(HapticSignal.Select)
-                                latestOnScrubTo(dragFraction)
+                                updateDrag((offset.x / width).coerceIn(0f, 1f))
                             },
                             onDragEnd = {
                                 dragging = false
+                                snappedMarkerIndex = null
                                 haptics.play(HapticSignal.Confirm)
                                 latestOnCommit(dragFraction)
                             },
                             onDragCancel = {
                                 dragging = false
+                                snappedMarkerIndex = null
                                 latestOnCancel()
                             },
                         ) { change, _ ->
                             change.consume()
                             val width = size.width.toFloat().coerceAtLeast(1f)
-                            dragFraction = (change.position.x / width).coerceIn(0f, 1f)
-                            latestOnScrubTo(dragFraction)
+                            updateDrag((change.position.x / width).coerceIn(0f, 1f))
                         }
                     }
             },
@@ -659,5 +724,28 @@ private fun StandardSeekBar(
     }
 }
 
+internal data class MagneticSeekTarget(
+    val fraction: Float,
+    val markerIndex: Int?,
+)
+
+internal fun magneticSeekTarget(
+    rawFraction: Float,
+    markerFractions: List<Float>,
+    thresholdFraction: Float,
+): MagneticSeekTarget {
+    val raw = rawFraction.coerceIn(0f, 1f)
+    val nearest = markerFractions.indices.minByOrNull { index -> abs(markerFractions[index] - raw) }
+    return if (
+        nearest != null &&
+        abs(markerFractions[nearest] - raw) <= thresholdFraction.coerceAtLeast(0f)
+    ) {
+        MagneticSeekTarget(markerFractions[nearest].coerceIn(0f, 1f), nearest)
+    } else {
+        MagneticSeekTarget(raw, null)
+    }
+}
+
 private val RefinedTrickplayPreviewWidth = 160.dp
+private val SeekMarkerMagnetRadius = 14.dp
 private const val REFINED_SEEK_STEP_MS = 10_000L

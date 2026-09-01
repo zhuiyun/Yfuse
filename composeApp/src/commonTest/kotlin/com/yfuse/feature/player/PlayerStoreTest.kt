@@ -14,6 +14,7 @@ import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -35,6 +36,26 @@ class PlayerStoreTest {
 
     @AfterTest
     fun tearDown() = Dispatchers.resetMain()
+
+    @Test
+    fun queue_load_timeout_replaces_the_spinner_with_a_retryable_error() =
+        runTest {
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    testRepo { awaitCancellation() },
+                    testRegistry(),
+                    itemId = "movie",
+                    startPositionTicks = 0L,
+                    queueLoadTimeoutMs = 50L,
+                ).create()
+
+            val state = store.states.first { !it.loading }
+
+            assertEquals("播放准备超时，请检查服务器连接后重试", state.error)
+            assertTrue(state.items.isEmpty())
+            store.dispose()
+        }
 
     @Test
     fun retry_after_initial_load_failure_enters_loading_and_recovers() =

@@ -305,6 +305,9 @@ data class YPlayerDiagnostics(
     val dynamicRange: String = "",
     val videoOutput: String = "",
     val audioOutput: String = "",
+    /** Monotonic playback-session generation for current physical output evidence. */
+    val outputEvidenceGeneration: Long = 0L,
+    val outputEvidenceResetReason: YOutputEvidenceResetReason = YOutputEvidenceResetReason.Initial,
     /** Backend-observed frame/sample output, independent from the human-readable labels above. */
     val videoOutputVerified: Boolean = false,
     val audioOutputVerified: Boolean = false,

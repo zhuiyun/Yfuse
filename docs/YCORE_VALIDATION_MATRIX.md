@@ -35,6 +35,9 @@ below. CI cannot replace these measurements.
   offset truncation. Include MOV/ProRes and Blu-ray image/main-feature cases when available.
 - Faults: truncated manifests, corrupt timestamps, missing tracks, slow origin, 401/403/404/5xx,
   discontinuities and random seek/track/subtitle operations.
+- Adaptive live: classic HLS, CMAF HLS, LL-HLS blocking reload/delta update/partial segments,
+  static and dynamic DASH, CENC and cbcs key rotation. Confirm that loopback reload coordinates are
+  forwarded while credentials and unrelated local query parameters never cross to the origin.
 
 Every sample has a redacted manifest entry containing capability signature, expected route, expected
 output and allowed fallback. Media URLs, tokens, account ids and server ids must never be committed.
@@ -144,6 +147,12 @@ route. Before native remote ISO is release-enabled, the following must pass:
   composition.
 - Dolby Vision P7 FEL is `NotMeasured` unless a physical-device trace proves the enhancement layer is
   being composed. Base-layer playback is not sufficient evidence for an FEL-support claim.
+- HLS Dolby Vision supplemental brands must cross-check against the base-layer range: `db1p`/PQ and
+  `db4h`/HLG. Contradictory signaling must fall back to a valid non-DV representation or fail with an
+  explicit unsupported-source result when no such representation exists.
+- A proven dual-Dolby state must be cleared on seek, Surface replacement, audio-track or route
+  change, source transition and DRM key renewal. The state may pass again only after new video-frame
+  and advancing-audio evidence is collected in the new generation.
 - An HDMV provider must report lifecycle and runtime capability independently of video decode. Any
   native exception/failed command must mark only that optional provider failed, clear active-menu
   state and leave main-feature playback alive.
@@ -217,8 +226,8 @@ Widevine-license-server, native libbluray build, power, thermal or 8/24-hour soa
   certification. YCore only preserves secure routing and safe fallback.
 - HDMV navigation requires a real libbluray-backed provider; BD-J additionally requires a verified
   Java runtime. Unsupported menu commands remain explicit instead of being simulated.
-- DVD navigation remains outside YCore until a separately pinned and verified DVD runtime exists;
-  an unsupported DVD must fail closed or use the explicit compatibility route, never masquerade as
-  Blu-ray support.
+- DVD navigation remains outside the ordinary YCore distribution until a separately pinned and
+  verified GPL-compatible runtime exists. FFmpeg `dvdvideo` requires libdvdnav, libdvdread and a
+  GPL-enabled FFmpeg build; an unsupported DVD must fail closed and never masquerade as Blu-ray.
 - A backend may be enabled only when its bundled build, license notice, native symbols, capability
   marker, registry ABI and ABI/page-size checks pass the release workflow.

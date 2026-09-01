@@ -27,6 +27,10 @@ import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.sync.WatchReactionBurst
 import kotlinx.coroutines.delay
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.sin
 
 /** How long a bubble takes to cross the strip it floats up. */
 private const val REACTION_MS = 2_600
@@ -79,11 +83,6 @@ private fun BoxScope.ReactionBubble(
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val rise = remember { Animatable(0f) }
-    // A stable per-bubble sideways offset so simultaneous reactions do not stack into one
-    // illegible column. Derived from the id rather than random, so a recomposition mid-flight
-    // does not teleport the bubble sideways.
-    val drift = remember(burst.id) { ((burst.id % 5L).toInt() - 2) * 9 }
-
     LaunchedEffect(burst.id, reduceMotion) {
         if (reduceMotion) {
             // No travel, but still transient: it appears, it is read, it goes.
@@ -100,10 +99,13 @@ private fun BoxScope.ReactionBubble(
             .padding(end = insetEnd, bottom = 150.dp)
             .graphicsLayer {
                 val progress = rise.value
-                translationY = -RiseDistance.toPx() * progress
-                translationX = drift.dp.toPx() * progress
-                // Holds full strength for the first third, then thins out.
-                alpha = ((1f - progress) * 1.5f).coerceIn(0f, 1f)
+                val motion = reactionMotion(progress, burst.id)
+                translationY = -RiseDistance.toPx() * motion.riseFraction
+                translationX = motion.horizontalDp.dp.toPx()
+                scaleX = if (reduceMotion) 1f else motion.scale
+                scaleY = if (reduceMotion) 1f else motion.scale
+                rotationZ = if (reduceMotion) 0f else motion.rotationDegrees
+                alpha = if (reduceMotion) 1f else motion.alpha
             }.glass(
                 shape = GlassShapes.chip,
                 fill = PlayerTokens.nextUpFill,
@@ -125,3 +127,46 @@ private fun BoxScope.ReactionBubble(
         }
     }
 }
+
+internal data class ReactionMotion(
+    val riseFraction: Float,
+    val horizontalDp: Float,
+    val scale: Float,
+    val rotationDegrees: Float,
+    val alpha: Float,
+)
+
+/** Deterministic, recomposition-safe ballistic path for a room reaction. */
+internal fun reactionMotion(
+    progress: Float,
+    id: Long,
+): ReactionMotion {
+    val t = progress.coerceIn(0f, 1f)
+    val bucket = (((id % 7L) + 7L) % 7L).toInt() - 3
+    val drift = bucket * REACTION_DRIFT_STEP_DP
+    val swayDirection = if ((id and 1L) == 0L) 1f else -1f
+    val sway = swayDirection * REACTION_SWAY_DP * sin((2f * PI * t).toFloat()) * (1f - t)
+    val scale =
+        1f -
+            REACTION_SCALE_AMPLITUDE *
+            exp((-REACTION_SCALE_DECAY * t).toDouble()).toFloat() *
+            cos((REACTION_SCALE_FREQUENCY * t).toDouble()).toFloat()
+    val fadeProgress = ((t - REACTION_FADE_START) / (1f - REACTION_FADE_START)).coerceIn(0f, 1f)
+    return ReactionMotion(
+        riseFraction = REACTION_RISE_LINEAR * t - REACTION_RISE_GRAVITY * t * t,
+        horizontalDp = drift * t + sway,
+        scale = scale,
+        rotationDegrees = bucket * REACTION_TILT_DEGREES * sin((PI * t).toFloat()) * (1f - t),
+        alpha = 1f - fadeProgress,
+    )
+}
+
+private const val REACTION_DRIFT_STEP_DP = 5f
+private const val REACTION_SWAY_DP = 8f
+private const val REACTION_SCALE_AMPLITUDE = 0.28f
+private const val REACTION_SCALE_DECAY = 7f
+private const val REACTION_SCALE_FREQUENCY = 13f
+private const val REACTION_FADE_START = 0.35f
+private const val REACTION_RISE_LINEAR = 1.5f
+private const val REACTION_RISE_GRAVITY = 0.5f
+private const val REACTION_TILT_DEGREES = 2.2f

@@ -75,4 +75,27 @@ class AndroidYCoreHttpProxyTest {
                 stableAdaptiveResourceKey("https://cdn.example/media/segment.m4s?seq=43"),
         )
     }
+
+    @Test
+    fun low_latency_hls_reload_forwards_only_valid_control_coordinates() {
+        assertEquals(
+            "https://cdn.example/live.m3u8?token=secret&lang=zh&_HLS_msn=42&_HLS_part=3&_HLS_skip=v2#edge",
+            mergeYCoreHlsReloadQuery(
+                upstreamUri = "https://cdn.example/live.m3u8?token=secret&_HLS_msn=1&lang=zh#edge",
+                localRawQuery = "_HLS_msn=42&_hls_part=3&_HLS_skip=v2&token=attacker&redirect=https://evil.test",
+            ),
+        )
+    }
+
+    @Test
+    fun low_latency_hls_reload_rejects_invalid_or_unrelated_query() {
+        val upstream = "https://cdn.example/live.m3u8?token=secret"
+        assertEquals(
+            upstream,
+            mergeYCoreHlsReloadQuery(
+                upstreamUri = upstream,
+                localRawQuery = "_HLS_msn=-1&_HLS_part=x&_HLS_skip=NO&authorization=leak",
+            ),
+        )
+    }
 }

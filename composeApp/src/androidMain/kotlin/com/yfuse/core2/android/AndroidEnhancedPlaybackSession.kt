@@ -8,6 +8,8 @@ import android.os.Build
 import android.view.Surface
 import android.view.WindowManager
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
+import com.yfuse.core2.api.YDualDolbyEvidenceState
+import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
@@ -30,6 +32,10 @@ import com.yfuse.core2.demux.YSampleFlag
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.demux.YVideoTrackFormat
 import com.yfuse.core2.dolby.YDolbyVisionConfig
+import com.yfuse.core2.dolby.FailClosedYDolbyVisionFelEvidenceProvider
+import com.yfuse.core2.dolby.YDolbyVisionFelCompositionRequest
+import com.yfuse.core2.dolby.YDolbyVisionFelEvidenceProvider
+import com.yfuse.core2.dolby.verifyDolbyVisionFelComposition
 import com.yfuse.core2.dolby.dolbyVisionHevcBaseLayerSample
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
@@ -82,6 +88,8 @@ internal data class YEnhancedPlaybackSnapshot(
     val dolbyVisionRpuApplied: Boolean = false,
     val dolbyVisionEnhancementLayerDelivered: Boolean = false,
     val dolbyVisionFelComposed: Boolean = false,
+    val outputEvidenceGeneration: Long = 0L,
+    val outputEvidenceResetReason: YOutputEvidenceResetReason = YOutputEvidenceResetReason.Initial,
 )
 
 /**
@@ -100,6 +108,8 @@ internal class AndroidEnhancedPlaybackSession(
     private val audioRenderer: AndroidAudioTrackRenderNode = AndroidAudioTrackRenderNode(context),
     private val encodedAudioRenderer: AndroidEncodedAudioTrackRenderNode = AndroidEncodedAudioTrackRenderNode(),
     private val runtimeCapabilities: AndroidRuntimeCapabilityRegistry? = null,
+    private val felEvidenceProvider: YDolbyVisionFelEvidenceProvider =
+        FailClosedYDolbyVisionFelEvidenceProvider,
     frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) {
     private val demuxReadAhead = AndroidDemuxReadAheadNode(demuxer)
@@ -154,6 +164,7 @@ internal class AndroidEnhancedPlaybackSession(
     private var renderCallbackGeneration = 0
     private var p7RpuQueued = false
     private var p7EnhancementLayerQueued = false
+    private var dualDolbyEvidence = YDualDolbyEvidenceState()
 
     @Volatile
     private var lastAvSyncOffsetUs: Long? = null
@@ -178,6 +189,7 @@ internal class AndroidEnhancedPlaybackSession(
         requireDolbyVisionIdentity: Boolean = false,
     ): YDemuxOpenResult {
         close()
+        dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.SourceChanged)
         this.runtimeCapabilityKey = runtimeCapabilityKey
         require(
             plan.route in
@@ -446,15 +458,21 @@ internal class AndroidEnhancedPlaybackSession(
     fun setOutputSurface(next: Surface) {
         require(next.isValid) { "Output Surface is invalid" }
         check(prepared) { "Enhanced session is not prepared" }
+        dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.SurfaceChanged)
         yPlaybackStage(
             category = YPlaybackFailureCategory.Renderer,
             stage = YPlaybackFailureStage.VideoRenderer,
             safeDetail = "Enhanced Surface rebind",
         ) {
+            // A frame proven on the previous Surface cannot prove output on its replacement.
+            firstVideoFrameRendered = false
+            runtimeRenderRecorded = false
+            gpuEvidenceRecorded = false
+            p7RpuQueued = false
+            p7EnhancementLayerQueued = false
             if (softwareVideoActive) {
                 softwareVideoRenderer.attach(next)
                 softwareRenderedFrameCountSeen = 0
-                firstVideoFrameRendered = false
             } else if (gpuVideoOutput != null) {
                 check(requireNotNull(gpuVideoOutput).setTargetSurface(next)) {
                     "Vulkan output Surface recreation failed"
@@ -506,6 +524,8 @@ internal class AndroidEnhancedPlaybackSession(
         ) {
             return
         }
+
+        dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.AudioTrackChanged)
 
         pauseAudio()
         demuxReadAhead.pauseReadAhead()
@@ -613,6 +633,7 @@ internal class AndroidEnhancedPlaybackSession(
         resetVideoDecoder: Boolean,
     ) {
         check(prepared) { "Enhanced session is not prepared" }
+        dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.Seek)
         val target = positionUs.coerceAtLeast(0L)
         if (!tailRetry) emptyTailSeekRetries = 0
         yPlaybackStage(
@@ -663,6 +684,8 @@ internal class AndroidEnhancedPlaybackSession(
         lastVideoUs = target
         firstVideoFrameRendered = false
         runtimeRenderRecorded = false
+        p7RpuQueued = false
+        p7EnhancementLayerQueued = false
         wallClock.seek(target, System.nanoTime())
         outputActive = false
         bufferGate.reset()
@@ -723,13 +746,43 @@ internal class AndroidEnhancedPlaybackSession(
             } else {
                 YDolbyAtmosOutputMode.None
             }
+        val dolbyVisionOutput =
+            videoVerified &&
+                plan?.renderPath == YRenderPath.SurfaceDirect &&
+                plan?.usesHdrFallback == false &&
+                effectiveVideoTrack?.dolbyVisionConfig != null &&
+                plan?.outputHdrType == YHdrType.DolbyVision
+        dualDolbyEvidence =
+            dualDolbyEvidence
+                .observeVideo(
+                    outputVerified = videoVerified,
+                    dolbyVisionVerified = dolbyVisionOutput,
+                ).observeAudio(
+                    outputVerified = audioRendering,
+                    atmosSourceDetected = sourceCodec.isDolbyAtmosSource(),
+                    outputMode = atmosOutputMode,
+                )
+        val outputEvidence = dualDolbyEvidence
+        val dolbyVisionConfig = effectiveVideoTrack?.dolbyVisionConfig
+        val felComposed =
+            dolbyVisionConfig != null &&
+                verifyDolbyVisionFelComposition(
+                    YDolbyVisionFelCompositionRequest(
+                        config = dolbyVisionConfig,
+                        decoderName = videoDecoder.decoderName,
+                        renderedFrameObserved = outputEvidence.videoOutputVerified,
+                        rpuAccessUnitObserved = p7RpuQueued,
+                        enhancementLayerAccessUnitObserved = p7EnhancementLayerQueued,
+                    ),
+                    felEvidenceProvider,
+                )
         return YEnhancedPlaybackSnapshot(
             positionUs = currentPositionUs(),
             durationUs = openResult?.durationUs ?: 0L,
             playing = playing && outputActive && !ended(),
             buffering = playing && (!outputActive || !videoVerified) && !ended(),
             ended = ended(),
-            firstVideoFrameRendered = videoVerified,
+            firstVideoFrameRendered = outputEvidence.videoOutputVerified,
             outputHdrType = plan?.outputHdrType ?: YHdrType.Sdr,
             softwareVideoToneMapped = plan?.softwareVideoToneMap == true,
             videoDecoderName =
@@ -740,16 +793,16 @@ internal class AndroidEnhancedPlaybackSession(
                     softwareAudioActive -> FFMPEG_SOFTWARE_AUDIO_NAME
                     else -> audioDecoder.decoderName
                 },
-            audioRendering = audioRendering,
+            audioRendering = outputEvidence.audioOutputVerified,
             audioPassthrough = passthrough,
             immersiveAudioCarrierOutput = encodedAudioRenderer.immersiveCarrierOutput,
-            dolbyAtmosSourceDetected = sourceCodec.isDolbyAtmosSource(),
-            dolbyAtmosOutputMode = atmosOutputMode,
+            dolbyAtmosSourceDetected = outputEvidence.dolbyAtmosSourceDetected,
+            dolbyAtmosOutputMode = outputEvidence.dolbyAtmosOutputMode,
             audioOutputRoute =
                 if (passthrough) encodedAudioRenderer.audioRouteLabel else audioRenderer.audioRouteLabel,
             audioOutputRouteVerified =
                 if (passthrough) encodedAudioRenderer.audioRouteVerified else audioRenderer.audioRouteVerified,
-            dolbyAtmosOutput = atmosOutputMode.encodedPassthrough,
+            dolbyAtmosOutput = outputEvidence.dolbyAtmosOutputMode.encodedPassthrough,
             spatialAudioOutput = spatialized,
             headTrackingAvailable = !passthrough && audioRenderer.headTrackingAvailable,
             audioFallbackCount = audioFallbackCount,
@@ -767,8 +820,9 @@ internal class AndroidEnhancedPlaybackSession(
                     plan?.outputHdrType == YHdrType.DolbyVision &&
                     p7RpuQueued,
             dolbyVisionEnhancementLayerDelivered = p7EnhancementLayerQueued,
-            // No independent decoded-EL contribution trace exists in YCore yet.
-            dolbyVisionFelComposed = false,
+            dolbyVisionFelComposed = felComposed,
+            outputEvidenceGeneration = outputEvidence.generation,
+            outputEvidenceResetReason = outputEvidence.lastResetReason,
         )
     }
 
@@ -1585,6 +1639,7 @@ internal class AndroidEnhancedPlaybackSession(
             }
         if (generation == observedAudioRoutingGeneration) return false
         observedAudioRoutingGeneration = generation
+        dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.AudioRouteChanged)
         val activeTrack = audioTrack ?: return false
         val format = activeTrack.audio ?: return false
         if (!isAudioPassthrough()) return true
