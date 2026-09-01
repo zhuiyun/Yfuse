@@ -775,6 +775,13 @@ internal class AndroidAdaptiveCore2YPlayer(
             childCollector =
                 scope.launch {
                     next.state.collect { childState ->
+                        if (childState.phase != YPlaybackPhase.Failed && recoveryQueued) {
+                            // An in-place retry keeps this collector. Give the recovered attempt a
+                            // fresh failure edge so a second terminal failure can advance to the
+                            // next recovery tier instead of being hidden by the first attempt.
+                            failureRecorded = false
+                            recoveryQueued = false
+                        }
                         if (childState.phase == YPlaybackPhase.Failed && !failureRecorded) {
                             failureRecorded = true
                             val category = childState.errorCategory
@@ -1024,14 +1031,23 @@ internal class AndroidAdaptiveCore2YPlayer(
                             }
                         }
                         is Command.RecoverSameRoute -> {
-                            val activeState = child?.state?.value
+                            val active = child
+                            val activeState = active?.state?.value
                             if (
                                 command.index == currentIndex &&
                                 activeState?.phase == YPlaybackPhase.Failed &&
                                 activeState.diagnostics.route == command.route
                             ) {
                                 pendingPositionMs = command.positionMs
-                                rebuild(pendingPositionMs)
+                                if (canRetryCore2RouteInPlace(command.route)) {
+                                    // The child owns a serialized codec command queue. Reusing it
+                                    // guarantees releaseMedia() finishes before the same decoder is
+                                    // configured again; rebuilding here allowed the replacement
+                                    // child to race the outgoing MediaCodec release on OEM devices.
+                                    checkNotNull(active).retry()
+                                } else {
+                                    rebuild(pendingPositionMs)
+                                }
                             }
                         }
                         is Command.FallbackToEnhanced -> {
@@ -1089,7 +1105,24 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     ?.positionMs
                                     ?.coerceAtLeast(0L)
                                     ?: pendingPositionMs
-                            rebuild(pendingPositionMs)
+                            val active = child
+                            val activeState = active?.state?.value
+                            if (
+                                active != null &&
+                                activeState != null &&
+                                shouldRetryActiveNativeChildInPlace(
+                                    nativeOnly = nativeOnly,
+                                    phase = activeState.phase,
+                                    route = activeState.diagnostics.route,
+                                )
+                            ) {
+                                // Runtime silent-output recovery is not a route change. Keep the
+                                // active child and let its worker release, reopen and configure in
+                                // strict order instead of constructing a competing codec instance.
+                                active.retry()
+                            } else {
+                                rebuild(pendingPositionMs)
+                            }
                         }
                     }
                 } catch (failure: Throwable) {
@@ -1196,6 +1229,24 @@ private const val SEVERE_THERMAL_STATUS = 3
 
 internal fun core2RouterFailureReason(failure: Throwable): String =
     "Core2 router failed at ${failure::class.simpleName ?: "unknown failure"}"
+
+internal fun shouldRetryActiveNativeChildInPlace(
+    nativeOnly: Boolean,
+    phase: YPlaybackPhase,
+    route: YPlaybackRoute,
+): Boolean =
+    nativeOnly &&
+        phase != YPlaybackPhase.Failed &&
+        canRetryCore2RouteInPlace(route)
+
+internal fun canRetryCore2RouteInPlace(route: YPlaybackRoute): Boolean =
+    route in
+        setOf(
+            YPlaybackRoute.NativeTunnel,
+            YPlaybackRoute.NativeDirect,
+            YPlaybackRoute.NativeEnhanced,
+            YPlaybackRoute.GpuEnhanced,
+        )
 
 private const val MIN_LEARNING_PLAYBACK_MS = 30_000L
 

@@ -3,6 +3,7 @@ package com.yfuse.core2.android
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
+import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.strategy.YDecodePath
@@ -90,5 +91,38 @@ class AndroidAdaptiveCore2RecoveryPlanTest {
                 ),
             ),
         )
+    }
+
+    @Test
+    fun `silent native recovery stays inside the active serialized child`() {
+        assertTrue(
+            shouldRetryActiveNativeChildInPlace(
+                nativeOnly = true,
+                phase = YPlaybackPhase.Ready,
+                route = YPlaybackRoute.NativeDirect,
+            ),
+        )
+        assertFalse(
+            shouldRetryActiveNativeChildInPlace(
+                nativeOnly = false,
+                phase = YPlaybackPhase.Ready,
+                route = YPlaybackRoute.NativeDirect,
+            ),
+        )
+        assertFalse(
+            shouldRetryActiveNativeChildInPlace(
+                nativeOnly = true,
+                phase = YPlaybackPhase.Failed,
+                route = YPlaybackRoute.NativeDirect,
+            ),
+        )
+    }
+
+    @Test
+    fun `same native route codec recovery is serialized without rebuilding the child`() {
+        assertTrue(canRetryCore2RouteInPlace(YPlaybackRoute.NativeDirect))
+        assertTrue(canRetryCore2RouteInPlace(YPlaybackRoute.NativeEnhanced))
+        assertFalse(canRetryCore2RouteInPlace(YPlaybackRoute.Legacy))
+        assertFalse(canRetryCore2RouteInPlace(YPlaybackRoute.SoftwareFallback))
     }
 }
