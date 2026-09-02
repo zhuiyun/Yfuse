@@ -48,6 +48,13 @@ data class YPlaybackRequest(
     val video: YVideoRequirement,
     val audio: YAudioRequirement? = null,
     val platformDemuxSupported: Boolean,
+    val enhancedDemuxSupported: Boolean = true,
+    /** HDR-compatible base layer, e.g. HDR10 for Dolby Vision Profile 8.1. */
+    val fallbackHdrType: YHdrType? = null,
+    val preferTunnel: Boolean = true,
+    val allowAudioPassthrough: Boolean = true,
+    val decoderPreference: YDecoderPreference = YDecoderPreference.Automatic,
+    val optimizationPreference: YOptimizationPreference = YOptimizationPreference.Balanced,
     /**
      * True only when the platform demuxer exposed the audio track represented by [audio].
      *
@@ -56,13 +63,6 @@ data class YPlaybackRequest(
      * the enhanced demuxer so the audio track is not silently discarded.
      */
     val platformAudioDemuxSupported: Boolean = platformDemuxSupported,
-    val enhancedDemuxSupported: Boolean = true,
-    /** HDR-compatible base layer, e.g. HDR10 for Dolby Vision Profile 8.1. */
-    val fallbackHdrType: YHdrType? = null,
-    val preferTunnel: Boolean = true,
-    val allowAudioPassthrough: Boolean = true,
-    val decoderPreference: YDecoderPreference = YDecoderPreference.Automatic,
-    val optimizationPreference: YOptimizationPreference = YOptimizationPreference.Balanced,
 )
 
 data class YPlaybackPlan(
