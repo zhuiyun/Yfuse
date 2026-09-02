@@ -109,6 +109,9 @@ private const val DOLBY_PROBE_SAMPLE_LIMIT = 24
 
 internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
     val request = playbackRequest
+    // A successful video probe is not proof that MediaExtractor exposed every elementary stream.
+    // When it reports no audio at all, ask FFmpeg once before treating the source as video-only.
+    if (request.audio == null) return true
     // Some platform extractors report video/dolby-vision but omit dvcC/dvvC/dvwC, especially for
     // Matroska and MPEG-TS. Never treat that missing container metadata as an unsupported profile:
     // require YCore's bounded FFmpeg truth probe before the route planner sees the stream.
