@@ -22,6 +22,9 @@ internal object PlaybackDiagnosticReportRegistry {
 
     private val initialized = AtomicBoolean(false)
     private val latest = AtomicReference(Snapshot())
+    private val timelineLock = Any()
+    private val timeline = ArrayDeque<String>()
+    private var lastTimelineFingerprint: String? = null
     private lateinit var appContext: Context
 
     fun initialize(context: Context) {
@@ -40,6 +43,13 @@ internal object PlaybackDiagnosticReportRegistry {
                     ),
                 )
             }
+        preferences
+            .getString(KEY_LATEST_TIMELINE, null)
+            ?.lineSequence()
+            ?.filter(String::isNotBlank)
+            ?.toList()
+            ?.takeLast(MAX_TIMELINE_ENTRIES)
+            ?.forEach(timeline::addLast)
         DiagnosticLogStore.registerExportArtifact("playback-report.txt") {
             val snapshot = latest.get()
             buildString {
@@ -59,6 +69,15 @@ internal object PlaybackDiagnosticReportRegistry {
                         ?: "No playback session has been observed in this or the previous process.\n",
                 )
                 appendLine()
+                appendLine("session.timeline:")
+                synchronized(timelineLock) {
+                    if (timeline.isEmpty()) {
+                        appendLine("none")
+                    } else {
+                        timeline.forEach(::appendLine)
+                    }
+                }
+                appendLine()
                 append(PlaybackRemotePolicyRegistry.diagnosticSummary())
                 append(AndroidNativeCrashMonitor.diagnosticSummary())
                 append(nativeLibraryReport())
@@ -75,6 +94,7 @@ internal object PlaybackDiagnosticReportRegistry {
         val diagnostics = state.diagnostics
         val evidence = diagnostics.outputEvidence
         val mpv = diagnostics.mpvDolbyRuntimeEvidence()
+        recordTimeline(state, selectedEngine, nativeOnly)
         val report =
             redactDiagnosticText(
                 buildString {
@@ -139,6 +159,83 @@ internal object PlaybackDiagnosticReportRegistry {
                 .putString(KEY_LATEST_REPORT, report)
                 .putLong(KEY_OBSERVED_AT, now)
                 .apply()
+        }
+    }
+
+    private fun recordTimeline(
+        state: PlaybackState,
+        selectedEngine: PlayerEngine,
+        nativeOnly: Boolean,
+    ) {
+        val diagnostics = state.diagnostics
+        val evidence = diagnostics.outputEvidence
+        val fingerprint =
+            listOf(
+                state.currentIndex,
+                state.playing,
+                state.buffering,
+                state.ended,
+                state.error?.javaClass?.simpleName.orEmpty(),
+                diagnostics.engine,
+                diagnostics.fallbackReason.orEmpty(),
+                diagnostics.effectiveVideoReadiness,
+                diagnostics.effectiveAudioReadiness,
+                diagnostics.bufferEvents,
+                diagnostics.networkRecoveryAttempts,
+                diagnostics.networkRecoverySuccesses,
+                evidence.surfaceRebuildCount,
+            ).joinToString("|")
+        synchronized(timelineLock) {
+            if (fingerprint == lastTimelineFingerprint) return
+            lastTimelineFingerprint = fingerprint
+            val entry =
+                redactDiagnosticText(
+                    buildString {
+                        append("at=")
+                        append(System.currentTimeMillis())
+                        append(" positionMs=")
+                        append(state.positionMs.coerceAtLeast(0L))
+                        append(" item=")
+                        append(state.currentIndex)
+                        append(" state=")
+                        append(
+                            when {
+                                state.error != null -> "error"
+                                state.ended -> "ended"
+                                state.buffering -> "buffering"
+                                state.playing -> "playing"
+                                else -> "paused"
+                            },
+                        )
+                        append(" engine=")
+                        append(if (nativeOnly) "YCore2Native" else diagnostics.engine.ifBlank { selectedEngine.name })
+                        append(" video=")
+                        append(diagnostics.effectiveVideoReadiness.name)
+                        append(" audio=")
+                        append(diagnostics.effectiveAudioReadiness.name)
+                        append(" bufferEvents=")
+                        append(diagnostics.bufferEvents)
+                        append(" recovery=")
+                        append(diagnostics.networkRecoverySuccesses)
+                        append('/')
+                        append(diagnostics.networkRecoveryAttempts)
+                        append(" surfaceRebuilds=")
+                        append(evidence.surfaceRebuildCount)
+                        diagnostics.fallbackReason?.takeIf(String::isNotBlank)?.let { reason ->
+                            append(" fallback=")
+                            append(reason)
+                        }
+                    },
+                ).take(MAX_TIMELINE_ENTRY_CHARS)
+            timeline.addLast(entry)
+            while (timeline.size > MAX_TIMELINE_ENTRIES) timeline.removeFirst()
+            if (::appContext.isInitialized) {
+                appContext
+                    .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(KEY_LATEST_TIMELINE, timeline.joinToString("\n"))
+                    .apply()
+            }
         }
     }
 
@@ -212,6 +309,9 @@ internal object PlaybackDiagnosticReportRegistry {
 
     private const val PREFERENCES_NAME = "playback_diagnostic_report"
     private const val KEY_LATEST_REPORT = "latest_report"
+    private const val KEY_LATEST_TIMELINE = "latest_timeline"
     private const val KEY_OBSERVED_AT = "observed_at_epoch_ms"
     private const val MAX_REPORT_CHARS = 64 * 1024
+    private const val MAX_TIMELINE_ENTRIES = 80
+    private const val MAX_TIMELINE_ENTRY_CHARS = 768
 }

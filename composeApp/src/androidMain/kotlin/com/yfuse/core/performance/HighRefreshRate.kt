@@ -44,8 +44,6 @@ internal fun selectHighRefreshRateMode(
  * request a cadence-friendly display mode instead of being pinned to the UI preference.
  */
 internal fun Activity.preferHighRefreshRateForUi() {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-
     val targetDisplay: Display =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             display

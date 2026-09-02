@@ -57,6 +57,7 @@ import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.ServerSource
+import com.yfuse.core.model.capabilities
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.currentPlaybackNetworkClass
 import com.yfuse.core.network.toUserMessage
@@ -492,6 +493,8 @@ fun DetailScreen(component: DetailComponent) {
                                         detailLine = playDetailLine,
                                         resumeTimeLabel = formatResumePosition(state.playPositionTicks),
                                         resolving = state.resolvingPlay,
+                                        favoriteAvailable =
+                                            state.playServer?.kind?.capabilities()?.favorites != false,
                                         favorite = detail.isFavorite,
                                         watchLater = state.watchLater,
                                         watchLaterMutating = state.watchLaterMutating,

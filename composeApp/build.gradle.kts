@@ -1022,6 +1022,21 @@ val verifyProductionMdkRights by tasks.registering {
     }
 }
 
+val verifyReleaseMetadata by tasks.registering {
+    group = "verification"
+    description = "Rejects a release whose human-readable notes do not name its exact version."
+    inputs.file(layout.projectDirectory.file("../version.properties"))
+    inputs.file(layout.projectDirectory.file("../release-notes.txt"))
+    doLast {
+        val notes = layout.projectDirectory.file("../release-notes.txt").asFile
+        require(notes.isFile && notes.length() > 0L) { "release-notes.txt is missing or empty" }
+        val documentedVersion = notes.useLines { lines -> lines.firstOrNull()?.trim().orEmpty() }
+        require(documentedVersion == storedVersionName) {
+            "release-notes.txt documents '$documentedVersion' but version.properties is $storedVersionName"
+        }
+    }
+}
+
 abstract class BumpVersionTask : DefaultTask() {
     @get:Internal
     abstract val versionFile: RegularFileProperty
@@ -1134,5 +1149,6 @@ tasks.configureEach {
         dependsOn(verifyReleasePlaybackRuntime)
         dependsOn(verifyProductionMdkRights)
         dependsOn(verifyProductionYCoreGpu)
+        dependsOn(verifyReleaseMetadata)
     }
 }

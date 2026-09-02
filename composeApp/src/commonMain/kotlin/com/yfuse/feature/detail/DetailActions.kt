@@ -63,6 +63,7 @@ internal fun DetailActionDock(
     /** Resume position shown immediately to the left of the chevron. */
     resumeTimeLabel: String?,
     resolving: Boolean,
+    favoriteAvailable: Boolean = true,
     favorite: Boolean,
     watchLater: Boolean,
     watchLaterMutating: Boolean,
@@ -211,14 +212,16 @@ internal fun DetailActionDock(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            GlassActionButton(
-                icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
-                label = if (favorite) "已收藏" else "收藏",
-                active = favorite,
-                accent = accent,
-                onClick = onFavorite,
-                modifier = Modifier.weight(1f),
-            )
+            if (favoriteAvailable) {
+                GlassActionButton(
+                    icon = if (favorite) AppIcons.HeartFilled else AppIcons.Heart,
+                    label = if (favorite) "已收藏" else "收藏",
+                    active = favorite,
+                    accent = accent,
+                    onClick = onFavorite,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             GlassActionButton(
                 icon = if (watchLater) AppIcons.Check else AppIcons.Bookmark,
                 label =

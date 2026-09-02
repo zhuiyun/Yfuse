@@ -103,7 +103,17 @@ jobs:
           build_tools="$(find "$android_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           "$build_tools/apksigner" verify --verbose "$apk"
           "$build_tools/zipalign" -c -v 4 "$apk"
-          "$build_tools/aapt" dump badging "$apk" | grep -Fq "package: name='com.yfuse'"
+          badging="$("$build_tools/aapt" dump badging "$apk")"
+          version_code="$(sed -n 's/^VERSION_CODE=//p' version.properties | tail -n 1 | tr -d '\r')"
+          version_name="$(sed -n 's/^VERSION_NAME=//p' version.properties | tail -n 1 | tr -d '\r')"
+          grep -Fq "package: name='com.yfuse'" <<<"$badging"
+          grep -Fq "versionCode='$version_code'" <<<"$badging"
+          grep -Fq "versionName='$version_name'" <<<"$badging"
+          unzip -Z1 "$apk" > build/apk-entries.txt
+          grep -Fxq 'lib/arm64-v8a/libavcodec.so' build/apk-entries.txt
+          grep -Fxq 'lib/arm64-v8a/libavformat.so' build/apk-entries.txt
+          grep -Fxq 'lib/arm64-v8a/libmpv.so' build/apk-entries.txt
+          grep -Fxq 'lib/arm64-v8a/libmdk.so' build/apk-entries.txt
           apk_size="$(stat -c '%s' "$apk")"
           (( apk_size <= APK_SIZE_BUDGET_BYTES ))
       - name: Check patch whitespace

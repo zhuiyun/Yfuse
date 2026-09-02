@@ -102,10 +102,8 @@ private fun scheduleNextCalendarAlarm(
             manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
         Build.VERSION.SDK_INT >= 31 ->
             manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
-        Build.VERSION.SDK_INT >= 23 ->
-            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
         else ->
-            manager.setExact(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pending)
     }
 }
 
@@ -281,11 +279,9 @@ class CalendarReminderWorker(
         val settingKey = "calendar.reminder.sent.$key"
         if (settings.getBoolean(settingKey, false)) return
         val manager = applicationContext.getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) {
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "追剧更新", NotificationManager.IMPORTANCE_DEFAULT),
-            )
-        }
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "追剧更新", NotificationManager.IMPORTANCE_DEFAULT),
+        )
         val launch =
             applicationContext.packageManager
                 .getLaunchIntentForPackage(applicationContext.packageName)

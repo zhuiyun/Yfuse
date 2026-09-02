@@ -23,6 +23,7 @@ import com.yfuse.core.model.Season
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.TrickplayInfo
+import com.yfuse.core.model.capabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilities
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
 import com.yfuse.core.sync.SyncedUserItem
@@ -324,8 +325,9 @@ class EmbyRepository(
 
     suspend fun serverManagement(server: SavedServer): Result<ServerManagementSnapshot> =
         libraries(server).mapCatching { mediaLibraries ->
+            val capabilities = server.kind.capabilities()
             val taskResult: Result<List<ServerScheduledTask>> =
-                if (server.kind == MediaServerKind.Plex) {
+                if (!capabilities.scheduledTasks) {
                     Result.success(emptyList())
                 } else {
                     runCatching {
@@ -350,8 +352,8 @@ class EmbyRepository(
             ServerManagementSnapshot(
                 libraries = mediaLibraries,
                 tasks = taskResult.getOrDefault(emptyList()),
-                supportsScheduledTasks = server.kind != MediaServerKind.Plex,
-                supportsMetadataAnalysis = server.kind == MediaServerKind.Plex,
+                supportsScheduledTasks = capabilities.scheduledTasks,
+                supportsMetadataAnalysis = capabilities.itemAnalysis,
                 plexHomeUsers =
                     if (server.kind == MediaServerKind.Plex) {
                         val ownerToken = server.cloudOwnerAccessToken ?: server.cloudAccessToken
@@ -397,7 +399,7 @@ class EmbyRepository(
         server: SavedServer,
         taskId: String,
     ): Result<Unit> =
-        if (server.kind == MediaServerKind.Plex) {
+        if (!server.kind.capabilities().scheduledTasks) {
             Result.failure(UnsupportedOperationException("Plex 没有可远程运行的通用计划任务接口"))
         } else {
             embyApiCall("run_scheduled_task") {
@@ -432,7 +434,7 @@ class EmbyRepository(
         server: SavedServer,
         itemId: String,
     ): Result<Unit> =
-        if (server.kind == MediaServerKind.Plex) {
+        if (server.kind.capabilities().itemAnalysis) {
             plex.analyzeMetadata(server, itemId)
         } else {
             Result.failure(UnsupportedOperationException("Emby/Jellyfin 请使用元数据刷新或服务器计划任务"))
@@ -458,7 +460,7 @@ class EmbyRepository(
         itemId: String,
         favorite: Boolean,
     ): Result<Unit> =
-        if (server.kind == MediaServerKind.Plex) {
+        if (!server.kind.capabilities().favorites) {
             // Plex has no first-class favorite flag equivalent to Emby/Jellyfin UserData.
             Result.failure(UnsupportedOperationException("Plex 不支持 Emby 收藏状态同步"))
         } else {
@@ -1014,7 +1016,7 @@ class EmbyRepository(
         itemId: String,
         language: String = "zh",
     ): Result<List<RemoteSubtitleInfoDto>> =
-        if (server.kind == MediaServerKind.Plex) {
+        if (!server.kind.capabilities().subtitleStore) {
             Result.success(emptyList())
         } else {
             subtitleService.search(server, itemId, language)
@@ -1025,7 +1027,7 @@ class EmbyRepository(
         itemId: String,
         subtitleId: String,
     ): Result<Unit> =
-        if (server.kind == MediaServerKind.Plex) {
+        if (!server.kind.capabilities().subtitleStore) {
             Result.failure(UnsupportedOperationException("Plex 不支持 Emby 字幕商店接口"))
         } else {
             subtitleService.download(server, itemId, subtitleId)

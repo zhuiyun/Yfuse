@@ -54,6 +54,7 @@ class YfuseApp :
     SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
+        val startupTrace = AppStartupTrace()
         imageCacheContext = this
         androidAppContext = this
         offlineApplicationContext = this
@@ -67,11 +68,13 @@ class YfuseApp :
         val diagnosticPreferences = DiagnosticPreferences(settings)
         SafeLogcatOutputGate.initialize(diagnosticPreferences)
         DiagnosticLogStore.initialize(this)
+        startupTrace.mark("platform_context")
         // Native tombstones are available only after the dead process restarts. Consume the
         // previous exit before constructing any new playback backend.
         AndroidNativeCrashMonitor.initialize(this)
         PlaybackRemotePolicyRegistry.initialize(this)
         PlaybackDiagnosticReportRegistry.initialize(this)
+        startupTrace.mark("diagnostics")
         AppLog.info("app", "initializing", "Initializing application dependencies")
         val koinApplication =
             startKoin {
@@ -98,19 +101,19 @@ class YfuseApp :
                     },
                 )
             }
+        startupTrace.mark("dependency_graph")
         koinApplication.koin.get<AccountRepository>().start()
         // Local playback state is always available; cloud work begins automatically once the
         // account repository restores an authenticated session.
         koinApplication.koin.get<PlaybackSyncManager>().start()
-        // Restores reporting work even when the previous process died after persisting an event.
-        // Each server lane also keeps its foreground fast-path while WorkManager waits for a
-        // connected network and survives this process being stopped again.
-        koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
-        scheduleCalendarReminderWork(this)
-        scheduleCalendarSyncWork(this)
-        // Built eagerly: it restores an interrupted download and starts watching the
-        // foreground, both of which have to happen before the first screen appears.
-        koinApplication.koin.get<AppUpdateManager>()
+        startupTrace.mark("session_restore")
+        DeferredAppStartup(this) {
+            // These jobs survive process death through WorkManager and do not contribute to the
+            // first screen, so scheduling them before first draw only makes cold start noisier.
+            koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
+            scheduleCalendarReminderWork(this)
+            scheduleCalendarSyncWork(this)
+        }.register()
     }
 
     /** Persist the newest sampled position before Android backgrounds the whole UI. */

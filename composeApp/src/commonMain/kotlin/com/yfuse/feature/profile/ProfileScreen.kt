@@ -277,6 +277,7 @@ fun ProfileScreen(component: ProfileComponent) {
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
     var confirmClearVideoCache by remember { mutableStateOf(false) }
+    var imageCacheUsageBytes by remember { mutableStateOf<Long?>(null) }
     var videoCacheUsageBytes by remember { mutableStateOf<Long?>(null) }
     var pageStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var settingsQuery by rememberSaveable { mutableStateOf("") }
@@ -329,6 +330,7 @@ fun ProfileScreen(component: ProfileComponent) {
 
     LaunchedEffect(pageStack.lastOrNull(), videoCacheSize) {
         if (pageStack.lastOrNull() == ProfilePage.DataAndDiagnostics.name) {
+            imageCacheUsageBytes = component.imageCacheUsageBytes()
             videoCacheUsageBytes = component.videoCacheUsageBytes()
         }
     }
@@ -487,7 +489,8 @@ fun ProfileScreen(component: ProfileComponent) {
                         onInspectRelay = component::inspectRelayServers,
                         onIsRelay = component::isRelayServers,
                         onImportRelay = component::importRelayServers,
-                        videoCacheUsageBytes = videoCacheUsageBytes,
+                            imageCacheUsageBytes = imageCacheUsageBytes,
+                            videoCacheUsageBytes = videoCacheUsageBytes,
                         videoCacheSize = videoCacheSize,
                         onUserAgent = { sheet = Sheet.UserAgent },
                         onClearCache = { confirmClearCache = true },
@@ -953,7 +956,10 @@ fun ProfileScreen(component: ProfileComponent) {
                 destructive = true,
                 onConfirm = {
                     confirmClearCache = false
-                    screenScope.launch { component.onClearCache() }
+                    screenScope.launch {
+                        component.onClearCache()
+                        imageCacheUsageBytes = component.imageCacheUsageBytes()
+                    }
                 },
                 onDismiss = { confirmClearCache = false },
             )
@@ -977,84 +983,6 @@ fun ProfileScreen(component: ProfileComponent) {
         }
     }
 }
-
-@Composable
-private fun DataAndDiagnosticsScreen(
-    onBack: () -> Unit,
-    serverCount: Int,
-    customUserAgent: String,
-    onExport: (CharArray, Long) -> Result<String>,
-    onImport: (String, CharArray, Long) -> Result<Int>,
-    onExportRelay: (Long) -> Result<com.yfuse.core.security.RelayMigrationPackage>,
-    onInspectRelay: (String) -> com.yfuse.core.security.RelayMigrationDescriptor,
-    onIsRelay: (String) -> Boolean,
-    onImportRelay: (String, ByteArray, Long) -> Result<Int>,
-    videoCacheUsageBytes: Long?,
-    videoCacheSize: VideoCacheSize,
-    onUserAgent: () -> Unit,
-    onClearCache: () -> Unit,
-    onClearVideoCache: () -> Unit,
-) {
-    SettingsPage(
-        title = "高级设置",
-        subtitle = "网络兼容、迁移与问题排查",
-        onBack = onBack,
-    ) {
-        item {
-            Section(title = "网络与兼容") {
-                SettingsCard {
-                    SettingRow(
-                        "自定义 User-Agent",
-                        if (customUserAgent.isBlank()) "应用默认 ›" else "已启用 ›",
-                        true,
-                        onUserAgent,
-                    )
-                }
-            }
-        }
-        item {
-            Box(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
-                ServerBackupTools(
-                    serverCount = serverCount,
-                    onExport = onExport,
-                    onImport = onImport,
-                    onExportRelay = onExportRelay,
-                    onInspectRelay = onInspectRelay,
-                    onIsRelay = onIsRelay,
-                    onImportRelay = onImportRelay,
-                )
-            }
-        }
-        item {
-            Section(title = "缓存") {
-                SettingsCard {
-                    SettingRow("清除图片缓存", "不影响离线下载 ›", true, onClearCache)
-                    SettingsDivider()
-                    SettingRow(
-                        "清除视频缓存",
-                        videoCacheUsageSummary(videoCacheUsageBytes, videoCacheSize),
-                        true,
-                        onClearVideoCache,
-                    )
-                }
-            }
-        }
-        item {
-            Section(title = "问题诊断") { DiagnosticLogTools() }
-        }
-    }
-}
-
-internal fun videoCacheUsageSummary(
-    usedBytes: Long?,
-    cacheSize: VideoCacheSize,
-): String =
-    when {
-        usedBytes == null -> "正在计算 · 上限 ${cacheSize.label} ›"
-        cacheSize.bytes <= 0L && usedBytes <= 0L -> "已关闭 · 无缓存 ›"
-        cacheSize.bytes <= 0L -> "已关闭 · 已用 ${formatDownloadBytes(usedBytes)} ›"
-        else -> "已用 ${formatDownloadBytes(usedBytes)} / ${cacheSize.label} ›"
-    }
 
 @Composable
 internal fun SettingsPage(
@@ -1253,7 +1181,13 @@ internal fun SettingRow(
         Modifier
             .fillMaxWidth()
             .let { if (embedded) it else it.glass(AppShapes.control, palette.card2, palette.border) }
-            .let { if (onClick != null) it.pressable(onClick = onClick) else it }
+            .let {
+                if (onClick != null) {
+                    it.pressable(onClickLabel = title, onClick = onClick)
+                } else {
+                    it
+                }
+            }
             .heightIn(min = MinTouchTarget)
             .padding(horizontal = 16.dp, vertical = 13.dp)
     BoxWithConstraints(rowModifier) {
@@ -1266,8 +1200,8 @@ internal fun SettingRow(
             if (icon != null) SettingIconTile(icon, iconTint)
             if (stacked) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, style = AppTypography.body.medium, color = palette.text, maxLines = 2)
-                    Text(value, style = AppTypography.body.regular, color = palette.sub2, maxLines = 2)
+                    Text(title, style = AppTypography.body.medium, color = palette.text)
+                    Text(value, style = AppTypography.body.regular, color = palette.sub2)
                 }
             } else {
                 Text(
