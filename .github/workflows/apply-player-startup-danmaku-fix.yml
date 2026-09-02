@@ -1,0 +1,305 @@
+name: Apply player startup and danmaku fix
+
+on:
+  push:
+    branches:
+      - codex/ycore-sign-20260830
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    if: ${{ !contains(github.event.head_commit.message, '[player-startup-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply guarded player fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path_string: str, old: str, new: str) -> None:
+              path = Path(path_string)
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          danmaku = "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/DanmakuOverlay.kt"
+          replace_once(
+              danmaku,
+              '''private const val POSITION_RESET_THRESHOLD_MS = 1_000L
+          private const val WINDOW_BUCKET_MS = 1_000L
+          ''',
+              '''private const val POSITION_RESET_THRESHOLD_MS = 1_000L
+          private const val BACKWARD_SEEK_RESET_THRESHOLD_MS = 3_000L
+          private const val WINDOW_BUCKET_MS = 1_000L
+          ''',
+          )
+          replace_once(
+              danmaku,
+              '''    LaunchedEffect(positionMs, playing) {
+                  if (!playing || abs(positionMs - renderedPositionMs) > POSITION_RESET_THRESHOLD_MS) {
+                      renderedPositionMs = positionMs
+                  }
+              }
+          ''',
+              '''    LaunchedEffect(positionMs, playing) {
+                  val driftMs = positionMs - renderedPositionMs
+                  when {
+                      driftMs > POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
+                      driftMs < -BACKWARD_SEEK_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
+                      // A pause or a short buffering pulse freezes the interpolated clock. Do not
+                      // snap backwards to a lagging engine tick and replay comments the user saw.
+                      !playing -> Unit
+                  }
+              }
+          ''',
+          )
+          replace_once(
+              danmaku,
+              '''                val reported = latestReportedPosition
+                      if (abs(reported - renderedPositionMs) > POSITION_RESET_THRESHOLD_MS) {
+                          renderedPositionMs = reported
+                      }
+          ''',
+              '''                val reported = latestReportedPosition
+                      val driftMs = reported - renderedPositionMs
+                      when {
+                          driftMs > POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = reported
+                          driftMs < -BACKWARD_SEEK_RESET_THRESHOLD_MS -> renderedPositionMs = reported
+                      }
+          ''',
+          )
+          replace_once(danmaku, 'import kotlin.math.abs\n', '')
+
+          native = "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt"
+          replace_once(
+              native,
+              '''import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.ExecutorCoroutineDispatcher
+          ''',
+              '''import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.ExecutorCoroutineDispatcher
+          ''',
+          )
+          replace_once(
+              native,
+              '''        @Volatile
+                  private var transportReadBlocked = false
+                  private var droppedFrames = 0
+          ''',
+              '''        @Volatile
+                  private var transportReadBlocked = false
+
+                  @Volatile
+                  private var transportBufferingVisible = false
+
+                  @Volatile
+                  private var transportBlockGeneration = 0L
+                  private var droppedFrames = 0
+          ''',
+          )
+          replace_once(
+              native,
+              '''                    playing = firstVideoFrameRendered && !transportReadBlocked,
+                      buffering = !firstVideoFrameRendered || transportReadBlocked,
+          ''',
+              '''                    playing = firstVideoFrameRendered && !transportBufferingVisible,
+                      buffering = !firstVideoFrameRendered || transportBufferingVisible,
+          ''',
+          )
+          replace_once(
+              native,
+              '''                    playing = requestedPlay && firstVideoFrameRendered && !transportReadBlocked && !isEnded(),
+                      buffering = requestedPlay && (!firstVideoFrameRendered || transportReadBlocked) && !isEnded(),
+          ''',
+              '''                    playing = requestedPlay && firstVideoFrameRendered && !transportBufferingVisible && !isEnded(),
+                      buffering = requestedPlay && (!firstVideoFrameRendered || transportBufferingVisible) && !isEnded(),
+          ''',
+          )
+          replace_once(
+              native,
+              '''                            requestedPlay &&
+                                  !transportReadBlocked &&
+                                  current.phase != YPlaybackPhase.Ended,
+                          buffering = requestedPlay && transportReadBlocked,
+          ''',
+              '''                            requestedPlay &&
+                                  !transportBufferingVisible &&
+                                  current.phase != YPlaybackPhase.Ended,
+                          buffering = requestedPlay && transportBufferingVisible,
+          ''',
+          )
+          replace_once(
+              native,
+              '''        private fun onTransportBlockingReadStateChanged(blocked: Boolean) {
+                  if (transportReadBlocked == blocked || released) return
+                  val nowNs = System.nanoTime()
+                  if (blocked) {
+                      val frozenPositionUs = currentPositionUs()
+                      monotonicPositionFloorUs = frozenPositionUs
+                      wallClock.pause(frozenPositionUs, nowNs)
+                  } else if (requestedPlay) {
+                      val resumePositionUs =
+                          audioClockSnapshot()?.positionUs
+                              ?: wallClock.positionUs(nowNs)
+                      monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, resumePositionUs)
+                      wallClock.start(monotonicPositionFloorUs, nowNs)
+                  }
+                  transportReadBlocked = blocked
+                  mutableState.updateState { current ->
+                      if (released || current.phase == YPlaybackPhase.Failed || current.phase == YPlaybackPhase.Ended) {
+                          current
+                      } else {
+                          current.copy(
+                              playing = requestedPlay && firstVideoFrameRendered && !blocked,
+                              buffering = requestedPlay && (blocked || !firstVideoFrameRendered),
+                          )
+                      }
+                  }
+              }
+          ''',
+              '''        private fun onTransportBlockingReadStateChanged(blocked: Boolean) {
+                  if (transportReadBlocked == blocked || released) return
+                  val nowNs = System.nanoTime()
+                  if (blocked) {
+                      val frozenPositionUs = currentPositionUs()
+                      monotonicPositionFloorUs = frozenPositionUs
+                      wallClock.pause(frozenPositionUs, nowNs)
+                      transportReadBlocked = true
+                      val generation = ++transportBlockGeneration
+                      // MediaExtractor performs synchronous range reads. A cache miss lasting only a
+                      // few frames is normal transport work, not a user-visible rebuffer. Publish
+                      // buffering only when the same read remains blocked beyond the debounce gate.
+                      scope.launch(Dispatchers.Default) {
+                          delay(TRANSPORT_BUFFERING_DEBOUNCE_MS)
+                          if (
+                              !released &&
+                              transportReadBlocked &&
+                              transportBlockGeneration == generation
+                          ) {
+                              transportBufferingVisible = true
+                              mutableState.updateState { current ->
+                                  if (
+                                      released ||
+                                      current.phase == YPlaybackPhase.Failed ||
+                                      current.phase == YPlaybackPhase.Ended
+                                  ) {
+                                      current
+                                  } else {
+                                      current.copy(
+                                          playing = false,
+                                          buffering = requestedPlay,
+                                      )
+                                  }
+                              }
+                          }
+                      }
+                      return
+                  }
+
+                  transportReadBlocked = false
+                  ++transportBlockGeneration
+                  transportBufferingVisible = false
+                  if (requestedPlay) {
+                      val resumePositionUs =
+                          audioClockSnapshot()?.positionUs
+                              ?: wallClock.positionUs(nowNs)
+                      monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, resumePositionUs)
+                      wallClock.start(monotonicPositionFloorUs, nowNs)
+                  }
+                  mutableState.updateState { current ->
+                      if (released || current.phase == YPlaybackPhase.Failed || current.phase == YPlaybackPhase.Ended) {
+                          current
+                      } else {
+                          current.copy(
+                              playing = requestedPlay && firstVideoFrameRendered,
+                              buffering = requestedPlay && !firstVideoFrameRendered,
+                          )
+                      }
+                  }
+              }
+          ''',
+          )
+          replace_once(
+              native,
+              '''private const val PUMP_IDLE_DELAY_MS = 1L
+          ''',
+              '''private const val PUMP_IDLE_DELAY_MS = 1L
+          private const val TRANSPORT_BUFFERING_DEBOUNCE_MS = 300L
+          ''',
+          )
+
+          http = "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidHttpMediaTransport.kt"
+          replace_once(
+              http,
+              '''    private val allowCrossProtocolRedirects: Boolean = false,
+              private val redirectState: AndroidHttpMediaRedirectState? = null,
+          ) : YMediaTransport {
+          ''',
+              '''    private val allowCrossProtocolRedirects: Boolean = false,
+              private val redirectState: AndroidHttpMediaRedirectState? = null,
+              private val callTimeoutSeconds: Long? = null,
+          ) : YMediaTransport {
+          ''',
+          )
+          replace_once(
+              http,
+              '''            .followRedirects(false)
+                  .followSslRedirects(false)
+                  .build()
+          ''',
+              '''            .followRedirects(false)
+                  .followSslRedirects(false)
+                  .apply {
+                      callTimeoutSeconds?.let { timeout -> callTimeout(timeout, TimeUnit.SECONDS) }
+                  }
+                  .build()
+          ''',
+          )
+
+          adaptive = "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveHttpMediaTransport.kt"
+          replace_once(
+              adaptive,
+              '''            allowCrossProtocolRedirects = true,
+                  redirectState = routeState.redirectState,
+              )
+          ''',
+              '''            allowCrossProtocolRedirects = true,
+                  redirectState = routeState.redirectState,
+                  // The first media range is the startup critical path. Do not spend the old 20 s
+                  // transport timeout waiting on a poisoned CDN route before recovery can run.
+                  callTimeoutSeconds = if (routeState.hasAcceptedRange) null else 8L,
+              )
+          ''',
+          )
+          PY
+
+          git diff --check
+          git diff -- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/DanmakuOverlay.kt \
+            composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt \
+            composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidHttpMediaTransport.kt \
+            composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveHttpMediaTransport.kt
+
+      - name: Commit patched source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "yfuse-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/player/DanmakuOverlay.kt \
+            composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt \
+            composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidHttpMediaTransport.kt \
+            composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveHttpMediaTransport.kt
+          git commit -m "fix(player): debounce range stalls and keep danmaku monotonic [player-startup-patched]"
+          git push origin HEAD:${GITHUB_REF_NAME}
