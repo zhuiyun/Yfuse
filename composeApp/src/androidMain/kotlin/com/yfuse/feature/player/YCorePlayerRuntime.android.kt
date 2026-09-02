@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import android.os.Build
+import android.os.SystemClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -112,14 +113,14 @@ internal fun rememberYCoreRuntimeAssessment(
             runCatching { GlobalContext.get().get<PlaybackQoeReporter>() }.getOrNull()
         }
     val session =
-        remember(player, probe.capabilitySignature, sessionRevision) {
+        remember(player, probe.capabilitySignature, state.currentIndex, sessionRevision) {
             createYCorePlaybackSession(
                 engine = engineKind,
                 probe = probe,
                 plan = plan,
                 failureMemory = failureMemory,
                 performanceMemory = performanceMemory,
-                startedAtEpochMs = System.currentTimeMillis(),
+                startedAtEpochMs = SystemClock.elapsedRealtime(),
                 initialPositionMs = state.positionMs,
                 initialBufferEvents = state.diagnostics.bufferEvents,
                 initialDroppedFrames = state.diagnostics.droppedFrames,
@@ -196,37 +197,73 @@ internal fun PlaybackState.runtimeObservation(
     playbackRequested: Boolean,
     probe: PlaybackMediaProbe,
     runtimeEnvironment: PlaybackRuntimeEnvironment,
-    nowEpochMs: Long = System.currentTimeMillis(),
+    nowEpochMs: Long = SystemClock.elapsedRealtime(),
 ): YCoreRuntimeObservation =
-    YCoreRuntimeObservation(
-        nowEpochMs = nowEpochMs,
-        positionMs = positionMs,
-        playbackRequested = playbackRequested,
-        buffering = buffering,
-        playing = playing,
-        // Read from the backend's own report rather than from the wording of its diagnostic
-        // label. Deciding this by substring meant MDK — whose label says, accurately, that it
-        // cannot verify its output — was read as *ready* because that sentence happens not to
-        // contain 等待, which silently disabled every missing-output fault on that backend. It
-        // also meant "音频输出已释放" counted as ready, and that the two sides disagreed on
-        // `contains` versus `startsWith`. Media presence and output verifiability are separate:
-        // Unknown withholds a missing-output judgement, while the shared position-stall clock
-        // still detects a backend that goes completely silent.
-        videoReady = diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
-        videoExpected = probe.source.videoCodec != null,
-        videoOutputVerifiable = diagnostics.effectiveVideoReadiness.verifiable,
-        // A selected track proves only demux/selection, not that an AudioTrack or native output
-        // device was established. Treating selection as output masked real video-without-sound
-        // failures from the runtime detector.
-        audioReady = diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering,
-        audioExpected = probe.audioCodec != null || audioTracks.isNotEmpty(),
-        audioOutputVerifiable = diagnostics.effectiveAudioReadiness.verifiable,
-        errorPresent = error != null,
-        ended = ended,
-        bufferEvents = diagnostics.bufferEvents,
-        droppedFrames = diagnostics.droppedFrames,
-        measuredPowerMilliwatts = runtimeEnvironment.batteryPowerMilliwatts,
+    diagnostics.outputExpectation(probe, videoHeight, audioTracks.isNotEmpty()).let { expectation ->
+        YCoreRuntimeObservation(
+            nowEpochMs = nowEpochMs,
+            positionMs = positionMs,
+            playbackRequested = playbackRequested,
+            buffering = buffering,
+            playing = playing,
+            // Read from the backend's own report rather than from the wording of its diagnostic
+            // label. Deciding this by substring meant MDK — whose label says, accurately, that it
+            // cannot verify its output — was read as *ready* because that sentence happens not to
+            // contain 等待, which silently disabled every missing-output fault on that backend. It
+            // also meant "音频输出已释放" counted as ready, and that the two sides disagreed on
+            // `contains` versus `startsWith`. Media presence and output verifiability are separate:
+            // Unknown withholds a missing-output judgement, while the shared position-stall clock
+            // still detects a backend that goes completely silent.
+            videoReady = diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering,
+            videoExpected = expectation.video,
+            videoOutputVerifiable = diagnostics.effectiveVideoReadiness.verifiable,
+            // A selected track proves only demux/selection, not that an AudioTrack or native output
+            // device was established. Treating selection as output masked real video-without-sound
+            // failures from the runtime detector.
+            audioReady = diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering,
+            audioExpected = expectation.audio,
+            audioOutputVerifiable = diagnostics.effectiveAudioReadiness.verifiable,
+            errorPresent = error != null,
+            ended = ended,
+            bufferEvents = diagnostics.bufferEvents,
+            droppedFrames = diagnostics.droppedFrames,
+            measuredPowerMilliwatts = runtimeEnvironment.batteryPowerMilliwatts,
+        )
+    }
+
+private data class PlaybackOutputExpectation(
+    val video: Boolean,
+    val audio: Boolean,
+)
+
+/** Prefer reported track/output facts; when everything is unknown, treat a player item as video. */
+private fun PlaybackDiagnostics.outputExpectation(
+    probe: PlaybackMediaProbe,
+    videoHeight: Int,
+    hasAudioTracks: Boolean,
+): PlaybackOutputExpectation {
+    val evidence = outputEvidence
+    val videoKnown =
+        probe.source.videoCodec != null ||
+            probe.source.width != null ||
+            probe.source.height != null ||
+            videoHeight > 0 ||
+            videoWidth > 0 ||
+            evidence.videoDecoder.isNotBlank() ||
+            evidence.videoCodecProfile.isNotBlank() ||
+            effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
+    val audioKnown =
+        probe.audioCodec != null ||
+            hasAudioTracks ||
+            audioFormat.isNotBlank() ||
+            evidence.audioDecoder.isNotBlank() ||
+            evidence.audioMode != PlaybackAudioOutputMode.Unknown ||
+            effectiveAudioReadiness == PlaybackOutputReadiness.Rendering
+    return PlaybackOutputExpectation(
+        video = videoKnown || !audioKnown,
+        audio = audioKnown,
     )
+}
 
 private const val RUNTIME_OBSERVATION_INTERVAL_MS = 2_000L
 

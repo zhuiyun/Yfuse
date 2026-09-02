@@ -331,6 +331,7 @@ class MdkVideoEngine(
     private var pendingSeekMs = startPositionMs.coerceAtLeast(0L)
     private var tracksLoadedForIndex = -1
     private var endHandled = false
+    private val endStateGate = MdkEndStateGate()
     private var fill = false
     private var primarySubtitleOrdinal = 0
     private var secondarySubtitleOrdinal = -1
@@ -651,6 +652,7 @@ class MdkVideoEngine(
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return
         runCatching {
+            endStateGate.restart()
             val upstreamUrl = playbackUrl(item, index)
             val usingServerTranscode =
                 index in transcodedIndices || index in progressiveIndices
@@ -692,7 +694,7 @@ class MdkVideoEngine(
             val status = instance.mediaStatus()
             val loaded =
                 status and (MDKPlayer.STATUS_LOADED or MDKPlayer.STATUS_PREPARED) != 0
-            val ended = status and MDKPlayer.STATUS_END != 0
+            val ended = endStateGate.observe(status and MDKPlayer.STATUS_END != 0)
             val invalid = status and MDKPlayer.STATUS_INVALID != 0
             nativePlaybackLogFailure(instance.lastError())?.let { failure ->
                 markTerminalFailure(failure)

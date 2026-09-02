@@ -61,6 +61,7 @@ class YCorePlaybackSession(
             startedAtEpochMs = startedAtEpochMs,
             initialPositionMs = initialPositionMs,
             startupTimeoutMs = playbackStartupTimeoutMs(probe),
+            rebufferTimeoutMs = playbackRebufferTimeoutMs(probe),
         )
     private var reported = false
     private var penaltyRecorded = false
@@ -152,6 +153,16 @@ internal fun playbackStartupTimeoutMs(probe: PlaybackMediaProbe): Long =
             probe.source.videoRequirements.codec == PlaybackVideoCodec.ProRes -> 60_000L
         !probe.localSource -> 60_000L
         else -> 15_000L
+    }
+
+/** A settled stream gets a separate, conservative budget before transport recovery is attempted. */
+internal fun playbackRebufferTimeoutMs(probe: PlaybackMediaProbe): Long =
+    when {
+        probe.discSource || probe.discKind != PlaybackDiscKind.None -> 180_000L
+        probe.isHugeRemoteMov -> 180_000L
+        !probe.localSource && (probe.sourceSizeBytes ?: 0L) >= LARGE_REMOTE_SOURCE_BYTES -> 120_000L
+        !probe.localSource -> 60_000L
+        else -> 30_000L
     }
 
 private const val LARGE_REMOTE_SOURCE_BYTES = 4L * 1_024L * 1_024L * 1_024L

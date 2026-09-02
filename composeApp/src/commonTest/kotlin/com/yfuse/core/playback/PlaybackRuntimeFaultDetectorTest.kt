@@ -273,6 +273,51 @@ class PlaybackRuntimeFaultDetectorTest {
     }
 
     @Test
+    fun a_settled_stream_that_buffers_without_progress_eventually_recovers() {
+        val detector = detector(rebufferTimeoutMs = 10_000L)
+
+        detector.observe(observation(now = 1_000L, positionMs = 1_000L, videoReady = true))
+        assertNull(
+            detector.observe(
+                observation(now = 2_000L, positionMs = 1_000L, videoReady = true, buffering = true),
+            ),
+        )
+        assertNull(
+            detector.observe(
+                observation(now = 11_999L, positionMs = 1_000L, videoReady = true, buffering = true),
+            ),
+        )
+        val fault =
+            detector.observe(
+                observation(now = 12_000L, positionMs = 1_000L, videoReady = true, buffering = true),
+            )
+
+        assertEquals(PlaybackRuntimeFaultKind.RebufferTimeout, assertNotNull(fault).kind)
+        assertEquals(PlaybackFailureKind.Network, fault.kind.failureKind)
+    }
+
+    @Test
+    fun progress_while_buffering_restarts_the_long_buffer_clock() {
+        val detector = detector(rebufferTimeoutMs = 10_000L)
+
+        detector.observe(observation(now = 1_000L, positionMs = 1_000L, videoReady = true))
+        detector.observe(
+            observation(now = 2_000L, positionMs = 1_000L, videoReady = true, buffering = true),
+        )
+        assertNull(
+            detector.observe(
+                observation(now = 8_000L, positionMs = 2_000L, videoReady = true, buffering = true),
+            ),
+        )
+        assertNull(
+            detector.observe(
+                observation(now = 17_000L, positionMs = 2_000L, videoReady = true, buffering = true),
+            ),
+            "a backend whose clock moved during buffering gets a fresh transport budget",
+        )
+    }
+
+    @Test
     fun startup_timeout_does_not_require_a_backend_to_identify_the_output_format() {
         val detector = detector()
 
@@ -383,7 +428,12 @@ class PlaybackRuntimeFaultDetectorTest {
     private fun detector(
         startedAtEpochMs: Long = 0L,
         initialPositionMs: Long = 0L,
-    ) = PlaybackRuntimeFaultDetector(startedAtEpochMs, initialPositionMs)
+        rebufferTimeoutMs: Long = 45_000L,
+    ) = PlaybackRuntimeFaultDetector(
+        startedAtEpochMs = startedAtEpochMs,
+        initialPositionMs = initialPositionMs,
+        rebufferTimeoutMs = rebufferTimeoutMs,
+    )
 
     private fun observation(
         now: Long,

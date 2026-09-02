@@ -67,6 +67,7 @@ import com.yfuse.core.playback.PlaybackFailureMemory
 import com.yfuse.core.playback.PlaybackNetworkRecoveryController
 import com.yfuse.core.playback.PlaybackPerformanceMemory
 import com.yfuse.core.playback.PlaybackProbeStatus
+import com.yfuse.core.playback.PlaybackRuntimeFaultKind
 import com.yfuse.core.playback.classifyPlaybackFailure
 import com.yfuse.core.playback.planPlayback
 import com.yfuse.core.playback.resolvePlaybackOptimization
@@ -91,6 +92,7 @@ import kotlin.math.roundToInt
 
 private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 private const val MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS = 2
+private const val MAX_LONG_BUFFER_RECOVERY_ATTEMPTS = 2
 
 /**
  * Owns the live player, its temporary presentation engine, and the shared control layer. Switching
@@ -660,6 +662,10 @@ internal fun PlayerRoot(
     var networkRecoveryResumePositionMs by
         remember(localCastItem?.serverId, localCastItem?.id, localCastItem?.versionId) {
             mutableStateOf<Long?>(null)
+        }
+    var longBufferRecoveryAttempts by
+        remember(localCastItem?.serverId, localCastItem?.id, localCastItem?.versionId) {
+            mutableIntStateOf(0)
         }
     val castPlayMethod =
         if (localCastItem?.transcodeUrl?.isNotBlank() == true) {
@@ -1815,6 +1821,7 @@ internal fun PlayerRoot(
             !state.buffering
         ) {
             nativeOnlyRecoveryAttempts = 0
+            longBufferRecoveryAttempts = 0
         }
     }
     LaunchedEffect(
@@ -1886,6 +1893,43 @@ internal fun PlayerRoot(
                     "YCore 本地恢复失败，未切换兼容内核或服务器解码",
                     Toast.LENGTH_SHORT,
                 ).show()
+            return@LaunchedEffect
+        }
+        if (
+            fault.kind == PlaybackRuntimeFaultKind.RebufferTimeout &&
+            longBufferRecoveryAttempts < MAX_LONG_BUFFER_RECOVERY_ATTEMPTS
+        ) {
+            val positionMs = player.currentPositionMs().coerceAtLeast(0L)
+            longBufferRecoveryAttempts++
+            networkRecoveryAttempts++
+            networkRecoveryPending = true
+            networkRecoveryResumePositionMs = positionMs
+            resume =
+                playbackHandoverSnapshot(
+                    state = state,
+                    currentPositionMs = positionMs,
+                    playbackRequested = player.playbackRequested,
+                    requestedSpeed = requestedPlaybackSpeed,
+                    secondarySubtitle = secondarySubtitleRestore,
+                    subtitleDelayMs = subtitleControls.offsetMs,
+                    audioDelayMs = audioControls.delayMs,
+                )
+            runtimeSessionGeneration++
+            player.seekTo(positionMs)
+            player.retry()
+            AppLog.warning(
+                category = "player.network",
+                event = "long_rebuffer_recovery",
+                message = "Playback transport was reopened after a sustained rebuffer",
+                attributes =
+                    mapOf(
+                        "engine" to kind.name,
+                        "itemIndex" to state.currentIndex.toString(),
+                        "positionMs" to positionMs.toString(),
+                        "attempt" to longBufferRecoveryAttempts.toString(),
+                    ),
+            )
+            Toast.makeText(context, "缓冲时间过长，正在从当前位置重新连接", Toast.LENGTH_SHORT).show()
             return@LaunchedEffect
         }
         if (engine is YPlayerVideoEngineAdapter && !core2DisabledForSession) {

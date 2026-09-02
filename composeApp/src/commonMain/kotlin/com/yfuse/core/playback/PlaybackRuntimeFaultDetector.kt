@@ -4,6 +4,7 @@ enum class PlaybackRuntimeFaultKind(
     val failureKind: PlaybackFailureKind,
 ) {
     StartupTimeout(PlaybackFailureKind.Decoder),
+    RebufferTimeout(PlaybackFailureKind.Network),
     PositionStalled(PlaybackFailureKind.Renderer),
     VideoOutputMissing(PlaybackFailureKind.Renderer),
     AudioOutputMissing(PlaybackFailureKind.AudioSink),
@@ -19,6 +20,7 @@ class PlaybackRuntimeFaultDetector(
     private val startedAtEpochMs: Long,
     private val initialPositionMs: Long,
     private val startupTimeoutMs: Long = DEFAULT_STARTUP_TIMEOUT_MS,
+    private val rebufferTimeoutMs: Long = DEFAULT_REBUFFER_TIMEOUT_MS,
 ) {
     private var lastPositionMs = initialPositionMs
     private var lastProgressAtEpochMs = startedAtEpochMs
@@ -28,21 +30,25 @@ class PlaybackRuntimeFaultDetector(
     private var firstFrameWaitSinceEpochMs: Long? = startedAtEpochMs
     private var missingVideoSinceEpochMs: Long? = null
     private var missingAudioSinceEpochMs: Long? = null
+    private var rebufferWaitSinceEpochMs: Long? = null
     private var reported = false
 
     init {
         require(startupTimeoutMs > 0L)
+        require(rebufferTimeoutMs > 0L)
     }
 
     fun observe(observation: YCoreRuntimeObservation): PlaybackRuntimeFault? {
         if (reported) return null
         val now = observation.nowEpochMs.coerceAtLeast(startedAtEpochMs)
+        var positionAdvanced = false
         if (observation.positionMs + BACKWARD_SEEK_THRESHOLD_MS < lastPositionMs) {
             lastPositionMs = observation.positionMs
             lastProgressAtEpochMs = now
         } else if (observation.positionMs > lastPositionMs + MIN_PROGRESS_STEP_MS) {
             lastPositionMs = observation.positionMs
             lastProgressAtEpochMs = now
+            positionAdvanced = true
         }
         if (
             !observation.playbackRequested ||
@@ -123,6 +129,7 @@ class PlaybackRuntimeFaultDetector(
             if (awaitingFirstOutput) firstFrameWaitSinceEpochMs ?: now else null
         missingVideoSinceEpochMs = if (videoMissing) missingVideoSinceEpochMs ?: now else null
         missingAudioSinceEpochMs = if (audioMissing) missingAudioSinceEpochMs ?: now else null
+        if (!observation.buffering) rebufferWaitSinceEpochMs = null
 
         // Buffering suppresses mid-play stall/output judgements, but not an initial load that never
         // produces a format or first frame. Previously the observer stopped on the first buffering
@@ -131,14 +138,26 @@ class PlaybackRuntimeFaultDetector(
             lastProgressAtEpochMs = now
             missingVideoSinceEpochMs = null
             missingAudioSinceEpochMs = null
-            val fault =
-                if (awaitingFirstOutput && now.heldSince(firstFrameWaitSinceEpochMs) >= startupTimeoutMs) {
-                    PlaybackRuntimeFault(
-                        PlaybackRuntimeFaultKind.StartupTimeout,
-                        "内核持续缓冲但未在限定时间内输出首帧",
-                    )
+            rebufferWaitSinceEpochMs =
+                if (outputHasStarted && !positionAdvanced) {
+                    rebufferWaitSinceEpochMs ?: now
                 } else {
                     null
+                }
+            val fault =
+                when {
+                    awaitingFirstOutput && now.heldSince(firstFrameWaitSinceEpochMs) >= startupTimeoutMs ->
+                        PlaybackRuntimeFault(
+                            PlaybackRuntimeFaultKind.StartupTimeout,
+                            "内核持续缓冲但未在限定时间内输出首帧",
+                        )
+                    outputHasStarted &&
+                        now.heldSince(rebufferWaitSinceEpochMs) >= rebufferTimeoutMs ->
+                        PlaybackRuntimeFault(
+                            PlaybackRuntimeFaultKind.RebufferTimeout,
+                            "播放中持续缓冲且媒体时钟没有前进",
+                        )
+                    else -> null
                 }
             if (fault != null) reported = true
             return fault
@@ -181,6 +200,7 @@ class PlaybackRuntimeFaultDetector(
         firstFrameWaitSinceEpochMs = null
         missingVideoSinceEpochMs = null
         missingAudioSinceEpochMs = null
+        rebufferWaitSinceEpochMs = null
         positionAdvancementWasExpected = false
     }
 }
@@ -193,4 +213,5 @@ private const val BACKWARD_SEEK_THRESHOLD_MS = 1_000L
 private const val MISSING_OUTPUT_PROGRESS_MS = 3_000L
 private const val MISSING_OUTPUT_GRACE_MS = 4_000L
 private const val DEFAULT_STARTUP_TIMEOUT_MS = 15_000L
+private const val DEFAULT_REBUFFER_TIMEOUT_MS = 45_000L
 private const val POSITION_STALL_TIMEOUT_MS = 12_000L

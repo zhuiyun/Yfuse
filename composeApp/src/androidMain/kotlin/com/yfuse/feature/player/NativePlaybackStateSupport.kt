@@ -97,3 +97,25 @@ internal class FallbackSettleWindow(
         polls.set(0)
     }
 }
+
+/**
+ * Requires the replacement media to leave MDK's terminal state before accepting a new end.
+ * MDK can keep STATUS_END set briefly after setMedia(), which must not skip the next queue item.
+ */
+internal class MdkEndStateGate {
+    private var observedActiveState = false
+
+    @Synchronized
+    fun restart() {
+        observedActiveState = false
+    }
+
+    @Synchronized
+    fun observe(rawEnded: Boolean): Boolean {
+        if (!rawEnded) {
+            observedActiveState = true
+            return false
+        }
+        return observedActiveState
+    }
+}

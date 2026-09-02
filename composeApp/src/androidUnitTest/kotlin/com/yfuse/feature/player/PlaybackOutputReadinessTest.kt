@@ -85,6 +85,38 @@ class PlaybackOutputReadinessTest {
     }
 
     @Test
+    fun missing_server_metadata_still_arms_a_conservative_video_watchdog() {
+        val observation =
+            PlaybackState().runtimeObservation(
+                playbackRequested = true,
+                probe = probe(videoExpected = false, audioExpected = false),
+                runtimeEnvironment = PlaybackRuntimeEnvironment.normal(),
+            )
+
+        assertTrue(observation.videoExpected)
+        assertFalse(observation.audioExpected)
+    }
+
+    @Test
+    fun real_audio_output_corrects_unknown_metadata_to_audio_only() {
+        val observation =
+            PlaybackState(
+                diagnostics =
+                    PlaybackDiagnostics(
+                        videoReadiness = PlaybackOutputReadiness.Unknown,
+                        audioReadiness = PlaybackOutputReadiness.Rendering,
+                    ),
+            ).runtimeObservation(
+                playbackRequested = true,
+                probe = probe(videoExpected = false, audioExpected = false),
+                runtimeEnvironment = PlaybackRuntimeEnvironment.normal(),
+            )
+
+        assertFalse(observation.videoExpected)
+        assertTrue(observation.audioExpected)
+    }
+
+    @Test
     fun mpv_audio_requires_output_driver_and_output_format() {
         assertTrue(
             mpvAudioOutputReadiness("aaudio", "s16") == PlaybackOutputReadiness.Rendering,
