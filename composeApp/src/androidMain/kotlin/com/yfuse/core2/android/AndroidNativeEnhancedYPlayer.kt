@@ -312,7 +312,7 @@ internal class AndroidNativeEnhancedYPlayer(
             activePlan = playbackPlan
             speed = mutableState.value.speed
             session.setSpeed(speed)
-            val tracks = result.toAudioTracks()
+            val tracks = result.toAudioTracks(session.selectedAudioTrackId())
             val sidecarSources = item.allExternalSubtitles
             externalSubtitles =
                 sidecarSources.mapIndexed { index, source ->
@@ -334,7 +334,7 @@ internal class AndroidNativeEnhancedYPlayer(
                         subtitle.track.copy(selected = subtitle.track.id == selectedExternalSubtitleId)
                     }
             val video = result.tracks.firstOrNull { it.type == YDemuxTrackType.Video }?.video
-            val audio = result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio }?.audio
+            val audio = result.tracks.firstOrNull { it.id == session.selectedAudioTrackId() }?.audio
             activeDolbyProfile = video?.dolbyVisionConfig?.profile
             mutableState.updateState {
                 it.copy(
@@ -361,12 +361,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             videoWidth = video?.width ?: 0,
                             videoHeight = video?.height ?: 0,
                             frameRate = video?.frameRate ?: 0f,
-                            audioCodec =
-                                result.tracks
-                                    .firstOrNull { it.type == YDemuxTrackType.Audio }
-                                    ?.audio
-                                    ?.mimeType
-                                    .orEmpty(),
+                            audioCodec = audio?.mimeType.orEmpty(),
                             bitrateBitsPerSecond = result.bitRateBitsPerSecond ?: 0L,
                             dynamicRange = video?.hdrType?.name.orEmpty(),
                             videoOutput = "等待首帧",
@@ -759,8 +754,7 @@ private fun AndroidNativeEnhancedYPlayer.Command.canBeReplacedBy(next: AndroidNa
         AndroidNativeEnhancedYPlayer.Command.Pause -> next == AndroidNativeEnhancedYPlayer.Command.Pause
     }
 
-private fun YDemuxOpenResult.toAudioTracks(): List<YTrack> {
-    val firstAudioId = tracks.firstOrNull { it.type == YDemuxTrackType.Audio }?.id
+private fun YDemuxOpenResult.toAudioTracks(selectedAudioId: YTrackId?): List<YTrack> {
     return tracks.mapNotNull { track ->
         val audio = track.audio ?: return@mapNotNull null
         YTrack(
@@ -769,7 +763,7 @@ private fun YDemuxOpenResult.toAudioTracks(): List<YTrack> {
             label = track.label ?: track.language ?: "Audio ${track.id.value + 1}",
             language = track.language,
             codec = audio.mimeType,
-            selected = track.id == firstAudioId,
+            selected = track.id == selectedAudioId,
         )
     }
 }

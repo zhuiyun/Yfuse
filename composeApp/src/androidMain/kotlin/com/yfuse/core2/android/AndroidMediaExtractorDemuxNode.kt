@@ -6,6 +6,7 @@ import android.media.MediaDataSource
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.os.Build
 import com.yfuse.core2.graph.YDemuxNode
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YMediaTransportRequest
@@ -313,7 +314,14 @@ internal class AndroidMediaExtractorDemuxNode(
                     setDataSource(source.uri, source.headers)
                     return
                 }
-                val routeState = AndroidAdaptiveHttpRouteState()
+                val routeState =
+                    AndroidAdaptiveHttpRouteState().apply {
+                        // The Play-services Cronet dynamite module on the affected Android 9
+                        // device resolves an API class that is absent from its own class loader.
+                        // Keep the media path on the validated OkHttp range transport on API 28
+                        // and below; this also avoids paying for a known-failing provider probe.
+                        if (!shouldAttemptCronetMediaTransport(Build.VERSION.SDK_INT)) disableCronet()
+                    }
                 val rangeSource =
                     AndroidTransportMediaDataSource(
                         uri = source.uri,
@@ -423,13 +431,16 @@ internal fun String.isCore2RemoteMediaUri(): Boolean =
     substringBefore(':', missingDelimiterValue = "").lowercase() in
         setOf("http", "https", "smb", "webdav", "webdavs")
 
+internal fun shouldAttemptCronetMediaTransport(androidApi: Int): Boolean =
+    androidApi >= Build.VERSION_CODES.Q
+
 private fun String.isAdaptiveManifestUri(): Boolean {
     val path = substringBefore('?').substringBefore('#').lowercase()
     return path.endsWith(".m3u8") || path.endsWith(".mpd")
 }
 
 private fun MediaCodec.CryptoInfo.toExtractorCryptoInfo(): YExtractorCryptoInfo =
-    getPattern().let { pattern ->
+    cryptoPatternBlocks().let { pattern ->
         YExtractorCryptoInfo(
             numberOfSubSamples = numSubSamples,
             clearBytes = numBytesOfClearData?.copyOf(),
@@ -437,10 +448,26 @@ private fun MediaCodec.CryptoInfo.toExtractorCryptoInfo(): YExtractorCryptoInfo 
             key = requireNotNull(key).copyOf(),
             initializationVector = requireNotNull(iv).copyOf(),
             mode = mode,
-            encryptedBlocks = pattern.encryptBlocks,
-            clearBlocks = pattern.skipBlocks,
+            encryptedBlocks = pattern.first,
+            clearBlocks = pattern.second,
         )
     }
+
+private fun MediaCodec.CryptoInfo.cryptoPatternBlocks(): Pair<Int, Int> =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        Api31CryptoInfo.patternBlocks(this)
+    } else {
+        // CryptoInfo#getPattern is not public before API 31. CENC/CTR samples use an all-encrypted
+        // pattern, represented by zeroes; avoiding the unavailable getter also keeps ordinary
+        // protected playback from crashing on Android 8-11.
+        0 to 0
+    }
+
+@androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+private object Api31CryptoInfo {
+    fun patternBlocks(info: MediaCodec.CryptoInfo): Pair<Int, Int> =
+        info.getPattern().let { pattern -> pattern.encryptBlocks to pattern.skipBlocks }
+}
 
 private const val MEDIA_EXTRACTOR_SAMPLE_TIME_UNAVAILABLE = -1L
 private const val MAX_ADAPTIVE_DRM_MANIFEST_BYTES = 8 * 1024 * 1024

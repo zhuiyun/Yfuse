@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
 import java.lang.reflect.Method
 
@@ -70,7 +71,13 @@ internal data class MpvNativeBuildCapabilities(
 }
 
 internal val installedMpvNativeBuildCapabilities: MpvNativeBuildCapabilities by lazy {
-    detectMpvNativeBuildCapabilities().also { capabilities ->
+    (
+        if (!BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME) {
+            detectMpvNativeBuildCapabilities()
+        } else {
+            MpvNativeBuildCapabilities()
+        }
+    ).also { capabilities ->
         AppLog.info(
             category = "player.native",
             event = "mpv_build_capabilities",

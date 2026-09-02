@@ -9,6 +9,7 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
+import com.yfuse.BuildConfig
 import com.yfuse.core.data.PlaybackNetworkClass
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.UserAgentPreferences
@@ -53,7 +54,13 @@ internal class AndroidPlaybackSourcePreloader(
             (
                 applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
             )?.isPowerSaveMode == true
-        if (!shouldWarmPlaybackCache(networkClass, powerSaveMode)) {
+        if (
+            !shouldWarmPlaybackCache(
+                networkClass = networkClass,
+                powerSaveMode = powerSaveMode,
+                nativeOnlyRuntime = BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME,
+            )
+        ) {
             return noOpPlaybackSourcePreload()
         }
 
@@ -148,7 +155,14 @@ internal class AndroidPlaybackSourcePreloader(
 internal fun shouldWarmPlaybackCache(
     networkClass: PlaybackNetworkClass,
     powerSaveMode: Boolean,
-): Boolean = networkClass == PlaybackNetworkClass.Unmetered && !powerSaveMode
+    nativeOnlyRuntime: Boolean = false,
+): Boolean =
+    networkClass == PlaybackNetworkClass.Unmetered &&
+        !powerSaveMode &&
+        // The Media3 SimpleCache is consumed by compatibility engines. Native-only YCore owns a
+        // separate validated range cache, so this warmup would merely compete with startup for the
+        // same signed URL without contributing any bytes to the active reader.
+        !nativeOnlyRuntime
 
 internal fun playbackPreloadBytes(sourceBitrateBps: Int?): Long {
     val bytesForStartup =

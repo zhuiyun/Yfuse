@@ -350,7 +350,9 @@ internal class AndroidCore2RouteEvaluator(
                         sourceClaimsDolbyVision ||
                             platform.playbackRequest.video.hdrType == YHdrType.DolbyVision &&
                             platform.dolbyVisionConfig == null
-                    val deep = enhancedProbe.probe(item) as? YCore2ProbeResult.Success
+                    val deep =
+                        (enhancedProbe.probe(item) as? YCore2ProbeResult.Success)
+                            ?.preservingPlatformDemuxCapability(platform)
                     when {
                         deep?.dolbyVisionConfig != null -> deep
                         deep?.unconfiguredDolbyVisionSignal == true -> return null
@@ -542,6 +544,32 @@ internal fun YCore2ProbeResult.Success.materiallyOverrides(platform: YCore2Probe
         playbackRequest.video.codec != platform.playbackRequest.video.codec ||
         playbackRequest.video.bitDepth > platform.playbackRequest.video.bitDepth ||
         playbackRequest.audio.hasReliableCodecWhen(platform.playbackRequest.audio)
+
+/**
+ * Enriches a successful platform probe with FFmpeg metadata without erasing an already proven
+ * platform demux path.
+ *
+ * The enhanced probe describes the capabilities of the probe that produced its metadata, so its
+ * request correctly has [YPlaybackRequest.platformDemuxSupported] set to false. When that result is
+ * used to refine a separate successful MediaExtractor probe (for example, to identify AC-3 that an
+ * OEM extractor exposed as `audio/unknown`), the combined source supports both demuxers. Treating
+ * the deep-probe flag as source truth unnecessarily routed otherwise playable MKV files back through
+ * FFmpeg and made a metadata improvement change the actual playback transport.
+ */
+internal fun YCore2ProbeResult.Success.preservingPlatformDemuxCapability(
+    platform: YCore2ProbeResult.Success,
+): YCore2ProbeResult.Success =
+    copy(
+        playbackRequest =
+            playbackRequest.copy(
+                platformDemuxSupported =
+                    playbackRequest.platformDemuxSupported ||
+                        platform.playbackRequest.platformDemuxSupported,
+                enhancedDemuxSupported =
+                    playbackRequest.enhancedDemuxSupported ||
+                        platform.playbackRequest.enhancedDemuxSupported,
+            ),
+    )
 
 private fun YAudioRequirement?.hasReliableCodecWhen(platform: YAudioRequirement?): Boolean =
     enhancedAudioCodecIsMoreReliable(

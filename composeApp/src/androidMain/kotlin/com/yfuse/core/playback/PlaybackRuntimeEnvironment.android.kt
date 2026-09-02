@@ -33,7 +33,7 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
     private val revision = MutableStateFlow(0L)
     private var smoothedBatteryPowerMilliwatts: Double? = null
     private var thermalStatus =
-        if (Build.VERSION.SDK_INT >= 29) powerManager.currentThermalStatus else THERMAL_STATUS_NONE
+        if (Build.VERSION.SDK_INT >= 29) Api29Thermal.currentStatus(powerManager) else THERMAL_STATUS_NONE
     private val receiver =
         object : BroadcastReceiver() {
             override fun onReceive(
@@ -61,7 +61,7 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
             context.registerReceiver(receiver, filter)
         }
         if (Build.VERSION.SDK_INT >= 29) {
-            powerManager.addThermalStatusListener { status ->
+            Api29Thermal.addListener(powerManager) { status ->
                 if (thermalStatus != status) {
                     thermalStatus = status
                     revision.value = revision.value + 1L
@@ -123,6 +123,19 @@ private class AndroidPlaybackRuntimeEnvironmentProvider(
     }
 
     override fun revisions(): Flow<Long> = revision.asStateFlow()
+}
+
+/** Keeps API-29 thermal listener types out of the provider class verified on Android 9 and below. */
+@androidx.annotation.RequiresApi(29)
+private object Api29Thermal {
+    fun currentStatus(powerManager: PowerManager): Int = powerManager.currentThermalStatus
+
+    fun addListener(
+        powerManager: PowerManager,
+        onChanged: (Int) -> Unit,
+    ) {
+        powerManager.addThermalStatusListener(onChanged)
+    }
 }
 
 private const val THERMAL_STATUS_NONE = 0

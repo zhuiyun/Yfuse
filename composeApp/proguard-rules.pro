@@ -54,4 +54,13 @@
 -keep class dev.yfuse.mpv.YfuseMpvCapabilities { *; }
 -keep class dev.yfuse.mpv.YfuseBluRayRegistry { *; }
 -keep class dev.yfuse.mpv.YfuseBdmvRegistry { *; }
+
+# JNI_OnLoad finds this class by its fixed binary name and registers every native declaration in
+# one RegisterNatives call. R8 must therefore keep even methods whose Kotlin wrappers are currently
+# unreachable; removing one method makes the entire YCore FFmpeg bridge fail to load.
+-keep class com.yfuse.core2.android.FfmpegNativeBridge { *; }
+
+# libmpv's AAR keeps MPVLib itself but not its nested observer/property callback types. Those types
+# are part of the runtime API and must remain present in compatibility packages after shrinking.
+-keep class dev.jdtech.mpv.MPVLib$* { *; }
 -dontwarn com.mediadevkit.sdk.**

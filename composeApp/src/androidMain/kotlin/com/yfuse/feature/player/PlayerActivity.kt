@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.app.NotificationManager
 import android.app.PictureInPictureParams
@@ -215,6 +216,7 @@ class PlayerActivity : ComponentActivity() {
      */
     private val volumeKeyPresses = MutableStateFlow(0L)
 
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Authored DVD/Blu-ray menus own the complete remote while interactive. Their Compose
         // effect routes D-pad and Back after normal dispatch, so TV transport must not pre-empt it.
@@ -307,9 +309,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // PlayerActivity already declares sensorLandscape in the manifest. Re-applying the same
-        // request here after launch can schedule a second configuration pass, briefly presenting
-        // portrait, landscape and a fresh buffering frame in sequence on some phones.
+        // PlayerActivity declares a fixed landscape orientation in the manifest. This rotates only
+        // this Activity and never writes ACCELEROMETER_ROTATION or USER_ROTATION, so leaving the
+        // player restores the user's unchanged system rotation preference.
         super.onCreate(savedInstanceState)
 
         applyScreenOnPolicy()
@@ -794,6 +796,7 @@ class PlayerActivity : ComponentActivity() {
                 mediaSourceId = sourceId,
                 startPositionTicks = positionMs.toEmbyTicks(),
                 playSessionId = requestedSessionId,
+                sourceRequiresDolbyDecoder = item.activeVersion?.needsDolbyDecoder == true,
             ).onSuccess { playbackInfo ->
                 if (
                     activeState.currentIndex != index ||

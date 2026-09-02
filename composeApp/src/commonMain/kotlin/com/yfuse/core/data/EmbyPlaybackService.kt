@@ -96,6 +96,7 @@ internal class EmbyPlaybackService(
         mediaSourceId: String?,
         startPositionTicks: Long,
         playSessionId: String,
+        sourceRequiresDolbyDecoder: Boolean,
     ): Result<PlaybackInfoResponseDto> =
         embyApiCall("playback_info") {
             withContext(Dispatchers.Default) {
@@ -109,6 +110,8 @@ internal class EmbyPlaybackService(
                         discoveredCapabilities.copy(directAudioFormats = emptySet())
                     }
                 val profile = DeviceProfileDto.yfuseAndroid(capabilities)
+                val forceVideoTranscode =
+                    sourceRequiresDolbyDecoder && !capabilities.supportsDolbyVisionOutput
                 val request =
                     PlaybackInfoRequestDto(
                         Id = itemId,
@@ -121,6 +124,10 @@ internal class EmbyPlaybackService(
                         // This is what the client can ingest, not the current speaker layout.
                         // mpv/FFmpeg can decode 7.1 and downmix locally to a stereo phone route.
                         MaxAudioChannels = YFUSE_LOCAL_DECODE_MAX_AUDIO_CHANNELS,
+                        EnableDirectPlay = !forceVideoTranscode,
+                        EnableDirectStream = !forceVideoTranscode,
+                        EnableTranscoding = true,
+                        AllowVideoStreamCopy = !forceVideoTranscode,
                     )
                 // Eager serialization avoids a deferred request-body serializer deadlock on an
                 // unconfined UI/test dispatcher while the engine consumes the same body.
@@ -136,6 +143,9 @@ internal class EmbyPlaybackService(
                     attributes =
                         mapOf(
                             "mediaSourcePinned" to (!mediaSourceId.isNullOrBlank()).toString(),
+                            "forceVideoTranscode" to forceVideoTranscode.toString(),
+                            "enableDirectPlay" to request.EnableDirectPlay.toString(),
+                            "enableDirectStream" to request.EnableDirectStream.toString(),
                             "maxStreamingBitrate" to request.MaxStreamingBitrate.toString(),
                             "maxAudioChannels" to request.MaxAudioChannels.toString(),
                             "directPlayContainers" to

@@ -294,6 +294,48 @@ class AndroidAdaptiveHttpMediaTransportTest {
             assertEquals(1, cronet.openCalls)
             assertEquals(1, fallback.openCalls)
         }
+
+    @Test
+    fun later_403_refreshes_a_source_that_already_served_a_validated_range() =
+        runBlocking {
+            val retryTransports =
+                ArrayDeque(
+                    listOf(
+                        FakeTransport(statusCode = 403),
+                        FakeTransport(),
+                    ),
+                )
+            val transport =
+                AndroidAdaptiveHttpMediaTransport(
+                    createCronet = { FakeTransport(negotiatedProtocol = "http/1.1") },
+                    createOkHttp = { retryTransports.removeFirst() },
+                )
+            val request =
+                YMediaTransportRequest(
+                    uri = "https://media.example.test/movie.mkv",
+                    protocol = YSourceProtocol.Https,
+                    range = YByteRange(100L, 103L),
+                )
+
+            assertEquals(206, transport.open(request).statusCode)
+            val staleRoute = assertFailsWith<AndroidRangeResponseException> { transport.open(request) }
+            assertEquals(YTransportFailureKind.TransientIo, staleRoute.failureKind)
+            assertEquals(403, staleRoute.statusCode)
+            assertEquals(206, transport.open(request).statusCode)
+        }
+
+    @Test
+    fun rejected_redirect_target_cannot_be_reintroduced_by_parallel_prefetch() {
+        val state = AndroidHttpMediaRedirectState()
+        val source = "https://media.example.test/items/1/stream"
+        val redirected = "https://media.example.test/signed/movie.mkv"
+
+        state.remember(source, redirected, stripCredentials = false)
+        state.disableReuse(source)
+        state.remember(source, redirected, stripCredentials = false)
+
+        assertEquals(null, state.resolve(source))
+    }
 }
 
 private sealed interface FakeRead {

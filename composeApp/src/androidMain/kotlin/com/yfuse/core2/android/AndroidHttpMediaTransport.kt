@@ -81,7 +81,14 @@ internal class AndroidHttpMediaTransport(
                 val candidate = activeClient.newCall(builder.build()).execute()
                 if (usingCachedRoute && candidate.code in STALE_MEDIA_ROUTE_STATUS_CODES) {
                     candidate.close()
-                    redirectState?.invalidate(originalUri, targetUri)
+                    if (candidate.code == 403) {
+                        // A validated provider can hand out short-lived media targets. Once one of
+                        // those targets rejects a later range, route every remaining range through
+                        // the authenticated origin so parallel prefetch cannot keep resurrecting it.
+                        redirectState?.disableReuse(originalUri)
+                    } else {
+                        redirectState?.invalidate(originalUri, targetUri)
+                    }
                     targetUri = originalUri
                     activeHeaders = originalHeaders
                     redirectCount = 0
@@ -191,10 +198,11 @@ internal class AndroidHttpMediaTransport(
 /** One-source, memory-only redirect target shared across random-access transports. */
 internal class AndroidHttpMediaRedirectState {
     private var route: AndroidHttpMediaRedirectRoute? = null
+    private var reuseDisabledSourceUri: String? = null
 
     @Synchronized
     fun resolve(sourceUri: String): AndroidHttpMediaRedirectRoute? =
-        route?.takeIf { cached -> cached.sourceUri == sourceUri }
+        route?.takeIf { cached -> reuseDisabledSourceUri != sourceUri && cached.sourceUri == sourceUri }
 
     @Synchronized
     fun remember(
@@ -202,6 +210,7 @@ internal class AndroidHttpMediaRedirectState {
         targetUri: String,
         stripCredentials: Boolean,
     ) {
+        if (reuseDisabledSourceUri == sourceUri) return
         route =
             AndroidHttpMediaRedirectRoute(
                 sourceUri = sourceUri,
@@ -216,6 +225,12 @@ internal class AndroidHttpMediaRedirectState {
         targetUri: String,
     ) {
         if (route?.sourceUri == sourceUri && route?.targetUri == targetUri) route = null
+    }
+
+    @Synchronized
+    fun disableReuse(sourceUri: String) {
+        if (route?.sourceUri == sourceUri) route = null
+        reuseDisabledSourceUri = sourceUri
     }
 }
 

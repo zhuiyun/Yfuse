@@ -50,7 +50,11 @@ internal class AndroidAdaptiveHttpMediaTransport(
                 preferred = cronet
                 try {
                     val response = cronet.open(request)
-                    response.requireAcceptedRange(request)
+                    response.requireAcceptedRange(
+                        request = request,
+                        previouslyAcceptedRange = routeState.hasAcceptedRange,
+                    )
+                    routeState.recordAcceptedRange(request, response)
                     if (response.negotiatedProtocol.isLegacyHttp()) {
                         // A non-multiplexed Cronet route provides no HTTP/2 or HTTP/3 benefit and
                         // has repeatedly stalled on parallel CDN range reads. Keep this validated
@@ -67,7 +71,8 @@ internal class AndroidAdaptiveHttpMediaTransport(
                     return response
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Throwable) {
+                } catch (failure: Throwable) {
+                    routeState.rejectStaleAuthorizationRoute(request, failure)
                     closeTransport(cronet, propagateCancellation = false)
                     preferred = null
                     routeState.disableCronet()
@@ -144,7 +149,11 @@ internal class AndroidAdaptiveHttpMediaTransport(
         val transport = createOkHttp()
         return try {
             val response = transport.open(request)
-            response.requireAcceptedRange(request)
+            response.requireAcceptedRange(
+                request = request,
+                previouslyAcceptedRange = routeState.hasAcceptedRange,
+            )
+            routeState.recordAcceptedRange(request, response)
             bind(
                 transport = transport,
                 request = request,
@@ -156,6 +165,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
             closeTransport(transport, propagateCancellation = false)
             throw cancelled
         } catch (failure: Throwable) {
+            routeState.rejectStaleAuthorizationRoute(request, failure)
             closeTransport(transport, propagateCancellation = false)
             throw failure
         }
@@ -214,20 +224,48 @@ internal class AndroidAdaptiveHttpRouteState(
     val redirectState: AndroidHttpMediaRedirectState = AndroidHttpMediaRedirectState(),
 ) {
     private val cronetDisabled = AtomicBoolean(false)
+    private val acceptedRange = AtomicBoolean(false)
 
     val cronetAvailable: Boolean
         get() = !cronetDisabled.get()
 
+    val hasAcceptedRange: Boolean
+        get() = acceptedRange.get()
+
     fun disableCronet() {
         cronetDisabled.set(true)
     }
+
+    fun recordAcceptedRange(
+        request: YMediaTransportRequest,
+        response: YMediaTransportResponse,
+    ) {
+        if (request.range != null && response.statusCode == 206) acceptedRange.set(true)
+    }
+
+    fun rejectStaleAuthorizationRoute(
+        request: YMediaTransportRequest,
+        failure: Throwable,
+    ) {
+        if (
+            request.range != null &&
+            hasAcceptedRange &&
+            failure is AndroidRangeResponseException &&
+            failure.statusCode == 403
+        ) {
+            redirectState.disableReuse(request.uri)
+        }
+    }
 }
 
-private fun YMediaTransportResponse.requireAcceptedRange(request: YMediaTransportRequest) {
+private fun YMediaTransportResponse.requireAcceptedRange(
+    request: YMediaTransportRequest,
+    previouslyAcceptedRange: Boolean,
+) {
     val requestedRange = request.range ?: return
     if (statusCode != 206) {
         throw AndroidRangeResponseException(
-            failureKind = statusCode.toAdaptiveRangeFailureKind(),
+            failureKind = statusCode.toAdaptiveRangeFailureKind(previouslyAcceptedRange),
             statusCode = statusCode,
             expectedRangeStart = requestedRange.startInclusive,
             acceptedRangeStart = acceptedRange?.startInclusive,
@@ -253,9 +291,18 @@ internal class AndroidRangeResponseException(
     safeMessage: String,
 ) : IOException(safeMessage)
 
-private fun Int.toAdaptiveRangeFailureKind(): YTransportFailureKind =
+private fun Int.toAdaptiveRangeFailureKind(previouslyAcceptedRange: Boolean): YTransportFailureKind =
     when (this) {
-        401, 403 -> YTransportFailureKind.Authorization
+        401 -> YTransportFailureKind.Authorization
+        // Some media providers issue short-lived redirect targets that start returning 403 while
+        // the authenticated origin remains valid. Once this source has already served a validated
+        // range, treat only that later 403 as a bounded transport refresh instead of a bad login.
+        403 ->
+            if (previouslyAcceptedRange) {
+                YTransportFailureKind.TransientIo
+            } else {
+                YTransportFailureKind.Authorization
+            }
         408, 425, 429 -> YTransportFailureKind.ServerBusy
         in 500..599 -> YTransportFailureKind.ServerBusy
         else -> YTransportFailureKind.InvalidRange

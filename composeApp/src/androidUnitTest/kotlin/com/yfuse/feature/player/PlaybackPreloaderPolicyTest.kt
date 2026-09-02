@@ -8,6 +8,17 @@ import kotlin.test.assertTrue
 
 class PlaybackPreloaderPolicyTest {
     @Test
+    fun `native-only runtime does not start an unused Media3 source download`() {
+        assertFalse(
+            shouldWarmPlaybackCache(
+                networkClass = PlaybackNetworkClass.Unmetered,
+                powerSaveMode = false,
+                nativeOnlyRuntime = true,
+            ),
+        )
+    }
+
+    @Test
     fun warms_only_unmetered_networks_outside_battery_saver() {
         assertTrue(shouldWarmPlaybackCache(PlaybackNetworkClass.Unmetered, powerSaveMode = false))
         assertFalse(shouldWarmPlaybackCache(PlaybackNetworkClass.Metered, powerSaveMode = false))

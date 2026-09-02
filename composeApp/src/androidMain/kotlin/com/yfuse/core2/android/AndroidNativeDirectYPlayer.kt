@@ -580,7 +580,31 @@ internal class AndroidNativeDirectYPlayer(
                         stage = YPlaybackFailureStage.Demux,
                         safeDetail = "NativeDirect source has no video track",
                     )
-            audioTrackIndex = demux.findFirstTrack(AUDIO_MIME_PREFIX)
+            val capabilities = capabilityProvider.current()
+            val initialAudioTrack =
+                (0 until demux.trackCount).firstNotNullOfOrNull { index ->
+                    val format = demux.trackFormat(index)
+                    if (!format.getString(MediaFormat.KEY_MIME).orEmpty().startsWith(AUDIO_MIME_PREFIX)) {
+                        return@firstNotNullOfOrNull null
+                    }
+                    val coreFormat = runCatching { format.toCore2AudioTrackFormat() }.getOrNull()
+                        ?: return@firstNotNullOfOrNull null
+                    val requirement =
+                        YAudioRequirement(
+                            codec = coreFormat.codec,
+                            channelCount = coreFormat.channelCount,
+                            sampleRate = coreFormat.sampleRate,
+                        )
+                    val devicePath = capabilities.audioOutputPath(requirement)
+                    val playable =
+                        if (plannedAudioOutputPath == YAudioOutputPath.DecodePcm) {
+                            devicePath == YAudioOutputPath.DecodePcm
+                        } else {
+                            devicePath != YAudioOutputPath.None
+                        }
+                    index.takeIf { playable }?.let { it to format }
+                }
+            audioTrackIndex = initialAudioTrack?.first
             videoFormat =
                 demux
                     .trackFormat(requireNotNull(videoTrackIndex))
@@ -605,7 +629,7 @@ internal class AndroidNativeDirectYPlayer(
                 required = requireDolbyVisionIdentity,
                 extractedMime = videoFormat?.getString(MediaFormat.KEY_MIME),
             )
-            audioInputFormat = audioTrackIndex?.let(demux::trackFormat)
+            audioInputFormat = initialAudioTrack?.second
             val sourceBitRateBitsPerSecond =
                 maxOf(
                     item.sourceHints?.bitrateBitsPerSecond ?: 0L,

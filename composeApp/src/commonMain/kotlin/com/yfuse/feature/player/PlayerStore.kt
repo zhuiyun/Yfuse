@@ -1074,6 +1074,14 @@ class PlayerStoreFactory(
                             mediaSourceId = effectiveMediaSourceId,
                             startPositionTicks = effectiveStartPositionTicks,
                             playSessionId = requestedSessionId,
+                            sourceRequiresDolbyDecoder =
+                                detail
+                                    ?.versions
+                                    .orEmpty()
+                                    .preferredVersion(
+                                        mediaVersionPreference,
+                                        effectiveMediaSourceId,
+                                    )?.needsDolbyCapableDecoder == true,
                         )
                     }
                 if (playbackInfoResult == null) {
@@ -1398,6 +1406,8 @@ class PlayerStoreFactory(
                 }
             }
             val requestedSessionId = EmbyStream.newPlaySessionId()
+            val preferredDetailVersion =
+                detail.versions.preferredVersion(mediaVersionPreference)
             val playbackInfo =
                 repo
                     .playbackInfo(
@@ -1405,6 +1415,8 @@ class PlayerStoreFactory(
                         itemId = detail.id,
                         startPositionTicks = fallbackStartPositionTicks,
                         playSessionId = requestedSessionId,
+                        sourceRequiresDolbyDecoder =
+                            preferredDetailVersion?.needsDolbyCapableDecoder == true,
                     ).getOrNull()
             val versions =
                 playbackInfo

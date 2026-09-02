@@ -645,6 +645,7 @@ class EmbyRepository(
         mediaSourceId: String? = null,
         startPositionTicks: Long = 0L,
         playSessionId: String,
+        sourceRequiresDolbyDecoder: Boolean = false,
     ): Result<PlaybackInfoResponseDto> =
         if (server.kind == MediaServerKind.Plex) {
             plex.playbackInfo(server, itemId, mediaSourceId, playSessionId)
@@ -655,6 +656,7 @@ class EmbyRepository(
                 mediaSourceId = mediaSourceId,
                 startPositionTicks = startPositionTicks,
                 playSessionId = playSessionId,
+                sourceRequiresDolbyDecoder = sourceRequiresDolbyDecoder,
             )
         }
 

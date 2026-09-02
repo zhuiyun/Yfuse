@@ -664,19 +664,25 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
             if (!bypassLearnedRouteMemory && failureLedger.isBlocked(decision.toFailureKey())) return null
             val plan = decision.plan
-            val remoteReadAheadPlan =
-                plan.takeIf {
-                    it.route == YPlaybackRoute.NativeDirect &&
-                        item.uri.isCore2RemoteMediaUri() &&
-                        item.drmConfiguration == null &&
-                        decision.probe.playbackRequest.enhancedDemuxSupported
-                }?.copy(
-                    route = YPlaybackRoute.NativeEnhanced,
-                    demuxPath = YDemuxPath.Enhanced,
-                    reason =
-                        "${plan.reason}; remote source uses the isolated YCore demux read-ahead " +
-                            "and startup/rebuffer gate",
-                )
+            AppLog.info(
+                category = "player.core2",
+                event = "route_selected",
+                message = "YCore selected an executable playback graph",
+                attributes =
+                    mapOf(
+                        "route" to plan.route.name,
+                        "demuxPath" to plan.demuxPath.name,
+                        "decodePath" to plan.decodePath.name,
+                        "renderPath" to plan.renderPath.name,
+                        "platformDemuxSupported" to
+                            decision.probe.playbackRequest.platformDemuxSupported.toString(),
+                        "enhancedDemuxSupported" to
+                            decision.probe.playbackRequest.enhancedDemuxSupported.toString(),
+                        "videoCodec" to decision.probe.playbackRequest.video.codec.name,
+                        "audioCodec" to
+                            (decision.probe.playbackRequest.audio?.codec?.name ?: "None"),
+                    ),
+            )
             pendingFailureKey = decision.toFailureKey()
             return when {
                 !forceSoftwareFallback && tunnelAllowed && decision.nativeTunnelExecutable ->
@@ -686,18 +692,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                         routeEvaluator,
                         allowAudioPassthrough,
                         frameRateSwitchMode,
-                    )
-                !forceSoftwareFallback && remoteReadAheadPlan != null ->
-                    AndroidNativeEnhancedYPlayer(
-                        context = context,
-                        request = singleRequest,
-                        routeEvaluator = routeEvaluator,
-                        allowAudioPassthrough = allowAudioPassthrough,
-                        frameRateSwitchMode = frameRateSwitchMode,
-                        forcedPlan = remoteReadAheadPlan,
-                        requireDolbyVisionIdentity =
-                            decision.probe.playbackRequest.video.hdrType == YHdrType.DolbyVision,
-                        preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
                     )
                 !forceSoftwareFallback &&
                     decision.nativeDirectExecutable &&

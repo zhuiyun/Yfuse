@@ -391,6 +391,7 @@ class AndroidHttpMediaTransportTest {
                 HeldCertificate
                     .Builder()
                     .addSubjectAlternativeName("localhost")
+                    .addSubjectAlternativeName("127.0.0.1")
                     .build()
             val serverCertificates =
                 HandshakeCertificates

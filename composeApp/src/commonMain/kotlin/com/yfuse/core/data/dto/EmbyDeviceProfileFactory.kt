@@ -21,11 +21,9 @@ internal const val YFUSE_LOCAL_DECODE_MAX_AUDIO_CHANNELS = 8
 /**
  * Builds the server contract for what Yfuse can ingest locally.
  *
- * Android hardware/display capabilities still refine native passthrough, but they are not the whole
- * client: the packaged mpv + FFmpeg + libplacebo path can decode HEVC/Dolby Vision and map it to the
- * current display. If the profile describes only the panel/MediaCodec surface, Emby sees a P7/FEL
- * source as unsupported and offers a server transcode even though Yfuse deliberately opens the
- * original URL and performs the Dolby pipeline locally.
+ * The server contract must describe an actually executable playback path. In particular, advertising
+ * Dolby Vision on a device without a usable Dolby decoder/output makes Emby direct-play profile 5,
+ * which has no ordinary HDR/SDR base layer to fall back to and therefore cannot produce a frame.
  */
 internal object EmbyDeviceProfileFactory {
     fun create(capabilities: PlaybackDeviceCapabilities): DeviceProfileDto {
@@ -162,11 +160,11 @@ internal object EmbyDeviceProfileFactory {
 
     private fun hevcRangeTypes(capabilities: PlaybackDeviceCapabilities): Set<String> =
         buildSet {
-            // These are input formats the local mpv/libplacebo path can consume. Native panel HDR
-            // support decides whether the final frame is passthrough or tone-mapped; it must not
-            // decide whether Emby is allowed to send the original HEVC/Dolby bitstream at all.
             addAll(LOCAL_HEVC_INPUT_RANGE_TYPES)
             addAll(openHdrRangeTypes(capabilities, PlaybackVideoCodec.Hevc))
+            if (capabilities.supportsDolbyVisionOutput) {
+                addAll(DOLBY_VISION_INPUT_RANGE_TYPES)
+            }
         }
 
     private fun openHdrRangeTypes(
@@ -208,6 +206,9 @@ private val LOCAL_HEVC_INPUT_RANGE_TYPES =
         "HDR10",
         "HDR10Plus",
         "HLG",
+    )
+private val DOLBY_VISION_INPUT_RANGE_TYPES =
+    setOf(
         "DOVI",
         "DOVIWithHDR10",
         "DOVIWithHLG",

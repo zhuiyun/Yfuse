@@ -6,7 +6,10 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
@@ -52,9 +55,38 @@ class MainActivity : ComponentActivity() {
     private var rootComponent: RootComponent? = null
     private var jankMonitor: AppJankMonitor? = null
     private var calendarNotificationPermissionRequested = false
+    private var lastExitBackPressMs = 0L
+    private var exitConfirmationToast: Toast? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Registered before Decompose and Compose create their route callbacks, so those later
+        // callbacks keep priority. This fallback only runs when every visible navigation stack
+        // is already at the point where Android would otherwise finish the launcher activity.
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastExitBackPressMs <= EXIT_CONFIRMATION_WINDOW_MS) {
+                        exitConfirmationToast?.cancel()
+                        exitConfirmationToast = null
+                        lastExitBackPressMs = 0L
+                        finish()
+                        return
+                    }
+
+                    lastExitBackPressMs = now
+                    exitConfirmationToast?.cancel()
+                    exitConfirmationToast =
+                        Toast.makeText(
+                            this@MainActivity,
+                            "再按一次返回键退出 Yfuse",
+                            Toast.LENGTH_SHORT,
+                        ).also(Toast::show)
+                }
+            },
+        )
         preferHighRefreshRateForUi()
         enableEdgeToEdge()
 
@@ -188,6 +220,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        const val EXIT_CONFIRMATION_WINDOW_MS = 2_000L
         const val EXTRA_CALENDAR_SERVER_ID = "calendar_server_id"
         const val EXTRA_CALENDAR_SERIES_ITEM_ID = "calendar_series_item_id"
         const val CALENDAR_NOTIFICATION_PERMISSION_REQUEST = 4103
@@ -238,6 +271,11 @@ class MainActivity : ComponentActivity() {
      * costs nothing; see [com.yfuse.feature.profile.applyPendingAppIconVariant].
      */
     override fun onStop() {
+        // A second press must belong to the same foreground interaction. Opening the player,
+        // switching apps, or locking the phone must not arm an immediate exit on return.
+        lastExitBackPressMs = 0L
+        exitConfirmationToast?.cancel()
+        exitConfirmationToast = null
         jankMonitor?.stop()
         serverHealthMonitor.setAppForeground(false)
         serverSyncManager.setAppForeground(false)
