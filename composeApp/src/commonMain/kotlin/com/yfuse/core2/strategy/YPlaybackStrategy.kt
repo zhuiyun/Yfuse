@@ -48,6 +48,14 @@ data class YPlaybackRequest(
     val video: YVideoRequirement,
     val audio: YAudioRequirement? = null,
     val platformDemuxSupported: Boolean,
+    /**
+     * True only when the platform demuxer exposed the audio track represented by [audio].
+     *
+     * An enhanced probe may refine a successful platform video probe. If MediaExtractor missed the
+     * audio track, video can still be platform-capable while the executable A/V graph must remain on
+     * the enhanced demuxer so the audio track is not silently discarded.
+     */
+    val platformAudioDemuxSupported: Boolean = platformDemuxSupported,
     val enhancedDemuxSupported: Boolean = true,
     /** HDR-compatible base layer, e.g. HDR10 for Dolby Vision Profile 8.1. */
     val fallbackHdrType: YHdrType? = null,
@@ -95,11 +103,13 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         request: YPlaybackRequest,
         capabilities: YDeviceCapabilities,
     ): YPlaybackPlan {
+        val platformDemuxCoversSelectedAudio =
+            request.audio == null || request.platformAudioDemuxSupported
         val demuxPath =
             when {
                 request.optimizationPreference == YOptimizationPreference.Compatibility &&
                     request.enhancedDemuxSupported -> YDemuxPath.Enhanced
-                request.platformDemuxSupported -> YDemuxPath.Platform
+                request.platformDemuxSupported && platformDemuxCoversSelectedAudio -> YDemuxPath.Platform
                 request.enhancedDemuxSupported -> YDemuxPath.Enhanced
                 else -> null
             }
