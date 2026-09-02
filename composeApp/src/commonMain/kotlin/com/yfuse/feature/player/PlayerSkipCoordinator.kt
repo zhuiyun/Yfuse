@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 
 /** Long enough to cancel an automatic skip without making an accepted skip feel sluggish. */
 private const val AUTO_SKIP_COUNTDOWN_SECONDS = 5
+private const val AUTO_SKIP_COUNTDOWN_TICK_MS = 100L
 
 internal data class PlayerSkipController(
     val state: SkipSegmentState,
@@ -173,28 +174,89 @@ internal fun rememberPlayerSkipController(
             lastOutsideCreditsPositionMs = playbackState.positionMs
         }
     }
-    val armed =
-        occurrence != null &&
-            mode == SkipMode.Auto &&
-            !watchGuest &&
-            canArmAutomaticSkip(
-                segmentType = activeSegment?.type,
-                playbackReady = playbackState.playing && !playbackState.buffering,
-                creditsEnteredFromPlayback = creditsEnteredFromPlayback,
-            ) &&
-            occurrence != settled.value
+    val playbackReady = playbackState.playing && !playbackState.buffering
+    var armedOccurrence by remember(currentItem?.id) {
+        mutableStateOf<Pair<String, PlaybackSegmentType>?>(null)
+    }
+    val latestOccurrence by rememberUpdatedState(occurrence)
+    val latestPlaybackReady by rememberUpdatedState(playbackReady)
+    val latestMode by rememberUpdatedState(mode)
+    val latestWatchGuest by rememberUpdatedState(watchGuest)
     val latestSkipSegment by rememberUpdatedState(skipSegment)
-    LaunchedEffect(occurrence, armed) {
-        if (!armed) {
+
+    // Once an intro/credits occurrence has armed, transient transport buffering must not disarm it.
+    // Otherwise every short YCore Range stall cancels this effect and starts the 5-second countdown
+    // from the beginning. Leaving the segment, changing mode, becoming a watch guest or settling the
+    // occurrence still clears it immediately.
+    LaunchedEffect(
+        occurrence,
+        mode,
+        watchGuest,
+        playbackReady,
+        creditsEnteredFromPlayback,
+        settled.value,
+    ) {
+        if (
+            occurrence == null ||
+            mode != SkipMode.Auto ||
+            watchGuest ||
+            occurrence == settled.value
+        ) {
+            armedOccurrence = null
             countdownSeconds = null
             return@LaunchedEffect
         }
-        for (remaining in AUTO_SKIP_COUNTDOWN_SECONDS downTo 1) {
-            countdownSeconds = remaining
-            delay(1_000L)
+        if (
+            armedOccurrence != occurrence &&
+            canArmAutomaticSkip(
+                segmentType = activeSegment?.type,
+                playbackReady = playbackReady,
+                creditsEnteredFromPlayback = creditsEnteredFromPlayback,
+            )
+        ) {
+            armedOccurrence = occurrence
+        }
+    }
+
+    // Buffering/pausing freezes the remaining countdown instead of resetting it. The coroutine is
+    // keyed only by the latched occurrence, so frequent position and buffering state updates cannot
+    // recreate the timer.
+    LaunchedEffect(armedOccurrence) {
+        val armed = armedOccurrence
+        if (armed == null) {
+            countdownSeconds = null
+            return@LaunchedEffect
+        }
+        var remainingMs = AUTO_SKIP_COUNTDOWN_SECONDS * 1_000L
+        countdownSeconds = AUTO_SKIP_COUNTDOWN_SECONDS
+        while (remainingMs > 0L) {
+            if (
+                latestOccurrence != armed ||
+                latestMode != SkipMode.Auto ||
+                latestWatchGuest ||
+                settled.value == armed
+            ) {
+                countdownSeconds = null
+                if (armedOccurrence == armed) armedOccurrence = null
+                return@LaunchedEffect
+            }
+            if (!latestPlaybackReady) {
+                delay(AUTO_SKIP_COUNTDOWN_TICK_MS)
+                continue
+            }
+            delay(AUTO_SKIP_COUNTDOWN_TICK_MS)
+            if (!latestPlaybackReady) continue
+            remainingMs = (remainingMs - AUTO_SKIP_COUNTDOWN_TICK_MS).coerceAtLeast(0L)
+            if (remainingMs > 0L) {
+                countdownSeconds =
+                    ((remainingMs + 999L) / 1_000L)
+                        .toInt()
+                        .coerceAtLeast(1)
+            }
         }
         countdownSeconds = null
-        settled.value = occurrence
+        settled.value = armed
+        if (armedOccurrence == armed) armedOccurrence = null
         latestSkipSegment()
     }
 

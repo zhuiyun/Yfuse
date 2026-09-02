@@ -844,10 +844,15 @@ class PlayerActivity : ComponentActivity() {
                         ).let { updated ->
                             if (televisionDevice) updated.withoutServerTranscodeForTv() else updated
                         }
-                playbackItems.value =
-                    playbackItems.value.toMutableList().apply { set(index, refreshed) }
-                queueResume.value = index to positionMs
-                queueRevision.value++
+                val currentQueue = playbackItems.value
+                val refreshedQueue =
+                    currentQueue.toMutableList().apply { set(index, refreshed) }
+                val playbackSourcesChanged = !currentQueue.hasSamePlaybackSourcesAs(refreshedQueue)
+                playbackItems.value = refreshedQueue
+                if (playbackSourcesChanged) {
+                    queueResume.value = index to positionMs
+                    queueRevision.value++
+                }
                 AppLog.info(
                     category = "player.capabilities",
                     event = "server_playback_renegotiated",
@@ -858,6 +863,7 @@ class PlayerActivity : ComponentActivity() {
                             "itemIndex" to index.toString(),
                             "playMethod" to refreshed.playMethod.name,
                             "mediaSourceId" to refreshed.versionId.orEmpty(),
+                            "engineRestarted" to playbackSourcesChanged.toString(),
                         ),
                 )
             }.onFailure { error ->
