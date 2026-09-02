@@ -1042,28 +1042,6 @@ class PlayerStoreFactory(
                 }
                 val detail = detailResult.getOrNull()
                 val seriesId = detail?.seriesId
-                // Queue artwork and sibling episodes are independent of PlaybackInfo. Starting
-                // them together keeps first launch latency to the slowest required request instead
-                // of adding three server round trips before the activity can open.
-                val seriesDetailDeferred =
-                    if (detail?.type == "Episode" && seriesId != null) {
-                        async { repo.itemDetail(server, seriesId) }
-                    } else {
-                        null
-                    }
-                val episodesDeferred =
-                    if (detail?.type == "Episode" && seriesId != null) {
-                        async {
-                            repo.episodes(
-                                server,
-                                seriesId,
-                                null,
-                                includeMediaSources = true,
-                            )
-                        }
-                    } else {
-                        null
-                    }
                 val requestedSessionId = EmbyStream.newPlaySessionId()
                 var selectedSourceMismatch: PlaybackSourceMismatch? = null
                 val playbackInfoResult =
@@ -1158,8 +1136,6 @@ class PlayerStoreFactory(
                             ),
                     )
                     dispatch(PlayerMsg.Failed("所选资源与服务器返回不一致，请刷新详情后重试"))
-                    seriesDetailDeferred?.cancel()
-                    episodesDeferred?.cancel()
                     return@launch
                 }
                 // Trickplay is intentionally absent here: PlayerRoot already loads it lazily once
@@ -1196,7 +1172,7 @@ class PlayerStoreFactory(
                     // episode recognisable on someone else's server (see episodeWatchKey).
                     // One extra request per queue, and a miss only costs the cross-server
                     // half of watch-together.
-                    val seriesDetail = requireNotNull(seriesDetailDeferred).await().getOrNull()
+                    val seriesDetail = repo.itemDetail(server, seriesId).getOrNull()
                     val seriesProviderIds = seriesDetail?.providerIds.orEmpty()
                     resolvedSeriesProviderIds = seriesProviderIds
                     val seriesPosterUrl =
@@ -1207,7 +1183,13 @@ class PlayerStoreFactory(
                             maxHeight = 360,
                             accessToken = server.accessToken,
                         )
-                    val episodesResult = requireNotNull(episodesDeferred).await()
+                    val episodesResult =
+                        repo.episodes(
+                            server,
+                            seriesId,
+                            null,
+                            includeMediaSources = true,
+                        )
                     episodesResult.onFailure {
                         AppLog.warning(
                             category = "feature.player",
