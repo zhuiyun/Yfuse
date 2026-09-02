@@ -10,99 +10,14 @@ permissions:
 
 jobs:
   apply-patch:
-    if: ${{ !contains(github.event.head_commit.message, '[queue-fixed]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Remove speculative queue requests
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          path = Path('composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt')
-          text = path.read_text(encoding='utf-8')
-
-          old = '''                val detail = detailResult.getOrNull()
-                val seriesId = detail?.seriesId
-                // Queue artwork and sibling episodes are independent of PlaybackInfo. Starting
-                // them together keeps first launch latency to the slowest required request instead
-                // of adding three server round trips before the activity can open.
-                val seriesDetailDeferred =
-                    if (detail?.type == "Episode" && seriesId != null) {
-                        async { repo.itemDetail(server, seriesId) }
-                    } else {
-                        null
-                    }
-                val episodesDeferred =
-                    if (detail?.type == "Episode" && seriesId != null) {
-                        async {
-                            repo.episodes(
-                                server,
-                                seriesId,
-                                null,
-                                includeMediaSources = true,
-                            )
-                        }
-                    } else {
-                        null
-                    }
-                val requestedSessionId = EmbyStream.newPlaySessionId()
-'''
-          new = '''                val detail = detailResult.getOrNull()
-                val seriesId = detail?.seriesId
-                val requestedSessionId = EmbyStream.newPlaySessionId()
-'''
-          if text.count(old) != 1:
-              raise SystemExit('speculative episode preload block did not match exactly once')
-          text = text.replace(old, new, 1)
-
-          old = '''                    dispatch(PlayerMsg.Failed("所选资源与服务器返回不一致，请刷新详情后重试"))
-                    seriesDetailDeferred?.cancel()
-                    episodesDeferred?.cancel()
-                    return@launch
-'''
-          new = '''                    dispatch(PlayerMsg.Failed("所选资源与服务器返回不一致，请刷新详情后重试"))
-                    return@launch
-'''
-          if text.count(old) != 1:
-              raise SystemExit('mismatch cancellation block did not match exactly once')
-          text = text.replace(old, new, 1)
-
-          old = '''                    val seriesDetail = requireNotNull(seriesDetailDeferred).await().getOrNull()
-                    val seriesProviderIds = seriesDetail?.providerIds.orEmpty()
-'''
-          new = '''                    val seriesDetail = repo.itemDetail(server, seriesId).getOrNull()
-                    val seriesProviderIds = seriesDetail?.providerIds.orEmpty()
-'''
-          if text.count(old) != 1:
-              raise SystemExit('series detail deferred await did not match exactly once')
-          text = text.replace(old, new, 1)
-
-          old = '''                    val episodesResult = requireNotNull(episodesDeferred).await()
-                    episodesResult.onFailure {
-'''
-          new = '''                    val episodesResult =
-                        repo.episodes(
-                            server,
-                            seriesId,
-                            null,
-                            includeMediaSources = true,
-                        )
-                    episodesResult.onFailure {
-'''
-          if text.count(old) != 1:
-              raise SystemExit('episodes deferred await did not match exactly once')
-          text = text.replace(old, new, 1)
-
-          path.write_text(text, encoding='utf-8')
-          Path('.github/workflows/apply-ycore-dolby-profile-fix.yml').unlink()
-          PY
-
-      - name: Commit patch
+      - name: Apply source patch
+        run: python3 scripts/apply-player-queue-deterministic.py
+      - name: Commit source patch
         shell: bash
         run: |
           set -euo pipefail
