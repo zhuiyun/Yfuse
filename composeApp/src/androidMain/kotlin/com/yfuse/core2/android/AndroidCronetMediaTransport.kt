@@ -30,6 +30,7 @@ internal class AndroidCronetMediaTransport(
     private val callbackExecutor: ExecutorService = AndroidCronetRuntime.callbackExecutor,
     private val followMediaRedirects: Boolean = false,
     private val allowCrossProtocolRedirects: Boolean = false,
+    private val redirectState: AndroidHttpMediaRedirectState? = null,
 ) : YMediaTransport {
     override val supportedProtocols: Set<YSourceProtocol> =
         setOf(YSourceProtocol.Http, YSourceProtocol.Https, YSourceProtocol.WebDav, YSourceProtocol.WebDavTls)
@@ -59,13 +60,18 @@ internal class AndroidCronetMediaTransport(
             activeChunk = null
             activeOffset = 0
             endOfStream = false
-            val requestHeaders = request.headers
+            val originalUri = request.uri
+            val originalHeaders = request.headers.withHttpBasicCredentials(request.credentials)
+            val cachedRoute = redirectState?.resolve(originalUri)
+            val targetUri = cachedRoute?.targetUri ?: originalUri
+            val requestHeaders = originalHeaders.withoutCredentials(cachedRoute?.stripCredentials == true)
             val requestMethod = request.method
             val responseReady = CountDownLatch(1)
             var responseInfo: UrlResponseInfo? = null
-            var activeUrl = request.uri.toHttpUrlOrNull()
+            var activeUrl = targetUri.toHttpUrlOrNull()
             var redirectCount = 0
             var cleartextRedirect = false
+            var strippedCredentials = cachedRoute?.stripCredentials == true
             val callback =
                 object : UrlRequest.Callback() {
                     override fun onRedirectReceived(
@@ -99,6 +105,7 @@ internal class AndroidCronetMediaTransport(
                         }
                         redirectCount += 1
                         cleartextRedirect = cleartextRedirect || redirectsToCleartext
+                        strippedCredentials = strippedCredentials || crossesOrigin
                         activeUrl = target
                         runCatching(request::followRedirect).onFailure { failure ->
                             callbackFailure = failure
@@ -147,10 +154,10 @@ internal class AndroidCronetMediaTransport(
                         chunks.offer(CronetChunk.Failed)
                     }
                 }
-            val builder = engine.newUrlRequestBuilder(request.uri, callback, callbackExecutor)
+            val builder = engine.newUrlRequestBuilder(targetUri, callback, callbackExecutor)
             builder.addHeader("Accept-Encoding", "identity")
             builder.addHeader("Cache-Control", "no-transform")
-            request.headers.withHttpBasicCredentials(request.credentials).forEach { (name, value) ->
+            requestHeaders.forEach { (name, value) ->
                 require(name.isSafeCronetHeader() && value.isSafeCronetHeader())
                 builder.addHeader(name, value)
             }
@@ -174,6 +181,14 @@ internal class AndroidCronetMediaTransport(
             val rawContentRange = info.headerValue("Content-Range")
             val contentRange = rawContentRange?.let(::parseContentRange)
             val protocol = info.negotiatedProtocol.lowercase()
+            val finalUri = activeUrl?.toString()
+            if (info.httpStatusCode in 200..299 && finalUri != null && finalUri != originalUri) {
+                redirectState?.remember(
+                    sourceUri = originalUri,
+                    targetUri = finalUri,
+                    stripCredentials = strippedCredentials,
+                )
+            }
             YMediaTransportResponse(
                 statusCode = info.httpStatusCode,
                 contentLength =

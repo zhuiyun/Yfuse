@@ -237,7 +237,7 @@ internal fun HttpUrl.hasSameOrigin(other: HttpUrl): Boolean =
 
 private fun YByteRange.toHttpRange(): String = "bytes=$startInclusive-${endInclusive ?: ""}"
 
-private fun Map<String, String>.withoutCredentials(required: Boolean): Map<String, String> =
+internal fun Map<String, String>.withoutCredentials(required: Boolean): Map<String, String> =
     if (required) filterKeys { name -> !name.isCredentialHeader() } else this
 
 private fun String.isSafeTransportHeader(): Boolean = isNotBlank() && none { it == '\r' || it == '\n' || it == ':' }

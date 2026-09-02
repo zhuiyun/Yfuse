@@ -338,6 +338,7 @@ internal class AndroidMediaExtractorDemuxNode(
                                         context = appContext,
                                         followMediaRedirects = true,
                                         allowCrossProtocolRedirects = true,
+                                        redirectState = routeState.redirectState,
                                     )
                                 },
                                 createOkHttp = {

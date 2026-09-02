@@ -51,6 +51,13 @@ internal class AndroidAdaptiveHttpMediaTransport(
                 try {
                     val response = cronet.open(request)
                     response.requireAcceptedRange(request)
+                    if (response.negotiatedProtocol.isLegacyHttp()) {
+                        // A non-multiplexed Cronet route provides no HTTP/2 or HTTP/3 benefit and
+                        // has repeatedly stalled on parallel CDN range reads. Keep this validated
+                        // request, but send every later range through the shared OkHttp pool.
+                        routeState.disableCronet()
+                        preferred = null
+                    }
                     bind(
                         transport = cronet,
                         request = request,
@@ -275,3 +282,6 @@ private fun YMediaTransportResponse.expectedBodyBytes(request: YMediaTransportRe
         ?.let { end -> end - requestedRange.startInclusive + 1L }
         ?.takeIf { statusCode == 206 }
 }
+
+private fun String.isLegacyHttp(): Boolean =
+    trim().lowercase() == "http/1.0" || trim().lowercase() == "http/1.1"

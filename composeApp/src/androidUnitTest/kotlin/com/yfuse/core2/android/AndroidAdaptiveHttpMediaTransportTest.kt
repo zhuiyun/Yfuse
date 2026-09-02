@@ -110,6 +110,40 @@ class AndroidAdaptiveHttpMediaTransportTest {
         }
 
     @Test
+    fun cronet_http11_route_is_used_once_then_shared_ranges_use_okhttp() =
+        runBlocking {
+            val routeState = AndroidAdaptiveHttpRouteState()
+            val cronetCreations = AtomicInteger()
+            val fallbackCreations = AtomicInteger()
+            val request =
+                YMediaTransportRequest(
+                    uri = "https://media.example.test/movie.mkv",
+                    protocol = YSourceProtocol.Https,
+                    range = YByteRange(0L, 3L),
+                )
+
+            repeat(2) {
+                val transport =
+                    AndroidAdaptiveHttpMediaTransport(
+                        routeState = routeState,
+                        createCronet = {
+                            cronetCreations.incrementAndGet()
+                            FakeTransport(negotiatedProtocol = "http/1.1")
+                        },
+                        createOkHttp = {
+                            fallbackCreations.incrementAndGet()
+                            FakeTransport()
+                        },
+                    )
+                assertEquals(206, transport.open(request).statusCode)
+                transport.close()
+            }
+
+            assertEquals(1, cronetCreations.get())
+            assertEquals(1, fallbackCreations.get())
+        }
+
+    @Test
     fun cronet_range_rejection_falls_back_before_media_extractor_sees_it() =
         runBlocking {
             val cronet = FakeTransport(statusCode = 200)
@@ -279,6 +313,7 @@ private class FakeTransport(
     private val reads: ArrayDeque<FakeRead> = ArrayDeque(),
     private val statusCode: Int = 206,
     private val acceptedRangeStartOffset: Long = 0L,
+    private val negotiatedProtocol: String = "",
 ) : YMediaTransport {
     override val supportedProtocols = setOf(YSourceProtocol.Http, YSourceProtocol.Https)
     override val features = setOf(YTransportFeature.ByteRange)
@@ -300,6 +335,7 @@ private class FakeTransport(
         return YMediaTransportResponse(
             statusCode = statusCode,
             acceptedRange = acceptedRange,
+            negotiatedProtocol = negotiatedProtocol,
         )
     }
 
