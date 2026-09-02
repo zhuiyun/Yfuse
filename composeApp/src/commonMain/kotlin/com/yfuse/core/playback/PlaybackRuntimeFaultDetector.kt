@@ -4,6 +4,7 @@ enum class PlaybackRuntimeFaultKind(
     val failureKind: PlaybackFailureKind,
 ) {
     StartupTimeout(PlaybackFailureKind.Decoder),
+    StartupNetworkTimeout(PlaybackFailureKind.Network),
     RebufferTimeout(PlaybackFailureKind.Network),
     PositionStalled(PlaybackFailureKind.Renderer),
     VideoOutputMissing(PlaybackFailureKind.Renderer),
@@ -147,10 +148,7 @@ class PlaybackRuntimeFaultDetector(
             val fault =
                 when {
                     awaitingFirstOutput && now.heldSince(firstFrameWaitSinceEpochMs) >= startupTimeoutMs ->
-                        PlaybackRuntimeFault(
-                            PlaybackRuntimeFaultKind.StartupTimeout,
-                            "内核持续缓冲但未在限定时间内输出首帧",
-                        )
+                        startupTimeoutFault(observation, continuouslyBuffering = true)
                     outputHasStarted &&
                         now.heldSince(rebufferWaitSinceEpochMs) >= rebufferTimeoutMs ->
                         PlaybackRuntimeFault(
@@ -166,10 +164,7 @@ class PlaybackRuntimeFaultDetector(
         val fault =
             when {
                 awaitingFirstOutput && now.heldSince(firstFrameWaitSinceEpochMs) >= startupTimeoutMs ->
-                    PlaybackRuntimeFault(
-                        PlaybackRuntimeFaultKind.StartupTimeout,
-                        "内核在限定时间内未输出首帧",
-                    )
+                    startupTimeoutFault(observation, continuouslyBuffering = false)
                 videoMissing && now.heldSince(missingVideoSinceEpochMs) >= MISSING_OUTPUT_GRACE_MS ->
                     PlaybackRuntimeFault(
                         PlaybackRuntimeFaultKind.VideoOutputMissing,
@@ -193,6 +188,35 @@ class PlaybackRuntimeFaultDetector(
             }
         if (fault != null) reported = true
         return fault
+    }
+
+    private fun startupTimeoutFault(
+        observation: YCoreRuntimeObservation,
+        continuouslyBuffering: Boolean,
+    ): PlaybackRuntimeFault {
+        // A cumulative starvation counter is meaningful only while the queue is empty now. A
+        // starvation that recovered must not later turn a real decoder failure into a network
+        // fault merely because the counter remains non-zero for the lifetime of the session.
+        val transportStarved =
+            observation.sourceRemote &&
+                observation.sourceStarvationCount > 0L &&
+                observation.sourceQueueBytes <= 0L &&
+                observation.sourceBufferedMs <= 0L
+        return if (transportStarved) {
+            PlaybackRuntimeFault(
+                PlaybackRuntimeFaultKind.StartupNetworkTimeout,
+                "远程片源持续缺少可解码数据，首帧等待判定为网络饥饿",
+            )
+        } else {
+            PlaybackRuntimeFault(
+                PlaybackRuntimeFaultKind.StartupTimeout,
+                if (continuouslyBuffering) {
+                    "内核持续缓冲但未在限定时间内输出首帧"
+                } else {
+                    "内核在限定时间内未输出首帧"
+                },
+            )
+        }
     }
 
     private fun resetClocks(nowEpochMs: Long) {

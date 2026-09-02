@@ -283,10 +283,9 @@ kotlin {
         }
 
         androidMain {
-            kotlin.srcDirs(
-                rootProject.file("composeApp/src/androidMain/kotlin"),
-                layout.projectDirectory.dir("src/main/kotlin"),
-            )
+            // tvApp/src/androidMain/kotlin is the KMP default. Only the shared phone source tree
+            // needs an explicit additional directory.
+            kotlin.srcDir(rootProject.file("composeApp/src/androidMain/kotlin"))
             dependencies {
                 implementation(libs.ktor.okhttp)
                 implementation(libs.okhttp)

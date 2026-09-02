@@ -17,6 +17,13 @@ data class YCoreRuntimeObservation(
     val ended: Boolean,
     val bufferEvents: Int,
     val droppedFrames: Int,
+    /** True when the active source depends on a remote transport. */
+    val sourceRemote: Boolean = false,
+    /** Current compressed read-ahead state; used only to distinguish transport starvation. */
+    val sourceQueueBytes: Long = 0L,
+    val sourceBufferedMs: Long = 0L,
+    val sourceStarvationCount: Long = 0L,
+    val networkBitsPerSecond: Long = 0L,
     val measuredPowerMilliwatts: Int? = null,
     /** Actual output progression. False for an explicit pause even if a backend kept its intent. */
     val playing: Boolean = playbackRequested && !buffering,

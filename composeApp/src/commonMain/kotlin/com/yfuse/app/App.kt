@@ -46,6 +46,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -333,12 +334,17 @@ fun App(root: RootComponent) {
                         // just went, and restoring one after process death would leave the user
                         // looking at an app with no visible navigation and no idea why.
                         var navCollapsed by remember { mutableStateOf(false) }
+                        val navCollapseGuard = remember { NavigationCollapseGuard() }
                         // Arriving anywhere new is a fresh page, and a fresh page shows its bar.
-                        LaunchedEffect(active) { navCollapsed = false }
+                        LaunchedEffect(active) {
+                            navCollapsed = false
+                            navCollapseGuard.reset()
+                        }
                         val navScroll =
                             rememberNavCollapseConnection(
                                 collapsed = navCollapsed,
                                 onCollapsedChange = { navCollapsed = it },
+                                guard = navCollapseGuard,
                             )
                         Box(
                             Modifier
@@ -395,7 +401,13 @@ fun App(root: RootComponent) {
                                     active = active,
                                     collapsed = navCollapsed,
                                     onSelect = onSelectTab,
-                                    onExpand = { navCollapsed = false },
+                                    onExpand = {
+                                        // A tap during fling is explicit navigation intent. Keep
+                                        // the expanded dock pinned until that fling finishes or
+                                        // the user starts a new direct scroll gesture.
+                                        navCollapseGuard.onManualExpand()
+                                        navCollapsed = false
+                                    },
                                     onSearch = { onSelectTab(Tab.Search) },
                                     backdrop = backdrop,
                                     modifier =
@@ -601,6 +613,31 @@ private fun WatchRoomBar(
 /** How far a drag has to travel in one direction before the bar answers it. */
 private val NavCollapseThreshold = 42.dp
 
+/** Prevents leftover fling deltas from undoing an explicit tap on the collapsed dock. */
+internal class NavigationCollapseGuard {
+    private var suppressAnimatedCollapse = false
+
+    fun onManualExpand() {
+        suppressAnimatedCollapse = true
+    }
+
+    fun acceptsScroll(userInput: Boolean): Boolean {
+        if (userInput) {
+            suppressAnimatedCollapse = false
+            return true
+        }
+        return !suppressAnimatedCollapse
+    }
+
+    fun onFlingFinished() {
+        suppressAnimatedCollapse = false
+    }
+
+    fun reset() {
+        suppressAnimatedCollapse = false
+    }
+}
+
 /**
  * Collapses the bar while the user is reading down a page and brings it back on the way up.
  *
@@ -617,6 +654,7 @@ private val NavCollapseThreshold = 42.dp
 private fun rememberNavCollapseConnection(
     collapsed: Boolean,
     onCollapsedChange: (Boolean) -> Unit,
+    guard: NavigationCollapseGuard,
 ): NestedScrollConnection {
     val threshold = with(LocalDensity.current) { NavCollapseThreshold.toPx() }
     val state = rememberUpdatedState(collapsed to onCollapsedChange)
@@ -628,6 +666,10 @@ private fun rememberNavCollapseConnection(
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
+                if (!guard.acceptsScroll(source == NestedScrollSource.UserInput)) {
+                    travel = 0f
+                    return Offset.Zero
+                }
                 val delta = available.y
                 if (delta == 0f) return Offset.Zero
                 if (delta > 0f != travel > 0f) travel = 0f
@@ -658,6 +700,15 @@ private fun rememberNavCollapseConnection(
                     state.value.second(false)
                 }
                 return Offset.Zero
+            }
+
+            override suspend fun onPostFling(
+                consumed: Velocity,
+                available: Velocity,
+            ): Velocity {
+                travel = 0f
+                guard.onFlingFinished()
+                return Velocity.Zero
             }
         }
     }

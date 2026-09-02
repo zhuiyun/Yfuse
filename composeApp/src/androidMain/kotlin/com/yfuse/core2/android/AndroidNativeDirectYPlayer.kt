@@ -1346,11 +1346,20 @@ internal class AndroidNativeDirectYPlayer(
 
         private fun finishIfEnded() {
             if (!isEnded()) return
-            val endPositionUs =
+            // Do not manufacture completion by snapping an early EOF to the declared duration.
+            // The router compares this real output position with duration before auto-next.
+            val renderedEndUs =
                 maxOf(
                     lastVideoPresentationUs,
-                    mutableState.value.durationMs * MICROS_PER_MILLISECOND,
+                    audioClockSnapshot()?.positionUs ?: 0L,
                 )
+            val declaredDurationUs = mutableState.value.durationMs * MICROS_PER_MILLISECOND
+            val endPositionUs =
+                if (declaredDurationUs > 0L) {
+                    renderedEndUs.coerceAtMost(declaredDurationUs)
+                } else {
+                    renderedEndUs
+                }
             requestedPlay = false
             pauseAudio()
             wallClock.pause(endPositionUs, System.nanoTime())

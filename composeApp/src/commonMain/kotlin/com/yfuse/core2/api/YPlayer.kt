@@ -130,6 +130,25 @@ data class YMediaItem(
         get() = listOfNotNull(externalSubtitle).plus(externalSubtitles).distinctBy { it.uri }
 }
 
+/**
+ * Rejects an EOS that is materially earlier than a trustworthy declared duration.
+ *
+ * Container durations can be imprecise, especially for short clips and variable-frame-rate
+ * media, so the guard deliberately ignores short items and allows both a fixed and proportional
+ * tail tolerance. Its job is to catch truncation, not to demand frame-exact duration matching.
+ */
+internal fun isPrematurePlaybackEnd(
+    positionMs: Long,
+    durationMs: Long,
+): Boolean {
+    if (durationMs < MIN_END_VALIDATION_DURATION_MS) return false
+    val safePositionMs = positionMs.coerceAtLeast(0L)
+    val toleranceMs =
+        maxOf(MIN_END_TOLERANCE_MS, durationMs / END_TOLERANCE_DIVISOR)
+            .coerceAtMost(MAX_END_TOLERANCE_MS)
+    return durationMs - safePositionMs > toleranceMs
+}
+
 data class YMediaSourceHints(
     val container: String? = null,
     /** Server-confirmed overall source bitrate used to size NativeDirect compressed read-ahead. */
@@ -184,6 +203,11 @@ internal fun List<YMediaItem>.appendingDistinct(items: List<YMediaItem>): List<Y
     if (items.any { item -> !ids.add(item.id) }) return null
     return this + items
 }
+
+private const val MIN_END_VALIDATION_DURATION_MS = 60_000L
+private const val MIN_END_TOLERANCE_MS = 15_000L
+private const val MAX_END_TOLERANCE_MS = 60_000L
+private const val END_TOLERANCE_DIVISOR = 50L
 
 enum class YTrackType {
     Audio,

@@ -1503,7 +1503,16 @@ internal class AndroidEnhancedPlaybackSession(
     }
 
     private fun pauseAtEnd() {
-        val endUs = maxOf(lastVideoUs, openResult?.durationUs ?: 0L)
+        // Keep the last position tied to output that really reached a sink. Inflating an early
+        // transport EOF to the container's declared duration hid truncation from the adaptive
+        // layer and made it auto-advance as if the episode completed normally.
+        val renderedEndUs = maxOf(lastVideoUs, audioClockSnapshot()?.positionUs ?: 0L)
+        val endUs =
+            openResult
+                ?.durationUs
+                ?.takeIf { it > 0L }
+                ?.let(renderedEndUs::coerceAtMost)
+                ?: renderedEndUs
         playing = false
         outputActive = false
         pauseAudio()

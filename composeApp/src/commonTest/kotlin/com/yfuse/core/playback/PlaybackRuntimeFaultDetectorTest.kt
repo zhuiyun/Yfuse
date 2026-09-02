@@ -273,6 +273,43 @@ class PlaybackRuntimeFaultDetectorTest {
     }
 
     @Test
+    fun remote_startup_starvation_is_network_not_decoder_failure() {
+        val detector = detector()
+
+        val fault =
+            detector.observe(
+                observation(now = 15_000L, positionMs = 0L, buffering = true).copy(
+                    sourceRemote = true,
+                    sourceStarvationCount = 3L,
+                    sourceQueueBytes = 0L,
+                    sourceBufferedMs = 0L,
+                ),
+            )
+
+        assertEquals(PlaybackRuntimeFaultKind.StartupNetworkTimeout, assertNotNull(fault).kind)
+        assertEquals(PlaybackFailureKind.Network, fault.kind.failureKind)
+    }
+
+    @Test
+    fun recovered_remote_starvation_does_not_hide_a_decoder_startup_failure() {
+        val detector = detector()
+
+        val fault =
+            detector.observe(
+                observation(now = 15_000L, positionMs = 0L, buffering = true).copy(
+                    sourceRemote = true,
+                    sourceStarvationCount = 3L,
+                    sourceQueueBytes = 512_000L,
+                    sourceBufferedMs = 2_000L,
+                    networkBitsPerSecond = 8_000_000L,
+                ),
+            )
+
+        assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, assertNotNull(fault).kind)
+        assertEquals(PlaybackFailureKind.Decoder, fault.kind.failureKind)
+    }
+
+    @Test
     fun a_settled_stream_that_buffers_without_progress_eventually_recovers() {
         val detector = detector(rebufferTimeoutMs = 10_000L)
 

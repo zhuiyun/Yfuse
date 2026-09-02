@@ -95,6 +95,19 @@ class YPlayerVideoEngineAdapterTest {
     }
 
     @Test
+    fun `audio only diagnostics never invent a video decoder`() {
+        val evidence =
+            YPlayerDiagnostics(
+                decoder = "c2.android.aac.decoder",
+                audioCodec = "audio/mp4a-latm",
+                audioOutputVerified = true,
+            ).toPlaybackOutputEvidence(YPlaybackPhase.Ready)
+
+        assertEquals("", evidence.videoDecoder)
+        assertEquals("c2.android.aac.decoder", evidence.audioDecoder)
+    }
+
+    @Test
     fun `Legacy UI controls are forwarded into YPlayer`() {
         val player = FakeYPlayer()
         val engine = YPlayerVideoEngineAdapter(player)

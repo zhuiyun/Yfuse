@@ -22,6 +22,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.appendingDistinct
+import com.yfuse.core2.api.isPrematurePlaybackEnd
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.learning.YLearnedRouteAdvice
@@ -863,7 +864,77 @@ internal class AndroidAdaptiveCore2YPlayer(
             next.setVideoOutput(output)
             childCollector =
                 scope.launch {
-                    next.state.collect { childState ->
+                    next.state.collect { reportedChildState ->
+                        val prematureEnd =
+                            reportedChildState.phase == YPlaybackPhase.Ended &&
+                                isPrematurePlaybackEnd(
+                                    positionMs = reportedChildState.positionMs,
+                                    durationMs = reportedChildState.durationMs,
+                                )
+                        val prematureEndRecoveryKey =
+                            RouteRecoveryKey(
+                                itemIndex = childIndex,
+                                route = reportedChildState.diagnostics.route,
+                                category = YPlaybackFailureCategory.Network,
+                            )
+                        if (
+                            prematureEnd &&
+                            !recoveryQueued &&
+                            (sameRouteRecoveryAttempts[prematureEndRecoveryKey] ?: 0) <
+                                MAX_PREMATURE_END_RECOVERY_ATTEMPTS
+                        ) {
+                            recoveryQueued = true
+                            sameRouteRecoveryAttempts[prematureEndRecoveryKey] =
+                                (sameRouteRecoveryAttempts[prematureEndRecoveryKey] ?: 0) + 1
+                            mutableState.value =
+                                reportedChildState.copy(
+                                    phase = YPlaybackPhase.Preparing,
+                                    playing = false,
+                                    playbackRequested = requestedPlay,
+                                    buffering = requestedPlay,
+                                    diagnostics =
+                                        reportedChildState.diagnostics.copy(
+                                            reason = "Remote source ended early; reopening from verified output position",
+                                        ),
+                                )
+                            AppLog.warning(
+                                category = "player.network",
+                                event = "premature_eof_recovery",
+                                message = "YCore rejected a premature EOF and reopened the active route",
+                                attributes =
+                                    mapOf(
+                                        "route" to reportedChildState.diagnostics.route.name,
+                                        "itemIndex" to childIndex.toString(),
+                                        "positionMs" to reportedChildState.positionMs.toString(),
+                                        "durationMs" to reportedChildState.durationMs.toString(),
+                                    ),
+                            )
+                            commands.trySend(
+                                Command.RecoverSameRoute(
+                                    index = childIndex,
+                                    positionMs = reportedChildState.positionMs,
+                                    route = reportedChildState.diagnostics.route,
+                                ),
+                            )
+                            return@collect
+                        }
+                        val childState =
+                            if (prematureEnd) {
+                                reportedChildState.copy(
+                                    phase = YPlaybackPhase.Failed,
+                                    playing = false,
+                                    playbackRequested = requestedPlay,
+                                    buffering = false,
+                                    error = "片源在声明时长前提前结束，已判定为网络传输中断",
+                                    errorCategory = YPlaybackFailureCategory.Network,
+                                    diagnostics =
+                                        reportedChildState.diagnostics.copy(
+                                            reason = "Premature EOF remained after bounded transport recovery",
+                                        ),
+                                )
+                            } else {
+                                reportedChildState
+                            }
                         if (childState.phase != YPlaybackPhase.Failed && recoveryQueued) {
                             // An in-place retry keeps this collector. Give the recovered attempt a
                             // fresh failure edge so a second terminal failure can advance to the
@@ -877,7 +948,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             if (childFailureKey != null && category != null) {
                                 failureLedger.recordFailure(childFailureKey, category)
                             }
-                            recordLearning(childState, terminal = true)
+                            if (!prematureEnd) recordLearning(childState, terminal = true)
                         }
                         if (
                             !successRecorded &&
@@ -1155,7 +1226,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                             val activeState = active?.state?.value
                             if (
                                 command.index == currentIndex &&
-                                activeState?.phase == YPlaybackPhase.Failed &&
+                                activeState != null &&
+                                activeState.phase in
+                                    setOf(YPlaybackPhase.Failed, YPlaybackPhase.Ended) &&
                                 activeState.diagnostics.route == command.route
                             ) {
                                 pendingPositionMs = command.positionMs
@@ -1398,6 +1471,7 @@ internal fun canRetryCore2RouteInPlace(route: YPlaybackRoute): Boolean =
         )
 
 private const val MIN_LEARNING_PLAYBACK_MS = 30_000L
+private const val MAX_PREMATURE_END_RECOVERY_ATTEMPTS = 1
 
 private fun YCore2FailureKey.toLearningKey(): YPlaybackLearningKey =
     YPlaybackLearningKey(

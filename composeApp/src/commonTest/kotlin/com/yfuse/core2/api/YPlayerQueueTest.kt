@@ -4,6 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class YPlayerQueueTest {
     @Test
@@ -34,5 +36,13 @@ class YPlayerQueueTest {
         val queue = listOf(YMediaItem(id = "e1", uri = "https://media/e1"))
 
         assertSame(queue, queue.appendingDistinct(emptyList()))
+    }
+
+    @Test
+    fun `materially early eos is rejected but a normal duration tail is accepted`() {
+        assertTrue(isPrematurePlaybackEnd(positionMs = 600_000L, durationMs = 2_400_000L))
+        assertFalse(isPrematurePlaybackEnd(positionMs = 2_360_000L, durationMs = 2_400_000L))
+        assertFalse(isPrematurePlaybackEnd(positionMs = 20_000L, durationMs = 30_000L))
+        assertFalse(isPrematurePlaybackEnd(positionMs = 10_000L, durationMs = 0L))
     }
 }

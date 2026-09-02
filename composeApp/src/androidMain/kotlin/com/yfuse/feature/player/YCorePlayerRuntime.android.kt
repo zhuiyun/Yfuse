@@ -227,6 +227,11 @@ internal fun PlaybackState.runtimeObservation(
             ended = ended,
             bufferEvents = diagnostics.bufferEvents,
             droppedFrames = diagnostics.droppedFrames,
+            sourceRemote = !probe.localSource,
+            sourceQueueBytes = diagnostics.sourceQueueBytes,
+            sourceBufferedMs = diagnostics.sourceBufferedMs,
+            sourceStarvationCount = diagnostics.sourceStarvationCount,
+            networkBitsPerSecond = diagnostics.networkBitsPerSecond,
             measuredPowerMilliwatts = runtimeEnvironment.batteryPowerMilliwatts,
         )
     }

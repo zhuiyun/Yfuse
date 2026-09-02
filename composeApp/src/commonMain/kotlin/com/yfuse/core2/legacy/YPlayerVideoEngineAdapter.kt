@@ -203,7 +203,7 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
             ),
     )
 
-private fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
+internal fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
     phase: YPlaybackPhase,
 ): PlaybackOutputEvidence {
     val videoReadiness =
@@ -218,6 +218,10 @@ private fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
             phase == YPlaybackPhase.Idle -> PlaybackOutputReadiness.Released
             else -> PlaybackOutputReadiness.Waiting
         }
+    val decoderParts = decoder.split(" + ", limit = 2)
+    val videoTrackKnown =
+        videoCodec.isNotBlank() || videoWidth > 0 || videoHeight > 0 || videoOutputVerified
+    val audioTrackKnown = audioCodec.isNotBlank() || audioOutputVerified
     return PlaybackOutputEvidence(
         sessionRevision = if (phase == YPlaybackPhase.Idle) 0L else outputEvidenceGeneration.coerceAtLeast(1L),
         videoReadiness = videoReadiness,
@@ -226,7 +230,16 @@ private fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
             if (videoOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
         audioConfidence =
             if (audioOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
-        videoDecoder = decoder.substringBefore(" + "),
+        // The native label combines "video + audio" decoders. A single decoder on an
+        // audio-only source must not become proof that the item contains video.
+        videoDecoder = decoderParts.firstOrNull().orEmpty().takeIf { videoTrackKnown }.orEmpty(),
+        audioDecoder =
+            when {
+                !audioTrackKnown -> ""
+                decoderParts.size > 1 -> decoderParts[1]
+                !videoTrackKnown -> decoderParts.firstOrNull().orEmpty()
+                else -> ""
+            },
         inputDynamicRange = dynamicRange,
         outputDynamicRange = dynamicRange.takeIf { videoOutputVerified }.orEmpty(),
         dynamicRangeOutputMode =
