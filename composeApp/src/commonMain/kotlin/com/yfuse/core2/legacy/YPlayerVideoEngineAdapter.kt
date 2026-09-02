@@ -196,6 +196,7 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
                 sourceQueueBytes = diagnostics.sourceQueueBytes,
                 sourceBufferedMs = diagnostics.sourceBufferedMs,
                 sourceStarvationCount = diagnostics.sourceStarvationCount,
+                networkBitsPerSecond = diagnostics.networkBitsPerSecond,
                 outputEvidence = diagnostics.toPlaybackOutputEvidence(phase),
                 outputEvidenceGeneration = diagnostics.outputEvidenceGeneration,
                 outputEvidenceResetReason = diagnostics.outputEvidenceResetReason.name,

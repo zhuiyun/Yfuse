@@ -82,6 +82,7 @@ internal data class YEnhancedPlaybackSnapshot(
     val sourceQueueBytes: Long,
     val sourceBufferedUs: Long,
     val sourceStarvationCount: Long,
+    val sourceNetworkBitsPerSecond: Long,
     val subtitleCues: List<YSubtitleCue>,
     val nativeGpuFeatureMask: Long = 0L,
     val gpuFrameDurationNs: Long = 0L,
@@ -177,6 +178,7 @@ internal class AndroidEnhancedPlaybackSession(
     private var maxInputAheadUs = DEFAULT_INPUT_AHEAD_US
     private var bufferPlan = YBufferController.plan(YBufferConditions(remote = false))
     private var bufferGate = YPlaybackBufferGate(remote = false, resumePlaybackUs = 0L)
+    private var lastBufferReplanNs = 0L
 
     @Volatile
     private var speed = 1f
@@ -405,6 +407,7 @@ internal class AndroidEnhancedPlaybackSession(
                         preferredTargetAheadUs = preferredRemoteBufferTargetUs,
                     ),
                 )
+        lastBufferReplanNs = 0L
         maxInputAheadUs = bufferPlan.targetAheadUs
         bufferGate =
             YPlaybackBufferGate(
@@ -813,6 +816,7 @@ internal class AndroidEnhancedPlaybackSession(
             sourceQueueBytes = readAhead.queuedBytes,
             sourceBufferedUs = readAhead.bufferedDurationUs,
             sourceStarvationCount = readAhead.starvationCount,
+            sourceNetworkBitsPerSecond = readAhead.throughputBitsPerSecond,
             subtitleCues = subtitleCues.toList(),
             nativeGpuFeatureMask = gpu?.currentFeatureMask ?: 0L,
             gpuFrameDurationNs = gpu?.lastGpuFrameDurationNs ?: 0L,
@@ -1449,6 +1453,7 @@ internal class AndroidEnhancedPlaybackSession(
      */
     private fun refreshOutputGate(): Boolean {
         val readAhead = demuxReadAhead.snapshot()
+        refreshAdaptiveBufferPlan(readAhead)
         val decision =
             bufferGate.evaluate(
                 bufferedDurationUs = readAhead.bufferedDurationUs,
@@ -1463,6 +1468,30 @@ internal class AndroidEnhancedPlaybackSession(
             suspendOutputForBuffering()
         }
         return decision.outputAllowed
+    }
+
+    private fun refreshAdaptiveBufferPlan(readAhead: YDemuxReadAheadSnapshot) {
+        if (!sourceRemote || readAhead.throughputBitsPerSecond <= 0L) return
+        val nowNs = System.nanoTime()
+        if (nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
+        lastBufferReplanNs = nowNs
+        val next =
+            YBufferController.plan(
+                YBufferConditions(
+                    remote = true,
+                    mediaBitRateBitsPerSecond = openResult?.bitRateBitsPerSecond ?: 0L,
+                    measuredNetworkBitsPerSecond = readAhead.throughputBitsPerSecond,
+                    preferredTargetAheadUs = preferredRemoteBufferTargetUs,
+                ),
+            )
+        if (next == bufferPlan) return
+        bufferPlan = next
+        maxInputAheadUs = next.targetAheadUs
+        bufferGate.updateResumePlaybackUs(next.resumePlaybackUs)
+        demuxReadAhead.configure(
+            targetAheadUs = next.targetAheadUs,
+            mediaBitRateBitsPerSecond = openResult?.bitRateBitsPerSecond,
+        )
     }
 
     private fun suspendOutputForBuffering() {
@@ -1806,5 +1835,6 @@ private const val LATE_FRAME_DROP_NS = 100_000_000L
 private const val LATE_FRAME_IMMEDIATE_NS = 50_000_000L
 private const val SOFTWARE_RENDER_EARLY_TOLERANCE_NS = 2_000_000L
 private const val SUBTITLE_HISTORY_US = 60_000_000L
+private const val BUFFER_REPLAN_INTERVAL_NS = 2_000_000_000L
 private const val FFMPEG_SOFTWARE_VIDEO_NAME = "FFmpeg software video"
 private const val FFMPEG_SOFTWARE_AUDIO_NAME = "FFmpeg software audio"

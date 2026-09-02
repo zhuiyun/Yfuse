@@ -37,6 +37,11 @@ internal fun Long.asBitrate(): String {
     return "${tenths / 10}.${tenths % 10} Mbps"
 }
 
+internal fun Long.asSeconds(): String {
+    val tenths = coerceAtLeast(0L) / 100L
+    return "${tenths / 10}.${tenths % 10} 秒"
+}
+
 internal fun Float.asFrameRate(): String {
     val tenths = (this * 10f).toInt()
     return "${tenths / 10}.${tenths % 10} fps"

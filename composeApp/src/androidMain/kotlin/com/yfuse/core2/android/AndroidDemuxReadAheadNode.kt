@@ -39,6 +39,7 @@ internal class AndroidDemuxReadAheadNode(
     private var maximumQueueBytes = DEFAULT_MAXIMUM_QUEUE_BYTES
     private var maximumQueuedBytesObserved = 0L
     private var starvationCount = 0L
+    private var throughputBitsPerSecond = 0L
 
     val name: String get() = delegate.name
 
@@ -51,6 +52,7 @@ internal class AndroidDemuxReadAheadNode(
                     clearQueueLocked()
                     endOfInput = false
                     failure = null
+                    throughputBitsPerSecond = 0L
                 }
             }
         }
@@ -151,6 +153,7 @@ internal class AndroidDemuxReadAheadNode(
                 bufferedDurationUs = bufferedDurationUsLocked(),
                 maximumQueuedBytesObserved = maximumQueuedBytesObserved,
                 starvationCount = starvationCount,
+                throughputBitsPerSecond = throughputBitsPerSecond,
                 endOfInput = endOfInput,
             )
         }
@@ -216,6 +219,8 @@ internal class AndroidDemuxReadAheadNode(
     }
 
     private fun fillToHighWatermark() {
+        val fillStartedNs = System.nanoTime()
+        var filledBytes = 0L
         try {
             while (true) {
                 synchronized(monitor) {
@@ -238,6 +243,7 @@ internal class AndroidDemuxReadAheadNode(
                     }
                     samples.addLast(sample)
                     queuedBytes += sample.data.size
+                    filledBytes += sample.data.size
                     maximumQueuedBytesObserved = maxOf(maximumQueuedBytesObserved, queuedBytes)
                 }
             }
@@ -248,6 +254,10 @@ internal class AndroidDemuxReadAheadNode(
             }
         } finally {
             synchronized(monitor) {
+                updateThroughputLocked(
+                    bytesRead = filledBytes,
+                    elapsedNs = (System.nanoTime() - fillStartedNs).coerceAtLeast(1L),
+                )
                 fillScheduled = false
             }
         }
@@ -271,6 +281,30 @@ internal class AndroidDemuxReadAheadNode(
     private fun clearQueueLocked() {
         samples.clear()
         queuedBytes = 0L
+    }
+
+    private fun updateThroughputLocked(
+        bytesRead: Long,
+        elapsedNs: Long,
+    ) {
+        // Very short reads are normally served by AVIO or the disk cache, not the network.
+        if (bytesRead <= 0 || elapsedNs < MINIMUM_THROUGHPUT_SAMPLE_NS) return
+        val measured =
+            bytesRead
+                .coerceAtMost(Long.MAX_VALUE / BITS_PER_BYTE)
+                .times(BITS_PER_BYTE)
+                .coerceAtMost(Long.MAX_VALUE / NANOS_PER_SECOND)
+                .times(NANOS_PER_SECOND)
+                .div(elapsedNs)
+        throughputBitsPerSecond =
+            if (throughputBitsPerSecond <= 0L) {
+                measured
+            } else {
+                (
+                    throughputBitsPerSecond * THROUGHPUT_HISTORY_WEIGHT +
+                        measured * THROUGHPUT_SAMPLE_WEIGHT
+                ) / THROUGHPUT_TOTAL_WEIGHT
+            }
     }
 
     private fun owner(): ExecutorService =
@@ -320,12 +354,18 @@ internal data class YDemuxReadAheadSnapshot(
     val bufferedDurationUs: Long,
     val maximumQueuedBytesObserved: Long,
     val starvationCount: Long,
+    val throughputBitsPerSecond: Long,
     val endOfInput: Boolean,
 )
 
 private const val DEMUX_THREAD_NAME = "YCore-Demux"
 private const val BITS_PER_BYTE = 8L
 private const val MICROS_PER_SECOND = 1_000_000L
+private const val NANOS_PER_SECOND = 1_000_000_000L
+private const val MINIMUM_THROUGHPUT_SAMPLE_NS = 50_000_000L
+private const val THROUGHPUT_HISTORY_WEIGHT = 3L
+private const val THROUGHPUT_SAMPLE_WEIGHT = 1L
+private const val THROUGHPUT_TOTAL_WEIGHT = 4L
 private const val QUEUE_HEADROOM_NUMERATOR = 3L
 private const val QUEUE_HEADROOM_DENOMINATOR = 2L
 private const val MINIMUM_SAMPLES_BEFORE_TIME_LIMIT = 8

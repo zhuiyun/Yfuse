@@ -490,6 +490,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             sourceQueueBytes = snapshot.sourceQueueBytes,
                             sourceBufferedMs = snapshot.sourceBufferedUs / MICROS_PER_MILLISECOND,
                             sourceStarvationCount = snapshot.sourceStarvationCount,
+                            networkBitsPerSecond = snapshot.sourceNetworkBitsPerSecond,
                             droppedFrames = snapshot.droppedFrames,
                             avSyncOffsetMs = snapshot.avSyncOffsetUs?.div(MICROS_PER_MILLISECOND),
                             avSyncMeasurement =

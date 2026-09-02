@@ -180,6 +180,7 @@ enum class SubtitleStylePreset(
 
 data class AudioControlState(
     val delayMs: Long = 0L,
+    val measuredAvOffsetMs: Long? = null,
     val enhancement: AudioEnhancementMode = AudioEnhancementMode.Off,
     val available: Boolean = true,
     val enhancementAvailable: Boolean = true,
@@ -188,8 +189,14 @@ data class AudioControlState(
 
 data class AudioControlActions(
     val onDelay: (Long) -> Unit = {},
+    val onAutoSync: () -> Unit = {},
     val onEnhancement: (AudioEnhancementMode) -> Unit = {},
 )
+
+internal fun calibratedAudioDelayMs(
+    currentDelayMs: Long,
+    measuredVideoOffsetMs: Long,
+): Long = (currentDelayMs - measuredVideoOffsetMs).coerceIn(-2_000L, 2_000L)
 
 const val DEFAULT_SUBTITLE_POSITION = 0.92f
 

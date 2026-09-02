@@ -1041,6 +1041,8 @@ class MpvVideoEngine(
                 when (mode) {
                     AudioEnhancementMode.Off -> ""
                     AudioEnhancementMode.VolumeBoost -> "lavfi=[volume=1.5]"
+                    AudioEnhancementMode.LoudnessNormalize ->
+                        "lavfi=[loudnorm=I=-16:LRA=11:TP=-1.5]"
                     AudioEnhancementMode.NightVoice ->
                         "lavfi=[acompressor=threshold=-20dB:ratio=4:attack=5:release=200:makeup=5dB]"
                 }

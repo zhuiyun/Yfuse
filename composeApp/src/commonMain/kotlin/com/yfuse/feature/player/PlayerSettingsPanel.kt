@@ -339,6 +339,18 @@ internal fun SettingsPanel(
                         }
                         GroupLabel("音频同步")
                         if (audioControls.available) {
+                            audioControls.measuredAvOffsetMs?.let { offset ->
+                                OptionRow(
+                                    label =
+                                        if (offset == 0L) {
+                                            "自动校准 · 当前已同步"
+                                        } else {
+                                            "自动校准当前输出 · ${if (offset > 0L) "+" else ""}$offset ms"
+                                        },
+                                    selected = false,
+                                    onClick = audioActions.onAutoSync,
+                                )
+                            }
                             listOf(-2_000L, -500L, 0L, 500L, 2_000L).forEach { delay ->
                                 val label =
                                     when {
@@ -369,7 +381,7 @@ internal fun SettingsPanel(
                                 )
                             }
                             Text(
-                                "夜间人声会压缩动态范围；直通输出时需由兼容内核接管并解码为 PCM。",
+                                "响度均衡会统一不同剧集的主观音量；夜间人声会压缩动态范围。音频增强会关闭原码直通。",
                                 style = AppTypography.caption.medium,
                                 color = Color.White.copy(alpha = 0.68f),
                             )
@@ -801,6 +813,14 @@ internal fun SettingsPanel(
                                 ).filter(String::isNotBlank).joinToString(" · "),
                             )
                             DiagnosticRow("码率", diagnostics.bitrateBitsPerSecond.asBitrate())
+                            DiagnosticRow("实时网络", diagnostics.networkBitsPerSecond.asBitrate())
+                            DiagnosticRow(
+                                "前向缓冲",
+                                maxOf(
+                                    diagnostics.bufferedDurationMs,
+                                    diagnostics.sourceBufferedMs,
+                                ).asSeconds(),
+                            )
                             DiagnosticRow("帧率", diagnostics.frameRate.asFrameRate())
                             DiagnosticRow(
                                 "音频",

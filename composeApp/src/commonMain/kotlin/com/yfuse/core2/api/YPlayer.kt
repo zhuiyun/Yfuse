@@ -301,6 +301,8 @@ data class YPlayerDiagnostics(
     val sourceBufferedMs: Long = 0L,
     /** Number of non-EOF polls that found the read-ahead queue empty. */
     val sourceStarvationCount: Long = 0L,
+    /** Smoothed source-read throughput; zero means the active route cannot measure it. */
+    val networkBitsPerSecond: Long = 0L,
     /** Source/track metadata. Never use this field alone as proof of active HDR/DV output. */
     val dynamicRange: String = "",
     val videoOutput: String = "",

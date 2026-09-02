@@ -102,6 +102,19 @@ class YBufferControllerTest {
     }
 
     @Test
+    fun `adaptive resume watermark updates without resetting a healthy gate`() {
+        val gate = YPlaybackBufferGate(remote = true, resumePlaybackUs = 2_000_000L)
+        assertTrue(gate.evaluate(bufferedDurationUs = 2_000_000L, endOfInput = false).outputAllowed)
+
+        gate.updateResumePlaybackUs(4_000_000L)
+        assertEquals(YPlaybackBufferPhase.Ready, gate.phase)
+        gate.markStarved()
+
+        assertFalse(gate.evaluate(bufferedDurationUs = 3_999_999L, endOfInput = false).outputAllowed)
+        assertTrue(gate.evaluate(bufferedDurationUs = 4_000_000L, endOfInput = false).outputAllowed)
+    }
+
+    @Test
     fun `short remote input opens gate at end of input`() {
         val gate = YPlaybackBufferGate(remote = true, resumePlaybackUs = 4_000_000L)
 

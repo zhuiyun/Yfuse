@@ -44,8 +44,9 @@ data class YPlaybackBufferDecision(
  */
 class YPlaybackBufferGate(
     private val remote: Boolean,
-    private val resumePlaybackUs: Long,
+    resumePlaybackUs: Long,
 ) {
+    private var resumePlaybackUs = resumePlaybackUs
     init {
         require(resumePlaybackUs >= 0L)
     }
@@ -59,6 +60,11 @@ class YPlaybackBufferGate(
 
     fun markStarved() {
         if (remote) phase = YPlaybackBufferPhase.Rebuffering
+    }
+
+    fun updateResumePlaybackUs(value: Long) {
+        require(value >= 0L)
+        resumePlaybackUs = value
     }
 
     fun evaluate(

@@ -7,6 +7,7 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.BuildConfig
 import com.yfuse.core.account.AccountAccessTokenSource
@@ -913,6 +915,33 @@ internal fun PlayerRoot(
                     networkRecoverySuccesses = networkRecoverySuccesses,
                 ),
         )
+    val hdrPresentation =
+        state.diagnostics.dolbyVisionOutput ||
+            state.diagnostics.dynamicRange.contains("hdr", ignoreCase = true) ||
+            state.diagnostics.dynamicRange.contains("dolby", ignoreCase = true)
+    val presentationSubtitleControls =
+        subtitleControls.copy(
+            brightness =
+                if (hdrPresentation && subtitleControls.brightness >= 0.95f) {
+                    HDR_DEFAULT_SUBTITLE_BRIGHTNESS
+                } else {
+                    subtitleControls.brightness
+                },
+        )
+    var oledPauseProtectionActive by remember { mutableStateOf(false) }
+    LaunchedEffect(
+        state.currentIndex,
+        state.playing,
+        state.buffering,
+        state.ended,
+        state.error,
+    ) {
+        oledPauseProtectionActive = false
+        if (!state.playing && !state.buffering && !state.ended && state.error == null) {
+            delay(OLED_PAUSE_PROTECTION_DELAY_MS)
+            oledPauseProtectionActive = true
+        }
+    }
     val latestPlayerForSleep by rememberUpdatedState(player)
     val latestCastStateForSleep by rememberUpdatedState(castState)
 
@@ -1921,7 +1950,7 @@ internal fun PlayerRoot(
         subtitleRestore = subtitleRestore,
         secondarySubtitleRestore = secondarySubtitleRestore,
         restoreSubtitlesOff = restoreSubtitlesOff,
-        subtitleControls = subtitleControls,
+        subtitleControls = presentationSubtitleControls,
         audioControls = audioControls,
         handoverSnapshot = resume,
         scaleMode = scaleMode,
@@ -2255,11 +2284,11 @@ internal fun PlayerRoot(
                         state.videoHeight.takeIf { it > 0 }
                             ?: currentItem?.activeVersion?.sourceHeight
                             ?: 0,
-                    subtitleOffsetMs = subtitleControls.offsetMs,
-                    subtitleScale = subtitleControls.scale,
-                    subtitleBrightness = subtitleControls.brightness,
-                    subtitlePosition = subtitleControls.position,
-                    subtitleAppearance = subtitleControls.appearance,
+                    subtitleOffsetMs = presentationSubtitleControls.offsetMs,
+                    subtitleScale = presentationSubtitleControls.scale,
+                    subtitleBrightness = presentationSubtitleControls.brightness,
+                    subtitlePosition = presentationSubtitleControls.position,
+                    subtitleAppearance = presentationSubtitleControls.appearance,
                     modifier = Modifier.fillMaxSize(),
                 )
             is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize())
@@ -2268,13 +2297,55 @@ internal fun PlayerRoot(
                 ExoSurface(
                     engine = engine,
                     scaleMode = scaleMode,
-                    subtitleScale = subtitleControls.scale,
-                    subtitleBrightness = subtitleControls.brightness,
-                    subtitlePosition = subtitleControls.position,
-                    subtitleAppearance = subtitleControls.appearance,
+                    subtitleScale = presentationSubtitleControls.scale,
+                    subtitleBrightness = presentationSubtitleControls.brightness,
+                    subtitlePosition = presentationSubtitleControls.position,
+                    subtitleAppearance = presentationSubtitleControls.appearance,
                     modifier = Modifier.fillMaxSize(),
                 )
         }
+
+        PlaybackContinuityOverlay(
+            artworkUrls = listOf(currentItem?.stillUrl, currentItem?.posterUrl),
+            title = currentItem?.title.orEmpty(),
+            visible =
+                currentItem != null &&
+                    state.error == null &&
+                    !state.ended &&
+                    !(
+                        state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering &&
+                            state.videoHeight <= 0 &&
+                            currentItem.activeVersion?.sourceVideoCodec.isNullOrBlank()
+                    ) &&
+                    state.diagnostics.effectiveVideoReadiness != PlaybackOutputReadiness.Rendering,
+            message =
+                when {
+                    networkRecoveryPending -> "网络已恢复，正在续播"
+                    state.currentIndex != startIndex && state.positionMs < 3_000L -> "正在衔接下一集"
+                    else -> "正在准备画面"
+                },
+            modifier = Modifier.fillMaxSize(),
+        )
+        val sourceBufferMs =
+            maxOf(
+                state.diagnostics.bufferedDurationMs,
+                state.diagnostics.sourceBufferedMs,
+            )
+        PlaybackStatusChip(
+            visible =
+                state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering &&
+                    (state.buffering || networkRecoveryPending),
+            message =
+                when {
+                    networkRecoveryPending -> "网络已恢复，正在续播"
+                    state.diagnostics.networkBitsPerSecond > 0L &&
+                        state.diagnostics.bitrateBitsPerSecond > 0L &&
+                        state.diagnostics.networkBitsPerSecond < state.diagnostics.bitrateBitsPerSecond ->
+                        "网络速度不足 · 已缓冲 ${sourceBufferMs / 1_000} 秒"
+                    else -> "正在重新缓冲 · 已缓冲 ${sourceBufferMs / 1_000} 秒"
+                },
+            modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 68.dp),
+        )
 
         if (!inPictureInPicture && danmaku.enabled && danmaku.visibleComments.isNotEmpty()) {
             DanmakuOverlay(
@@ -2417,6 +2488,7 @@ internal fun PlayerRoot(
                 },
                 audioControls =
                     audioControls.copy(
+                        measuredAvOffsetMs = state.diagnostics.avSyncOffsetMs,
                         available =
                             backendExtensions.supportsAudioDelay ||
                                 (
@@ -2444,6 +2516,19 @@ internal fun PlayerRoot(
                         onDelay = {
                             audioControls = audioControls.copy(delayMs = it)
                             rememberSeriesPlayback { remembered -> remembered.copy(audioDelayMs = it) }
+                        },
+                        onAutoSync = {
+                            state.diagnostics.avSyncOffsetMs?.let { measured ->
+                                val corrected =
+                                    calibratedAudioDelayMs(audioControls.delayMs, measured)
+                                audioControls = audioControls.copy(delayMs = corrected)
+                                rememberSeriesPlayback { remembered ->
+                                    remembered.copy(audioDelayMs = corrected)
+                                }
+                                Toast
+                                    .makeText(context, "已校准音画同步：$corrected ms", Toast.LENGTH_SHORT)
+                                    .show()
+                            }
                         },
                         onEnhancement = {
                             audioControls = audioControls.copy(enhancement = it)
@@ -2977,8 +3062,22 @@ internal fun PlayerRoot(
                 remoteChrome = remoteChrome,
             )
         }
+
+        if (!inPictureInPicture) {
+            OledPauseProtectionOverlay(
+                visible = oledPauseProtectionActive,
+                onResume = {
+                    oledPauseProtectionActive = false
+                    playbackGate.play()
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
+
+private const val HDR_DEFAULT_SUBTITLE_BRIGHTNESS = 0.78f
+private const val OLED_PAUSE_PROTECTION_DELAY_MS = 5L * 60L * 1_000L
 
 /** Explicit Android return types keep Compose lint from treating common constructors as Unit. */
 private fun createPlaybackFailureMemory(preferences: PlaybackPreferences): PlaybackFailureMemory =

@@ -236,6 +236,7 @@ enum class AudioEnhancementMode(
 ) {
     Off("关闭"),
     VolumeBoost("音量增强"),
+    LoudnessNormalize("响度均衡"),
     NightVoice("夜间人声"),
 }
 
