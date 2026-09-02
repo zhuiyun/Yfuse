@@ -21,8 +21,29 @@ class AndroidCore2ProbeTruthMergeTest {
         val combined = enhanced.preservingPlatformDemuxCapability(platform)
 
         assertTrue(combined.playbackRequest.platformDemuxSupported)
+        assertTrue(combined.playbackRequest.platformAudioDemuxSupported)
         assertTrue(combined.playbackRequest.enhancedDemuxSupported)
         assertEquals(YAudioCodec.Ac3, combined.playbackRequest.audio?.codec)
+    }
+
+    @Test
+    fun platformMissedAudioKeepsVideoCapabilityButForcesEnhancedAudioDemux() {
+        val platform = probe(platformDemux = true, audioCodec = null)
+        val enhanced = probe(platformDemux = false, audioCodec = YAudioCodec.Ac3)
+
+        val combined = enhanced.preservingPlatformDemuxCapability(platform)
+
+        assertTrue(combined.playbackRequest.platformDemuxSupported)
+        assertFalse(combined.playbackRequest.platformAudioDemuxSupported)
+        assertTrue(combined.playbackRequest.enhancedDemuxSupported)
+        assertEquals(YAudioCodec.Ac3, combined.playbackRequest.audio?.codec)
+    }
+
+    @Test
+    fun missingPlatformAudioRequiresEnhancedTruthProbe() {
+        val platform = probe(platformDemux = true, audioCodec = null)
+
+        assertTrue(platform.requiresEnhancedTruthProbe())
     }
 
     @Test
@@ -30,6 +51,7 @@ class AndroidCore2ProbeTruthMergeTest {
         val enhanced = probe(platformDemux = false, audioCodec = YAudioCodec.Ac3)
 
         assertFalse(enhanced.playbackRequest.platformDemuxSupported)
+        assertFalse(enhanced.playbackRequest.platformAudioDemuxSupported)
     }
 
     @Test
@@ -40,7 +62,7 @@ class AndroidCore2ProbeTruthMergeTest {
 
     private fun probe(
         platformDemux: Boolean,
-        audioCodec: YAudioCodec,
+        audioCodec: YAudioCodec?,
     ): YCore2ProbeResult.Success =
         YCore2ProbeResult.Success(
             playbackRequest =
@@ -56,16 +78,23 @@ class AndroidCore2ProbeTruthMergeTest {
                             hdrType = YHdrType.Sdr,
                         ),
                     audio =
-                        YAudioRequirement(
-                            codec = audioCodec,
-                            channelCount = 6,
-                            sampleRate = 48_000,
-                        ),
+                        audioCodec?.let { codec ->
+                            YAudioRequirement(
+                                codec = codec,
+                                channelCount = 6,
+                                sampleRate = 48_000,
+                            )
+                        },
                     platformDemuxSupported = platformDemux,
                     enhancedDemuxSupported = true,
                 ),
             videoMime = "video/hevc",
-            audioMime = if (audioCodec == YAudioCodec.Unknown) "audio/unknown" else "audio/ac3",
+            audioMime =
+                when (audioCodec) {
+                    null -> null
+                    YAudioCodec.Unknown -> "audio/unknown"
+                    else -> "audio/ac3"
+                },
             durationMs = 6_211_163L,
         )
 }
