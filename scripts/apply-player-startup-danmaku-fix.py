@@ -24,8 +24,6 @@ def regex_once(text: str, pattern: str, replacement: str, label: str) -> str:
     return updated
 
 
-# Danmaku: keep the visual clock monotonic across pause / micro-buffer pulses while still
-# accepting a real backward seek (>3 s) and correcting forward drift promptly.
 path = "composeApp/src/commonMain/kotlin/com/yfuse/feature/player/DanmakuOverlay.kt"
 text = load(path)
 text = replace_once(
@@ -65,8 +63,6 @@ text = replace_once(text, "import kotlin.math.abs\n", "", "danmaku abs import")
 save(path, text)
 
 
-# NativeDirect: a synchronous range cache miss shorter than 300 ms is transport work, not a
-# user-visible rebuffer. Freeze the media clock immediately but debounce the public buffering state.
 path = "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt"
 text = load(path)
 text = replace_once(
@@ -99,6 +95,8 @@ text = regex_once(
                 wallClock.pause(frozenPositionUs, nowNs)
                 transportReadBlocked = true
                 val generation = ++transportBlockGeneration
+                // MediaExtractor range reads are synchronous. A short cache miss is transport
+                // work, not a visible rebuffer, so expose buffering only after the debounce gate.
                 scope.launch(Dispatchers.Default) {
                     delay(TRANSPORT_BUFFERING_DEBOUNCE_MS)
                     if (!released && transportReadBlocked && transportBlockGeneration == generation) {
@@ -140,15 +138,19 @@ text = regex_once(
 )
 text = replace_once(
     text,
-    "private const val PUMP_IDLE_DELAY_MS = 1L\n",
-    "private const val PUMP_IDLE_DELAY_MS = 1L\nprivate const val TRANSPORT_BUFFERING_DEBOUNCE_MS = 300L\n",
+    "            transportReadBlocked = false\n            droppedFrames = 0\n",
+    "            transportReadBlocked = false\n            transportBufferingVisible = false\n            transportBlockGeneration++\n            droppedFrames = 0\n",
+    "native release transport reset",
+)
+text = replace_once(
+    text,
+    "private const val PUMP_IDLE_DELAY_MS = 2L\n",
+    "private const val PUMP_IDLE_DELAY_MS = 2L\nprivate const val TRANSPORT_BUFFERING_DEBOUNCE_MS = 300L\n",
     "native debounce constant",
 )
 save(path, text)
 
 
-# Give the startup-critical first OkHttp range a whole-call deadline. Once one valid 206 has been
-# accepted, subsequent ranges retain the existing 20 s connect/read/write policy.
 path = "composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidHttpMediaTransport.kt"
 text = load(path)
 text = replace_once(
