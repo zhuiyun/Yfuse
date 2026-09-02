@@ -41,6 +41,7 @@ import com.yfuse.core2.sync.YClockSnapshot
 import com.yfuse.core2.sync.YMediaClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -443,6 +444,12 @@ internal class AndroidNativeDirectYPlayer(
 
         @Volatile
         private var transportReadBlocked = false
+
+        @Volatile
+        private var transportBufferingVisible = false
+
+        @Volatile
+        private var transportBlockGeneration = 0L
         private var droppedFrames = 0
         private var runtimeRenderRecorded = false
         private var lastStatePublishNs = 0L
@@ -803,8 +810,8 @@ internal class AndroidNativeDirectYPlayer(
             mutableState.value =
                 mutableState.value.copy(
                     playbackRequested = true,
-                    playing = firstVideoFrameRendered && !transportReadBlocked,
-                    buffering = !firstVideoFrameRendered || transportReadBlocked,
+                    playing = firstVideoFrameRendered && !transportBufferingVisible,
+                    buffering = !firstVideoFrameRendered || transportBufferingVisible,
                     phase = if (isEnded()) YPlaybackPhase.Ended else YPlaybackPhase.Ready,
                 )
         }
@@ -1281,8 +1288,8 @@ internal class AndroidNativeDirectYPlayer(
                 mutableState.value.copy(
                     positionMs = positionUs / MICROS_PER_MILLISECOND,
                     subtitleCues = activeSubtitleCues(),
-                    playing = requestedPlay && firstVideoFrameRendered && !transportReadBlocked && !isEnded(),
-                    buffering = requestedPlay && (!firstVideoFrameRendered || transportReadBlocked) && !isEnded(),
+                    playing = requestedPlay && firstVideoFrameRendered && !transportBufferingVisible && !isEnded(),
+                    buffering = requestedPlay && (!firstVideoFrameRendered || transportBufferingVisible) && !isEnded(),
                     diagnostics =
                         mutableState.value.diagnostics.copy(
                             droppedFrames = droppedFrames,
@@ -1749,9 +1756,9 @@ internal class AndroidNativeDirectYPlayer(
                             },
                         playing =
                             requestedPlay &&
-                                !transportReadBlocked &&
+                                !transportBufferingVisible &&
                                 current.phase != YPlaybackPhase.Ended,
-                        buffering = requestedPlay && transportReadBlocked,
+                        buffering = requestedPlay && transportBufferingVisible,
                         diagnostics =
                             current.diagnostics.copy(
                                 videoOutput = "Surface 直出",
@@ -1770,21 +1777,41 @@ internal class AndroidNativeDirectYPlayer(
                 val frozenPositionUs = currentPositionUs()
                 monotonicPositionFloorUs = frozenPositionUs
                 wallClock.pause(frozenPositionUs, nowNs)
-            } else if (requestedPlay) {
-                val resumePositionUs =
-                    audioClockSnapshot()?.positionUs
-                        ?: wallClock.positionUs(nowNs)
+                transportReadBlocked = true
+                val generation = ++transportBlockGeneration
+                // MediaExtractor range reads are synchronous. A short cache miss is transport
+                // work, not a visible rebuffer, so expose buffering only after the debounce gate.
+                scope.launch(Dispatchers.Default) {
+                    delay(TRANSPORT_BUFFERING_DEBOUNCE_MS)
+                    if (!released && transportReadBlocked && transportBlockGeneration == generation) {
+                        transportBufferingVisible = true
+                        mutableState.updateState { current ->
+                            if (released || current.phase == YPlaybackPhase.Failed || current.phase == YPlaybackPhase.Ended) {
+                                current
+                            } else {
+                                current.copy(playing = false, buffering = requestedPlay)
+                            }
+                        }
+                    }
+                }
+                return
+            }
+
+            transportReadBlocked = false
+            ++transportBlockGeneration
+            transportBufferingVisible = false
+            if (requestedPlay) {
+                val resumePositionUs = audioClockSnapshot()?.positionUs ?: wallClock.positionUs(nowNs)
                 monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, resumePositionUs)
                 wallClock.start(monotonicPositionFloorUs, nowNs)
             }
-            transportReadBlocked = blocked
             mutableState.updateState { current ->
                 if (released || current.phase == YPlaybackPhase.Failed || current.phase == YPlaybackPhase.Ended) {
                     current
                 } else {
                     current.copy(
-                        playing = requestedPlay && firstVideoFrameRendered && !blocked,
-                        buffering = requestedPlay && (blocked || !firstVideoFrameRendered),
+                        playing = requestedPlay && firstVideoFrameRendered,
+                        buffering = requestedPlay && !firstVideoFrameRendered,
                     )
                 }
             }
@@ -1956,6 +1983,8 @@ internal class AndroidNativeDirectYPlayer(
             rejectedPassthroughTracks.clear()
             firstVideoFrameRendered = false
             transportReadBlocked = false
+            transportBufferingVisible = false
+            transportBlockGeneration++
             droppedFrames = 0
             runtimeRenderRecorded = false
             renderedFrameCount = 0L
@@ -2288,6 +2317,7 @@ private const val QOE_PUBLISH_INTERVAL_NS = 5_000_000_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
 private const val SUBTITLE_HISTORY_US = 60_000_000L
 private const val PUMP_IDLE_DELAY_MS = 2L
+private const val TRANSPORT_BUFFERING_DEBOUNCE_MS = 300L
 private const val NATIVE_DIRECT_THREAD_NAME = "YCore-NativeDirect"
 private const val COLOR_TRANSFER_ST2084 = 6
 private const val COLOR_TRANSFER_HLG = 7
