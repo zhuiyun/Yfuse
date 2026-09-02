@@ -155,6 +155,7 @@ internal class AndroidNativeDirectYPlayer(
         mutableState.updateState {
             it.copy(
                 positionMs = bounded,
+                bufferedPositionMs = bounded,
                 buffering = it.playbackRequested,
                 phase = if (it.phase == YPlaybackPhase.Ended) YPlaybackPhase.Ready else it.phase,
             )
@@ -211,6 +212,7 @@ internal class AndroidNativeDirectYPlayer(
                 playing = false,
                 buffering = it.playbackRequested,
                 positionMs = 0L,
+                bufferedPositionMs = 0L,
                 currentIndex = index,
                 error = null,
             )
@@ -1284,9 +1286,28 @@ internal class AndroidNativeDirectYPlayer(
             if (nowNs - lastStatePublishNs < STATE_PUBLISH_INTERVAL_NS) return
             lastStatePublishNs = nowNs
             val positionUs = currentPositionUs()
+            val positionMs = positionUs / MICROS_PER_MILLISECOND
+            val currentState = mutableState.value
+            val transportQoe = demux.transportQoeSnapshot()
+            val sourceBufferedMs =
+                transportQoe?.bufferedAheadDurationMs(currentState.durationMs) ?: 0L
+            val bufferedPositionMs =
+                when {
+                    !sourceRemote && currentState.durationMs > 0L -> currentState.durationMs
+                    transportQoe != null -> {
+                        val candidate = positionMs + sourceBufferedMs
+                        if (currentState.durationMs > 0L) {
+                            candidate.coerceAtMost(currentState.durationMs)
+                        } else {
+                            candidate
+                        }
+                    }
+                    else -> currentState.bufferedPositionMs.coerceAtLeast(positionMs)
+                }
             mutableState.value =
-                mutableState.value.copy(
-                    positionMs = positionUs / MICROS_PER_MILLISECOND,
+                currentState.copy(
+                    positionMs = positionMs,
+                    bufferedPositionMs = bufferedPositionMs,
                     subtitleCues = activeSubtitleCues(),
                     playing = requestedPlay && firstVideoFrameRendered && !transportBufferingVisible && !isEnded(),
                     buffering = requestedPlay && (!firstVideoFrameRendered || transportBufferingVisible) && !isEnded(),
@@ -1294,6 +1315,8 @@ internal class AndroidNativeDirectYPlayer(
                         mutableState.value.diagnostics.copy(
                             droppedFrames = droppedFrames,
                             droppedFramesMeasured = true,
+                            sourceQueueBytes = transportQoe?.bufferedAheadBytes ?: 0L,
+                            sourceBufferedMs = sourceBufferedMs,
                             audioUnderrunCount =
                                 maxOf(
                                     mutableState.value.diagnostics.audioUnderrunCount,

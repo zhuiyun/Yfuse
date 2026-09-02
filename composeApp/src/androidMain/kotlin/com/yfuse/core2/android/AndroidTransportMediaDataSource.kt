@@ -89,6 +89,7 @@ internal class AndroidTransportMediaDataSource(
     private var synchronousLoadCount = 0L
     private var maximumResolveWaitMs = 0L
     private var maximumRemoteLoadMs = 0L
+    private var latestReadPosition = 0L
 
     private val activePrefetchTransports = mutableSetOf<YMediaTransport>()
     private val transportRouteLogged = AtomicBoolean(false)
@@ -125,6 +126,9 @@ internal class AndroidTransportMediaDataSource(
             remaining -= count
         }
         val copied = size - remaining
+        if (copied > 0) {
+            latestReadPosition = readPosition
+        }
         return if (copied == 0) -1 else copied
     }
 
@@ -146,17 +150,25 @@ internal class AndroidTransportMediaDataSource(
                 blockSize = blockSize,
                 mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
             )
+        if (!prefetchSuppressed) {
+            schedulePrefetch(latestReadPosition / blockSize + 1L)
+        }
     }
 
     @Synchronized
-    fun qoeSnapshot(): YTransportPrefetchQoeSnapshot =
-        YTransportPrefetchQoeSnapshot(
+    fun qoeSnapshot(): YTransportPrefetchQoeSnapshot {
+        val bufferedAheadBytes = bufferedAheadBytesSnapshot()
+        return YTransportPrefetchQoeSnapshot(
             depthBlocks = prefetchDepthBlocks,
             hitCount = prefetchHitCount,
             synchronousLoadCount = synchronousLoadCount,
             maximumResolveWaitMs = maximumResolveWaitMs,
             maximumRemoteLoadMs = maximumRemoteLoadMs,
+            bufferedAheadBytes = bufferedAheadBytes,
+            contentLengthBytes = knownSize,
+            mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
         )
+    }
 
     private fun resolveBlock(blockIndex: Long): ByteArray {
         val startedNs = System.nanoTime()
@@ -169,7 +181,13 @@ internal class AndroidTransportMediaDataSource(
                     prefetched
                 } else {
                     synchronousLoadCount++
-                    cancelPrefetchOutside(emptySet())
+                    if (prefetchSuppressed) {
+                        cancelPrefetchOutside(emptySet())
+                    } else {
+                        // Keep the forward window filling while the foreground block is fetched.
+                        // A cache miss must not throw away already useful read-ahead work.
+                        schedulePrefetch(blockIndex + 1L)
+                    }
                     loadBlockNow(blockIndex)
                 }
             maximumResolveWaitMs =
@@ -470,6 +488,42 @@ internal class AndroidTransportMediaDataSource(
         }
     }
 
+    private fun bufferedAheadBytesSnapshot(): Long {
+        var cursor = latestReadPosition.coerceAtLeast(0L)
+        val start = cursor
+        var blockIndex = cursor / blockSize
+        var scannedBlocks = 0
+        val scanLimit = prefetchDepthBlocks + TRANSPORT_BUFFER_PROGRESS_EXTRA_BLOCKS
+        while (scannedBlocks < scanLimit) {
+            val block = blocks[blockIndex] ?: completedPrefetchBytes(blockIndex) ?: break
+            val blockStart = blockIndex.saturatedMultiply(blockSize.toLong())
+            val blockEnd = blockStart.saturatedAdd(block.size.toLong())
+            if (cursor < blockEnd) {
+                cursor = blockEnd
+            }
+            if (block.size < blockSize) break
+            blockIndex = blockIndex.saturatedAdd(1L)
+            scannedBlocks++
+        }
+        knownSize.takeIf { it >= 0L }?.let { size -> cursor = cursor.coerceAtMost(size) }
+        return (cursor - start).coerceAtLeast(0L)
+    }
+
+    private fun completedPrefetchBytes(blockIndex: Long): ByteArray? {
+        val prefetch = prefetchedBlocks[blockIndex] ?: return null
+        if (!prefetch.future.isDone || prefetch.future.isCancelled) return null
+        return try {
+            prefetch.future.get().bytes
+        } catch (_: CancellationException) {
+            null
+        } catch (_: ExecutionException) {
+            null
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            null
+        }
+    }
+
     @Synchronized
     override fun getSize(): Long {
         checkWorkerThread()
@@ -523,7 +577,26 @@ internal data class YTransportPrefetchQoeSnapshot(
     val synchronousLoadCount: Long,
     val maximumResolveWaitMs: Long,
     val maximumRemoteLoadMs: Long,
+    val bufferedAheadBytes: Long = 0L,
+    val contentLengthBytes: Long = -1L,
+    val mediaBitRateBitsPerSecond: Long = 0L,
 )
+
+internal fun YTransportPrefetchQoeSnapshot.bufferedAheadDurationMs(durationMs: Long): Long {
+    if (bufferedAheadBytes <= 0L) return 0L
+    if (mediaBitRateBitsPerSecond > 0L) {
+        return bufferedAheadBytes
+            .saturatedMultiply(BITS_PER_BYTE * MILLIS_PER_SECOND)
+            .div(mediaBitRateBitsPerSecond)
+            .coerceAtLeast(0L)
+    }
+    if (durationMs > 0L && contentLengthBytes > 0L) {
+        return ((bufferedAheadBytes.toDouble() * durationMs.toDouble()) / contentLengthBytes.toDouble())
+            .toLong()
+            .coerceAtLeast(0L)
+    }
+    return 0L
+}
 
 internal fun transportPrefetchDepthBlocks(
     blockSize: Int,
@@ -644,6 +717,7 @@ private const val MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 12
 private const val MAX_TRANSPORT_PREFETCH_CONCURRENCY = 8
 private const val TARGET_TRANSPORT_PREFETCH_WINDOW_MS = 10_000L
 private const val TRANSPORT_PREFETCH_SAFETY_BLOCKS = 1L
+private const val TRANSPORT_BUFFER_PROGRESS_EXTRA_BLOCKS = 2
 private const val BITS_PER_BYTE = 8L
 private const val MILLIS_PER_SECOND = 1_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
