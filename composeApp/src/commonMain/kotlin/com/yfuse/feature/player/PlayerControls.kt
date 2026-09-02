@@ -439,7 +439,7 @@ internal fun PlayerControls(
         danmakuSearchOpen,
         danmakuSendOpen,
         watchChatOpen,
-        state.playing,
+        state.playing || (state.buffering && state.positionMs > 0L),
         interactions,
         accessibilityManager,
         controlsHaveFocus,
@@ -452,9 +452,13 @@ internal fun PlayerControls(
                 danmakuSearchOpen ||
                 danmakuSendOpen ||
                 watchChatOpen
+        // Keep the hide timer stable across NativeDirect's playing <-> buffering handoff.
+        // A remote Range stall is still an active playback request, not a user pause.
+        // During initial startup we wait until playback has actually advanced or rendered.
+        val playbackActive = state.playing || (state.buffering && state.positionMs > 0L)
         if (
             !visible ||
-            !state.playing ||
+            !playbackActive ||
             overlayOpen ||
             controlsHaveFocus
         ) {

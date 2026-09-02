@@ -1,0 +1,30 @@
+name: Apply player startup and danmaku fix
+
+on:
+  push:
+    branches:
+      - codex/ycore-sign-20260830
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    if: ${{ !contains(github.event.head_commit.message, '[player-startup-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply guarded player fixes
+        run: python3 scripts/apply-player-startup-danmaku-fix.py
+      - name: Validate patch
+        run: git diff --check
+      - name: Commit patched source
+        shell: bash
+        run: |
+          git config user.name yfuse-ci
+          git config user.email actions@users.noreply.github.com
+          git add composeApp/src/commonMain/kotlin/com/yfuse/feature/player/DanmakuOverlay.kt composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeDirectYPlayer.kt composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidHttpMediaTransport.kt composeApp/src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveHttpMediaTransport.kt
+          git commit -m "fix(player): debounce range stalls and keep danmaku monotonic [player-startup-patched]"
+          git push origin HEAD:${GITHUB_REF_NAME}
