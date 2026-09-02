@@ -26,6 +26,7 @@ internal class AndroidHttpMediaTransport(
     private val followSafeRedirects: Boolean = false,
     private val allowCrossProtocolRedirects: Boolean = false,
     private val redirectState: AndroidHttpMediaRedirectState? = null,
+    private val callTimeoutSeconds: Long? = null,
 ) : YMediaTransport {
     override val supportedProtocols: Set<YSourceProtocol> =
         setOf(YSourceProtocol.Http, YSourceProtocol.Https, YSourceProtocol.WebDav, YSourceProtocol.WebDavTls)
@@ -44,6 +45,7 @@ internal class AndroidHttpMediaTransport(
             .newBuilder()
             .followRedirects(false)
             .followSslRedirects(false)
+            .apply { callTimeoutSeconds?.let { callTimeout(it, TimeUnit.SECONDS) } }
             .build()
 
     override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse =

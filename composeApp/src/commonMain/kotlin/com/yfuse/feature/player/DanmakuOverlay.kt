@@ -34,11 +34,11 @@ import com.yfuse.core.data.DanmakuOpacity
 import com.yfuse.core.data.DanmakuSpeed
 import com.yfuse.core.designsystem.sc
 import kotlinx.coroutines.isActive
-import kotlin.math.abs
 import kotlin.math.max
 
 private const val FIXED_DURATION_MS = 4_000L
 private const val POSITION_RESET_THRESHOLD_MS = 1_000L
+private const val BACKWARD_SEEK_RESET_THRESHOLD_MS = 3_000L
 private const val WINDOW_BUCKET_MS = 1_000L
 
 internal data class DanmakuLayoutInput(
@@ -185,8 +185,13 @@ fun DanmakuOverlay(
     val latestPlaybackRate by rememberUpdatedState(playbackRate)
 
     LaunchedEffect(positionMs, playing) {
-        if (!playing || abs(positionMs - renderedPositionMs) > POSITION_RESET_THRESHOLD_MS) {
-            renderedPositionMs = positionMs
+        val driftMs = positionMs - renderedPositionMs
+        when {
+            driftMs > POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
+            driftMs < -BACKWARD_SEEK_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
+            // Pauses and brief transport stalls freeze the interpolated clock. Never snap
+            // backwards to a lagging engine tick and replay already-visible comments.
+            !playing -> Unit
         }
     }
     LaunchedEffect(playing) {
@@ -198,8 +203,10 @@ fun DanmakuOverlay(
                 previousFrame = frameTime
                 renderedPositionMs += (elapsed * latestPlaybackRate).toLong()
                 val reported = latestReportedPosition
-                if (abs(reported - renderedPositionMs) > POSITION_RESET_THRESHOLD_MS) {
-                    renderedPositionMs = reported
+                val driftMs = reported - renderedPositionMs
+                when {
+                    driftMs > POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = reported
+                    driftMs < -BACKWARD_SEEK_RESET_THRESHOLD_MS -> renderedPositionMs = reported
                 }
             }
         }

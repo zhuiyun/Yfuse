@@ -20,6 +20,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
             followSafeRedirects = true,
             allowCrossProtocolRedirects = true,
             redirectState = routeState.redirectState,
+            callTimeoutSeconds = if (routeState.hasAcceptedRange) null else 8L,
         )
     },
 ) : YMediaTransport {
