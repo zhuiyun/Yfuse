@@ -54,6 +54,7 @@ internal object AndroidCore2TrialFactory {
         allowDolbyAtmosHls: Boolean,
         frameRateMatch: PlaybackFrameRateMatch,
         videoCacheBytes: Long = 0L,
+        yCoreBufferTargetUs: Long? = null,
         nativeOnly: Boolean = false,
         allowNativeGpu: Boolean = true,
     ): VideoEngine? {
@@ -184,6 +185,7 @@ internal object AndroidCore2TrialFactory {
                     frameRateSwitchMode = frameRateSwitchMode,
                     nativeGpuRuntimeProbe = nativeGpuRuntimeProbe,
                     preferSoftwareDecode = decoderMode == DecoderMode.Software,
+                    preferredRemoteBufferTargetUs = yCoreBufferTargetUs,
                     onRelease = {
                         cacheProxy?.close()
                         yCoreProxy?.close()

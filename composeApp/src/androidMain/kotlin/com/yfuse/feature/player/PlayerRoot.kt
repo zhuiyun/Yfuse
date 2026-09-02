@@ -117,6 +117,7 @@ internal fun PlayerRoot(
     volumeKeyPresses: StateFlow<Long>,
     customUserAgent: String,
     videoCacheBytes: Long,
+    yCoreBufferTargetUs: Long?,
     watchTogether: WatchTogetherClient,
     accountTokens: AccountAccessTokenSource,
     watchTogetherPreferences: WatchTogetherPreferences,
@@ -359,6 +360,7 @@ internal fun PlayerRoot(
             sessionEngineSelection,
             allowAudioPassthrough,
             frameRateMatch,
+            yCoreBufferTargetUs,
         ) {
             createVideoEngine(
                 kind = kind,
@@ -373,6 +375,7 @@ internal fun PlayerRoot(
                 autoNext = autoNext,
                 customUserAgent = customUserAgent,
                 videoCacheBytes = videoCacheBytes,
+                yCoreBufferTargetUs = yCoreBufferTargetUs,
                 scope = scope,
                 stopEncoding = { sessionId ->
                     playbackSinkForSession(sessionId)?.stopEncoding(sessionId) ?: true

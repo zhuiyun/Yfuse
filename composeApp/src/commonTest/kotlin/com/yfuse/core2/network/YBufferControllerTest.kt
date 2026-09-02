@@ -51,6 +51,37 @@ class YBufferControllerTest {
     }
 
     @Test
+    fun `manual remote target overrides automatic network policy`() {
+        val plan =
+            YBufferController.plan(
+                YBufferConditions(
+                    remote = true,
+                    mediaBitRateBitsPerSecond = 8_000_000L,
+                    measuredNetworkBitsPerSecond = 80_000_000L,
+                    preferredTargetAheadUs = 30_000_000L,
+                ),
+            )
+
+        assertEquals(30_000_000L, plan.targetAheadUs)
+        assertEquals(15_000_000L, plan.resumePlaybackUs)
+    }
+
+    @Test
+    fun `manual remote target still respects the memory budget`() {
+        val plan =
+            YBufferController.plan(
+                YBufferConditions(
+                    remote = true,
+                    mediaBitRateBitsPerSecond = 150_000_000L,
+                    memoryBudgetBytes = 64L * 1024L * 1024L,
+                    preferredTargetAheadUs = 30_000_000L,
+                ),
+            )
+
+        assertTrue(plan.targetAheadUs in 3_500_000L..3_600_000L)
+    }
+
+    @Test
     fun `remote startup waits for resume watermark`() {
         val gate = YPlaybackBufferGate(remote = true, resumePlaybackUs = 2_000_000L)
 

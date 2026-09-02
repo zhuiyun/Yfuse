@@ -49,6 +49,7 @@ internal class AndroidNativeEnhancedYPlayer(
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
     private val forcedPlan: YPlaybackPlan? = null,
     private val requireDolbyVisionIdentity: Boolean = false,
+    private val preferredRemoteBufferTargetUs: Long? = null,
 ) : YPlayer {
     private val appContext = context.applicationContext
     private val capabilityProvider = AndroidYCapabilityProvider(context)
@@ -237,6 +238,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 context = appContext,
                 runtimeCapabilities = AndroidRuntimeCapabilityRegistry(appContext),
                 frameRateSwitchMode = frameRateSwitchMode,
+                preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
             )
         var surfaceOutput: AndroidSurfaceVideoOutput? = null
         var currentIndex = request.startIndex

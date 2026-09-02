@@ -427,6 +427,7 @@ class PlayerActivity : ComponentActivity() {
         val offlineMediaManager = koin.get<OfflineMediaManager>()
         playbackPreferences = koin.get()
         val videoCacheBytes = playbackPreferences.videoCacheSize.value.bytes
+        val yCoreBufferTargetUs = playbackPreferences.yCoreBufferDuration.value.targetDurationUs
         val customUserAgent = koin.get<UserAgentPreferences>().userAgent.value
         val watchTogether = koin.get<WatchTogetherClient>()
         val accountTokens = koin.get<AccountAccessTokenSource>()
@@ -515,6 +516,7 @@ class PlayerActivity : ComponentActivity() {
                     danmakuRepository = danmakuRepository,
                     customUserAgent = customUserAgent,
                     videoCacheBytes = videoCacheBytes,
+                    yCoreBufferTargetUs = yCoreBufferTargetUs,
                     watchTogether = watchTogether,
                     accountTokens = accountTokens,
                     watchTogetherPreferences = watchTogetherPreferences,

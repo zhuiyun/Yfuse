@@ -44,6 +44,7 @@ internal fun createVideoEngine(
     autoNext: Boolean,
     customUserAgent: String,
     videoCacheBytes: Long,
+    yCoreBufferTargetUs: Long? = null,
     scope: CoroutineScope,
     stopEncoding: suspend (String) -> Boolean,
     core2TrialEnabled: Boolean = false,
@@ -138,6 +139,7 @@ internal fun createVideoEngine(
                         PlaybackAudioCodec.Eac3Joc in deviceCapabilities.directAudioFormats,
                 frameRateMatch = frameRateMatch,
                 videoCacheBytes = videoCacheBytes,
+                yCoreBufferTargetUs = yCoreBufferTargetUs,
                 nativeOnly = resolvedNativeOnly,
                 allowNativeGpu = !yCoreGpuBlocked,
             )?.let { return it }

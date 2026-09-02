@@ -6,11 +6,13 @@ data class YBufferConditions(
     val measuredNetworkBitsPerSecond: Long? = null,
     val memoryBudgetBytes: Long = DEFAULT_BUFFER_MEMORY_BYTES,
     val live: Boolean = false,
+    val preferredTargetAheadUs: Long? = null,
 ) {
     init {
         require(mediaBitRateBitsPerSecond >= 0L)
         require(measuredNetworkBitsPerSecond == null || measuredNetworkBitsPerSecond >= 0L)
         require(memoryBudgetBytes > 0L)
+        require(preferredTargetAheadUs == null || preferredTargetAheadUs > 0L)
     }
 }
 
@@ -93,6 +95,7 @@ object YBufferController {
 
         val requestedTargetUs =
             when {
+                conditions.preferredTargetAheadUs != null -> conditions.preferredTargetAheadUs
                 conditions.live -> LIVE_TARGET_US
                 conditions.mediaBitRateBitsPerSecond <= 0L -> REMOTE_UNKNOWN_BITRATE_TARGET_US
                 conditions.measuredNetworkBitsPerSecond == null -> REMOTE_INITIAL_TARGET_US

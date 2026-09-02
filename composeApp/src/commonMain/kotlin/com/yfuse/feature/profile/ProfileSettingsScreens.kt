@@ -9,6 +9,7 @@ import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.VideoCacheSize
+import com.yfuse.core.data.YCoreBufferDuration
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.model.DecoderMode
@@ -278,9 +279,11 @@ internal fun AdvancedPlaybackSettingsScreen(
     optimizationMode: PlaybackOptimizationMode,
     engineSelection: PlaybackEngineSelection,
     decoder: DecoderMode,
+    yCoreBufferDuration: YCoreBufferDuration,
     onOptimizationMode: () -> Unit,
     onEngine: () -> Unit,
     onDecoder: () -> Unit,
+    onYCoreBufferDuration: () -> Unit,
 ) {
     val outputPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
     val frameRateMatch by outputPreferences.frameRateMatch.collectAsState()
@@ -329,6 +332,13 @@ internal fun AdvancedPlaybackSettingsScreen(
                         "${decoder.playbackOptionCopy().label} ›",
                         true,
                         onDecoder,
+                    )
+                    SettingsDivider()
+                    SettingRow(
+                        "YCore 缓冲时长",
+                        "${yCoreBufferDuration.label} ›",
+                        true,
+                        onYCoreBufferDuration,
                     )
                 }
             }

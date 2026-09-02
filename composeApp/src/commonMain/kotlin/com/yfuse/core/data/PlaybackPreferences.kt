@@ -27,6 +27,19 @@ enum class VideoCacheSize(
     ExtraLarge("2 GB", 2L * 1024L * 1024L * 1024L),
 }
 
+/** User-selected compressed-input buffer target for the YCore enhanced playback path. */
+enum class YCoreBufferDuration(
+    val label: String,
+    val targetDurationUs: Long?,
+) {
+    Auto("自动", null),
+    Seconds3("3 秒", 3_000_000L),
+    Seconds6("6 秒", 6_000_000L),
+    Seconds10("10 秒", 10_000_000L),
+    Seconds15("15 秒", 15_000_000L),
+    Seconds30("30 秒", 30_000_000L),
+}
+
 /** Persisted display refresh-rate intent; backend support is resolved by the player feature. */
 enum class PlaybackFrameRateMatch(
     val storageValue: String,
@@ -131,6 +144,15 @@ class PlaybackPreferences(
     fun setVideoCacheSize(size: VideoCacheSize) {
         _videoCacheSize.value = size
         settings.putString(KEY_VIDEO_CACHE_SIZE, size.name)
+    }
+
+    private val _yCoreBufferDuration =
+        MutableStateFlow(enumSetting(KEY_YCORE_BUFFER_DURATION, YCoreBufferDuration.Auto))
+    val yCoreBufferDuration: StateFlow<YCoreBufferDuration> = _yCoreBufferDuration.asStateFlow()
+
+    fun setYCoreBufferDuration(duration: YCoreBufferDuration) {
+        _yCoreBufferDuration.value = duration
+        settings.putString(KEY_YCORE_BUFFER_DURATION, duration.name)
     }
 
     private val _frameRateMatch =
@@ -526,6 +548,7 @@ class PlaybackPreferences(
 
     private companion object {
         const val KEY_VIDEO_CACHE_SIZE = "player.videoCacheSize"
+        const val KEY_YCORE_BUFFER_DURATION = "player.ycore.bufferDuration"
         const val KEY_FRAME_RATE_MATCH = "player.output.frameRateMatch"
         const val KEY_AUDIO_PASSTHROUGH = "player.output.audioPassthrough"
         const val KEY_MEDIA_VERSION_PREFERENCE = "player.mediaVersionPreference"

@@ -111,6 +111,7 @@ internal class AndroidEnhancedPlaybackSession(
     private val felEvidenceProvider: YDolbyVisionFelEvidenceProvider =
         FailClosedYDolbyVisionFelEvidenceProvider,
     frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+    private val preferredRemoteBufferTargetUs: Long? = null,
 ) {
     private val demuxReadAhead = AndroidDemuxReadAheadNode(demuxer)
     private val wallClock = YMediaClock()
@@ -401,6 +402,7 @@ internal class AndroidEnhancedPlaybackSession(
                     YBufferConditions(
                         remote = remote,
                         mediaBitRateBitsPerSecond = result.bitRateBitsPerSecond,
+                        preferredTargetAheadUs = preferredRemoteBufferTargetUs,
                     ),
                 )
         maxInputAheadUs = bufferPlan.targetAheadUs

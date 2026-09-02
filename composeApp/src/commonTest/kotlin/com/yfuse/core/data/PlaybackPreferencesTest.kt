@@ -41,6 +41,20 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun ycore_buffer_duration_defaults_to_auto_and_persists() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertEquals(YCoreBufferDuration.Auto, first.yCoreBufferDuration.value)
+        first.setYCoreBufferDuration(YCoreBufferDuration.Seconds30)
+
+        assertEquals(
+            YCoreBufferDuration.Seconds30,
+            PlaybackPreferences(settings).yCoreBufferDuration.value,
+        )
+    }
+
+    @Test
     fun media_version_preference_defaults_to_hdr_and_persists() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)

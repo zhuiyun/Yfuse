@@ -67,6 +67,7 @@ import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.MediaVersionPreference
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.VideoCacheSize
+import com.yfuse.core.data.YCoreBufferDuration
 import com.yfuse.core.data.activeOr
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
@@ -123,6 +124,7 @@ private enum class Sheet {
     AdvancedPlaybackMode,
     Engine,
     Decoder,
+    YCoreBufferDuration,
     DanmakuSource,
     DanmakuBlocked,
     SkipSegments,
@@ -246,6 +248,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val backgroundDim by prefs.backgroundDim.collectAsState()
     var appIcon by remember { mutableStateOf(currentAppIconVariant()) }
     val videoCacheSize by component.playbackPreferences.videoCacheSize.collectAsState()
+    val yCoreBufferDuration by component.playbackPreferences.yCoreBufferDuration.collectAsState()
     val optimizationMode by component.playbackPreferences.optimizationMode.collectAsState()
     val mediaVersionPreference by component.playbackPreferences.mediaVersionPreference.collectAsState()
     val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
@@ -385,9 +388,11 @@ fun ProfileScreen(component: ProfileComponent) {
                         optimizationMode = optimizationMode,
                         engineSelection = engineSelection,
                         decoder = decoder,
+                        yCoreBufferDuration = yCoreBufferDuration,
                         onOptimizationMode = { sheet = Sheet.AdvancedPlaybackMode },
                         onEngine = { sheet = Sheet.Engine },
                         onDecoder = { sheet = Sheet.Decoder },
+                        onYCoreBufferDuration = { sheet = Sheet.YCoreBufferDuration },
                     )
 
                 ProfilePage.Danmaku ->
@@ -832,6 +837,23 @@ fun ProfileScreen(component: ProfileComponent) {
                     descriptions = DecoderMode.entries.map { it.playbackOptionCopy().description },
                     onSelect = { index ->
                         prefs.setDecoder(DecoderMode.entries[index])
+                        sheet = null
+                    },
+                    onDismiss = { sheet = null },
+                )
+
+            Sheet.YCoreBufferDuration ->
+                OptionSheet(
+                    title = "YCore 缓冲时长",
+                    subtitle = "自动会按码率和网络动态调整；更长缓冲更抗抖动，但启动和拖动后等待可能增加",
+                    options =
+                        YCoreBufferDuration.entries.map {
+                            it.label to (it == yCoreBufferDuration)
+                        },
+                    onSelect = { index ->
+                        component.playbackPreferences.setYCoreBufferDuration(
+                            YCoreBufferDuration.entries[index],
+                        )
                         sheet = null
                     },
                     onDismiss = { sheet = null },
@@ -1771,4 +1793,3 @@ private fun OptionSheet(
         }
     }
 }
-
