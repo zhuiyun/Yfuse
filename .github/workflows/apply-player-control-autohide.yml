@@ -1,0 +1,30 @@
+name: Apply player control auto-hide
+
+on:
+  push:
+    branches:
+      - codex/ycore-sign-20260830
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[control-autohide-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply player control auto-hide patch
+        run: python3 scripts/apply-player-control-autohide.py
+      - name: Validate patch
+        run: git diff --check
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name yfuse-ci
+          git config user.email actions@users.noreply.github.com
+          git add composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerControls.kt
+          git commit -m "fix(player): keep control auto-hide stable while buffering [player-startup-patched] [progressive-buffering-patched] [control-autohide-patched]"
+          git push origin HEAD:${GITHUB_REF_NAME}
