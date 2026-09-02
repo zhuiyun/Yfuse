@@ -565,6 +565,9 @@ internal fun YCore2ProbeResult.Success.preservingPlatformDemuxCapability(
                 platformDemuxSupported =
                     playbackRequest.platformDemuxSupported ||
                         platform.playbackRequest.platformDemuxSupported,
+                platformAudioDemuxSupported =
+                    platform.playbackRequest.audio != null &&
+                        platform.playbackRequest.platformAudioDemuxSupported,
                 enhancedDemuxSupported =
                     playbackRequest.enhancedDemuxSupported ||
                         platform.playbackRequest.enhancedDemuxSupported,
