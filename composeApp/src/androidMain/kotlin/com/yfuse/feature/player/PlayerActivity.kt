@@ -7,7 +7,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Rect
@@ -57,7 +56,6 @@ import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
-import com.yfuse.core.util.lockOrientationOnCompactScreens
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.tv.integration.CastConnectReceiverBridge
 import com.yfuse.tv.player.TvMediaSessionActions
@@ -309,7 +307,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        lockOrientationOnCompactScreens(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
+        // PlayerActivity already declares sensorLandscape in the manifest. Re-applying the same
+        // request here after launch can schedule a second configuration pass, briefly presenting
+        // portrait, landscape and a fresh buffering frame in sequence on some phones.
         super.onCreate(savedInstanceState)
 
         applyScreenOnPolicy()

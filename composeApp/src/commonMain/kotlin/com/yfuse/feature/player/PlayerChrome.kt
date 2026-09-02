@@ -6,6 +6,8 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -344,6 +346,23 @@ internal fun TransportRow(
     onSeekForward: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var bufferingIndicatorVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(state.buffering) {
+        if (!state.buffering) {
+            bufferingIndicatorVisible = false
+        } else {
+            delay(BUFFERING_INDICATOR_DELAY_MS)
+            bufferingIndicatorVisible = true
+        }
+    }
+    val visualState =
+        transportVisualState(
+            playing = state.playing,
+            buffering = state.buffering,
+            bufferingIndicatorVisible = bufferingIndicatorVisible,
+        )
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+
     Row(
         modifier.graphicsLayer { alpha = if (locked) 0.45f else 1f },
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -365,25 +384,58 @@ internal fun TransportRow(
             enabled = !locked && state.durationMs > 0L,
             onClick = onSeekBackward,
         )
-        if (state.buffering) {
-            // Same footprint as the key it replaces, so the row does not shuffle sideways
-            // every time the stream stalls.
-            Box(Modifier.size(TransportKeySize), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(16.dp),
-                )
+        AnimatedContent(
+            targetState = visualState,
+            transitionSpec = {
+                if (reduceMotion) {
+                    fadeIn(snap()) togetherWith fadeOut(snap())
+                } else {
+                    (
+                        fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
+                            scaleIn(
+                                animationSpec = Motion.settle(),
+                                initialScale = 0.82f,
+                            )
+                    ) togetherWith
+                        (
+                            fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
+                                scaleOut(
+                                    tween(Motion.QUICK, easing = Motion.Curve),
+                                    targetScale = 0.88f,
+                                )
+                        )
+                }
+            },
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(TransportKeySize + ControlTouchPadding * 2),
+            label = "transport-state",
+        ) { visual ->
+            when (visual) {
+                TransportVisualState.Buffering ->
+                    Box(
+                        Modifier.size(TransportKeySize + ControlTouchPadding * 2),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                TransportVisualState.Pause,
+                TransportVisualState.Play,
+                -> {
+                    val playing = visual == TransportVisualState.Pause
+                    CircleControl(
+                        if (playing) AppIcons.Pause else AppIcons.Play,
+                        if (playing) "暂停" else "播放",
+                        TransportKeySize,
+                        TransportIconSize,
+                        enabled = !locked && !state.buffering,
+                        onClick = onPlayPause,
+                    )
+                }
             }
-        } else {
-            CircleControl(
-                if (state.playing) AppIcons.Pause else AppIcons.Play,
-                if (state.playing) "暂停" else "播放",
-                TransportKeySize,
-                TransportIconSize,
-                enabled = !locked,
-                onClick = onPlayPause,
-            )
         }
 
         CircleControl(
@@ -422,9 +474,17 @@ internal fun VolumeSlider(
     modifier: Modifier = Modifier,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
-    val fraction = volume.coerceIn(0f, 1f)
+    val targetFraction = volume.coerceIn(0f, 1f)
     var height by remember { mutableIntStateOf(1) }
     var focused by remember { mutableStateOf(false) }
+    var dragging by remember { mutableStateOf(false) }
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val animatedFraction by animateFloatAsState(
+        targetValue = targetFraction,
+        animationSpec = Motion.settle(reduceMotion),
+        label = "volume-level",
+    )
+    val fraction = if (dragging) targetFraction else animatedFraction
     val adjust: (Float) -> Boolean = { target ->
         onVolume(target.coerceIn(0f, 1f))
         true
@@ -494,7 +554,11 @@ internal fun VolumeSlider(
                     // Bottom of the track is 0, top is 1 — hence the inversion.
                     detectTapGestures { offset -> adjust(1f - offset.y / height) }
                 }.pointerInput(Unit) {
-                    detectVerticalDragGestures { change, _ ->
+                    detectVerticalDragGestures(
+                        onDragStart = { dragging = true },
+                        onDragEnd = { dragging = false },
+                        onDragCancel = { dragging = false },
+                    ) { change, _ ->
                         change.consume()
                         adjust(1f - change.position.y / height)
                     }

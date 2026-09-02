@@ -1,5 +1,13 @@
 package com.yfuse.feature.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -39,7 +47,9 @@ import com.yfuse.core.designsystem.BackOverlay
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.glass
 import com.yfuse.tv.player.TvPlayerChromeBridge
 import com.yfuse.tv.player.TvPlayerChromeCommandType
@@ -1204,7 +1214,10 @@ internal fun PlayerControls(
                 !state.buffering &&
                 !state.ended &&
                 state.error == null
-        if (showPausedKey) {
+        ChromeVisibility(
+            visible = showPausedKey,
+            modifier = Modifier.align(Alignment.Center),
+        ) {
             CircleControl(
                 // 播放, never 暂停. This is an affordance, not a readout — it says what the
                 // tap does, the way every transport key in the app does.
@@ -1220,27 +1233,51 @@ internal fun PlayerControls(
                     onPlayPause()
                     poke()
                 },
-                modifier = Modifier.align(Alignment.Center),
             )
         }
 
         // Suppressed while the resume button occupies the same spot: the double tap that
         // pauses would otherwise stack "暂停" directly on top of it.
-        gestureHud?.takeIf { !showPausedKey }?.let { value ->
-            Text(
-                value,
-                style = AppTypography.body.strong,
-                color = Color.White,
-                modifier =
-                    Modifier
-                        .align(Alignment.Center)
-                        .semantics { liveRegion = LiveRegionMode.Polite }
-                        .glass(
-                            shape = AppShapes.pill,
-                            fill = Color.Black.copy(alpha = 0.56f),
-                            border = Color.White.copy(alpha = 0.24f),
-                        ).padding(horizontal = 16.dp, vertical = 9.dp),
-            )
+        val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+        AnimatedContent(
+            targetState = gestureHud?.takeIf { !showPausedKey },
+            contentKey = ::gestureHudMotionKey,
+            transitionSpec = {
+                if (reduceMotion) {
+                    fadeIn(snap()) togetherWith fadeOut(snap())
+                } else {
+                    (
+                        fadeIn(tween(Motion.QUICK, easing = Motion.Curve)) +
+                            scaleIn(Motion.settle(), initialScale = 0.88f)
+                    ) togetherWith
+                        (
+                            fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
+                                scaleOut(
+                                    tween(Motion.QUICK, easing = Motion.Curve),
+                                    targetScale = 0.92f,
+                                )
+                        )
+                }
+            },
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.align(Alignment.Center),
+            label = "gesture-hud",
+        ) { value ->
+            if (value != null) {
+                Text(
+                    value,
+                    style = AppTypography.body.strong,
+                    color = Color.White,
+                    modifier =
+                        Modifier
+                            .semantics { liveRegion = LiveRegionMode.Polite }
+                            .glass(
+                                shape = AppShapes.pill,
+                                fill = Color.Black.copy(alpha = 0.56f),
+                                border = Color.White.copy(alpha = 0.24f),
+                            ).padding(horizontal = 16.dp, vertical = 9.dp),
+                )
+            }
         }
 
         if (volumeSliderVisible) {
@@ -1257,26 +1294,32 @@ internal fun PlayerControls(
             )
         }
 
-        if (state.hasNext && state.durationMs > 0L && !nextUpDismissed) {
-            val remainingMs = state.durationMs - state.positionMs
-            if (remainingMs in 1L..NEXT_UP_WINDOW_MS) {
-                NextUpCard(
-                    title = episodes.getOrNull(state.currentIndex + 1)?.title.orEmpty(),
-                    remainingMs = remainingMs,
-                    onPlayNow = {
-                        poke()
-                        onNextItem()
-                    },
-                    onDismiss = {
-                        poke()
-                        nextUpDismissed = true
-                    },
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 22.dp, bottom = 96.dp),
-                )
-            }
+        val nextUpRemainingMs = state.durationMs - state.positionMs
+        val showNextUp =
+            state.hasNext &&
+                state.durationMs > 0L &&
+                !nextUpDismissed &&
+                nextUpRemainingMs in 1L..NEXT_UP_WINDOW_MS
+        ChromeVisibility(
+            visible = showNextUp,
+            edge = ChromeEdge.End,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 22.dp, bottom = 96.dp),
+        ) {
+            NextUpCard(
+                title = episodes.getOrNull(state.currentIndex + 1)?.title.orEmpty(),
+                remainingMs = nextUpRemainingMs.coerceIn(0L, NEXT_UP_WINDOW_MS),
+                onPlayNow = {
+                    poke()
+                    onNextItem()
+                },
+                onDismiss = {
+                    poke()
+                    nextUpDismissed = true
+                },
+            )
         }
     }
 }

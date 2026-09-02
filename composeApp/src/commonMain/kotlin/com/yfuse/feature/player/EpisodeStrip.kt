@@ -29,6 +29,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
@@ -85,6 +86,7 @@ internal fun EpisodeStrip(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     LaunchedEffect(currentIndex) {
         runCatching { listState.scrollToItem(currentIndex) }
     }
@@ -119,11 +121,15 @@ internal fun EpisodeStrip(
             contentPadding = PaddingValues(horizontal = 22.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            itemsIndexed(episodes) { index, episode ->
+            itemsIndexed(
+                items = episodes,
+                key = { index, episode -> episode.watchKey.ifBlank { "episode-$index" } },
+            ) { index, episode ->
                 EpisodeStripCard(
                     episode = episode,
                     current = index == currentIndex,
                     onClick = { onSelect(index) },
+                    modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
                 )
             }
         }
@@ -135,10 +141,11 @@ private fun EpisodeStripCard(
     episode: EpisodeCard,
     current: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val accent = rememberAccentColorsForSurface(dark = true)
     Column(
-        Modifier
+        modifier
             .width(140.dp)
             .noRippleClickable(onClick),
     ) {
