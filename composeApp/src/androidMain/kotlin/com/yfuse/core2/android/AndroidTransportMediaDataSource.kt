@@ -23,6 +23,8 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -89,6 +91,8 @@ internal class AndroidTransportMediaDataSource(
     private var synchronousLoadCount = 0L
     private var maximumResolveWaitMs = 0L
     private var maximumRemoteLoadMs = 0L
+    private var maximumCacheLoadMs = 0L
+    private var promotedPrefetchCount = 0L
     private var latestReadPosition = 0L
 
     private val activePrefetchTransports = mutableSetOf<YMediaTransport>()
@@ -164,6 +168,8 @@ internal class AndroidTransportMediaDataSource(
             synchronousLoadCount = synchronousLoadCount,
             maximumResolveWaitMs = maximumResolveWaitMs,
             maximumRemoteLoadMs = maximumRemoteLoadMs,
+            maximumCacheLoadMs = maximumCacheLoadMs,
+            promotedPrefetchCount = promotedPrefetchCount,
             bufferedAheadBytes = bufferedAheadBytes,
             contentLengthBytes = knownSize,
             mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
@@ -196,6 +202,7 @@ internal class AndroidTransportMediaDataSource(
                     ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(0L),
                 )
             maximumRemoteLoadMs = maxOf(maximumRemoteLoadMs, loaded.remoteLoadDurationMs)
+            maximumCacheLoadMs = maxOf(maximumCacheLoadMs, loaded.cacheLoadDurationMs)
             loaded.contentLength?.let { contentLength ->
                 if (knownSize >= 0L) require(knownSize == contentLength) { "Remote media size changed during playback" }
                 knownSize = contentLength
@@ -211,8 +218,15 @@ internal class AndroidTransportMediaDataSource(
     }
 
     private fun loadBlockNow(blockIndex: Long): YLoadedTransportBlock {
-        diskCache?.readBlock(blockIndex, blockSize)?.let { cached ->
-            return YLoadedTransportBlock(cached, diskCache.contentLength)
+        diskCache?.let { cache ->
+            val startedNs = System.nanoTime()
+            cache.readBlock(blockIndex, blockSize)?.let { cached ->
+                return YLoadedTransportBlock(
+                    bytes = cached,
+                    contentLength = cache.contentLength,
+                    cacheLoadDurationMs = (System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND,
+                )
+            }
         }
         return loadRemoteBlockWithRetries(
             blockIndex = blockIndex,
@@ -439,8 +453,16 @@ internal class AndroidTransportMediaDataSource(
         prefetch.future =
             prefetchExecutor.submit<YLoadedTransportBlock> {
                 if (!prefetch.markStarted()) throw CancellationException("Transport prefetch was promoted")
-                diskCache?.readBlock(blockIndex, blockSize)?.let { cached ->
-                    return@submit YLoadedTransportBlock(cached, diskCache.contentLength)
+                diskCache?.let { cache ->
+                    val cacheStartedNs = System.nanoTime()
+                    cache.readBlock(blockIndex, blockSize)?.let { cached ->
+                        return@submit YLoadedTransportBlock(
+                            bytes = cached,
+                            contentLength = cache.contentLength,
+                            cacheLoadDurationMs =
+                                (System.nanoTime() - cacheStartedNs) / NANOS_PER_MILLISECOND,
+                        )
+                    }
                 }
                 val prefetchTransport = createTransport()
                 val rejected =
@@ -475,7 +497,17 @@ internal class AndroidTransportMediaDataSource(
             return null
         }
         return try {
-            prefetch.future.get()
+            prefetch.future.get(FOREGROUND_PREFETCH_WAIT_MS, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            // The promotion test above only rescues a prefetch the pool has not picked up yet:
+            // markStarted() runs as the task's first statement, before any I/O, so a range that
+            // began a millisecond ago and will stall for half a minute already counts as started.
+            // Waiting on it was unbounded, which is how a stalled origin came to hold the one pump
+            // that also drains MediaCodec and AudioTrack. Past this bound a direct load is the
+            // better bet, and cancelling releases the pool thread and its socket.
+            promotedPrefetchCount++
+            prefetch.cancel()
+            null
         } catch (_: CancellationException) {
             null
         } catch (_: ExecutionException) {
@@ -586,6 +618,9 @@ internal data class YTransportPrefetchQoeSnapshot(
     val synchronousLoadCount: Long,
     val maximumResolveWaitMs: Long,
     val maximumRemoteLoadMs: Long,
+    val maximumCacheLoadMs: Long = 0L,
+    /** Foreground reads that abandoned a stalled speculative range and loaded directly. */
+    val promotedPrefetchCount: Long = 0L,
     val bufferedAheadBytes: Long = 0L,
     val contentLengthBytes: Long = -1L,
     val mediaBitRateBitsPerSecond: Long = 0L,
@@ -647,6 +682,14 @@ private data class YLoadedTransportBlock(
     val bytes: ByteArray,
     val contentLength: Long?,
     val remoteLoadDurationMs: Long = 0L,
+    /**
+     * Time spent serving this block from the on-disk cache.
+     *
+     * Kept separate from [remoteLoadDurationMs] so a long resolve wait can be attributed. A cache
+     * hit used to record nothing, which made "the network was slow" and "the wait happened inside
+     * YCore" produce the same zero.
+     */
+    val cacheLoadDurationMs: Long = 0L,
 )
 
 private class YTransportBlockPrefetch(
@@ -746,4 +789,7 @@ private const val TRANSPORT_BUFFER_PROGRESS_EXTRA_BLOCKS = 2
 private const val BITS_PER_BYTE = 8L
 private const val MILLIS_PER_SECOND = 1_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
+// A 2 MiB speculative block that has not arrived in this long is no longer beating a direct load,
+// and the stalled socket behind it is worth releasing.
+private const val FOREGROUND_PREFETCH_WAIT_MS = 1_500L
 private const val MAX_SAFE_EXCEPTION_CHAIN_DEPTH = 4

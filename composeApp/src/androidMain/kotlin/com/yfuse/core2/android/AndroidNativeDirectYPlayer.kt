@@ -626,10 +626,18 @@ internal class AndroidNativeDirectYPlayer(
                 )
             }
             if (platformAudioTrackIndices.isNotEmpty() && initialAudioTrack == null) {
+                // Name the codecs. Without them this failure is indistinguishable from a device
+                // that simply lacks the decoder, and a diagnostic bundle cannot tell the two apart.
+                val rejectedAudioMimes =
+                    platformAudioTrackIndices
+                        .mapNotNull { index ->
+                            demux.trackFormat(index).getString(MediaFormat.KEY_MIME)?.lowercase()
+                        }.distinct()
+                        .joinToString(",")
                 throw YPlaybackException(
                     category = YPlaybackFailureCategory.Container,
                     stage = YPlaybackFailureStage.Demux,
-                    safeDetail = "NativeDirect has no playable platform audio path",
+                    safeDetail = "NativeDirect has no playable platform audio path for $rejectedAudioMimes",
                 )
             }
             audioTrackIndex = initialAudioTrack?.first
@@ -1432,6 +1440,13 @@ internal class AndroidNativeDirectYPlayer(
                             (transportQoe?.maximumResolveWaitMs?.toString() ?: ""),
                         "sourceMaximumLoadMs" to
                             (transportQoe?.maximumRemoteLoadMs?.toString() ?: ""),
+                        // Without these two a long sourceMaximumWaitMs cannot be attributed: a
+                        // zero load time reads identically whether the bytes came from the disk
+                        // cache or the wait happened inside YCore rather than on the network.
+                        "sourceMaximumCacheMs" to
+                            (transportQoe?.maximumCacheLoadMs?.toString() ?: ""),
+                        "sourcePromotedPrefetches" to
+                            (transportQoe?.promotedPrefetchCount?.toString() ?: ""),
                         "demuxQueuedSamples" to readAhead.queuedSamples.toString(),
                         "demuxQueuedBytes" to readAhead.queuedBytes.toString(),
                         "demuxBufferedMs" to
@@ -2294,15 +2309,25 @@ private fun YMediaItem.toAndroidSource(): YAndroidMediaSource =
         cacheMaximumBytes = cacheMaximumBytes,
     )
 
+/**
+ * Describes an audio track without throwing.
+ *
+ * Every failure here used to be swallowed by the caller's `runCatching { … }.getOrNull()`, which
+ * dropped the track and left the session reporting that the media simply had no audio. An
+ * unrecognised MIME therefore has to reach the capability layer as [YAudioCodec.Unknown] — the
+ * convention `AndroidCore2MediaProbe` already follows — so the device probe decides there is no
+ * output path and the caller's fail-closed guard reports a real reason. `toYAudioCodec` itself
+ * keeps returning null for unmapped types because [AndroidYCapabilityProvider] uses it to build the
+ * decoder capability set, where an Unknown entry would claim support for everything.
+ *
+ * Channel count and sample rate are read defensively for the same reason: `MediaFormat.getInteger`
+ * throws when a container omits the key, and losing the whole track over missing metadata is worse
+ * than carrying a zero the capability layer can reject.
+ */
 private fun MediaFormat.toCore2AudioTrackFormat(): YAudioTrackFormat {
     val mime = requireNotNull(getString(MediaFormat.KEY_MIME)).lowercase()
-    val profile =
-        if (containsKey(MediaFormat.KEY_PROFILE)) {
-            runCatching { getInteger(MediaFormat.KEY_PROFILE) }.getOrDefault(0)
-        } else {
-            0
-        }
-    val baseCodec = requireNotNull(mime.toYAudioCodec()) { "Unsupported NativeDirect audio MIME: $mime" }
+    val profile = intOrZero(MediaFormat.KEY_PROFILE)
+    val baseCodec = mime.toYAudioCodec() ?: YAudioCodec.Unknown
     val codec =
         when {
             baseCodec == YAudioCodec.Eac3 && profile == ATMOS_PROFILE -> YAudioCodec.Eac3Joc
@@ -2312,8 +2337,8 @@ private fun MediaFormat.toCore2AudioTrackFormat(): YAudioTrackFormat {
     return YAudioTrackFormat(
         codec = codec,
         mimeType = mime,
-        channelCount = getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1),
-        sampleRate = getInteger(MediaFormat.KEY_SAMPLE_RATE).coerceAtLeast(1),
+        channelCount = intOrZero(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1),
+        sampleRate = intOrZero(MediaFormat.KEY_SAMPLE_RATE).coerceAtLeast(1),
     )
 }
 

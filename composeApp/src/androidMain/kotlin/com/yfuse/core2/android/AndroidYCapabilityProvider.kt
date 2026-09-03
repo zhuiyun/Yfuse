@@ -404,8 +404,19 @@ private fun String.toYVideoCodec(): YVideoCodec? =
         else -> null
     }
 
+/**
+ * Maps a platform audio MIME onto a Core2 codec, or null when this build has no identity for it.
+ *
+ * Null must stay null: [AndroidYCapabilityProvider] builds the device decoder set through this
+ * function, and an Unknown entry there would claim support for every unrecognised codec. Callers
+ * describing a *track* map null to [YAudioCodec.Unknown] instead, so the capability layer rejects
+ * it explicitly rather than the track being dropped.
+ *
+ * Codec parameters are stripped first. Android appends them to several types (`audio/vnd.dts.uhd;
+ * profile=p2` for DTS:X), and an exact-string table silently misses every parameterised variant.
+ */
 internal fun String.toYAudioCodec(): YAudioCodec? =
-    when (lowercase()) {
+    when (lowercase().substringBefore(';').trim()) {
         "audio/mp4a-latm", "audio/aac", "audio/aac-adts" -> YAudioCodec.Aac
         "audio/alac", "audio/x-alac" -> YAudioCodec.Alac
         "audio/mpeg" -> YAudioCodec.Mp3
@@ -417,6 +428,9 @@ internal fun String.toYAudioCodec(): YAudioCodec? =
         "audio/true-hd", "audio/vnd.dolby.mlp" -> YAudioCodec.TrueHd
         "audio/vnd.dts" -> YAudioCodec.Dts
         "audio/vnd.dts.hd" -> YAudioCodec.DtsHd
+        // DtsX existed in the enum with no MIME reaching it, so a DTS:X track could never be
+        // identified as one.
+        "audio/vnd.dts.uhd" -> YAudioCodec.DtsX
         else -> null
     }
 
