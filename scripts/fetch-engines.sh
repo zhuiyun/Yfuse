@@ -12,7 +12,7 @@ MPV_RELEASE_TAG="native-mpv-b955aa2-yfuse-dolby1-arm64-20260824"
 MPV_URL="https://github.com/zhuiyun/Yfuse/releases/download/$MPV_RELEASE_TAG/$MPV_FILE"
 # The repository is private. Browser release URLs intentionally return 404 to unauthenticated
 # callers, including CI curl invocations. Pin the exact verified release asset and use GitHub's
-# authenticated asset API whenever a workflow/user token is available.
+# authenticated asset API whenever workflow or checkout credentials are available.
 MPV_ASSET_API_URL="https://api.github.com/repos/zhuiyun/Yfuse/releases/assets/527260538"
 MDK_URL="https://github.com/wang-bin/mdk-sdk/releases/download/v0.37.0/$MDK_FILE"
 MPV_CUSTOM_SHA="$LIBS/libmpv-release.aar.sha256"
@@ -84,12 +84,25 @@ github_download_token() {
   fi
 }
 
+github_authorization_header() {
+  local token
+  token="$(github_download_token)"
+  if [[ -n "$token" ]]; then
+    printf 'Authorization: Bearer %s' "$token"
+    return
+  fi
+  # actions/checkout persists its read token as an http extraheader in a git config included for
+  # this worktree. Reuse that exact header instead of requiring every workflow to duplicate the
+  # token into an environment variable.
+  git config --get http.https://github.com/.extraheader 2>/dev/null || true
+}
+
 download_private_github_asset() {
   local url="$1"
   local destination="$2"
-  local token
-  token="$(github_download_token)"
-  [[ -n "$token" ]] || return 1
+  local authorization
+  authorization="$(github_authorization_header)"
+  [[ -n "$authorization" ]] || return 1
   curl \
     --fail \
     --location \
@@ -100,7 +113,7 @@ download_private_github_asset() {
     --retry-delay 2 \
     --connect-timeout 20 \
     --header "Accept: application/octet-stream" \
-    --header "Authorization: Bearer $token" \
+    --header "$authorization" \
     --header "X-GitHub-Api-Version: 2022-11-28" \
     --output "$destination" \
     "$url"
