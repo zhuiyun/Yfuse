@@ -85,6 +85,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             store = AndroidYPlaybackLearningStore(context),
             nowEpochMs = System::currentTimeMillis,
         ),
+    private val adaptiveFeedbackSink: AndroidYCoreHttpProxy? = null,
     private val onRelease: () -> Unit = {},
 ) : YPlayer {
     private val nativeOnly = fallbackRouteFactory == null
@@ -297,6 +298,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         var finalizeChildLearning: (() -> Unit)? = null
         var nextItemPreloadJob: Job? = null
         var preloadedNextRoute: PreloadedNextRoute? = null
+        val adaptiveFeedbackGeneration = AtomicLong(0L)
         val sameRouteRecoveryAttempts = mutableMapOf<RouteRecoveryKey, Int>()
         val codecResetCounts = mutableMapOf<Int, Int>()
 
@@ -788,6 +790,15 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         fun attachChild(next: YPlayer) {
             stopChild()
+            val attachedFeedbackGeneration = adaptiveFeedbackGeneration.incrementAndGet()
+            adaptiveFeedbackSink?.updatePlaybackFeedback(
+                YAdaptivePlaybackFeedback(
+                    bufferedDurationUs = 0L,
+                    playing = false,
+                    speed = speed,
+                    generation = attachedFeedbackGeneration,
+                ),
+            )
             child = next
             activeChild = next
             val childIndex = currentIndex
@@ -859,6 +870,21 @@ internal class AndroidAdaptiveCore2YPlayer(
             childCollector =
                 scope.launch {
                     next.state.collect { reportedChildState ->
+                        val reportedBufferedDurationMs =
+                            maxOf(
+                                reportedChildState.diagnostics.sourceBufferedMs,
+                                (reportedChildState.bufferedPositionMs - reportedChildState.positionMs)
+                                    .coerceAtLeast(0L),
+                            )
+                        adaptiveFeedbackSink?.updatePlaybackFeedback(
+                            YAdaptivePlaybackFeedback(
+                                bufferedDurationUs =
+                                    reportedBufferedDurationMs * MICROSECONDS_PER_MILLISECOND,
+                                playing = reportedChildState.playing,
+                                speed = speed,
+                                generation = adaptiveFeedbackGeneration.get(),
+                            ),
+                        )
                         val prematureEnd =
                             reportedChildState.phase == YPlaybackPhase.Ended &&
                                 isPrematurePlaybackEnd(
@@ -1090,6 +1116,15 @@ internal class AndroidAdaptiveCore2YPlayer(
                             seekCommandQueued.set(false)
                             val positionMs = pendingSeekMs.getAndSet(NO_PENDING_SEEK_MS)
                             if (positionMs >= 0L) {
+                                val seekFeedbackGeneration = adaptiveFeedbackGeneration.incrementAndGet()
+                                adaptiveFeedbackSink?.updatePlaybackFeedback(
+                                    YAdaptivePlaybackFeedback(
+                                        bufferedDurationUs = 0L,
+                                        playing = false,
+                                        speed = speed,
+                                        generation = seekFeedbackGeneration,
+                                    ),
+                                )
                                 pendingPositionMs = positionMs
                                 child?.seekTo(positionMs)
                             }
@@ -1466,6 +1501,7 @@ internal fun canRetryCore2RouteInPlace(route: YPlaybackRoute): Boolean =
 
 private const val MIN_LEARNING_PLAYBACK_MS = 30_000L
 private const val MAX_PREMATURE_END_RECOVERY_ATTEMPTS = 1
+private const val MICROSECONDS_PER_MILLISECOND = 1_000L
 
 private fun YCore2FailureKey.toLearningKey(): YPlaybackLearningKey =
     YPlaybackLearningKey(

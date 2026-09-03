@@ -190,6 +190,7 @@ internal class AndroidEnhancedPlaybackSession(
         startPositionUs: Long = 0L,
         runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null,
         requireDolbyVisionIdentity: Boolean = false,
+        expectedAudio: Boolean = false,
     ): YDemuxOpenResult {
         close()
         dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.SourceChanged)
@@ -249,6 +250,23 @@ internal class AndroidEnhancedPlaybackSession(
                     plan.softwareAudioDecode &&
                     (demuxer as? AndroidFfmpegDemuxer)?.softwareDecodeAvailable == true
             }
+        if (expectedAudio && result.tracks.none { it.type == YDemuxTrackType.Audio && it.audio != null }) {
+            throw YPlaybackException(
+                category = YPlaybackFailureCategory.Container,
+                stage = YPlaybackFailureStage.Demux,
+                safeDetail = "Enhanced demux did not expose a server-declared audio track",
+            )
+        }
+        if (
+            result.tracks.any { it.type == YDemuxTrackType.Audio && it.audio != null } &&
+            audioTrack == null
+        ) {
+            throw YPlaybackException(
+                category = YPlaybackFailureCategory.Decoder,
+                stage = YPlaybackFailureStage.AudioDecoderConfigure,
+                safeDetail = "Enhanced route has no playable audio decoder",
+            )
+        }
         val selectedAudioDevicePath =
             audioTrack?.audio?.let { format ->
                 capabilities.audioOutputPath(

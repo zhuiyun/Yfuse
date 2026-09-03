@@ -103,6 +103,13 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     }
 
     @Test
+    fun `foreground range promotes only queued speculative work`() {
+        assertTrue(shouldPromoteTransportPrefetch(futureDone = false, executionStarted = false))
+        assertFalse(shouldPromoteTransportPrefetch(futureDone = false, executionStarted = true))
+        assertFalse(shouldPromoteTransportPrefetch(futureDone = true, executionStarted = true))
+    }
+
+    @Test
     fun `remote media keeps a bounded ten second prefetch window`() {
         assertEquals(
             12,

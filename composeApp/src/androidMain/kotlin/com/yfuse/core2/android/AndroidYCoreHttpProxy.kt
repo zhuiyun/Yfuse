@@ -49,6 +49,94 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal data class YAdaptivePlaybackFeedback(
+    val bufferedDurationUs: Long,
+    val playing: Boolean,
+    val speed: Float,
+    val generation: Long,
+)
+
+/**
+ * ABR buffer estimate backed by player truth when it is available.
+ *
+ * The manifest proxy used to drain a synthetic ten-second startup value against wall clock time.
+ * That made pause, seek, and non-1x playback select the wrong rendition. Feedback replaces the
+ * synthetic value; between reports the model advances only while playback is actually consuming.
+ */
+internal class YAdaptiveBufferModel(
+    initialBufferedDurationUs: Long = STARTUP_BUFFER_US,
+) {
+    private var bufferedDurationUs = initialBufferedDurationUs.coerceIn(0L, MAX_ABR_BUFFER_US)
+    private var updatedAtNs = System.nanoTime()
+    private var playing = true
+    private var speed = 1f
+    private var feedbackGeneration = Long.MIN_VALUE
+    private var lastFeedbackRecordedAtNs = Long.MIN_VALUE
+
+    @Synchronized
+    fun applyFeedback(
+        feedback: YAdaptivePlaybackFeedback,
+        recordedAtNs: Long,
+    ) {
+        if (
+            feedback.generation < feedbackGeneration ||
+            (feedback.generation == feedbackGeneration && recordedAtNs <= lastFeedbackRecordedAtNs)
+        ) {
+            return
+        }
+        feedbackGeneration = feedback.generation
+        lastFeedbackRecordedAtNs = recordedAtNs
+        bufferedDurationUs = feedback.bufferedDurationUs.coerceIn(0L, MAX_ABR_BUFFER_US)
+        playing = feedback.playing
+        speed = feedback.speed.takeIf { it.isFinite() && it > 0f } ?: 1f
+        updatedAtNs = recordedAtNs
+    }
+
+    @Synchronized
+    fun estimate(nowNs: Long = System.nanoTime()): Long {
+        drain(nowNs)
+        return bufferedDurationUs
+    }
+
+    @Synchronized
+    fun completeSegment(
+        durationUs: Long,
+        contiguous: Boolean,
+        nowNs: Long = System.nanoTime(),
+    ) {
+        drain(nowNs)
+        // Fresh player feedback already includes bytes arriving through this proxy. Adding the
+        // segment again would double count it. The wall-clock fallback remains for startup and for
+        // callers that cannot provide feedback.
+        if (
+            lastFeedbackRecordedAtNs != Long.MIN_VALUE &&
+            nowNs - lastFeedbackRecordedAtNs <= ABR_FEEDBACK_STALE_NS
+        ) {
+            return
+        }
+        bufferedDurationUs =
+            if (contiguous) {
+                (bufferedDurationUs + durationUs).coerceAtMost(MAX_ABR_BUFFER_US)
+            } else {
+                durationUs.coerceIn(0L, MAX_ABR_BUFFER_US)
+            }
+    }
+
+    private fun drain(nowNs: Long) {
+        val elapsedUs = (nowNs - updatedAtNs).coerceAtLeast(0L) / NANOS_PER_MICROSECOND
+        if (playing && elapsedUs > 0L) {
+            val consumedUs = (elapsedUs.toDouble() * speed.toDouble()).toLong()
+            bufferedDurationUs = (bufferedDurationUs - consumedUs).coerceAtLeast(0L)
+        }
+        updatedAtNs = nowNs
+    }
+}
+
+private data class TimedAdaptivePlaybackFeedback(
+    val value: YAdaptivePlaybackFeedback,
+    val recordedAtNs: Long,
+)
+
 /**
  * Process-local HTTP boundary for native demuxers that only accept URLs.
  *
@@ -122,16 +210,16 @@ internal class AndroidYCoreHttpProxy(
     private class HlsAbrSession(
         initialVariantId: String,
         private val isMeteredNetwork: () -> Boolean,
+        private val latestFeedback: () -> TimedAdaptivePlaybackFeedback?,
     ) {
         private val bandwidthEstimator = YAdaptiveBandwidthEstimator()
         private var currentVariantId = initialVariantId
-        private var bufferedDurationUs = STARTUP_BUFFER_US
-        private var updatedAtNs = System.nanoTime()
+        private val bufferModel = YAdaptiveBufferModel()
         private var lastCompletedSequence: Long? = null
 
         @Synchronized
         fun select(segment: YHlsAlignedSegment): com.yfuse.core2.adaptive.YHlsAlignedSegmentResource {
-            drainBuffer(System.nanoTime())
+            applyLatestFeedback()
             val currentForSegment =
                 currentVariantId.takeIf { current -> segment.resources.any { it.variant.id == current } }
                     ?: segment.resources
@@ -145,7 +233,7 @@ internal class AndroidYCoreHttpProxy(
                             estimatedBandwidthBitsPerSecond =
                                 bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
                                     ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
-                            bufferedDurationUs = bufferedDurationUs,
+                            bufferedDurationUs = bufferModel.estimate(),
                             metered = isMeteredNetwork(),
                         ),
                     currentVariantId = currentForSegment,
@@ -167,38 +255,36 @@ internal class AndroidYCoreHttpProxy(
             sequence: Long,
             durationUs: Long,
         ) {
-            drainBuffer(System.nanoTime())
+            applyLatestFeedback()
             if (lastCompletedSequence == sequence) return
-            bufferedDurationUs =
-                if (lastCompletedSequence == null || sequence == lastCompletedSequence?.plus(1L)) {
-                    (bufferedDurationUs + durationUs).coerceAtMost(MAX_ABR_BUFFER_US)
-                } else {
-                    durationUs.coerceAtMost(MAX_ABR_BUFFER_US)
-                }
+            bufferModel.completeSegment(
+                durationUs = durationUs,
+                contiguous = lastCompletedSequence == null || sequence == lastCompletedSequence?.plus(1L),
+            )
             lastCompletedSequence = sequence
         }
 
-        private fun drainBuffer(nowNs: Long) {
-            val elapsedUs = ((nowNs - updatedAtNs).coerceAtLeast(0L) / NANOS_PER_MICROSECOND)
-            bufferedDurationUs = (bufferedDurationUs - elapsedUs).coerceAtLeast(0L)
-            updatedAtNs = nowNs
+        private fun applyLatestFeedback() {
+            latestFeedback()?.let { feedback ->
+                bufferModel.applyFeedback(feedback.value, feedback.recordedAtNs)
+            }
         }
     }
 
     private class DashAbrSession(
         initialRepresentationId: String,
         private val isMeteredNetwork: () -> Boolean,
+        private val latestFeedback: () -> TimedAdaptivePlaybackFeedback?,
     ) {
         private val bandwidthEstimator = YAdaptiveBandwidthEstimator()
         private var currentRepresentationId = initialRepresentationId
-        private var bufferedDurationUs = STARTUP_BUFFER_US
-        private var updatedAtNs = System.nanoTime()
+        private val bufferModel = YAdaptiveBufferModel()
         private var lastCompletedSequence: Long? = null
 
         @Synchronized
         fun select(representations: List<YDashRepresentation>): YDashRepresentation {
             require(representations.isNotEmpty())
-            drainBuffer(System.nanoTime())
+            applyLatestFeedback()
             val variants = representations.map(YDashRepresentation::asAdaptiveVariant)
             val selected =
                 YAdaptiveVariantSelector.select(
@@ -208,7 +294,7 @@ internal class AndroidYCoreHttpProxy(
                             estimatedBandwidthBitsPerSecond =
                                 bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
                                     ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
-                            bufferedDurationUs = bufferedDurationUs,
+                            bufferedDurationUs = bufferModel.estimate(),
                             metered = isMeteredNetwork(),
                         ),
                     currentVariantId = currentRepresentationId,
@@ -230,21 +316,19 @@ internal class AndroidYCoreHttpProxy(
             sequence: Long,
             durationUs: Long,
         ) {
-            drainBuffer(System.nanoTime())
+            applyLatestFeedback()
             if (lastCompletedSequence == sequence) return
-            bufferedDurationUs =
-                if (lastCompletedSequence == null || sequence == lastCompletedSequence?.plus(1L)) {
-                    (bufferedDurationUs + durationUs).coerceAtMost(MAX_ABR_BUFFER_US)
-                } else {
-                    durationUs.coerceAtMost(MAX_ABR_BUFFER_US)
-                }
+            bufferModel.completeSegment(
+                durationUs = durationUs,
+                contiguous = lastCompletedSequence == null || sequence == lastCompletedSequence?.plus(1L),
+            )
             lastCompletedSequence = sequence
         }
 
-        private fun drainBuffer(nowNs: Long) {
-            val elapsedUs = ((nowNs - updatedAtNs).coerceAtLeast(0L) / NANOS_PER_MICROSECOND)
-            bufferedDurationUs = (bufferedDurationUs - elapsedUs).coerceAtLeast(0L)
-            updatedAtNs = nowNs
+        private fun applyLatestFeedback() {
+            latestFeedback()?.let { feedback ->
+                bufferModel.applyFeedback(feedback.value, feedback.recordedAtNs)
+            }
         }
     }
 
@@ -253,6 +337,8 @@ internal class AndroidYCoreHttpProxy(
     private val routes = LinkedHashMap<String, Route>()
     private val routeIds = HashMap<Route, String>()
     private val closed = AtomicBoolean(false)
+    @Volatile
+    private var adaptivePlaybackFeedback: TimedAdaptivePlaybackFeedback? = null
     private val workers: ExecutorService =
         Executors.newCachedThreadPool { runnable ->
             Thread(runnable, "YCore-HttpProxy-worker").apply { isDaemon = true }
@@ -302,6 +388,17 @@ internal class AndroidYCoreHttpProxy(
             }
         return localRouteUrl(route, syntheticPath)
     }
+
+    fun updatePlaybackFeedback(feedback: YAdaptivePlaybackFeedback) {
+        if (closed.get()) return
+        adaptivePlaybackFeedback =
+            TimedAdaptivePlaybackFeedback(
+                value = feedback,
+                recordedAtNs = System.nanoTime(),
+            )
+    }
+
+    private fun latestPlaybackFeedback(): TimedAdaptivePlaybackFeedback? = adaptivePlaybackFeedback
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
@@ -640,7 +737,7 @@ internal class AndroidYCoreHttpProxy(
             }.filterNotNull()
         val aligned = alignYHlsVariantSegments(variantMedia, selected.id)
         val session =
-            HlsAbrSession(selected.id, isMeteredNetwork)
+            HlsAbrSession(selected.id, isMeteredNetwork, ::latestPlaybackFeedback)
                 .takeIf { aligned.any { it.resources.size > 1 } }
         return HlsPlaybackManifest(
             text = selectedText,
@@ -774,7 +871,7 @@ internal class AndroidYCoreHttpProxy(
                 maximumRepresentations = MAX_DASH_ABR_REPRESENTATIONS,
             )
         val dashAbrSession =
-            DashAbrSession(selection.video.id, isMeteredNetwork)
+            DashAbrSession(selection.video.id, isMeteredNetwork, ::latestPlaybackFeedback)
                 .takeIf { switchingRepresentations.size > 1 }
         val rewritten =
             buildYDashPlaybackManifest(
@@ -1014,13 +1111,16 @@ internal class AndroidYCoreHttpProxy(
                 contentLength = response.contentLength,
             )
             if (method == "GET") {
-                val startedNs = System.nanoTime()
+                var networkReadDurationNs = 0L
                 var transferredBytes = 0L
                 val buffer = ByteArray(NETWORK_BUFFER_BYTES)
                 while (true) {
+                    val readStartedNs = System.nanoTime()
                     val count = transport.read(buffer, 0, buffer.size)
+                    networkReadDurationNs += (System.nanoTime() - readStartedNs).coerceAtLeast(0L)
                     if (count < 0) break
                     if (count > 0) {
+                        // Local loopback backpressure is deliberately outside networkReadDurationNs.
                         socket.getOutputStream().write(buffer, 0, count)
                         transferredBytes += count
                     }
@@ -1028,9 +1128,16 @@ internal class AndroidYCoreHttpProxy(
                 route.hlsAbrResource?.let { abr ->
                     abr.session.recordNetworkSample(
                         transferredBytes,
-                        ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
+                        (networkReadDurationNs / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
                     )
                     abr.session.complete(abr.segment.sequence, abr.segment.durationUs)
+                }
+                route.dashAbrResource?.let { abr ->
+                    abr.session.recordNetworkSample(
+                        transferredBytes,
+                        (networkReadDurationNs / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
+                    )
+                    abr.session.complete(abr.sequence, abr.durationUs)
                 }
             }
             socket.getOutputStream().flush()
@@ -1387,6 +1494,7 @@ private const val MAX_HLS_RELOAD_QUERY_PARAMETERS = 8
 private const val INITIAL_BANDWIDTH_BITS_PER_SECOND = 25_000_000L
 private const val STARTUP_BUFFER_US = 10_000_000L
 private const val MAX_ABR_BUFFER_US = 30_000_000L
+private const val ABR_FEEDBACK_STALE_NS = 5_000_000_000L
 private const val MAX_HLS_ABR_VARIANTS = 8
 private const val MAX_DASH_ABR_REPRESENTATIONS = 8
 private const val NANOS_PER_MICROSECOND = 1_000L

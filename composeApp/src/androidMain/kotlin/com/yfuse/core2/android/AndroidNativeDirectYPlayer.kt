@@ -376,7 +376,7 @@ internal class AndroidNativeDirectYPlayer(
         context: Context,
     ) {
         private val demux =
-            AndroidMediaExtractorDemuxNode(
+            AndroidMediaExtractorReadAheadNode(
                 context = context,
                 onBlockingReadStateChanged = ::onTransportBlockingReadStateChanged,
             )
@@ -425,7 +425,6 @@ internal class AndroidNativeDirectYPlayer(
         @Volatile
         private var lastAvSyncOffsetUs: Long? = null
 
-        private var sampleBuffer = ByteBuffer.allocateDirect(DEFAULT_SAMPLE_BUFFER_BYTES)
         private var inputEnded = false
         private var videoInputEnded = false
         private var audioInputEnded = false
@@ -590,12 +589,17 @@ internal class AndroidNativeDirectYPlayer(
                         safeDetail = "NativeDirect source has no video track",
                     )
             val capabilities = capabilityProvider.current()
+            val platformAudioTrackIndices =
+                (0 until demux.trackCount).filter { index ->
+                    demux
+                        .trackFormat(index)
+                        .getString(MediaFormat.KEY_MIME)
+                        .orEmpty()
+                        .startsWith(AUDIO_MIME_PREFIX)
+                }
             val initialAudioTrack =
-                (0 until demux.trackCount).firstNotNullOfOrNull { index ->
+                platformAudioTrackIndices.firstNotNullOfOrNull { index ->
                     val format = demux.trackFormat(index)
-                    if (!format.getString(MediaFormat.KEY_MIME).orEmpty().startsWith(AUDIO_MIME_PREFIX)) {
-                        return@firstNotNullOfOrNull null
-                    }
                     val coreFormat = runCatching { format.toCore2AudioTrackFormat() }.getOrNull()
                         ?: return@firstNotNullOfOrNull null
                     val requirement =
@@ -613,6 +617,21 @@ internal class AndroidNativeDirectYPlayer(
                         }
                     index.takeIf { playable }?.let { it to format }
                 }
+            val sourceDeclaresAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0
+            if (sourceDeclaresAudio && platformAudioTrackIndices.isEmpty()) {
+                throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Container,
+                    stage = YPlaybackFailureStage.Demux,
+                    safeDetail = "NativeDirect did not expose a server-declared audio track",
+                )
+            }
+            if (platformAudioTrackIndices.isNotEmpty() && initialAudioTrack == null) {
+                throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Container,
+                    stage = YPlaybackFailureStage.Demux,
+                    safeDetail = "NativeDirect has no playable platform audio path",
+                )
+            }
             audioTrackIndex = initialAudioTrack?.first
             videoFormat =
                 demux
@@ -668,15 +687,17 @@ internal class AndroidNativeDirectYPlayer(
             }
             configureAudioPath(audioInputFormat)
 
-            demux.selectTrack(requireNotNull(videoTrackIndex))
-            audioTrackIndex?.let(demux::selectTrack)
-
+            // The same floor that protects MediaCodec also sizes the extractor's staging buffer;
+            // otherwise a large 4K IDR can fail before it ever reaches the codec input guard.
+            videoFormat?.applyVideoMaxInputSizeFloor()
+            audioInputFormat?.applyAudioMaxInputSizeFloor()
             val sampleCapacity =
                 listOfNotNull(videoFormat, audioInputFormat)
                     .maxOfOrNull { format -> format.maxInputSizeOr(DEFAULT_SAMPLE_BUFFER_BYTES) }
                     ?.coerceIn(MIN_SAMPLE_BUFFER_BYTES, MAX_SAMPLE_BUFFER_BYTES)
                     ?: DEFAULT_SAMPLE_BUFFER_BYTES
-            sampleBuffer = ByteBuffer.allocateDirect(sampleCapacity)
+            demux.configureSampleCapacity(sampleCapacity)
+            demux.selectTracks(selectedDemuxTrackIndices())
 
             surfaceOutput?.surface?.takeIf { it.isValid }?.let { surface ->
                 configureVideoDecoder(surface)
@@ -908,10 +929,9 @@ internal class AndroidNativeDirectYPlayer(
             val format = demux.trackFormat(trackIndex)
             if (format.getString(MediaFormat.KEY_MIME)?.startsWith(AUDIO_MIME_PREFIX) != true) return
             val positionUs = currentPositionUs()
-            audioTrackIndex?.let(demux::unselectTrack)
-            demux.selectTrack(trackIndex)
             audioTrackIndex = trackIndex
             audioInputFormat = format
+            demux.selectTracks(selectedDemuxTrackIndices())
             releaseAudioPath()
             configureAudioPath(format)
             seekTo(positionUs)
@@ -945,10 +965,9 @@ internal class AndroidNativeDirectYPlayer(
             val nextSubtitleFormat = nextFormat?.subtitleFormatOrNull()
             if (trackIndex != null && nextSubtitleFormat?.textOverlaySupported != true) return
             val positionUs = currentPositionUs()
-            subtitleTrackIndex?.let(demux::unselectTrack)
-            trackIndex?.let(demux::selectTrack)
             subtitleTrackIndex = trackIndex
             selectedExternalSubtitleId = externalTrackId
+            demux.selectTracks(selectedDemuxTrackIndices())
             subtitleCues.clear()
             seekTo(positionUs)
             mutableState.value =
@@ -959,7 +978,13 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         private fun feedInput(): Boolean {
-            if (pendingEncodedAudioInput != null) return false
+            if (pendingEncodedAudioInput != null) {
+                val audioTrack = audioTrackIndex ?: return false
+                val alternate = pollDemuxSample(excludedTrackIndex = audioTrack) ?: return false
+                if (queueDemuxSample(alternate)) return true
+                demux.returnSample(alternate)
+                return false
+            }
             if (inputEnded) {
                 var queued = false
                 if (!videoInputEnded && videoConfigured) {
@@ -981,21 +1006,48 @@ internal class AndroidNativeDirectYPlayer(
                 return queued
             }
 
-            val positionUs = currentPositionUs()
-            if (lastQueuedPresentationUs - positionUs > MAX_INPUT_AHEAD_US) return false
-
-            val sample =
-                yPlaybackStage(
-                    category = sourceFailureCategory(),
-                    stage = YPlaybackFailureStage.Demux,
-                    safeDetail = "NativeDirect compressed sample read",
-                ) {
-                    demux.readSample(sampleBuffer)
-                }
-            if (sample == null) {
-                inputEnded = true
+            val primary = pollDemuxSample() ?: return false
+            if (queueDemuxSample(primary)) {
                 return true
             }
+
+            val blockedTrack = primary.trackIndex
+            // Passthrough may have consumed part of the sample into its own pending buffer. All
+            // other TryAgain results leave the sample untouched and safe to return to read-ahead.
+            if (pendingEncodedAudioInput == null || blockedTrack != audioTrackIndex) {
+                demux.returnSample(primary)
+            }
+
+            // A full video codec must not starve the following audio samples (or vice versa).
+            val alternate = pollDemuxSample(excludedTrackIndex = blockedTrack) ?: return false
+            if (queueDemuxSample(alternate)) return true
+            if (pendingEncodedAudioInput == null || alternate.trackIndex != audioTrackIndex) {
+                demux.returnSample(alternate)
+            }
+            return false
+        }
+
+        private fun pollDemuxSample(excludedTrackIndex: Int? = null): YExtractorSample? =
+            when (val queued = demux.pollSample(excludedTrackIndex)) {
+                is YQueuedExtractorResult.Sample -> queued.value
+                is YQueuedExtractorResult.Failed ->
+                    throw YPlaybackException(
+                        category = sourceFailureCategory(),
+                        stage = YPlaybackFailureStage.Demux,
+                        safeDetail = "NativeDirect compressed sample read",
+                        cause = queued.cause,
+                    )
+                YQueuedExtractorResult.Empty -> {
+                    exposeTransportBufferingIfStarved()
+                    null
+                }
+                YQueuedExtractorResult.EndOfInput -> {
+                    inputEnded = true
+                    null
+                }
+            }
+
+        private fun queueDemuxSample(sample: YExtractorSample): Boolean {
             val queued =
                 when (sample.trackIndex) {
                     videoTrackIndex ->
@@ -1026,7 +1078,6 @@ internal class AndroidNativeDirectYPlayer(
                 }
             if (queued != YCodecQueueResult.Queued) return false
             lastQueuedPresentationUs = maxOf(lastQueuedPresentationUs, sample.presentationTimeUs)
-            demux.advance()
             return true
         }
 
@@ -1289,8 +1340,10 @@ internal class AndroidNativeDirectYPlayer(
             val positionMs = positionUs / MICROS_PER_MILLISECOND
             val currentState = mutableState.value
             val transportQoe = demux.transportQoeSnapshot()
+            val readAhead = demux.snapshot()
             val sourceBufferedMs =
-                transportQoe?.bufferedAheadDurationMs(currentState.durationMs) ?: 0L
+                (transportQoe?.bufferedAheadDurationMs(currentState.durationMs) ?: 0L) +
+                    readAhead.bufferedDurationUs / MICROS_PER_MILLISECOND
             val bufferedPositionMs =
                 when {
                     !sourceRemote && currentState.durationMs > 0L -> currentState.durationMs
@@ -1315,8 +1368,10 @@ internal class AndroidNativeDirectYPlayer(
                         mutableState.value.diagnostics.copy(
                             droppedFrames = droppedFrames,
                             droppedFramesMeasured = true,
-                            sourceQueueBytes = transportQoe?.bufferedAheadBytes ?: 0L,
+                            sourceQueueBytes =
+                                (transportQoe?.bufferedAheadBytes ?: 0L) + readAhead.queuedBytes,
                             sourceBufferedMs = sourceBufferedMs,
+                            sourceStarvationCount = readAhead.starvationCount,
                             audioUnderrunCount =
                                 maxOf(
                                     mutableState.value.diagnostics.audioUnderrunCount,
@@ -1342,6 +1397,7 @@ internal class AndroidNativeDirectYPlayer(
             if (nowNs - lastQoePublishNs < QOE_PUBLISH_INTERVAL_NS) return
             lastQoePublishNs = nowNs
             val transportQoe = demux.transportQoeSnapshot()
+            val readAhead = demux.snapshot()
             AppLog.info(
                 category = "player.core2",
                 event = "native_direct_qoe",
@@ -1376,6 +1432,11 @@ internal class AndroidNativeDirectYPlayer(
                             (transportQoe?.maximumResolveWaitMs?.toString() ?: ""),
                         "sourceMaximumLoadMs" to
                             (transportQoe?.maximumRemoteLoadMs?.toString() ?: ""),
+                        "demuxQueuedSamples" to readAhead.queuedSamples.toString(),
+                        "demuxQueuedBytes" to readAhead.queuedBytes.toString(),
+                        "demuxBufferedMs" to
+                            (readAhead.bufferedDurationUs / MICROS_PER_MILLISECOND).toString(),
+                        "demuxStarvations" to readAhead.starvationCount.toString(),
                         "avOffsetMs" to (lastAvSyncOffsetUs?.div(MICROS_PER_MILLISECOND)?.toString() ?: ""),
                     ),
             )
@@ -1565,7 +1626,6 @@ internal class AndroidNativeDirectYPlayer(
                     verifyEncodedAudioOutput()
                     lastQueuedPresentationUs =
                         maxOf(lastQueuedPresentationUs, pending.presentationTimeUs)
-                    demux.advance()
                     true
                 }
             } catch (_: Exception) {
@@ -1797,24 +1857,20 @@ internal class AndroidNativeDirectYPlayer(
             if (transportReadBlocked == blocked || released) return
             val nowNs = System.nanoTime()
             if (blocked) {
-                val frozenPositionUs = currentPositionUs()
-                monotonicPositionFloorUs = frozenPositionUs
-                wallClock.pause(frozenPositionUs, nowNs)
                 transportReadBlocked = true
                 val generation = ++transportBlockGeneration
-                // MediaExtractor range reads are synchronous. A short cache miss is transport
-                // work, not a visible rebuffer, so expose buffering only after the debounce gate.
+                // The platform demux owner may block while the codec/render pump still has useful
+                // compressed or decoded output. Do not freeze playback merely because a range is
+                // in flight; expose buffering only when the read-ahead queue actually starves.
                 scope.launch(Dispatchers.Default) {
                     delay(TRANSPORT_BUFFERING_DEBOUNCE_MS)
-                    if (!released && transportReadBlocked && transportBlockGeneration == generation) {
-                        transportBufferingVisible = true
-                        mutableState.updateState { current ->
-                            if (released || current.phase == YPlaybackPhase.Failed || current.phase == YPlaybackPhase.Ended) {
-                                current
-                            } else {
-                                current.copy(playing = false, buffering = requestedPlay)
-                            }
-                        }
+                    if (
+                        !released &&
+                        transportReadBlocked &&
+                        transportBlockGeneration == generation &&
+                        demux.snapshot().starved
+                    ) {
+                        exposeTransportBufferingIfStarved()
                     }
                 }
                 return
@@ -1822,8 +1878,9 @@ internal class AndroidNativeDirectYPlayer(
 
             transportReadBlocked = false
             ++transportBlockGeneration
+            val wasVisible = transportBufferingVisible
             transportBufferingVisible = false
-            if (requestedPlay) {
+            if (requestedPlay && wasVisible) {
                 val resumePositionUs = audioClockSnapshot()?.positionUs ?: wallClock.positionUs(nowNs)
                 monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, resumePositionUs)
                 wallClock.start(monotonicPositionFloorUs, nowNs)
@@ -1835,6 +1892,40 @@ internal class AndroidNativeDirectYPlayer(
                     current.copy(
                         playing = requestedPlay && firstVideoFrameRendered,
                         buffering = requestedPlay && !firstVideoFrameRendered,
+                    )
+                }
+            }
+        }
+
+        private fun exposeTransportBufferingIfStarved() {
+            if (
+                released ||
+                !requestedPlay ||
+                !transportReadBlocked ||
+                transportBufferingVisible ||
+                !demux.snapshot().starved
+            ) {
+                return
+            }
+            val nowNs = System.nanoTime()
+            val frozenPositionUs = currentPositionUs()
+            monotonicPositionFloorUs = frozenPositionUs
+            wallClock.pause(frozenPositionUs, nowNs)
+            transportBufferingVisible = true
+            mutableState.updateState { current ->
+                if (released || current.phase == YPlaybackPhase.Failed || current.phase == YPlaybackPhase.Ended) {
+                    current
+                } else {
+                    current.copy(
+                        playing = false,
+                        buffering = true,
+                        diagnostics =
+                            current.diagnostics.copy(
+                                bufferEvents =
+                                    current.diagnostics.bufferEvents +
+                                        if (firstVideoFrameRendered) 1 else 0,
+                                sourceStarvationCount = demux.snapshot().starvationCount,
+                            ),
                     )
                 }
             }
@@ -1902,6 +1993,13 @@ internal class AndroidNativeDirectYPlayer(
                 } else {
                     "原码直通 · AudioTrack"
                 }
+            }
+
+        private fun selectedDemuxTrackIndices(): Set<Int> =
+            buildSet {
+                videoTrackIndex?.let { add(it) }
+                audioTrackIndex?.let { add(it) }
+                subtitleTrackIndex?.let { add(it) }
             }
 
         private fun audioTracks(): List<YTrack> =
@@ -2033,6 +2131,7 @@ internal class AndroidNativeDirectYPlayer(
 
         fun releaseAll() {
             releaseMedia()
+            demux.close()
             surfaceOutput = null
         }
 
@@ -2329,7 +2428,6 @@ private const val MICROS_PER_MILLISECOND = 1_000L
 private const val DEFAULT_SAMPLE_BUFFER_BYTES = 8 * 1024 * 1024
 private const val MIN_SAMPLE_BUFFER_BYTES = 256 * 1024
 private const val MAX_SAMPLE_BUFFER_BYTES = 32 * 1024 * 1024
-private const val MAX_INPUT_AHEAD_US = 1_500_000L
 private const val MAX_VIDEO_SCHEDULE_AHEAD_US = 250_000L
 private const val STATE_PUBLISH_INTERVAL_NS = 200_000_000L
 private const val LATE_FRAME_DROP_NS = 100_000_000L

@@ -266,8 +266,18 @@ internal class AndroidNativeEnhancedYPlayer(
         var selectedExternalSubtitleId: String? = null
         var activePlan: YPlaybackPlan? = null
         var activeDolbyProfile: Int? = null
+        var adaptiveFeedbackGeneration = 0L
 
         suspend fun prepareCurrent(positionUs: Long) {
+            adaptiveFeedbackGeneration++
+            proxy?.updatePlaybackFeedback(
+                YAdaptivePlaybackFeedback(
+                    bufferedDurationUs = 0L,
+                    playing = false,
+                    speed = speed,
+                    generation = adaptiveFeedbackGeneration,
+                ),
+            )
             val output = surfaceOutput?.surface?.takeIf { it.isValid }
             if (output == null) {
                 prepared = false
@@ -342,6 +352,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     startPositionUs = positionUs.coerceAtLeast(0L),
                     runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
                     requireDolbyVisionIdentity = requireDolbyVisionIdentity,
+                    expectedAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
                 )
             prepared = true
             activePlan = playbackPlan
@@ -428,6 +439,14 @@ internal class AndroidNativeEnhancedYPlayer(
             if (!force && now - lastPublishNs < STATE_PUBLISH_INTERVAL_NS) return
             lastPublishNs = now
             val snapshot = session.snapshot()
+            proxy?.updatePlaybackFeedback(
+                YAdaptivePlaybackFeedback(
+                    bufferedDurationUs = snapshot.sourceBufferedUs,
+                    playing = snapshot.playing,
+                    speed = speed,
+                    generation = adaptiveFeedbackGeneration,
+                ),
+            )
             mutableState.updateState {
                 it.copy(
                     phase = if (snapshot.ended) YPlaybackPhase.Ended else YPlaybackPhase.Ready,
@@ -560,7 +579,18 @@ internal class AndroidNativeEnhancedYPlayer(
                                 if (prepared) session.pause()
                             }
                             is Command.Seek -> {
-                                if (prepared) session.seekTo(command.positionUs)
+                                if (prepared) {
+                                    adaptiveFeedbackGeneration++
+                                    proxy?.updatePlaybackFeedback(
+                                        YAdaptivePlaybackFeedback(
+                                            bufferedDurationUs = 0L,
+                                            playing = false,
+                                            speed = speed,
+                                            generation = adaptiveFeedbackGeneration,
+                                        ),
+                                    )
+                                    session.seekTo(command.positionUs)
+                                }
                             }
                             is Command.SetSpeed -> {
                                 speed = command.speed

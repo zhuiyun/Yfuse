@@ -438,6 +438,7 @@ internal class AndroidTransportMediaDataSource(
         prefetchedBlocks[blockIndex] = prefetch
         prefetch.future =
             prefetchExecutor.submit<YLoadedTransportBlock> {
+                if (!prefetch.markStarted()) throw CancellationException("Transport prefetch was promoted")
                 diskCache?.readBlock(blockIndex, blockSize)?.let { cached ->
                     return@submit YLoadedTransportBlock(cached, diskCache.contentLength)
                 }
@@ -465,6 +466,14 @@ internal class AndroidTransportMediaDataSource(
 
     private fun takePrefetchedBlock(blockIndex: Long): YLoadedTransportBlock? {
         val prefetch = prefetchedBlocks.remove(blockIndex) ?: return null
+        // A foreground MediaExtractor read must never sit behind speculative ranges. If its future
+        // has not started, remove it from the executor queue and load through the primary transport
+        // immediately. This is the exact head-of-line case where diagnostics showed a 22 s resolve
+        // wait for a block whose actual network transfer took only 2.2 s.
+        if (shouldPromoteTransportPrefetch(prefetch.future.isDone, prefetch.started)) {
+            prefetch.cancel()
+            return null
+        }
         return try {
             prefetch.future.get()
         } catch (_: CancellationException) {
@@ -628,6 +637,12 @@ internal fun shouldPrefetchTransportBlock(
     return knownSize < 0L || blockIndex.saturatedMultiply(blockSize.toLong()) < knownSize
 }
 
+/** Foreground playback must bypass speculative work that is still waiting in the pool queue. */
+internal fun shouldPromoteTransportPrefetch(
+    futureDone: Boolean,
+    executionStarted: Boolean,
+): Boolean = !futureDone && !executionStarted
+
 private data class YLoadedTransportBlock(
     val bytes: ByteArray,
     val contentLength: Long?,
@@ -638,9 +653,17 @@ private class YTransportBlockPrefetch(
     val blockIndex: Long,
 ) {
     private val cancelled = AtomicBoolean(false)
+    private val executionStarted = AtomicBoolean(false)
     private var activeTransport: YMediaTransport? = null
 
     lateinit var future: Future<YLoadedTransportBlock>
+
+    val started: Boolean get() = executionStarted.get()
+
+    fun markStarted(): Boolean {
+        executionStarted.set(true)
+        return !cancelled.get()
+    }
 
     @Synchronized
     fun bind(transport: YMediaTransport): Boolean {
@@ -714,7 +737,9 @@ private const val DEFAULT_TRANSPORT_CACHE_BYTES = 64L * 1024L * 1024L
 private const val TRANSPORT_PREFETCH_THREAD_NAME = "YCore-TransportPrefetch"
 private const val DEFAULT_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 2
 private const val MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 12
-private const val MAX_TRANSPORT_PREFETCH_CONCURRENCY = 8
+// Four ordered ranges keep HTTP/1.1 origins busy without letting speculative traffic crowd out
+// playback. Foreground reads separately promote any queued block they need immediately.
+private const val MAX_TRANSPORT_PREFETCH_CONCURRENCY = 4
 private const val TARGET_TRANSPORT_PREFETCH_WINDOW_MS = 10_000L
 private const val TRANSPORT_PREFETCH_SAFETY_BLOCKS = 1L
 private const val TRANSPORT_BUFFER_PROGRESS_EXTRA_BLOCKS = 2

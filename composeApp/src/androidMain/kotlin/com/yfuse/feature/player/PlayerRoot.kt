@@ -428,6 +428,12 @@ internal fun PlayerRoot(
         }
 
     val attachedKind = kind
+    val attachedEngineLabel =
+        if (engine is YPlayerVideoEngineAdapter) {
+            "YCore2Native"
+        } else {
+            attachedKind.name
+        }
     DisposableEffect(engine, player, attachedKind) {
         AppLog.info(
             category = "player",
@@ -435,7 +441,7 @@ internal fun PlayerRoot(
             message = "Playback engine attached",
             attributes =
                 mapOf(
-                    "engine" to attachedKind.name,
+                    "engine" to attachedEngineLabel,
                     "implementation" to engine::class.java.name,
                 ),
         )
@@ -454,7 +460,7 @@ internal fun PlayerRoot(
                 message = "Playback engine detached",
                 attributes =
                     mapOf(
-                        "engine" to attachedKind.name,
+                        "engine" to attachedEngineLabel,
                         "implementation" to engine::class.java.name,
                     ),
             )
@@ -1125,7 +1131,11 @@ internal fun PlayerRoot(
                 mapOf(
                     "itemIndex" to state.currentIndex.toString(),
                     "engine" to kind.name,
-                    "profile" to (version.dolbyProfile?.toString() ?: "audio-only"),
+                    "profile" to
+                        (
+                            version.dolbyProfile?.toString()
+                                ?: if (version.dolbyVision) "unknown" else "not-dolby-vision"
+                        ),
                     "health" to runtimeAssessment.health.grade.name,
                     "startupTimeMs" to
                         (runtimeAssessment.health.startupTimeMs?.toString() ?: "pending"),

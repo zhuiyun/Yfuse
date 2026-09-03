@@ -186,6 +186,7 @@ internal object AndroidCore2TrialFactory {
                     nativeGpuRuntimeProbe = nativeGpuRuntimeProbe,
                     preferSoftwareDecode = decoderMode == DecoderMode.Software,
                     preferredRemoteBufferTargetUs = yCoreBufferTargetUs,
+                    adaptiveFeedbackSink = yCoreProxy,
                     onRelease = {
                         cacheProxy?.close()
                         yCoreProxy?.close()
@@ -418,6 +419,8 @@ private fun PlayerMediaItem.toCore2MediaItem(
                         container = source.container,
                         bitrateBitsPerSecond = source.sourceBitrateBps?.toLong() ?: 0L,
                         videoCodec = source.sourceVideoCodec,
+                        audioCodec = source.sourceAudio,
+                        audioTrackCount = source.audioTrackCount,
                         dynamicRange = source.sourceDynamicRange,
                         dolbyVision = source.dolbyVision,
                         dolbyVisionProfile = source.dolbyProfile,

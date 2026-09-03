@@ -154,6 +154,10 @@ data class YMediaSourceHints(
     /** Server-confirmed overall source bitrate used to size NativeDirect compressed read-ahead. */
     val bitrateBitsPerSecond: Long = 0L,
     val videoCodec: String? = null,
+    /** Server-declared audio codec label; probe truth remains authoritative for decoder setup. */
+    val audioCodec: String? = null,
+    /** Distinguishes a genuinely silent source from a demuxer that lost a declared audio stream. */
+    val audioTrackCount: Int = 0,
     val dynamicRange: String? = null,
     val dolbyVision: Boolean = false,
     val dolbyVisionProfile: Int? = null,
@@ -164,6 +168,7 @@ data class YMediaSourceHints(
 ) {
     init {
         require(bitrateBitsPerSecond >= 0L)
+        require(audioTrackCount >= 0)
     }
 }
 
