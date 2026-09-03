@@ -275,8 +275,10 @@ YCore 依赖平台默认分配。
 
 ## 四、修订优先级
 
-1. **DV `MediaFormat` 拷贝副本** + **>8 声道 fail-closed 或真 downmix**（2.5、2.6）
-   —— 确定性缺陷，改动小，无需真机证据。
+> **r3 进度**：第 1 项已实施（见「已修复」）。第 2–6 项未动。
+
+1. ~~**DV `MediaFormat` 拷贝副本** + **>8 声道 fail-closed 或真 downmix**（2.5、2.6）~~
+   —— 已修复，另补了 `max-input-size` 兜底（2.10）。
 2. **ABR 接真实 buffered position**，显式处理 pause / seek / speed（2.3）。
 3. **把 NativeDirect 解复用彻底移出 pump**（2.1）
    —— 比继续扩大缓存更根本；缓存只降低未命中概率，移出 pump 才能让未命中不冻画面。
@@ -323,6 +325,27 @@ YCore 依赖平台默认分配。
 | 6 | ASS 两条路径是否都进 libass | 带 `\pos`/`\k` 的内嵌与外挂 ASS 各一 |
 
 ---
+
+---
+
+## 七、已修复（r3）
+
+| 缺陷 | 修法 | 提交 |
+| --- | --- | --- |
+| 2.5 DV 配置就地破坏共享 `MediaFormat` | `configure()` 与每个候选解码器各自拿到 `copyForCodecAttempt()` 的副本；变体的 `applyTo` 作用在副本上，调用方缓存的 `videoFormat` 不再被削。API 29 用 `MediaFormat` 拷贝构造，更低版本本就不会移除键 | 见下 |
+| 2.6 >8 声道静默降 stereo | `channelMaskForCount` 补齐 API 32 的 10/12 声道布局，其余返回 `CHANNEL_INVALID`；`buildAudioTrack` 显式拒绝而不是建一个会播出错乱声音的 stereo track | 见下 |
+| 2.10 `max-input-size` 未补齐 | 下沉到两个 codec 节点（它们持有 `require(size <= input.remaining())` 守卫），Enhanced 与 NativeDirect 两条路一起覆盖。容器已给出的值优先；只在缺失时按 `w*h*3/(2*ratio)` 补一个下界 | 见下 |
+
+**范围说明**：2.6 选择的是 fail-closed，不是 downmix。
+真正的 N→2 下混需要按布局给系数，是另一件工作；当前改动把「静默播出错乱声音」
+换成「明确失败并可被路由降级」，兼容构建下会交给 mpv，native-only 制品下是硬失败。
+这是评审要求的两个选项之一，但**代价需要知情**：今天能出（错的）声音的 9 声道内容，
+改后在 native-only 下不出声。
+
+**验证状态**：本会话无法编译。`dl.google.com` 被代理策略拒绝（CONNECT 403），
+Gradle 解析不到 Kotlin/AGP 插件，本地也没有 Android SDK 和发布密钥库。
+新增的纯函数（`videoMaxInputSizeBytes`、`audioMaxInputSizeBytes`、`channelMaskForCount`）
+已补单测，但**尚未执行**。编译、单测、ktlint 与签名均需走 CI。
 
 ## 修订记录
 

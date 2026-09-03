@@ -43,9 +43,10 @@ internal class AndroidMediaCodecAudioNode(
         val mime =
             format.getString(MediaFormat.KEY_MIME)
                 ?: error("Audio MediaFormat is missing ${MediaFormat.KEY_MIME}")
+        val working = format.copyForCodecAttempt().also(MediaFormat::applyAudioMaxInputSizeFloor)
         val decoder = createDecoder(mime)
         try {
-            decoder.configure(format, null, mediaCrypto, 0)
+            decoder.configure(working, null, mediaCrypto, 0)
             decoder.start()
             codec = decoder
             started = true
