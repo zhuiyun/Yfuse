@@ -1921,9 +1921,6 @@ internal class AndroidNativeDirectYPlayer(
                         buffering = true,
                         diagnostics =
                             current.diagnostics.copy(
-                                bufferEvents =
-                                    current.diagnostics.bufferEvents +
-                                        if (firstVideoFrameRendered) 1 else 0,
                                 sourceStarvationCount = demux.snapshot().starvationCount,
                             ),
                     )
