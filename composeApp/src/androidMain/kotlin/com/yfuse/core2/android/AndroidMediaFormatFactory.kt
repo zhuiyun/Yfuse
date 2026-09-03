@@ -150,6 +150,66 @@ internal object AndroidMediaFormatFactory {
     }
 }
 
+/**
+ * Applies a lower bound for `max-input-size` when nothing upstream supplied one.
+ *
+ * MediaCodec sizes its input buffers from this key. The enhanced-demux route builds its format from
+ * scratch and never has it; a MediaExtractor format usually does, but not always. Without it the
+ * platform picks a vendor default that a large IDR frame can exceed, and the queue guard then fails
+ * the whole session instead of decoding. An existing value always wins: the container knows the real
+ * peak better than a formula does.
+ */
+internal fun MediaFormat.applyVideoMaxInputSizeFloor() {
+    if (containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) return
+    val mime = getString(MediaFormat.KEY_MIME) ?: return
+    val width = runCatching { getInteger(MediaFormat.KEY_WIDTH) }.getOrDefault(0)
+    val height = runCatching { getInteger(MediaFormat.KEY_HEIGHT) }.getOrDefault(0)
+    videoMaxInputSizeBytes(mime, width, height)?.let { bytes ->
+        setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, bytes)
+    }
+}
+
+/** Audio counterpart of [applyVideoMaxInputSizeFloor]. */
+internal fun MediaFormat.applyAudioMaxInputSizeFloor() {
+    if (containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) return
+    val channelCount = runCatching { getInteger(MediaFormat.KEY_CHANNEL_COUNT) }.getOrDefault(1)
+    setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, audioMaxInputSizeBytes(channelCount))
+}
+
+/**
+ * Lower bound for a compressed video access unit, mirroring the ratio the platform decoders are
+ * built around: three bytes per two luma samples divided by a conservative per-codec compression
+ * ratio. It is a floor for buffer allocation, not a claim about the real peak frame size, so an
+ * unknown resolution deliberately returns null and leaves the platform default in place.
+ */
+internal fun videoMaxInputSizeBytes(
+    mime: String,
+    width: Int,
+    height: Int,
+): Int? {
+    if (width <= 0 || height <= 0) return null
+    val pixels = width.toLong() * height.toLong()
+    val minimumCompressionRatio =
+        when (mime.lowercase()) {
+            MIME_H265, MIME_VP9 -> 4L
+            // Dolby Vision sits on an HEVC, AVC or AV1 base depending on profile, so it takes the
+            // generous ratio rather than assuming the HEVC one.
+            MIME_H264, MIME_AV1, MIME_VP8, MIME_MPEG4, MIME_DOLBY_VISION -> 2L
+            // An unrecognised codec gets the most generous ratio rather than a guess that is too
+            // small; over-allocating a few MiB is cheaper than failing playback.
+            else -> 2L
+        }
+    return (pixels * 3L / (2L * minimumCompressionRatio))
+        .coerceIn(MIN_VIDEO_MAX_INPUT_BYTES, MAX_VIDEO_MAX_INPUT_BYTES)
+        .toInt()
+}
+
+/** Compressed audio frames are small, but lossless multichannel carriers are not. */
+internal fun audioMaxInputSizeBytes(channelCount: Int): Int =
+    (channelCount.coerceAtLeast(1).toLong() * PER_CHANNEL_AUDIO_MAX_INPUT_BYTES)
+        .coerceIn(MIN_AUDIO_MAX_INPUT_BYTES, MAX_AUDIO_MAX_INPUT_BYTES)
+        .toInt()
+
 /** Normalizes FFmpeg/container NAL packing before an access unit enters MediaCodec. */
 internal fun normalizeVideoSampleForMediaCodec(
     data: ByteArray,
@@ -201,6 +261,17 @@ private fun List<ByteArray>.joinAnnexB(): ByteArray =
     }
 
 private const val MIME_DOLBY_VISION = "video/dolby-vision"
+private const val MIME_H264 = "video/avc"
+private const val MIME_H265 = "video/hevc"
+private const val MIME_VP8 = "video/x-vnd.on2.vp8"
+private const val MIME_VP9 = "video/x-vnd.on2.vp9"
+private const val MIME_AV1 = "video/av01"
+private const val MIME_MPEG4 = "video/mp4v-es"
+private const val MIN_VIDEO_MAX_INPUT_BYTES = 256L * 1024L
+private const val MAX_VIDEO_MAX_INPUT_BYTES = 32L * 1024L * 1024L
+private const val PER_CHANNEL_AUDIO_MAX_INPUT_BYTES = 32L * 1024L
+private const val MIN_AUDIO_MAX_INPUT_BYTES = 64L * 1024L
+private const val MAX_AUDIO_MAX_INPUT_BYTES = 1L * 1024L * 1024L
 private const val CSD_0 = "csd-0"
 private const val CSD_1 = "csd-1"
 private const val CSD_2 = "csd-2"

@@ -8,6 +8,8 @@ import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.media.MediaFormat
 import android.media.PlaybackParams
+import android.os.Build
+import androidx.annotation.RequiresApi
 import com.yfuse.core2.graph.YAudioRenderNode
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicLong
@@ -262,6 +264,13 @@ private fun buildAudioTrack(format: MediaFormat): AudioTrack {
         } else {
             channelMaskForCount(channelCount)
         }
+    // A layout this device has no mask for must fail here. Falling back to a stereo mask would let
+    // AudioTrack initialise and then reinterpret interleaved multichannel PCM as two channels,
+    // which plays as garbled audio at the wrong rate instead of surfacing a route that can be
+    // handed to a downmix or to the next backend.
+    check(channelMask != AudioFormat.CHANNEL_INVALID) {
+        "No AudioTrack channel mask covers $channelCount-channel PCM output"
+    }
     val minBuffer =
         AudioTrack
             .getMinBufferSize(
@@ -326,6 +335,13 @@ internal fun nativeDirectAudioBufferSizeBytes(
     ).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }
 
+/**
+ * Maps a decoded PCM channel count to an output mask, or [AudioFormat.CHANNEL_INVALID] when this
+ * platform has no layout for it.
+ *
+ * Returning an invalid mask is deliberate: a silently narrowed mask produces audible corruption
+ * rather than a diagnosable failure, and the height layouts only exist from API 32.
+ */
 internal fun channelMaskForCount(channelCount: Int): Int =
     when (channelCount) {
         1 -> AudioFormat.CHANNEL_OUT_MONO
@@ -339,8 +355,25 @@ internal fun channelMaskForCount(channelCount: Int): Int =
         6 -> AudioFormat.CHANNEL_OUT_5POINT1
         7 -> AudioFormat.CHANNEL_OUT_5POINT1 or AudioFormat.CHANNEL_OUT_BACK_CENTER
         8 -> AudioFormat.CHANNEL_OUT_7POINT1_SURROUND
-        else -> AudioFormat.CHANNEL_OUT_STEREO
+        10, 12 -> heightChannelMaskForCount(channelCount)
+        else -> AudioFormat.CHANNEL_INVALID
     }
+
+/** Keeps the API 32-only height layouts out of the ordinary mask table. */
+private fun heightChannelMaskForCount(channelCount: Int): Int {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S_V2) return AudioFormat.CHANNEL_INVALID
+    return Api32HeightChannelMasks.forCount(channelCount)
+}
+
+@RequiresApi(Build.VERSION_CODES.S_V2)
+private object Api32HeightChannelMasks {
+    fun forCount(channelCount: Int): Int =
+        when (channelCount) {
+            10 -> AudioFormat.CHANNEL_OUT_5POINT1POINT4
+            12 -> AudioFormat.CHANNEL_OUT_7POINT1POINT4
+            else -> AudioFormat.CHANNEL_INVALID
+        }
+}
 
 private const val MICROS_PER_SECOND = 1_000_000L
 private const val DEFAULT_AUDIO_BUFFER_BYTES = 64 * 1024

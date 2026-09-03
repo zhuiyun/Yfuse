@@ -261,4 +261,44 @@ class AndroidMediaCodecVideoNodePolicyTest {
         assertNull(emptyTailSeekRetryTarget(currentTargetUs = 7_369_000L, retryCount = 3))
         assertNull(emptyTailSeekRetryTarget(currentTargetUs = 0L, retryCount = 0))
     }
+
+    @Test
+    fun hevcMaxInputSizeUsesTheStricterCompressionRatio() {
+        // 3840 * 2160 * 3 / (2 * 4)
+        assertEquals(3_110_400, videoMaxInputSizeBytes("video/hevc", 3840, 2160))
+    }
+
+    @Test
+    fun avcMaxInputSizeAllowsLargerAccessUnits() {
+        // 3840 * 2160 * 3 / (2 * 2)
+        assertEquals(6_220_800, videoMaxInputSizeBytes("video/avc", 3840, 2160))
+    }
+
+    @Test
+    fun unknownVideoCodecGetsTheMoreGenerousAllowance() {
+        assertEquals(
+            videoMaxInputSizeBytes("video/avc", 1920, 1080),
+            videoMaxInputSizeBytes("video/vendor-unknown", 1920, 1080),
+        )
+    }
+
+    @Test
+    fun smallAndOversizedVideoInputsStayWithinBounds() {
+        assertEquals(256 * 1024, videoMaxInputSizeBytes("video/hevc", 16, 16))
+        assertEquals(32 * 1024 * 1024, videoMaxInputSizeBytes("video/avc", 15_360, 8_640))
+    }
+
+    @Test
+    fun unknownVideoGeometryLeavesThePlatformDefaultInPlace() {
+        assertNull(videoMaxInputSizeBytes("video/avc", 0, 1080))
+        assertNull(videoMaxInputSizeBytes("video/avc", 1920, -1))
+    }
+
+    @Test
+    fun audioMaxInputSizeScalesWithChannelsInsideItsBounds() {
+        assertEquals(64 * 1024, audioMaxInputSizeBytes(1))
+        assertEquals(64 * 1024, audioMaxInputSizeBytes(2))
+        assertEquals(256 * 1024, audioMaxInputSizeBytes(8))
+        assertEquals(1024 * 1024, audioMaxInputSizeBytes(64))
+    }
 }

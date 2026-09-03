@@ -111,17 +111,22 @@ internal class AndroidMediaCodecVideoNode(
         val mime =
             format.getString(MediaFormat.KEY_MIME)
                 ?: error("Video MediaFormat is missing ${MediaFormat.KEY_MIME}")
+        // The caller keeps one MediaFormat for the whole item and reconfigures from it on surface
+        // recreation and tail-seek retries. Configure attempts must therefore never write to it:
+        // a compatibility retry strips optional Dolby Vision metadata, and MediaCodec itself may
+        // add keys, so a shared format would arrive at the next attempt already degraded.
+        val working = format.copyForCodecAttempt().also(MediaFormat::applyVideoMaxInputSizeFloor)
         val secureDecoderName =
             if (mediaCrypto?.requiresSecureDecoderComponent(mime) == true) {
-                format.setFeatureEnabled(MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback, true)
-                MediaCodecList(MediaCodecList.ALL_CODECS).findDecoderForFormat(format)
+                working.setFeatureEnabled(MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback, true)
+                MediaCodecList(MediaCodecList.ALL_CODECS).findDecoderForFormat(working)
                     ?: error("No secure video decoder accepts the encrypted format")
             } else {
                 null
             }
         if (mime == MIME_DOLBY_VISION && secureDecoderName == null) {
             configureDolbyVisionDecoder(
-                format = format,
+                format = working,
                 surface = surface,
                 plannedDecoderName = decoderName,
                 mediaCrypto = mediaCrypto,
@@ -139,7 +144,7 @@ internal class AndroidMediaCodecVideoNode(
                     createByName = createDecoderByName,
                 )
             decoder = candidate
-            candidate.configure(format, surface, mediaCrypto, 0)
+            candidate.configure(working, surface, mediaCrypto, 0)
             candidate.start()
             codec = candidate
             started = true
@@ -152,7 +157,7 @@ internal class AndroidMediaCodecVideoNode(
             runCatching { decoder?.release() }
             throw throwable.toVideoDecoderConfigurationException(
                 mime = mime,
-                profile = format.integerOrNull(MediaFormat.KEY_PROFILE),
+                profile = working.integerOrNull(MediaFormat.KEY_PROFILE),
                 decoderName = attemptedDecoderName,
             )
         }
@@ -214,7 +219,6 @@ internal class AndroidMediaCodecVideoNode(
             )
         val failures = mutableListOf<YVideoDecoderAttemptFailure>()
         variants.forEach { variant ->
-            variant.applyTo(format)
             if (variant != YDolbyVisionConfigureVariant.Exact) {
                 AppLog.warning(
                     category = "player.core2",
@@ -229,10 +233,14 @@ internal class AndroidMediaCodecVideoNode(
             }
             candidateNames.forEachIndexed { index, candidateName ->
                 var decoder: MediaCodec? = null
+                // Each candidate gets the variant applied to a pristine format. Stripping one
+                // shared object would hand every later candidate in this loop a format that had
+                // already lost metadata an earlier candidate happened to reject.
+                val attemptFormat = format.copyForCodecAttempt().also(variant::applyTo)
                 try {
                     val candidateDecoder = createDecoderByName(candidateName)
                     decoder = candidateDecoder
-                    candidateDecoder.configure(format, surface, mediaCrypto, 0)
+                    candidateDecoder.configure(attemptFormat, surface, mediaCrypto, 0)
                     candidateDecoder.start()
                     codec = candidateDecoder
                     started = true
@@ -457,6 +465,17 @@ internal fun orderedVideoDecoderNames(
         addAll(profileMatchingDecoderNames.filter(String::isNotBlank))
         addAll(mimeDecoderNames.filter(String::isNotBlank))
     }.distinct()
+
+/**
+ * Returns a format a configure attempt may modify freely.
+ *
+ * `MediaFormat`'s copy constructor and `removeKey` both arrived in API 29. Below that the variants
+ * that strip metadata are never produced ([dolbyVisionConfigureVariants] returns only `Exact`), so
+ * returning the original is safe; the one remaining in-place write there is the secure-playback
+ * feature flag, which is idempotent for a given encrypted item.
+ */
+internal fun MediaFormat.copyForCodecAttempt(): MediaFormat =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaFormat(this) else this
 
 internal enum class YDolbyVisionConfigureVariant(
     val diagnosticLabel: String,
