@@ -50,6 +50,13 @@ class YCorePlaybackSession(
     plan: PlaybackPlan,
     private val failureMemory: PlaybackFailureMemory,
     private val performanceMemory: PlaybackPerformanceMemory? = null,
+    /**
+     * The planner's [PlayerEngine] currently names compatibility engines only. NativeDirect can
+     * run behind an Exo-selected plan, so recording NativeDirect health under [PlayerEngine.Exo]
+     * would poison Exo's persistent failure/performance memory. Keep observation active while
+     * withholding shared engine learning until NativeDirect has its own planner identity.
+     */
+    private val recordEngineLearning: Boolean = true,
     startedAtEpochMs: Long,
     initialPositionMs: Long,
     initialBufferEvents: Int,
@@ -90,8 +97,10 @@ class YCorePlaybackSession(
 
     fun observe(observation: YCoreRuntimeObservation): YCoreRuntimeAssessment {
         val runtimeFault = runtimeFaultDetector.observe(observation)
-        runtimeFault?.let { fault ->
-            failureMemory.record(probe.capabilitySignature, engine, fault.kind.failureKind)
+        if (recordEngineLearning) {
+            runtimeFault?.let { fault ->
+                failureMemory.record(probe.capabilitySignature, engine, fault.kind.failureKind)
+            }
         }
         val health =
             healthSession.observe(
@@ -109,10 +118,15 @@ class YCorePlaybackSession(
         val reportHealth = health.evaluationReady && !reported
         if (reportHealth) {
             reported = true
-            performanceMemory?.record(probe.capabilitySignature, engine, health)
+            if (recordEngineLearning) {
+                performanceMemory?.record(probe.capabilitySignature, engine, health)
+            }
         }
 
-        val recordPenalty = health.enginePenaltyRecommended && !penaltyRecorded
+        val recordPenalty =
+            recordEngineLearning &&
+                health.enginePenaltyRecommended &&
+                !penaltyRecorded
         if (recordPenalty) {
             penaltyRecorded = true
             failureMemory.record(
@@ -123,7 +137,8 @@ class YCorePlaybackSession(
         }
 
         val confirmCapability =
-            !capabilityConfirmed &&
+            recordEngineLearning &&
+                !capabilityConfirmed &&
                 runtimeFault == null &&
                 health.evaluationReady &&
                 !health.enginePenaltyRecommended &&
@@ -146,7 +161,9 @@ class YCorePlaybackSession(
     }
 
     fun recordFailure(kind: PlaybackFailureKind) {
-        failureMemory.record(probe.capabilitySignature, engine, kind)
+        if (recordEngineLearning) {
+            failureMemory.record(probe.capabilitySignature, engine, kind)
+        }
     }
 }
 
