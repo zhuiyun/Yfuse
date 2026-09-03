@@ -17,13 +17,7 @@ jobs:
         with:
           ref: fix/ycore-stall-danmaku-rollback
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Repair non-autocorrectable lines
+      - name: Repair confirmed formatting failures
         shell: bash
         run: |
           python3 - <<'PY'
@@ -102,23 +96,19 @@ jobs:
               path = Path(file_name)
               text = path.read_text()
               for old, new in edits:
-                  if old in text:
-                      text = text.replace(old, new)
+                  text = text.replace(old, new)
               path.write_text(text)
           PY
 
-      - name: Format Kotlin
-        run: ./gradlew ktlintFormat --no-daemon
-
-      - name: Commit formatting
+      - name: Commit repairs
         shell: bash
         run: |
           if git diff --quiet; then
-            echo "Already formatted"
+            echo "Confirmed repairs already present"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- '*.kt' '*.kts'
-          git commit -m "style: apply ktlint formatting"
+          git add -- '*.kt'
+          git commit -m "style: repair ktlint blockers"
           git push origin HEAD:fix/ycore-stall-danmaku-rollback
