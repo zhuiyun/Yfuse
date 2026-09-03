@@ -568,7 +568,13 @@ class CalendarIngestionTest {
             first.copy(
                 revision = "2026-08-26-r2",
                 updatedAt = "2026-08-26T05:00:00Z",
-                evidence = first.evidence.map { it.copy(capturedAt = "2026-08-26T05:00:00Z", contentHash = "b".repeat(64)) },
+                evidence =
+                    first.evidence.map {
+                        it.copy(
+                            capturedAt = "2026-08-26T05:00:00Z",
+                            contentHash = "b".repeat(64),
+                        )
+                    },
             )
 
         assertEquals(semanticFingerprint(listOf(first)), semanticFingerprint(listOf(second)))
@@ -869,8 +875,22 @@ class CalendarIngestionTest {
             )
         val sources =
             listOf(
-                StructuredCalendarSource("TmdbSchedule", "TMDB", "https://www.themoviedb.org/tv/1", HASH, HASH, mapOf(1 to CalendarEpisode(1, "2026-08-28"))),
-                StructuredCalendarSource("TvmazeSchedule", "TVmaze", "https://www.tvmaze.com/shows/1", HASH, HASH, mapOf(1 to CalendarEpisode(1, "2026-08-29"))),
+                StructuredCalendarSource(
+                    "TmdbSchedule",
+                    "TMDB",
+                    "https://www.themoviedb.org/tv/1",
+                    HASH,
+                    HASH,
+                    mapOf(1 to CalendarEpisode(1, "2026-08-28")),
+                ),
+                StructuredCalendarSource(
+                    "TvmazeSchedule",
+                    "TVmaze",
+                    "https://www.tvmaze.com/shows/1",
+                    HASH,
+                    HASH,
+                    mapOf(1 to CalendarEpisode(1, "2026-08-29")),
+                ),
             )
 
         assertNull(
