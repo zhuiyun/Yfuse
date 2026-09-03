@@ -61,6 +61,25 @@ class YCorePlaybackSessionTest {
     }
 
     @Test
+    fun native_runtime_fault_does_not_penalize_the_compatibility_engine_identity() {
+        val memory = PlaybackFailureMemory(failureThreshold = 1)
+        val session = session(memory, recordEngineLearning = false)
+        val waiting =
+            observation(now = 60_000L, droppedFrames = 0).copy(
+                positionMs = 0L,
+                videoReady = false,
+                videoExpected = true,
+            )
+
+        val result = session.observe(waiting)
+
+        assertEquals(PlaybackRuntimeFaultKind.StartupTimeout, result.runtimeFault?.kind)
+        assertFalse(result.enginePenaltyRecorded)
+        assertFalse(result.engineCapabilityConfirmed)
+        assertEquals(0, memory.failureCount(SIGNATURE, PlayerEngine.Exo))
+    }
+
+    @Test
     fun intentional_buffering_does_not_trigger_a_position_stall() {
         val memory = PlaybackFailureMemory(failureThreshold = 1)
         val session = session(memory)
@@ -106,7 +125,10 @@ class YCorePlaybackSessionTest {
         assertEquals(15_000L, playbackStartupTimeoutMs(probe().copy(localSource = true)))
     }
 
-    private fun session(memory: PlaybackFailureMemory): YCorePlaybackSession =
+    private fun session(
+        memory: PlaybackFailureMemory,
+        recordEngineLearning: Boolean = true,
+    ): YCorePlaybackSession =
         YCorePlaybackSession(
             engine = PlayerEngine.Exo,
             probe = probe(),
@@ -119,6 +141,7 @@ class YCorePlaybackSessionTest {
                     engineOrder = listOf(PlayerEngine.Exo),
                 ),
             failureMemory = memory,
+            recordEngineLearning = recordEngineLearning,
             startedAtEpochMs = 0L,
             initialPositionMs = 0L,
             initialBufferEvents = 0,
