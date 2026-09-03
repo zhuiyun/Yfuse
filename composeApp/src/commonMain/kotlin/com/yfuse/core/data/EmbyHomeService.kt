@@ -14,9 +14,13 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
@@ -26,19 +30,28 @@ internal class EmbyHomeService(
     private val browseService: EmbyBrowseService,
     private val progress: PlaybackProgressProjection = PlaybackProgressProjection(),
 ) {
+    private val json = Json { ignoreUnknownKeys = true }
+
     /** Aggregates the home screen: continue-watching, latest-per-library, featured. */
     suspend fun homeContent(server: SavedServer): Result<HomeContent> =
         embyApiCall("home_content") {
             coroutineScope {
-                val views = libraryService.views(server)
+                val views =
+                    withTimeout(HOME_VIEWS_TIMEOUT_MS) {
+                        libraryService.views(server)
+                    }
                 // One server can expose dozens of views. Bound the section fan-out so opening
                 // Home does not turn those rows into a TLS/HTTP connection storm.
                 val sectionPermits = Semaphore(4)
+                suspend fun <T> boundedSection(block: suspend () -> T): T =
+                    withTimeout(HOME_SECTION_TIMEOUT_MS) {
+                        sectionPermits.withPermit { block() }
+                    }
                 // A single library (or the resume row) failing must not blank the
                 // whole home screen — degrade to an empty row instead.
                 val resumeDeferred =
                     async {
-                        runCatching { sectionPermits.withPermit { fetchResume(server) } }
+                        runCatching { boundedSection { fetchResume(server) } }
                             .onFailure {
                                 AppLog.warning(
                                     category = "emby",
@@ -56,7 +69,7 @@ internal class EmbyHomeService(
                 val favoritesDeferred =
                     async {
                         runCatching {
-                            sectionPermits.withPermit {
+                            boundedSection {
                                 val collection =
                                     browseService.fetchFavorites(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
                                 HomeRow(
@@ -83,7 +96,7 @@ internal class EmbyHomeService(
                 val watchLaterDeferred =
                     async {
                         runCatching {
-                            sectionPermits.withPermit {
+                            boundedSection {
                                 val collection =
                                     browseService.fetchWatchLater(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
                                 HomeRow(
@@ -109,7 +122,7 @@ internal class EmbyHomeService(
                     }
                 val countsDeferred =
                     async {
-                        runCatching { sectionPermits.withPermit { libraryService.counts(server) } }
+                        runCatching { boundedSection { libraryService.counts(server) } }
                             .onFailure {
                                 // Counts are useful footer metadata, not a reason to blank an
                                 // otherwise healthy library page. A missing/older endpoint simply
@@ -126,7 +139,7 @@ internal class EmbyHomeService(
                 val collectionsDeferred =
                     async {
                         runCatching {
-                            sectionPermits.withPermit {
+                            boundedSection {
                                 browseService
                                     .fetchMediaContainers(
                                         server,
@@ -152,7 +165,7 @@ internal class EmbyHomeService(
                 val playlistsDeferred =
                     async {
                         runCatching {
-                            sectionPermits.withPermit {
+                            boundedSection {
                                 browseService
                                     .fetchMediaContainers(
                                         server,
@@ -178,10 +191,16 @@ internal class EmbyHomeService(
                 val rowDeferred =
                     views.map { view ->
                         async {
+                            val itemsDeferred =
+                                async {
+                                    runCatching { boundedSection { fetchLatest(server, view.id) } }
+                                }
+                            val totalDeferred =
+                                async {
+                                    runCatching { boundedSection { fetchLibraryCount(server, view.id) } }
+                                }
                             val items =
-                                runCatching {
-                                    sectionPermits.withPermit { fetchLatest(server, view.id) }
-                                }.onFailure {
+                                itemsDeferred.await().onFailure {
                                     AppLog.warning(
                                         category = "emby",
                                         event = "home_section_degraded",
@@ -197,9 +216,7 @@ internal class EmbyHomeService(
                                 }.getOrDefault(emptyList())
                             // The chip shows the library's real size, not the loaded page.
                             val total =
-                                runCatching {
-                                    sectionPermits.withPermit { fetchLibraryCount(server, view.id) }
-                                }.onFailure {
+                                totalDeferred.await().onFailure {
                                     AppLog.warning(
                                         category = "emby",
                                         event = "library_count_degraded",
@@ -288,9 +305,8 @@ internal class EmbyHomeService(
         server: SavedServer,
         viewId: String,
     ): List<MediaItem> {
-        val items: List<BaseItemDto> =
-            client
-                .get("${server.baseUrl}/Users/${server.userId}/Items/Latest") {
+        val response =
+            client.get("${server.baseUrl}/Users/${server.userId}/Items/Latest") {
                     header("X-Emby-Token", server.accessToken)
                     parameter("ParentId", viewId)
                     parameter("Limit", 16)
@@ -302,7 +318,17 @@ internal class EmbyHomeService(
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")
                     parameter("ImageTypeLimit", 2)
-                }.body()
+                }
+        // Use the generated serializer explicitly. Release shrinking can erase the reflective
+        // generic List type that Ktor's body<List<...>>() converter otherwise relies on.
+        val items =
+            json.decodeFromString(
+                ListSerializer(BaseItemDto.serializer()),
+                response.bodyAsText(),
+            )
         return items.map { progress.project(server, it).toMediaItem() }
     }
 }
+
+private const val HOME_VIEWS_TIMEOUT_MS = 4_000L
+private const val HOME_SECTION_TIMEOUT_MS = 2_500L

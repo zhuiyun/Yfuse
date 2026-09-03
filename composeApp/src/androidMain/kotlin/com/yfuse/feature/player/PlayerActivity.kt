@@ -30,6 +30,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.arkivanov.mvikotlin.core.store.Store
+import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.account.AccountAccessTokenSource
 import com.yfuse.core.cast.CastCapability
 import com.yfuse.core.cast.CastManager
@@ -72,6 +74,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 
@@ -128,6 +131,26 @@ class PlayerActivity : ComponentActivity() {
                 )
         }
 
+        fun pendingIntent(
+            context: Context,
+            store: Store<PlayerIntent, PlayerState, Nothing>,
+            startPlaybackRequested: Boolean,
+        ): Intent {
+            val launchId =
+                PendingPlayerLaunchRegistry.register(
+                    PendingPlayerLaunch(
+                        store = store,
+                        startPlaybackRequested = startPlaybackRequested,
+                    ),
+                )
+            return Intent(context, PlayerActivity::class.java)
+                .also { PendingPlayerLaunchRegistry.writeTo(it, launchId) }
+                .addFlags(
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+        }
+
         /** Brings a live player forward without copying its queue or reusing its consumed token. */
         internal fun openIntent(context: Context): Intent =
             Intent(context, PlayerActivity::class.java)
@@ -139,6 +162,10 @@ class PlayerActivity : ComponentActivity() {
 
         internal fun discardLaunch(intent: Intent) {
             PlayerLaunchRegistry.discard(PlayerLaunchIntentPayload.readFrom(intent)?.launchId)
+        }
+
+        internal fun discardPendingLaunch(intent: Intent) {
+            PendingPlayerLaunchRegistry.discard(PendingPlayerLaunchRegistry.readFrom(intent))
         }
     }
 
@@ -356,6 +383,30 @@ class PlayerActivity : ComponentActivity() {
             hide(WindowInsetsCompat.Type.systemBars())
         }
 
+        if (launchViewModel.request == null) {
+            val retainedPending = launchViewModel.pending
+            val pending =
+                retainedPending
+                    ?: PendingPlayerLaunchRegistry.consume(
+                        PendingPlayerLaunchRegistry.readFrom(intent),
+                    )
+            if (pending != null) {
+                launchViewModel.pending = pending
+                showPendingPlayer(pending)
+                return
+            }
+            if (PendingPlayerLaunchRegistry.readFrom(intent) != null) {
+                AppLog.warning(
+                    category = "feature.player",
+                    event = "pending_launch_expired",
+                    message = "Pending player preparation was missing or expired",
+                )
+                Toast.makeText(this, "播放会话已过期，请重新打开", Toast.LENGTH_SHORT).show()
+                finish()
+                return
+            }
+        }
+
         val launchPayload = PlayerLaunchIntentPayload.readFrom(intent)
         val launchResolution =
             resolvePlayerLaunch(
@@ -382,6 +433,74 @@ class PlayerActivity : ComponentActivity() {
             return
         }
         val launchRequest = (launchResolution as PlayerLaunchResolution.Ready).request
+        initializePlayer(launchRequest)
+    }
+
+    private fun showPendingPlayer(pending: PendingPlayerLaunch) {
+        val accent =
+            runCatching { GlobalContext.get().get<ThemePreferences>().accent.value }
+                .getOrDefault(AccentColor.Blue)
+        setContent {
+            val state by pending.store.states.collectAsState(pending.store.state)
+            YfuseTheme(dark = true, accent = accent) {
+                PlayerPreparationContent(
+                    state = state,
+                    onRetry = { pending.store.accept(PlayerIntent.Retry) },
+                    onBack = ::finish,
+                )
+            }
+        }
+        lifecycleScope.launch {
+            val state = pending.store.states.first { it.items.isNotEmpty() }
+            val koin = GlobalContext.get()
+            val registry = runCatching { koin.get<ServerRegistry>() }.getOrNull()
+            val preparedItems =
+                runCatching {
+                    val localPrepared =
+                        prepareNativeLocalBluRayRoute(
+                            state.items,
+                            state.startIndex,
+                            this@PlayerActivity,
+                        )
+                    prepareNativeRemoteBluRayRoutes(localPrepared, state.startIndex, registry)
+                }.onFailure { error ->
+                    AppLog.warning(
+                        category = "feature.player",
+                        event = "native_disc_route_preparation_failed",
+                        message = "Optional native disc route preparation failed; using resolved source",
+                        throwable = error,
+                    )
+                }.getOrDefault(state.items)
+            PlaybackSelection.update(preparedItems.getOrNull(state.startIndex))
+            val preferences = runCatching { koin.get<ThemePreferences>() }.getOrNull()
+            val request =
+                PlayerLaunchRequest.create(
+                    items = preparedItems,
+                    startIndex = state.startIndex,
+                    startPositionMs = state.startPositionMs,
+                    engine =
+                        offlineSubtitlePlaybackEngine(
+                            preferred = preferences?.engine?.value ?: PlayerEngine.Exo,
+                            items = preparedItems,
+                        ),
+                    decoder = preferences?.decoder?.value ?: DecoderMode.Hardware,
+                    autoNext = preferences?.autoNext?.value ?: true,
+                    startPlaybackRequested = pending.startPlaybackRequested,
+                )
+            launchViewModel.request = request
+            launchViewModel.pending = null
+            pending.store.dispose()
+            AppLog.info(
+                category = "feature.player",
+                event = "preparation_completed_in_activity",
+                message = "Playback preparation completed inside player activity",
+                attributes = mapOf("itemCount" to preparedItems.size.toString()),
+            )
+            initializePlayer(request)
+        }
+    }
+
+    private fun initializePlayer(launchRequest: PlayerLaunchRequest) {
         launchViewModel.request = launchRequest
         val items =
             if (televisionDevice) {
@@ -602,6 +721,27 @@ class PlayerActivity : ComponentActivity() {
         // Notification taps only bring this live instance forward. They deliberately carry no
         // launch token and must never restart playback or consume registry state.
         if (intent.action == ACTION_OPEN) return
+
+        PendingPlayerLaunchRegistry.readFrom(intent)?.let { pendingId ->
+            val replacement = PendingPlayerLaunchRegistry.consume(pendingId)
+            if (replacement == null) {
+                Toast.makeText(this, "新的播放会话已过期，继续当前播放", Toast.LENGTH_SHORT).show()
+                return
+            }
+            launchViewModel.pending?.store?.dispose()
+            launchViewModel.pending = replacement
+            launchViewModel.request = null
+            launchViewModel.resume = null
+            setIntent(intent)
+            stopRequested = true
+            AppLog.info(
+                category = "feature.player",
+                event = "pending_launch_replaced",
+                message = "Active player is being replaced before playback preparation",
+            )
+            recreate()
+            return
+        }
 
         val payload = PlayerLaunchIntentPayload.readFrom(intent) ?: return
         when (val replacement = resolveFreshPlayerLaunch(payload)) {

@@ -16,8 +16,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -26,7 +24,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
@@ -35,7 +32,21 @@ import com.yfuse.core.designsystem.touchTarget
 
 @Composable
 fun PlayerScreen(component: PlayerComponent) {
-    val state by component.store.states.collectAsState(component.store.state)
+    PendingPlayerLauncher(
+        store = component.store,
+        startPlaybackRequested = component.startPlaybackRequested,
+        onStoreTransferred = component::transferStoreOwnership,
+        onLaunched = component.onBack,
+    )
+}
+
+/** Loading and retry stay inside the landscape player Activity. */
+@Composable
+internal fun PlayerPreparationContent(
+    state: PlayerState,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
+) {
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when {
@@ -48,18 +59,9 @@ fun PlayerScreen(component: PlayerComponent) {
             state.error != null ->
                 PlayerLoadError(
                     message = state.error!!,
-                    onRetry = { component.store.accept(PlayerIntent.Retry) },
-                    onBack = component.onBack,
+                    onRetry = onRetry,
+                    onBack = onBack,
                     modifier = Modifier.align(Alignment.Center),
-                )
-
-            state.items.isNotEmpty() ->
-                PlayerLauncher(
-                    items = state.items,
-                    startIndex = state.startIndex,
-                    startPositionMs = state.startPositionMs,
-                    startPlaybackRequested = component.startPlaybackRequested,
-                    onLaunched = component.onBack,
                 )
         }
 
@@ -68,7 +70,7 @@ fun PlayerScreen(component: PlayerComponent) {
                 .statusBarsPadding()
                 .padding(8.dp)
                 .align(Alignment.TopStart)
-                .pressable(onClickLabel = "返回", onClick = component.onBack)
+                .pressable(onClickLabel = "返回", onClick = onBack)
                 .touchTarget()
                 .size(38.dp)
                 .glass(

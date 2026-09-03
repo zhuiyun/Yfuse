@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import android.content.Context
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -34,6 +35,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.net.URI
 
 /**
  * Unified YPlayer wrapper for the Phase-3 NativeEnhanced graph.
@@ -233,6 +235,20 @@ internal class AndroidNativeEnhancedYPlayer(
     }
 
     private suspend fun runLoop() {
+        val proxy =
+            runCatching {
+                AndroidYCoreHttpProxy(
+                    context = appContext,
+                    userAgent =
+                        request.items
+                            .asSequence()
+                            .flatMap { it.headers.asSequence() }
+                            .firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }
+                            ?.value
+                            .orEmpty(),
+                    cacheMaximumBytes = request.items.maxOfOrNull { it.cacheMaximumBytes } ?: 0L,
+                )
+            }.getOrNull()
         val session =
             AndroidEnhancedPlaybackSession(
                 context = appContext,
@@ -296,11 +312,30 @@ internal class AndroidNativeEnhancedYPlayer(
                 session.open(
                     source =
                         YDemuxSource(
-                            uri = item.uri,
-                            headers = item.headers,
+                            uri =
+                                if (proxy != null && shouldProxyEnhancedSourceUri(item.uri)) {
+                                    proxy.localUrl(
+                                        upstreamUri = item.uri,
+                                        upstreamHeaders = item.headers,
+                                        credentials = item.transportCredentials,
+                                        cacheable = item.cacheIdentity != null && item.cacheMaximumBytes > 0L,
+                                        cacheIdentity = item.cacheIdentity,
+                                    )
+                                } else {
+                                    item.uri
+                                },
+                            headers =
+                                if (proxy != null && shouldProxyEnhancedSourceUri(item.uri)) {
+                                    emptyMap()
+                                } else {
+                                    item.headers
+                                },
                             cacheIdentity = item.cacheIdentity,
                             cacheMaximumBytes = item.cacheMaximumBytes,
-                            transportCredentials = item.transportCredentials,
+                            transportCredentials =
+                                item.transportCredentials.takeUnless {
+                                    proxy != null && shouldProxyEnhancedSourceUri(item.uri)
+                                },
                         ),
                     plan = playbackPlan,
                     surface = output,
@@ -628,6 +663,19 @@ internal class AndroidNativeEnhancedYPlayer(
                         publishSnapshot(force = true)
                     } catch (failure: Throwable) {
                         val typed = failure as? YPlaybackException
+                        AppLog.error(
+                            category = "core2.native",
+                            event = "native_enhanced_failed",
+                            message = "YCore enhanced playback failed",
+                            throwable = failure,
+                            attributes =
+                                mapOf(
+                                    "failureCategory" to (typed?.category?.name ?: "Unknown"),
+                                    "failureStage" to (typed?.stage?.name ?: "Unknown"),
+                                    "itemIndex" to currentIndex.toString(),
+                                    "sourceScheme" to request.items[currentIndex].uri.substringBefore(':').lowercase(),
+                                ),
+                        )
                         session.close()
                         prepared = false
                         requestedPlay = false
@@ -674,6 +722,7 @@ internal class AndroidNativeEnhancedYPlayer(
             }
         } finally {
             session.release()
+            proxy?.close()
         }
     }
 
@@ -709,6 +758,13 @@ internal class AndroidNativeEnhancedYPlayer(
             val index: Int,
         ) : Command
     }
+}
+
+/** Remote static files need the same redirect/range/credential boundary as adaptive manifests. */
+internal fun shouldProxyEnhancedSourceUri(uri: String): Boolean {
+    val parsed = runCatching { URI(uri) }.getOrNull() ?: return false
+    if (parsed.scheme?.lowercase() !in setOf("http", "https", "webdav", "webdavs")) return false
+    return parsed.host?.lowercase() !in setOf("127.0.0.1", "localhost", "::1")
 }
 
 internal fun yCoreEnhancedFailureMessage(failure: YPlaybackException?): String =

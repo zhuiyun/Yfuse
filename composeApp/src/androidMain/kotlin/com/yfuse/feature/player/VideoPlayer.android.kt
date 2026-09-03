@@ -4,11 +4,52 @@ import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
+import com.arkivanov.mvikotlin.core.store.Store
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.PlayerEngine
 import org.koin.core.context.GlobalContext
+
+@Composable
+actual fun PendingPlayerLauncher(
+    store: Store<PlayerIntent, PlayerState, Nothing>,
+    startPlaybackRequested: Boolean,
+    onStoreTransferred: () -> Unit,
+    onLaunched: () -> Unit,
+) {
+    val context = LocalContext.current
+    LaunchedEffect(store, startPlaybackRequested) {
+        var launchIntent: android.content.Intent? = null
+        runCatching {
+            PlayerActivity
+                .pendingIntent(
+                    context = context,
+                    store = store,
+                    startPlaybackRequested = startPlaybackRequested,
+                ).also { createdIntent ->
+                    launchIntent = createdIntent
+                    context.startActivity(createdIntent)
+                }
+        }.onSuccess {
+            onStoreTransferred()
+            AppLog.info(
+                category = "feature.player",
+                event = "activity_launched",
+                message = "Player activity launched before playback preparation",
+            )
+            onLaunched()
+        }.onFailure {
+            launchIntent?.let(PlayerActivity::discardPendingLaunch)
+            AppLog.error(
+                category = "feature.player",
+                event = "activity_launch_failed",
+                message = "Failed to launch player activity",
+                throwable = it,
+            )
+        }
+    }
+}
 
 @Composable
 actual fun PlayerLauncher(
@@ -26,19 +67,8 @@ actual fun PlayerLauncher(
         val localPrepared = prepareNativeLocalBluRayRoute(items, startIndex, context)
         val preparedItems = prepareNativeRemoteBluRayRoutes(localPrepared, startIndex, serverRegistry)
         PlaybackSelection.update(preparedItems.getOrNull(startIndex))
-        val preferencesResult =
-            runCatching {
-                koin.get<ThemePreferences>()
-            }.onFailure {
-                AppLog.warning(
-                    category = "feature.player",
-                    event = "preferences_unavailable",
-                    message = "Player preferences unavailable; defaults will be used",
-                    throwable = it,
-                )
-            }
-        val preferences = preferencesResult.getOrNull()
-        var pendingLaunch: Intent? = null
+        val preferences = runCatching { koin.get<ThemePreferences>() }.getOrNull()
+        var launchIntent: Intent? = null
         runCatching {
             PlayerActivity
                 .intent(
@@ -46,9 +76,6 @@ actual fun PlayerLauncher(
                     items = preparedItems,
                     startIndex = startIndex,
                     startPositionMs = startPositionMs,
-                    // Keep the selected backend authoritative. Exo mounts the sidecar through
-                    // Media3 and mpv mounts it after FILE_LOADED; a manual engine lock must never
-                    // be rewritten merely because an external subtitle was selected.
                     engine =
                         offlineSubtitlePlaybackEngine(
                             preferred = preferences?.engine?.value ?: PlayerEngine.Exo,
@@ -57,29 +84,20 @@ actual fun PlayerLauncher(
                     decoder = preferences?.decoder?.value ?: com.yfuse.core.model.DecoderMode.Hardware,
                     autoNext = preferences?.autoNext?.value ?: true,
                     startPlaybackRequested = startPlaybackRequested,
-                ).also { launchIntent ->
-                    pendingLaunch = launchIntent
-                    context.startActivity(launchIntent)
+                ).also { createdIntent ->
+                    launchIntent = createdIntent
+                    context.startActivity(createdIntent)
                 }
         }.onSuccess {
             AppLog.info(
                 category = "feature.player",
                 event = "activity_launched",
                 message = "Player activity launched",
-                attributes =
-                    mapOf(
-                        "itemCount" to preparedItems.size.toString(),
-                        "nativeDisc" to
-                            preparedItems
-                                .getOrNull(startIndex)
-                                ?.url
-                                ?.isYfuseNativeBluRayRoute()
-                                .toString(),
-                    ),
+                attributes = mapOf("itemCount" to preparedItems.size.toString()),
             )
             onLaunched()
         }.onFailure {
-            pendingLaunch?.let(PlayerActivity::discardLaunch)
+            launchIntent?.let(PlayerActivity::discardLaunch)
             AppLog.error(
                 category = "feature.player",
                 event = "activity_launch_failed",

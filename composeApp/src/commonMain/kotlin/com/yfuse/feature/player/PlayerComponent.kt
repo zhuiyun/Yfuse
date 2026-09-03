@@ -20,6 +20,7 @@ class PlayerComponent(
     val startPlaybackRequested: Boolean = true,
     val onBack: () -> Unit,
 ) : ComponentContext by componentContext {
+    private var storeOwnershipTransferred = false
     private val preloadKey =
         PlaybackPreloadKey(
             serverId = serverId,
@@ -52,9 +53,13 @@ class PlayerComponent(
             ).create()
 
     init {
-        // Claiming transfers ownership from DetailComponent. Both claimed and fallback stores now
-        // have this component's ordinary lifecycle; the launch request has already copied their
-        // resolved queue before this transient component is popped.
-        lifecycle.doOnDestroy(store::dispose)
+        lifecycle.doOnDestroy {
+            if (!storeOwnershipTransferred) store.dispose()
+        }
+    }
+
+    /** The dedicated Activity now owns the in-flight preload as well as the completed queue. */
+    fun transferStoreOwnership() {
+        storeOwnershipTransferred = true
     }
 }

@@ -342,4 +342,10 @@ internal fun resolveFreshPlayerLaunch(
 internal class PlayerLaunchViewModel : ViewModel() {
     var request: PlayerLaunchRequest? = null
     var resume: Pair<Int, Long>? = null
+    var pending: PendingPlayerLaunch? = null
+
+    override fun onCleared() {
+        pending?.store?.dispose()
+        pending = null
+    }
 }

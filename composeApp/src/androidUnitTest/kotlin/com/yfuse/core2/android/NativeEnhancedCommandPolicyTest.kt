@@ -2,6 +2,8 @@ package com.yfuse.core2.android
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class NativeEnhancedCommandPolicyTest {
     @Test
@@ -33,5 +35,19 @@ class NativeEnhancedCommandPolicyTest {
             )
 
         assertEquals(commands, coalesceNativeEnhancedCommands(commands))
+    }
+
+    @Test
+    fun enhanced_remote_files_use_the_transport_proxy() {
+        assertTrue(shouldProxyEnhancedSourceUri("https://media.example/video.mkv?token=secret"))
+        assertTrue(shouldProxyEnhancedSourceUri("webdav://media.example/video.mkv"))
+    }
+
+    @Test
+    fun local_and_loopback_sources_do_not_reenter_the_proxy() {
+        assertFalse(shouldProxyEnhancedSourceUri("file:///storage/emulated/0/video.mkv"))
+        assertFalse(shouldProxyEnhancedSourceUri("content://media/external/video/1"))
+        assertFalse(shouldProxyEnhancedSourceUri("http://127.0.0.1:1234/ycore/video.mkv"))
+        assertFalse(shouldProxyEnhancedSourceUri("http://localhost:1234/ycore/video.mkv"))
     }
 }

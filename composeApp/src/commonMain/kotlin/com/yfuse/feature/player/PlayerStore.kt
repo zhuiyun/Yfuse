@@ -1507,8 +1507,10 @@ class PlayerStoreFactory(
     }
 }
 
-private const val SERVER_FALLBACK_CANDIDATE_TIMEOUT_MS = 6_000L
-private const val SERVER_FALLBACK_TOTAL_TIMEOUT_MS = 9_000L
+// Cross-server discovery is optional recovery metadata. A dead tunnel must never hold the
+// initial queue for several seconds; the player can already start from the primary source.
+private const val SERVER_FALLBACK_CANDIDATE_TIMEOUT_MS = 1_200L
+private const val SERVER_FALLBACK_TOTAL_TIMEOUT_MS = 1_500L
 internal const val PLAYBACK_NEGOTIATION_TIMEOUT_MS = 15_000L
 internal const val PLAYER_QUEUE_LOAD_TIMEOUT_MS = 30_000L
 
