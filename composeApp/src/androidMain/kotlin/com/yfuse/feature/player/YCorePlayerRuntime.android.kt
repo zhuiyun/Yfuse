@@ -154,6 +154,12 @@ internal fun rememberYCoreRuntimeAssessment(
                     ),
                 )
             assessment = observed
+            if (observed.runtimeFault != null) {
+                // A local runtime restart may reopen the source slightly behind the last rendered
+                // frame. Mark only this internal recovery so danmaku can hold its consumed
+                // high-water mark without breaking deliberate user-initiated backward seeks.
+                DanmakuRuntimeRecoveryFence.markRecovery()
+            }
             if (observed.reportHealth) {
                 logHealth(engineKind, observed)
                 qoeReporter?.let { reporter ->
