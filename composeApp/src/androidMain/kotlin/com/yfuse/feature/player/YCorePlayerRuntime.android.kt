@@ -114,13 +114,16 @@ internal fun rememberYCoreRuntimeAssessment(
         remember {
             runCatching { GlobalContext.get().get<PlaybackQoeReporter>() }.getOrNull()
         }
+    val nativeCore2Binding = state.diagnostics.engine == "YCore 2.0"
+    val effectiveEngineLabel = if (nativeCore2Binding) "YCore2Native" else engineLabel
+    val effectiveEngineLearningEnabled = engineLearningEnabled && !nativeCore2Binding
     val session =
         remember(
             player,
             probe.capabilitySignature,
             state.currentIndex,
             sessionRevision,
-            engineLearningEnabled,
+            effectiveEngineLearningEnabled,
         ) {
             createYCorePlaybackSession(
                 engine = engineKind,
@@ -128,7 +131,7 @@ internal fun rememberYCoreRuntimeAssessment(
                 plan = plan,
                 failureMemory = failureMemory,
                 performanceMemory = performanceMemory,
-                recordEngineLearning = engineLearningEnabled,
+                recordEngineLearning = effectiveEngineLearningEnabled,
                 startedAtEpochMs = SystemClock.elapsedRealtime(),
                 initialPositionMs = state.positionMs,
                 initialBufferEvents = state.diagnostics.bufferEvents,
@@ -145,8 +148,8 @@ internal fun rememberYCoreRuntimeAssessment(
         session,
         player,
         engineKind,
-        engineLabel,
-        engineLearningEnabled,
+        effectiveEngineLabel,
+        effectiveEngineLearningEnabled,
         castAuthoritative,
         state.playing,
         state.buffering,
@@ -172,11 +175,11 @@ internal fun rememberYCoreRuntimeAssessment(
                 DanmakuRuntimeRecoveryFence.markRecovery()
             }
             if (observed.reportHealth) {
-                logHealth(engineLabel, observed)
+                logHealth(effectiveEngineLabel, observed)
                 // The anonymous protocol currently enumerates compatibility PlayerEngine values.
                 // NativeDirect may sit behind an Exo-selected plan; reporting it as Exo would make
                 // aggregated telemetry lie in the same way persistent failure memory used to.
-                if (engineLearningEnabled) {
+                if (effectiveEngineLearningEnabled) {
                     qoeReporter?.let { reporter ->
                         val report =
                             anonymousPlaybackQoeReport(
