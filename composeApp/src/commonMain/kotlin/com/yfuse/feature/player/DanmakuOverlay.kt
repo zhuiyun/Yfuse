@@ -13,6 +13,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -210,22 +211,43 @@ fun DanmakuOverlay(
     val recoveryRevision by DanmakuRuntimeRecoveryFence.revision.collectAsState()
     var observedRecoveryRevision by remember { mutableLongStateOf(recoveryRevision) }
     var recoveryFloorMs by remember { mutableLongStateOf(NO_RECOVERY_FLOOR_MS) }
+    var recoveryRollbackObserved by remember { mutableStateOf(false) }
 
     LaunchedEffect(positionMs, playing, recoveryRevision) {
         if (recoveryRevision != observedRecoveryRevision) {
             observedRecoveryRevision = recoveryRevision
             recoveryFloorMs = max(renderedPositionMs, positionMs)
+            recoveryRollbackObserved = false
             renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
         }
 
         if (recoveryFloorMs != NO_RECOVERY_FLOOR_MS) {
-            if (positionMs + RECOVERY_CATCH_UP_TOLERANCE_MS < recoveryFloorMs) {
-                // The rebuilt backend is replaying media samples that danmaku already consumed.
-                // Hold the danmaku clock at its high-water mark until media catches up.
-                renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
-                return@LaunchedEffect
+            when {
+                positionMs + RECOVERY_CATCH_UP_TOLERANCE_MS < recoveryFloorMs -> {
+                    // This is the first proof that the rebuilt backend actually reopened behind
+                    // danmaku's consumed timeline. Lock the highest point reached since the fault.
+                    recoveryRollbackObserved = true
+                    recoveryFloorMs = max(recoveryFloorMs, renderedPositionMs)
+                    renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
+                    return@LaunchedEffect
+                }
+
+                recoveryRollbackObserved -> {
+                    // Once the rebuilt media clock catches the consumed high-water mark, normal
+                    // synchronization may resume without replaying the interval used for recovery.
+                    recoveryFloorMs = NO_RECOVERY_FLOOR_MS
+                    recoveryRollbackObserved = false
+                    renderedPositionMs = max(renderedPositionMs, positionMs)
+                }
+
+                positionMs > recoveryFloorMs + POSITION_RESET_THRESHOLD_MS -> {
+                    // Some recoveries restart in place and never report a backward position. Keep
+                    // the fence armed briefly so the pre-retry sample cannot disarm it, then retire
+                    // it after normal forward progress proves there was no rollback to protect.
+                    recoveryFloorMs = NO_RECOVERY_FLOOR_MS
+                    recoveryRollbackObserved = false
+                }
             }
-            recoveryFloorMs = NO_RECOVERY_FLOOR_MS
         }
 
         val driftMs = positionMs - renderedPositionMs
@@ -242,6 +264,7 @@ fun DanmakuOverlay(
         if (recoveryRevision != observedRecoveryRevision) {
             observedRecoveryRevision = recoveryRevision
             recoveryFloorMs = max(renderedPositionMs, latestReportedPosition)
+            recoveryRollbackObserved = false
             renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
         }
         var previousFrame = withFrameMillis { it }
@@ -252,12 +275,25 @@ fun DanmakuOverlay(
                 val reported = latestReportedPosition
 
                 if (recoveryFloorMs != NO_RECOVERY_FLOOR_MS) {
-                    if (reported + RECOVERY_CATCH_UP_TOLERANCE_MS < recoveryFloorMs) {
-                        renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
-                        return@withFrameMillis
+                    when {
+                        reported + RECOVERY_CATCH_UP_TOLERANCE_MS < recoveryFloorMs -> {
+                            recoveryRollbackObserved = true
+                            recoveryFloorMs = max(recoveryFloorMs, renderedPositionMs)
+                            renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
+                            return@withFrameMillis
+                        }
+
+                        recoveryRollbackObserved -> {
+                            recoveryFloorMs = NO_RECOVERY_FLOOR_MS
+                            recoveryRollbackObserved = false
+                            renderedPositionMs = max(renderedPositionMs, reported)
+                        }
+
+                        reported > recoveryFloorMs + POSITION_RESET_THRESHOLD_MS -> {
+                            recoveryFloorMs = NO_RECOVERY_FLOOR_MS
+                            recoveryRollbackObserved = false
+                        }
                     }
-                    recoveryFloorMs = NO_RECOVERY_FLOOR_MS
-                    renderedPositionMs = max(renderedPositionMs, reported)
                 }
 
                 renderedPositionMs += (elapsed * latestPlaybackRate).toLong()
