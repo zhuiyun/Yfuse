@@ -44,9 +44,6 @@ import kotlin.math.max
 
 private const val FIXED_DURATION_MS = 4_000L
 private const val POSITION_RESET_THRESHOLD_MS = 1_000L
-private const val BACKWARD_SEEK_RESET_THRESHOLD_MS = 3_000L
-private const val RECOVERY_CATCH_UP_TOLERANCE_MS = 250L
-private const val NO_RECOVERY_FLOOR_MS = Long.MIN_VALUE
 private const val WINDOW_BUCKET_MS = 1_000L
 
 /**
@@ -206,66 +203,49 @@ fun DanmakuOverlay(
     modifier: Modifier = Modifier,
 ) {
     var renderedPositionMs by remember { mutableLongStateOf(positionMs) }
+    var lastReportedPositionMs by remember { mutableLongStateOf(positionMs) }
     val latestReportedPosition by rememberUpdatedState(positionMs)
     val latestPlaybackRate by rememberUpdatedState(playbackRate)
     val recoveryRevision by DanmakuRuntimeRecoveryFence.revision.collectAsState()
     var observedRecoveryRevision by remember { mutableLongStateOf(recoveryRevision) }
-    var recoveryFloorMs by remember { mutableLongStateOf(NO_RECOVERY_FLOOR_MS) }
-    var recoveryRollbackObserved by remember { mutableStateOf(false) }
+    var recoveryFence by remember { mutableStateOf(DanmakuRecoveryFenceState()) }
 
     LaunchedEffect(positionMs, playing, recoveryRevision) {
         if (recoveryRevision != observedRecoveryRevision) {
             observedRecoveryRevision = recoveryRevision
-            recoveryFloorMs = max(renderedPositionMs, positionMs)
-            recoveryRollbackObserved = false
-            renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
+            recoveryFence = armDanmakuRecoveryFence(renderedPositionMs, positionMs)
         }
 
-        if (recoveryFloorMs != NO_RECOVERY_FLOOR_MS) {
-            when {
-                positionMs + RECOVERY_CATCH_UP_TOLERANCE_MS < recoveryFloorMs -> {
-                    // This is the first proof that the rebuilt backend actually reopened behind
-                    // danmaku's consumed timeline. Lock the highest point reached since the fault.
-                    recoveryRollbackObserved = true
-                    recoveryFloorMs = max(recoveryFloorMs, renderedPositionMs)
-                    renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
-                    return@LaunchedEffect
-                }
-
-                recoveryRollbackObserved -> {
-                    // Once the rebuilt media clock catches the consumed high-water mark, normal
-                    // synchronization may resume without replaying the interval used for recovery.
-                    recoveryFloorMs = NO_RECOVERY_FLOOR_MS
-                    recoveryRollbackObserved = false
-                    renderedPositionMs = max(renderedPositionMs, positionMs)
-                }
-
-                positionMs > recoveryFloorMs + POSITION_RESET_THRESHOLD_MS -> {
-                    // Some recoveries restart in place and never report a backward position. Keep
-                    // the fence armed briefly so the pre-retry sample cannot disarm it, then retire
-                    // it after normal forward progress proves there was no rollback to protect.
-                    recoveryFloorMs = NO_RECOVERY_FLOOR_MS
-                    recoveryRollbackObserved = false
-                }
-            }
+        val recovery =
+            updateDanmakuRecoveryFence(
+                state = recoveryFence,
+                reportedPositionMs = positionMs,
+                renderedPositionMs = renderedPositionMs,
+            )
+        recoveryFence = recovery.state
+        recovery.holdAtMs?.let { highWater ->
+            renderedPositionMs = max(renderedPositionMs, highWater)
+            lastReportedPositionMs = positionMs
+            return@LaunchedEffect
+        }
+        recovery.resumeAtMs?.let { resumeAt ->
+            renderedPositionMs = max(renderedPositionMs, resumeAt)
         }
 
-        val driftMs = positionMs - renderedPositionMs
         when {
-            driftMs > POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
-            driftMs < -BACKWARD_SEEK_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
-            // Pauses and brief transport stalls freeze the interpolated clock. Never snap
-            // backwards to a lagging engine tick and replay already-visible comments.
+            isDanmakuBackwardSeek(lastReportedPositionMs, positionMs) -> renderedPositionMs = positionMs
+            positionMs > renderedPositionMs + POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
+            // Pauses and brief transport stalls freeze the engine's reported clock. They are not
+            // backward seeks and therefore must never make already-consumed danmaku replay.
             !playing -> Unit
         }
+        lastReportedPositionMs = positionMs
     }
     LaunchedEffect(playing, recoveryRevision) {
         if (!playing) return@LaunchedEffect
         if (recoveryRevision != observedRecoveryRevision) {
             observedRecoveryRevision = recoveryRevision
-            recoveryFloorMs = max(renderedPositionMs, latestReportedPosition)
-            recoveryRollbackObserved = false
-            renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
+            recoveryFence = armDanmakuRecoveryFence(renderedPositionMs, latestReportedPosition)
         }
         var previousFrame = withFrameMillis { it }
         while (isActive) {
@@ -274,33 +254,30 @@ fun DanmakuOverlay(
                 previousFrame = frameTime
                 val reported = latestReportedPosition
 
-                if (recoveryFloorMs != NO_RECOVERY_FLOOR_MS) {
-                    when {
-                        reported + RECOVERY_CATCH_UP_TOLERANCE_MS < recoveryFloorMs -> {
-                            recoveryRollbackObserved = true
-                            recoveryFloorMs = max(recoveryFloorMs, renderedPositionMs)
-                            renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
-                            return@withFrameMillis
-                        }
-
-                        recoveryRollbackObserved -> {
-                            recoveryFloorMs = NO_RECOVERY_FLOOR_MS
-                            recoveryRollbackObserved = false
-                            renderedPositionMs = max(renderedPositionMs, reported)
-                        }
-
-                        reported > recoveryFloorMs + POSITION_RESET_THRESHOLD_MS -> {
-                            recoveryFloorMs = NO_RECOVERY_FLOOR_MS
-                            recoveryRollbackObserved = false
-                        }
-                    }
+                val recovery =
+                    updateDanmakuRecoveryFence(
+                        state = recoveryFence,
+                        reportedPositionMs = reported,
+                        renderedPositionMs = renderedPositionMs,
+                    )
+                recoveryFence = recovery.state
+                recovery.holdAtMs?.let { highWater ->
+                    renderedPositionMs = max(renderedPositionMs, highWater)
+                    return@withFrameMillis
+                }
+                recovery.resumeAtMs?.let { resumeAt ->
+                    renderedPositionMs = max(renderedPositionMs, resumeAt)
                 }
 
-                renderedPositionMs += (elapsed * latestPlaybackRate).toLong()
-                val driftMs = reported - renderedPositionMs
-                when {
-                    driftMs > POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = reported
-                    driftMs < -BACKWARD_SEEK_RESET_THRESHOLD_MS -> renderedPositionMs = reported
+                renderedPositionMs =
+                    advanceDanmakuInterpolatedPosition(
+                        renderedPositionMs = renderedPositionMs,
+                        reportedPositionMs = reported,
+                        elapsedMs = elapsed,
+                        playbackRate = latestPlaybackRate,
+                    )
+                if (reported > renderedPositionMs + POSITION_RESET_THRESHOLD_MS) {
+                    renderedPositionMs = reported
                 }
             }
         }
