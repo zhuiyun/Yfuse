@@ -434,8 +434,13 @@ internal fun TvLibraryGridScreen(
                     }
                 }
                 if (state.resolutionFilterable) {
-                    listOf(LibraryResolution.All, LibraryResolution.FourK, LibraryResolution.DolbyVision).forEach {
-                        resolution ->
+                    val resolutions =
+                        listOf(
+                            LibraryResolution.All,
+                            LibraryResolution.FourK,
+                            LibraryResolution.DolbyVision,
+                        )
+                    resolutions.forEach { resolution ->
                         TvActionButton(
                             label = resolution.label,
                             stableId = "grid:resolution:${resolution.name}",

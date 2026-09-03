@@ -914,13 +914,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     buffering = requestedPlay,
                                     diagnostics =
                                         reportedChildState.diagnostics.copy(
-                                            reason = "Remote source ended early; reopening from verified output position",
+                                            reason =
+                                                "Remote source ended early; " +
+                                                    "reopening from verified output position",
                                         ),
                                 )
                             AppLog.warning(
                                 category = "player.network",
                                 event = "premature_eof_recovery",
-                                message = "YCore rejected a premature EOF and reopened the active route",
+                                message =
+                                    "YCore rejected a premature EOF " +
+                                        "and reopened the active route",
                                 attributes =
                                     mapOf(
                                         "route" to reportedChildState.diagnostics.route.name,
