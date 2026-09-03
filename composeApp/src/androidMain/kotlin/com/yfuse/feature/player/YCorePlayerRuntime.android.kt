@@ -97,6 +97,8 @@ internal fun rememberDeepPlaybackProbe(
 internal fun rememberYCoreRuntimeAssessment(
     player: YPlayer,
     engineKind: PlayerEngine,
+    engineLabel: String = engineKind.name,
+    engineLearningEnabled: Boolean = true,
     probe: PlaybackMediaProbe,
     plan: PlaybackPlan,
     failureMemory: PlaybackFailureMemory,
@@ -113,13 +115,20 @@ internal fun rememberYCoreRuntimeAssessment(
             runCatching { GlobalContext.get().get<PlaybackQoeReporter>() }.getOrNull()
         }
     val session =
-        remember(player, probe.capabilitySignature, state.currentIndex, sessionRevision) {
+        remember(
+            player,
+            probe.capabilitySignature,
+            state.currentIndex,
+            sessionRevision,
+            engineLearningEnabled,
+        ) {
             createYCorePlaybackSession(
                 engine = engineKind,
                 probe = probe,
                 plan = plan,
                 failureMemory = failureMemory,
                 performanceMemory = performanceMemory,
+                recordEngineLearning = engineLearningEnabled,
                 startedAtEpochMs = SystemClock.elapsedRealtime(),
                 initialPositionMs = state.positionMs,
                 initialBufferEvents = state.diagnostics.bufferEvents,
@@ -136,6 +145,8 @@ internal fun rememberYCoreRuntimeAssessment(
         session,
         player,
         engineKind,
+        engineLabel,
+        engineLearningEnabled,
         castAuthoritative,
         state.playing,
         state.buffering,
@@ -161,29 +172,34 @@ internal fun rememberYCoreRuntimeAssessment(
                 DanmakuRuntimeRecoveryFence.markRecovery()
             }
             if (observed.reportHealth) {
-                logHealth(engineKind, observed)
-                qoeReporter?.let { reporter ->
-                    val report =
-                        anonymousPlaybackQoeReport(
-                            appVersion = reporter.appVersion,
-                            platformApiLevel = Build.VERSION.SDK_INT,
-                            socManufacturer =
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    Build.SOC_MANUFACTURER
-                                } else {
-                                    null
-                                },
-                            hardware = Build.HARDWARE,
-                            engine = engineKind,
-                            probe = latestProbe,
-                            state = current,
-                            assessment = observed,
-                            networkRecoveryAttempts = latestNetworkRecoveryAttempts,
-                            networkRecoverySuccesses = latestNetworkRecoverySuccesses,
-                        )
-                    // The bounded outbox is written before I/O, so telemetry cannot delay the
-                    // runtime observer and cancellation still leaves the report retryable.
-                    launch { reporter.submit(report) }
+                logHealth(engineLabel, observed)
+                // The anonymous protocol currently enumerates compatibility PlayerEngine values.
+                // NativeDirect may sit behind an Exo-selected plan; reporting it as Exo would make
+                // aggregated telemetry lie in the same way persistent failure memory used to.
+                if (engineLearningEnabled) {
+                    qoeReporter?.let { reporter ->
+                        val report =
+                            anonymousPlaybackQoeReport(
+                                appVersion = reporter.appVersion,
+                                platformApiLevel = Build.VERSION.SDK_INT,
+                                socManufacturer =
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        Build.SOC_MANUFACTURER
+                                    } else {
+                                        null
+                                    },
+                                hardware = Build.HARDWARE,
+                                engine = engineKind,
+                                probe = latestProbe,
+                                state = current,
+                                assessment = observed,
+                                networkRecoveryAttempts = latestNetworkRecoveryAttempts,
+                                networkRecoverySuccesses = latestNetworkRecoverySuccesses,
+                            )
+                        // The bounded outbox is written before I/O, so telemetry cannot delay the
+                        // runtime observer and cancellation still leaves the report retryable.
+                        launch { reporter.submit(report) }
+                    }
                 }
             }
             if (
@@ -285,6 +301,7 @@ private fun createYCorePlaybackSession(
     plan: PlaybackPlan,
     failureMemory: PlaybackFailureMemory,
     performanceMemory: PlaybackPerformanceMemory,
+    recordEngineLearning: Boolean,
     startedAtEpochMs: Long,
     initialPositionMs: Long,
     initialBufferEvents: Int,
@@ -296,6 +313,7 @@ private fun createYCorePlaybackSession(
         plan = plan,
         failureMemory = failureMemory,
         performanceMemory = performanceMemory,
+        recordEngineLearning = recordEngineLearning,
         startedAtEpochMs = startedAtEpochMs,
         initialPositionMs = initialPositionMs,
         initialBufferEvents = initialBufferEvents,
@@ -303,7 +321,7 @@ private fun createYCorePlaybackSession(
     )
 
 private fun logHealth(
-    engine: PlayerEngine,
+    engineLabel: String,
     assessment: YCoreRuntimeAssessment,
 ) {
     AppLog.info(
@@ -312,7 +330,7 @@ private fun logHealth(
         message = "YCore assessed the active playback pipeline",
         attributes =
             mapOf(
-                "engine" to engine.name,
+                "engine" to engineLabel,
                 "grade" to assessment.health.grade.name,
                 "startupMs" to assessment.health.startupTimeMs.toString(),
                 "rebufferEvents" to assessment.health.rebufferEvents.toString(),
