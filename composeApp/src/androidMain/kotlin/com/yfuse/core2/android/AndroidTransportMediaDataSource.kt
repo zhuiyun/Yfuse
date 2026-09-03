@@ -493,6 +493,7 @@ internal class AndroidTransportMediaDataSource(
         // immediately. This is the exact head-of-line case where diagnostics showed a 22 s resolve
         // wait for a block whose actual network transfer took only 2.2 s.
         if (shouldPromoteTransportPrefetch(prefetch.future.isDone, prefetch.started)) {
+            promotedPrefetchCount++
             prefetch.cancel()
             return null
         }

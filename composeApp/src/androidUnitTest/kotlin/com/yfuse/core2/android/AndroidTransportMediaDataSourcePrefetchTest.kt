@@ -110,6 +110,46 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     }
 
     @Test
+    fun `queued foreground promotion is included in qoe diagnostics`() {
+        val media = ByteArray(TEST_BLOCK_BYTES * 16) { it.toByte() }
+        val created = AtomicInteger()
+        val activePrefetches = CountDownLatch(4)
+        val releasePrefetches = CountDownLatch(1)
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = {
+                    if (created.getAndIncrement() == 0) {
+                        MemoryRangeTransport(media) { _, _ -> }
+                    } else {
+                        BlockingPrefetchTransport(media, activePrefetches, releasePrefetches)
+                    }
+                },
+                initialMediaBitRateBitsPerSecond = 40_000_000L,
+                blockSizeOverride = TEST_BLOCK_BYTES,
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            assertEquals(1, worker.submit<Int> { source.readAt(0L, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS))
+            assertTrue(activePrefetches.await(2, TimeUnit.SECONDS))
+            assertEquals(
+                1,
+                worker
+                    .submit<Int> {
+                        source.readAt(TEST_BLOCK_BYTES.toLong() * 8L, ByteArray(1), 0, 1)
+                    }.get(2, TimeUnit.SECONDS),
+            )
+            assertEquals(1L, source.qoeSnapshot().promotedPrefetchCount)
+        } finally {
+            source.close()
+            releasePrefetches.countDown()
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
     fun `remote media keeps a bounded ten second prefetch window`() {
         assertEquals(
             12,

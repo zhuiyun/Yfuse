@@ -24,8 +24,50 @@ class AndroidAudioCodecMappingTest {
     @Test
     fun `codec parameters and casing do not hide a supported codec`() {
         assertEquals(YAudioCodec.DtsX, "audio/vnd.dts.uhd; profile=p2".toYAudioCodec())
+        assertEquals("audio/vnd.dts.uhd", " Audio/Vnd.Dts.Uhd; profile=p2 ".normalizedAudioMimeType())
         assertEquals(YAudioCodec.Aac, "Audio/MP4A-LATM".toYAudioCodec())
         assertEquals(YAudioCodec.Eac3, " audio/eac3 ".toYAudioCodec())
+    }
+
+    @Test
+    fun `missing extractor audio geometry uses server hints before safe defaults`() {
+        assertEquals(
+            8,
+            resolveNativeDirectAudioChannelCount(
+                codec = YAudioCodec.TrueHd,
+                extractedChannelCount = 0,
+                sourceHintChannelCount = 8,
+            ),
+        )
+        assertEquals(
+            96_000,
+            resolveNativeDirectAudioSampleRate(
+                extractedSampleRateHz = 0,
+                sourceHintSampleRateHz = 96_000,
+            ),
+        )
+        assertEquals(
+            2,
+            resolveNativeDirectAudioChannelCount(
+                codec = YAudioCodec.Aac,
+                extractedChannelCount = 0,
+                sourceHintChannelCount = 0,
+            ),
+        )
+        assertEquals(48_000, resolveNativeDirectAudioSampleRate(0, 0))
+    }
+
+    @Test
+    fun `extractor audio geometry remains authoritative`() {
+        assertEquals(
+            2,
+            resolveNativeDirectAudioChannelCount(
+                codec = YAudioCodec.TrueHd,
+                extractedChannelCount = 2,
+                sourceHintChannelCount = 8,
+            ),
+        )
+        assertEquals(44_100, resolveNativeDirectAudioSampleRate(44_100, 96_000))
     }
 
     @Test

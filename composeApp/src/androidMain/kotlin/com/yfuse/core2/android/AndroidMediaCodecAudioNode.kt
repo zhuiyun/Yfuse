@@ -3,6 +3,7 @@ package com.yfuse.core2.android
 import android.media.MediaCodec
 import android.media.MediaCrypto
 import android.media.MediaFormat
+import com.yfuse.core2.demux.YAudioTrackFormat
 import com.yfuse.core2.graph.YAudioDecodeNode
 import java.nio.ByteBuffer
 
@@ -38,12 +39,34 @@ internal class AndroidMediaCodecAudioNode(
     fun configure(
         format: MediaFormat,
         mediaCrypto: MediaCrypto? = null,
+        trackFormat: YAudioTrackFormat? = null,
     ) {
         release()
         val mime =
-            format.getString(MediaFormat.KEY_MIME)
+            format
+                .getString(MediaFormat.KEY_MIME)
+                ?.normalizedAudioMimeType()
+                ?.takeIf(String::isNotBlank)
                 ?: error("Audio MediaFormat is missing ${MediaFormat.KEY_MIME}")
-        val working = format.copyForCodecAttempt().also(MediaFormat::applyAudioMaxInputSizeFloor)
+        val working =
+            format
+                .copyForCodecAttempt()
+                .also { codecFormat ->
+                    // MediaExtractor may append parameters (notably DTS:X `profile=p2`).
+                    // MediaCodec requires the canonical MIME in the factory call and KEY_MIME.
+                    codecFormat.setString(MediaFormat.KEY_MIME, mime)
+                    if (codecFormat.positiveInteger(MediaFormat.KEY_CHANNEL_COUNT) == null) {
+                        trackFormat?.channelCount?.takeIf { it > 0 }?.let { channelCount ->
+                            codecFormat.setInteger(MediaFormat.KEY_CHANNEL_COUNT, channelCount)
+                        }
+                    }
+                    if (codecFormat.positiveInteger(MediaFormat.KEY_SAMPLE_RATE) == null) {
+                        trackFormat?.sampleRate?.takeIf { it > 0 }?.let { sampleRate ->
+                            codecFormat.setInteger(MediaFormat.KEY_SAMPLE_RATE, sampleRate)
+                        }
+                    }
+                    codecFormat.applyAudioMaxInputSizeFloor()
+                }
         val decoder = createDecoder(mime)
         try {
             decoder.configure(working, null, mediaCrypto, 0)
@@ -169,6 +192,9 @@ internal class AndroidMediaCodecAudioNode(
             check(started) { "MediaCodec audio node has not been configured" }
         }
 }
+
+private fun MediaFormat.positiveInteger(key: String): Int? =
+    runCatching { getInteger(key) }.getOrNull()?.takeIf { it > 0 }
 
 private fun Int.toAudioCodecInputFlags(): Int = if (this and EXTRACTOR_SAMPLE_SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
 

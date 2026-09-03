@@ -8,6 +8,7 @@ import android.view.Surface
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
@@ -600,8 +601,9 @@ internal class AndroidNativeDirectYPlayer(
             val initialAudioTrack =
                 platformAudioTrackIndices.firstNotNullOfOrNull { index ->
                     val format = demux.trackFormat(index)
-                    val coreFormat = runCatching { format.toCore2AudioTrackFormat() }.getOrNull()
-                        ?: return@firstNotNullOfOrNull null
+                    val coreFormat =
+                        runCatching { format.toCore2AudioTrackFormat(item.sourceHints) }.getOrNull()
+                            ?: return@firstNotNullOfOrNull null
                     val requirement =
                         YAudioRequirement(
                             codec = coreFormat.codec,
@@ -1519,7 +1521,8 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         private fun configureAudioPath(format: MediaFormat?) {
-            audioTrackFormat = format?.toCore2AudioTrackFormat()
+            audioTrackFormat =
+                format?.toCore2AudioTrackFormat(request.items[currentIndex].sourceHints)
             val coreFormat = audioTrackFormat
             audioOutputPath =
                 if (
@@ -1564,7 +1567,11 @@ internal class AndroidNativeDirectYPlayer(
                     }
                 }
                 audioOutputPath == YAudioOutputPath.DecodePcm -> {
-                    audioDecoder.configure(format, drmBinding?.mediaCrypto)
+                    audioDecoder.configure(
+                        format = format,
+                        mediaCrypto = drmBinding?.mediaCrypto,
+                        trackFormat = requireNotNull(coreFormat),
+                    )
                     audioRendererConfigured = false
                 }
                 else -> error("Selected NativeDirect audio track has no platform output path")
@@ -1679,7 +1686,11 @@ internal class AndroidNativeDirectYPlayer(
             pendingEncodedAudioInput = null
             audioOutputPath = YAudioOutputPath.DecodePcm
             audioRendererConfigured = false
-            audioDecoder.configure(format, drmBinding?.mediaCrypto)
+            audioDecoder.configure(
+                format = format,
+                mediaCrypto = drmBinding?.mediaCrypto,
+                trackFormat = requireNotNull(audioTrackFormat),
+            )
             captureAudioRoutingGeneration()
             mutableState.value =
                 mutableState.value.copy(
@@ -2321,11 +2332,11 @@ private fun YMediaItem.toAndroidSource(): YAndroidMediaSource =
  * decoder capability set, where an Unknown entry would claim support for everything.
  *
  * Channel count and sample rate are read defensively for the same reason: `MediaFormat.getInteger`
- * throws when a container omits the key, and losing the whole track over missing metadata is worse
- * than carrying a zero the capability layer can reject.
+ * throws when a container omits the key. Server probe metadata fills those gaps; a codec-aware,
+ * valid AudioTrack geometry is the final fallback instead of the old 1 Hz/mono placeholder.
  */
-private fun MediaFormat.toCore2AudioTrackFormat(): YAudioTrackFormat {
-    val mime = requireNotNull(getString(MediaFormat.KEY_MIME)).lowercase()
+internal fun MediaFormat.toCore2AudioTrackFormat(sourceHints: YMediaSourceHints? = null): YAudioTrackFormat {
+    val mime = requireNotNull(getString(MediaFormat.KEY_MIME)).normalizedAudioMimeType()
     val profile = intOrZero(MediaFormat.KEY_PROFILE)
     val baseCodec = mime.toYAudioCodec() ?: YAudioCodec.Unknown
     val codec =
@@ -2337,10 +2348,40 @@ private fun MediaFormat.toCore2AudioTrackFormat(): YAudioTrackFormat {
     return YAudioTrackFormat(
         codec = codec,
         mimeType = mime,
-        channelCount = intOrZero(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1),
-        sampleRate = intOrZero(MediaFormat.KEY_SAMPLE_RATE).coerceAtLeast(1),
+        channelCount =
+            resolveNativeDirectAudioChannelCount(
+                codec = codec,
+                extractedChannelCount = intOrZero(MediaFormat.KEY_CHANNEL_COUNT),
+                sourceHintChannelCount = sourceHints?.audioChannelCount ?: 0,
+            ),
+        sampleRate =
+            resolveNativeDirectAudioSampleRate(
+                extractedSampleRateHz = intOrZero(MediaFormat.KEY_SAMPLE_RATE),
+                sourceHintSampleRateHz = sourceHints?.audioSampleRateHz ?: 0,
+            ),
     )
 }
+
+internal fun resolveNativeDirectAudioChannelCount(
+    codec: YAudioCodec,
+    extractedChannelCount: Int,
+    sourceHintChannelCount: Int,
+): Int =
+    extractedChannelCount.takeIf { it > 0 }
+        ?: sourceHintChannelCount.takeIf { it > 0 }
+        ?: when (codec) {
+            YAudioCodec.Ac3, YAudioCodec.Eac3, YAudioCodec.Eac3Joc, YAudioCodec.Dts -> 6
+            YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos, YAudioCodec.DtsHd, YAudioCodec.DtsX -> 8
+            else -> 2
+        }
+
+internal fun resolveNativeDirectAudioSampleRate(
+    extractedSampleRateHz: Int,
+    sourceHintSampleRateHz: Int,
+): Int =
+    extractedSampleRateHz.takeIf { it > 0 }
+        ?: sourceHintSampleRateHz.takeIf { it > 0 }
+        ?: DEFAULT_AUDIO_SAMPLE_RATE_HZ
 
 private fun MediaFormat.durationUsOrNull(): Long? =
     if (containsKey(MediaFormat.KEY_DURATION)) getLong(MediaFormat.KEY_DURATION).coerceAtLeast(0L) else null
@@ -2447,6 +2488,7 @@ private const val SUBTITLE_TRACK_PREFIX = "subtitle:"
 private const val SUBTITLE_OFF = "off"
 private const val DOLBY_VISION_MIME = "video/dolby-vision"
 private const val MICROS_PER_MILLISECOND = 1_000L
+private const val DEFAULT_AUDIO_SAMPLE_RATE_HZ = 48_000
 private const val DEFAULT_SAMPLE_BUFFER_BYTES = 8 * 1024 * 1024
 private const val MIN_SAMPLE_BUFFER_BYTES = 256 * 1024
 private const val MAX_SAMPLE_BUFFER_BYTES = 32 * 1024 * 1024

@@ -415,8 +415,10 @@ private fun String.toYVideoCodec(): YVideoCodec? =
  * Codec parameters are stripped first. Android appends them to several types (`audio/vnd.dts.uhd;
  * profile=p2` for DTS:X), and an exact-string table silently misses every parameterised variant.
  */
+internal fun String.normalizedAudioMimeType(): String = lowercase().substringBefore(';').trim()
+
 internal fun String.toYAudioCodec(): YAudioCodec? =
-    when (lowercase().substringBefore(';').trim()) {
+    when (normalizedAudioMimeType()) {
         "audio/mp4a-latm", "audio/aac", "audio/aac-adts" -> YAudioCodec.Aac
         "audio/alac", "audio/x-alac" -> YAudioCodec.Alac
         "audio/mpeg" -> YAudioCodec.Mp3

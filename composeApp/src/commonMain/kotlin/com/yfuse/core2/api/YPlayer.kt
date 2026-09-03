@@ -156,6 +156,9 @@ data class YMediaSourceHints(
     val videoCodec: String? = null,
     /** Server-declared audio codec label; probe truth remains authoritative for decoder setup. */
     val audioCodec: String? = null,
+    /** Server metadata fallback for containers whose extractor track omits audio geometry. */
+    val audioChannelCount: Int = 0,
+    val audioSampleRateHz: Int = 0,
     /** Distinguishes a genuinely silent source from a demuxer that lost a declared audio stream. */
     val audioTrackCount: Int = 0,
     val dynamicRange: String? = null,
@@ -168,6 +171,8 @@ data class YMediaSourceHints(
 ) {
     init {
         require(bitrateBitsPerSecond >= 0L)
+        require(audioChannelCount >= 0)
+        require(audioSampleRateHz >= 0)
         require(audioTrackCount >= 0)
     }
 }

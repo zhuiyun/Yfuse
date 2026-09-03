@@ -36,6 +36,8 @@ class PlayerVersionMarshallingTest {
                     needsDolbyDecoder = true,
                     sourceWidth = 3840,
                     sourceBitrateBps = 80_000_000,
+                    sourceAudioChannelCount = 8,
+                    sourceAudioSampleRateHz = 96_000,
                 ),
             )
 

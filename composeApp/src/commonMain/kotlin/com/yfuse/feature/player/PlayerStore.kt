@@ -112,6 +112,9 @@ data class PlayerMediaVersion(
     /** Source facts used until an engine reports the actual decoded output. */
     val sourceDynamicRange: String? = null,
     val sourceAudio: String? = null,
+    /** Preferred source track geometry used when MediaExtractor omits container metadata. */
+    val sourceAudioChannelCount: Int = 0,
+    val sourceAudioSampleRateHz: Int = 0,
     /** Lets an engine distinguish a genuinely silent file from a missing audio track. */
     val audioTrackCount: Int = 0,
     /** Sidecars belong to a physical version and change atomically with its media URL. */
@@ -155,6 +158,9 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
     localCleartextConfirmed: Boolean = false,
 ): List<PlayerMediaVersion> =
     map { version ->
+        val preferredAudio =
+            version.audioTracks.firstOrNull { it.default == true }
+                ?: version.audioTracks.firstOrNull()
         val generated =
             EmbyStream.streamUrls(
                 baseUrl = baseUrl,
@@ -273,11 +279,9 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             sourceBitDepth = version.video?.bitDepth,
             sourceSizeBytes = version.sizeBytes,
             sourceDynamicRange = version.rangeLabel,
-            sourceAudio =
-                (
-                    version.audioTracks.firstOrNull { it.default == true }
-                        ?: version.audioTracks.firstOrNull()
-                )?.label,
+            sourceAudio = preferredAudio?.label,
+            sourceAudioChannelCount = preferredAudio?.channelCount?.coerceAtLeast(0) ?: 0,
+            sourceAudioSampleRateHz = preferredAudio?.sampleRateHz?.coerceAtLeast(0) ?: 0,
             audioTrackCount = version.audioTracks.size,
             externalSubtitles =
                 version.subtitleTracks
