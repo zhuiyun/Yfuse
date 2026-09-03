@@ -1,0 +1,40 @@
+name: Ktlint Autofix
+
+on:
+  push:
+    branches:
+      - fix/ycore-stall-danmaku-rollback
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/ycore-stall-danmaku-rollback
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Format Kotlin
+        run: ./gradlew ktlintFormat --no-daemon
+
+      - name: Commit formatting
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "Already formatted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- '*.kt' '*.kts'
+          git commit -m "style: apply ktlint formatting"
+          git push origin HEAD:fix/ycore-stall-danmaku-rollback
