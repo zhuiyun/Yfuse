@@ -261,6 +261,55 @@ class AndroidTransportMediaDataSourcePrefetchTest {
             worker.shutdownNow()
         }
     }
+
+    @Test
+    fun `blocked foreground read is observable while the range is still in flight`() {
+        val media = ByteArray(TEST_BLOCK_BYTES * 4) { it.toByte() }
+        val foregroundReadStarted = CountDownLatch(1)
+        val releaseForegroundRead = CountDownLatch(1)
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = {
+                    MemoryRangeTransport(media) { start, completed ->
+                        if (!completed && start == 0L) {
+                            foregroundReadStarted.countDown()
+                            releaseForegroundRead.await(5, TimeUnit.SECONDS)
+                        }
+                    }
+                },
+                blockSizeOverride = TEST_BLOCK_BYTES,
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        val sampler = Executors.newSingleThreadExecutor()
+        try {
+            val read = worker.submit<Int> { source.readAt(0L, ByteArray(16), 0, 16) }
+            assertTrue(foregroundReadStarted.await(2, TimeUnit.SECONDS))
+
+            // readAt holds this instance's monitor for the whole fetch, and qoeSnapshot() is
+            // refreshed on the MediaExtractor owner - the same thread that blocks - so neither can
+            // report a stall while it happens. NativeDirect's pump reads this accessor directly, so
+            // it must stay lock-free: the get() bound below is the assertion.
+            val blockedMs =
+                sampler.submit<Long> {
+                    var value = source.blockedForegroundReadMs()
+                    while (value == 0L) value = source.blockedForegroundReadMs()
+                    value
+                }
+            assertTrue(blockedMs.get(2, TimeUnit.SECONDS) > 0L)
+
+            releaseForegroundRead.countDown()
+            assertEquals(16, read.get(5, TimeUnit.SECONDS))
+            assertEquals(0L, source.blockedForegroundReadMs())
+        } finally {
+            releaseForegroundRead.countDown()
+            source.close()
+            sampler.shutdownNow()
+            worker.shutdownNow()
+        }
+    }
 }
 
 private class BlockingPrefetchTransport(

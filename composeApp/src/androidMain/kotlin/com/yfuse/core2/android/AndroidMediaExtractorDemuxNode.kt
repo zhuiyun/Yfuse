@@ -150,6 +150,10 @@ internal class AndroidMediaExtractorDemuxNode(
     fun transportQoeSnapshot(): YTransportPrefetchQoeSnapshot? =
         (mediaDataSource as? AndroidTransportMediaDataSource)?.qoeSnapshot()
 
+    /** Lock-free; safe to call from the codec/render pump. See the data source for why. */
+    fun blockedForegroundReadMs(): Long =
+        (mediaDataSource as? AndroidTransportMediaDataSource)?.blockedForegroundReadMs() ?: 0L
+
     fun findFirstTrack(mimePrefix: String): Int? =
         (0 until trackCount).firstOrNull { index ->
             trackFormat(index)

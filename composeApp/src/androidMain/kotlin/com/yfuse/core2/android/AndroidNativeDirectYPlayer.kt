@@ -444,6 +444,15 @@ internal class AndroidNativeDirectYPlayer(
         @Volatile
         private var firstVideoFrameRendered = false
 
+        /**
+         * Sticky for the whole binding, unlike [firstVideoFrameRendered], which an audio route
+         * change or a recovery restart clears. Buffering before the very first frame is startup,
+         * not a rebuffer; buffering after it is a rebuffer however the pipeline got there.
+         */
+        private var outputHasEverRendered = false
+
+        private var lastPublishedBuffering = false
+
         @Volatile
         private var transportReadBlocked = false
 
@@ -1367,15 +1376,28 @@ internal class AndroidNativeDirectYPlayer(
                     }
                     else -> currentState.bufferedPositionMs.coerceAtLeast(positionMs)
                 }
+            val playing =
+                requestedPlay && firstVideoFrameRendered && !transportBufferingVisible && !isEnded()
+            val buffering =
+                requestedPlay && (!firstVideoFrameRendered || transportBufferingVisible) && !isEnded()
+            // Every other engine counts a rebuffer on the playing -> buffering edge. NativeDirect
+            // only counted transport starvation, so a stall that never starved the read-ahead queue
+            // — a pump blocked on the origin, a runtime recovery restart, an audio route change —
+            // reported a clean session and PlaybackHealth graded it as if nothing had happened.
+            val enteredRebuffer = buffering && !lastPublishedBuffering && outputHasEverRendered
+            lastPublishedBuffering = buffering
             mutableState.value =
                 currentState.copy(
                     positionMs = positionMs,
                     bufferedPositionMs = bufferedPositionMs,
                     subtitleCues = activeSubtitleCues(),
-                    playing = requestedPlay && firstVideoFrameRendered && !transportBufferingVisible && !isEnded(),
-                    buffering = requestedPlay && (!firstVideoFrameRendered || transportBufferingVisible) && !isEnded(),
+                    playing = playing,
+                    buffering = buffering,
                     diagnostics =
                         mutableState.value.diagnostics.copy(
+                            bufferEvents =
+                                mutableState.value.diagnostics.bufferEvents +
+                                    if (enteredRebuffer) 1 else 0,
                             droppedFrames = droppedFrames,
                             droppedFramesMeasured = true,
                             sourceQueueBytes =
@@ -1447,6 +1469,10 @@ internal class AndroidNativeDirectYPlayer(
                         // cache or the wait happened inside YCore rather than on the network.
                         "sourceMaximumCacheMs" to
                             (transportQoe?.maximumCacheLoadMs?.toString() ?: ""),
+                        // A pump that froze on a stalled origin used to leave no trace. Read live
+                        // rather than from transportQoe: that snapshot is refreshed on the owner
+                        // thread, which is the thread the fetch is blocking.
+                        "sourceBlockedReadMs" to demux.blockedForegroundReadMs().toString(),
                         "sourcePromotedPrefetches" to
                             (transportQoe?.promotedPrefetchCount?.toString() ?: ""),
                         "demuxQueuedSamples" to readAhead.queuedSamples.toString(),
@@ -1852,6 +1878,7 @@ internal class AndroidNativeDirectYPlayer(
         private fun markFirstVideoFrameRendered() {
             if (firstVideoFrameRendered || released) return
             firstVideoFrameRendered = true
+            outputHasEverRendered = true
             mutableState.updateState { current ->
                 if (released) {
                     current
@@ -2136,8 +2163,9 @@ internal class AndroidNativeDirectYPlayer(
             maximumRenderGapNs = 0L
             lastRenderedRealtimeNs = 0L
             audioBackpressureCount = 0
-            slowPumpCount = 0
-            maximumPumpDurationNs = 0L
+            // slowPumpCount and maximumPumpDurationNs deliberately survive releaseMedia(). A
+            // runtime recovery restarts the pipeline precisely because the pump stalled, and
+            // resetting them here erased the measurement that explains the restart.
             lastQoePublishNs = 0L
             resetEndState()
             mutableState.value =

@@ -102,6 +102,10 @@ internal class AndroidTransportMediaDataSource(
     @Volatile
     private var closed = false
 
+    /** Start of the in-flight foreground range fetch, or 0 when no read is blocked. */
+    @Volatile
+    private var foregroundReadStartedAtNs = 0L
+
     @Synchronized
     override fun readAt(
         position: Long,
@@ -159,6 +163,20 @@ internal class AndroidTransportMediaDataSource(
         }
     }
 
+    /**
+     * How long the current foreground range fetch has been outstanding, or 0 when none is.
+     *
+     * Never make this `@Synchronized`. [readAt] holds this instance's monitor for the whole of a
+     * blocking fetch, and [qoeSnapshot] is refreshed on the MediaExtractor owner - the very thread
+     * that blocks - so neither can report a stall while it is happening. NativeDirect's pump reads
+     * this directly, which is the only way a frozen pump leaves a trace in diagnostics.
+     */
+    fun blockedForegroundReadMs(): Long {
+        val startedAtNs = foregroundReadStartedAtNs
+        if (startedAtNs == 0L) return 0L
+        return ((System.nanoTime() - startedAtNs).coerceAtLeast(0L)) / NANOS_PER_MILLISECOND
+    }
+
     @Synchronized
     fun qoeSnapshot(): YTransportPrefetchQoeSnapshot {
         val bufferedAheadBytes = bufferedAheadBytesSnapshot()
@@ -178,6 +196,7 @@ internal class AndroidTransportMediaDataSource(
 
     private fun resolveBlock(blockIndex: Long): ByteArray {
         val startedNs = System.nanoTime()
+        foregroundReadStartedAtNs = startedNs
         onBlockingReadStateChanged?.invoke(true)
         try {
             val prefetched = takePrefetchedBlock(blockIndex)
@@ -213,6 +232,7 @@ internal class AndroidTransportMediaDataSource(
             }
             return loaded.bytes
         } finally {
+            foregroundReadStartedAtNs = 0L
             onBlockingReadStateChanged?.invoke(false)
         }
     }

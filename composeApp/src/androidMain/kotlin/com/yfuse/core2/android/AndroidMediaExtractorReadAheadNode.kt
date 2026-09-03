@@ -99,6 +99,17 @@ internal class AndroidMediaExtractorReadAheadNode(
         return latestTransportQoeSnapshot
     }
 
+    /**
+     * How long the foreground range fetch has been outstanding, read live rather than from
+     * [latestTransportQoeSnapshot].
+     *
+     * The snapshot above is refreshed on the owner executor, which is the same single thread that
+     * blocks inside the fetch, so a snapshot can never carry the duration of the stall that is
+     * holding it up - it just goes stale. Reading the transport's volatile marker directly is what
+     * makes a blocked pump visible in diagnostics.
+     */
+    fun blockedForegroundReadMs(): Long = delegate.blockedForegroundReadMs()
+
     fun configureSampleCapacity(bytes: Int) {
         require(bytes > 0)
         synchronized(monitor) { sampleCapacity = bytes }
