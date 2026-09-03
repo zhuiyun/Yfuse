@@ -1,5 +1,6 @@
 package com.yfuse.core.network
 
+import io.ktor.client.call.body
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
@@ -7,10 +8,12 @@ import io.ktor.client.plugins.pluginOrNull
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.Serializable
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -29,6 +32,55 @@ class HttpClientFactoryTest {
             client.close()
         }
     }
+
+    @Test
+    fun embyClientDecodesJsonWhenSuccessfulResponseOmitsContentType() =
+        runTest {
+            val client =
+                createEmbyClient(
+                    engine =
+                        MockEngine {
+                            respond(
+                                content = "{\"value\":42}",
+                                status = HttpStatusCode.OK,
+                            )
+                        },
+                    appVersion = "1.0.0",
+                    timeouts = null,
+                )
+
+            try {
+                val payload = client.get("https://media.example.com/Users/u1/Items").body<TestPayload>()
+                assertEquals(42, payload.value)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
+    fun embyClientKeepsNormalContentNegotiationWhenJsonContentTypeExists() =
+        runTest {
+            val client =
+                createEmbyClient(
+                    engine =
+                        MockEngine {
+                            respond(
+                                content = "{\"value\":7}",
+                                status = HttpStatusCode.OK,
+                                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                            )
+                        },
+                    appVersion = "1.0.0",
+                    timeouts = null,
+                )
+
+            try {
+                val payload = client.get("https://media.example.com/Users/u1/Items").body<TestPayload>()
+                assertEquals(7, payload.value)
+            } finally {
+                client.close()
+            }
+        }
 
     @Test
     fun embyIdentityHeaderUsesTheInjectedBuildVersion() =
@@ -274,3 +326,8 @@ class HttpClientFactoryTest {
             )
         }
 }
+
+@Serializable
+private data class TestPayload(
+    val value: Int,
+)
