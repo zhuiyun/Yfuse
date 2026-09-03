@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
@@ -33,13 +34,36 @@ import com.yfuse.core.data.DanmakuKind
 import com.yfuse.core.data.DanmakuOpacity
 import com.yfuse.core.data.DanmakuSpeed
 import com.yfuse.core.designsystem.sc
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlin.math.max
 
 private const val FIXED_DURATION_MS = 4_000L
 private const val POSITION_RESET_THRESHOLD_MS = 1_000L
 private const val BACKWARD_SEEK_RESET_THRESHOLD_MS = 3_000L
+private const val RECOVERY_CATCH_UP_TOLERANCE_MS = 250L
+private const val NO_RECOVERY_FLOOR_MS = Long.MIN_VALUE
 private const val WINDOW_BUCKET_MS = 1_000L
+
+/**
+ * Separates a runtime pipeline restart from a user seek.
+ *
+ * A YCore recovery can reopen the source a few seconds behind the last rendered position. The
+ * player must catch those media samples up, but the danmaku consumer has already displayed that
+ * interval and must not rewind and replay it. User-initiated backward seeks do not increment this
+ * fence, so they keep the normal timeline-reset behaviour.
+ */
+internal object DanmakuRuntimeRecoveryFence {
+    private val mutableRevision = MutableStateFlow(0L)
+    val revision: StateFlow<Long> = mutableRevision.asStateFlow()
+
+    fun markRecovery() {
+        mutableRevision.update { current -> current + 1L }
+    }
+}
 
 internal data class DanmakuLayoutInput(
     val index: Int,
@@ -183,8 +207,27 @@ fun DanmakuOverlay(
     var renderedPositionMs by remember { mutableLongStateOf(positionMs) }
     val latestReportedPosition by rememberUpdatedState(positionMs)
     val latestPlaybackRate by rememberUpdatedState(playbackRate)
+    val recoveryRevision by DanmakuRuntimeRecoveryFence.revision.collectAsState()
+    var observedRecoveryRevision by remember { mutableLongStateOf(recoveryRevision) }
+    var recoveryFloorMs by remember { mutableLongStateOf(NO_RECOVERY_FLOOR_MS) }
 
-    LaunchedEffect(positionMs, playing) {
+    LaunchedEffect(positionMs, playing, recoveryRevision) {
+        if (recoveryRevision != observedRecoveryRevision) {
+            observedRecoveryRevision = recoveryRevision
+            recoveryFloorMs = max(renderedPositionMs, positionMs)
+            renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
+        }
+
+        if (recoveryFloorMs != NO_RECOVERY_FLOOR_MS) {
+            if (positionMs + RECOVERY_CATCH_UP_TOLERANCE_MS < recoveryFloorMs) {
+                // The rebuilt backend is replaying media samples that danmaku already consumed.
+                // Hold the danmaku clock at its high-water mark until media catches up.
+                renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
+                return@LaunchedEffect
+            }
+            recoveryFloorMs = NO_RECOVERY_FLOOR_MS
+        }
+
         val driftMs = positionMs - renderedPositionMs
         when {
             driftMs > POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
@@ -194,15 +237,30 @@ fun DanmakuOverlay(
             !playing -> Unit
         }
     }
-    LaunchedEffect(playing) {
+    LaunchedEffect(playing, recoveryRevision) {
         if (!playing) return@LaunchedEffect
+        if (recoveryRevision != observedRecoveryRevision) {
+            observedRecoveryRevision = recoveryRevision
+            recoveryFloorMs = max(renderedPositionMs, latestReportedPosition)
+            renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
+        }
         var previousFrame = withFrameMillis { it }
         while (isActive) {
             withFrameMillis { frameTime ->
                 val elapsed = frameTime - previousFrame
                 previousFrame = frameTime
-                renderedPositionMs += (elapsed * latestPlaybackRate).toLong()
                 val reported = latestReportedPosition
+
+                if (recoveryFloorMs != NO_RECOVERY_FLOOR_MS) {
+                    if (reported + RECOVERY_CATCH_UP_TOLERANCE_MS < recoveryFloorMs) {
+                        renderedPositionMs = max(renderedPositionMs, recoveryFloorMs)
+                        return@withFrameMillis
+                    }
+                    recoveryFloorMs = NO_RECOVERY_FLOOR_MS
+                    renderedPositionMs = max(renderedPositionMs, reported)
+                }
+
+                renderedPositionMs += (elapsed * latestPlaybackRate).toLong()
                 val driftMs = reported - renderedPositionMs
                 when {
                     driftMs > POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = reported
