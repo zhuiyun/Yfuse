@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -33,13 +35,33 @@ import com.yfuse.core.data.DanmakuKind
 import com.yfuse.core.data.DanmakuOpacity
 import com.yfuse.core.data.DanmakuSpeed
 import com.yfuse.core.designsystem.sc
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlin.math.max
 
 private const val FIXED_DURATION_MS = 4_000L
 private const val POSITION_RESET_THRESHOLD_MS = 1_000L
-private const val BACKWARD_SEEK_RESET_THRESHOLD_MS = 3_000L
 private const val WINDOW_BUCKET_MS = 1_000L
+
+/**
+ * Separates a runtime pipeline restart from a user seek.
+ *
+ * A YCore recovery can reopen the source a few seconds behind the last rendered position. The
+ * player must catch those media samples up, but the danmaku consumer has already displayed that
+ * interval and must not rewind and replay it. User-initiated backward seeks do not increment this
+ * fence, so they keep the normal timeline-reset behaviour.
+ */
+internal object DanmakuRuntimeRecoveryFence {
+    private val mutableRevision = MutableStateFlow(0L)
+    val revision: StateFlow<Long> = mutableRevision.asStateFlow()
+
+    fun markRecovery() {
+        mutableRevision.update { current -> current + 1L }
+    }
+}
 
 internal data class DanmakuLayoutInput(
     val index: Int,
@@ -181,32 +203,81 @@ fun DanmakuOverlay(
     modifier: Modifier = Modifier,
 ) {
     var renderedPositionMs by remember { mutableLongStateOf(positionMs) }
+    var lastReportedPositionMs by remember { mutableLongStateOf(positionMs) }
     val latestReportedPosition by rememberUpdatedState(positionMs)
     val latestPlaybackRate by rememberUpdatedState(playbackRate)
+    val recoveryRevision by DanmakuRuntimeRecoveryFence.revision.collectAsState()
+    var observedRecoveryRevision by remember { mutableLongStateOf(recoveryRevision) }
+    var recoveryFence by remember { mutableStateOf(DanmakuRecoveryFenceState()) }
 
-    LaunchedEffect(positionMs, playing) {
-        val driftMs = positionMs - renderedPositionMs
+    LaunchedEffect(positionMs, playing, recoveryRevision) {
+        if (recoveryRevision != observedRecoveryRevision) {
+            observedRecoveryRevision = recoveryRevision
+            recoveryFence = armDanmakuRecoveryFence(renderedPositionMs, positionMs)
+        }
+
+        val recovery =
+            updateDanmakuRecoveryFence(
+                state = recoveryFence,
+                reportedPositionMs = positionMs,
+                renderedPositionMs = renderedPositionMs,
+            )
+        recoveryFence = recovery.state
+        recovery.holdAtMs?.let { highWater ->
+            renderedPositionMs = max(renderedPositionMs, highWater)
+            lastReportedPositionMs = positionMs
+            return@LaunchedEffect
+        }
+        recovery.resumeAtMs?.let { resumeAt ->
+            renderedPositionMs = max(renderedPositionMs, resumeAt)
+        }
+
         when {
-            driftMs > POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
-            driftMs < -BACKWARD_SEEK_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
-            // Pauses and brief transport stalls freeze the interpolated clock. Never snap
-            // backwards to a lagging engine tick and replay already-visible comments.
+            isDanmakuBackwardSeek(lastReportedPositionMs, positionMs) -> renderedPositionMs = positionMs
+            positionMs > renderedPositionMs + POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = positionMs
+            // Pauses and brief transport stalls freeze the engine's reported clock. They are not
+            // backward seeks and therefore must never make already-consumed danmaku replay.
             !playing -> Unit
         }
+        lastReportedPositionMs = positionMs
     }
-    LaunchedEffect(playing) {
+    LaunchedEffect(playing, recoveryRevision) {
         if (!playing) return@LaunchedEffect
+        if (recoveryRevision != observedRecoveryRevision) {
+            observedRecoveryRevision = recoveryRevision
+            recoveryFence = armDanmakuRecoveryFence(renderedPositionMs, latestReportedPosition)
+        }
         var previousFrame = withFrameMillis { it }
         while (isActive) {
             withFrameMillis { frameTime ->
                 val elapsed = frameTime - previousFrame
                 previousFrame = frameTime
-                renderedPositionMs += (elapsed * latestPlaybackRate).toLong()
                 val reported = latestReportedPosition
-                val driftMs = reported - renderedPositionMs
-                when {
-                    driftMs > POSITION_RESET_THRESHOLD_MS -> renderedPositionMs = reported
-                    driftMs < -BACKWARD_SEEK_RESET_THRESHOLD_MS -> renderedPositionMs = reported
+
+                val recovery =
+                    updateDanmakuRecoveryFence(
+                        state = recoveryFence,
+                        reportedPositionMs = reported,
+                        renderedPositionMs = renderedPositionMs,
+                    )
+                recoveryFence = recovery.state
+                recovery.holdAtMs?.let { highWater ->
+                    renderedPositionMs = max(renderedPositionMs, highWater)
+                    return@withFrameMillis
+                }
+                recovery.resumeAtMs?.let { resumeAt ->
+                    renderedPositionMs = max(renderedPositionMs, resumeAt)
+                }
+
+                renderedPositionMs =
+                    advanceDanmakuInterpolatedPosition(
+                        renderedPositionMs = renderedPositionMs,
+                        reportedPositionMs = reported,
+                        elapsedMs = elapsed,
+                        playbackRate = latestPlaybackRate,
+                    )
+                if (reported > renderedPositionMs + POSITION_RESET_THRESHOLD_MS) {
+                    renderedPositionMs = reported
                 }
             }
         }

@@ -9,6 +9,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -42,6 +43,11 @@ internal class AndroidMediaExtractorReadAheadNode(
     private var starved = false
     private var hasDeliveredSample = false
 
+    @Volatile
+    private var latestTransportQoeSnapshot: YTransportPrefetchQoeSnapshot? = null
+
+    private val transportQoeRefreshScheduled = AtomicBoolean(false)
+
     val name: String get() = delegate.name
 
     fun open(source: YAndroidMediaSource) {
@@ -49,6 +55,8 @@ internal class AndroidMediaExtractorReadAheadNode(
             opened = false
             selectedTracks = emptySet()
             clearQueueLocked()
+            latestTransportQoeSnapshot = null
+            transportQoeRefreshScheduled.set(false)
         }
         runOnOwner {
             delegate.open(source)
@@ -74,9 +82,22 @@ internal class AndroidMediaExtractorReadAheadNode(
 
     fun setMediaBitRateBitsPerSecond(value: Long) {
         runOnOwner { delegate.setMediaBitRateBitsPerSecond(value) }
+        requestTransportQoeRefresh()
     }
 
-    fun transportQoeSnapshot(): YTransportPrefetchQoeSnapshot? = delegate.transportQoeSnapshot()
+    /**
+     * Returns the last completed transport snapshot immediately.
+     *
+     * The transport MediaDataSource serializes foreground random-access reads. Calling its
+     * synchronized QoE snapshot directly from the NativeDirect codec/render pump can therefore
+     * make diagnostics wait behind a slow network Range request and stop MediaCodec/AudioTrack
+     * draining. Refresh the snapshot on the MediaExtractor owner instead and keep playback-side
+     * observation strictly non-blocking.
+     */
+    fun transportQoeSnapshot(): YTransportPrefetchQoeSnapshot? {
+        requestTransportQoeRefresh()
+        return latestTransportQoeSnapshot
+    }
 
     fun configureSampleCapacity(bytes: Int) {
         require(bytes > 0)
@@ -185,6 +206,8 @@ internal class AndroidMediaExtractorReadAheadNode(
                 opened = false
                 selectedTracks = emptySet()
                 clearQueueLocked()
+                latestTransportQoeSnapshot = null
+                transportQoeRefreshScheduled.set(false)
                 executor
             }
         if (owner != null) {
@@ -225,6 +248,37 @@ internal class AndroidMediaExtractorReadAheadNode(
         }
         fillScheduled = true
         owner().execute(::fillToHighWatermark)
+    }
+
+    private fun requestTransportQoeRefresh() {
+        val owner =
+            synchronized(monitor) {
+                val activeOwner = executor
+                if (
+                    !opened ||
+                    activeOwner == null ||
+                    !transportQoeRefreshScheduled.compareAndSet(false, true)
+                ) {
+                    null
+                } else {
+                    activeOwner
+                }
+            } ?: return
+
+        runCatching {
+            owner.execute {
+                try {
+                    val snapshot = delegate.transportQoeSnapshot()
+                    synchronized(monitor) {
+                        if (opened) latestTransportQoeSnapshot = snapshot
+                    }
+                } finally {
+                    transportQoeRefreshScheduled.set(false)
+                }
+            }
+        }.onFailure {
+            transportQoeRefreshScheduled.set(false)
+        }
     }
 
     private fun fillToHighWatermark() {

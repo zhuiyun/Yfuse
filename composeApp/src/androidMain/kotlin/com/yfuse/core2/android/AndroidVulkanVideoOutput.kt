@@ -43,13 +43,20 @@ internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) cons
     private val decoderWidth = AtomicInteger(width.coerceAtLeast(16))
     private val decoderHeight = AtomicInteger(height.coerceAtLeast(16))
     private val rendererLock = Any()
-    private val renderer = AtomicLong(AndroidYCoreGpuNativeBridge.createRenderer(target, colorConfig.outputTransfer))
+    private val renderer =
+        AtomicLong(
+            AndroidYCoreGpuNativeBridge.createRenderer(
+                target,
+                colorConfig.outputTransfer,
+            ),
+        )
     private val featureMask = AtomicLong(AndroidYCoreGpuNativeBridge.rendererFeatureMask(renderer.get()))
     private val gpuDurationNs = AtomicLong(0L)
     private val presentedFrames = AtomicInteger(0)
     private val attemptedFrames = AtomicInteger(0)
     private val frameIndex = AtomicInteger(0)
-    private val pendingHdr10Plus = ConcurrentSkipListMap<Long, com.yfuse.core2.hdr.YHdr10PlusSceneMetadata>()
+    private val pendingHdr10Plus =
+        ConcurrentSkipListMap<Long, com.yfuse.core2.hdr.YHdr10PlusSceneMetadata>()
 
     val decoderSurface: Surface get() = imageReader.surface
     val isReady: Boolean get() = renderer.get() != 0L && decoderSurface.isValid
@@ -75,7 +82,11 @@ internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) cons
 
     fun setTargetSurface(target: Surface): Boolean {
         if (!target.isValid) return false
-        val replacement = AndroidYCoreGpuNativeBridge.createRenderer(target, activeColorConfig.get().outputTransfer)
+        val replacement =
+            AndroidYCoreGpuNativeBridge.createRenderer(
+                target,
+                activeColorConfig.get().outputTransfer,
+            )
         if (replacement == 0L) return false
         synchronized(rendererLock) {
             AndroidYCoreGpuNativeBridge.destroyRenderer(renderer.getAndSet(replacement))
@@ -91,11 +102,19 @@ internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) cons
         format: MediaFormat,
         switchDecoderSurface: (Surface) -> Unit,
     ): Boolean {
-        val decodedWidth = format.integerOrNull(MediaFormat.KEY_WIDTH)?.coerceAtLeast(16) ?: decoderWidth.get()
-        val decodedHeight = format.integerOrNull(MediaFormat.KEY_HEIGHT)?.coerceAtLeast(16) ?: decoderHeight.get()
+        val decodedWidth =
+            format.integerOrNull(MediaFormat.KEY_WIDTH)?.coerceAtLeast(16)
+                ?: decoderWidth.get()
+        val decodedHeight =
+            format.integerOrNull(MediaFormat.KEY_HEIGHT)?.coerceAtLeast(16)
+                ?: decoderHeight.get()
         activeColorConfig.updateAndGet { current ->
-            val cropLeft = format.integerOrNull("crop-left")?.coerceIn(0, decodedWidth - 1) ?: current.geometry.cropLeft
-            val cropTop = format.integerOrNull("crop-top")?.coerceIn(0, decodedHeight - 1) ?: current.geometry.cropTop
+            val cropLeft =
+                format.integerOrNull("crop-left")?.coerceIn(0, decodedWidth - 1)
+                    ?: current.geometry.cropLeft
+            val cropTop =
+                format.integerOrNull("crop-top")?.coerceIn(0, decodedHeight - 1)
+                    ?: current.geometry.cropTop
             val cropRightCoordinate = format.integerOrNull("crop-right")
             val cropBottomCoordinate = format.integerOrNull("crop-bottom")
             current.copy(
@@ -116,17 +135,25 @@ internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) cons
                     },
                 geometry =
                     current.geometry.copy(
-                        pixelAspectRatioNumerator = format.integerOrNull("sar-width")?.coerceAtLeast(1)
+                        pixelAspectRatioNumerator =
+                            format.integerOrNull("sar-width")?.coerceAtLeast(1)
                             ?: current.geometry.pixelAspectRatioNumerator,
-                        pixelAspectRatioDenominator = format.integerOrNull("sar-height")?.coerceAtLeast(1)
+                        pixelAspectRatioDenominator =
+                            format.integerOrNull("sar-height")?.coerceAtLeast(1)
                             ?: current.geometry.pixelAspectRatioDenominator,
                         rotationDegrees = format.integerOrNull(MediaFormat.KEY_ROTATION)
                             ?: current.geometry.rotationDegrees,
                         cropLeft = cropLeft,
                         cropTop = cropTop,
-                        cropRight = cropRightCoordinate?.let { (decodedWidth - 1 - it).coerceAtLeast(0) }
+                        cropRight =
+                            cropRightCoordinate?.let {
+                                (decodedWidth - 1 - it).coerceAtLeast(0)
+                            }
                             ?: current.geometry.cropRight,
-                        cropBottom = cropBottomCoordinate?.let { (decodedHeight - 1 - it).coerceAtLeast(0) }
+                        cropBottom =
+                            cropBottomCoordinate?.let {
+                                (decodedHeight - 1 - it).coerceAtLeast(0)
+                            }
                             ?: current.geometry.cropBottom,
                 ),
             )
@@ -169,7 +196,9 @@ internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) cons
     private fun attachImageListener(reader: ImageReader) {
         reader.setOnImageAvailableListener(
             { reader ->
-                val image = runCatching(reader::acquireLatestImage).getOrNull() ?: return@setOnImageAvailableListener
+                val image =
+                    runCatching(reader::acquireLatestImage).getOrNull()
+                        ?: return@setOnImageAvailableListener
                 image.use {
                     attemptedFrames.incrementAndGet()
                     applyHdr10PlusForTimestamp(image.timestamp / 1_000L)

@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
@@ -13,10 +14,13 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLProtocol
 import io.ktor.http.Url
+import io.ktor.serialization.kotlinx.KotlinxSerializationConverter
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.util.AttributeKey
+import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -52,6 +56,37 @@ private const val EMBY_CLIENT_HEADER = "X-Emby-Client"
 private const val EMBY_CLIENT_VERSION_HEADER = "X-Emby-Client-Version"
 private const val EMBY_DEVICE_ID_HEADER = "X-Emby-Device-Id"
 private const val EMBY_DEVICE_NAME_HEADER = "X-Emby-Device-Name"
+
+private val embyJson =
+    Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
+
+/**
+ * Some Emby reverse proxies return a valid JSON payload with HTTP 200 but strip Content-Type.
+ * Ktor ContentNegotiation deliberately skips such responses, which otherwise turns a successful
+ * API call into NoTransformationFoundException. This fallback is scoped to the Emby client and to
+ * structured 2xx bodies only; text/byte/channel callers keep Ktor's normal raw-body semantics.
+ */
+private val EmbyMissingContentTypeJson =
+    createClientPlugin("EmbyMissingContentTypeJson") {
+        val converter = KotlinxSerializationConverter(embyJson)
+        transformResponseBody { response, content, requestedType ->
+            if (
+                response.status.value !in 200..299 ||
+                response.headers[HttpHeaders.ContentType] != null ||
+                requestedType.type == String::class ||
+                requestedType.type == ByteArray::class ||
+                requestedType.type == ByteReadChannel::class ||
+                requestedType.type == HttpStatusCode::class ||
+                requestedType.type == Unit::class
+            ) {
+                return@transformResponseBody null
+            }
+            converter.deserialize(Charsets.UTF_8, requestedType, content)
+        }
+    }
 
 /** Marks a non-Emby request so shared-client defaults are stripped before network execution. */
 internal fun HttpRequestBuilder.suppressEmbyIdentity() {
@@ -115,13 +150,9 @@ fun createEmbyClient(
                 socketTimeoutMillis = budget.socketMs
             }
         }
+        install(EmbyMissingContentTypeJson)
         install(ContentNegotiation) {
-            json(
-                Json {
-                    ignoreUnknownKeys = true
-                    isLenient = true
-                },
-            )
+            json(embyJson)
         }
         defaultRequest {
             header("X-Emby-Authorization", buildAuthHeader(appVersion))
