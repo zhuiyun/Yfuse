@@ -4,15 +4,24 @@
 `AndroidYCoreHttpProxy` 自适应链路。
 对照面：ExoPlayer / Media3、libmpv、MDK。
 承接 [`YCORE_GAP_REVIEW.md`](YCORE_GAP_REVIEW.md) 与 [`YCORE_MATURITY_GAP.md`](YCORE_MATURITY_GAP.md)，
-这两份文档描述的是 Legacy 三后端编排层；本文审查的是**已经接管生产 APK 的 Core2 执行层**。
+这两份文档描述的是 Legacy 三后端编排层；本文审查的是 Core2 执行层。
 
-> 前提：`release-notes.txt` 1.0.23 起生产运行时为 **native-only**，
-> `AndroidCore2TrialFactory.create(nativeOnly = true)` 时 `fallbackRouteFactory = null`
-> （`AndroidAdaptiveCore2YPlayer.kt:90`）。**没有 mpv/Exo/MDK 兜底**。
-> 因此下文每一条"不支持"都不是降级，而是硬失败。
+> **修订 r2（评审后）**：初版对传输层缓冲的量级判断错误（把 `MIN_TRANSPORT_BLOCK_BYTES`
+> 当成了实际块大小），并对差异化能力有两处夸大。第一章、第三章已按实际代码重写，
+> 修正内容见文末「修订记录」。
 
-> 本次审查为静态代码审查。所有条目都给到 `文件:行`，可直接复核；
-> 但没有真机运行结果，性能类判断标注为"推断"。
+## 适用范围
+
+`yfuseNativeOnlyRuntime` 默认为 `false`（`composeApp/build.gradle.kts:20-27`），
+**仓库默认构建仍带 mpv 兼容执行器**。只有 native-only 制品
+（`AndroidCore2Trial.kt:145` 把 `compatibilityFactory` 置 `null`）没有兜底。
+`release-notes.txt` 1.0.23 说明生产分发的是 native-only 制品。
+
+因此下文标注「硬失败」的条目，指的是 **native-only 制品**；
+默认构建下同样的路径会降级到 mpv，是体验损失而非功能缺失。
+
+> 本文是静态代码审查。所有条目给到 `文件:行` 可直接复核；
+> 凡涉及运行时性能的判断都标注了它依赖哪项真机数据才能定级。
 
 ---
 
@@ -20,322 +29,320 @@
 
 Core2 的**策略层**（`strategy/`、`capability/`、`adaptive/` 解析器、`bitstream/`、`dolby/`）
 质量很高：纯函数、可测、边界清楚，HLS/DASH 解析和 Dolby Vision 路由的严格程度超过多数第三方客户端。
+传输层的缓冲策略也比初版审查判断的成熟得多（见 1.1）。
 
-差距集中在**执行层的三件事**上，而且都是结构性的，不是补 if 能解决的：
+确认成立的问题集中在四处：
 
-| # | 结构问题 | 后果 |
+| # | 问题 | 性质 |
 | --- | --- | --- |
-| 1 | 缓冲深度只有 Exo 的 1/20 量级 | 弱网体感全面落后 |
-| 2 | NativeDirect 把解复用、解码、渲染、音频写入放在同一个 pump 线程 | 网络抖动直接冻结画面 |
-| 3 | ABR 跑在 loopback HTTP 代理里，拿不到播放器真实缓冲，只能用一个墙钟模拟量 | 暂停/倍速/seek 后画质错判 |
+| 1 | Dolby Vision 配置就地破坏共享 `MediaFormat` | 确定性缺陷，可立即修 |
+| 2 | >8 声道回落 stereo mask 但不 downmix | 确定性缺陷，可立即修 |
+| 3 | ABR 用墙钟估算缓冲，pause/seek/speed 全部失真 | 确定性缺陷，需要接真实信号 |
+| 4 | NativeDirect 解复用同步跑在 codec/render pump 上 | 架构风险，定级依赖真机数据 |
 
-再叠加两个**功能空洞**：纯音频不可播、后台/息屏音频不可播。
+加上两个由产品承诺决定的功能空洞：纯音频、后台/息屏音频。
 
 ---
 
-## 一、功能面差距（对照 Exo / mpv / MDK）
+## 一、缓冲与传输（初版结论已推翻）
 
-### 1.1 缓冲深度（差距最大的一条）
+### 1.1 传输层预取实际是按 10 秒窗口计算的
 
-| 层 | YCore 取值 | 位置 |
+初版把 `MIN_TRANSPORT_BLOCK_BYTES = 256 KiB` 当成了块大小，结论"3 MiB / 1.2 秒"是错的。
+实际链路：
+
+`AndroidTransportMediaDataSource.kt:45-57` 用 `mediaBitRateBitsPerSecond = 0` 调 `YCachePlanner.plan`
+（`YMediaTransport.kt:157`），走到 `oneSecond = DEFAULT_READ_AHEAD_BYTES = 2 MiB` 分支，
+`readAheadBytes = min(2 MiB, 64 MiB, 16 MiB) = 2 MiB`；
+`blockSize = readAheadBytes.coerceAtLeast(MIN_TRANSPORT_BLOCK_BYTES)` = **2 MiB**。
+
+`transportPrefetchDepthBlocks`（`AndroidTransportMediaDataSource.kt:601`）按
+`TARGET_TRANSPORT_PREFETCH_WINDOW_MS = 10_000` 反算块数，
+且 `mediaBitRateBitsPerSecond` 在运行时单调更新并重算深度（`:147-151`）。
+12 块上限 × 2 MiB = **24 MiB**。实算：
+
+| 媒体码率 | 预取深度 | 实际前向窗口 |
 | --- | --- | --- |
-| NativeDirect 解码器输入前瞻 | **1.5 s** | `AndroidNativeDirectYPlayer.kt:2332` |
-| Enhanced 解复用读前高水位 | 默认 **3 s**（上限 30 s） | `AndroidDemuxReadAheadNode.kt:374,376` |
-| Enhanced 解码器输入前瞻 | **1.5 s** | `AndroidEnhancedPlaybackSession.kt:1882` |
-| 传输层预取 | 最多 **12 × 256 KiB = 3 MiB** | `AndroidTransportMediaDataSource.kt` 尾部常量 |
+| 8 Mbps | 6 块 | 12.6 s |
+| 20 Mbps | 12 块 | **10.1 s** |
+| 40 Mbps | 12 块（封顶） | 5.0 s |
+| 80 Mbps | 12 块（封顶） | **2.5 s** |
 
-对照 ExoPlayer `DefaultLoadControl` 默认值：目标缓冲 50 s，起播 2.5 s，卡顿后恢复 5 s，
-按内存而不是按秒封顶。mpv 的 `demuxer-max-bytes` 是百 MiB 量级。
+**10 秒目标在 ~20.1 Mbps 以内完整兑现**，仓库测试也确实叫 "bounded ten second prefetch window"。
+初版"网络抖 2 秒 YCore 必卡"的结论不成立，撤回。
 
-**推断后果**：3 MiB 预取对一条 20 Mbps 直连原盘流约等于 **1.2 秒**。
-家宽/移动网一次 2 秒抖动，Exo 无感，YCore 必然卡顿。这条不需要真机就能从量级上判定。
+保留的、范围收窄后的观察：**`MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 12` 的上限
+在 20 Mbps 以上开始生效**，而 UHD 蓝光 remux（50–100 Mbps）正是本产品的招牌片源，
+那里窗口收缩到 2–5 秒。这是一条按内存预算而非按块数封顶就能解决的问题，
+但**是否值得改，应由真机上高码率原盘的 rebuffer 数据决定**，不应先验地当作瓶颈。
 
-**建议**：把 `TARGET_TRANSPORT_PREFETCH_WINDOW_MS`（当前 10 s）真正兑现成"按实测吞吐动态计算块数"，
-并把 `MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS` 从 12 提到按内存预算（例如 32–64 MiB）而不是按块数封顶。
-解码器输入前瞻 1.5 s 可以保留（那是解码器队列，不是网络缓冲），但网络层必须加深。
+### 1.2 Enhanced 的读前水位是自适应的，不是 3 秒
 
-### 1.2 NativeDirect 没有独立的解复用线程
+初版引用的 `DEFAULT_HIGH_WATERMARK_US = 3s`（`AndroidDemuxReadAheadNode.kt:376`）
+只是节点构造默认值。打开远程媒体后 `AndroidEnhancedPlaybackSession.kt:457,1533`
+立即用 `YBufferController.plan` 的结果覆盖它（`YBufferController.kt:102`）：
 
-`AndroidNativeDirectYPlayer.kt:379` 用的是 `AndroidMediaExtractorDemuxNode`，
-`feedInput()`（`:961`）在 pump 线程上同步调用 `demux.readSample(sampleBuffer)`。
-Enhanced 路线有 `AndroidDemuxReadAheadNode` 独立线程（`:117`），**NativeDirect 没有**。
+| 条件 | 目标前瞻 |
+| --- | --- |
+| 本地 | 1.5 s |
+| 直播 | 3 s |
+| 远程 · 吞吐健康（≥1.4× 码率） | 4 s |
+| 远程 · 尚无实测吞吐 | 6 s |
+| 远程 · 码率未知 | 8 s |
+| 远程 · 余量偏窄 | 10 s |
+| 远程 · 吞吐低于码率 | 15 s |
 
-而 NativeDirect 是首选路线（大多数片源走它）。构造函数里传了
-`onBlockingReadStateChanged`（`:381`）说明这个阻塞是已知的。
+这是"网络好就少缓冲、有压力才加深"的反向策略，比固定值合理。
+另有 `memoryLimitedUs` 按 64 MiB 预算二次封顶——80 Mbps 下约 6.4 s，
+与 1.1 的封顶是同一个内存预算问题的两个出口。
 
-阻塞期间同一个 pump 线程无法执行 `drainVideo()` / `drainAudio()`，
-所以**即使解码器输出队列里已经有解好的帧、AudioTrack 里还有 2 秒 PCM，
-画面也会跟着网络读一起冻住**。Exo 的 Loader 线程与 playback 线程分离正是为了这一点。
+### 1.3 与 Exo 的对比方式更正
 
-**建议**：把 `AndroidDemuxReadAheadNode` 复用到 NativeDirect（它已经是 `YDemuxer` 通用装饰器），
-这是收益/成本比最高的一次改动。
+Media3 `DefaultLoadControl` 默认目标缓冲确实是 50 s，但它**同时受 allocator 字节目标约束**，
+并不是无条件缓冲 50 秒。把它和 YCore 的「解码器输入前瞻」或「传输层预取窗口」
+做一对一的秒数比较是无效的——三者语义不同。
 
-### 1.3 单 pump 导致音视频互相阻塞
+有意义的对比只能是端到端指标：同一片源、同一网络损伤下的 rebuffer 次数与时长。
+这项数据仓库里没有。
 
-`feedInput()` 每次只读一个 sample，且视频解码器输入满时返回 `TryAgain`
+---
+
+## 二、确认成立的执行层问题
+
+### 2.1 NativeDirect 的解复用同步跑在 codec/render pump 上
+
+`pump()`（`AndroidNativeDirectYPlayer.kt:503`）在同一线程上依次执行
+`drainAudio()` → `drainVideo()` → `feedInput()`，而 `feedInput()`（`:961`）
+直接同步调用 `demux.readSample(sampleBuffer)`。用的是
+`AndroidMediaExtractorDemuxNode`（`:379`），**没有** Enhanced 那条路的
+`AndroidDemuxReadAheadNode` 独立线程（`AndroidEnhancedPlaybackSession.kt:117`）。
+构造时传入 `onBlockingReadStateChanged`（`:381`）说明这个阻塞是已知的。
+
+**准确表述**：预取命中时不阻塞；**预取未命中、seek 后、启动期、以及长尾请求时**，
+同步读会挡住同一线程后续的 `drainVideo()`/`drainAudio()`，
+此时解码器输出队列里已有的帧和 AudioTrack 里的 PCM 都无法推进。
+
+这是真实的架构风险，但**定级需要真机数据**：`publishQoeSnapshot` 已经在上报
+`maximumPumpMs`、`sourceSynchronousLoads`、`sourceMaximumLoadMs`（`:1337-1380`），
+读这三个字段就能判断它在实际片源上发生的频度。
+
+即便如此，我仍认为把解复用移出 pump 比继续扩大缓存更根本：
+缓存只能降低命中失败的概率，移出 pump 才能让命中失败不再冻结已解码的画面。
+
+### 2.2 单 pump 导致音视频互相阻塞
+
+`feedInput()` 每次只读一个 sample；视频解码器输入满时返回 `TryAgain`
 → `if (queued != YCodecQueueResult.Queued) return false`（`:1027`），
-`demux.advance()` 不执行 → **音频样本也停止供给**。
-
+`demux.advance()` 不执行 → 音频样本也停止供给。
 Exo 用 per-track `SampleQueue`，一路解码器打嗝不会饿死另一路。
-这解释了为什么会出现"画面卡一下、声音也断一下"而不是"画面卡、声音继续"。
 
-### 1.4 纯音频内容无法播放
-
-两条 route 都硬失败：
-
-- `AndroidNativeDirectYPlayer.kt:585-591` — `no video track` → `YPlaybackException(Container)`
-- `AndroidEnhancedPlaybackSession.kt:221-227` — `Enhanced demux contains no video track`
-
-native-only 包没有兜底，所以音乐、有声书、纯音频版本、以及任何视频轨探测失败的片源
-都会直接报错。Exo/mpv/MDK 三个都支持纯音频。
-
-### 1.5 后台 / 息屏音频丢失
-
-`Core2SurfaceView.surfaceDestroyed` → `player?.setVideoOutput(null)`（`Core2Surface.kt:325-326`）
-→ `AndroidNativeDirectYPlayer.setSurface(null)`（`:743`）执行：
-
-```
-videoDecoder.release(); videoConfigured = false
-pausePlaybackInternal(keepRequested = true)   // pauseAudio()
-```
-
-而 `canPump`（`:475`）要求 `videoConfigured && surfaceOutput?.surface?.isValid == true`。
-两者叠加 = **Surface 一销毁，整条流水线停摆，音频一起停**。
-
-Exo 的 `clearVideoSurface()` 只停视频渲染器，音频继续；mpv 同理。
-直接影响：切后台听声音、锁屏播放、PiP 过渡、通知栏控制。
-
-**建议**：`canPump` 拆成 `canPumpAudio` / `canPumpVideo`；无 Surface 时保留音频与解复用推进，
-视频侧只停 dequeue/release。这同时是 1.6 的前提。
-
-### 1.6 Surface 重建代价过高
-
-`setSurface` 里有 `videoDecoder.setOutputSurface(newSurface)` 快路径（`:777`），
-但它的前置条件是 `videoConfigured && previous?.surface?.isValid == true`。
-由于 `setSurface(null)` 已经把 `videoConfigured` 置 false 并释放了解码器，
-**跨 null 的销毁→重建永远走不到快路径**，只能走：
-
-```
-configureVideoDecoder(newSurface)  →  seekTo(resumeUs)
-```
-
-`seekTo` 会 `demux.seekTo` 回到前一个关键帧、flush 解码器、`firstVideoFrameRendered = false`。
-所以每次旋转/PiP/回前台 = 一次解码器重建 + 一次重缓冲。
-
-### 1.7 ABR 的输入信号是虚构的
-
-这是画质体验里最值得先修的一条。
+### 2.3 ABR 的缓冲信号是墙钟估算
 
 `HlsAbrSession` / `DashAbrSession`（`AndroidYCoreHttpProxy.kt:122-240`）的
-`bufferedDurationUs` **不是播放器真实缓冲**，而是一个模型量：
-
-```kotlin
-private var bufferedDurationUs = STARTUP_BUFFER_US   // 起始假定 10 s，实际是 0
-fun complete(...) { bufferedDurationUs += durationUs }        // 分片下完就加
-private fun drainBuffer(nowNs) {                             // 按墙钟减
-    bufferedDurationUs -= (nowNs - updatedAtNs) / 1000
-}
-```
-
-四个失真：
+`bufferedDurationUs` 不是播放器真实缓冲，是模型量：起始假定
+`STARTUP_BUFFER_US = 10s`，分片下完就加，按墙钟减。
 
 | 场景 | 模型行为 | 真实情况 |
 | --- | --- | --- |
 | 用户暂停 | 墙钟继续排空到 0 | 缓冲是满的 |
 | 恢复播放 | `< LOW_BUFFER_US(2s)` → `return eligible.first()` | 应保持当前档 |
-| 2x 倍速 | 仍按 1x 排空，高估缓冲 | 实际排空快一倍 → 会升档然后卡 |
+| 2x 倍速 | 仍按 1x 排空，高估缓冲 | 实际排空快一倍 |
 | seek | 完全不建模 | 缓冲清空 |
 
 `YAdaptiveBitrate.kt:185` 的 `if (bufferedDurationUs < LOW_BUFFER_US) return eligible.first()`
-是**直接跳到最低档**而不是降一档。所以一次暂停恢复就可能掉到 240p，
-再靠 `UPGRADE_BUFFER_US = 10s` + 125% headroom 一档一档爬回来。
+是**直接跳最低档**而不是降一档，所以一次暂停恢复就可能掉到最低画质。
 
-根因是架构位置：ABR 在 loopback HTTP 代理里，播放器的真实缓冲
-（`demux.transportQoeSnapshot()`、`AndroidDemuxReadAheadNode.bufferedDurationUs`）在播放器里，
-**两者之间没有回传通道**。Exo 的 ABR 直接读 `LoadControl` 的真实缓冲。
+根因是架构位置：ABR 在 loopback 代理里，真实缓冲
+（`demux.transportQoeSnapshot()`、`AndroidDemuxReadAheadNode` 水位）在播放器里，
+两者之间没有回传通道。
 
-**建议**：给代理开一条 `AbrFeedback` 回调接口，由 `AndroidAdaptiveCore2YPlayer` 每次
+**建议**：开一条 `AbrFeedback` 接口，由 `AndroidAdaptiveCore2YPlayer` 在
 `publishClockPosition()` 时上报 `{realBufferedUs, playing, speed, generation}`；
-`drainBuffer` 改为只在 `playing` 时按 `speed` 排空，或直接用上报值替换模型量。
+`drainBuffer` 只在 `playing` 时按 `speed` 排空，seek 时显式清零。
 
-### 1.8 带宽估计的三个系统性偏差
+### 2.4 带宽估计的三个偏差
 
-1. **并发预取各自独立计时** — `AndroidTransportMediaDataSource.kt:343` 在每个块加载完成时
-   `onNetworkSample(total, elapsed)`，但预取池是 `MAX_TRANSPORT_PREFETCH_CONCURRENCY = 8`。
-   8 路并发时每路的墙钟时间互相重叠，EWMA 得到的是**单连接吞吐**而非聚合带宽，
-   系统性低估最多接近 8 倍 → ABR 长期压在低档。
-2. **顺序服务路径把本地反压算成网络耗时** — `AndroidYCoreHttpProxy.kt:1029` 的
-   `serveSequential` 用 `startedNs` 到写完 socket 的总时长做样本，
-   而写 loopback socket 会被下游按播放速率反压。这个"带宽"约等于码率，不是链路带宽。
-3. **单条 EWMA 无百分位窗口** — `YAdaptiveBitrate.kt:118` 的
-   `YAdaptiveBandwidthEstimator(previousWeightPermille = 700)`。
-   Exo 的 `DefaultBandwidthMeter` 用的是滑动加权中位数（0.5 分位、2000 样本窗口），
-   对 CDN 突发和缓存命中鲁棒得多。
+1. **并发预取各自独立计时** — `AndroidTransportMediaDataSource.kt:343` 在每块加载完成时
+   `onNetworkSample(total, elapsed)`，但池是 `MAX_TRANSPORT_PREFETCH_CONCURRENCY = 8`。
+   并发时墙钟互相重叠，EWMA 得到单连接吞吐而非聚合带宽，系统性低估。
+2. **顺序服务路径把本地反压算成网络耗时** — `AndroidYCoreHttpProxy.kt:1029`
+   `serveSequential` 的样本区间包含写 loopback socket 的时间，
+   而那被下游按播放速率反压，测出的接近码率而非链路带宽。
+3. **单条 EWMA 无百分位窗口** — `YAdaptiveBitrate.kt:118`
+   `previousWeightPermille = 700`。Exo 的 `DefaultBandwidthMeter` 用滑动加权中位数，
+   对 CDN 突发鲁棒得多。
 
-另外 `INITIAL_BANDWIDTH_BITS_PER_SECOND = 25_000_000L`（`:1387`）冷启动过于乐观：
-配合被谎报为 10 s 的起始缓冲，第一个分片会按最高档拉取，弱网下直接拖长起播。
+冷启动 `INITIAL_BANDWIDTH_BITS_PER_SECOND = 25_000_000L`（`:1387`）偏乐观，
+配合被谎报为 10 s 的起始缓冲，首片会按较高档拉取。
 
-### 1.9 MediaFormat 未设 `max-input-size`
+### 2.5 Dolby Vision 配置就地破坏共享 MediaFormat
 
-`AndroidMediaFormatFactory.video()` / `audio()` 全程不设置 `MediaFormat.KEY_MAX_INPUT_SIZE`
-（`AndroidMediaFormatFactory.kt:18-57`；全仓仅 `AndroidMediaExtractorDemuxNode.kt:424` 读取，无人写入）。
+`configureDolbyVisionDecoder`（`AndroidMediaCodecVideoNode.kt:216-217`）用
+`variant.applyTo(format)` 在**调用方持有的** `MediaFormat` 上直接
+`removeKey("csd-2")` / `removeKey(KEY_PROFILE)`，而
+`configureVideoDecoder`（`AndroidNativeDirectYPlayer.kt:1708`）每次都复用同一个
+缓存的 `videoFormat` 对象。
 
-而 `AndroidMediaCodecVideoNode.queueAccessUnit` 直接：
+两层污染：
 
-```kotlin
-require(size <= input.remaining()) { "Encoded access unit ($size bytes) exceeds ..." }
-```
+- **当前循环内**：`WithoutCsd2` 变体删掉 csd-2 之后，
+  该变体下**后续每个候选解码器**拿到的都已经是被削过的 format，
+  即使某个候选"成功"，也是在降级配置下成功的。
+- **跨次重配**：`videoFormat` 被永久破坏。之后的旋转、回前台、
+  `retryEmptyTailSeek` 重配时，`dolbyVisionConfigureVariants(hasCsd2 = …)`
+  只会返回 `[Exact]`，而 DV 配置记录已经不在了。
 
-（`AndroidMediaCodecVideoNode.kt:322`）。输入缓冲不足时抛 `IllegalArgumentException`，
-沿 pump 冒泡成播放失败，而不是重配解码器。
+同一模式也存在于非 DV 路径：`configure()` 对安全播放做
+`format.setFeatureEnabled(FEATURE_SecurePlayback, true)`（`:116`）同样是就地修改。
 
-Exo 的 `MediaCodecVideoRenderer.getCodecMaxInputSize()` 会按分辨率/编码算一个下界并写入 format，
-正是为了 4K HDR 大 IDR 帧。这条在高码率原盘上是可复现的失败源。
+**修法**：每次 configure 尝试前 `MediaFormat(format)` 拷贝一份再改。
 
-### 1.10 声道映射对 >8 声道静默降级
+### 2.6 >8 声道回落 stereo mask 但不 downmix
 
-`AndroidAudioTrackRenderNode.channelMaskForCount`（`:329-343`）的 `else -> CHANNEL_OUT_STEREO`。
-解码器输出 12 声道（7.1.4）PCM 时，AudioTrack 按 stereo 建立，
-写入的交错 PCM **不会报错，会以错误的声道解释播放**（声音错乱 / 速度异常）。
+`channelMaskForCount`（`AndroidAudioTrackRenderNode.kt:329-343`）的
+`else -> CHANNEL_OUT_STEREO`。解码器输出 12 声道（7.1.4）PCM 时，
+AudioTrack 按 stereo 建立，而 `write()` 原样写入交错 PCM——
+**既不报错也不 downmix**，按错误声道解释播放。
+Exo 的 `Util.getAudioTrackChannelConfig` 覆盖到 12 声道，不支持时返回
+`CHANNEL_INVALID` 明确失败。
 
-Exo 的 `Util.getAudioTrackChannelConfig` 覆盖到 12 声道，不支持时返回 `CHANNEL_INVALID` 明确失败。
+**修法**：要么 fail-closed（明确报不支持并交由上层降级），要么真正做 downmix。
 静默错误比明确失败更难排查。
 
-### 1.11 其余对照面缺口
+### 2.7 纯音频内容无法播放
 
-| 项 | YCore | Exo | mpv |
-| --- | --- | --- | --- |
-| 音频 offload（省电待机） | ❌ 纯 `MODE_STREAM`，无 `setOffloadedPlayback` | ✅ | — |
-| audio session id / 响度增强 / 均衡器 | ❌ `buildAudioTrack` 不带 session id | ✅ | ✅ |
-| MediaCodec 异步回调模式 | ❌ 全同步轮询 | ✅ | — |
-| `KEY_LOW_LATENCY` / `KEY_OPERATING_RATE` / `KEY_PRIORITY` | ❌ | ✅ | — |
-| `KEY_ROTATION` 透传到解码 format | ❌ 仅 Vulkan 路径读（`AndroidVulkanVideoOutput.kt:123`） | ✅ | ✅ |
-| 直播 / DVR / 时移 | ❌ | ✅ | ✅ |
-| DVD-Video | ❌（授权原因，见 YCORE2_ARCHITECTURE） | — | ✅ |
+- `AndroidNativeDirectYPlayer.kt:585` — `no video track` → `YPlaybackException(Container)`
+- `AndroidEnhancedPlaybackSession.kt:221` — `Enhanced demux contains no video track`
 
-`PLAYER_CONVERGENCE_20260830.md` 已经承认"音量增强 / 夜间人声压缩 = MPV 执行路径"，
-在 native-only 包里这等于**这两个功能不存在**。
+native-only 制品下无兜底，音乐、有声书、纯音频版本直接报错。
+默认构建会降级到 mpv。是否要补，取决于产品是否承诺纯音频。
 
-### 1.12 ASS 字幕的两条路径需要对齐
+### 2.8 Surface 销毁导致音频一起停
 
-libass 0.17.4 已打包（`composeApp/build.gradle.kts:276`，`FfmpegNativeBridge.assRendererAvailable`）。
-但 `YTextSubtitleParser.parseAss`（`YTextSubtitleParser.kt:60`）走的是
-`markup.stripAssOverrides()` —— 把 `\pos` `\move` `\k` `\fad` 等特效**拍平成纯文本**。
+`Core2SurfaceView.surfaceDestroyed` → `player?.setVideoOutput(null)`（`Core2Surface.kt:325`）
+→ NativeDirect `setSurface(null)`（`:743`）释放视频解码器并
+`pausePlaybackInternal(keepRequested = true)`；而 `canPump`（`:475`）要求
+`videoConfigured && surface.isValid`。Enhanced 更彻底，直接关闭整个 session。
 
-需要确认外挂 ASS 与内嵌 ASS 两条路都进 libass；任何一条落到 `YTextSubtitleParser`，
-特效字幕（尤其是番剧 OP/ED 卡拉 OK）就会退化成静态文本。
+Exo 的 `clearVideoSurface()` 只停视频渲染器，音频继续。
+影响：切后台听声音、锁屏播放、PiP 过渡。同样取决于产品承诺。
+
+**建议**：`canPump` 拆成 `canPumpAudio` / `canPumpVideo`，无 Surface 时保留音频与解复用推进。
+
+### 2.9 Surface 重建代价
+
+`setSurface` 的 `setOutputSurface` 快路径（`:777`）要求
+`videoConfigured && previous?.surface?.isValid == true`，
+而 `setSurface(null)` 已经把 `videoConfigured` 置 false，
+所以跨 null 的销毁→重建走不到快路径，只能
+`configureVideoDecoder` + `seekTo(resumeUs)`（回关键帧 + 重缓冲）。
+这是 2.8 的同一处代码，一并修。
+
+### 2.10 `max-input-size` 未补齐（未复现，不作为确定 Bug）
+
+`AndroidMediaFormatFactory.video()/audio()` 不设置
+`MediaFormat.KEY_MAX_INPUT_SIZE`（`AndroidMediaFormatFactory.kt:18-57`），
+而 `queueAccessUnit` 用 `require(size <= input.remaining())`
+（`AndroidMediaCodecVideoNode.kt:322`）在超限时抛 `IllegalArgumentException`。
+
+Exo 的 `MediaCodecVideoRenderer.getCodecMaxInputSize()` 会主动算一个下界写入 format。
+YCore 依赖平台默认分配。
+
+**准确表述**：这是一处未补齐的防御，**在超大 access unit 上可能失败**；
+但平台默认分配在多数设备上是够的，**在 4K HDR 高码率样本上复现之前不应写成确定缺陷**。
 
 ---
 
-## 二、Bug 清单
+## 三、其余对照面缺口
 
-按"用户可感知程度 × 定位确定性"排序。所有条目均可按 `文件:行` 直接复核。
-
-### P0
-
-| # | 位置 | 缺陷 |
+| 项 | YCore | 说明 |
 | --- | --- | --- |
-| 1 | `AndroidNativeDirectYPlayer.kt:475` + `Core2Surface.kt:325` | Surface 销毁即全流水线停摆，**音频一起停**。后台/息屏/PiP 无音频 |
-| 2 | `AndroidNativeDirectYPlayer.kt:585`、`AndroidEnhancedPlaybackSession.kt:221` | 纯音频片源硬失败；native-only 无兜底 |
-| 3 | `AndroidYCoreHttpProxy.kt:128,181,194,232` | ABR 缓冲量按墙钟排空，暂停/倍速/seek 三种场景全部失真 → 无谓掉到最低档 |
-| 4 | `AndroidMediaFormatFactory.kt:18` + `AndroidMediaCodecVideoNode.kt:322` | 未设 `KEY_MAX_INPUT_SIZE`，大 IDR 帧抛异常终止播放 |
-
-### P1
-
-| # | 位置 | 缺陷 |
-| --- | --- | --- |
-| 5 | `AndroidMediaCodecVideoNode.kt:216-217` + `AndroidNativeDirectYPlayer.kt:1708` | `configureDolbyVisionDecoder` 用 `variant.applyTo(format)` **就地删除调用方缓存 `videoFormat` 的 `csd-2` 和 `KEY_PROFILE`**。一旦发生过一次降级配置，后续每次重配（旋转、回前台、`retryEmptyTailSeek`）都拿不到 DV 配置记录，`dolbyVisionConfigureVariants` 也只会返回 `[Exact]`。同一问题存在于 `configure()` 里对安全播放的 `setFeatureEnabled(FEATURE_SecurePlayback, true)`（`:116`）。**修法：configure 前 `MediaFormat(format)` 拷贝一份再改** |
-| 6 | `AndroidNativeDirectYPlayer.kt:743-790` | 跨 null 的 Surface 重建永远走不到 `setOutputSurface` 快路径，必然解码器重建 + seek 回关键帧 |
-| 7 | `AndroidAudioTrackRenderNode.kt:342` | >8 声道静默降为 stereo，PCM 按错误声道播放而不报错 |
-| 8 | `AndroidTransportMediaDataSource.kt:343` | 8 路并发预取各自独立计时，带宽被系统性低估 |
-| 9 | `AndroidYCoreHttpProxy.kt:1017-1032` | `serveSequential` 的带宽样本包含本地 socket 反压时间，测出的是码率不是带宽 |
-| 10 | `AndroidNativeDirectYPlayer.kt:1027` | 视频解码器输入满时连带停止音频供给（无 per-track 队列） |
-
-### P2
-
-| # | 位置 | 缺陷 |
-| --- | --- | --- |
-| 11 | `YAdaptiveBitrate.kt:185` | 缓冲低于 2 s 直接跳最低档，而非降一档 |
-| 12 | `AndroidYCoreHttpProxy.kt:1387` | 冷启动带宽假定 25 Mbps，弱网首片拉最高档拖长起播 |
-| 13 | `AndroidNativeDirectYPlayer.kt:1385-1398` | `monotonicPositionFloorUs` 是单调地板：音频时钟一次向前跳变会被永久固化，之后真实位置再也拉不回来，且会让 `videoFrameReleaseDecision` 的 `masterPositionUs` 偏大、帧提前释放 |
-| 14 | `AndroidMediaCodecVideoNode.kt:376` | `dequeueOutput()` 每次 `new MediaCodec.BufferInfo()`；这是每帧调用的渲染热路径，无谓 GC 压力 |
-| 15 | `AndroidAudioTrackRenderNode.kt:133-138`、`AndroidEncodedAudioTrackRenderNode.kt:132-137` | `WRITE_BLOCKING` 循环里 `if (written == 0) continue` 是无退避空转。当前生产路径只用 `writeNonBlocking`，属潜在缺陷，但一旦被接线就是 100% CPU 忙等 |
+| 音频 offload | ❌ 纯 `MODE_STREAM` | 待机功耗高于 Exo 的 offload 路径 |
+| audio session id | ❌ `buildAudioTrack` 不带 | 响度增强/均衡器无法挂载；`PLAYER_CONVERGENCE` 已承认这些走 mpv |
+| MediaCodec 异步回调 | ❌ 全同步轮询 | `dequeueOutput()` 每帧 `new BufferInfo`（`:376`），渲染热路径分配 |
+| `KEY_ROTATION` 透传解码 format | ❌ 仅 Vulkan 路径读（`AndroidVulkanVideoOutput.kt:123`） | |
+| 直播 / DVR / 时移 | ❌ | 功能面扩展 |
+| DVD-Video | ❌ | 授权原因，见 YCORE2_ARCHITECTURE |
+| ASS 特效 | ⚠️ | libass 已打包（`build.gradle.kts:276`），但 `YTextSubtitleParser.parseAss` 的 `stripAssOverrides` 会把 `\pos`/`\move`/`\k` 拍平。需确认内嵌与外挂两条路都进 libass |
 
 ### 与既有文档的关系
 
-`YCORE_GAP_REVIEW.md` P0-A（判据读中文文案）和 P0-B（宽限窗口不重置）针对的是
-Legacy 的 `PlaybackRuntimeFaultDetector`。Core2 的对应机制是
-`AndroidAdaptiveCore2YPlayer` 的路线降级，用的是结构化的 `YPlaybackFailureCategory`/`Stage`，
-**那两个缺陷没有被带进 Core2**。这一点做对了。
+`YCORE_GAP_REVIEW.md` 的 P0-A（判据读中文文案）和 P0-B（宽限窗口不重置）
+针对 Legacy 的 `PlaybackRuntimeFaultDetector`。Core2 的路线降级用的是结构化的
+`YPlaybackFailureCategory`/`Stage`，**那两个缺陷没有被带进 Core2**。这一点做对了。
 
 ---
 
-## 三、怎么让自研内核比其他内核体验更好
+## 四、修订优先级
 
-补齐差距只能追平。真正能"更好"的差异化，来自 Core2 已经握有而 Exo/mpv 结构上拿不到的三样东西。
+1. **DV `MediaFormat` 拷贝副本** + **>8 声道 fail-closed 或真 downmix**（2.5、2.6）
+   —— 确定性缺陷，改动小，无需真机证据。
+2. **ABR 接真实 buffered position**，显式处理 pause / seek / speed（2.3）。
+3. **把 NativeDirect 解复用彻底移出 pump**（2.1）
+   —— 比继续扩大缓存更根本；缓存只降低未命中概率，移出 pump 才能让未命中不冻画面。
+4. **按产品承诺补纯音频与后台音频**（2.7、2.8、2.9）。
+5. **真机量化后再决定是否扩大缓冲**（1.1）
+   —— 现有证据不支持"缓冲不足"的判断；只有高码率原盘的 12 块上限值得单独看。
+6. **`max-input-size`** 在 4K HDR 样本复现后再定级（2.10）。
 
-### 3.1 先把三条地基补上（否则谈不上"更好"）
+### 不建议现在做
 
-| 顺序 | 事项 | 理由 |
-| --- | --- | --- |
-| 1 | `canPump` 拆分音/视频，Surface 无效时保留音频 | 后台听声音是基础预期，当前是功能缺失 |
-| 2 | NativeDirect 接入 `AndroidDemuxReadAheadNode` | 复用现成组件，一次改动消除"网络抖动冻画面" |
-| 3 | 网络预取按内存预算而非 12 块封顶 | 把 3 MiB 提到几十 MiB，弱网体感一次到位 |
-| 4 | ABR 用播放器真实缓冲替代墙钟模型 | 消除暂停/倍速/seek 后的画质误判 |
-| 5 | `MediaFormat` 写 `max-input-size` + configure 前拷贝 format | 消除高码率原盘与 DV 重配两类硬失败 |
-| 6 | 纯音频路径 | 音乐/有声书当前完全不可播 |
-
-### 3.2 三个 Exo/mpv 结构上做不到的差异化
-
-**(a) 首帧秒开 —— 用 `AndroidRuntimeCapabilityRegistry` 把探测提前到点击之前**
-
-Core2 已经有 `recordConfigured/recordRejected/recordRendered` 的设备本地能力事实
-（`AndroidNativeDirectYPlayer.kt:1731,1733,1749`），并按"7 天窗口内 3 次观察"固化。
-Exo 每次起播都要重新协商解码器；YCore 已经知道**这台设备上这个能力签名一定用哪个解码器**。
-
-把这条记忆用在**详情页停留时**：预解析容器、预配 MediaCodec、预拉首个 GOP。
-点播放时首帧已经在手。这是"比 Exo 快"而不是"追平 Exo"的唯一可信路径，
-而且不需要新增网络协议，Emby/Jellyfin/Plex 三家通用。
-
-**(b) 交接零缝 —— 把 `YPlayer` 的 handover 快照升级成"双实例交叠"**
-
-当前换路线/换集是"释放旧实例 → 构建新实例 → seek 到位置"，
-所以每次都有一次黑场 + 重缓冲。Core2 拥有完整的图（`PlaybackGraph`）所有权，
-可以在旧实例还在渲染时就构建新实例、预热到首帧就绪，然后在一次
-`setOutputSurface` 里切过去。
-
-mpv 做不到（单实例强绑 vo），Exo 的 `MediaSource` 拼接也做不到跨解码器配置的无缝切换。
-这直接把 1.6 的"旋转/PiP 重建"和"切集黑场"两个问题一起解决，
-并且是用户每天都能感觉到的差别。
-
-**(c) 让 QoE 记忆真正闭环 —— ABR 记住"这台设备在这个服务器上的历史吞吐"**
-
-`YAdaptiveBandwidthEstimator` 每次开播从零（或 25 Mbps 猜测）开始。
-但 `PlaybackPerformanceMemory` 已经有 30 天滚动基线的隐私干净模式。
-把"服务器 + 网络类型"维度的历史吞吐分位数持久化，作为 ABR 的初值和上界，
-起播档位第一次就是对的。Exo 只能用编译期常量或全局默认。
-
-### 3.3 不建议现在做的
-
-- **软解/GPU 路线继续加深**：`GpuEnhanced` 的 Vulkan 证据门还没过（YCORE2_ARCHITECTURE Phase 7），
-  在 1.5 s 缓冲和单线程 pump 没解决之前投入这里，收益不会被用户感知。
-- **直播 / DVR**：功能面扩展，优先级低于上面六条地基。
-- **对外宣称"更稳/更省电/HDR 更好"**：`YCoreNativeBaselineRequirements`
-  要求 1000 次 seek、1000 次 Surface 重建、4 台真机 × 3 芯片族、8 h + 24 h 长稳。
+- **GPU/软解路线继续加深**：`GpuEnhanced` 的 Vulkan 证据门未过（YCORE2_ARCHITECTURE Phase 7），
+  在 2.1 / 2.3 之前投入这里收益不会被感知。
+- **对外宣称「更稳 / 更省电 / HDR 更好」**：`YCoreNativeBaselineRequirements`
+  要求 1000 次 seek、1000 次 Surface 重建、4 台真机 × 3 芯片族、8 h + 24 h 长稳；
   `evaluateYCoreNativeBaseline` 是 fail-closed 的，缺证据返回 `NotMeasured`。
-  这些数据没拿到之前，任何稳定性声明都不成立 —— 这正是那份门禁写下来要防的事。
 
 ---
 
-## 四、验证缺口
+## 五、关于「差异化」的更正
 
-以下每条都无法由单测替代，必须真机产出证据：
+初版列了三条"Exo/mpv 结构上做不到"的差异化。经核对，**两条不成立，一条降级为待验证**：
 
-1. **1.1 的缓冲深度结论是量级推断**，需要在 20 Mbps 直连原盘 + 人为 2 s 网络抖动下，
-   对比 YCore 与 Exo 的卡顿次数。
-2. **1.2 的"阻塞读冻结画面"** 需要在 pump 线程上采样，确认 `readSample` 的最大耗时
-   （`maximumPumpMs` 已经在 `publishQoeSnapshot` 里上报，只需读日志）。
-3. **P0-4 的 `max-input-size`** 需要一段 4K HDR 高码率片源复现 `IllegalArgumentException`。
-4. **P1-5 的 DV format 破坏** 需要一台首次配置会降级的 DV 设备，
-   播放 → 旋转 → 检查诊断面板的 `dynamicRange` 是否从 DV 掉成 HDR10/SDR。
-5. **1.10 的声道映射** 需要一条 7.1.4 音轨。
+| 初版主张 | 更正 |
+| --- | --- |
+| 首帧预热 / 预拉 GOP 是 Exo 做不到的 | **不成立。** Media3 已有 `DefaultPreloadManager`，可把数据预加载进 `SampleQueue`。YCore 的 `AndroidRuntimeCapabilityRegistry` 设备能力记忆（`AndroidNativeDirectYPlayer.kt:1730,1732,1750`）可以减少错误的解码器尝试，这是**增量优势，不是独占能力** |
+| ABR 复用 `PlaybackPerformanceMemory` 的 30 天吞吐基线 | **不成立。** `PlaybackPerformanceRecord`（`PlaybackPerformanceMemory.kt:6-14`）只有 `averageStartupMs`、`averageRebufferEventsPerMinute`、`averageDroppedFramesPerMinute`。30 天 TTL 在，**吞吐字段根本不存在**。要做得先加字段，那是新工作不是复用 |
+| 双实例交叠交接是 mpv/Exo 结构上不可能的 | **降级为待验证实验。** 值得试，但不是"结构上不可能"，且会遇到硬解实例数上限、secure codec 独占、Surface 交接时序、内存峰值四类问题。在这些问题被真机验证之前，不应当作确定性优势写进规划 |
+
+**结论**：Core2 目前没有已证实的、对照面结构上拿不到的优势。
+可信的差异化只能来自把第四章 1–4 项做扎实之后的端到端指标，
+而不是来自架构叙事。
+
+---
+
+## 六、待验证清单
+
+| # | 待验证项 | 依据的数据 |
+| --- | --- | --- |
+| 1 | 2.1 该不该升 P0 | 真机 `maximumPumpMs`、`sourceSynchronousLoads`、`sourceMaximumLoadMs`、rebuffer 次数 |
+| 2 | 1.1 的 12 块上限是否构成瓶颈 | 50–100 Mbps 原盘片源的 rebuffer 数据 |
+| 3 | 2.10 `max-input-size` | 4K HDR 高码率样本上复现 `IllegalArgumentException` |
+| 4 | 2.5 DV format 破坏的实际表现 | 首次配置会降级的 DV 设备：播放 → 旋转 → 看诊断面板 `dynamicRange` 是否掉档 |
+| 5 | 2.6 声道映射 | 一条 7.1.4 音轨 |
+| 6 | ASS 两条路径是否都进 libass | 带 `\pos`/`\k` 的内嵌与外挂 ASS 各一 |
+
+---
+
+## 修订记录
+
+**r2 · 2026-09-03（评审后）**
+
+推翻的初版结论：
+
+- **传输层缓冲量级**：初版把 `MIN_TRANSPORT_BLOCK_BYTES = 256 KiB` 当成实际块大小，
+  得出"3 MiB / 1.2 秒 / 网络抖 2 秒必卡"。实际块大小是 **2 MiB**
+  （`YCachePlanner` 在 `mediaBitRate=0` 时取 `DEFAULT_READ_AHEAD_BYTES`，
+  256 KiB 只是 `coerceAtLeast` 的地板），12 块上限 = 24 MiB，
+  20 Mbps 下约 10 秒。整章重写为 1.1。
+- **Enhanced 读前 3 秒**：那是节点构造默认值，打开远程媒体后由
+  `YBufferController` 覆盖为 4/6/8/10/15 秒。改写为 1.2。
+- **与 Exo 的 50 秒对比**：Media3 同时受 allocator 字节目标约束，
+  秒数一对一比较无效。改写为 1.3。
+- **三条差异化**：两条基于错误前提（Media3 已有 `DefaultPreloadManager`；
+  `PlaybackPerformanceMemory` 没有吞吐字段），一条降级为待验证。整章重写为第五章。
+- **`max-input-size`**：从"确定 Bug"降为"未补齐的防御，待复现"。
+- **native-only 表述**：限定为 native-only 制品，仓库默认构建仍有 mpv 兜底。
+
+维持的初版结论：2.1（同步 pump）、2.3（ABR 墙钟缓冲）、2.5（DV format 污染，
+并按评审意见补充了「同一循环内后续候选解码器也被污染」）、2.6、2.7、2.8。
