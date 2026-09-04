@@ -93,6 +93,25 @@ data class RankedServerSource(
     val score: Int,
 )
 
+/**
+ * Whether the copy the user is already pointed at can serve this playback right now.
+ *
+ * Ranking exists to break ties between usable copies, not to overrule a deliberate choice.
+ * [sourceScore] gives Healthy 2_500 and Degraded 1_400, and a single 5xx is enough to mark a
+ * server Degraded - so one bad response from an otherwise working library outranked it by 1_100
+ * points and moved playback to another server. Reserve that override for a source that genuinely
+ * cannot be played.
+ */
+fun serverSourcePlayable(
+    source: ServerSource,
+    health: ServerHealth?,
+): Boolean =
+    source.reachable &&
+        source.source != null &&
+        source.itemId != null &&
+        health?.status != ServerHealthStatus.Offline &&
+        health?.status != ServerHealthStatus.AuthRequired
+
 /** The best candidate, or null when no source is actually playable. */
 fun recommendedServerSource(
     sources: List<ServerSource>,

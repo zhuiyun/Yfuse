@@ -3,6 +3,7 @@ package com.yfuse.core.data
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerRoute
+import com.yfuse.core.model.ServersData
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import kotlinx.coroutines.CoroutineScope
@@ -15,6 +16,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -111,7 +114,15 @@ class ServerHealthMonitor(
         if (started) return
         started = true
         scope.launch {
-            combine(registry.data, appForeground) { data, foreground -> data to foreground }
+            // Keyed on what a probe actually depends on - which servers exist and which address
+            // each is using - not on the whole registry. Every registry write republishes it, so
+            // collecting the raw flow re-probed every server after a default-server change, a
+            // rename, or this monitor's own route failover, each of which then wrote the registry
+            // again. distinctUntilChanged over the probe-relevant shape breaks that loop.
+            combine(
+                registry.data.map { data -> data to data.probeIdentity() }.distinctUntilChangedBy { it.second },
+                appForeground,
+            ) { (data, _), foreground -> data to foreground }
                 .collectLatest { (data, foreground) ->
                     val ids = data.servers.mapTo(hashSetOf()) { it.id }
                     _health.value = _health.value.filterKeys { it in ids }
@@ -307,6 +318,22 @@ class ServerHealthMonitor(
             }
     }
 }
+
+/**
+ * The part of the registry a health probe depends on: which servers exist, and where each is
+ * currently reached. Everything else - the default server, display names, user settings - changes
+ * nothing about what a probe would do, so it must not cause one.
+ */
+private fun ServersData.probeIdentity(): List<String> =
+    servers.map { server ->
+        listOf(
+            server.id,
+            server.kind.name,
+            server.activeRoute.id,
+            server.activeRoute.url,
+            server.effectiveRoutes.joinToString(",") { route -> "${route.id}=${route.url}" },
+        ).joinToString("|")
+    }
 
 private const val HEALTH_REFRESH_INTERVAL_MS = 60_000L
 

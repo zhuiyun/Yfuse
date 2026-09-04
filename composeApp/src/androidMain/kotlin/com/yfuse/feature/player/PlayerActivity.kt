@@ -784,6 +784,7 @@ class PlayerActivity : ComponentActivity() {
         super.onStart()
         activityStarted = true
         activityHasStarted = true
+        PlayerForegroundRegistry.setVisible(true)
         if (isScreenInteractive()) lifecyclePauseRequested = false
         if (activeState.playing) startPlaybackKeepAliveService()
         refreshEpisodes()
@@ -825,6 +826,10 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStop() {
         activityStarted = false
+        // A picture-in-picture player is still on screen and still streaming, whether or not this
+        // callback ran for it. Keeping the flag set is what stops MainActivity - restarted
+        // underneath the PiP window - from resuming health probes and sync over the same link.
+        if (!isInPictureInPictureMode) PlayerForegroundRegistry.setVisible(false)
         episodeRefreshJob?.cancel()
         episodeRefreshJob = null
         super.onStop()
@@ -845,6 +850,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        PlayerForegroundRegistry.setVisible(false)
         episodeRefreshJob?.cancel()
         capabilityMonitorJob?.cancel()
         outputRenegotiationJob?.cancel()

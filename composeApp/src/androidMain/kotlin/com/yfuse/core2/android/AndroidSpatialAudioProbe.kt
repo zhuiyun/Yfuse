@@ -54,6 +54,32 @@ internal interface AndroidSpatialAudioStateMonitor {
     fun release()
 }
 
+/**
+ * Stable identity of the system spatializer, for telling a real audio-route change from noise.
+ *
+ * [AndroidSpatialAudioStateMonitor] reports that *something* about spatial audio changed, not
+ * what. Folding its observable state into a comparable value lets a caller drop the callbacks
+ * that carry no change - which is most of them during AudioTrack construction.
+ */
+internal fun androidSpatialAudioFingerprint(context: Context): String {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S_V2) return ""
+    val manager =
+        context.applicationContext.getSystemService(AudioManager::class.java) ?: return ""
+    return spatialAudioFingerprintApi32(manager)
+}
+
+@RequiresApi(Build.VERSION_CODES.S_V2)
+private fun spatialAudioFingerprintApi32(manager: AudioManager): String {
+    val spatializer = manager.spatializer
+    val headTracker =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && headTrackerAvailableApi33(spatializer)
+    return "${spatializer.isAvailable}:${spatializer.isEnabled}:$headTracker"
+}
+
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+private fun headTrackerAvailableApi33(spatializer: Spatializer): Boolean =
+    spatializer.isHeadTrackerAvailable
+
 internal fun createAndroidSpatialAudioStateMonitor(
     context: Context,
     onChanged: () -> Unit,

@@ -12,6 +12,7 @@ import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.preferredVersion
 import com.yfuse.core.data.recommendedServerSource
+import com.yfuse.core.data.serverSourcePlayable
 import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
@@ -63,6 +64,15 @@ internal class DetailExecutor(
     private var organizationLoadGeneration = 0L
     private val sourceCoordinator = SourceSelectionCoordinator(repo)
     private val seriesCatalogLoader = SeriesCatalogLoader(repo)
+
+    /**
+     * 智能跨服务器片源 is opt-in, and an unavailable preference store must not turn it on.
+     *
+     * Every cross-server path reads this rather than the preference directly, so the switch
+     * governs whether the requests are made at all instead of only how their results are sorted.
+     */
+    private val crossServerSourcesEnabled: Boolean
+        get() = playbackPreferences?.smartCrossServerSource?.value == true
 
     override fun executeAction(action: DetailAction) = load()
 
@@ -394,14 +404,28 @@ internal class DetailExecutor(
             state().playSourceDetail?.id == selection.sourceDetail.id &&
             state().playTarget?.id == selection.target.id
 
-    /** Fans the title out across every saved server; failures degrade per-server. */
+    /**
+     * Fans the title out across the servers in scope; failures degrade per-server.
+     *
+     * With 智能跨服务器片源 off the comparison stays on the server being browsed. The preference
+     * used to reach only the ranking of cards that had already been fetched, so a title lookup
+     * still went out to every saved server - several requests each, retried, in parallel, on the
+     * same connection playback was about to need. Scoping the fan-out here is what makes turning
+     * the switch off actually stop the traffic.
+     */
     private fun loadSources(
         server: SavedServer,
         detail: MediaDetail,
         seasonNumber: Int?,
         episodeNumber: Int?,
     ) {
-        val servers = registry.data.value.servers
+        val allServers = registry.data.value.servers
+        val servers =
+            if (crossServerSourcesEnabled) {
+                allServers
+            } else {
+                allServers.filter { it.id == server.id }
+            }
         val generation = ++sourceLoadGeneration
         scope.launch {
             val tmdbId =
@@ -573,9 +597,18 @@ internal class DetailExecutor(
         allEpisodes: List<Episode>?,
     ): SeriesCatalog = seriesCatalogLoader.load(server, seriesId, target, allEpisodes)
 
+    /**
+     * Publishes a resolved selection, and by default refreshes the 资源 comparison behind it.
+     *
+     * [compareSources] exists for the play path: pressing 播放 resolves a selection as its last
+     * step, and reloading the comparison there put a title lookup on every server in flight at the
+     * exact moment the first byte range was being opened. The detail page has already loaded (or
+     * is already loading) that comparison by then, so the play path opts out.
+     */
     private fun dispatchPlaybackSelection(
         selection: ResolvedPlaybackSelection,
         preferredVersionId: String? = null,
+        compareSources: Boolean = true,
     ) {
         val visible = state()
         val selectedVersionId =
@@ -601,12 +634,14 @@ internal class DetailExecutor(
                 preferredVersionId = selectedVersionId,
             ),
         )
-        loadSources(
-            server = selection.server,
-            detail = selection.sourceDetail,
-            seasonNumber = selection.target.seasonNumber,
-            episodeNumber = selection.target.episodeNumber,
-        )
+        if (compareSources) {
+            loadSources(
+                server = selection.server,
+                detail = selection.sourceDetail,
+                seasonNumber = selection.target.seasonNumber,
+                episodeNumber = selection.target.episodeNumber,
+            )
+        }
         if (sourceChanged) {
             loadWatchLater(selection.server, selection.sourceDetail.id)
         }
@@ -982,7 +1017,7 @@ internal class DetailExecutor(
                     } ?: Result.failure(PlaybackResolutionTimeoutException())
                 result
                     .onSuccess { selection ->
-                        dispatchPlaybackSelection(selection)
+                        dispatchPlaybackSelection(selection, compareSources = false)
                         dispatch(DetailMsg.Resolving(false))
                         publishPlay(state(), fromStart)
                     }.onFailure {
@@ -1000,13 +1035,25 @@ internal class DetailExecutor(
             }
             return
         }
-        if (playbackPreferences?.smartCrossServerSource?.value == true) {
+        if (crossServerSourcesEnabled) {
+            val health = healthMonitor?.health?.value.orEmpty()
+            val currentSource = current.sources.firstOrNull { it.serverId == server.id }
+            // Switching away from the server the user is on is a recovery step, not an
+            // optimisation. It needs a current source that is known to be unplayable - so a
+            // comparison that has not loaded yet (null) is not grounds to move, and neither is a
+            // server that merely answered one request badly.
+            val currentSourceUnplayable =
+                currentSource != null && !serverSourcePlayable(currentSource, health[server.id])
             val recommended =
-                recommendedServerSource(
-                    sources = current.sources,
-                    health = healthMonitor?.health?.value.orEmpty(),
-                    network = networkClass(),
-                )
+                if (currentSourceUnplayable) {
+                    recommendedServerSource(
+                        sources = current.sources,
+                        health = health,
+                        network = networkClass(),
+                    )
+                } else {
+                    null
+                }
             val itemId = recommended?.itemId
             if (
                 itemId != null &&
@@ -1074,7 +1121,7 @@ internal class DetailExecutor(
         )
         val mediaKey = target.providerIds.watchKey(target.id)
         val fallbackServers =
-            if (playbackPreferences?.smartCrossServerSource?.value != false) {
+            if (crossServerSourcesEnabled) {
                 smartFailoverServerIds(
                     currentServerId = server.id,
                     sources = current.sources,

@@ -1144,6 +1144,14 @@ class PlayerStoreFactory(
                 }
                 // Trickplay is intentionally absent here: PlayerRoot already loads it lazily once
                 // playback is visible, so a preview strip can never delay the first frame.
+                //
+                // Server fallbacks are recovery metadata for a source that fails later, and every
+                // server they probe is by definition one we are *not* playing from - on the
+                // degraded link that makes recovery interesting, those are the slowest requests
+                // there are. Awaiting the Deferred where it is created serialized that behind
+                // nothing, so its bounded cost landed squarely on the first frame. Start it here
+                // and collect it just before the queue is published, so it overlaps the series
+                // catalog and episode load that follow instead of adding to them.
                 val serverFallbacksDeferred =
                     failoverPlan
                         ?.let { plan ->
@@ -1156,18 +1164,22 @@ class PlayerStoreFactory(
                                 )
                             }
                         }
-                val serverFallbacks = serverFallbacksDeferred?.await().orEmpty()
-                if (serverFallbacks.isNotEmpty()) {
-                    AppLog.info(
-                        category = "feature.player",
-                        event = "playback_server_fallbacks_ready",
-                        message = "Exact-media server fallbacks were resolved before playback",
-                        attributes =
-                            mapOf(
-                                "serverId" to server.id,
-                                "fallbackCount" to serverFallbacks.size.toString(),
-                            ),
-                    )
+
+                suspend fun awaitServerFallbacks(): List<PlayerMediaItem> {
+                    val resolved = serverFallbacksDeferred?.await().orEmpty()
+                    if (resolved.isNotEmpty()) {
+                        AppLog.info(
+                            category = "feature.player",
+                            event = "playback_server_fallbacks_ready",
+                            message = "Exact-media server fallbacks were resolved before playback",
+                            attributes =
+                                mapOf(
+                                    "serverId" to server.id,
+                                    "fallbackCount" to resolved.size.toString(),
+                                ),
+                        )
+                    }
+                    return resolved
                 }
 
                 var resolvedSeriesProviderIds: Map<String, String> = emptyMap()
@@ -1241,6 +1253,7 @@ class PlayerStoreFactory(
                                         },
                                 )
                             }
+                        val serverFallbacks = awaitServerFallbacks()
                         val effectiveIndex = items.indexOfFirst { it.id == effectiveItemId }
                         val itemsWithFailover =
                             items.mapIndexed { itemIndex, item ->
@@ -1277,7 +1290,7 @@ class PlayerStoreFactory(
                                 seriesProviderIds = resolvedSeriesProviderIds.takeIf { it.isNotEmpty() },
                                 versions = detail?.versions.orEmpty(),
                                 runtimeTicks = detail?.runtimeTicks,
-                            ).copy(serverFallbacks = serverFallbacks),
+                            ).copy(serverFallbacks = awaitServerFallbacks()),
                         ),
                         0,
                         startMs,

@@ -141,8 +141,42 @@ internal class AndroidCore2MediaProbe(
     context: Context,
 ) {
     private val appContext = context.applicationContext
+    private val probeCacheLock = Any()
+
+    /**
+     * Successful probes for this evaluator's lifetime, newest last.
+     *
+     * A probe opens a MediaExtractor on the real source: for remote Matroska that is a TLS
+     * handshake, the redirects behind the media URL, the container header, and a second range at
+     * the file's tail for its Cues. One cold start ran that repeatedly - route evaluation, a
+     * re-evaluation when the planned route was blocked, and again for every rebuild - and each
+     * repeat re-read the same bytes to reach the same answer, in front of the first frame.
+     *
+     * Scope is deliberately one player session. The result describes the bytes at a source, so it
+     * cannot go stale within a session, and nothing survives to poison the next one.
+     */
+    private val probeCache = LinkedHashMap<String, YCore2ProbeResult.Success>()
 
     fun probe(item: YMediaItem): YCore2ProbeResult {
+        val cacheKey = item.probeCacheKey()
+        synchronized(probeCacheLock) { probeCache[cacheKey] }?.let { cached -> return cached }
+        val result = probeUncached(item)
+        // Only successes are retained. A failure here is usually an unreachable source, and
+        // remembering that would keep a route unplayable for the rest of the session even once
+        // the network recovers.
+        if (result is YCore2ProbeResult.Success) {
+            synchronized(probeCacheLock) {
+                probeCache.remove(cacheKey)
+                probeCache[cacheKey] = result
+                while (probeCache.size > MAX_CACHED_PROBES) {
+                    probeCache.remove(probeCache.keys.first())
+                }
+            }
+        }
+        return result
+    }
+
+    private fun probeUncached(item: YMediaItem): YCore2ProbeResult {
         val demux = AndroidMediaExtractorDemuxNode(appContext)
         return try {
             demux.open(item.toProbeSource())
@@ -635,6 +669,25 @@ private fun YAudioRequirement?.hasReliableCodecWhen(platform: YAudioRequirement?
         platformCodec = platform?.codec,
         enhancedCodec = this?.codec,
     )
+
+/**
+ * Everything a probe result depends on besides the bytes it reads.
+ *
+ * [com.yfuse.core2.network.YCacheIdentity] is the credential-free content identity and is
+ * preferred, because a playback URI carries a rotating play-session id that would defeat the
+ * cache within a single launch. The remaining fields are the item facts the probe branches on.
+ */
+private fun YMediaItem.probeCacheKey(): String =
+    listOf(
+        cacheIdentity?.let { identity -> "id:${identity.scope}/${identity.mediaId}/${identity.version}" }
+            ?: "uri:$uri",
+        mimeType.orEmpty(),
+        (drmConfiguration != null).toString(),
+        (sourceHints?.dolbyVision == true).toString(),
+        (disc != null).toString(),
+    ).joinToString("\u0000")
+
+private const val MAX_CACHED_PROBES = 4
 
 private fun YMediaItem.toProbeSource(): YAndroidMediaSource =
     YAndroidMediaSource(

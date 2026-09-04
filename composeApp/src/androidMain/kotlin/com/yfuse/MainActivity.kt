@@ -39,10 +39,12 @@ import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.feature.calendar.scheduleCalendarReminderWork
 import com.yfuse.feature.player.PlaybackSourcePreloader
+import com.yfuse.feature.player.PlayerForegroundRegistry
 import com.yfuse.feature.profile.applyPendingAppIconVariant
 import com.yfuse.update.AppUpdateManager
 import com.yfuse.update.AppUpdateOverlay
 import com.yfuse.update.LocalAppUpdateManager
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -52,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var updateManager: AppUpdateManager
     private lateinit var serverHealthMonitor: ServerHealthMonitor
     private lateinit var serverSyncManager: ServerSyncManager
+    private var playerVisibilityJob: Job? = null
     private var rootComponent: RootComponent? = null
     private var jankMonitor: AppJankMonitor? = null
     private var calendarNotificationPermissionRequested = false
@@ -258,8 +261,18 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         jankMonitor?.start()
-        serverHealthMonitor.setAppForeground(true)
-        serverSyncManager.setAppForeground(true)
+        // Background work follows the player as well as this activity. Entering picture-in-picture
+        // restarts MainActivity underneath the PiP window, and claiming foreground there resumed
+        // sixty-second health probes across every server and address plus library sync - over the
+        // one connection the PiP window is still streaming on.
+        playerVisibilityJob?.cancel()
+        playerVisibilityJob =
+            lifecycleScope.launch {
+                PlayerForegroundRegistry.visible.collect { playerVisible ->
+                    serverHealthMonitor.setAppForeground(!playerVisible)
+                    serverSyncManager.setAppForeground(!playerVisible)
+                }
+            }
     }
 
     /**
@@ -277,6 +290,8 @@ class MainActivity : ComponentActivity() {
         exitConfirmationToast?.cancel()
         exitConfirmationToast = null
         jankMonitor?.stop()
+        playerVisibilityJob?.cancel()
+        playerVisibilityJob = null
         serverHealthMonitor.setAppForeground(false)
         serverSyncManager.setAppForeground(false)
         super.onStop()

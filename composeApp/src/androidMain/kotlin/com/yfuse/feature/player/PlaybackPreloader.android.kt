@@ -59,6 +59,15 @@ internal class AndroidPlaybackSourcePreloader(
                 networkClass = networkClass,
                 powerSaveMode = powerSaveMode,
                 nativeOnlyRuntime = BuildConfig.YFUSE_NATIVE_ONLY_RUNTIME,
+                core2OwnsPlayback =
+                    shouldUseCore2Trial(
+                        enabled = playbackPreferences.core2TrialEnabled.value,
+                        engineSelection = playbackPreferences.engineSelection.value,
+                        // Not known here. Treating a crash-blocked trial as owning playback only
+                        // skips a warmup, which is the safe direction: the alternative downloads
+                        // a prefix the active engine may never read.
+                        crashBlocked = false,
+                    ),
             )
         ) {
             return noOpPlaybackSourcePreload()
@@ -156,13 +165,21 @@ internal fun shouldWarmPlaybackCache(
     networkClass: PlaybackNetworkClass,
     powerSaveMode: Boolean,
     nativeOnlyRuntime: Boolean = false,
+    core2OwnsPlayback: Boolean = false,
 ): Boolean =
     networkClass == PlaybackNetworkClass.Unmetered &&
         !powerSaveMode &&
-        // The Media3 SimpleCache is consumed by compatibility engines. Native-only YCore owns a
-        // separate validated range cache, so this warmup would merely compete with startup for the
-        // same signed URL without contributing any bytes to the active reader.
-        !nativeOnlyRuntime
+        // The Media3 SimpleCache is consumed by compatibility engines. YCore owns a separate
+        // validated range cache, so whenever it is the engine that will actually play this item
+        // the warmup contributes no bytes to the reader that runs - it only competes with startup
+        // for the same signed URL.
+        //
+        // [nativeOnlyRuntime] is a build flag and was the only thing checked here, but the Core2
+        // trial is on by default: an ordinary full build still hands playback to YCore, and this
+        // warmup was downloading a prefix nothing would ever read, on the connection the first
+        // frame was waiting for.
+        !nativeOnlyRuntime &&
+        !core2OwnsPlayback
 
 internal fun playbackPreloadBytes(sourceBitrateBps: Int?): Long {
     val bytesForStartup =

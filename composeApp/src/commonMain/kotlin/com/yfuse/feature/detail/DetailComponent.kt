@@ -229,6 +229,17 @@ class DetailComponent(
 
         var preloadKey: PlaybackPreloadKey? = null
         var preloadStore: PreparedPlayerStore? = null
+
+        /**
+         * The selection whose prepared queue a player has already taken.
+         *
+         * PreparedPlaybackRegistry.claim removes the entry, so [PreparedPlaybackRegistry.owns]
+         * turns false the moment PlayerComponent takes it - and this page stays alive behind the
+         * player, re-emitting its state. Without remembering the handoff, the next emission looked
+         * like "nothing is prepared for this selection" and built a second PlayerStore, repeating
+         * PlaybackInfo and the whole series queue load while the first frame was still pending.
+         */
+        var handedOffPreloadKey: PlaybackPreloadKey? = null
         var preloadObserver: Job? = null
         var sourceWarmup: PlaybackSourcePreload? = null
 
@@ -285,15 +296,21 @@ class DetailComponent(
                         mediaSourceId = state.selectedVersionId,
                     )
                 val currentPrepared = preloadStore
-                if (
-                    key == preloadKey &&
-                    currentPrepared != null &&
-                    PreparedPlaybackRegistry.owns(key, currentPrepared)
-                ) {
+                if (key == preloadKey && currentPrepared != null) {
+                    if (PreparedPlaybackRegistry.owns(key, currentPrepared)) return@detailState
+                    // Prepared, then claimed by a launching player. That queue is in use; do not
+                    // build another one for the same selection behind it.
+                    handedOffPreloadKey = key
+                    preloadKey = null
+                    preloadStore = null
+                    preloadObserver?.cancel()
+                    preloadObserver = null
                     return@detailState
                 }
+                if (key == handedOffPreloadKey) return@detailState
 
                 releaseOwnedPreload()
+                handedOffPreloadKey = null
                 if (dependencies.playbackPreferences.smartCrossServerSource.value) {
                     dependencies.playbackFailoverRequest.set(
                         PlaybackFailoverPlan(

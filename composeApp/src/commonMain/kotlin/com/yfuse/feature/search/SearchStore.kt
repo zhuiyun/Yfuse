@@ -570,8 +570,10 @@ class SearchStoreFactory(
             val snapshot = state()
             val filter = searchFilter(snapshot)
             dispatch(SearchMsg.Loading(query))
+            // Opt-in, like every other 智能跨服务器片源 behaviour: an unavailable preference
+            // store leaves results grouped per server rather than silently merging them.
             val aggregate =
-                playbackPreferences?.smartCrossServerSource?.value != false &&
+                playbackPreferences?.smartCrossServerSource?.value == true &&
                     snapshot.serverId == null &&
                     snapshot.person == null
 

@@ -62,6 +62,20 @@ private suspend fun <T> discoverSourceWithRetry(block: suspend () -> T): Result<
     }
 }
 
+/**
+ * Status codes a reverse proxy returns when it cannot reach the origin at all.
+ *
+ * Cloudflare's 52x/530 family (and the 1033 tunnel error behind 530) means the tunnel or origin
+ * is down, not that this particular connection was unlucky - the body even carries
+ * `retry_after: 120`. Retrying those after 250 ms adds load to a link that is already failing,
+ * and each saved server is probed in parallel, so a single outage turned one comparison into a
+ * burst of doomed requests competing with playback.
+ */
+private val ORIGIN_UNREACHABLE_STATUS_CODES = setOf(520, 521, 522, 523, 524, 525, 526, 527, 530)
+
+private fun isRetryableServerStatus(code: Int): Boolean =
+    code in 500..599 && code !in ORIGIN_UNREACHABLE_STATUS_CODES
+
 private fun Throwable.isTransientSourceDiscoveryFailure(): Boolean {
     var current: Throwable? = this
     while (current != null) {
@@ -69,10 +83,10 @@ private fun Throwable.isTransientSourceDiscoveryFailure(): Boolean {
             is EmbyErrorException ->
                 when (val error = current.error) {
                     EmbyError.Network -> return true
-                    is EmbyError.Server -> return error.code in 500..599
+                    is EmbyError.Server -> return isRetryableServerStatus(error.code)
                     else -> return false
                 }
-            is ResponseException -> return current.response.status.value in 500..599
+            is ResponseException -> return isRetryableServerStatus(current.response.status.value)
             is IOException -> return true
         }
         current = current.cause

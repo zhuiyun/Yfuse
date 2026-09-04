@@ -130,6 +130,18 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
     private val audioCallbackHandler = Handler(Looper.getMainLooper())
     private val audioRouteChangeQueued = AtomicBoolean(false)
+    private val deferredAudioRouteChange = AtomicBoolean(false)
+    private val audioOutputFingerprintLock = Any()
+
+    /**
+     * Seeded here, before the spatializer monitor and device callback below are registered.
+     *
+     * Both of those can report immediately - registerAudioDeviceCallback always does - and a
+     * change measured against an empty baseline is indistinguishable from a real one.
+     */
+    @Volatile
+    private var observedAudioOutputFingerprint = currentAudioOutputFingerprint()
+
     private val spatialAudioStateMonitor =
         createAndroidSpatialAudioStateMonitor(context, ::queueAudioRouteChange)
     private val seekCommandQueued = AtomicBoolean(false)
@@ -148,6 +160,10 @@ internal class AndroidAdaptiveCore2YPlayer(
     private var activeChild: YPlayer? = null
 
     init {
+        // registerAudioDeviceCallback immediately invokes onAudioDevicesAdded with every output
+        // already connected. Against the seeded fingerprint above that is now a no-op; before,
+        // merely constructing this player reported a route change, and it arrived while the first
+        // graph was being built - which tore that graph down and started over.
         audioManager?.registerAudioDeviceCallback(audioDeviceCallback, audioCallbackHandler)
     }
 
@@ -254,8 +270,34 @@ internal class AndroidAdaptiveCore2YPlayer(
         if (!released) commands.trySend(command)
     }
 
+    /**
+     * Comparable identity of everything that decides where decoded audio actually goes.
+     *
+     * Both sources feeding [queueAudioRouteChange] are broad: AudioDeviceCallback fires for any
+     * device appearing or disappearing anywhere in the system, and the spatializer listener says
+     * only that spatial audio changed somehow. Neither says whether *this* playback's output
+     * moved, and creating an AudioTrack alone produces several of them. Comparing this value is
+     * what separates a real route change from that noise.
+     */
+    private fun currentAudioOutputFingerprint(): String {
+        val manager = audioManager ?: return ""
+        val outputs =
+            manager
+                .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                .map { device -> "${device.type}:${device.id}" }
+                .sorted()
+                .joinToString(",")
+        return "$outputs|${androidSpatialAudioFingerprint(context)}"
+    }
+
     private fun queueAudioRouteChange() {
-        if (!released && audioRouteChangeQueued.compareAndSet(false, true)) {
+        if (released) return
+        val fingerprint = currentAudioOutputFingerprint()
+        synchronized(audioOutputFingerprintLock) {
+            if (fingerprint == observedAudioOutputFingerprint) return
+            observedAudioOutputFingerprint = fingerprint
+        }
+        if (audioRouteChangeQueued.compareAndSet(false, true)) {
             if (commands.trySend(Command.AudioRouteChanged).isFailure) {
                 audioRouteChangeQueued.set(false)
             }
@@ -1058,6 +1100,15 @@ internal class AndroidAdaptiveCore2YPlayer(
                                                 (codecResetCounts[childIndex] ?: 0),
                                     ),
                             )
+                        // An audio route change held back during preparation applies now that
+                        // the graph has reached a settled phase.
+                        if (
+                            childState.phase != YPlaybackPhase.Preparing &&
+                            childState.phase != YPlaybackPhase.Idle &&
+                            deferredAudioRouteChange.compareAndSet(true, false)
+                        ) {
+                            commands.trySend(Command.AudioRouteChanged)
+                        }
                         if (
                             childState.phase == YPlaybackPhase.Ended &&
                             !learningRecorded
@@ -1081,6 +1132,9 @@ internal class AndroidAdaptiveCore2YPlayer(
             // MediaCodec instances are scarce on vendor builds. Release the failed/old graph
             // before probing and constructing its replacement so Retry cannot contend with it.
             stopChild()
+            // The replacement evaluates the current output from scratch, so any route change
+            // still held from the graph being replaced has already been accounted for.
+            deferredAudioRouteChange.set(false)
             mutableState.updateState {
                 it.copy(
                     phase = YPlaybackPhase.Preparing,
@@ -1220,11 +1274,24 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                         Command.AudioRouteChanged -> {
                             audioRouteChangeQueued.set(false)
-                            if (child != null || mutableState.value.phase != YPlaybackPhase.Idle) {
-                                pendingPositionMs = child?.currentPositionMs() ?: mutableState.value.positionMs
-                                forceEnhancedFallback = false
-                                forceSoftwareFallback = false
-                                rebuild(pendingPositionMs)
+                            val phase = mutableState.value.phase
+                            when {
+                                child == null && phase == YPlaybackPhase.Idle -> Unit
+                                // A route change during startup is nearly always the system
+                                // settling the output around the AudioTrack this graph is in the
+                                // middle of creating. Rebuilding then discards a probe, a decoder
+                                // and an open byte range only to arrive at the same route - and
+                                // does it while the first frame is still pending. Hold it, and
+                                // apply it once the graph is actually up.
+                                phase == YPlaybackPhase.Preparing ->
+                                    deferredAudioRouteChange.set(true)
+                                else -> {
+                                    pendingPositionMs =
+                                        child?.currentPositionMs() ?: mutableState.value.positionMs
+                                    forceEnhancedFallback = false
+                                    forceSoftwareFallback = false
+                                    rebuild(pendingPositionMs)
+                                }
                             }
                         }
                         Command.ThermalPressure -> {

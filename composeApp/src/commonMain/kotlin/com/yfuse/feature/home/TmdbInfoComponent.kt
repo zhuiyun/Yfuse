@@ -4,6 +4,7 @@ import com.arkivanov.decompose.ComponentContext
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.FollowedSeries
+import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.logging.AppLog
@@ -46,6 +47,7 @@ class TmdbInfoComponent(
         startPositionTicks: Long,
     ) -> Unit,
     private val followStore: CalendarFollowStore? = null,
+    private val playbackPreferences: PlaybackPreferences? = null,
 ) : ComponentContext by componentContext {
     private val scope = componentScope(lifecycle)
     private val _state =
@@ -83,10 +85,21 @@ class TmdbInfoComponent(
                 }
         }
         scope.launch {
+            // 智能跨服务器片源 governs whether this page reaches past the current server at all.
+            // Comparing across every saved library is several requests per server, in parallel,
+            // and the switch is meaningless if it only reorders results that were fetched anyway.
+            val allServers = registry.data.value.servers
+            val currentServerId = registry.defaultServer?.id
+            val servers =
+                if (playbackPreferences?.smartCrossServerSource?.value == true) {
+                    allServers
+                } else {
+                    allServers.filter { it.id == currentServerId }
+                }
             val sources =
                 emby.compareSources(
-                    servers = registry.data.value.servers,
-                    currentServerId = registry.defaultServer?.id,
+                    servers = servers,
+                    currentServerId = currentServerId,
                     title = item.title,
                     tmdbId = item.id,
                     mediaType = item.mediaType,

@@ -5,6 +5,7 @@ import com.yfuse.core.model.ServerSource
 import com.yfuse.core.model.SourceInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SmartSourceSelectionTest {
@@ -129,6 +130,37 @@ class SmartSourceSelectionTest {
         year = 1999,
         providerIds = providers,
     )
+
+    @Test
+    fun a_degraded_server_is_still_playable_and_does_not_justify_switching() {
+        val current = source("current", height = 2160, bitrate = 20_000_000)
+
+        // One 5xx marks a server Degraded. Ranking rightly prefers a Healthy peer, but the source
+        // itself is still usable, and overriding the server the user chose on that basis moved
+        // playback off a working library for a single bad response.
+        assertTrue(
+            serverSourcePlayable(current, ServerHealth(ServerHealthStatus.Degraded, latencyMs = 90)),
+        )
+        assertTrue(serverSourcePlayable(current, ServerHealth(ServerHealthStatus.Healthy)))
+        assertTrue(serverSourcePlayable(current, null))
+    }
+
+    @Test
+    fun an_unusable_source_is_not_playable() {
+        val reachable = source("current", height = 1080, bitrate = 8_000_000)
+
+        assertFalse(serverSourcePlayable(reachable, ServerHealth(ServerHealthStatus.Offline)))
+        assertFalse(serverSourcePlayable(reachable, ServerHealth(ServerHealthStatus.AuthRequired)))
+        assertFalse(
+            serverSourcePlayable(reachable.copy(reachable = false), ServerHealth(ServerHealthStatus.Healthy)),
+        )
+        assertFalse(
+            serverSourcePlayable(reachable.copy(source = null), ServerHealth(ServerHealthStatus.Healthy)),
+        )
+        assertFalse(
+            serverSourcePlayable(reachable.copy(itemId = null), ServerHealth(ServerHealthStatus.Healthy)),
+        )
+    }
 
     private fun source(
         serverId: String,

@@ -177,6 +177,11 @@ class ServerRegistry(
 
     fun setDefault(id: String) {
         if (_data.value.servers.any { it.id == id }) {
+            // Re-selecting the server that is already default is not a change. Committing it
+            // republished the registry - which restarts every collector downstream, health
+            // probing included - and logged a default_changed that made ordinary browsing look
+            // like the app was switching servers on its own.
+            if (_data.value.defaultServerId == id) return
             commit(_data.value.copy(defaultServerId = id))
             AppLog.info(
                 category = "server.registry",

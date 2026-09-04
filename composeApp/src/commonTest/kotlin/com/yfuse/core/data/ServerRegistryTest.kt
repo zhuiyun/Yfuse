@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ServerRegistryTest {
@@ -25,6 +26,25 @@ class ServerRegistryTest {
         settings: Settings = MapSettings(),
         secrets: TestSecureStore = TestSecureStore(),
     ) = ServerRegistry(settings, secrets)
+
+    @Test
+    fun reselecting_the_current_default_does_not_republish_the_registry() {
+        val registry = registry()
+        registry.addOrUpdate(server("a"))
+        registry.addOrUpdate(server("b"))
+        val unchanged = registry.data.value
+
+        registry.setDefault("a")
+
+        // Every registry write restarts the collectors downstream - health probing re-runs across
+        // every server and address. Re-selecting the server that is already default is not a
+        // change, and it also logged a default_changed that read as an unprompted server switch.
+        assertSame(unchanged, registry.data.value)
+
+        registry.setDefault("b")
+
+        assertEquals("b", registry.defaultServer?.id)
+    }
 
     @Test
     fun firstAddedBecomesDefaultAndRemovingItReassignsDefault() {

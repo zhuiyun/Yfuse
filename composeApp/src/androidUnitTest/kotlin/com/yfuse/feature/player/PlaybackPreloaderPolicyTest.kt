@@ -27,6 +27,30 @@ class PlaybackPreloaderPolicyTest {
     }
 
     @Test
+    fun `a YCore playback does not start an unused Media3 source download`() {
+        // The Core2 trial is on by default, so an ordinary full build - where nativeOnlyRuntime is
+        // false - still hands playback to YCore, which reads its own range cache. Warming the
+        // Media3 SimpleCache then downloads a prefix nothing reads, over the connection the first
+        // frame is waiting on.
+        assertFalse(
+            shouldWarmPlaybackCache(
+                networkClass = PlaybackNetworkClass.Unmetered,
+                powerSaveMode = false,
+                nativeOnlyRuntime = false,
+                core2OwnsPlayback = true,
+            ),
+        )
+        assertTrue(
+            shouldWarmPlaybackCache(
+                networkClass = PlaybackNetworkClass.Unmetered,
+                powerSaveMode = false,
+                nativeOnlyRuntime = false,
+                core2OwnsPlayback = false,
+            ),
+        )
+    }
+
+    @Test
     fun startup_prefix_follows_bitrate_with_safe_bounds() {
         val mebibyte = 1024L * 1024L
         assertEquals(8L * mebibyte, playbackPreloadBytes(null))

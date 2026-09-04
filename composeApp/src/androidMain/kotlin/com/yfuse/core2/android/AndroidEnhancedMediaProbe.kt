@@ -22,7 +22,36 @@ import com.yfuse.core2.strategy.shouldRequestEnhancedProbe
 internal class AndroidEnhancedMediaProbe(
     private val createDemuxer: () -> AndroidFfmpegDemuxer = ::AndroidFfmpegDemuxer,
 ) {
+    private val probeCacheLock = Any()
+
+    /**
+     * Successful deep probes for this evaluator's lifetime, newest last.
+     *
+     * The reasoning matches [AndroidCore2MediaProbe]: this opens the real source over the network
+     * to read bitstream metadata, route evaluation can run several times during one cold start,
+     * and every repeat re-reads the same bytes for the same answer while the first frame waits.
+     */
+    private val probeCache = LinkedHashMap<String, YCore2ProbeResult.Success>()
+
     fun probe(item: YMediaItem): YCore2ProbeResult? {
+        val cacheKey = item.enhancedProbeCacheKey()
+        synchronized(probeCacheLock) { probeCache[cacheKey] }?.let { cached -> return cached }
+        val result = probeUncached(item)
+        // Successes only: a failure here is usually an unreachable source, and caching it would
+        // keep the route unplayable for the rest of the session after the network recovers.
+        if (result is YCore2ProbeResult.Success) {
+            synchronized(probeCacheLock) {
+                probeCache.remove(cacheKey)
+                probeCache[cacheKey] = result
+                while (probeCache.size > MAX_CACHED_ENHANCED_PROBES) {
+                    probeCache.remove(probeCache.keys.first())
+                }
+            }
+        }
+        return result
+    }
+
+    private fun probeUncached(item: YMediaItem): YCore2ProbeResult? {
         val demuxer = createDemuxer()
         if (!demuxer.available) return null
         return try {
@@ -162,3 +191,20 @@ internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
 internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(item: YMediaItem): Boolean =
     (item.sourceHints?.dolbyVision == true && dolbyVisionConfig == null) ||
         requiresEnhancedTruthProbe()
+
+/**
+ * Everything a deep probe result depends on besides the bytes it reads.
+ *
+ * [com.yfuse.core2.network.YCacheIdentity] is preferred over the URI for the same reason as in
+ * [AndroidCore2MediaProbe]: a playback URI carries a rotating play-session id that would defeat
+ * the cache within a single launch.
+ */
+private fun YMediaItem.enhancedProbeCacheKey(): String =
+    listOf(
+        cacheIdentity?.let { identity -> "id:${identity.scope}/${identity.mediaId}/${identity.version}" }
+            ?: "uri:$uri",
+        mimeType.orEmpty(),
+        (sourceHints?.dolbyVision == true).toString(),
+    ).joinToString("\u0000")
+
+private const val MAX_CACHED_ENHANCED_PROBES = 4
