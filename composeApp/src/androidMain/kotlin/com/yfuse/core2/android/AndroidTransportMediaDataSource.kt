@@ -4,16 +4,14 @@ import android.media.MediaDataSource
 import android.os.Looper
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.network.YAggregateBandwidthMeter
-import com.yfuse.core2.network.YByteRange
 import com.yfuse.core2.network.YCacheConditions
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YCachePlanner
 import com.yfuse.core2.network.YMediaTransport
-import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
-import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.YTransportCredentials
+import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.mediaRangeRetryDelayMs
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -483,8 +481,10 @@ internal class AndroidTransportMediaDataSource(
                     "exceptionChain" to failure.safeTransportExceptionChain(),
                     "status" to (statusCode?.toString() ?: "unavailable"),
                     "expectedRangeStart" to
-                        (expectedRangeStart?.toString()
-                            ?: blockIndex.saturatedMultiply(blockSize.toLong()).toString()),
+                        (
+                            expectedRangeStart?.toString()
+                                ?: blockIndex.saturatedMultiply(blockSize.toLong()).toString()
+                        ),
                     "acceptedRangeStart" to (acceptedRangeStart?.toString() ?: "unavailable"),
                     "attemptCount" to (completedRetries + 1).toString(),
                 ),
@@ -859,6 +859,7 @@ private const val MAX_EMPTY_TRANSPORT_READS = 64
 private const val TRANSPORT_PREFETCH_THREAD_NAME = "YCore-TransportPrefetch"
 private const val DEFAULT_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 2
 private const val MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 12
+
 // Four ordered ranges keep HTTP/1.1 origins busy without letting speculative traffic crowd out
 // playback. Foreground reads separately promote any queued block they need immediately.
 private const val MAX_TRANSPORT_PREFETCH_CONCURRENCY = 4
@@ -868,6 +869,7 @@ private const val TRANSPORT_BUFFER_PROGRESS_EXTRA_BLOCKS = 2
 private const val BITS_PER_BYTE = 8L
 private const val MILLIS_PER_SECOND = 1_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
+
 // A 2 MiB speculative block that has not arrived in this long is no longer beating a direct load,
 // and the stalled socket behind it is worth releasing.
 private const val FOREGROUND_PREFETCH_WAIT_MS = 1_500L

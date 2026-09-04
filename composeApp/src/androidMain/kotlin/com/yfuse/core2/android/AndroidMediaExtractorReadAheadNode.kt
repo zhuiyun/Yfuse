@@ -422,12 +422,13 @@ internal class AndroidMediaExtractorReadAheadNode(
 
     private fun owner(): ExecutorService =
         synchronized(monitor) {
-            executor ?: Executors.newSingleThreadExecutor { runnable ->
-                Thread(runnable, "$EXTRACTOR_THREAD_NAME-${threadIndex.incrementAndGet()}").apply {
-                    priority = Thread.NORM_PRIORITY + 1
-                    isDaemon = true
-                }
-            }.also { executor = it }
+            executor ?: Executors
+                .newSingleThreadExecutor { runnable ->
+                    Thread(runnable, "$EXTRACTOR_THREAD_NAME-${threadIndex.incrementAndGet()}").apply {
+                        priority = Thread.NORM_PRIORITY + 1
+                        isDaemon = true
+                    }
+                }.also { executor = it }
         }
 
     private fun <T> runOnOwner(block: () -> T): T = await(owner().submit(Callable(block)))
