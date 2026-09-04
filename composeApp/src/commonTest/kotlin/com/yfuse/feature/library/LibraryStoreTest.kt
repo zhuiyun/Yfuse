@@ -35,7 +35,7 @@ class LibraryStoreTest {
             val store =
                 LibraryStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { homeRoutes(it) },
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { homeRoutes(it) },
                     registry,
                     LibraryCache(MapSettings()),
                     nowEpochMs = { 1_700_000_000_000L },
@@ -60,7 +60,7 @@ class LibraryStoreTest {
             val store =
                 LibraryStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { json("{}") },
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { json("{}") },
                     testRegistry(),
                     LibraryCache(MapSettings()),
                     mainContext = UnconfinedTestDispatcher(testScheduler),
@@ -81,9 +81,11 @@ class LibraryStoreTest {
                 HomeRow(WATCH_LATER_COLLECTION_ID, "稍后观看", listOf(item)),
                 HomeRow("movies", "电影", listOf(item)),
                 HomeRow("movies", "电影（重复）", listOf(item)),
+                HomeRow("unavailable", "暂不可用的库", emptyList(), loadFailed = true),
+                HomeRow("empty", "空库", emptyList()),
             ).libraryShelfRows()
 
-        assertEquals(listOf("movies"), shelves.map { it.libraryId })
+        assertEquals(listOf("movies", "unavailable"), shelves.map { it.libraryId })
     }
 
     @Test
@@ -100,7 +102,7 @@ class LibraryStoreTest {
             val store =
                 LibraryStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { request ->
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
                         val oldServer = request.url.host == "old"
                         if (oldServer && request.url.encodedPath.endsWith("/Views")) {
                             oldRequestStarted.complete(Unit)
@@ -178,7 +180,7 @@ class LibraryStoreTest {
             val store =
                 LibraryStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { request ->
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
                         val oldToken = request.headers["X-Emby-Token"] == "old-token"
                         if (oldToken && request.url.encodedPath.endsWith("/Views")) {
                             oldRequestStarted.complete(Unit)
@@ -256,7 +258,7 @@ class LibraryStoreTest {
             val store =
                 LibraryStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { request ->
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
                         val newToken = request.headers["X-Emby-Token"] == "new-token"
                         if (newToken && request.url.encodedPath.endsWith("/Views")) {
                             newRequestStarted.complete(Unit)
@@ -333,7 +335,7 @@ class LibraryStoreTest {
             val store =
                 LibraryStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { request ->
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
                         if (request.url.encodedPath.endsWith("/Views")) {
                             requestStarted.complete(Unit)
                             releaseRequest.await()
@@ -379,7 +381,7 @@ class LibraryStoreTest {
             val store =
                 LibraryStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { throw IOException("offline") },
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { throw IOException("offline") },
                     registry,
                     cache,
                     mainContext = UnconfinedTestDispatcher(testScheduler),
@@ -418,7 +420,7 @@ class LibraryStoreTest {
             val store =
                 LibraryStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { throw IOException("offline") },
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { throw IOException("offline") },
                     registry,
                     cache,
                     mainContext = UnconfinedTestDispatcher(testScheduler),

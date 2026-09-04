@@ -77,6 +77,8 @@ data class HomeRow(
     val items: List<MediaItem>,
     /** Size of the whole library, not just the loaded page — shown on the chip. */
     val totalCount: Int = items.size,
+    /** A failed preview must not remove the library's browse entry or look like an empty library. */
+    val loadFailed: Boolean = false,
 )
 
 /**

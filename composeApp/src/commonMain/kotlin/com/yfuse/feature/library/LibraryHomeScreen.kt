@@ -1028,7 +1028,7 @@ private fun CategoryCards(
                 }
             LibraryCategoryCard(
                 title = row.title,
-                countLabel = "${row.totalCount}部",
+                countLabel = if (row.loadFailed) "加载失败" else "${row.totalCount}部",
                 coverUrl = coverUrl,
                 fallbackIcon = personalIcon,
                 onClick = { onOpen(row) },
@@ -1129,7 +1129,7 @@ internal fun List<HomeRow>.libraryShelfRows(): List<HomeRow> =
     asSequence()
         .filter { it.libraryId != FAVORITES_COLLECTION_ID }
         .filter { it.libraryId != WATCH_LATER_COLLECTION_ID }
-        .filter { it.items.isNotEmpty() }
+        .filter { it.items.isNotEmpty() || it.loadFailed }
         .distinctBy { it.libraryId }
         .toList()
 
@@ -1265,6 +1265,14 @@ private fun CategorySection(
 ) {
     Column {
         SectionHeader(row.title, onSeeAll = onSeeAll)
+        if (row.loadFailed) {
+            Text(
+                text = "暂时无法加载，点击“更多”查看或下拉重试",
+                style = AppTypography.caption.regular,
+                color = LocalPalette.current.sub,
+                modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+            )
+        }
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(10.dp),

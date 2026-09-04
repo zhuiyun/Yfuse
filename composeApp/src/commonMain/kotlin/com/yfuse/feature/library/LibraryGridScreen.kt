@@ -111,12 +111,9 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
             lastVisible >= info.totalItemsCount - 1 - PREFETCH_ITEMS
         }
     }
-    // Keyed on the loaded count, not just on the flag: `snapshotFlow` only emits on change,
-    // so a page that appended fewer items than the prefetch window would leave the trigger
-    // stuck at `true` with nothing left to emit, and paging would stop halfway down a
-    // library. Restarting after every append re-reads it instead. The store's own guard is
-    // what ends this — a page that adds nothing sets the total to what is loaded.
-    LaunchedEffect(gridState, state.loadedCount, state.loadMoreError) {
+    // Re-evaluate at each raw server offset, including pages containing only duplicates.
+    // Those pages advance the cursor without changing the number of visible cards.
+    LaunchedEffect(gridState, state.nextStartIndex, state.loadMoreError) {
         // A failed page waits for the footer's 重试 instead of retrying on every scroll.
         if (state.loadMoreError != null) return@LaunchedEffect
         snapshotFlow { shouldLoadMore }.collect {

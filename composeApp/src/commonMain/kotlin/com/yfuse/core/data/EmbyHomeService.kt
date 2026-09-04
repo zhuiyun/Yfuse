@@ -18,11 +18,13 @@ import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.io.IOException
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 
 internal class EmbyHomeService(
     private val client: HttpClient,
@@ -37,18 +39,18 @@ internal class EmbyHomeService(
         embyApiCall("home_content") {
             coroutineScope {
                 val views =
-                    withTimeout(HOME_VIEWS_TIMEOUT_MS) {
+                    withTimeoutOrNull(HOME_VIEWS_TIMEOUT_MS) {
                         libraryService.views(server)
-                    }
+                    } ?: throw IOException("媒体库目录加载超时，请重试")
                 // One server can expose dozens of views. Bound the section fan-out so opening
                 // Home does not turn those rows into a TLS/HTTP connection storm.
                 val sectionPermits = Semaphore(4)
                 suspend fun <T> boundedSection(block: suspend () -> T): T =
-                    withTimeout(HOME_SECTION_TIMEOUT_MS) {
-                        sectionPermits.withPermit { block() }
+                    sectionPermits.withPermit {
+                        // Waiting for another section is not time spent requesting this one.
+                        withTimeout(HOME_SECTION_TIMEOUT_MS) { block() }
                     }
-                // A single library (or the resume row) failing must not blank the
-                // whole home screen — degrade to an empty row instead.
+                // A failed preview must not blank the home screen or hide a library's entry.
                 val resumeDeferred =
                     async {
                         runCatching { boundedSection { fetchResume(server) } }
@@ -91,7 +93,7 @@ internal class EmbyHomeService(
                                         "section" to "favorites",
                                     ),
                             )
-                        }.getOrDefault(HomeRow(FAVORITES_COLLECTION_ID, "我的收藏", emptyList()))
+                        }.getOrDefault(HomeRow(FAVORITES_COLLECTION_ID, "我的收藏", emptyList(), loadFailed = true))
                     }
                 val watchLaterDeferred =
                     async {
@@ -118,7 +120,7 @@ internal class EmbyHomeService(
                                         "section" to "watch_later",
                                     ),
                             )
-                        }.getOrDefault(HomeRow(WATCH_LATER_COLLECTION_ID, "稍后观看", emptyList()))
+                        }.getOrDefault(HomeRow(WATCH_LATER_COLLECTION_ID, "稍后观看", emptyList(), loadFailed = true))
                     }
                 val countsDeferred =
                     async {
@@ -199,12 +201,12 @@ internal class EmbyHomeService(
                                 async {
                                     runCatching { boundedSection { fetchLibraryCount(server, view.id) } }
                                 }
-                            val items =
+                            val itemsResult =
                                 itemsDeferred.await().onFailure {
                                     AppLog.warning(
                                         category = "emby",
                                         event = "home_section_degraded",
-                                        message = "Library latest-items section failed and was omitted",
+                                        message = "Library preview failed; browse entry was retained",
                                         throwable = it,
                                         attributes =
                                             mapOf(
@@ -213,7 +215,8 @@ internal class EmbyHomeService(
                                                 "libraryId" to view.id,
                                             ),
                                     )
-                                }.getOrDefault(emptyList())
+                                }
+                            val items = itemsResult.getOrDefault(emptyList())
                             // The chip shows the library's real size, not the loaded page.
                             val total =
                                 totalDeferred.await().onFailure {
@@ -229,7 +232,7 @@ internal class EmbyHomeService(
                                             ),
                                     )
                                 }.getOrDefault(items.size)
-                            HomeRow(view.id, view.name, items, total)
+                            HomeRow(view.id, view.name, items, total, loadFailed = itemsResult.isFailure)
                         }
                     }
                 val resume = resumeDeferred.await()
@@ -238,7 +241,7 @@ internal class EmbyHomeService(
                 val playlists = playlistsDeferred.await()
                 val rows =
                     listOf(favoritesDeferred.await(), watchLaterDeferred.await()) +
-                        rowDeferred.awaitAll().filter { it.items.isNotEmpty() }
+                        rowDeferred.awaitAll()
                 val featured =
                     (resume + rows.flatMap { it.items })
                         .filter { it.backdropTag != null }
@@ -330,5 +333,5 @@ internal class EmbyHomeService(
     }
 }
 
-private const val HOME_VIEWS_TIMEOUT_MS = 4_000L
-private const val HOME_SECTION_TIMEOUT_MS = 2_500L
+private const val HOME_VIEWS_TIMEOUT_MS = 15_000L
+private const val HOME_SECTION_TIMEOUT_MS = 15_000L
