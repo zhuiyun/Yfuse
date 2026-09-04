@@ -225,6 +225,7 @@ internal class AndroidMediaExtractorReadAheadNode(
             runCatching {
                 runOnOwner {
                     delegate.release()
+                    ownerStagingBuffer = null
                     synchronized(monitor) {
                         ownerSelectedTracks = emptySet()
                         resetQueueStateLocked()
@@ -241,6 +242,9 @@ internal class AndroidMediaExtractorReadAheadNode(
     }
 
     private var ownerSelectedTracks = emptySet<Int>()
+
+    /** Owner-thread only. Never read or written from the playback pump. */
+    private var ownerStagingBuffer: ByteBuffer? = null
 
     private fun requestFill() {
         synchronized(monitor) { requestFillLocked() }
@@ -292,10 +296,25 @@ internal class AndroidMediaExtractorReadAheadNode(
         }
     }
 
+    /**
+     * Owner-thread staging buffer for [AndroidMediaExtractorDemuxNode.readSample].
+     *
+     * A fill runs whenever the queue drops below the watermark, which in steady state is about
+     * once per consumed sample. Allocating the staging buffer per fill therefore meant tens of
+     * multi-MiB `allocateDirect` calls per second - each of them zeroing the whole block and
+     * leaving native memory for the collector to reclaim. It is owner-confined, so a plain field
+     * that only grows is enough.
+     */
+    private fun stagingBuffer(capacity: Int): ByteBuffer {
+        // readSample() clears the target itself, so a buffer that is large enough is reusable as is.
+        ownerStagingBuffer?.takeIf { it.capacity() >= capacity }?.let { return it }
+        return ByteBuffer.allocateDirect(capacity).also { ownerStagingBuffer = it }
+    }
+
     private fun fillToHighWatermark() {
         try {
             val capacity = synchronized(monitor) { sampleCapacity }
-            val buffer = ByteBuffer.allocateDirect(capacity)
+            val buffer = stagingBuffer(capacity)
             while (true) {
                 synchronized(monitor) {
                     if (

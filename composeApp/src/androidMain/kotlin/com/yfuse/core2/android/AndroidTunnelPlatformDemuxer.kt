@@ -35,6 +35,16 @@ internal class AndroidTunnelPlatformDemuxer(
     private var cachedSample: AndroidTunnelEncodedSample? = null
     private var selectedTracks: Set<Int> = emptySet()
 
+    /**
+     * Reused staging buffer for the current access unit.
+     *
+     * The peek/advance contract already guarantees single ownership: a new sample is only read
+     * once the previous one has been accepted by its decoder. Allocating per sample meant a direct
+     * buffer of at least [MIN_SAMPLE_BUFFER_BYTES] - and [DEFAULT_SAMPLE_BUFFER_BYTES] before
+     * API 28, where MediaExtractor.sampleSize does not exist - for every frame of playback.
+     */
+    private var stagingBuffer: ByteBuffer? = null
+
     fun open(source: YAndroidMediaSource) {
         release()
         val next = MediaExtractor()
@@ -81,8 +91,8 @@ internal class AndroidTunnelPlatformDemuxer(
                 if (!active.advance()) return null
                 continue
             }
-            val size = sampleSize(active)
-            val buffer = ByteBuffer.allocateDirect(size.coerceAtLeast(MIN_SAMPLE_BUFFER_BYTES))
+            val buffer = stagingBuffer(sampleSize(active).coerceAtLeast(MIN_SAMPLE_BUFFER_BYTES))
+            buffer.clear()
             val read = active.readSampleData(buffer, 0)
             if (read < 0) return null
             buffer.position(0)
@@ -122,9 +132,15 @@ internal class AndroidTunnelPlatformDemuxer(
     fun release() {
         cachedSample = null
         selectedTracks = emptySet()
+        stagingBuffer = null
         extractor?.release()
         extractor = null
         timeline.reset()
+    }
+
+    private fun stagingBuffer(capacity: Int): ByteBuffer {
+        stagingBuffer?.takeIf { it.capacity() >= capacity }?.let { return it }
+        return ByteBuffer.allocateDirect(capacity).also { stagingBuffer = it }
     }
 
     private fun establishTimelineOrigin() {

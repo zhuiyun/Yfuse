@@ -350,10 +350,26 @@ internal class AndroidTransportMediaDataSource(
                 val effectiveKnownSize = responseContentLength ?: knownSizeSnapshot
                 val output = ByteArray(blockSize)
                 var total = 0
+                var emptyReads = 0
                 while (total < output.size) {
                     val count = blockTransport.read(output, total, output.size - total)
                     if (count < 0) break
-                    if (count == 0) continue
+                    if (count == 0) {
+                        // A transport that keeps returning 0 without ever reaching end-of-stream
+                        // used to spin this thread at full CPU forever. Bound it and let the
+                        // retry policy decide, the same as any other truncated range.
+                        if (++emptyReads > MAX_EMPTY_TRANSPORT_READS) {
+                            throw YRangeReadException(
+                                failureKind = YTransportFailureKind.TransientIo,
+                                safeMessage = "Random-access transport stopped producing block bytes",
+                                statusCode = response.statusCode,
+                                expectedRangeStart = position,
+                                acceptedRangeStart = response.acceptedRange?.startInclusive,
+                            )
+                        }
+                        continue
+                    }
+                    emptyReads = 0
                     total += count
                 }
                 val expectedBytes =
@@ -379,7 +395,8 @@ internal class AndroidTransportMediaDataSource(
                     ((System.nanoTime() - startedNs) / 1_000_000L).coerceAtLeast(1L),
                 )
                 YLoadedTransportBlock(
-                    bytes = output.copyOf(total),
+                    // A full block is the common case; copyOf would duplicate the whole 2 MiB.
+                    bytes = if (total == output.size) output else output.copyOf(total),
                     contentLength = responseContentLength,
                     remoteLoadDurationMs =
                         ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
@@ -798,6 +815,9 @@ private fun Long.saturatedMultiply(other: Long): Long {
 
 private const val MIN_TRANSPORT_BLOCK_BYTES = 256 * 1024
 private const val DEFAULT_TRANSPORT_CACHE_BYTES = 64L * 1024L * 1024L
+
+/** Consecutive zero-length transport reads tolerated before a block counts as failed. */
+private const val MAX_EMPTY_TRANSPORT_READS = 64
 private const val TRANSPORT_PREFETCH_THREAD_NAME = "YCore-TransportPrefetch"
 private const val DEFAULT_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 2
 private const val MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 12
