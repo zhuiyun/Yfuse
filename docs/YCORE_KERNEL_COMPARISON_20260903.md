@@ -275,7 +275,8 @@ YCore 依赖平台默认分配。
 
 ## 四、修订优先级
 
-> **r3 进度**：第 1 项已实施（见「已修复」）。第 2–6 项未动。
+> **r4 进度（2026-09-04）**：第 1–4 项全部实施，另修了本次复核新发现的六处问题。
+> 详见文末「修订记录 · r4」。第 5–6 项仍待真机数据。
 
 1. ~~**DV `MediaFormat` 拷贝副本** + **>8 声道 fail-closed 或真 downmix**（2.5、2.6）~~
    —— 已修复，另补了 `max-input-size` 兜底（2.10）。
@@ -348,6 +349,39 @@ Gradle 解析不到 Kotlin/AGP 插件，本地也没有 Android SDK 和发布密
 已补单测，但**尚未执行**。编译、单测、ktlint 与签名均需走 CI。
 
 ## 修订记录
+
+**r4 · 2026-09-04（复核 + 实施）**
+
+复核发现 r3 之后的提交已经修掉了三条主条目，本文对应章节的「未动」标注作废：
+
+| 条目 | 现状 |
+| --- | --- |
+| 2.1 解复用同步跑在 pump 上 | 已修。`AndroidMediaExtractorReadAheadNode` 单线程 owner + 有界样本队列；seek 先清 `selectedTracks`，在途 fill 在下一个循环边界自退 |
+| 2.2 单 pump 音视频互相阻塞 | 已修。`pollSample(excludedTrackIndex)` + `feedInput` 备选轨回退 |
+| 2.3 ABR 墙钟缓冲 | 已修。`YAdaptiveBufferModel` + `YAdaptivePlaybackFeedback`，pause/speed/generation 全建模，`completeSegment` 防双计 |
+| 2.4.2 顺序服务路径把本地反压算成网络耗时 | 已修。`serveSequential` 的 `networkReadDurationNs` 已排除写 loopback 的时间 |
+
+本次新发现并已实施的修复：
+
+| # | 问题 | 修法 |
+| --- | --- | --- |
+| 1 | 读前节点每次 fill 都 `allocateDirect` 一块 3–6 MiB 暂存缓冲（稳态下约每消费一个样本一次） | 提为 owner 私有字段，只增不换，`release()` 时释放 |
+| 2 | 内存块缓存拿 `YCachePlanner` 的**磁盘**预算（64 MiB）当堆上限 | 改为 `blockSize × 8`（2 MiB 块 = 16 MiB）的后向窗口；前向字节本来就在 prefetch future 里 |
+| 3 | Tunnel 解复用每个样本 `allocateDirect`（API 28 以下每次 8 MiB） | peek/advance 本就是单占用契约，改为复用暂存缓冲 |
+| 4 | 满块时 `output.copyOf(total)` 白拷 2 MiB；`count == 0` 无退避忙等 | 满块直接返回原数组；连续空读超上限按 `TransientIo` 交给重试策略 |
+| 5 | `close()` 被前台 range 读挡住，重试循环不看 `closed` | `close()` 先置位并关 socket（这正是解阻塞手段），之后才取锁清缓存；重试前检查 `closed` |
+| 6 | 读前节点无单测 | 抽出 `YPlatformExtractorSource` 接口注入 delegate，补 10 条队列策略单测（水位、字节上限、per-track 背压、seek 失效、EOF 顺序、暂存缓冲复用） |
+| 7 | 读前水位固定 3 秒，而 Enhanced 是 `YBufferController` 自适应 1.5–15 秒 | NativeDirect 也接 `YBufferController`，按传输层实测吞吐每 2 秒重规划 |
+| 2.4.1/2.4.3 | 并发预取各自计时导致系统性低估；单 EWMA 对突发不鲁棒 | 新增 `YAggregateBandwidthMeter`：按**忙期**（至少一个传输在飞的极大区间）聚合字节，`sqrt(bytes)` 加权滑动窗口取加权中位数 |
+| ABR | 低缓冲直接 `eligible.first()` 掉最低档 | 改为「降一档且不超过带宽 ideal」；ideal 已等于 current 时不动（说明饥饿不来自链路） |
+| 2.7 | 纯音频无法播放 | `YPlaybackRequest.audioOnly` + `DefaultYPlaybackStrategy.planAudioOnly` 短路整棵视频决策树；两个 probe 补纯音频结果；NativeDirect 允许无视频轨。**只走 NativeDirect**：Enhanced/软解 session 以视频轨和有效 Surface 为前提，不可执行时按 plan 如实降级 |
+| 2.8/2.9 | Surface 销毁停音频；重建必 seek | `canPump` 拆成 `videoRenderable ‖ audioPumpAllowed`；Surface 消失时只释放视频解码器、丢弃视频样本，时钟与音频不动；重建时就地重配解码器并等下一个 sync sample，**不 seek**（容器长期不给 sync 时兜底回退到 seek） |
+
+**验证状态**：`:composeApp:compileDebugKotlinAndroid` 通过；`testDebugUnitTest --tests 'com.yfuse.core2.*'` 全绿（新增 24 条）；全量 `testDebugUnitTest` 1856 条 16 条失败，与改动前基线（stash 后复跑）**完全同一组**，全在 Emby/Store/UI motion 层，与本次改动无关；改到的文件 ktlint 无新增违规（仓库 `ktlintCheck` 在 `ktlintKotlinScriptCheck` 和若干既有测试文件上本来就失败）。
+
+**仍需真机验证**（本会话无设备）：纯音频端到端（音乐/有声书）、后台与锁屏音频连续性、Surface 销毁→重建的画面恢复时延、`MEMORY_CACHE_BLOCKS = 8` 在高码率原盘上的 rebuffer 影响、聚合带宽估计对 ABR 选档的实际影响。
+
+**仍未做**：音频 offload、audio session id、MediaCodec 异步回调、直播/DVR/时移、Tunnel 与 Enhanced 两条路的纯音频支持（都以视频轨为前提，本次只在 NativeDirect 落地）。
 
 **r2 · 2026-09-03（评审后）**
 
