@@ -5,7 +5,6 @@ import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.russhwolf.settings.MapSettings
-import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.PlaybackProgressProjection
 import com.yfuse.core.data.PlaybackTrackRequest
 import com.yfuse.core.model.SavedServer
@@ -1121,7 +1120,6 @@ class DetailStoreTest {
             mainContext = mainContext,
             playbackTrackRequest = testPlaybackTrackRequest,
             syncManager = testSyncManager,
-            playbackPreferences = crossServerSourcePreferences(),
         ).create()
     }
 
@@ -1242,16 +1240,8 @@ class DetailStoreTest {
             mainContext = mainContext,
             playbackTrackRequest = testPlaybackTrackRequest,
             syncManager = testSyncManager,
-            playbackPreferences = crossServerSourcePreferences(),
         ).create()
     }
-
-    /**
-     * 智能跨服务器片源 decides whether the 资源 comparison reaches other servers at all, not just
-     * how its results are ranked, so tests that assert multi-server sources enable it explicitly.
-     */
-    private fun crossServerSourcePreferences(): PlaybackPreferences =
-        PlaybackPreferences(MapSettings()).also { it.setSmartCrossServerSource(true) }
 
     private companion object {
         const val MOVIE_ONE =

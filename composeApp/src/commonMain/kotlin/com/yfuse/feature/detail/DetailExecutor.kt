@@ -66,10 +66,14 @@ internal class DetailExecutor(
     private val seriesCatalogLoader = SeriesCatalogLoader(repo)
 
     /**
-     * 智能跨服务器片源 is opt-in, and an unavailable preference store must not turn it on.
+     * Whether the app may pick a server on the user's behalf.
      *
-     * Every cross-server path reads this rather than the preference directly, so the switch
-     * governs whether the requests are made at all instead of only how their results are sorted.
+     * This governs the automatic decisions - switching to a recommended route on 播放, and planning
+     * cross-server failover - not what the 资源 comparison displays. The comparison is the page's
+     * own feature and always shows every server that has the title.
+     *
+     * Read through here rather than from the preference directly so an unavailable preference
+     * store leaves the automatic behaviour off; two call sites used to default it on.
      */
     private val crossServerSourcesEnabled: Boolean
         get() = playbackPreferences?.smartCrossServerSource?.value == true
@@ -405,13 +409,12 @@ internal class DetailExecutor(
             state().playTarget?.id == selection.target.id
 
     /**
-     * Fans the title out across the servers in scope; failures degrade per-server.
+     * Fans the title out across every saved server; failures degrade per-server.
      *
-     * With 智能跨服务器片源 off the comparison stays on the server being browsed. The preference
-     * used to reach only the ranking of cards that had already been fetched, so a title lookup
-     * still went out to every saved server - several requests each, retried, in parallel, on the
-     * same connection playback was about to need. Scoping the fan-out here is what makes turning
-     * the switch off actually stop the traffic.
+     * 资源对比 is the point of this page, so it reaches every server regardless of
+     * 智能跨服务器片源 - that switch governs automatic route selection, not what the user is
+     * shown. What it must not do is run while playback is starting: see the [compareSources]
+     * opt-out on [dispatchPlaybackSelection].
      */
     private fun loadSources(
         server: SavedServer,
@@ -419,13 +422,7 @@ internal class DetailExecutor(
         seasonNumber: Int?,
         episodeNumber: Int?,
     ) {
-        val allServers = registry.data.value.servers
-        val servers =
-            if (crossServerSourcesEnabled) {
-                allServers
-            } else {
-                allServers.filter { it.id == server.id }
-            }
+        val servers = registry.data.value.servers
         val generation = ++sourceLoadGeneration
         scope.launch {
             val tmdbId =

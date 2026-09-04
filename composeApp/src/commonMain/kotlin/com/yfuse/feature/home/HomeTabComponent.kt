@@ -303,7 +303,6 @@ class HomeTabComponent(
                         registry = registry,
                         item = config.item,
                         followStore = dependencies.calendarFollowStore,
-                        playbackPreferences = dependencies.playbackPreferences,
                         embyItemId = config.embyItemId,
                         onBack = { navigation.pop() },
                         onPlayTarget = { serverId, id, ticks ->
