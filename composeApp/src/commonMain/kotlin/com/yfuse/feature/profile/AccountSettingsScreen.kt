@@ -53,6 +53,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -82,7 +83,7 @@ import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
-import com.yfuse.core.designsystem.YfLinkButton
+import com.yfuse.core.designsystem.YfInlineLinkButton
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
@@ -165,6 +166,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
     var username by rememberSaveable { mutableStateOf("") }
     // Passwords must not enter Android's saved-instance-state Bundle.
     var password by remember { mutableStateOf("") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var nickname by rememberSaveable { mutableStateOf("") }
     var avatarId by rememberSaveable { mutableStateOf(0) }
     var inviteCode by rememberSaveable { mutableStateOf("") }
@@ -179,21 +181,28 @@ private fun SignedOutAccountCard(account: AccountRepository) {
         )
         Spacer(Modifier.height(5.dp))
         Text("账号服务：IP 直连 · HTTPS", style = AppTypography.caption.regular, color = palette.sub2)
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(16.dp))
         YfFormField(
             value = username,
             onValueChange = { username = it.take(40) },
             label = "账号名",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+            placeholder = "请输入账号名",
             enabled = !busy,
         )
-        Spacer(Modifier.height(9.dp))
+        Spacer(Modifier.height(10.dp))
         YfFormField(
             value = password,
             onValueChange = { password = it.take(128) },
-            label = "密码（至少 $MIN_PASSWORD_LENGTH 位）",
-            visualTransformation = PasswordVisualTransformation(),
+            label = "密码",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            placeholder = "至少 $MIN_PASSWORD_LENGTH 位",
+            visualTransformation =
+                if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = AppIcons.Eye,
+            trailingIconContentDescription =
+                if (passwordVisible) "隐藏密码" else "显示密码",
+            onTrailingIconClick = { passwordVisible = !passwordVisible },
             enabled = !busy,
         )
         if (registerMode) {
@@ -221,7 +230,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
             Spacer(Modifier.height(9.dp))
             Text(it, style = AppTypography.caption.medium, color = palette.error)
         }
-        Spacer(Modifier.height(13.dp))
+        Spacer(Modifier.height(18.dp))
         YfButton(
             label = if (registerMode) "注册账号" else "登录账号",
             onClick = {
@@ -229,6 +238,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
                 error = null
                 val secret = password.toCharArray()
                 password = ""
+                passwordVisible = false
                 scope.launch {
                     val result =
                         if (registerMode) {
@@ -246,7 +256,7 @@ private fun SignedOutAccountCard(account: AccountRepository) {
                     busy = false
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
             enabled =
                 !busy &&
                     username.isNotBlank() &&
@@ -254,11 +264,12 @@ private fun SignedOutAccountCard(account: AccountRepository) {
                     (!registerMode || inviteCode.length >= 12),
             loading = busy,
         )
-        YfLinkButton(
+        YfInlineLinkButton(
             label = if (registerMode) "已有账号？去登录" else "没有账号？创建一个",
             onClick = {
                 registerMode = !registerMode
                 password = ""
+                passwordVisible = false
                 error = null
             },
             modifier = Modifier.align(Alignment.CenterHorizontally),
