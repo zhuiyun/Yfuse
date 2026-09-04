@@ -82,11 +82,12 @@ class AccountApi(
     suspend fun refresh(
         refreshToken: String,
         deviceName: String? = null,
+        requestId: String? = null,
     ): AuthResponse =
         client
             .post("$origin/api/v1/auth/refresh") {
                 contentType(ContentType.Application.Json)
-                setBody(RefreshRequest(refreshToken, deviceName))
+                setBody(RefreshRequest(refreshToken, deviceName, requestId))
             }.decoded()
 
     suspend fun logout(accessToken: String) {

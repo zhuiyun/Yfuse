@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -123,17 +122,18 @@ fun CalendarScreen(component: CalendarComponent) {
         val entry = dialogEntry ?: return@LaunchedEffect
         dialogSeriesDays = null
         dialogRefreshing = true
-        component.seriesCalendar(
-            entry = entry,
-            onPreview = { preview ->
-                if (preview.isNotEmpty()) {
-                    dialogSeriesDays = preview
-                    dialogRefreshing = false
-                }
-            },
-        ).onSuccess { loaded ->
-            if (loaded.isNotEmpty()) dialogSeriesDays = loaded
-        }
+        component
+            .seriesCalendar(
+                entry = entry,
+                onPreview = { preview ->
+                    if (preview.isNotEmpty()) {
+                        dialogSeriesDays = preview
+                        dialogRefreshing = false
+                    }
+                },
+            ).onSuccess { loaded ->
+                if (loaded.isNotEmpty()) dialogSeriesDays = loaded
+            }
         dialogRefreshing = false
     }
 
@@ -656,8 +656,7 @@ private fun CalendarDayHeader(
             .pressable(
                 onClickLabel = if (expanded) "收起${day.date}" else "展开${day.date}",
                 onClick = onToggle,
-            )
-            .background(if (expanded) accent.container.copy(alpha = 0.24f) else Color.Transparent)
+            ).background(if (expanded) accent.container.copy(alpha = 0.24f) else Color.Transparent)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -813,7 +812,12 @@ private fun AccordionCalendarDay(
                     else ->
                         AccordionCalendarEntry(
                             display = displayEntries.first(),
-                            weekStats = weeklyStats[displayEntries.first().entry.episode.showTmdbId],
+                            weekStats =
+                                weeklyStats[
+                                    displayEntries
+                                        .first()
+                                        .entry.episode.showTmdbId,
+                                ],
                             expanded = false,
                             extraCount = displayEntries.size - 1,
                             showChevron = true,
@@ -1352,6 +1356,13 @@ private fun CalendarTrackingPane(
             }
         }
         items(followedSeries, key = FollowedSeries::tmdbId) { series ->
+            var resolvedPosters by remember(
+                series.serverId,
+                series.seriesItemId,
+            ) { mutableStateOf(emptyList<String>()) }
+            LaunchedEffect(series.serverId, series.seriesItemId) {
+                resolvedPosters = component.resolvedTrackingPosterUrls(series)
+            }
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1370,7 +1381,7 @@ private fun CalendarTrackingPane(
             ) {
                 FallbackImage(
                     urls =
-                        component.trackingPosterUrls(series) +
+                        resolvedPosters + component.trackingPosterUrls(series) +
                             listOf(
                                 TmdbImages.poster(series.posterPath, width = "w185"),
                                 TmdbImages.media(series.posterPath, width = "w185"),
@@ -1977,6 +1988,7 @@ private fun broadcastStateLabel(entry: CalendarEntry): String {
             when (episode.scheduleAuthority) {
                 AiringScheduleAuthority.Official -> "官方排期"
                 AiringScheduleAuthority.Verified -> "多源确认"
+                AiringScheduleAuthority.Library -> "媒体服务器日期"
                 else -> "预计排期"
             },
         )

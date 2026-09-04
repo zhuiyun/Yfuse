@@ -17,6 +17,8 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -24,13 +26,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
- * Small, reviewed overlay for platform schedules that are published as poster images rather
- * than a stable API. Entries are keyed by provider id, never by a localized title, so the
- * live-action series cannot be confused with the animation 《师兄啊师兄》.
- *
- * A platform revision replaces the corresponding block after its official calendar has been
- * checked. TMDB remains the broad discovery source; this catalog only carries dates whose
- * official authority is known.
+ * The calendar's server publication, containing schedules collected and verified by the backend.
+ * Entries retain provider identities and signed provenance. The app caches the publication and
+ * checks media availability locally; schedule discovery belongs to the backend.
  */
 class OfficialAiringScheduleCatalog(
     private val client: HttpClient,
@@ -60,6 +58,19 @@ class OfficialAiringScheduleCatalog(
         schedules.values
             .flatMap { schedule -> schedule.episodes.map { schedule.toEpisode(it, schedule.title) } }
             .filter { it.airDate in fromDate..toDate }
+
+    /** Identity choices come from the same server publication as the calendar rows. */
+    fun identityCandidates(title: String): List<TmdbSeriesIdentityCandidate> {
+        val normalized = normalizeIdentityTitle(title)
+        if (normalized.isBlank()) return emptyList()
+        return schedules.values
+            .filter {
+                val candidate = normalizeIdentityTitle(it.title)
+                candidate.isNotBlank() && (candidate.contains(normalized) || normalized.contains(candidate))
+            }.sortedByDescending { normalizeIdentityTitle(it.title) == normalized }
+            .map { TmdbSeriesIdentityCandidate(it.tmdbId, it.title, null, it.posterPath) }
+            .take(8)
+    }
 
     /**
      * Refreshes a signed remote overlay at most once per interval.
@@ -125,6 +136,7 @@ class OfficialAiringScheduleCatalog(
             settings.putLong(KEY_LAST_SUCCESS_EPOCH_MS, now)
             true
         }.onFailure { error ->
+            currentCoroutineContext().ensureActive()
             AppLog.warning(
                 category = "feature.calendar",
                 event = "official_schedule_refresh_failed",
@@ -239,20 +251,26 @@ class OfficialAiringScheduleCatalog(
             require(schedule.revision == expectedRevision)
             require(schedule.updatedAt.length in 10..64)
             require(
-                schedule.authority == AiringScheduleAuthority.Official && schedule.confidence in 80..100 ||
-                    schedule.authority == AiringScheduleAuthority.Verified && schedule.confidence in 80..89 ||
-                    schedule.authority == AiringScheduleAuthority.Estimated && schedule.confidence in 60..79,
+                schedule.authority == AiringScheduleAuthority.Official &&
+                    schedule.confidence in 80..100 ||
+                    schedule.authority == AiringScheduleAuthority.Verified &&
+                    schedule.confidence in 80..89 ||
+                    schedule.authority == AiringScheduleAuthority.Estimated &&
+                    schedule.confidence in 60..79,
             )
             require(schedule.evidence.size <= 20)
             require(schedule.evidence.isNotEmpty())
             require(
                 schedule.evidence.all { evidence ->
                     evidence.type in EVIDENCE_TYPES &&
-                        evidence.publisher.isNotBlank() && evidence.publisher.length <= 80 &&
-                        evidence.sourceUrl.startsWith("https://") && evidence.sourceUrl.length <= 2_048 &&
+                        evidence.publisher.isNotBlank() &&
+                        evidence.publisher.length <= 80 &&
+                        evidence.sourceUrl.startsWith("https://") &&
+                        evidence.sourceUrl.length <= 2_048 &&
                         evidence.capturedAt.length in 10..64 &&
                         evidence.contentHash.matches(HASH_PATTERN) &&
-                        evidence.extractionMethod.isNotBlank() && evidence.extractionMethod.length <= 80
+                        evidence.extractionMethod.isNotBlank() &&
+                        evidence.extractionMethod.length <= 80
                 },
             )
             require(schedule.episodes.distinctBy(OfficialEpisodeSlot::episodeNumber).size == schedule.episodes.size)

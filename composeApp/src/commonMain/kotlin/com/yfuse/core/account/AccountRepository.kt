@@ -10,6 +10,7 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.security.AesGcmPayload
 import com.yfuse.core.security.RecoveryKeyEnvelope
 import com.yfuse.core.security.SecureStore
+import com.yfuse.core.security.SecureStoreCorruptedException
 import com.yfuse.core.security.SecureStoreException
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.base64UrlToBytes
@@ -497,6 +498,7 @@ class AccountRepository(
 
     private suspend fun restoreSession() {
         mutex.withLock {
+            var restoringCredentials = true
             runCatching {
                 val refresh = secureStore.get(KEY_REFRESH_TOKEN)?.decodeToString()
                 if (refresh.isNullOrBlank()) {
@@ -505,9 +507,10 @@ class AccountRepository(
                 }
                 val auth =
                     withTimeout(restoreRequestTimeoutMillis) {
-                        api.refresh(refresh, deviceModel().take(64))
+                        requestRefresh(refresh)
                     }
                 acceptAuth(auth)
+                restoringCredentials = false
                 val remote =
                     withTimeout(restoreRequestTimeoutMillis) {
                         authorized { api.getSync(it) }
@@ -549,10 +552,14 @@ class AccountRepository(
                             },
                     )
             }.onFailure { error ->
+                if (!restoringCredentials && _state.value is AccountState.SignedOut) return@onFailure
                 if (
-                    error is SecureStoreException ||
-                    error is AccountApiException &&
-                    error.status == HttpStatusCode.Unauthorized
+                    restoringCredentials &&
+                    (
+                        error is SecureStoreCorruptedException ||
+                            error is AccountApiException &&
+                            error.status == HttpStatusCode.Unauthorized
+                    )
                 ) {
                     runCatching { secureStore.clear() }
                     setSignedOut()
@@ -567,7 +574,11 @@ class AccountRepository(
                     } else {
                         _state.value =
                             AccountState.RestoreFailed(
-                                "网络暂不可用，本机登录信息仍已安全保留。",
+                                if (error is SecureStoreException) {
+                                    "本机登录信息暂时无法读取或保存，请重试。"
+                                } else {
+                                    "网络暂不可用，本机登录信息仍已安全保留。"
+                                },
                             )
                     }
                 }
@@ -704,6 +715,7 @@ class AccountRepository(
 
     private fun acceptAuth(auth: AuthResponse) {
         secureStore.put(KEY_REFRESH_TOKEN, auth.refreshToken.encodeToByteArray())
+        secureStore.remove(KEY_PENDING_REFRESH)
         watch.setProfile(auth.user.nickname, auth.user.avatarId)
         val previous = _state.value as? AccountState.SignedIn
         _state.value =
@@ -764,7 +776,7 @@ class AccountRepository(
             error("登录状态已失效，请重新登录")
         }
         try {
-            acceptAuth(api.refresh(token, deviceModel().take(64)))
+            acceptAuth(requestRefresh(token))
         } catch (error: AccountApiException) {
             if (error.status == HttpStatusCode.Unauthorized) {
                 secureStore.clear()
@@ -773,6 +785,28 @@ class AccountRepository(
             throw error
         }
         return requireSignedIn()
+    }
+
+    private suspend fun requestRefresh(token: String): AuthResponse {
+        val stored = secureStore.get(KEY_PENDING_REFRESH)?.decodeToString()
+        val pending =
+            stored
+                ?.let { json.decodeFromString<PendingAccountRefresh>(it) }
+                ?.takeIf { it.refreshToken == token }
+                ?: PendingAccountRefresh(
+                    refreshToken = token,
+                    requestId =
+                        crypto.generateVaultKey().let { bytes ->
+                            try {
+                                bytes.toBase64Url()
+                            } finally {
+                                bytes.fill(0)
+                            }
+                        },
+                )
+        // Persist before sending, and reuse after timeout, process death, or a failed token write.
+        secureStore.put(KEY_PENDING_REFRESH, json.encodeToString(pending).encodeToByteArray())
+        return api.refresh(token, deviceModel().take(64), pending.requestId)
     }
 
     /**
@@ -1015,6 +1049,7 @@ class AccountRepository(
         const val MIN_PASSWORD_CHARS = 8
         const val KEY_VERSION = 1
         const val KEY_REFRESH_TOKEN = "refresh_token"
+        const val KEY_PENDING_REFRESH = "pending_refresh"
         const val KEY_VAULT_KEY = "vault_key"
         const val KEY_VAULT_USER_ID = "vault_user_id"
         const val KEY_WRAP_SALT = "vault_wrap_salt"

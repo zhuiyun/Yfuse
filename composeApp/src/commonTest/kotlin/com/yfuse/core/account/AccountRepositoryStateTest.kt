@@ -10,6 +10,8 @@ import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.security.CryptoPrimitives
 import com.yfuse.core.security.SecureStore
+import com.yfuse.core.security.SecureStoreCorruptedException
+import com.yfuse.core.security.SecureStoreException
 import com.yfuse.core.security.TestSecureStore
 import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.base64UrlToBytes
@@ -309,7 +311,7 @@ class AccountRepositoryStateTest {
                 )
 
             assertEquals("网络暂不可用，本机登录信息仍已安全保留。", failed.message)
-            assertEquals(originalSecrets, secureStore.snapshot())
+            assertEquals(originalSecrets, secureStore.snapshot().filterKeys { it != "pending_refresh" })
             assertEquals(0, secureStore.clearCount)
         }
 
@@ -338,7 +340,7 @@ class AccountRepositoryStateTest {
             awaitAccountState(repository) { it is AccountState.RestoreFailed }
 
             assertTrue(firstRefreshStarted.isCompleted)
-            assertEquals(originalSecrets, secureStore.snapshot())
+            assertEquals(originalSecrets, secureStore.snapshot().filterKeys { it != "pending_refresh" })
             assertEquals(0, secureStore.clearCount)
 
             repository.retryRestore()
@@ -519,6 +521,160 @@ class AccountRepositoryStateTest {
         status = status,
         headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
     )
+
+    @Test
+    fun temporary_credential_read_failure_is_retryable_without_clearing_secrets() =
+        runTest {
+            val backing = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val original = backing.snapshot()
+            var fail = true
+            val store =
+                object : SecureStore by backing {
+                    override fun get(key: String): ByteArray? {
+                        if (fail) throw SecureStoreException("Keystore temporarily unavailable")
+                        return backing.get(key)
+                    }
+                }
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH -> respondAccountJson(json.encodeToString(authResponse()))
+                            SYNC_PATH -> respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
+                            else -> error("Unexpected request")
+                        }
+                    },
+                )
+            val repository = accountRepository(api, store)
+            repository.start()
+            awaitAccountState(repository) { it is AccountState.RestoreFailed }
+            assertEquals(original, backing.snapshot())
+            assertEquals(0, backing.clearCount)
+            fail = false
+            repository.retryRestore()
+            awaitAccountState(repository) { it is AccountState.SignedIn && it.syncVersion == 5L }
+        }
+
+    @Test
+    fun corrupted_sync_key_does_not_erase_a_valid_login() =
+        runTest {
+            val backing = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val store =
+                object : SecureStore by backing {
+                    override fun get(key: String): ByteArray? {
+                        if (key == KEY_VAULT_KEY) throw SecureStoreCorruptedException()
+                        return backing.get(key)
+                    }
+                }
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH ->
+                                respondAccountJson(
+                                    json.encodeToString(authResponse(refreshToken = "new-refresh")),
+                                )
+                            SYNC_PATH -> respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
+                            else -> error("Unexpected request")
+                        }
+                    },
+                )
+            val repository = accountRepository(api, store)
+            repository.start()
+            awaitAccountState(repository) { it is AccountState.SignedIn && it.message != null }
+            assertEquals("new-refresh", backing.text(KEY_REFRESH_TOKEN))
+            assertEquals(0, backing.clearCount)
+        }
+
+    @Test
+    fun lost_refresh_response_reuses_persisted_request_after_repository_restart() =
+        runTest {
+            val store = RecordingAccountSecureStore().apply { seedStoredSession() }
+            var issuedRequest: RefreshRequest? = null
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH -> {
+                                val refresh =
+                                    json.decodeFromString<RefreshRequest>(
+                                        request.body.toByteArray().decodeToString(),
+                                    )
+                                val pending =
+                                    json.decodeFromString<PendingAccountRefresh>(
+                                        store.text("pending_refresh")!!,
+                                    )
+                                assertEquals(refresh.requestId, pending.requestId)
+                                assertEquals(refresh.refreshToken, pending.refreshToken)
+                                if (issuedRequest == null) {
+                                    issuedRequest = refresh
+                                    throw java.io.IOException("Response lost after server rotation")
+                                }
+                                assertEquals(issuedRequest, refresh)
+                                respondAccountJson(
+                                    json.encodeToString(authResponse(refreshToken = "recovered-refresh")),
+                                )
+                            }
+                            SYNC_PATH -> respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
+                            else -> error("Unexpected request")
+                        }
+                    },
+                )
+            val first = accountRepository(api, store)
+            first.start()
+            awaitAccountState(first) { it is AccountState.RestoreFailed }
+            val restarted = accountRepository(api, store)
+            restarted.start()
+            awaitAccountState(restarted) { it is AccountState.SignedIn && it.syncVersion == 5L }
+            assertEquals("recovered-refresh", store.text(KEY_REFRESH_TOKEN))
+            assertEquals(null, store.text("pending_refresh"))
+            assertEquals(0, store.clearCount)
+        }
+
+    @Test
+    fun failed_refresh_token_commit_preserves_pending_request_for_retry() =
+        runTest {
+            val backing = RecordingAccountSecureStore().apply { seedStoredSession() }
+            var failWrite = true
+            val store =
+                object : SecureStore by backing {
+                    override fun put(
+                        key: String,
+                        value: ByteArray,
+                    ) {
+                        if (key == KEY_REFRESH_TOKEN && failWrite) throw SecureStoreException("Disk unavailable")
+                        backing.put(key, value)
+                    }
+                }
+            val requests = mutableListOf<RefreshRequest>()
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH -> {
+                                requests +=
+                                    json.decodeFromString<RefreshRequest>(request.body.toByteArray().decodeToString())
+                                respondAccountJson(
+                                    json.encodeToString(authResponse(refreshToken = "committed-refresh")),
+                                )
+                            }
+                            SYNC_PATH -> respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
+                            else -> error("Unexpected request")
+                        }
+                    },
+                )
+            val repository = accountRepository(api, store)
+            repository.start()
+            awaitAccountState(repository) { it is AccountState.RestoreFailed }
+            assertEquals("stored-refresh-token", backing.text(KEY_REFRESH_TOKEN))
+            assertNotNull(backing.text("pending_refresh"))
+            assertEquals(0, backing.clearCount)
+            failWrite = false
+            repository.retryRestore()
+            awaitAccountState(repository) { it is AccountState.SignedIn && it.syncVersion == 5L }
+            assertEquals(requests[0], requests[1])
+            assertEquals("committed-refresh", backing.text(KEY_REFRESH_TOKEN))
+        }
 
     private companion object {
         const val REFRESH_PATH = "/api/v1/auth/refresh"

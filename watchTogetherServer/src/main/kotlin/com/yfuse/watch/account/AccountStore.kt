@@ -49,7 +49,8 @@ internal interface AccountStore : AutoCloseable {
         currentRefreshHash: ByteArray,
         replacement: SessionReplacement,
         nowEpochMs: Long,
-    ): AuthenticatedSession?
+        recoverReplacement: Boolean = false,
+    ): RefreshedSession?
 
     fun revokeSessionByAccessHash(
         tokenHash: ByteArray,
@@ -633,7 +634,8 @@ internal class SqliteAccountStore private constructor(
         currentRefreshHash: ByteArray,
         replacement: SessionReplacement,
         nowEpochMs: Long,
-    ): AuthenticatedSession? =
+        recoverReplacement: Boolean,
+    ): RefreshedSession? =
         synchronized(lock) {
             transaction {
                 val current =
@@ -662,7 +664,37 @@ internal class SqliteAccountStore private constructor(
                                     )
                                 }
                             }
-                        } ?: return@transaction null
+                        } ?: return@transaction if (recoverReplacement) {
+                        // A replay only recovers the still-current successor. It neither
+                        // extends expiry nor revives revoked or subsequently rotated sessions.
+                        connection
+                            .prepareStatement(
+                                """
+                                SELECT s.access_expires_at_ms, s.refresh_expires_at_ms, $USER_COLUMNS
+                                FROM sessions s JOIN users u ON u.id = s.user_id
+                                WHERE s.refresh_token_hash = ? AND s.access_token_hash = ?
+                                  AND s.revoked_at_ms IS NULL AND s.refresh_expires_at_ms > ?
+                                LIMIT 1
+                                """.trimIndent(),
+                            ).use { statement ->
+                                statement.setBytes(1, replacement.refreshTokenHash)
+                                statement.setBytes(2, replacement.accessTokenHash)
+                                statement.setLong(3, nowEpochMs)
+                                statement.executeQuery().use { result ->
+                                    if (result.next()) {
+                                        RefreshedSession(
+                                            result.readUser(),
+                                            result.getLong("access_expires_at_ms"),
+                                            result.getLong("refresh_expires_at_ms"),
+                                        )
+                                    } else {
+                                        null
+                                    }
+                                }
+                            }
+                    } else {
+                        null
+                    }
 
                 val changed =
                     connection
@@ -690,9 +722,10 @@ internal class SqliteAccountStore private constructor(
                 if (changed != 1) {
                     null
                 } else {
-                    current.copy(
-                        sessionId = replacement.id,
+                    RefreshedSession(
+                        user = current.user,
                         accessExpiresAtEpochMs = replacement.accessExpiresAtEpochMs,
+                        refreshExpiresAtEpochMs = replacement.refreshExpiresAtEpochMs,
                     )
                 }
             }

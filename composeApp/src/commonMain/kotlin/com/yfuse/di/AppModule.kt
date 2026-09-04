@@ -16,12 +16,12 @@ import com.yfuse.core.data.AiringScheduleCache
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarIdentityResolver
 import com.yfuse.core.data.CalendarLocalStore
-import com.yfuse.core.data.NoOpCalendarLocalStore
 import com.yfuse.core.data.DanmakuPreferences
 import com.yfuse.core.data.DanmakuRepository
 import com.yfuse.core.data.DiagnosticPreferences
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
+import com.yfuse.core.data.NoOpCalendarLocalStore
 import com.yfuse.core.data.OfficialAiringScheduleCatalog
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackEventOutbox
@@ -177,10 +177,8 @@ fun appModule(
     single { OfficialAiringScheduleCatalog(createAccountClient(), get()) }
     single {
         AiringCalendarRepository(
-            tmdb = get(),
             emby = get(),
             registry = get(),
-            scheduleCache = get(),
             officialSchedules = get(),
             identityResolver = get(),
             followStore = get(),

@@ -329,15 +329,36 @@ internal class AccountService(
     fun refresh(request: RefreshRequest): AuthResponse {
         val rawToken = request.refreshToken
         if (!tokenFactory.isWellFormed(rawToken)) unauthorized()
+        val requestId = request.requestId
+        if (requestId != null && !tokenFactory.isWellFormed(requestId)) {
+            invalidRequest("invalid_refresh_request_id", "刷新请求标识无效")
+        }
         val now = clock()
-        val issued = issueSession(now)
+        val issued =
+            if (requestId == null) {
+                issueSession(now)
+            } else {
+                IssuedSession(
+                    id = UUID.randomUUID().toString(),
+                    access = tokenFactory.refreshSuccessor(rawToken, requestId, "access"),
+                    refresh = tokenFactory.refreshSuccessor(rawToken, requestId, "refresh"),
+                    accessExpiresAtEpochMs = now + accessTtlMs,
+                    refreshExpiresAtEpochMs = now + refreshTtlMs,
+                    createdAtEpochMs = now,
+                )
+            }
         val session =
             store.rotateSessionByRefreshHash(
                 currentRefreshHash = tokenFactory.digest(rawToken),
                 replacement = issued.asReplacement(request.deviceName?.let(::validateDeviceName)),
                 nowEpochMs = now,
+                recoverReplacement = requestId != null,
             ) ?: unauthorized()
-        return issued.toResponse(session.user, capabilitiesFor(session.user.id))
+        return issued
+            .copy(
+                accessExpiresAtEpochMs = session.accessExpiresAtEpochMs,
+                refreshExpiresAtEpochMs = session.refreshExpiresAtEpochMs,
+            ).toResponse(session.user, capabilitiesFor(session.user.id))
     }
 
     fun logout(accessToken: String) {

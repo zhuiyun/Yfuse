@@ -40,6 +40,13 @@ internal data class LoginRequest(
 internal data class RefreshRequest(
     val refreshToken: String,
     val deviceName: String? = null,
+    val requestId: String? = null,
+)
+
+@Serializable
+internal data class PendingAccountRefresh(
+    val refreshToken: String,
+    val requestId: String,
 )
 
 @Serializable

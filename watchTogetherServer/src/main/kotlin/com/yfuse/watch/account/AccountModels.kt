@@ -25,6 +25,7 @@ internal data class LoginRequest(
 internal data class RefreshRequest(
     val refreshToken: String,
     val deviceName: String? = null,
+    val requestId: String? = null,
 )
 
 @Serializable
@@ -189,6 +190,12 @@ internal data class AuthenticatedSession(
     val sessionId: String,
     val user: StoredUser,
     val accessExpiresAtEpochMs: Long,
+)
+
+internal data class RefreshedSession(
+    val user: StoredUser,
+    val accessExpiresAtEpochMs: Long,
+    val refreshExpiresAtEpochMs: Long,
 )
 
 internal data class NewIssuedInvite(

@@ -112,9 +112,10 @@ internal fun SeriesAiringCalendarDialog(
     val today = currentIsoDate()
     val uriHandler = LocalUriHandler.current
     val scheduleInfo = remember(days) { seriesScheduleInfo(days) }
-    val candidates = remember(artworkUrls) {
-        artworkUrls.filterNotNull().filter(String::isNotBlank).distinct()
-    }
+    val candidates =
+        remember(artworkUrls) {
+            artworkUrls.filterNotNull().filter(String::isNotBlank).distinct()
+        }
     var resolvedArtworkUrl by remember(candidates) { mutableStateOf<String?>(null) }
     val sampledArtwork =
         rememberDominantColor(
@@ -122,9 +123,10 @@ internal fun SeriesAiringCalendarDialog(
             SeriesCalendarFallbackArtwork,
         )
     val darkArtwork = sampledArtwork.luminance() < 0.38f
-    val dialogBackground = remember(sampledArtwork, darkArtwork) {
-        artworkPageSurface(sampledArtwork, darkTheme = darkArtwork)
-    }
+    val dialogBackground =
+        remember(sampledArtwork, darkArtwork) {
+            artworkPageSurface(sampledArtwork, darkTheme = darkArtwork)
+        }
 
     val dates = remember(days) { days.map(CalendarDay::date) }
     var selectedDate by remember(dates, today) {
@@ -226,9 +228,10 @@ internal fun SeriesAiringCalendarDialog(
                     SeriesCalendarFooter(
                         sourceUrl = scheduleInfo.sourceUrl,
                         sourceDescription = scheduleInfo.sourceDescription,
-                        onOpenSource = scheduleInfo.sourceUrl?.let { url ->
-                            { runCatching { uriHandler.openUri(url) } }
-                        },
+                        onOpenSource =
+                            scheduleInfo.sourceUrl?.let { url ->
+                                { runCatching { uriHandler.openUri(url) } }
+                            },
                         onRebindIdentity = onRebindIdentity,
                     )
                 }
@@ -537,9 +540,10 @@ private fun SeriesCalendarDateNavigation(
     val palette = LocalPalette.current
     val dates = remember(days) { days.map(CalendarDay::date) }
     val selectedIndex = dates.indexOf(selectedDate).coerceAtLeast(0)
-    val visibleDates = remember(dates, selectedDate) {
-        seriesCalendarDateWindow(dates, selectedDate ?: dates.first())
-    }
+    val visibleDates =
+        remember(dates, selectedDate) {
+            seriesCalendarDateWindow(dates, selectedDate ?: dates.first())
+        }
     Row(
         Modifier
             .fillMaxWidth()
@@ -682,10 +686,11 @@ private fun SeriesCalendarEpisodeContent(
                     item {
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(
-                                8.dp,
-                                Alignment.CenterHorizontally,
-                            ),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(
+                                    8.dp,
+                                    Alignment.CenterHorizontally,
+                                ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp)
@@ -717,7 +722,7 @@ private fun SeriesCalendarEpisodeContent(
 
         else ->
             SeriesCalendarCenteredState(
-                message = "TMDB 暂未提供该剧当前播出季的集数日期。",
+                message = "服务器暂未提供该剧的播出排期。",
                 modifier = modifier,
             )
     }
@@ -961,7 +966,8 @@ private fun seriesScheduleInfo(days: List<CalendarDay>): SeriesScheduleInfo {
     val episodeCount = entries.size
     val libraryEpisodeCount = entries.mapNotNull { it.libraryEpisodeCount }.maxOrNull()
     val trustedSchedule =
-        entries.map(CalendarEntry::episode)
+        entries
+            .map(CalendarEntry::episode)
             .firstOrNull { it.scheduleAuthority != AiringScheduleAuthority.Tmdb }
     val subtitle =
         when {
@@ -973,6 +979,7 @@ private fun seriesScheduleInfo(days: List<CalendarDay>): SeriesScheduleInfo {
                         when (trustedSchedule.scheduleAuthority) {
                             AiringScheduleAuthority.Official -> "官方会员日历"
                             AiringScheduleAuthority.Verified -> "多源确认排期"
+                            AiringScheduleAuthority.Library -> "媒体服务器日期"
                             else -> "预计排期"
                         },
                     )

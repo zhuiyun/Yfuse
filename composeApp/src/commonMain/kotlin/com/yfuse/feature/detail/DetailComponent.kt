@@ -14,6 +14,8 @@ import com.yfuse.core.data.PlaybackFailoverPlan
 import com.yfuse.core.data.SeriesCalendarLibraryHint
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbSeriesIdentityCandidate
+import com.yfuse.core.data.calendarPreviewDays
+import com.yfuse.core.data.libraryAiringSchedule
 import com.yfuse.core.data.smartFailoverServerIds
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.MediaDetail
@@ -134,26 +136,46 @@ class DetailComponent(
     suspend fun loadSeriesAiringCalendar(
         detail: MediaDetail,
         onPreview: (List<CalendarDay>) -> Unit = {},
-    ): Result<List<CalendarDay>> {
-        val tmdbId =
-            dependencies.calendarIdentityResolver
-                .resolve(detail, store.state.server?.id ?: serverId)
-                .getOrElse { return Result.failure(it) }
-        val state = store.state
-        val libraryHint =
-            (state.playServer ?: state.server)?.let { server ->
-                SeriesCalendarLibraryHint(
-                    showTmdbId = tmdbId,
-                    server = server,
-                    // The episode list belongs to playSourceDetail/playServer. Cross-server
-                    // source selection can differ from the route's original detail server;
-                    // pairing those episodes with detail.id made every coordinate miss and
-                    // produced “已入库 0 集” even when the files were present.
-                    seriesItemId = state.playSourceDetail?.id ?: detail.id,
-                    episodes = state.episodes,
-                )
+    ): Result<List<CalendarDay>> =
+        loadCalendarWithDeadline {
+            val initialState = store.state
+            val initialHint =
+                (initialState.playServer ?: initialState.server)?.let { server ->
+                    SeriesCalendarLibraryHint(
+                        showTmdbId = detail.airingCalendarTmdbId() ?: 0,
+                        server = server,
+                        seriesItemId = initialState.playSourceDetail?.id ?: detail.id,
+                        episodes = initialState.episodes,
+                    )
+                }
+            initialHint?.let { hint ->
+                val rows =
+                    calendarPreviewDays(
+                        libraryAiringSchedule(hint, detail.title),
+                        com.yfuse.core.util
+                            .currentIsoDate(),
+                        hint,
+                    )
+                if (rows.isNotEmpty()) onPreview(rows)
             }
-        return loadCalendarWithDeadline {
+            val tmdbId =
+                dependencies.calendarIdentityResolver
+                    .resolve(detail, store.state.server?.id ?: serverId)
+                    .getOrElse { return@loadCalendarWithDeadline Result.failure(it) }
+            val state = store.state
+            val libraryHint =
+                (state.playServer ?: state.server)?.let { server ->
+                    SeriesCalendarLibraryHint(
+                        showTmdbId = tmdbId,
+                        server = server,
+                        // The episode list belongs to playSourceDetail/playServer. Cross-server
+                        // source selection can differ from the route's original detail server;
+                        // pairing those episodes with detail.id made every coordinate miss and
+                        // produced “已入库 0 集” even when the files were present.
+                        seriesItemId = state.playSourceDetail?.id ?: detail.id,
+                        episodes = state.episodes,
+                    )
+                }
             dependencies.calendarRepository.seriesCalendar(
                 showTmdbId = tmdbId,
                 fallbackTitle = detail.title,
@@ -161,11 +183,10 @@ class DetailComponent(
                 libraryHint = libraryHint,
             )
         }
-    }
 
     suspend fun findSeriesCalendarIdentityCandidates(detail: MediaDetail): Result<List<TmdbSeriesIdentityCandidate>> =
         dependencies.calendarIdentityResolver.candidates(detail).mapCatching { candidates ->
-            check(candidates.isNotEmpty()) { "没有找到可用于重新匹配的 TMDB 剧集" }
+            check(candidates.isNotEmpty()) { "服务器暂无可匹配的剧集排期" }
             candidates
         }
 

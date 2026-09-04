@@ -13,10 +13,10 @@ data class TmdbSeriesIdentityCandidate(
 
 class CalendarIdentityAmbiguousException(
     val candidates: List<TmdbSeriesIdentityCandidate>,
-) : Exception("找到多个可能的剧集，请选择正确条目")
+) : Exception("请从服务器排期中选择正确剧集")
 
 class CalendarIdentityResolver(
-    private val tmdb: TmdbRepository,
+    private val schedules: OfficialAiringScheduleCatalog,
     private val settings: Settings,
 ) {
     suspend fun resolve(
@@ -61,17 +61,8 @@ class CalendarIdentityResolver(
             return Result.success(tmdbId)
         }
 
-        externalIdentity(providerIds)?.let { (id, source) ->
-            tmdb.findSeriesByExternalId(id, source).getOrNull()?.let { candidate ->
-                remember(serverId, itemId, candidate.tmdbId)
-                return Result.success(candidate.tmdbId)
-            }
-        }
-
-        val candidates =
-            tmdb
-                .searchSeriesIdentityCandidates(title, year)
-                .getOrElse { return Result.failure(it) }
+        schedules.refreshIfDue()
+        val candidates = schedules.identityCandidates(title)
         val normalizedTitle = normalizeIdentityTitle(title)
         val exact =
             candidates.filter { candidate ->
@@ -89,22 +80,8 @@ class CalendarIdentityResolver(
     /** Returns candidates even when an automatic or saved mapping already exists. */
     suspend fun candidates(detail: MediaDetail): Result<List<TmdbSeriesIdentityCandidate>> {
         require(detail.type.equals("Series", ignoreCase = true)) { "只有剧集支持播出日历" }
-        return tmdb
-            .searchSeriesIdentityCandidates(detail.title, detail.year)
-            .map { candidates ->
-                val normalizedTitle = normalizeIdentityTitle(detail.title)
-                candidates
-                    .sortedWith(
-                        compareByDescending<TmdbSeriesIdentityCandidate> {
-                            normalizeIdentityTitle(it.title) == normalizedTitle
-                        }.thenByDescending { candidate ->
-                            detail.year != null &&
-                                candidate.year != null &&
-                                kotlin.math.abs(detail.year - candidate.year) <= 1
-                        }.thenByDescending(TmdbSeriesIdentityCandidate::popularity),
-                    ).distinctBy(TmdbSeriesIdentityCandidate::tmdbId)
-                    .take(8)
-            }
+        schedules.refreshIfDue()
+        return Result.success(schedules.identityCandidates(detail.title))
     }
 
     fun remember(
@@ -147,14 +124,6 @@ class CalendarIdentityResolver(
         serverId: String,
         tmdbId: Int,
     ): String? = settings.getStringOrNull(reverseKey(serverId, tmdbId))?.takeIf(String::isNotBlank)
-
-    private fun externalIdentity(providerIds: Map<String, String>): Pair<String, String>? {
-        val imdb = providerIds.entries.firstOrNull { it.key.equals("imdb", true) }?.value
-        if (!imdb.isNullOrBlank()) return imdb to "imdb_id"
-        val tvdb = providerIds.entries.firstOrNull { it.key.equals("tvdb", true) }?.value
-        if (!tvdb.isNullOrBlank()) return tvdb to "tvdb_id"
-        return null
-    }
 
     private fun Map<String, String>.tmdbId(): Int? =
         entries.firstOrNull { it.key.equals("tmdb", true) }?.value?.toIntOrNull()

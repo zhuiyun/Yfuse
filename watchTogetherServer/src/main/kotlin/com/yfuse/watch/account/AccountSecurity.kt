@@ -3,8 +3,10 @@ package com.yfuse.watch.account
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import javax.crypto.Mac
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 
 internal data class PasswordDigest(
     val salt: ByteArray,
@@ -103,6 +105,30 @@ internal class SessionTokenFactory(
         MessageDigest
             .getInstance("SHA-256")
             .digest(raw.toByteArray(Charsets.US_ASCII))
+
+    /** Domain-separated successors let a persisted refresh request recover its exact result. */
+    fun refreshSuccessor(
+        rawToken: String,
+        requestId: String,
+        purpose: String,
+    ): IssuedToken {
+        val key = rawToken.toByteArray(Charsets.US_ASCII)
+        val bytes =
+            try {
+                Mac.getInstance("HmacSHA256").run {
+                    init(SecretKeySpec(key, "HmacSHA256"))
+                    doFinal("yfuse-refresh-v1:$purpose:$requestId".toByteArray(Charsets.US_ASCII))
+                }
+            } finally {
+                key.fill(0)
+            }
+        return try {
+            val plaintext = encoder.encodeToString(bytes)
+            IssuedToken(plaintext, digest(plaintext))
+        } finally {
+            bytes.fill(0)
+        }
+    }
 
     fun isWellFormed(raw: String): Boolean {
         if (raw.length != ENCODED_TOKEN_LENGTH || !TOKEN_PATTERN.matches(raw)) return false

@@ -24,7 +24,7 @@ enum class AiringKind { Episode, Movie }
 
 /** Authority behind a date, kept explicit so the UI never labels an estimate as official. */
 @Serializable
-enum class AiringScheduleAuthority { Tmdb, Estimated, Verified, Official }
+enum class AiringScheduleAuthority { Tmdb, Estimated, Verified, Official, Library }
 
 /** A compact, user-verifiable record of why an official/estimated date was accepted. */
 @Serializable
@@ -125,8 +125,7 @@ data class AiringEpisode(
 }
 
 /** Stable fallback while an official source is still waiting for TMDB identity enrichment. */
-private fun String.calendarIdentityTitle(): String =
-    lowercase().filter(Char::isLetterOrDigit).ifBlank { "unknown" }
+private fun String.calendarIdentityTitle(): String = lowercase().filter(Char::isLetterOrDigit).ifBlank { "unknown" }
 
 /**
  * What the user's own library can do about an episode that has a broadcast date.

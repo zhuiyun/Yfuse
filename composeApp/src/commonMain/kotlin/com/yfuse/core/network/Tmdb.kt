@@ -52,16 +52,27 @@ object TmdbImages {
     fun poster(
         path: String?,
         width: String = "w500",
-    ): String? = path?.let { "https://image.tmdb.org/t/p/$width$it" }
+    ): String? = imageUrl(path, width, "image.tmdb.org")
 
     fun backdrop(
         path: String?,
         width: String = "w1280",
-    ): String? = path?.let { "https://image.tmdb.org/t/p/$width$it" }
+    ): String? = imageUrl(path, width, "image.tmdb.org")
 
     /** Alternate official image host used when image.tmdb.org is unavailable. */
     fun media(
         path: String?,
         width: String = "w500",
-    ): String? = path?.let { "https://media.themoviedb.org/t/p/$width$it" }
+    ): String? = imageUrl(path, width, "media.themoviedb.org")
+
+    private fun imageUrl(
+        path: String?,
+        width: String,
+        host: String,
+    ): String? {
+        val value = path?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        if (value.startsWith("https://") || value.startsWith("http://")) return value
+        if (!value.startsWith('/') || value.startsWith("//")) return null
+        return "https://$host/t/p/$width$value"
+    }
 }

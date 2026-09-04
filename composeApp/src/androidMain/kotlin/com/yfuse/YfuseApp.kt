@@ -10,7 +10,6 @@ import coil3.disk.DiskCache
 import coil3.intercept.Interceptor
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
-import com.russhwolf.settings.SharedPreferencesSettings
 import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.core.data.AndroidCalendarLocalStore
@@ -21,6 +20,7 @@ import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.SafeLogcatOutputGate
 import com.yfuse.core.network.imageCacheKeyForUrl
 import com.yfuse.core.offline.offlineApplicationContext
+import com.yfuse.core.security.CredentialPersistingSettings
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
@@ -64,7 +64,7 @@ class YfuseApp :
         // Before anything can reach the network: every Emby request carries the device id,
         // and it has to be the same one across launches for sessions to be reapable.
         initializeDeviceId(prefs)
-        val settings = SharedPreferencesSettings(prefs)
+        val settings = CredentialPersistingSettings(prefs)
         val diagnosticPreferences = DiagnosticPreferences(settings)
         SafeLogcatOutputGate.initialize(diagnosticPreferences)
         DiagnosticLogStore.initialize(this)

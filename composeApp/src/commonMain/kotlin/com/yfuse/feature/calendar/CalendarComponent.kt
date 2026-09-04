@@ -77,11 +77,13 @@ class CalendarComponent(
         onPreview: (List<CalendarDay>) -> Unit = {},
     ): Result<List<CalendarDay>> {
         val current = followStore.followed.value.firstOrNull { it.tmdbId == entry.episode.showTmdbId }
-        return repository.seriesCalendar(
-            entry.toFollowedSeries(current),
-            forceRefresh = forceRefresh,
-            onPreview = onPreview,
-        )
+        return loadCalendarWithDeadline {
+            repository.seriesCalendar(
+                entry.toFollowedSeries(current),
+                forceRefresh = forceRefresh,
+                onPreview = onPreview,
+            )
+        }
     }
 
     suspend fun enrichResourceDetails(days: List<CalendarDay>): Result<List<CalendarDay>> =
@@ -106,6 +108,8 @@ class CalendarComponent(
             ),
         )
     }
+
+    suspend fun resolvedTrackingPosterUrls(series: FollowedSeries): List<String> = repository.trackingPosterUrls(series)
 
     fun acknowledgeScheduleChanges() {
         repository.acknowledgeScheduleChanges()
