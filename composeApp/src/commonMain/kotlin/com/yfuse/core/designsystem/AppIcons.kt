@@ -218,6 +218,19 @@ object AppIcons {
             arcToRelative(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, 7.4f, -2.1f)
         }.build()
 
+    /** Password visibility toggle, kept inside the shared rounded 24 dp optical system. */
+    val Eye =
+        strokeVector("eye") {
+            moveTo(3.2f, 12f)
+            curveTo(5.4f, 7.9f, 8.4f, 5.8f, 12f, 5.8f)
+            curveTo(15.6f, 5.8f, 18.6f, 7.9f, 20.8f, 12f)
+            curveTo(18.6f, 16.1f, 15.6f, 18.2f, 12f, 18.2f)
+            curveTo(8.4f, 18.2f, 5.4f, 16.1f, 3.2f, 12f)
+            close()
+        }.andPath {
+            circle(12f, 12f, 2.7f)
+        }.build()
+
     val Menu =
         strokeVector("menu") {
             moveTo(4f, 6.6f)
