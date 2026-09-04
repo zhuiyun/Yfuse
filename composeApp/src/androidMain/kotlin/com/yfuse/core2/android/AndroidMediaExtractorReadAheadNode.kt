@@ -38,6 +38,8 @@ internal class AndroidMediaExtractorReadAheadNode(
     private var failure: Throwable? = null
     private var fillScheduled = false
     private var sampleCapacity = DEFAULT_SAMPLE_CAPACITY_BYTES
+    private var targetAheadUs = DEFAULT_HIGH_WATERMARK_US
+    private var maximumQueueBytes = DEFAULT_MAXIMUM_QUEUE_BYTES
     private var queuedBytes = 0L
     private var starvationCount = 0L
     private var starved = false
@@ -113,6 +115,30 @@ internal class AndroidMediaExtractorReadAheadNode(
     fun configureSampleCapacity(bytes: Int) {
         require(bytes > 0)
         synchronized(monitor) { sampleCapacity = bytes }
+    }
+
+    /**
+     * Applies a [com.yfuse.core2.network.YBufferController] plan to the compressed queue.
+     *
+     * A fixed three-second watermark is a local-playback figure. The Enhanced session already
+     * re-plans its read-ahead from measured throughput, so NativeDirect kept the shallowest queue
+     * of the two exactly on the weak links where depth matters.
+     */
+    fun configureBufferPlan(
+        targetAheadUs: Long,
+        maximumBytes: Long,
+    ) {
+        require(targetAheadUs > 0L && maximumBytes > 0L)
+        val fill =
+            synchronized(monitor) {
+                if (targetAheadUs == this.targetAheadUs && maximumBytes == maximumQueueBytes) {
+                    return
+                }
+                this.targetAheadUs = targetAheadUs
+                maximumQueueBytes = maximumBytes
+                !queueAtHighWatermarkLocked()
+            }
+        if (fill) requestFill()
     }
 
     fun selectTracks(trackIndices: Set<Int>) {
@@ -208,6 +234,8 @@ internal class AndroidMediaExtractorReadAheadNode(
                 bufferedDurationUs = bufferedDurationUsLocked(),
                 starvationCount = starvationCount,
                 starved = starved && samples.isEmpty() && !endOfInput,
+                targetAheadUs = targetAheadUs,
+                throughputBitsPerSecond = latestTransportQoeSnapshot?.throughputBitsPerSecond ?: 0L,
             )
         }
 
@@ -360,8 +388,8 @@ internal class AndroidMediaExtractorReadAheadNode(
     }
 
     private fun queueAtHighWatermarkLocked(): Boolean =
-        queuedBytes >= MAXIMUM_QUEUE_BYTES ||
-            (samples.size >= MINIMUM_SAMPLES_BEFORE_TIME_LIMIT && bufferedDurationUsLocked() >= HIGH_WATERMARK_US)
+        queuedBytes >= maximumQueueBytes ||
+            (samples.size >= MINIMUM_SAMPLES_BEFORE_TIME_LIMIT && bufferedDurationUsLocked() >= targetAheadUs)
 
     private fun bufferedDurationUsLocked(): Long {
         if (samples.size < 2) return 0L
@@ -433,10 +461,13 @@ internal data class YExtractorReadAheadSnapshot(
     val bufferedDurationUs: Long,
     val starvationCount: Long,
     val starved: Boolean,
+    val targetAheadUs: Long = DEFAULT_HIGH_WATERMARK_US,
+    /** Aggregate transport throughput, or 0 before the first measured busy period. */
+    val throughputBitsPerSecond: Long = 0L,
 )
 
 private const val EXTRACTOR_THREAD_NAME = "YCore-PlatformDemux"
 private const val DEFAULT_SAMPLE_CAPACITY_BYTES = 8 * 1024 * 1024
 private const val MINIMUM_SAMPLES_BEFORE_TIME_LIMIT = 8
-private const val HIGH_WATERMARK_US = 3_000_000L
-private const val MAXIMUM_QUEUE_BYTES = 24L * 1024L * 1024L
+private const val DEFAULT_HIGH_WATERMARK_US = 3_000_000L
+private const val DEFAULT_MAXIMUM_QUEUE_BYTES = 24L * 1024L * 1024L

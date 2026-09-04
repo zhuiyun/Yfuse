@@ -31,6 +31,8 @@ import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.demux.YAudioTrackFormat
 import com.yfuse.core2.dolby.YDolbyVisionConfig
+import com.yfuse.core2.network.YBufferConditions
+import com.yfuse.core2.network.YBufferController
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.videoFrameRateHint
@@ -394,6 +396,9 @@ internal class AndroidNativeDirectYPlayer(
 
         private var currentIndex = request.startIndex
         private var sourceRemote = false
+        private var sourceBitRateBitsPerSecond = 0L
+        private var bufferPlan = YBufferController.plan(YBufferConditions(remote = false))
+        private var lastBufferReplanNs = 0L
         private var surfaceOutput: AndroidSurfaceVideoOutput? = null
         private var videoTrackIndex: Int? = null
         private var audioTrackIndex: Int? = null
@@ -683,7 +688,9 @@ internal class AndroidNativeDirectYPlayer(
                     listOfNotNull(videoFormat, audioInputFormat)
                         .sumOf { it.longOrZero(MediaFormat.KEY_BIT_RATE) },
                 )
+            this.sourceBitRateBitsPerSecond = sourceBitRateBitsPerSecond
             demux.setMediaBitRateBitsPerSecond(sourceBitRateBitsPerSecond)
+            applyBufferPlan(measuredThroughputBitsPerSecond = null, force = true)
             item.drmConfiguration?.let { configuration ->
                 val initializationData =
                     checkNotNull(demux.drmInitializationData(configuration.scheme.yCorePlatformUuid())) {
@@ -1351,6 +1358,40 @@ internal class AndroidNativeDirectYPlayer(
             return true
         }
 
+        /**
+         * Re-plans the compressed read-ahead once the transport has measured the link.
+         *
+         * Mirrors the Enhanced session: a healthy link keeps the queue shallow and latency low,
+         * and only measured pressure buys depth.
+         */
+        private fun refreshAdaptiveBufferPlan(readAhead: YExtractorReadAheadSnapshot) {
+            if (!sourceRemote || readAhead.throughputBitsPerSecond <= 0L) return
+            val nowNs = System.nanoTime()
+            if (nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
+            lastBufferReplanNs = nowNs
+            applyBufferPlan(measuredThroughputBitsPerSecond = readAhead.throughputBitsPerSecond)
+        }
+
+        private fun applyBufferPlan(
+            measuredThroughputBitsPerSecond: Long?,
+            force: Boolean = false,
+        ) {
+            val next =
+                YBufferController.plan(
+                    YBufferConditions(
+                        remote = sourceRemote,
+                        mediaBitRateBitsPerSecond = sourceBitRateBitsPerSecond,
+                        measuredNetworkBitsPerSecond = measuredThroughputBitsPerSecond,
+                    ),
+                )
+            if (!force && next == bufferPlan) return
+            bufferPlan = next
+            demux.configureBufferPlan(
+                targetAheadUs = next.targetAheadUs,
+                maximumBytes = next.maximumBytes.coerceAtMost(MAX_DEMUX_QUEUE_BYTES),
+            )
+        }
+
         private fun publishClockPosition() {
             val nowNs = System.nanoTime()
             if (nowNs - lastStatePublishNs < STATE_PUBLISH_INTERVAL_NS) return
@@ -1360,6 +1401,7 @@ internal class AndroidNativeDirectYPlayer(
             val currentState = mutableState.value
             val transportQoe = demux.transportQoeSnapshot()
             val readAhead = demux.snapshot()
+            refreshAdaptiveBufferPlan(readAhead)
             val sourceBufferedMs =
                 (transportQoe?.bufferedAheadDurationMs(currentState.durationMs) ?: 0L) +
                     readAhead.bufferedDurationUs / MICROS_PER_MILLISECOND
@@ -2145,6 +2187,8 @@ internal class AndroidNativeDirectYPlayer(
             externalSubtitles = emptyList()
             selectedExternalSubtitleId = null
             sourceRemote = false
+            sourceBitRateBitsPerSecond = 0L
+            lastBufferReplanNs = 0L
             videoFormat = null
             inspectHdr10PlusSamples = false
             audioInputFormat = null
@@ -2522,6 +2566,10 @@ private const val MIN_SAMPLE_BUFFER_BYTES = 256 * 1024
 private const val MAX_SAMPLE_BUFFER_BYTES = 32 * 1024 * 1024
 private const val MAX_VIDEO_SCHEDULE_AHEAD_US = 250_000L
 private const val STATE_PUBLISH_INTERVAL_NS = 200_000_000L
+private const val BUFFER_REPLAN_INTERVAL_NS = 2_000_000_000L
+
+/** Heap ceiling for the compressed queue, independent of the planner's byte budget. */
+private const val MAX_DEMUX_QUEUE_BYTES = 24L * 1024L * 1024L
 private const val LATE_FRAME_DROP_NS = 100_000_000L
 private const val LATE_FRAME_IMMEDIATE_NS = 50_000_000L
 private const val SLOW_PUMP_THRESHOLD_NS = 20_000_000L
