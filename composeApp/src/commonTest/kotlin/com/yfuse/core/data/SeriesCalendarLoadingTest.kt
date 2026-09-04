@@ -23,6 +23,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.currentTime
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -45,6 +46,48 @@ class SeriesCalendarLoadingTest {
             resumePositionTicks = null,
             premiereDate = "2026-09-04",
         )
+
+    @Test
+    fun fast_server_reports_playable_while_another_server_and_schedule_refresh_are_still_pending() = runTest {
+        val external = client { awaitCancellation() }
+        val lookups = mutableListOf<String?>()
+        val library = client { request ->
+            if (request.url.host == "slow.example") awaitCancellation()
+            if (request.url.encodedPath.endsWith("/Episodes")) {
+                json("""{"Items":[{"Id":"episode-13","Name":"第13集","Type":"Episode","IndexNumber":13,"ParentIndexNumber":1}]}""")
+            } else {
+                lookups += request.url.parameters["AnyProviderIdEquals"]
+                json("""{"Items":[{"Id":"series","Name":"师兄太稳健","ProviderIds":{"Tmdb":"272938"}}]}""")
+            }
+        }
+        try {
+            val settings = MapSettings()
+            val registry = ServerRegistry(settings, TestSecureStore()).apply {
+                addOrUpdate(server.copy(id = "slow", baseUrl = "https://slow.example"))
+                addOrUpdate(server)
+            }
+            val schedules = OfficialAiringScheduleCatalog(external, settings)
+            val repository = AiringCalendarRepository(
+                EmbyRepository(library), registry, schedules, CalendarIdentityResolver(schedules, settings),
+                CalendarFollowStore(settings),
+            )
+            val playable = CompletableDeferred<List<CalendarDay>>()
+            val load = async {
+                repository.seriesCalendar(272938, "师兄太稳健", today = "2026-08-25", onPreview = { days ->
+                    if (days.any { day -> day.entries.any { it.itemId == "episode-13" } }) playable.complete(days)
+                })
+            }
+            playable.await()
+            assertTrue(currentTime < 5_000, "Availability must not wait for the schedule or slow server")
+            assertFalse(load.isCompleted)
+            assertEquals(listOf<String?>("tmdb.272938"), lookups)
+            val finalRows = load.await().getOrThrow().flatMap(CalendarDay::entries)
+            assertTrue(finalRows.any { it.itemId == "episode-13" && it.status == LibraryStatus.Available })
+        } finally {
+            external.close()
+            library.close()
+        }
+    }
 
     @Test
     fun known_library_episode_is_visible_before_stalled_external_schedules_finish() =
