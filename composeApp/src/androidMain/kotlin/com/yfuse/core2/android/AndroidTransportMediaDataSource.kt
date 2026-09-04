@@ -68,6 +68,18 @@ internal class AndroidTransportMediaDataSource(
             null
         }
     private val blocks = LinkedHashMap<Long, ByteArray>(16, 0.75f, true)
+
+    /**
+     * Heap budget for [blocks], which holds already-delivered bytes.
+     *
+     * [YCachePlanner] sizes a *disk* cache - its ceiling is 4 GiB - so its `maximumBytes` must
+     * never bound a Java-heap map. Retaining 64 MiB of played-back bytes on top of the completed
+     * prefetch futures and the demux sample queue is what put a single playback session near the
+     * default (non-largeHeap) limit. Only a small backward window is useful: short seeks back and
+     * the MediaExtractor header/index re-reads, which the access-ordered LRU keeps hot.
+     */
+    private val memoryCacheBytes =
+        blockSize.toLong().saturatedMultiply(MEMORY_CACHE_BLOCKS).coerceAtMost(cachePlan.maximumBytes)
     private val prefetchThreadIndex = AtomicInteger()
     private val prefetchExecutor: ExecutorService =
         Executors.newFixedThreadPool(MAX_TRANSPORT_PREFETCH_CONCURRENCY) { runnable ->
@@ -280,7 +292,10 @@ internal class AndroidTransportMediaDataSource(
                             throw failure
                         }
                     }
-                val delayMs = mediaRangeRetryDelayMs(completedRetries, failureKind)
+                // A closed source is being torn down: retrying only holds up the caller that is
+                // waiting to release the extractor.
+                val delayMs =
+                    if (closed) null else mediaRangeRetryDelayMs(completedRetries, failureKind)
                 if (delayMs == null) {
                     reportTransportFailure(
                         blockIndex = blockIndex,
@@ -618,22 +633,33 @@ internal class AndroidTransportMediaDataSource(
         return knownSize
     }
 
-    @Synchronized
+    /**
+     * Not `@Synchronized` on purpose. [readAt] holds this instance's monitor for the whole of a
+     * blocking range fetch, so a synchronized close would wait for a stalled origin before it
+     * could even signal shutdown - and closing the transport is exactly what unblocks that read.
+     * Shutdown is therefore signalled and the sockets are closed first; the monitor is only taken
+     * afterwards, to drop the cached blocks once the reader has unwound.
+     */
     override fun close() {
         if (closed) return
         closed = true
-        cancelPrefetchOutside(emptySet())
         prefetchExecutor.shutdownNow()
         val prefetchTransports =
             synchronized(prefetchTransportLock) {
                 activePrefetchTransports.toList().also { activePrefetchTransports.clear() }
             }
-        blocks.clear()
-        cachedBytes = 0L
         runBlocking {
             prefetchTransports.forEach { prefetchTransport -> prefetchTransport.close() }
             transport.close()
         }
+        discardCachedBlocks()
+    }
+
+    @Synchronized
+    private fun discardCachedBlocks() {
+        cancelPrefetchOutside(emptySet())
+        blocks.clear()
+        cachedBytes = 0L
     }
 
     private fun cache(
@@ -643,7 +669,7 @@ internal class AndroidTransportMediaDataSource(
         blocks.put(index, block)?.let { cachedBytes -= it.size }
         cachedBytes += block.size
         val iterator = blocks.entries.iterator()
-        while (cachedBytes > cachePlan.maximumBytes && iterator.hasNext()) {
+        while (cachedBytes > memoryCacheBytes && iterator.hasNext()) {
             cachedBytes -= iterator.next().value.size
             iterator.remove()
         }
@@ -815,6 +841,9 @@ private fun Long.saturatedMultiply(other: Long): Long {
 
 private const val MIN_TRANSPORT_BLOCK_BYTES = 256 * 1024
 private const val DEFAULT_TRANSPORT_CACHE_BYTES = 64L * 1024L * 1024L
+
+/** Backward window kept on the heap, in blocks. Forward bytes live in the prefetch futures. */
+private const val MEMORY_CACHE_BLOCKS = 8L
 
 /** Consecutive zero-length transport reads tolerated before a block counts as failed. */
 private const val MAX_EMPTY_TRANSPORT_READS = 64
