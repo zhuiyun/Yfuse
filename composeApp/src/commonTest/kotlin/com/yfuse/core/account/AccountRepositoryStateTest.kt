@@ -23,7 +23,9 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -312,6 +314,80 @@ class AccountRepositoryStateTest {
         }
 
     @Test
+    fun stalled_refresh_becomes_retryable_without_erasing_credentials() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val originalSecrets = secureStore.snapshot()
+            val firstRefreshStarted = CompletableDeferred<Unit>()
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH -> {
+                                if (firstRefreshStarted.complete(Unit)) awaitCancellation()
+                                respondAccountJson(json.encodeToString(authResponse(refreshToken = "retried-refresh")))
+                            }
+                            SYNC_PATH -> respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
+                            else -> error("Unexpected path ${request.url.encodedPath}")
+                        }
+                    },
+                )
+            val repository = accountRepository(api, secureStore, restoreRequestTimeoutMillis = 1_000)
+
+            repository.start()
+            awaitAccountState(repository) { it is AccountState.RestoreFailed }
+
+            assertTrue(firstRefreshStarted.isCompleted)
+            assertEquals(originalSecrets, secureStore.snapshot())
+            assertEquals(0, secureStore.clearCount)
+
+            repository.retryRestore()
+            val signedIn =
+                assertIs<AccountState.SignedIn>(
+                    awaitAccountState(repository) { it is AccountState.SignedIn && it.syncVersion == 5L },
+                )
+            assertEquals("restored-access", signedIn.session.accessToken)
+            assertEquals("retried-refresh", secureStore.text(KEY_REFRESH_TOKEN))
+        }
+
+    @Test
+    fun stalled_sync_keeps_the_rotated_session_and_releases_account_operations() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH ->
+                                respondAccountJson(json.encodeToString(authResponse(refreshToken = "rotated-refresh")))
+                            SYNC_PATH -> awaitCancellation()
+                            else -> error("Unexpected path ${request.url.encodedPath}")
+                        }
+                    },
+                )
+            val tokenSource = AccountAccessTokenSource()
+            val repository =
+                accountRepository(api, secureStore, tokenSource, restoreRequestTimeoutMillis = 1_000)
+
+            repository.start()
+            val signedIn =
+                assertIs<AccountState.SignedIn>(
+                    awaitAccountState(repository) {
+                        it is AccountState.SignedIn && it.message == "已登录，暂时无法读取云端数据"
+                    },
+                )
+            assertEquals("restored-access", signedIn.session.accessToken)
+            assertEquals("rotated-refresh", secureStore.text(KEY_REFRESH_TOKEN))
+            assertNotNull(secureStore.get(KEY_VAULT_KEY))
+            assertEquals(0, secureStore.clearCount)
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000) {
+                    assertEquals("restored-access", tokenSource.validAccessTokenFor(ACCOUNT_BASE_URL))
+                }
+            }
+        }
+
+    @Test
     fun restore_session_sync_failure_keeps_refreshed_session_signed_in() =
         runTest {
             val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
@@ -464,6 +540,7 @@ private fun accountRepository(
     api: AccountApi,
     secureStore: SecureStore,
     accessTokenSource: AccountAccessTokenSource = AccountAccessTokenSource(),
+    restoreRequestTimeoutMillis: Long = 15_000,
 ): AccountRepository {
     val settings = MapSettings()
     val registry = ServerRegistry(settings, TestSecureStore())
@@ -485,6 +562,7 @@ private fun accountRepository(
             ),
         nowEpochMs = { 1_700_000_000_000 },
         accessTokenSource = accessTokenSource,
+        restoreRequestTimeoutMillis = restoreRequestTimeoutMillis,
     )
 }
 

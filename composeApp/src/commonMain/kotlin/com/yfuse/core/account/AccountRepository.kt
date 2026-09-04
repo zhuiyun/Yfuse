@@ -32,6 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -60,6 +61,8 @@ class AccountRepository(
     private val cryptoDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val accessTokenSource: AccountAccessTokenSource = AccountAccessTokenSource(),
     private val calendarFollows: CalendarFollowStore? = null,
+    /** A stalled session request must always return the account page to a retryable state. */
+    private val restoreRequestTimeoutMillis: Long = 15_000,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
@@ -500,8 +503,15 @@ class AccountRepository(
                     setSignedOut()
                     return@runCatching
                 }
-                acceptAuth(api.refresh(refresh, deviceModel().take(64)))
-                val remote = authorized { api.getSync(it) }
+                val auth =
+                    withTimeout(restoreRequestTimeoutMillis) {
+                        api.refresh(refresh, deviceModel().take(64))
+                    }
+                acceptAuth(auth)
+                val remote =
+                    withTimeout(restoreRequestTimeoutMillis) {
+                        authorized { api.getSync(it) }
+                    }
                 val localVaultKey = secureStore.get(KEY_VAULT_KEY)
                 if (localVaultKey == null) {
                     // The session itself is still good; only the sync key is missing, which is
