@@ -15,6 +15,15 @@ class CarouselMotionTest {
     }
 
     @Test
+    fun signed_zero_offsets_produce_equal_identity_visuals() {
+        val positiveZero = carouselPageVisual(0f, reduceMotion = false)
+        val negativeZero = carouselPageVisual(-0f, reduceMotion = false)
+
+        assertEquals(CarouselPageVisual(1f, 1f, 0f), negativeZero)
+        assertEquals(positiveZero, negativeZero)
+    }
+
+    @Test
     fun adjacent_page_is_restrained_and_parallaxes_toward_center() {
         val visual = carouselPageVisual(1f, reduceMotion = false)
 

@@ -39,6 +39,7 @@ extern "C" {
 
 #include "ycore_tone_map.h"
 #include "ycore_disc_uri.h"
+#include "ycore_overlay_plane.h"
 
 namespace {
 
@@ -751,15 +752,15 @@ uint32_t disc_palette_argb(const BD_PG_PALETTE_ENTRY& entry) {
 
 void clear_disc_overlay_rect(BlurayIo* disc, int x, int y, int width, int height) {
     if (!disc || disc->overlay.empty()) return;
-    const int x0 = std::max(0, x);
-    const int y0 = std::max(0, y);
-    const int x1 = std::min(disc->overlay_width, x + width);
-    const int y1 = std::min(disc->overlay_height, y + height);
-    for (int row = y0; row < y1; ++row) {
-        std::fill(
-            disc->overlay.begin() + static_cast<int64_t>(row) * disc->overlay_width + x0,
-            disc->overlay.begin() + static_cast<int64_t>(row) * disc->overlay_width + x1,
-            0U);
+    const auto rect =
+        ycore_overlay::clip_to_plane(disc->overlay_width, disc->overlay_height, x, y, width, height);
+    // A wipe rectangle arrives straight from the disc's interactive-graphics stream and libbluray
+    // does not clip it against the plane it announced. One starting past the right edge inverts
+    // the row span, and std::fill over a reversed range is undefined behaviour, not a no-op.
+    if (rect.empty()) return;
+    for (int row = rect.y0; row < rect.y1; ++row) {
+        const auto begin = disc->overlay.begin() + static_cast<int64_t>(row) * disc->overlay_width;
+        std::fill(begin + rect.x0, begin + rect.x1, 0U);
     }
 }
 
@@ -767,10 +768,16 @@ void draw_disc_overlay(BlurayIo* disc, const BD_OVERLAY* event) {
     if (!disc || disc->overlay.empty() || !event || !event->img || !disc->have_palette) return;
     const int64_t total = static_cast<int64_t>(event->w) * event->h;
     if (total <= 0 || total > kMaxDiscOverlayPixels) return;
+    // Zero-length elements are ordinary, not malformed: PGS/IG encodes an end-of-line marker per
+    // raster line, so a valid object always carries more elements than the pixels it paints.
+    // Bounding the walk by the pixel count alone can therefore stop a barely-compressible object
+    // before its last rows are drawn. One run per pixel plus one marker per line is the most a
+    // libbluray-validated object can hold, so use that as the guard instead.
+    const int64_t maximum_elements = total + event->h;
     int64_t pixel = 0;
     int64_t elements = 0;
     const BD_PG_RLE_ELEM* rle = event->img;
-    while (pixel < total && elements <= total) {
+    while (pixel < total && elements < maximum_elements) {
         const int run = rle->len;
         const int color = rle->color & 0xff;
         ++rle;

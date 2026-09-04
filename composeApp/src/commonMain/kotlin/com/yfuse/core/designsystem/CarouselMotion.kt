@@ -15,7 +15,10 @@ fun carouselPageVisual(
     signedPageOffset: Float,
     reduceMotion: Boolean,
 ): CarouselPageVisual {
-    if (reduceMotion) return CarouselPageVisual(scale = 1f, alpha = 1f, parallaxFraction = 0f)
+    // Both signed zeros must produce the same identity for data-class equality.
+    if (reduceMotion || signedPageOffset == 0f) {
+        return CarouselPageVisual(scale = 1f, alpha = 1f, parallaxFraction = 0f)
+    }
     val distance = abs(signedPageOffset).coerceIn(0f, 1f)
     return CarouselPageVisual(
         scale = 1f - CAROUSEL_SCALE_LOSS * distance,

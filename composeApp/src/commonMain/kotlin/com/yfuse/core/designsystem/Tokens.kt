@@ -429,8 +429,8 @@ object Motion {
         androidx.compose.animation.core
             .CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
 
-    // Semantic durations. Feature code chooses the meaning of a transition instead of
-    // inventing another number; the named route constants below map onto this vocabulary.
+    // Semantic duration defaults. PUSH, TAB, MODAL, ACCENT, and CAROUSEL reuse this vocabulary.
+    // Other transitions retain individually tuned durations; REFRESH_SPIN is a rotation period.
     const val QUICK = 120
     const val STANDARD = 180
     const val EMPHASIZED = 280
@@ -509,11 +509,11 @@ object Motion {
     val popOffset = 22.dp
 
     /** 平级切 tab — 0.986 缩放淡入. */
-    const val TAB = 180
+    const val TAB = STANDARD
     const val TAB_SCALE_FROM = 0.986f
 
     /** 覆盖（播放器 / 菜单）— 下方 46px 上滑. */
-    const val MODAL = 280
+    const val MODAL = EMPHASIZED
     val modalOffset = 46.dp
 
     /** 迷你播放器展开 — 从底部 0.8 缩放放大；详情页顶图只做克制的 1.08 → 1. */
@@ -536,7 +536,7 @@ object Motion {
     const val ACCENT = AMBIENT
 
     /** A full-width artwork change deserves more time than local component movement. */
-    const val CAROUSEL = 500
+    const val CAROUSEL = AMBIENT
 
     /**
      * One turn of an indeterminate spinner.

@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core.network.sharedOriginConnectionPool
 import com.yfuse.core2.network.YByteRange
 import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
@@ -283,6 +284,10 @@ internal fun Map<String, String>.withHttpBasicCredentials(
 private val sharedMediaTransportClient =
     OkHttpClient
         .Builder()
+        // Playback capability negotiation reaches this origin first and leaves a live connection
+        // behind. Sharing the pool lets the first byte range skip the DNS, TCP and TLS work the
+        // API client already paid for, which is otherwise repeated while the screen is still black.
+        .connectionPool(sharedOriginConnectionPool)
         .followRedirects(false)
         .followSslRedirects(false)
         .retryOnConnectionFailure(true)

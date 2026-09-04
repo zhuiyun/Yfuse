@@ -68,6 +68,14 @@ struct ycore_session {
     std::recursive_mutex mutex;
     std::vector<Engine> engines;
     int active_index = -1;
+    /**
+     * Engines this request has already been opened on.
+     *
+     * Handover only ever knew which engine it was leaving, so two engines that both open and then
+     * fail sent every later tick back and forth between them for as long as playback was attempted.
+     * An explicit retry clears this; automatic handover never revisits an engine.
+     */
+    std::vector<int> attempted;
     OwnedRequest request;
     bool has_request = false;
     void *video_output = nullptr;
@@ -101,8 +109,13 @@ struct ycore_session {
         active_index = -1;
     }
 
+    bool already_attempted(int index) const {
+        return std::find(attempted.begin(), attempted.end(), index) != attempted.end();
+    }
+
     int activate(int index, int64_t position_ms, bool playback_requested) {
         Engine &engine = engines[static_cast<size_t>(index)];
+        attempted.push_back(index);
         const ycore_media_request_t open_request =
             request.view(std::max<int64_t>(0, position_ms), playback_requested ? 1 : 0);
 
@@ -147,10 +160,10 @@ struct ycore_session {
         return YCORE_OK;
     }
 
-    int open_next(int excluded_index) {
+    int open_next() {
         std::vector<int> candidates;
         for (size_t index = 0; index < engines.size(); ++index) {
-            if (static_cast<int>(index) != excluded_index && compatible(engines[index])) {
+            if (!already_attempted(static_cast<int>(index)) && compatible(engines[index])) {
                 candidates.push_back(static_cast<int>(index));
             }
         }
@@ -250,7 +263,8 @@ int32_t ycore_session_open(ycore_session_t *session, const ycore_media_request_t
     session->state.playback_requested = request->auto_play != 0;
     session->state.speed = 1.0f;
     session->state.failure_category = YCORE_FAILURE_NONE;
-    return session->open_next(-1);
+    session->attempted.clear();
+    return session->open_next();
 }
 
 int32_t ycore_session_play(ycore_session_t *session) {
@@ -333,7 +347,10 @@ int32_t ycore_session_set_video_output(ycore_session_t *session, void *native_ou
 int32_t ycore_session_retry(ycore_session_t *session) {
     if (session == nullptr) return YCORE_ERROR_INVALID_ARGUMENT;
     std::lock_guard<std::recursive_mutex> lock(session->mutex);
-    if (session->active_index < 0) return session->has_request ? session->open_next(-1) : YCORE_ERROR_NOT_READY;
+    // An explicit retry is host-driven and bounded there, so it may start the whole chain over.
+    // Only automatic handover has to refuse an engine this request already exhausted.
+    session->attempted.clear();
+    if (session->active_index < 0) return session->has_request ? session->open_next() : YCORE_ERROR_NOT_READY;
     Engine &engine = session->engines[static_cast<size_t>(session->active_index)];
     if (engine.vtable.retry != nullptr && engine.vtable.retry(engine.context) == YCORE_OK) return YCORE_OK;
     return ycore_session_handover(session);
@@ -366,9 +383,8 @@ int32_t ycore_session_handover(ycore_session_t *session) {
     if (session == nullptr) return YCORE_ERROR_INVALID_ARGUMENT;
     std::lock_guard<std::recursive_mutex> lock(session->mutex);
     if (!session->has_request) return YCORE_ERROR_NOT_READY;
-    const int previous = session->active_index;
     session->close_active();
-    return session->open_next(previous);
+    return session->open_next();
 }
 
 int32_t ycore_session_get_state(ycore_session_t *session, ycore_state_t *out_state) {

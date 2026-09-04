@@ -277,6 +277,46 @@ void test_handover_restores_tracks_output_and_pause_intent() {
     ycore_session_destroy(session);
 }
 
+/**
+ * Handover used to exclude only the engine it was leaving, so a pair that both opened and then
+ * failed was reopened alternately for as long as the host kept ticking.
+ */
+void test_handover_never_reopens_an_engine_this_request_exhausted() {
+    auto *session = ycore_session_create();
+    FakeEngine primary;
+    FakeEngine fallback;
+    const auto first = registration("Primary", YCORE_ROUTE_SYSTEM, 100, YCORE_CAP_REMOTE_URL, &primary);
+    const auto second = registration("Fallback", YCORE_ROUTE_NATIVE_DIRECT, 50, YCORE_CAP_REMOTE_URL, &fallback);
+    assert(ycore_session_register_engine(session, &first) == YCORE_OK);
+    assert(ycore_session_register_engine(session, &second) == YCORE_OK);
+    auto media = request();
+    assert(ycore_session_open(session, &media) == YCORE_OK);
+    assert(primary.open_count == 1);
+
+    primary.state.phase = YCORE_PHASE_FAILED;
+    primary.state.failure_category = YCORE_FAILURE_DECODER;
+    assert(ycore_session_tick(session) == YCORE_OK);
+    assert(fallback.open_count == 1);
+
+    // The fallback opens and then fails the same way. Every later tick must find no candidate
+    // rather than handing the request back to the engine that already failed.
+    fallback.state.phase = YCORE_PHASE_FAILED;
+    fallback.state.failure_category = YCORE_FAILURE_DECODER;
+    for (int tick = 0; tick < 8; ++tick) {
+        ycore_session_tick(session);
+    }
+    assert(primary.open_count == 1);
+    assert(fallback.open_count == 1);
+    assert(ycore_session_state_phase(session) == YCORE_PHASE_FAILED);
+
+    // An explicit retry is host-driven and bounded there, so it may start the chain over.
+    primary.state.phase = YCORE_PHASE_READY;
+    primary.state.failure_category = YCORE_FAILURE_NONE;
+    assert(ycore_session_retry(session) == YCORE_OK);
+    assert(primary.open_count == 2);
+    ycore_session_destroy(session);
+}
+
 void test_drm_failure_does_not_change_backend() {
     auto *session = ycore_session_create();
     FakeEngine primary;
@@ -306,6 +346,7 @@ int main() {
     test_open_failure_falls_back();
     test_no_compatible_engine_is_explicit();
     test_handover_restores_tracks_output_and_pause_intent();
+    test_handover_never_reopens_an_engine_this_request_exhausted();
     test_drm_failure_does_not_change_backend();
     return 0;
 }

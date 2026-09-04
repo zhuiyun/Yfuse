@@ -61,6 +61,7 @@ internal class AndroidTransportMediaDataSource(
             AndroidYCoreBlockCache(
                 cacheDirectory = cacheDirectory,
                 identity = cacheIdentity,
+                blockSizeBytes = blockSize,
                 maximumBytes = cacheMaximumBytes,
             )
         } else {
@@ -219,6 +220,7 @@ internal class AndroidTransportMediaDataSource(
                     prefetched
                 } else {
                     synchronousLoadCount++
+                    reportSynchronousBlockLoad(blockIndex)
                     if (prefetchSuppressed) {
                         cancelPrefetchOutside(emptySet())
                     } else {
@@ -250,10 +252,34 @@ internal class AndroidTransportMediaDataSource(
         }
     }
 
+    /**
+     * Records where the first blocking reads land, so a startup profile can be read from the log.
+     *
+     * MediaExtractor's container parse is the largest unexplained span of a cold start, and whether
+     * it costs one round trip or two depends on whether the index sits at the front of the file or
+     * at its end. The block index is the only thing that distinguishes those, and a handful of
+     * entries per source is enough to tell them apart without turning playback into a log flood.
+     */
+    private fun reportSynchronousBlockLoad(blockIndex: Long) {
+        if (synchronousLoadCount > MAX_REPORTED_SYNCHRONOUS_LOADS) return
+        AppLog.info(
+            category = "player.core2",
+            event = "transport_block_loaded",
+            message = "YCore loaded a media block without a ready prefetch",
+            attributes =
+                mapOf(
+                    "blockIndex" to blockIndex.toString(),
+                    "blockSize" to blockSize.toString(),
+                    "loadOrdinal" to synchronousLoadCount.toString(),
+                    "contentLength" to knownSize.toString(),
+                ),
+        )
+    }
+
     private fun loadBlockNow(blockIndex: Long): YLoadedTransportBlock {
         diskCache?.let { cache ->
             val startedNs = System.nanoTime()
-            cache.readBlock(blockIndex, blockSize)?.let { cached ->
+            cache.readBlock(blockIndex)?.let { cached ->
                 return YLoadedTransportBlock(
                     bytes = cached,
                     contentLength = cache.contentLength,
@@ -514,7 +540,7 @@ internal class AndroidTransportMediaDataSource(
                 if (!prefetch.markStarted()) throw CancellationException("Transport prefetch was promoted")
                 diskCache?.let { cache ->
                     val cacheStartedNs = System.nanoTime()
-                    cache.readBlock(blockIndex, blockSize)?.let { cached ->
+                    cache.readBlock(blockIndex)?.let { cached ->
                         return@submit YLoadedTransportBlock(
                             bytes = cached,
                             contentLength = cache.contentLength,
@@ -873,4 +899,7 @@ private const val NANOS_PER_MILLISECOND = 1_000_000L
 // A 2 MiB speculative block that has not arrived in this long is no longer beating a direct load,
 // and the stalled socket behind it is worth releasing.
 private const val FOREGROUND_PREFETCH_WAIT_MS = 1_500L
+
+/** Enough blocking loads to show a cold start's access pattern; playback then falls silent. */
+private const val MAX_REPORTED_SYNCHRONOUS_LOADS = 8L
 private const val MAX_SAFE_EXCEPTION_CHAIN_DEPTH = 4
