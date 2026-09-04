@@ -3,6 +3,7 @@ package com.yfuse.core2.android
 import android.media.MediaDataSource
 import android.os.Looper
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core2.network.YAggregateBandwidthMeter
 import com.yfuse.core2.network.YByteRange
 import com.yfuse.core2.network.YCacheConditions
 import com.yfuse.core2.network.YCacheIdentity
@@ -89,6 +90,7 @@ internal class AndroidTransportMediaDataSource(
             ).apply { isDaemon = true }
         }
     private val prefetchTransportLock = Any()
+    private val bandwidthMeter = YAggregateBandwidthMeter()
     private var cachedBytes = 0L
     private var knownSize = diskCache?.contentLength ?: -1L
     private val prefetchedBlocks = LinkedHashMap<Long, YTransportBlockPrefetch>()
@@ -203,6 +205,7 @@ internal class AndroidTransportMediaDataSource(
             bufferedAheadBytes = bufferedAheadBytes,
             contentLengthBytes = knownSize,
             mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
+            throughputBitsPerSecond = bandwidthMeter.bitsPerSecond(),
         )
     }
 
@@ -325,6 +328,8 @@ internal class AndroidTransportMediaDataSource(
             val startedNs = System.nanoTime()
             val position = blockIndex.saturatedMultiply(blockSize.toLong())
             val end = position.saturatedAdd(blockSize.toLong() - 1L)
+            var transferredBytes = 0L
+            bandwidthMeter.onTransferStarted(startedNs)
             try {
                 val response =
                     blockTransport.open(
@@ -405,10 +410,7 @@ internal class AndroidTransportMediaDataSource(
                         acceptedRangeStart = response.acceptedRange?.startInclusive,
                     )
                 }
-                onNetworkSample?.invoke(
-                    total.toLong(),
-                    ((System.nanoTime() - startedNs) / 1_000_000L).coerceAtLeast(1L),
-                )
+                transferredBytes = total.toLong()
                 YLoadedTransportBlock(
                     // A full block is the common case; copyOf would duplicate the whole 2 MiB.
                     bytes = if (total == output.size) output else output.copyOf(total),
@@ -417,6 +419,11 @@ internal class AndroidTransportMediaDataSource(
                         ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
                 )
             } finally {
+                // One aggregate sample per busy period, not one per range: see
+                // YAggregateBandwidthMeter for why per-range wall clocks under-report the link.
+                bandwidthMeter
+                    .onTransferFinished(transferredBytes, System.nanoTime())
+                    ?.let { sample -> onNetworkSample?.invoke(sample.bytes, sample.durationMs) }
                 blockTransport.close()
             }
         }
@@ -688,6 +695,8 @@ internal data class YTransportPrefetchQoeSnapshot(
     val bufferedAheadBytes: Long = 0L,
     val contentLengthBytes: Long = -1L,
     val mediaBitRateBitsPerSecond: Long = 0L,
+    /** Aggregate link estimate across concurrent range transfers, or 0 before the first sample. */
+    val throughputBitsPerSecond: Long = 0L,
 )
 
 internal fun YTransportPrefetchQoeSnapshot.bufferedAheadDurationMs(durationMs: Long): Long {
