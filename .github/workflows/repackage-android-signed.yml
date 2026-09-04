@@ -30,9 +30,9 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
       EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
-      SOURCE_SHA: 191cd38aad7c9216b7cb900f6f0308ea117b98c7
-      VERSION_CODE: "189"
-      VERSION_NAME: "1.0.27"
+      SOURCE_SHA: 7178f41d71ceb9af608841afc5b3c169d5cbe280
+      VERSION_CODE: "190"
+      VERSION_NAME: "1.0.28"
 
     steps:
       - name: Check out exact master source
@@ -230,7 +230,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: yfuse-189-1.0.27-repackaged
+          name: yfuse-190-1.0.28-repackaged
           path: build/signed-artifact/
           if-no-files-found: error
           retention-days: 7
