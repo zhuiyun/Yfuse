@@ -89,10 +89,24 @@ internal object FfmpegNativeBridge {
             entries.map { it.key }.toTypedArray(),
             entries.map { it.value }.toTypedArray(),
         ).also { handle ->
-            if (handle < 0L) throwFfmpegFailure(handle, YPlaybackFailureStage.SourceOpen)
+            if (handle < 0L) {
+                throwFfmpegFailure(handle, YPlaybackFailureStage.SourceOpen, lastOpenFailureDetail())
+            }
             check(handle != 0L) { "YCore FFmpeg demux session was not created" }
         }
     }
+
+    /**
+     * FFmpeg's own reason for the open failure that just returned a negative status.
+     *
+     * Older native artifacts predate the getter, so a missing symbol degrades to the classified
+     * status alone instead of failing the open a second time. The text is FFmpeg's `av_strerror`
+     * output plus the stage name; it never contains the source URI or headers.
+     */
+    private fun lastOpenFailureDetail(): String? =
+        runCatching { nativeLastOpenFailure() }
+            .getOrNull()
+            ?.takeIf(String::isNotBlank)
 
     fun close(handle: Long) {
         if (handle != 0L && available) nativeClose(handle)
@@ -242,6 +256,8 @@ internal object FfmpegNativeBridge {
         headerNames: Array<String>,
         headerValues: Array<String>,
     ): Long
+
+    private external fun nativeLastOpenFailure(): String?
 
     private external fun nativeClose(handle: Long)
 
@@ -393,11 +409,22 @@ internal object FfmpegNativeBridge {
 private fun throwFfmpegFailure(
     status: Long,
     stage: YPlaybackFailureStage,
+    detail: String? = null,
 ): Nothing =
     throw YPlaybackException(
         category = ffmpegFailureCategory(status),
         stage = stage,
-        safeDetail = "FFmpeg ${stage.name} returned a classified failure",
+        safeDetail =
+            buildString {
+                append("FFmpeg ")
+                append(stage.name)
+                append(" returned a classified failure")
+                detail?.let {
+                    append(" (")
+                    append(it)
+                    append(')')
+                }
+            },
     )
 
 internal fun ffmpegFailureCategory(status: Long): YPlaybackFailureCategory =

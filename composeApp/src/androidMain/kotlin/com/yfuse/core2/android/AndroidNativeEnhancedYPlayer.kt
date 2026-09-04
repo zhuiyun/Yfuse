@@ -353,6 +353,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
                     requireDolbyVisionIdentity = requireDolbyVisionIdentity,
                     expectedAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
+                    sourceHints = item.sourceHints,
                 )
             prepared = true
             activePlan = playbackPlan
@@ -702,6 +703,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 mapOf(
                                     "failureCategory" to (typed?.category?.name ?: "Unknown"),
                                     "failureStage" to (typed?.stage?.name ?: "Unknown"),
+                                    "failureDetail" to typed?.safeDetail.orEmpty(),
                                     "itemIndex" to currentIndex.toString(),
                                     "sourceScheme" to request.items[currentIndex].uri.substringBefore(':').lowercase(),
                                 ),
@@ -802,7 +804,12 @@ internal fun yCoreEnhancedFailureMessage(failure: YPlaybackException?): String =
         YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源授权已失效，请刷新播放地址后重试"
         YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
         YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
-        YPlaybackFailureCategory.Container -> "YCore 2.0 无法解析当前片源容器"
+        YPlaybackFailureCategory.Container ->
+            if (failure.isHiddenServerAudioTrackFailure()) {
+                YCORE_HIDDEN_AUDIO_TRACK_MESSAGE
+            } else {
+                "YCore 2.0 无法解析当前片源容器"
+            }
         YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
         YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
         YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"

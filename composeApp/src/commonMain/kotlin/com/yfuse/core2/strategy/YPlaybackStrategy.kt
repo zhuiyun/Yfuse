@@ -70,6 +70,14 @@ data class YPlaybackRequest(
      * the enhanced demuxer so the audio track is not silently discarded.
      */
     val platformAudioDemuxSupported: Boolean = platformDemuxSupported,
+    /**
+     * True when the server's stream list contains at least one audio track.
+     *
+     * A platform probe that found video but no audio is then a demuxer that hid the track, not
+     * a video-only file: NativeDirect would open the container and refuse it at Demux anyway, so
+     * the planner keeps such media on the enhanced demuxer from the start.
+     */
+    val sourceDeclaresAudio: Boolean = false,
 )
 
 data class YPlaybackPlan(
@@ -112,7 +120,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
     ): YPlaybackPlan {
         if (request.audioOnly) return planAudioOnly(request, capabilities)
         val platformDemuxCoversSelectedAudio =
-            request.audio == null || request.platformAudioDemuxSupported
+            if (request.audio == null) !request.sourceDeclaresAudio else request.platformAudioDemuxSupported
         val demuxPath =
             when {
                 request.optimizationPreference == YOptimizationPreference.Compatibility &&
