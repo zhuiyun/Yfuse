@@ -2,6 +2,7 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import android.media.MediaCodec
+import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.os.Process
 import android.view.Surface
@@ -9,12 +10,12 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YMediaSourceHints
+import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackFailureStage
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
-import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerDiagnostics
 import com.yfuse.core2.api.YPlayerOpenRequest
@@ -189,9 +190,11 @@ internal class AndroidNativeDirectYPlayer(
                         commands.trySend(
                             Command.SelectSubtitleTrack(
                                 null,
-                                externalTrackId = mutableState.value.subtitleTracks.firstOrNull {
-                                    it.id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)
-                                }?.id,
+                                externalTrackId =
+                                    mutableState.value.subtitleTracks
+                                        .firstOrNull {
+                                            it.id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)
+                                        }?.id,
                             ),
                         )
                     else -> {
@@ -419,6 +422,18 @@ internal class AndroidNativeDirectYPlayer(
         private var prepared = false
         private var videoConfigured = false
 
+        /**
+         * True once a video decoder has rendered into a real Surface for the current media.
+         *
+         * Distinguishes "video output was lost" from "video output was never established". Losing
+         * it must not stop audio; never having had it still gates startup on the Surface.
+         */
+        private var videoOutputEstablished = false
+
+        /** Set when a rebuilt video decoder still needs a sync sample before it can decode. */
+        private var awaitVideoSyncSample = false
+        private var awaitVideoSyncSampleDrops = 0
+
         @Volatile
         private var requestedPlay = request.autoPlay
 
@@ -486,12 +501,43 @@ internal class AndroidNativeDirectYPlayer(
         @Volatile
         private var lastRenderedRealtimeNs = 0L
 
+        private val hasVideoTrack: Boolean get() = videoTrackIndex != null
+
+        private val videoRenderable: Boolean
+            get() = videoConfigured && surfaceOutput?.surface?.isValid == true
+
+        /**
+         * Audio may drive the pump on its own once video output has been established, or when the
+         * media has no video at all.
+         *
+         * Requiring a live Surface for the whole pump is what made a destroyed Surface stop the
+         * sound with it: background listening, lock-screen playback and the PiP transition all go
+         * through exactly that path. Exo's `clearVideoSurface` detaches only the video renderer.
+         */
+        private val audioPumpAllowed: Boolean
+            get() = audioTrackIndex != null && (!hasVideoTrack || videoOutputEstablished)
+
+        /** True when the audio path alone is already carrying playback. */
+        private val audioCarryingPlayback: Boolean
+            get() = audioPumpAllowed && audioRendererConfigured
+
+        /**
+         * True while the product is still waiting for the video output this media is meant to have.
+         *
+         * Once audio is carrying playback a rebuilt video decoder is not a rebuffer - reporting one
+         * would make every Surface reattach flash the buffering state over uninterrupted sound.
+         */
+        private val videoOutputPending: Boolean
+            get() =
+                hasVideoTrack &&
+                    !audioCarryingPlayback &&
+                    (!videoOutputEstablished || (videoRenderable && !firstVideoFrameRendered))
+
         val canPump: Boolean
             get() =
                 prepared &&
                     requestedPlay &&
-                    videoConfigured &&
-                    surfaceOutput?.surface?.isValid == true &&
+                    (videoRenderable || audioPumpAllowed) &&
                     mutableState.value.phase != YPlaybackPhase.Failed &&
                     !isEnded()
 
@@ -544,6 +590,7 @@ internal class AndroidNativeDirectYPlayer(
                 didWork = drainAudio() || didWork
                 didWork = drainVideo() || didWork
                 didWork = feedInput() || didWork
+                recoverVideoIfNoSyncSampleArrives()
                 publishClockPosition()
                 finishIfEnded()
                 return didWork
@@ -592,17 +639,14 @@ internal class AndroidNativeDirectYPlayer(
                 }
             abortIfReleased()
             selectedExternalSubtitleId =
-                sidecarSources.indexOfFirst { it.forced || it.default }
+                sidecarSources
+                    .indexOfFirst { it.forced || it.default }
                     .takeIf { it >= 0 }
                     ?.let(::externalSubtitleTrackId)
                     ?: externalSubtitles.singleOrNull()?.track?.id
-            videoTrackIndex =
-                demux.findFirstTrack(VIDEO_MIME_PREFIX)
-                    ?: throw YPlaybackException(
-                        category = YPlaybackFailureCategory.Container,
-                        stage = YPlaybackFailureStage.Demux,
-                        safeDetail = "NativeDirect source has no video track",
-                    )
+            // Audio-only media is a first-class source here: music, audiobooks and audio-only
+            // versions have no video track and must not be rejected at the container stage.
+            videoTrackIndex = demux.findFirstTrack(VIDEO_MIME_PREFIX)
             val capabilities = capabilityProvider.current()
             val platformAudioTrackIndices =
                 (0 until demux.trackCount).filter { index ->
@@ -656,11 +700,18 @@ internal class AndroidNativeDirectYPlayer(
                     safeDetail = "NativeDirect has no playable platform audio path for $rejectedAudioMimes",
                 )
             }
+            if (videoTrackIndex == null && initialAudioTrack == null) {
+                throw YPlaybackException(
+                    category = YPlaybackFailureCategory.Container,
+                    stage = YPlaybackFailureStage.Demux,
+                    safeDetail = "NativeDirect source has neither a video nor a playable audio track",
+                )
+            }
             audioTrackIndex = initialAudioTrack?.first
             videoFormat =
-                demux
-                    .trackFormat(requireNotNull(videoTrackIndex))
-                    .also { format ->
+                videoTrackIndex
+                    ?.let(demux::trackFormat)
+                    ?.also { format ->
                         if (plannedDolbyVisionConfig != null) {
                             format.applyDolbyVisionConfiguration(plannedDolbyVisionConfig)
                         } else if (confirmedDolbyVisionNalIdentity) {
@@ -669,14 +720,14 @@ internal class AndroidNativeDirectYPlayer(
                     }
             inspectHdr10PlusSamples =
                 videoFormat?.containsKey(MediaFormat.KEY_HDR10_PLUS_INFO) == true ||
-                    item.sourceHints
-                        ?.dynamicRange
-                        .orEmpty()
-                        .replace(" ", "")
-                        .let { range ->
-                            range.contains("hdr10+", ignoreCase = true) ||
-                                range.contains("hdr10plus", ignoreCase = true)
-                        }
+                item.sourceHints
+                    ?.dynamicRange
+                    .orEmpty()
+                    .replace(" ", "")
+                    .let { range ->
+                        range.contains("hdr10+", ignoreCase = true) ||
+                            range.contains("hdr10plus", ignoreCase = true)
+                    }
             validateNativeDirectDolbyIdentity(
                 required = requireDolbyVisionIdentity,
                 extractedMime = videoFormat?.getString(MediaFormat.KEY_MIME),
@@ -725,8 +776,10 @@ internal class AndroidNativeDirectYPlayer(
             demux.configureSampleCapacity(sampleCapacity)
             demux.selectTracks(selectedDemuxTrackIndices())
 
-            surfaceOutput?.surface?.takeIf { it.isValid }?.let { surface ->
-                configureVideoDecoder(surface)
+            if (videoFormat != null) {
+                surfaceOutput?.surface?.takeIf { it.isValid }?.let { surface ->
+                    configureVideoDecoder(surface)
+                }
             }
             abortIfReleased()
 
@@ -757,7 +810,7 @@ internal class AndroidNativeDirectYPlayer(
                                     videoDecoder.decoderName,
                                     audioDecoderDiagnosticName(),
                                 ).joinToString(" + "),
-                            renderer = "Surface + AudioTrack",
+                            renderer = if (videoTrackIndex == null) "AudioTrack" else "Surface + AudioTrack",
                             videoCodec = videoFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
                             videoWidth = videoFormat?.intOrZero(MediaFormat.KEY_WIDTH) ?: 0,
                             videoHeight = videoFormat?.intOrZero(MediaFormat.KEY_HEIGHT) ?: 0,
@@ -765,7 +818,12 @@ internal class AndroidNativeDirectYPlayer(
                             audioCodec = audioInputFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
                             bitrateBitsPerSecond = sourceBitRateBitsPerSecond,
                             dynamicRange = videoFormat.dynamicRangeLabel(),
-                            videoOutput = if (videoConfigured) "等待首帧" else "等待 Surface",
+                            videoOutput =
+                                when {
+                                    videoTrackIndex == null -> "无视频轨 · 纯音频"
+                                    videoConfigured -> "等待首帧"
+                                    else -> "等待 Surface"
+                                },
                             audioOutput = waitingAudioOutputLabel(),
                             videoOutputVerified = false,
                             audioOutputVerified = false,
@@ -778,7 +836,12 @@ internal class AndroidNativeDirectYPlayer(
                             dolbyAtmosOutput = false,
                             spatialAudioOutput = false,
                             headTrackingAvailable = false,
-                            reason = "Platform demux + hardware decode + direct Surface",
+                            reason =
+                                if (videoTrackIndex == null) {
+                                    "Platform demux + audio decode"
+                                } else {
+                                    "Platform demux + hardware decode + direct Surface"
+                                },
                         ),
                 )
 
@@ -796,6 +859,21 @@ internal class AndroidNativeDirectYPlayer(
                 frameRateManager.clear()
                 videoDecoder.release()
                 videoConfigured = false
+                pendingVideoOutput = null
+                seekPrerollVideoOutput = null
+                if (audioPumpAllowed) {
+                    // Detach the video renderer only. The clock, the audio track and the demux
+                    // pump all keep running, which is what background listening, lock-screen
+                    // playback and the PiP transition need.
+                    mutableState.value =
+                        mutableState.value.copy(
+                            diagnostics =
+                                mutableState.value.diagnostics
+                                    .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
+                                    .copy(videoOutput = "Surface 已分离 · 音频继续"),
+                        )
+                    return
+                }
                 pausePlaybackInternal(keepRequested = true)
                 wallClock.seek(positionUs, System.nanoTime())
                 mutableState.value =
@@ -809,12 +887,14 @@ internal class AndroidNativeDirectYPlayer(
                     )
                 return
             }
+            if (!hasVideoTrack) return
             if (previous?.surface === newSurface && videoConfigured) return
+            val audioContinues = audioCarryingPlayback
             firstVideoFrameRendered = false
             mutableState.value =
                 mutableState.value.copy(
-                    playing = false,
-                    buffering = requestedPlay,
+                    playing = if (audioContinues) mutableState.value.playing else false,
+                    buffering = if (audioContinues) mutableState.value.buffering else requestedPlay,
                     diagnostics =
                         mutableState.value.diagnostics
                             .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
@@ -828,12 +908,21 @@ internal class AndroidNativeDirectYPlayer(
                         return
                     }
             }
-            if (prepared) {
-                val resumeUs = currentPositionUs()
+            if (!prepared) return
+            if (audioContinues && !isEnded()) {
+                // Audio never stopped, so the extractor is already at the live position. Rebuild
+                // the decoder in place and let it pick up the next sync sample instead of seeking
+                // the shared extractor, which would have to rewind audio to a keyframe as well.
                 configureVideoDecoder(newSurface)
-                seekTo(resumeUs)
+                awaitVideoSyncSample = true
+                awaitVideoSyncSampleDrops = 0
                 if (requestedPlay) startPlayback()
+                return
             }
+            val resumeUs = currentPositionUs()
+            configureVideoDecoder(newSurface)
+            seekTo(resumeUs)
+            if (requestedPlay) startPlayback()
         }
 
         private fun startPlayback() {
@@ -842,7 +931,7 @@ internal class AndroidNativeDirectYPlayer(
                 prepareCurrent(mutableState.value.positionMs * MICROS_PER_MILLISECOND)
                 return
             }
-            if (!videoConfigured) {
+            if (!videoConfigured && !audioPumpAllowed) {
                 mutableState.value =
                     mutableState.value.copy(
                         playbackRequested = true,
@@ -859,8 +948,8 @@ internal class AndroidNativeDirectYPlayer(
             mutableState.value =
                 mutableState.value.copy(
                     playbackRequested = true,
-                    playing = firstVideoFrameRendered && !transportBufferingVisible,
-                    buffering = !firstVideoFrameRendered || transportBufferingVisible,
+                    playing = !videoOutputPending && !transportBufferingVisible,
+                    buffering = videoOutputPending || transportBufferingVisible,
                     phase = if (isEnded()) YPlaybackPhase.Ended else YPlaybackPhase.Ready,
                 )
         }
@@ -927,10 +1016,10 @@ internal class AndroidNativeDirectYPlayer(
                         mutableState.value.diagnostics
                             .invalidateOutputEvidence(YOutputEvidenceResetReason.Seek)
                             .copy(
-                            videoOutput = if (videoConfigured) "硬解已配置 · 等待首帧" else "等待 Surface",
-                            audioOutput = waitingAudioOutputLabel(),
-                            dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
-                        ),
+                                videoOutput = if (videoConfigured) "硬解已配置 · 等待首帧" else "等待 Surface",
+                                audioOutput = waitingAudioOutputLabel(),
+                                dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
+                            ),
                 )
             if (requestedPlay) startPlayback()
         }
@@ -1003,6 +1092,19 @@ internal class AndroidNativeDirectYPlayer(
                 )
         }
 
+        /**
+         * Falls back to a seek when a container never delivers the sync sample video is waiting for.
+         *
+         * The seek-free reattach is the good path because it leaves audio untouched, but a stream
+         * whose sync flags are missing or wrong would otherwise stay silent-with-no-picture forever.
+         */
+        private fun recoverVideoIfNoSyncSampleArrives() {
+            if (!awaitVideoSyncSample || awaitVideoSyncSampleDrops < MAX_VIDEO_SYNC_SAMPLE_DROPS) return
+            awaitVideoSyncSample = false
+            awaitVideoSyncSampleDrops = 0
+            seekTo(currentPositionUs())
+        }
+
         private fun feedInput(): Boolean {
             if (pendingEncodedAudioInput != null) {
                 val audioTrack = audioTrackIndex ?: return false
@@ -1013,8 +1115,14 @@ internal class AndroidNativeDirectYPlayer(
             }
             if (inputEnded) {
                 var queued = false
-                if (!videoInputEnded && videoConfigured) {
-                    if (videoDecoder.queueEndOfStream(lastQueuedPresentationUs) == YCodecQueueResult.Queued) {
+                if (!videoInputEnded) {
+                    if (!videoConfigured) {
+                        // Detached video output cannot drain an end-of-stream buffer. Retiring the
+                        // track here is what lets an audio-only tail still reach Ended.
+                        videoInputEnded = true
+                        videoOutputEnded = true
+                        queued = true
+                    } else if (videoDecoder.queueEndOfStream(lastQueuedPresentationUs) == YCodecQueueResult.Queued) {
                         videoInputEnded = true
                         queued = true
                     }
@@ -1077,16 +1185,32 @@ internal class AndroidNativeDirectYPlayer(
             val queued =
                 when (sample.trackIndex) {
                     videoTrackIndex ->
-                        if (videoConfigured) {
-                            applyHdr10PlusMetadata(sample.data)
-                            videoDecoder.queueAccessUnit(
-                                sample.data,
-                                sample.presentationTimeUs,
-                                sample.flags,
-                                sample.cryptoInfo,
-                            )
-                        } else {
-                            YCodecQueueResult.TryAgain
+                        when {
+                            !videoConfigured && videoOutputEstablished ->
+                                // The Surface went away mid-playback. Holding the sample would
+                                // back-pressure the shared queue until audio starved too, so the
+                                // video track is discarded until a Surface returns.
+                                YCodecQueueResult.Queued
+                            !videoConfigured -> YCodecQueueResult.TryAgain
+                            awaitVideoSyncSample &&
+                                sample.flags and MediaExtractor.SAMPLE_FLAG_SYNC == 0 -> {
+                                // A rebuilt decoder cannot start mid-GOP. Dropping to the next sync
+                                // sample resumes video without seeking the shared extractor, which
+                                // is what would have interrupted the audio that never stopped.
+                                awaitVideoSyncSampleDrops++
+                                YCodecQueueResult.Queued
+                            }
+                            else -> {
+                                awaitVideoSyncSample = false
+                                awaitVideoSyncSampleDrops = 0
+                                applyHdr10PlusMetadata(sample.data)
+                                videoDecoder.queueAccessUnit(
+                                    sample.data,
+                                    sample.presentationTimeUs,
+                                    sample.flags,
+                                    sample.cryptoInfo,
+                                )
+                            }
                         }
                     audioTrackIndex ->
                         queueAudioSample(
@@ -1419,9 +1543,9 @@ internal class AndroidNativeDirectYPlayer(
                     else -> currentState.bufferedPositionMs.coerceAtLeast(positionMs)
                 }
             val playing =
-                requestedPlay && firstVideoFrameRendered && !transportBufferingVisible && !isEnded()
+                requestedPlay && !videoOutputPending && !transportBufferingVisible && !isEnded()
             val buffering =
-                requestedPlay && (!firstVideoFrameRendered || transportBufferingVisible) && !isEnded()
+                requestedPlay && (videoOutputPending || transportBufferingVisible) && !isEnded()
             // Every other engine counts a rebuffer on the playing -> buffering edge. NativeDirect
             // only counted transport starvation, so a stall that never starved the read-ahead queue
             // — a pump blocked on the origin, a runtime recovery restart, an audio route change —
@@ -1577,9 +1701,9 @@ internal class AndroidNativeDirectYPlayer(
 
         private fun resetEndState() {
             inputEnded = false
-            videoInputEnded = false
+            videoInputEnded = videoTrackIndex == null
             audioInputEnded = audioInputFormat == null
-            videoOutputEnded = false
+            videoOutputEnded = videoTrackIndex == null
             audioOutputEnded = audioInputFormat == null
             pendingVideoOutput = null
             pendingAudioOutput = null
@@ -1921,6 +2045,7 @@ internal class AndroidNativeDirectYPlayer(
             if (firstVideoFrameRendered || released) return
             firstVideoFrameRendered = true
             outputHasEverRendered = true
+            videoOutputEstablished = true
             mutableState.updateState { current ->
                 if (released) {
                     current
@@ -2080,11 +2205,12 @@ internal class AndroidNativeDirectYPlayer(
                     "沉浸音频载波 · AudioTrack（未验证对象输出）"
                 YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm,
                 YDolbyAtmosOutputMode.None,
-                -> if (encodedAudioRenderer.immersiveCarrierOutput) {
-                    "沉浸音频载波 · AudioTrack（未验证对象输出）"
-                } else {
-                    "原码直通 · AudioTrack"
-                }
+                ->
+                    if (encodedAudioRenderer.immersiveCarrierOutput) {
+                        "沉浸音频载波 · AudioTrack（未验证对象输出）"
+                    } else {
+                        "原码直通 · AudioTrack"
+                    }
             }
 
         private fun selectedDemuxTrackIndices(): Set<Int> =
@@ -2189,6 +2315,9 @@ internal class AndroidNativeDirectYPlayer(
             sourceRemote = false
             sourceBitRateBitsPerSecond = 0L
             lastBufferReplanNs = 0L
+            videoOutputEstablished = false
+            awaitVideoSyncSample = false
+            awaitVideoSyncSampleDrops = 0
             videoFormat = null
             inspectHdr10PlusSamples = false
             audioInputFormat = null
@@ -2567,6 +2696,9 @@ private const val MAX_SAMPLE_BUFFER_BYTES = 32 * 1024 * 1024
 private const val MAX_VIDEO_SCHEDULE_AHEAD_US = 250_000L
 private const val STATE_PUBLISH_INTERVAL_NS = 200_000_000L
 private const val BUFFER_REPLAN_INTERVAL_NS = 2_000_000_000L
+
+/** Roughly a long GOP. Past this the container is not going to flag a sync sample. */
+private const val MAX_VIDEO_SYNC_SAMPLE_DROPS = 600
 
 /** Heap ceiling for the compressed queue, independent of the planner's byte budget. */
 private const val MAX_DEMUX_QUEUE_BYTES = 24L * 1024L * 1024L

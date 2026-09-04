@@ -720,7 +720,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                         frameRateSwitchMode = frameRateSwitchMode,
                         preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
                     )
+                // The enhanced session is built around a video track and a valid Surface.
                 plan.route == YPlaybackRoute.SoftwareFallback &&
+                    !decision.audioOnly &&
                     plan.demuxPath == YDemuxPath.Enhanced &&
                     item.drmConfiguration == null &&
                     yCoreSoftwarePlanExecutable(plan) ->

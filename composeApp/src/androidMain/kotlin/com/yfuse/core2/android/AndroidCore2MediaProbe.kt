@@ -19,11 +19,11 @@ import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.dolby.YDolbyVisionCodecFamily
 import com.yfuse.core2.dolby.YDolbyVisionConfig
-import com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataParser
-import com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataResult
 import com.yfuse.core2.dolby.YDolbyVisionRouteDecision
 import com.yfuse.core2.dolby.YDolbyVisionRouter
 import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
+import com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataParser
+import com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataResult
 import com.yfuse.core2.quirk.YDeviceIdentity
 import com.yfuse.core2.quirk.YDeviceQuirkAction
 import com.yfuse.core2.quirk.YDeviceQuirkDatabase
@@ -31,10 +31,10 @@ import com.yfuse.core2.quirk.YDeviceQuirkRule
 import com.yfuse.core2.quirk.YTextMatch
 import com.yfuse.core2.render.YNativeGpuRuntimeProbe
 import com.yfuse.core2.strategy.DefaultYPlaybackStrategy
-import com.yfuse.core2.strategy.YDecoderPreference
-import com.yfuse.core2.strategy.YOptimizationPreference
 import com.yfuse.core2.strategy.YDecodePath
+import com.yfuse.core2.strategy.YDecoderPreference
 import com.yfuse.core2.strategy.YDemuxPath
+import com.yfuse.core2.strategy.YOptimizationPreference
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YPlaybackRequest
 import com.yfuse.core2.strategy.YPlaybackStrategy
@@ -44,6 +44,7 @@ import java.nio.ByteBuffer
 
 internal enum class YCore2ProbeFailure {
     SourceUnavailable,
+    NoPlayableTrack,
     NoVideoTrack,
     UnknownVideoCodec,
 }
@@ -77,6 +78,8 @@ internal data class YCore2RouteDecision(
                 plan.nativeAudio &&
                 !plan.usesHdrFallback
 
+    val audioOnly: Boolean get() = probe.playbackRequest.audioOnly
+
     val nativeDirectExecutable: Boolean
         get() =
             plan.route == YPlaybackRoute.NativeDirect &&
@@ -87,14 +90,19 @@ internal data class YCore2RouteDecision(
 
     val nativeEnhancedExecutable: Boolean
         get() =
-            plan.route == YPlaybackRoute.NativeEnhanced &&
+            !audioOnly &&
+                plan.route == YPlaybackRoute.NativeEnhanced &&
                 plan.demuxPath == YDemuxPath.Enhanced &&
                 plan.renderPath == YRenderPath.SurfaceDirect &&
                 plan.nativeAudio
 
+    // Only NativeDirect executes audio-only media. The enhanced session is built around a video
+    // track and a valid Surface, so routing an audio-only source there would fail at open time;
+    // leaving it non-executable lets the router fall back instead.
     val ffmpegSoftwareExecutable: Boolean
         get() =
-            plan.route == YPlaybackRoute.SoftwareFallback &&
+            !audioOnly &&
+                plan.route == YPlaybackRoute.SoftwareFallback &&
                 plan.demuxPath == YDemuxPath.Enhanced &&
                 (
                     plan.decodePath == YDecodePath.Software &&
@@ -140,7 +148,7 @@ internal class AndroidCore2MediaProbe(
             demux.open(item.toProbeSource())
             val videoIndex =
                 demux.findFirstTrack("video/")
-                    ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.NoVideoTrack)
+                    ?: return demux.probeAudioOnly(item)
             val videoFormat = demux.trackFormat(videoIndex)
             val videoMime =
                 videoFormat.getString(MediaFormat.KEY_MIME)?.lowercase()
@@ -237,7 +245,55 @@ internal class AndroidCore2MediaProbe(
             demux.release()
         }
     }
+
+    /**
+     * Probe result for a source with no video track.
+     *
+     * [YPlaybackRequest.video] carries a neutral placeholder that the audio-only planner never
+     * reads; it exists only so the request stays a single non-null shape for every caller.
+     */
+    private fun AndroidMediaExtractorDemuxNode.probeAudioOnly(item: YMediaItem): YCore2ProbeResult {
+        val audioIndex =
+            findFirstTrack("audio/")
+                ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.NoPlayableTrack)
+        val audioFormat = trackFormat(audioIndex)
+        val audioMime = audioFormat.getString(MediaFormat.KEY_MIME)?.lowercase()
+        val durationUs = audioFormat.durationUsOrNullForProbe() ?: 0L
+        return YCore2ProbeResult.Success(
+            playbackRequest =
+                YPlaybackRequest(
+                    container = item.containerHint(),
+                    video = AUDIO_ONLY_VIDEO_PLACEHOLDER,
+                    audio =
+                        YAudioRequirement(
+                            codec = audioMime?.toYAudioCodec() ?: YAudioCodec.Unknown,
+                            channelCount =
+                                audioFormat.intOrZero(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1),
+                            sampleRate =
+                                audioFormat.intOrZero(MediaFormat.KEY_SAMPLE_RATE).coerceAtLeast(1),
+                        ),
+                    audioOnly = true,
+                    platformDemuxSupported = true,
+                    enhancedDemuxSupported = true,
+                    preferTunnel = false,
+                ),
+            videoMime = "",
+            audioMime = audioMime,
+            durationMs = durationUs / 1_000L,
+        )
+    }
 }
+
+private val AUDIO_ONLY_VIDEO_PLACEHOLDER =
+    YVideoRequirement(
+        codec = YVideoCodec.Unknown,
+        width = 0,
+        height = 0,
+        frameRate = 0f,
+        bitDepth = 8,
+        hdrType = YHdrType.Sdr,
+        surfaceOutputRequired = false,
+    )
 
 private fun AndroidMediaExtractorDemuxNode.probeDolbyVisionNals(
     videoTrackIndex: Int,

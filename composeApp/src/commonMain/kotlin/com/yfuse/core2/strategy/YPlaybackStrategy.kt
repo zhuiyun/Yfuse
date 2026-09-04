@@ -47,6 +47,13 @@ data class YPlaybackRequest(
     val container: YContainer,
     val video: YVideoRequirement,
     val audio: YAudioRequirement? = null,
+    /**
+     * The media has no video track at all - music, audiobooks, audio-only versions.
+     *
+     * [video] carries a neutral placeholder in that case and is never consulted: the whole video
+     * decision tree (decoder selection, HDR routing, tunnel eligibility) has nothing to decide.
+     */
+    val audioOnly: Boolean = false,
     val platformDemuxSupported: Boolean,
     val enhancedDemuxSupported: Boolean = true,
     /** HDR-compatible base layer, e.g. HDR10 for Dolby Vision Profile 8.1. */
@@ -103,6 +110,7 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
         request: YPlaybackRequest,
         capabilities: YDeviceCapabilities,
     ): YPlaybackPlan {
+        if (request.audioOnly) return planAudioOnly(request, capabilities)
         val platformDemuxCoversSelectedAudio =
             request.audio == null || request.platformAudioDemuxSupported
         val demuxPath =
@@ -282,26 +290,78 @@ class DefaultYPlaybackStrategy : YPlaybackStrategy {
                 },
         )
     }
+
+    /**
+     * Audio-only media never enters the video decision tree.
+     *
+     * Rejecting it at the container stage - which is what happens when a video track is required -
+     * leaves music, audiobooks and audio-only versions unplayable on a native-only artifact.
+     */
+    private fun planAudioOnly(
+        request: YPlaybackRequest,
+        capabilities: YDeviceCapabilities,
+    ): YPlaybackPlan {
+        val audioCapabilities =
+            if (request.allowAudioPassthrough) {
+                capabilities
+            } else {
+                capabilities.copy(audioPassthrough = emptySet())
+            }
+        val audioPath = audioCapabilities.audioOutputPath(request.audio)
+        val platformDemux = request.platformDemuxSupported && request.platformAudioDemuxSupported
+        if (platformDemux && audioPath != YAudioOutputPath.None) {
+            return YPlaybackPlan(
+                route = YPlaybackRoute.NativeDirect,
+                demuxPath = YDemuxPath.Platform,
+                decodePath = YDecodePath.Hardware,
+                renderPath = YRenderPath.SurfaceDirect,
+                outputHdrType = YHdrType.Sdr,
+                decoderName = null,
+                nativeAudio = true,
+                audioPath = audioPath,
+                reason = "Audio-only source; platform audio decode with no video pipeline",
+            )
+        }
+        // The enhanced and software sessions are built around a video track, so an audio-only
+        // source that the platform extractor cannot serve has no executable native route. The plan
+        // stays honest about that and the router falls back rather than failing at open time.
+        return YPlaybackPlan(
+            route = YPlaybackRoute.SoftwareFallback,
+            demuxPath = if (request.enhancedDemuxSupported) YDemuxPath.Enhanced else YDemuxPath.Software,
+            decodePath = YDecodePath.Software,
+            renderPath = YRenderPath.Gpu,
+            outputHdrType = YHdrType.Sdr,
+            nativeAudio = false,
+            audioPath = audioPath,
+            softwareAudioDecode = audioPath == YAudioOutputPath.None,
+            reason =
+                if (platformDemux) {
+                    "Audio-only source whose codec has no platform audio decoder"
+                } else {
+                    "Audio-only source that the platform extractor cannot demux"
+                },
+        )
+    }
 }
 
 private fun YDeviceCapabilities.preferredDecoder(
     requirement: YVideoRequirement,
     preference: YDecoderPreference,
-) =
-    when (preference) {
-        YDecoderPreference.HardwarePreferred ->
-            videoDecoders
-                .asSequence()
-                .filter { it.supports(requirement) }
-                .filter { it.hardwareAccelerated }
-                .sortedWith(
-                    compareByDescending<com.yfuse.core2.capability.YVideoDecoderCapability> {
-                        it.tunneledPlayback
-                    }.thenByDescending { it.adaptivePlayback },
-                ).firstOrNull()
-                ?: bestDecoder(requirement)
-        YDecoderPreference.Automatic -> bestDecoder(requirement)
-        YDecoderPreference.Software -> null
-    }
+) = when (preference) {
+    YDecoderPreference.HardwarePreferred ->
+        videoDecoders
+            .asSequence()
+            .filter { it.supports(requirement) }
+            .filter { it.hardwareAccelerated }
+            .sortedWith(
+                compareByDescending<com.yfuse.core2.capability.YVideoDecoderCapability> {
+                    it.tunneledPlayback
+                }.thenByDescending { it.adaptivePlayback },
+            ).firstOrNull()
+            ?: bestDecoder(requirement)
+    YDecoderPreference.Automatic -> bestDecoder(requirement)
+    YDecoderPreference.Software -> null
+}
 
-private fun YHdrType.supportsOwnedSoftwareToneMap(): Boolean = this in setOf(YHdrType.Hdr10, YHdrType.Hdr10Plus, YHdrType.Hlg)
+private fun YHdrType.supportsOwnedSoftwareToneMap(): Boolean =
+    this in setOf(YHdrType.Hdr10, YHdrType.Hdr10Plus, YHdrType.Hlg)

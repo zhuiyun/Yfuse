@@ -5,6 +5,7 @@ import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YDolbyVisionNalEvidence
 import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YHdrType
+import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
@@ -37,10 +38,34 @@ internal class AndroidEnhancedMediaProbe(
                 )
             val videoTrack =
                 result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
-                    ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.NoVideoTrack)
-            val video = requireNotNull(videoTrack.video)
             val audioTrack = result.tracks.firstOrNull { it.type == YDemuxTrackType.Audio && it.audio != null }
             val audio = audioTrack?.audio
+            if (videoTrack == null) {
+                // Audio-only media reaches the enhanced probe whenever the platform extractor could
+                // not open the container at all, so it has to be answered here too.
+                val audioOnly = audio ?: return YCore2ProbeResult.Failure(YCore2ProbeFailure.NoPlayableTrack)
+                return YCore2ProbeResult.Success(
+                    playbackRequest =
+                        YPlaybackRequest(
+                            container = result.container,
+                            video = ENHANCED_AUDIO_ONLY_VIDEO_PLACEHOLDER,
+                            audio =
+                                YAudioRequirement(
+                                    codec = audioOnly.codec,
+                                    channelCount = audioOnly.channelCount.coerceAtLeast(1),
+                                    sampleRate = audioOnly.sampleRate.coerceAtLeast(1),
+                                ),
+                            audioOnly = true,
+                            platformDemuxSupported = false,
+                            enhancedDemuxSupported = true,
+                            preferTunnel = false,
+                        ),
+                    videoMime = "",
+                    audioMime = audioOnly.mimeType,
+                    durationMs = (result.durationUs ?: 0L).coerceAtLeast(0L) / 1_000L,
+                )
+            }
+            val video = requireNotNull(videoTrack.video)
             val packing = video.samplePacking
             var rpuCount = 0
             var enhancementLayerCount = 0
@@ -104,6 +129,17 @@ internal class AndroidEnhancedMediaProbe(
         }
     }
 }
+
+private val ENHANCED_AUDIO_ONLY_VIDEO_PLACEHOLDER =
+    YVideoRequirement(
+        codec = YVideoCodec.Unknown,
+        width = 0,
+        height = 0,
+        frameRate = 0f,
+        bitDepth = 8,
+        hdrType = YHdrType.Sdr,
+        surfaceOutputRequired = false,
+    )
 
 private const val DOLBY_PROBE_SAMPLE_LIMIT = 24
 
