@@ -14,6 +14,7 @@ class YAdaptiveBitrateTest {
                 timescale = 1_000L,
                 duration = 2_000L,
             )
+
         fun representation(
             id: String,
             bitrate: Long,
@@ -86,6 +87,52 @@ class YAdaptiveBitrateTest {
 
         val healthy = lowBuffer.copy(bufferedDurationUs = 12_000_000L)
         assertEquals("high", YAdaptiveVariantSelector.select(variants, healthy, "mid").id)
+    }
+
+    @Test
+    fun low_buffer_steps_down_one_rendition_instead_of_dropping_to_the_floor() {
+        val ladder =
+            listOf(
+                variant("360p", 500_000L, 640, 360),
+                variant("720p", 1_500_000L, 1280, 720),
+                variant("1080p", 4_000_000L, 1920, 1080),
+                variant("2160p", 12_000_000L, 3840, 2160),
+            )
+        // Plenty of bandwidth for the current rendition; the buffer alone is critical, which is
+        // what one pause and resume looks like. Dropping to 360p there stranded the session at the
+        // lowest rendition for as long as the ladder took to climb back.
+        val starved =
+            YAdaptiveSelectionConditions(
+                estimatedBandwidthBitsPerSecond = 40_000_000L,
+                bufferedDurationUs = 1_000_000L,
+            )
+
+        assertEquals("720p", YAdaptiveVariantSelector.select(ladder, starved, "1080p").id)
+        assertEquals("360p", YAdaptiveVariantSelector.select(ladder, starved, "720p").id)
+        // The floor cannot step below itself.
+        assertEquals("360p", YAdaptiveVariantSelector.select(ladder, starved, "360p").id)
+        // A rendition the bandwidth already justifies is left alone: the starvation did not come
+        // from the link, so shedding quality would not refill the buffer any faster.
+        assertEquals("2160p", YAdaptiveVariantSelector.select(ladder, starved, "2160p").id)
+    }
+
+    @Test
+    fun low_buffer_never_steps_above_what_the_bandwidth_budget_allows() {
+        val ladder =
+            listOf(
+                variant("360p", 500_000L, 640, 360),
+                variant("720p", 1_500_000L, 1280, 720),
+                variant("1080p", 4_000_000L, 1920, 1080),
+                variant("2160p", 12_000_000L, 3840, 2160),
+            )
+        val starvedAndSlow =
+            YAdaptiveSelectionConditions(
+                estimatedBandwidthBitsPerSecond = 700_000L,
+                bufferedDurationUs = 1_000_000L,
+            )
+
+        // One step down from 2160p is 1080p, but the link cannot carry it.
+        assertEquals("360p", YAdaptiveVariantSelector.select(ladder, starvedAndSlow, "2160p").id)
     }
 
     @Test

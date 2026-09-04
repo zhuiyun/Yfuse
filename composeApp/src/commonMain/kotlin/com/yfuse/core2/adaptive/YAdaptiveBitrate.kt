@@ -44,7 +44,8 @@ fun alignYHlsVariantSegments(
 ): List<YHlsAlignedSegment> {
     require(variants.isNotEmpty())
     require(variants.distinctBy { it.variant.id }.size == variants.size) { "HLS variant ids are not unique" }
-    val selected = variants.singleOrNull { it.variant.id == selectedVariantId } ?: error("Selected HLS variant is missing")
+    val selected =
+        variants.singleOrNull { it.variant.id == selectedVariantId } ?: error("Selected HLS variant is missing")
     val selectedCodecFamilies = selected.variant.codecFamilies()
     val compatibleVariants =
         variants.filter { candidate ->
@@ -54,7 +55,9 @@ fun alignYHlsVariantSegments(
                 candidate.playlist.isLive == selected.playlist.isLive
         }
     val segmentsByVariant =
-        compatibleVariants.associateWith { candidate -> candidate.playlist.segments.associateBy(YAdaptiveSegment::sequence) }
+        compatibleVariants.associateWith { candidate ->
+            candidate.playlist.segments.associateBy(YAdaptiveSegment::sequence)
+        }
     return selected.playlist.segments.map { selectedSegment ->
         YHlsAlignedSegment(
             sequence = selectedSegment.sequence,
@@ -182,7 +185,16 @@ object YAdaptiveVariantSelector {
                 ?: eligible.first()
         val current = eligible.firstOrNull { it.id == currentVariantId } ?: return ideal
         if (ideal.id == current.id) return current
-        if (conditions.bufferedDurationUs < LOW_BUFFER_US) return eligible.first()
+        if (conditions.bufferedDurationUs < LOW_BUFFER_US) {
+            // A critically low buffer is a reason to shed bitrate now, not to abandon quality for
+            // the rest of the session: jumping straight to the lowest rendition meant one slow
+            // segment - or one pause and resume - pinned playback there. Step down one rendition
+            // and let the next evaluation step again if the pressure is real.
+            val steppedDown =
+                eligible.getOrNull(eligible.indexOfFirst { it.id == current.id } - 1)
+                    ?: eligible.first()
+            return minOf(ideal, steppedDown, compareBy(YAdaptiveVariant::selectionBandwidthBitsPerSecond))
+        }
         if (
             ideal.selectionBandwidthBitsPerSecond < current.selectionBandwidthBitsPerSecond ||
             current.selectionBandwidthBitsPerSecond > budget
