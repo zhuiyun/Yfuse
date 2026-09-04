@@ -10,7 +10,7 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write
 
 concurrency:
   group: android-repackage-current-master
@@ -159,15 +159,6 @@ jobs:
           test -n "$configured_cert"
           test "$configured_cert" = "$expected_cert"
 
-      - name: Compile system-native YCore route
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew \
-            :composeApp:compileDebugKotlinAndroid \
-            -PyfuseNativeOnlyRuntime=true \
-            --no-daemon
-
       - name: Build production signed release APK
         shell: bash
         run: |
@@ -227,10 +218,18 @@ jobs:
             '{packageName: $packageName, versionCode: $versionCode, versionName: $versionName, certificateSha256: $certificateSha256, sourceCommit: $sourceCommit, runtime: "system-ycore"}' \
             > build/signed-artifact/build-info.json
 
-      - name: Upload signed APK
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: yfuse-190-1.0.28-repackaged
-          path: build/signed-artifact/
-          if-no-files-found: error
-          retention-days: 7
+      - name: Publish signed build asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="build-v${VERSION_NAME}-${SOURCE_SHA:0:8}"
+          notes="Production-signed Android build from merged master commit ${SOURCE_SHA}. This is a packaged prerelease artifact, not an in-app update publication."
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "Yfuse ${VERSION_NAME} signed build" \
+            --notes "$notes" \
+            --prerelease \
+            build/signed-artifact/*
