@@ -6,12 +6,16 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class PlaybackServerApplyPolicyTest {
+    /**
+     * The policy used to look for a 404 on `EmbyError.Server`, which only ever carries 5xx, so a
+     * real missing item arrived as an unclassified error and requeued itself on every sync.
+     */
     @Test
     fun not_found_is_a_terminal_server_target_failure() {
         assertEquals(
             PlaybackServerApplyFailurePolicy.DropTarget,
             playbackServerApplyFailurePolicy(
-                EmbyErrorException(EmbyError.Server(404)),
+                EmbyErrorException(EmbyError.NotFound),
             ),
         )
     }

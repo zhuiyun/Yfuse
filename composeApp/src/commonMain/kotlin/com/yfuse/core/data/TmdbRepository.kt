@@ -1172,6 +1172,7 @@ class TmdbRepository(
             is ResponseException ->
                 when (response.status.value) {
                     401 -> EmbyError.Unauthorized
+                    404 -> EmbyError.NotFound
                     in 500..599 -> EmbyError.Server(response.status.value)
                     else -> EmbyError.Unknown("HTTP ${response.status.value}")
                 }

@@ -100,9 +100,13 @@ internal object PlaybackDiagnosticReportRegistry {
                 buildString {
                     appendLine(
                         "engine.selected=" +
-                            if (nativeOnly) "YCore2Native" else selectedEngine.name,
+                            if (nativeOnly) YCORE2_NATIVE_ENGINE_LABEL else selectedEngine.name,
                     )
                     appendLine("engine.actual=${diagnostics.engine.ifBlank { "unknown" }}")
+                    // The selection is what the user asked for; the binding is what runs. YCore 2.0
+                    // also backs a session selected as another engine, so a report that carries only
+                    // the selection reads as a contradiction against every engine log line.
+                    appendLine("engine.binding=${engineBindingLabel(diagnostics, selectedEngine, nativeOnly)}")
                     appendLine("route=${diagnostics.plannedRenderPath.ifBlank { "unknown" }}")
                     appendLine(
                         "fallback.chain=" +
@@ -175,7 +179,10 @@ internal object PlaybackDiagnosticReportRegistry {
                 state.playing,
                 state.buffering,
                 state.ended,
-                state.error?.javaClass?.simpleName.orEmpty(),
+                state.error
+                    ?.javaClass
+                    ?.simpleName
+                    .orEmpty(),
                 diagnostics.engine,
                 diagnostics.fallbackReason.orEmpty(),
                 diagnostics.effectiveVideoReadiness,
@@ -208,7 +215,7 @@ internal object PlaybackDiagnosticReportRegistry {
                             },
                         )
                         append(" engine=")
-                        append(if (nativeOnly) "YCore2Native" else diagnostics.engine.ifBlank { selectedEngine.name })
+                        append(engineBindingLabel(diagnostics, selectedEngine, nativeOnly))
                         append(" video=")
                         append(diagnostics.effectiveVideoReadiness.name)
                         append(" audio=")
@@ -315,3 +322,20 @@ internal object PlaybackDiagnosticReportRegistry {
     private const val MAX_TIMELINE_ENTRIES = 80
     private const val MAX_TIMELINE_ENTRY_CHARS = 768
 }
+
+/**
+ * The engine that actually owns the session, for every line a reader compares against the logs.
+ *
+ * `nativeOnly` is a selection-time decision that requires the engine choice to be Auto, so it says
+ * nothing about a YCore 2.0 binding reached from an explicitly selected engine. Deriving the label
+ * from it alone made the report claim one engine while every `engine_attached` line named another.
+ */
+internal fun engineBindingLabel(
+    diagnostics: PlaybackDiagnostics,
+    selectedEngine: PlayerEngine,
+    nativeOnly: Boolean,
+): String =
+    when {
+        nativeOnly || diagnostics.isNativeCore2Binding -> YCORE2_NATIVE_ENGINE_LABEL
+        else -> diagnostics.engine.ifBlank { selectedEngine.name }
+    }

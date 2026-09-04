@@ -25,17 +25,31 @@ internal suspend fun <T> embyApiCall(
         throw error
     } catch (error: Throwable) {
         val mapped = error.toEmbyError()
-        AppLog.error(
-            category = "emby",
-            event = "request_failed",
-            message = "Emby operation failed",
-            throwable = error,
-            attributes =
-                mapOf(
-                    "operation" to operation,
-                    "error" to mapped.toString(),
-                ),
-        )
+        val attributes =
+            mapOf(
+                "operation" to operation,
+                "error" to mapped.toString(),
+            )
+        // A missing item is an answer, not a malfunction: lookups that probe for an item the
+        // server may not hold are expected to miss, and logging those at error level buries the
+        // failures that do need attention.
+        if (mapped == EmbyError.NotFound) {
+            AppLog.warning(
+                category = "emby",
+                event = "request_not_found",
+                message = "Emby operation addressed an item the server does not have",
+                throwable = error,
+                attributes = attributes,
+            )
+        } else {
+            AppLog.error(
+                category = "emby",
+                event = "request_failed",
+                message = "Emby operation failed",
+                throwable = error,
+                attributes = attributes,
+            )
+        }
         Result.failure(EmbyErrorException(mapped))
     }
 
@@ -45,6 +59,7 @@ private suspend fun Throwable.toEmbyError(): EmbyError =
             when (response.status.value) {
                 401 -> EmbyError.Unauthorized
                 403 -> forbiddenError()
+                404 -> EmbyError.NotFound
                 in 500..599 -> EmbyError.Server(response.status.value)
                 else -> EmbyError.Unknown("HTTP ${response.status.value}")
             }

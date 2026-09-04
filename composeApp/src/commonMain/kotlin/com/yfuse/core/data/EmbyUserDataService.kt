@@ -12,6 +12,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
+import kotlinx.coroutines.CancellationException
 
 /** User-scoped mutations and paged user-state snapshots. */
 internal class EmbyUserDataService(
@@ -78,22 +79,45 @@ internal class EmbyUserDataService(
         var pagesRead = 0
         while (startIndex < total && pagesRead < SNAPSHOT_MAX_PAGES_PER_QUERY) {
             val dto: ItemsResponseDto =
-                client
-                    .get("${server.baseUrl}/Users/${server.userId}/Items") {
-                        header("X-Emby-Token", server.accessToken)
-                        parameter("Recursive", true)
-                        parameter("IncludeItemTypes", "Movie,Series,Episode")
-                        parameter("Fields", "UserData,DateModified")
-                        parameter("EnableImages", false)
-                        parameter("SortBy", "Id")
-                        parameter("StartIndex", startIndex)
-                        parameter("Limit", SNAPSHOT_PAGE_SIZE)
-                        when (query) {
-                            UserSnapshotQuery.Favorite -> parameter("Filters", "IsFavorite")
-                            UserSnapshotQuery.Resumable -> parameter("Filters", "IsResumable")
-                            UserSnapshotQuery.Played -> parameter("IsPlayed", true)
-                        }
-                    }.body()
+                try {
+                    client
+                        .get("${server.baseUrl}/Users/${server.userId}/Items") {
+                            header("X-Emby-Token", server.accessToken)
+                            parameter("Recursive", true)
+                            parameter("IncludeItemTypes", "Movie,Series,Episode")
+                            parameter("Fields", "UserData,DateModified")
+                            parameter("EnableImages", false)
+                            parameter("SortBy", "Id")
+                            parameter("StartIndex", startIndex)
+                            parameter("Limit", SNAPSHOT_PAGE_SIZE)
+                            when (query) {
+                                UserSnapshotQuery.Favorite -> parameter("Filters", "IsFavorite")
+                                UserSnapshotQuery.Resumable -> parameter("Filters", "IsResumable")
+                                UserSnapshotQuery.Played -> parameter("IsPlayed", true)
+                            }
+                        }.body()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Throwable) {
+                    // A large library needs dozens of pages, so a single slow or dropped page is
+                    // likely on a flaky link. Discarding the pages that already succeeded means the
+                    // snapshot never completes at all on such a server; keep them and stop here.
+                    if (pagesRead == 0) throw failure
+                    AppLog.warning(
+                        category = "emby",
+                        event = "user_state_snapshot_page_failed",
+                        message = "User-state snapshot stopped early and kept the pages already read",
+                        throwable = failure,
+                        attributes =
+                            mapOf(
+                                "serverId" to server.id,
+                                "query" to query.name,
+                                "pagesRead" to pagesRead.toString(),
+                                "startIndex" to startIndex.toString(),
+                            ),
+                    )
+                    return
+                }
             if (dto.Items.isEmpty()) break
             val newResponseItems = dto.Items.filter { seenResponseIds.add(it.Id) }
             check(newResponseItems.isNotEmpty()) {

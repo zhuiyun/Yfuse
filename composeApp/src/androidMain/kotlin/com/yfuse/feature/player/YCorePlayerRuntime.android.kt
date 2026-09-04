@@ -114,8 +114,8 @@ internal fun rememberYCoreRuntimeAssessment(
         remember {
             runCatching { GlobalContext.get().get<PlaybackQoeReporter>() }.getOrNull()
         }
-    val nativeCore2Binding = state.diagnostics.engine == "YCore 2.0"
-    val effectiveEngineLabel = if (nativeCore2Binding) "YCore2Native" else engineLabel
+    val nativeCore2Binding = state.diagnostics.isNativeCore2Binding
+    val effectiveEngineLabel = if (nativeCore2Binding) YCORE2_NATIVE_ENGINE_LABEL else engineLabel
     val effectiveEngineLearningEnabled = engineLearningEnabled && !nativeCore2Binding
     val session =
         remember(
@@ -344,3 +344,19 @@ private fun logHealth(
             ),
     )
 }
+
+/** The engine name YCore 2.0 reports through [PlaybackDiagnostics] once it owns the session. */
+internal const val YCORE2_ENGINE_DIAGNOSTIC_NAME = "YCore 2.0"
+
+/** The label every log line and diagnostic report uses for a YCore 2.0 native binding. */
+internal const val YCORE2_NATIVE_ENGINE_LABEL = "YCore2Native"
+
+/**
+ * Whether YCore 2.0 actually owns this session.
+ *
+ * The selected engine and the bound one are different facts: YCore 2.0 also backs a session the
+ * user selected another engine for, so anything reporting which engine is running must read the
+ * binding rather than the selection, or the two disagree in the same report.
+ */
+internal val PlaybackDiagnostics.isNativeCore2Binding: Boolean
+    get() = engine == YCORE2_ENGINE_DIAGNOSTIC_NAME

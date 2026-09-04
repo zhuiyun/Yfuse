@@ -11,6 +11,7 @@ fun EmbyError.toUserMessage(): String =
             } else {
                 "服务器拒绝访问，请检查防火墙或反向代理访问策略"
             }
+        EmbyError.NotFound -> "服务器上找不到该内容，可能已被删除或移动"
         is EmbyError.Server -> "服务器错误($code)"
         is EmbyError.Unknown -> "出错了:$message"
     }

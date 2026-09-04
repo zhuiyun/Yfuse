@@ -566,14 +566,11 @@ internal enum class PlaybackServerApplyFailurePolicy {
 }
 
 internal fun playbackServerApplyFailurePolicy(error: Throwable?): PlaybackServerApplyFailurePolicy =
-    when (val embyError = (error as? EmbyErrorException)?.error) {
+    when ((error as? EmbyErrorException)?.error) {
         is EmbyError.AccessDenied -> PlaybackServerApplyFailurePolicy.CooldownServer
-        is EmbyError.Server ->
-            if (embyError.code == HttpStatusCode.NotFound.value) {
-                PlaybackServerApplyFailurePolicy.DropTarget
-            } else {
-                PlaybackServerApplyFailurePolicy.Retry
-            }
+        // The item is gone from this server. Retrying cannot make it reappear, and the task stays
+        // queued forever while every sync re-sends it and logs another deferral.
+        EmbyError.NotFound -> PlaybackServerApplyFailurePolicy.DropTarget
         else -> PlaybackServerApplyFailurePolicy.Retry
     }
 

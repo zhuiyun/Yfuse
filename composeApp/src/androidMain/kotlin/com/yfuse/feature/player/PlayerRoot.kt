@@ -430,7 +430,7 @@ internal fun PlayerRoot(
     val attachedKind = kind
     val attachedEngineLabel =
         if (engine is YPlayerVideoEngineAdapter) {
-            "YCore2Native"
+            YCORE2_NATIVE_ENGINE_LABEL
         } else {
             attachedKind.name
         }

@@ -16,6 +16,14 @@ sealed interface EmbyError {
         val provider: String? = null,
     ) : EmbyError
 
+    /**
+     * The request reached the server, which answered that the addressed item does not exist.
+     *
+     * Deliberately separate from [Unknown]: a missing item is a settled answer, so callers must be
+     * able to drop the work instead of retrying a request that can never start succeeding.
+     */
+    data object NotFound : EmbyError
+
     data class Server(
         val code: Int,
     ) : EmbyError

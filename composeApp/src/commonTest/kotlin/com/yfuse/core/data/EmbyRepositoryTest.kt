@@ -292,6 +292,21 @@ class EmbyRepositoryTest {
             assertEquals("movies", res.getOrThrow().first().collectionType)
         }
 
+    /**
+     * A 404 used to arrive as `Unknown("HTTP 404")`, which callers cannot act on: the playback-state
+     * writer treated a deleted item as a transient failure and requeued it on every later sync.
+     */
+    @Test
+    fun libraries_404_maps_to_not_found() =
+        runTest {
+            val repo = testRepo { respond(content = "", status = HttpStatusCode.NotFound) }
+
+            val res = repo.libraries(server)
+
+            assertTrue(res.isFailure)
+            assertEquals(EmbyError.NotFound, (res.exceptionOrNull() as EmbyErrorException).error)
+        }
+
     @Test
     fun libraries_network_failure_maps_to_network_error() =
         runTest {
@@ -1513,6 +1528,51 @@ class EmbyRepositoryTest {
                 ),
                 requested,
             )
+        }
+
+    /**
+     * A library that needs dozens of pages will lose one on a flaky link. Failing the whole
+     * snapshot meant such a server never finished a sync at all, however many pages had arrived.
+     */
+    @Test
+    fun user_library_snapshot_keeps_the_pages_read_before_a_later_page_fails() =
+        runTest {
+            val total = 4_500
+            val repo =
+                testRepo { request ->
+                    if (request.url.parameters["IsPlayed"] != "true") {
+                        return@testRepo json("""{"Items":[],"TotalRecordCount":0}""")
+                    }
+                    val start = request.url.parameters["StartIndex"]?.toInt() ?: 0
+                    if (start >= SNAPSHOT_PAGE_SIZE) throw IOException("Socket timeout has expired")
+                    val page =
+                        (start until minOf(start + SNAPSHOT_PAGE_SIZE, total)).map { index ->
+                            """{"Id":"i$index","Name":"标题$index","UserData":{"Played":true}}"""
+                        }
+                    json("""{"Items":[${page.joinToString(",")}],"TotalRecordCount":$total}""")
+                }
+
+            val res = repo.userLibrarySnapshot(server)
+
+            assertTrue(res.isSuccess, res.toString())
+            assertEquals(SNAPSHOT_PAGE_SIZE, res.getOrThrow().size)
+        }
+
+    @Test
+    fun user_library_snapshot_fails_when_the_very_first_page_fails() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    if (request.url.parameters["IsPlayed"] != "true") {
+                        return@testRepo json("""{"Items":[],"TotalRecordCount":0}""")
+                    }
+                    throw IOException("Socket timeout has expired")
+                }
+
+            val res = repo.userLibrarySnapshot(server)
+
+            assertTrue(res.isFailure)
+            assertEquals(EmbyError.Network, (res.exceptionOrNull() as EmbyErrorException).error)
         }
 
     @Test

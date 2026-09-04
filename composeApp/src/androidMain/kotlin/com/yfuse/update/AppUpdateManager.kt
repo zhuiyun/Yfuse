@@ -15,6 +15,7 @@ import com.russhwolf.settings.Settings
 import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
 import com.yfuse.feature.player.PlaybackRemotePolicyRegistry
+import com.yfuse.feature.player.PlaybackRemotePolicyUnpublishedException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -748,12 +749,21 @@ class AppUpdateManager(
                     withContext(Dispatchers.IO) {
                         runCatching { PlaybackRemotePolicyRegistry.refreshFromNetwork() }
                             .onFailure { error ->
-                                AppLog.warning(
-                                    category = "player.remote_policy",
-                                    event = "refresh_failed",
-                                    message = "Playback policy refresh failed; packaged behavior remains active",
-                                    throwable = error,
-                                )
+                                if (error is PlaybackRemotePolicyUnpublishedException) {
+                                    AppLog.info(
+                                        category = "player.remote_policy",
+                                        event = "policy_unpublished",
+                                        message = "No remote playback policy is published; packaged behavior applies",
+                                        attributes = mapOf("status" to error.statusCode.toString()),
+                                    )
+                                } else {
+                                    AppLog.warning(
+                                        category = "player.remote_policy",
+                                        event = "refresh_failed",
+                                        message = "Playback policy refresh failed; packaged behavior remains active",
+                                        throwable = error,
+                                    )
+                                }
                             }
                         val connection =
                             (URL(UPDATE_MANIFEST).openConnection() as HttpURLConnection).apply {
@@ -787,16 +797,30 @@ class AppUpdateManager(
                                 return@onSuccess
                             }
                         }
-                        AppLog.info(
-                            category = "update",
-                            event = "already_current",
-                            message = "Application is already current",
-                            attributes =
-                                mapOf(
-                                    "publishedVersionName" to manifest.versionName,
-                                    "publishedVersionCode" to manifest.versionCode.toString(),
-                                ),
-                        )
+                        val attributes =
+                            mapOf(
+                                "publishedVersionName" to manifest.versionName,
+                                "publishedVersionCode" to manifest.versionCode.toString(),
+                                "currentVersionCode" to BuildConfig.VERSION_CODE.toString(),
+                            )
+                        if (manifest.versionCode < BuildConfig.VERSION_CODE) {
+                            // The installed build is ahead of what the manifest advertises, so the
+                            // release feed is stale or points at the wrong channel. No update can be
+                            // offered from here, and reporting it as "current" hides that.
+                            AppLog.warning(
+                                category = "update",
+                                event = "manifest_behind_installed",
+                                message = "Update manifest advertises an older build than the installed one",
+                                attributes = attributes,
+                            )
+                        } else {
+                            AppLog.info(
+                                category = "update",
+                                event = "already_current",
+                                message = "Application is already current",
+                                attributes = attributes,
+                            )
+                        }
                         return@onSuccess
                     }
                     AppLog.info(

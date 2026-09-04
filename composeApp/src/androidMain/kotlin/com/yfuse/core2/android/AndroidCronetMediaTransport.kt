@@ -165,7 +165,7 @@ internal class AndroidCronetMediaTransport(
             val opened = builder.build()
             this@AndroidCronetMediaTransport.request = opened
             opened.start()
-            if (!responseReady.await(CRONET_OPEN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            if (!responseReady.await(CRONET_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 closeRequest()
                 throw IOException("Cronet response timed out")
             }
@@ -319,5 +319,16 @@ private fun String.isSafeCronetHeader(): Boolean = isNotBlank() && '\r' !in this
 
 private const val CRONET_READ_BYTES = 256 * 1024
 private const val CRONET_CALLBACK_THREADS = 4
-private const val CRONET_OPEN_TIMEOUT_SECONDS = NATIVE_MEDIA_TRANSPORT_TIMEOUT_SECONDS
+
+/**
+ * Opening a range is a handshake plus response headers, not a body transfer, so it must not share
+ * the streaming budget. A Cloudflare-tunnelled origin that cannot answer QUIC leaves the latch
+ * un-counted for the whole timeout, and because [AndroidAdaptiveHttpMediaTransport] probes Cronet
+ * before OkHttp, every one of those seconds is paid before the first frame can render.
+ *
+ * Real successful opens in the field land at 1.6-3.0 s, so this leaves roughly a 1.7x margin. An
+ * origin wrongly given up on still plays through the OkHttp fallback that opens in one to two
+ * seconds; an origin waited on too long shows the user a black screen instead.
+ */
+private const val CRONET_OPEN_TIMEOUT_MS = 5_000L
 private const val CRONET_READ_TIMEOUT_SECONDS = NATIVE_MEDIA_TRANSPORT_TIMEOUT_SECONDS

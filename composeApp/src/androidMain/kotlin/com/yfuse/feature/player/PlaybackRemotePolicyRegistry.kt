@@ -52,6 +52,9 @@ internal object PlaybackRemotePolicyRegistry {
 
     /** Called from the update manager's IO dispatcher; update checking still succeeds on failure. */
     fun refreshFromNetwork(nowEpochMs: Long = System.currentTimeMillis()) {
+        // No policy has ever been published for most builds. Re-asking on every process start
+        // costs a request and a log line per launch while the answer cannot change that fast.
+        if (nowEpochMs < prefs().getLong(KEY_UNPUBLISHED_UNTIL, 0L)) return
         val connection =
             (URL(POLICY_URL).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 5_000
@@ -60,14 +63,21 @@ internal object PlaybackRemotePolicyRegistry {
                 instanceFollowRedirects = false
             }
         try {
-            check(connection.responseCode == HttpURLConnection.HTTP_OK) {
-                "Playback policy HTTP ${connection.responseCode}"
+            val status = connection.responseCode
+            if (status == HttpURLConnection.HTTP_NOT_FOUND || status == HttpURLConnection.HTTP_GONE) {
+                prefs()
+                    .edit()
+                    .putLong(KEY_UNPUBLISHED_UNTIL, nowEpochMs + UNPUBLISHED_RECHECK_INTERVAL_MS)
+                    .apply()
+                throw PlaybackRemotePolicyUnpublishedException(status)
             }
+            check(status == HttpURLConnection.HTTP_OK) { "Playback policy HTTP $status" }
             check(connection.contentLengthLong < 0L || connection.contentLengthLong <= MAX_POLICY_BYTES) {
                 "Playback policy is too large"
             }
             val bytes = connection.inputStream.use { it.readAtMost(MAX_POLICY_BYTES + 1) }
             check(bytes.size <= MAX_POLICY_BYTES) { "Playback policy is too large" }
+            prefs().edit().remove(KEY_UNPUBLISHED_UNTIL).apply()
             apply(json.decodeFromString<PlaybackRemotePolicyDocument>(bytes.decodeToString()), nowEpochMs)
         } finally {
             connection.disconnect()
@@ -114,7 +124,22 @@ internal object PlaybackRemotePolicyRegistry {
     private fun prefs() = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }
 
-internal enum class PlaybackRemotePath(val wireValue: String) {
+/**
+ * The endpoint answered that no policy is published.
+ *
+ * This is the normal state for a build that has never needed a remote restriction, so it must be
+ * distinguishable from a refresh that genuinely failed.
+ */
+internal class PlaybackRemotePolicyUnpublishedException(
+    val statusCode: Int,
+) : Exception("Playback policy is not published (HTTP $statusCode)")
+
+private const val KEY_UNPUBLISHED_UNTIL = "unpublishedUntilEpochMs"
+private const val UNPUBLISHED_RECHECK_INTERVAL_MS = 6L * 60L * 60L * 1_000L
+
+internal enum class PlaybackRemotePath(
+    val wireValue: String,
+) {
     YCoreAll("ycore.all"),
     YCoreDemux("ycore.demux"),
     YCoreGpu("ycore.gpu"),

@@ -8,7 +8,9 @@ import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.YTransportFeature
 import kotlinx.coroutines.CancellationException
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Prefers Cronet HTTP/2/HTTP/3 and falls back to the pinned OkHttp transport when unavailable. */
@@ -60,7 +62,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
                         // A non-multiplexed Cronet route provides no HTTP/2 or HTTP/3 benefit and
                         // has repeatedly stalled on parallel CDN range reads. Keep this validated
                         // request, but send every later range through the shared OkHttp pool.
-                        routeState.disableCronet()
+                        routeState.disableCronet(request.uri)
                         preferred = null
                     }
                     bind(
@@ -76,7 +78,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
                     routeState.rejectStaleAuthorizationRoute(request, failure)
                     closeTransport(cronet, propagateCancellation = false)
                     preferred = null
-                    routeState.disableCronet()
+                    routeState.disableCronet(request.uri)
                 }
             } else {
                 routeState.disableCronet()
@@ -130,7 +132,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
     ): Int {
         val request = checkNotNull(activeRequest) { "Cronet request metadata is unavailable" }
         val resumedRequest = request.resumeAfter(activeBytesRead) ?: return -1
-        routeState.disableCronet()
+        routeState.disableCronet(request.uri)
         preferred = null
         closeActive(propagateCancellation = true)
         try {
@@ -223,6 +225,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
  */
 internal class AndroidAdaptiveHttpRouteState(
     val redirectState: AndroidHttpMediaRedirectState = AndroidHttpMediaRedirectState(),
+    private val onCronetDisabled: (String) -> Unit = {},
 ) {
     private val cronetDisabled = AtomicBoolean(false)
     private val acceptedRange = AtomicBoolean(false)
@@ -233,8 +236,14 @@ internal class AndroidAdaptiveHttpRouteState(
     val hasAcceptedRange: Boolean
         get() = acceptedRange.get()
 
-    fun disableCronet() {
-        cronetDisabled.set(true)
+    /**
+     * @param uri the media URI whose Cronet probe failed, when the refusal is attributable to one
+     *   origin rather than to the device. Reporting it lets the next playback of the same host skip
+     *   a probe that is already known to cost the full open timeout before falling back.
+     */
+    fun disableCronet(uri: String? = null) {
+        val firstRefusal = cronetDisabled.compareAndSet(false, true)
+        if (firstRefusal && uri != null) onCronetDisabled(uri)
     }
 
     fun recordAcceptedRange(
@@ -258,6 +267,44 @@ internal class AndroidAdaptiveHttpRouteState(
         }
     }
 }
+
+/**
+ * Process-wide memory of origins whose Cronet probe already failed.
+ *
+ * [AndroidAdaptiveHttpRouteState] only lives for one media source, so without this every new
+ * playback re-probes a host that cannot answer HTTP/2 or HTTP/3 and pays the whole Cronet open
+ * timeout before the OkHttp fallback opens the first byte range. The cooldown is bounded so a
+ * transient origin outage cannot pin the app to OkHttp forever.
+ */
+internal class AndroidCronetHostHealth(
+    private val cooldownMs: Long = CRONET_HOST_COOLDOWN_MS,
+    private val nowEpochMs: () -> Long = System::currentTimeMillis,
+) {
+    private val blockedUntilByOrigin = ConcurrentHashMap<String, Long>()
+
+    fun isAvailable(uri: String): Boolean {
+        val origin = uri.transportOrigin() ?: return true
+        val blockedUntil = blockedUntilByOrigin[origin] ?: return true
+        if (nowEpochMs() < blockedUntil) return false
+        blockedUntilByOrigin.remove(origin, blockedUntil)
+        return true
+    }
+
+    fun recordFailure(uri: String) {
+        val origin = uri.transportOrigin() ?: return
+        blockedUntilByOrigin[origin] = nowEpochMs() + cooldownMs
+    }
+
+    companion object {
+        val shared = AndroidCronetHostHealth()
+    }
+}
+
+internal const val CRONET_HOST_COOLDOWN_MS = 10L * 60L * 1_000L
+
+/** Scheme + host + port. Cronet reachability is an origin property, never a per-path one. */
+private fun String.transportOrigin(): String? =
+    toHttpUrlOrNull()?.let { url -> "${url.scheme}://${url.host}:${url.port}" }
 
 private fun YMediaTransportResponse.requireAcceptedRange(
     request: YMediaTransportRequest,
@@ -331,5 +378,4 @@ private fun YMediaTransportResponse.expectedBodyBytes(request: YMediaTransportRe
         ?.takeIf { statusCode == 206 }
 }
 
-private fun String.isLegacyHttp(): Boolean =
-    trim().lowercase() == "http/1.0" || trim().lowercase() == "http/1.1"
+private fun String.isLegacyHttp(): Boolean = trim().lowercase() == "http/1.0" || trim().lowercase() == "http/1.1"
