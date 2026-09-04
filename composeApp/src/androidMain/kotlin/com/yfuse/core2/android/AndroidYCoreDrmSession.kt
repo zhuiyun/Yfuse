@@ -17,7 +17,10 @@ import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.net.URI
 import java.util.UUID
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 internal class AndroidYCoreDrmBinding internal constructor(
     val mediaCrypto: MediaCrypto,
@@ -38,10 +41,25 @@ internal class AndroidYCoreDrmSession(
     private var binding: AndroidYCoreDrmBinding? = null
     private var initializationData: ByteArray? = null
     private var videoMimeType: String? = null
+
+    @Volatile
     private var lastKeyStatusCheckMs = Long.MIN_VALUE
     private val keyRenewalRequired = AtomicBoolean(false)
     private val sessionReclaimed = AtomicBoolean(false)
     private val keyOutputRestricted = AtomicBoolean(false)
+
+    // Key renewal is a license-server round trip. It runs here so the playback pump that polls
+    // [pollKeyRenewal] never blocks audio writes and decoder output on the network.
+    private val renewalExecutor: ExecutorService =
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, DRM_RENEWAL_THREAD_NAME).apply { isDaemon = true }
+        }
+    private val renewalInFlight = AtomicBoolean(false)
+    private val renewedSinceLastPoll = AtomicBoolean(false)
+    private val renewalFailure = AtomicReference<Throwable?>(null)
+
+    @Volatile
+    private var closed = false
 
     @Synchronized
     fun open(
@@ -118,6 +136,37 @@ internal class AndroidYCoreDrmSession(
             close()
             throw failure
         }
+    }
+
+    /**
+     * Non-blocking counterpart of [refreshKeysIfNeeded] for the playback pump.
+     *
+     * Platform reclaim and output restrictions still fail synchronously, exactly as before. The
+     * license round trip itself is handed to [renewalExecutor]; this call returns true once after
+     * a renewal completed so the caller can invalidate its output evidence, and rethrows a renewal
+     * failure on the polling thread so it enters the ordinary typed failure path.
+     */
+    fun pollKeyRenewal(): Boolean {
+        renewalFailure.getAndSet(null)?.let { throw it }
+        if (renewedSinceLastPoll.getAndSet(false)) return true
+        if (closed || binding == null) return false
+        check(!sessionReclaimed.get()) { "DRM session was reclaimed by the platform" }
+        check(!keyOutputRestricted.get()) { "DRM keys forbid the active output route" }
+        val eventRequested = keyRenewalRequired.get()
+        val statusCheckDue =
+            SystemClock.elapsedRealtime() - lastKeyStatusCheckMs >= KEY_STATUS_CHECK_INTERVAL_MS
+        if (!eventRequested && (configuration.offlineKeySetId != null || !statusCheckDue)) return false
+        if (!renewalInFlight.compareAndSet(false, true)) return false
+        renewalExecutor.execute {
+            try {
+                if (refreshKeysIfNeeded()) renewedSinceLastPoll.set(true)
+            } catch (failure: Throwable) {
+                if (!closed) renewalFailure.set(failure)
+            } finally {
+                renewalInFlight.set(false)
+            }
+        }
+        return false
     }
 
     /** Renews streaming keys after MediaDrm events or before a reported license reaches expiry. */
@@ -273,6 +322,8 @@ internal class AndroidYCoreDrmSession(
 
     @Synchronized
     override fun close() {
+        closed = true
+        renewalExecutor.shutdownNow()
         binding = null
         initializationData?.fill(0)
         initializationData = null
@@ -325,3 +376,4 @@ private const val CENC_INIT_DATA_MIME_TYPE = "video/mp4"
 private const val CONTENT_TYPE_HEADER = "Content-Type"
 private const val DRM_BINARY_CONTENT_TYPE = "application/octet-stream"
 private const val KEY_STATUS_CHECK_INTERVAL_MS = 30_000L
+private const val DRM_RENEWAL_THREAD_NAME = "YCore-DrmRenewal"

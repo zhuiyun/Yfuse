@@ -51,6 +51,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -257,13 +258,14 @@ internal class AndroidAdaptiveCore2YPlayer(
         worker.cancel()
         scope.cancel()
         runCatching(onRelease)
-        mutableState.value =
-            mutableState.value.copy(
+        mutableState.update { current ->
+            current.copy(
                 phase = YPlaybackPhase.Idle,
                 playing = false,
                 playbackRequested = false,
                 buffering = false,
             )
+        }
     }
 
     private fun send(command: Command) {
@@ -1543,7 +1545,7 @@ internal class AndroidCore2PlayerFactory(
 }
 
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
-    value = transform(value)
+    update(transform)
 }
 
 private const val TUNNEL_SPEED_EPSILON = 0.001f

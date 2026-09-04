@@ -18,6 +18,7 @@ import java.io.File
 import java.io.IOException
 import java.util.LinkedHashMap
 import java.util.concurrent.CancellationException
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -114,6 +115,9 @@ internal class AndroidTransportMediaDataSource(
 
     @Volatile
     private var closed = false
+
+    /** Released by [close] so a retry wait on the extractor thread ends immediately. */
+    private val closedLatch = CountDownLatch(1)
 
     /** Start of the in-flight foreground range fetch, or 0 when no read is blocked. */
     @Volatile
@@ -333,12 +337,16 @@ internal class AndroidTransportMediaDataSource(
                     throw failure
                 }
                 completedRetries++
-                try {
-                    Thread.sleep(delayMs)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    throw failure
-                }
+                // Waiting on the close latch instead of sleeping lets close() interrupt the retry
+                // at once instead of pinning the extractor thread until the delay expires.
+                val closedDuringWait =
+                    try {
+                        closedLatch.await(delayMs, TimeUnit.MILLISECONDS)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw failure
+                    }
+                if (closedDuringWait) throw failure
             }
         }
     }
@@ -676,6 +684,7 @@ internal class AndroidTransportMediaDataSource(
     override fun close() {
         if (closed) return
         closed = true
+        closedLatch.countDown()
         prefetchExecutor.shutdownNow()
         val prefetchTransports =
             synchronized(prefetchTransportLock) {

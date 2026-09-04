@@ -258,3 +258,23 @@ sleep 里，`close()` 也要等它醒来。
 | 11 | 三、C 协调器 ABI 2 | 2 天 | 低（Harmony 侧同步改） |
 
 前 5 项加起来不到一周，全部是确定性修复或纯调度参数，建议在 CI 恢复绿色后作为第一批合入。
+
+---
+
+## 七、实施记录（同分支）
+
+以下条目已在本分支实现（提交见 git log），**尚未经过 Gradle 编译与单元测试**（本环境不可用），
+必须由阶段 0 恢复后的 CI 复核：
+
+| 报告条目 | 改动 | 文件 |
+| --- | --- | --- |
+| 1.1 状态更新原子化 | 四个播放器的 `updateState` 改为 `MutableStateFlow.update`；NativeDirect 25 处、Enhanced/Tunnel/Adaptive 各 1 处裸 `value = value.copy()` 改为 `update { current -> … }` | `AndroidNativeDirectYPlayer.kt`、`AndroidNativeEnhancedYPlayer.kt`、`AndroidNativeTunnelYPlayer.kt`、`AndroidAdaptiveCore2YPlayer.kt` |
+| 1.2 DRM 续期移出 pump | 新增 `AndroidYCoreDrmSession.pollKeyRenewal()`：回收/输出限制仍同步失败，许可证往返在 `YCore-DrmRenewal` 单线程执行器上进行，结果在下次轮询交回；pump 改调它 | `AndroidYCoreDrmSession.kt`、`AndroidNativeDirectYPlayer.kt` |
+| 2.1 空转与命令唤醒 | 新增 conflated `wakeSignal`，命令入队即唤醒空闲循环；暂停态空转间隔 2 ms → 20 ms（`PUMP_PAUSED_IDLE_DELAY_MS`），播放态不变 | 三个原生播放器 |
+| 2.4 外挂字幕并行加载 | `prepareCurrent` 内用 `async(Dispatchers.IO)` 并行下载全部 sidecar，失败语义不变 | `AndroidNativeDirectYPlayer.kt` |
+| 2.5 传输层重试可中断 | `Thread.sleep` 改为 `CountDownLatch.await`，`close()` 立即释放 | `AndroidTransportMediaDataSource.kt` |
+
+未实施（需要真机或更大改动）：2.2 vsync 对齐、2.3 样本缓冲池、2.6 内存预算、2.7 软解输出、三、C 协调器 ABI 2。
+
+`Adaptive` 内两处 `mutableState.value = childState.copy(...)` 保留原样：它们是整份子播放器状态的投影，
+不是 read-modify-write。

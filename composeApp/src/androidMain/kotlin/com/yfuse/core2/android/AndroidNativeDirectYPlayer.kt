@@ -50,14 +50,19 @@ import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 
@@ -103,6 +108,9 @@ internal class AndroidNativeDirectYPlayer(
     private val playbackDispatcher = createNativeDirectPlaybackDispatcher()
     private val scope = CoroutineScope(SupervisorJob() + playbackDispatcher)
     private val commands = Channel<Command>(Channel.UNLIMITED)
+
+    /** Conflated hint that wakes an idle run loop as soon as a command is queued. */
+    private val wakeSignal = Channel<Unit>(Channel.CONFLATED)
     private val worker: Job = scope.launch { runLoop() }
 
     @Volatile
@@ -119,13 +127,13 @@ internal class AndroidNativeDirectYPlayer(
                 error = null,
             )
         }
-        commands.trySend(Command.Prepare)
+        submit(Command.Prepare)
     }
 
     override fun setVideoOutput(output: YVideoOutput?): Boolean {
         if (released) return false
         if (output != null && output !is AndroidSurfaceVideoOutput) return false
-        commands.trySend(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
+        submit(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
         return true
     }
 
@@ -138,7 +146,7 @@ internal class AndroidNativeDirectYPlayer(
                 error = null,
             )
         }
-        commands.trySend(Command.Play)
+        submit(Command.Play)
     }
 
     override fun pause() {
@@ -150,7 +158,7 @@ internal class AndroidNativeDirectYPlayer(
                 buffering = false,
             )
         }
-        commands.trySend(Command.Pause)
+        submit(Command.Pause)
     }
 
     override fun seekTo(positionMs: Long) {
@@ -164,13 +172,13 @@ internal class AndroidNativeDirectYPlayer(
                 phase = if (it.phase == YPlaybackPhase.Ended) YPlaybackPhase.Ready else it.phase,
             )
         }
-        commands.trySend(Command.Seek(bounded * MICROS_PER_MILLISECOND))
+        submit(Command.Seek(bounded * MICROS_PER_MILLISECOND))
     }
 
     override fun setSpeed(speed: Float) {
         if (released || !speed.isFinite() || speed <= 0f) return
         mutableState.updateState { it.copy(speed = speed) }
-        commands.trySend(Command.SetSpeed(speed))
+        submit(Command.SetSpeed(speed))
     }
 
     override fun selectTrack(
@@ -181,13 +189,13 @@ internal class AndroidNativeDirectYPlayer(
         when (type) {
             YTrackType.Audio ->
                 id.removePrefix(AUDIO_TRACK_PREFIX).toIntOrNull()?.let {
-                    commands.trySend(Command.SelectAudioTrack(it))
+                    submit(Command.SelectAudioTrack(it))
                 }
             YTrackType.Subtitle -> {
                 when (id) {
-                    SUBTITLE_OFF -> commands.trySend(Command.SelectSubtitleTrack(null, externalTrackId = null))
+                    SUBTITLE_OFF -> submit(Command.SelectSubtitleTrack(null, externalTrackId = null))
                     EXTERNAL_SUBTITLE_TRACK_ID ->
-                        commands.trySend(
+                        submit(
                             Command.SelectSubtitleTrack(
                                 null,
                                 externalTrackId =
@@ -199,10 +207,10 @@ internal class AndroidNativeDirectYPlayer(
                         )
                     else -> {
                         if (id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)) {
-                            commands.trySend(Command.SelectSubtitleTrack(null, externalTrackId = id))
+                            submit(Command.SelectSubtitleTrack(null, externalTrackId = id))
                         } else {
                             val trackIndex = id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull() ?: return
-                            commands.trySend(Command.SelectSubtitleTrack(trackIndex, externalTrackId = null))
+                            submit(Command.SelectSubtitleTrack(trackIndex, externalTrackId = null))
                         }
                     }
                 }
@@ -223,7 +231,7 @@ internal class AndroidNativeDirectYPlayer(
                 error = null,
             )
         }
-        commands.trySend(Command.SelectItem(index))
+        submit(Command.SelectItem(index))
     }
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
@@ -237,23 +245,25 @@ internal class AndroidNativeDirectYPlayer(
                 buffering = it.playbackRequested,
             )
         }
-        commands.trySend(Command.Prepare)
+        submit(Command.Prepare)
     }
 
     override fun release() {
         if (released) return
         released = true
         commands.close()
+        wakeSignal.trySend(Unit)
         worker.invokeOnCompletion { playbackDispatcher.close() }
         worker.cancel()
         scope.cancel()
-        mutableState.value =
-            mutableState.value.copy(
+        mutableState.update { current ->
+            current.copy(
                 phase = YPlaybackPhase.Idle,
                 playing = false,
                 playbackRequested = false,
                 buffering = false,
             )
+        }
     }
 
     private suspend fun runLoop() {
@@ -294,7 +304,10 @@ internal class AndroidNativeDirectYPlayer(
 
                 if (!handledCommand && !didWork) {
                     if (canPump) {
-                        delay(PUMP_IDLE_DELAY_MS)
+                        // A queued command ends the wait at once; otherwise the pump sleeps for its
+                        // interval, which is longer while paused because there is no decoder output
+                        // to collect on a schedule.
+                        withTimeoutOrNull(session.idleDelayMs()) { wakeSignal.receiveCatching() }
                     } else {
                         val command = commands.receiveCatching().getOrNull() ?: break
                         val failure = runCatching { session.handle(command) }.exceptionOrNull()
@@ -306,6 +319,11 @@ internal class AndroidNativeDirectYPlayer(
         } finally {
             session.releaseAll()
         }
+    }
+
+    private fun submit(command: Command) {
+        commands.trySend(command)
+        wakeSignal.trySend(Unit)
     }
 
     private fun fail(
@@ -339,8 +357,8 @@ internal class AndroidNativeDirectYPlayer(
                             .orEmpty(),
                 ),
         )
-        mutableState.value =
-            mutableState.value.copy(
+        mutableState.update { current ->
+            current.copy(
                 phase = YPlaybackPhase.Failed,
                 playing = false,
                 playbackRequested = false,
@@ -348,7 +366,7 @@ internal class AndroidNativeDirectYPlayer(
                 error = yCoreNativeDirectFailureMessage(typed),
                 errorCategory = typed?.category ?: YPlaybackFailureCategory.Unknown,
                 diagnostics =
-                    mutableState.value.diagnostics.copy(
+                    current.diagnostics.copy(
                         videoOutput = "停止",
                         audioOutput = "停止",
                         videoOutputVerified = false,
@@ -376,6 +394,7 @@ internal class AndroidNativeDirectYPlayer(
                             } ?: "NativeDirect failed before typed-stage classification",
                     ),
             )
+        }
     }
 
     private inner class NativeSession(
@@ -533,6 +552,8 @@ internal class AndroidNativeDirectYPlayer(
                     !audioCarryingPlayback &&
                     (!videoOutputEstablished || (videoRenderable && !firstVideoFrameRendered))
 
+        fun idleDelayMs(): Long = if (requestedPlay) PUMP_IDLE_DELAY_MS else PUMP_PAUSED_IDLE_DELAY_MS
+
         val canPump: Boolean
             get() =
                 prepared &&
@@ -570,18 +591,19 @@ internal class AndroidNativeDirectYPlayer(
                         stage = YPlaybackFailureStage.VideoDecoderQueue,
                         safeDetail = "NativeDirect DRM key refresh",
                     ) {
-                        if (session.refreshKeysIfNeeded()) {
+                        if (session.pollKeyRenewal()) {
                             firstVideoFrameRendered = false
-                            mutableState.value =
-                                mutableState.value.copy(
+                            mutableState.update { current ->
+                                current.copy(
                                     diagnostics =
-                                        mutableState.value.diagnostics
+                                        current.diagnostics
                                             .invalidateOutputEvidence(YOutputEvidenceResetReason.DrmKeysChanged)
                                             .copy(
                                                 videoOutput = "DRM 密钥已更新 · 等待首帧",
                                                 audioOutput = waitingAudioOutputLabel(),
                                             ),
                                 )
+                            }
                         }
                     }
                 }
@@ -605,8 +627,8 @@ internal class AndroidNativeDirectYPlayer(
             releaseMedia()
             monotonicPositionFloorUs = positionUs.coerceAtLeast(0L)
             val item = request.items[currentIndex]
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     phase = YPlaybackPhase.Preparing,
                     playing = false,
                     buffering = requestedPlay,
@@ -615,9 +637,10 @@ internal class AndroidNativeDirectYPlayer(
                     itemCount = request.items.size,
                     error = null,
                     diagnostics =
-                        mutableState.value.diagnostics
+                        current.diagnostics
                             .invalidateOutputEvidence(YOutputEvidenceResetReason.SourceChanged),
                 )
+            }
 
             sourceRemote = item.uri.isCore2RemoteMediaUri()
             yPlaybackStage(
@@ -629,13 +652,20 @@ internal class AndroidNativeDirectYPlayer(
             }
             abortIfReleased()
             val sidecarSources = item.allExternalSubtitles
+            // Sidecar downloads are independent round trips. Loading them in parallel keeps the
+            // startup path at one network latency instead of one per subtitle.
             externalSubtitles =
-                sidecarSources.mapIndexed { index, source ->
-                    externalSubtitleLoader.load(
-                        source = source,
-                        headers = item.headers,
-                        trackId = externalSubtitleTrackId(index),
-                    )
+                runBlocking {
+                    sidecarSources
+                        .mapIndexed { index, source ->
+                            async(Dispatchers.IO) {
+                                externalSubtitleLoader.load(
+                                    source = source,
+                                    headers = item.headers,
+                                    trackId = externalSubtitleTrackId(index),
+                                )
+                            }
+                        }.awaitAll()
                 }
             abortIfReleased()
             selectedExternalSubtitleId =
@@ -791,8 +821,8 @@ internal class AndroidNativeDirectYPlayer(
                     .maxOrNull()
                     ?: 0L
             val tracks = audioTracks()
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     phase = YPlaybackPhase.Ready,
                     durationMs = durationUs / MICROS_PER_MILLISECOND,
                     audioTracks = tracks,
@@ -801,7 +831,7 @@ internal class AndroidNativeDirectYPlayer(
                     buffering = requestedPlay,
                     playbackRequested = requestedPlay,
                     diagnostics =
-                        mutableState.value.diagnostics.copy(
+                        current.diagnostics.copy(
                             route = YPlaybackRoute.NativeDirect,
                             container = item.containerHint().name,
                             demuxer = demux.name,
@@ -844,6 +874,7 @@ internal class AndroidNativeDirectYPlayer(
                                 },
                         ),
                 )
+            }
 
             val targetUs = positionUs.coerceAtLeast(0L)
             if (targetUs > 0L) seekTo(targetUs) else wallClock.seek(0L, System.nanoTime())
@@ -865,41 +896,44 @@ internal class AndroidNativeDirectYPlayer(
                     // Detach the video renderer only. The clock, the audio track and the demux
                     // pump all keep running, which is what background listening, lock-screen
                     // playback and the PiP transition need.
-                    mutableState.value =
-                        mutableState.value.copy(
+                    mutableState.update { current ->
+                        current.copy(
                             diagnostics =
-                                mutableState.value.diagnostics
+                                current.diagnostics
                                     .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
                                     .copy(videoOutput = "Surface 已分离 · 音频继续"),
                         )
+                    }
                     return
                 }
                 pausePlaybackInternal(keepRequested = true)
                 wallClock.seek(positionUs, System.nanoTime())
-                mutableState.value =
-                    mutableState.value.copy(
+                mutableState.update { current ->
+                    current.copy(
                         playing = false,
                         buffering = requestedPlay,
                         diagnostics =
-                            mutableState.value.diagnostics
+                            current.diagnostics
                                 .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
                                 .copy(videoOutput = "等待 Surface"),
                     )
+                }
                 return
             }
             if (!hasVideoTrack) return
             if (previous?.surface === newSurface && videoConfigured) return
             val audioContinues = audioCarryingPlayback
             firstVideoFrameRendered = false
-            mutableState.value =
-                mutableState.value.copy(
-                    playing = if (audioContinues) mutableState.value.playing else false,
-                    buffering = if (audioContinues) mutableState.value.buffering else requestedPlay,
+            mutableState.update { current ->
+                current.copy(
+                    playing = if (audioContinues) current.playing else false,
+                    buffering = if (audioContinues) current.buffering else requestedPlay,
                     diagnostics =
-                        mutableState.value.diagnostics
+                        current.diagnostics
                             .invalidateOutputEvidence(YOutputEvidenceResetReason.SurfaceChanged)
                             .copy(videoOutput = "硬解已配置 · 等待首帧"),
                 )
+            }
             if (videoConfigured && previous?.surface?.isValid == true) {
                 runCatching { videoDecoder.setOutputSurface(newSurface) }
                     .onSuccess {
@@ -932,12 +966,13 @@ internal class AndroidNativeDirectYPlayer(
                 return
             }
             if (!videoConfigured && !audioPumpAllowed) {
-                mutableState.value =
-                    mutableState.value.copy(
+                mutableState.update { current ->
+                    current.copy(
                         playbackRequested = true,
                         playing = false,
                         buffering = true,
                     )
+                }
                 return
             }
             val now = System.nanoTime()
@@ -945,13 +980,14 @@ internal class AndroidNativeDirectYPlayer(
             if (audioRendererConfigured) {
                 playAudio()
             }
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     playbackRequested = true,
                     playing = !videoOutputPending && !transportBufferingVisible,
                     buffering = videoOutputPending || transportBufferingVisible,
                     phase = if (isEnded()) YPlaybackPhase.Ended else YPlaybackPhase.Ready,
                 )
+            }
         }
 
         private fun pausePlayback() {
@@ -964,13 +1000,14 @@ internal class AndroidNativeDirectYPlayer(
             wallClock.pause(positionUs, System.nanoTime())
             pauseAudio()
             if (!keepRequested) requestedPlay = false
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     playbackRequested = requestedPlay,
                     playing = false,
                     buffering = false,
                     positionMs = positionUs / MICROS_PER_MILLISECOND,
                 )
+            }
         }
 
         private fun seekTo(
@@ -1004,8 +1041,8 @@ internal class AndroidNativeDirectYPlayer(
             monotonicPositionFloorUs = targetUs
             firstVideoFrameRendered = false
             wallClock.seek(targetUs, System.nanoTime())
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     phase = YPlaybackPhase.Ready,
                     playing = false,
                     buffering = requestedPlay,
@@ -1013,7 +1050,7 @@ internal class AndroidNativeDirectYPlayer(
                     subtitleCues = activeSubtitleCues(),
                     error = null,
                     diagnostics =
-                        mutableState.value.diagnostics
+                        current.diagnostics
                             .invalidateOutputEvidence(YOutputEvidenceResetReason.Seek)
                             .copy(
                                 videoOutput = if (videoConfigured) "硬解已配置 · 等待首帧" else "等待 Surface",
@@ -1021,6 +1058,7 @@ internal class AndroidNativeDirectYPlayer(
                                 dolbyAtmosSourceDetected = audioTrackFormat?.codec.isDolbyAtmosSource(),
                             ),
                 )
+            }
             if (requestedPlay) startPlayback()
         }
 
@@ -1032,11 +1070,11 @@ internal class AndroidNativeDirectYPlayer(
             if (isAudioPassthrough() && value != 1f) {
                 switchPassthroughToPcm(countFailure = false)
                 seekTo(positionUs)
-                mutableState.value = mutableState.value.copy(speed = value)
+                mutableState.update { current -> current.copy(speed = value) }
                 return
             }
             if (audioRendererConfigured && !isAudioPassthrough()) audioRenderer.setSpeed(value)
-            mutableState.value = mutableState.value.copy(speed = value)
+            mutableState.update { current -> current.copy(speed = value) }
         }
 
         private fun selectAudioTrack(trackIndex: Int) {
@@ -1050,11 +1088,11 @@ internal class AndroidNativeDirectYPlayer(
             releaseAudioPath()
             configureAudioPath(format)
             seekTo(positionUs)
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     audioTracks = audioTracks(),
                     diagnostics =
-                        mutableState.value.diagnostics.copy(
+                        current.diagnostics.copy(
                             audioOutput = waitingAudioOutputLabel(),
                             audioOutputVerified = false,
                             immersiveAudioCarrierOutput = false,
@@ -1067,6 +1105,7 @@ internal class AndroidNativeDirectYPlayer(
                             headTrackingAvailable = false,
                         ),
                 )
+            }
         }
 
         private fun selectSubtitleTrack(
@@ -1085,11 +1124,12 @@ internal class AndroidNativeDirectYPlayer(
             demux.selectTracks(selectedDemuxTrackIndices())
             subtitleCues.clear()
             seekTo(positionUs)
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     subtitleTracks = subtitleTracks(),
                     subtitleCues = activeSubtitleCues(),
                 )
+            }
         }
 
         /**
@@ -1250,14 +1290,15 @@ internal class AndroidNativeDirectYPlayer(
                     captureAudioRoutingGeneration()
                     audioRenderer.setSpeed(speed)
                     if (requestedPlay) audioRenderer.play()
-                    mutableState.value =
-                        mutableState.value.copy(
+                    mutableState.update { current ->
+                        current.copy(
                             diagnostics =
-                                mutableState.value.diagnostics.copy(
+                                current.diagnostics.copy(
                                     audioOutput = "等待 PCM 输出",
                                     audioOutputVerified = false,
                                 ),
                         )
+                    }
                     true
                 }
                 is YAudioCodecOutputResult.Buffer -> {
@@ -1324,10 +1365,10 @@ internal class AndroidNativeDirectYPlayer(
                 } else {
                     YDolbyAtmosOutputMode.None
                 }
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     diagnostics =
-                        mutableState.value.diagnostics.copy(
+                        current.diagnostics.copy(
                             audioOutput =
                                 when {
                                     outputMode == YDolbyAtmosOutputMode.AtmosSourceSpatializedPcm &&
@@ -1351,6 +1392,7 @@ internal class AndroidNativeDirectYPlayer(
                             headTrackingAvailable = audioRenderer.headTrackingAvailable,
                         ),
                 )
+            }
         }
 
         private fun drainVideo(): Boolean {
@@ -1359,13 +1401,14 @@ internal class AndroidNativeDirectYPlayer(
                 pendingVideoOutput ?: when (val dequeued = videoDecoder.dequeueOutput()) {
                     YCodecOutputResult.TryAgain -> return false
                     is YCodecOutputResult.FormatChanged -> {
-                        mutableState.value =
-                            mutableState.value.copy(
+                        mutableState.update { current ->
+                            current.copy(
                                 diagnostics =
-                                    mutableState.value.diagnostics.copy(
+                                    current.diagnostics.copy(
                                         videoOutput = "硬解已配置 · 等待首帧",
                                     ),
                             )
+                        }
                         return true
                     }
                     is YCodecOutputResult.Buffer -> dequeued
@@ -1552,17 +1595,17 @@ internal class AndroidNativeDirectYPlayer(
             // reported a clean session and PlaybackHealth graded it as if nothing had happened.
             val enteredRebuffer = buffering && !lastPublishedBuffering && outputHasEverRendered
             lastPublishedBuffering = buffering
-            mutableState.value =
-                currentState.copy(
+            mutableState.update { current ->
+                current.copy(
                     positionMs = positionMs,
                     bufferedPositionMs = bufferedPositionMs,
                     subtitleCues = activeSubtitleCues(),
                     playing = playing,
                     buffering = buffering,
                     diagnostics =
-                        mutableState.value.diagnostics.copy(
+                        current.diagnostics.copy(
                             bufferEvents =
-                                mutableState.value.diagnostics.bufferEvents +
+                                current.diagnostics.bufferEvents +
                                     if (enteredRebuffer) 1 else 0,
                             droppedFrames = droppedFrames,
                             droppedFramesMeasured = true,
@@ -1572,7 +1615,7 @@ internal class AndroidNativeDirectYPlayer(
                             sourceStarvationCount = readAhead.starvationCount,
                             audioUnderrunCount =
                                 maxOf(
-                                    mutableState.value.diagnostics.audioUnderrunCount,
+                                    current.diagnostics.audioUnderrunCount,
                                     audioRenderer.underrunCount,
                                 ),
                             avSyncOffsetMs = lastAvSyncOffsetUs?.div(MICROS_PER_MILLISECOND),
@@ -1584,6 +1627,7 @@ internal class AndroidNativeDirectYPlayer(
                                 },
                         ),
                 )
+            }
             publishQoeSnapshot(nowNs, positionUs)
         }
 
@@ -1687,14 +1731,15 @@ internal class AndroidNativeDirectYPlayer(
             requestedPlay = false
             pauseAudio()
             wallClock.pause(endPositionUs, System.nanoTime())
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     phase = YPlaybackPhase.Ended,
                     playing = false,
                     playbackRequested = false,
                     buffering = false,
                     positionMs = endPositionUs / MICROS_PER_MILLISECOND,
                 )
+            }
         }
 
         private fun isEnded(): Boolean = videoOutputEnded && (audioInputFormat == null || audioOutputEnded)
@@ -1854,10 +1899,10 @@ internal class AndroidNativeDirectYPlayer(
 
         private fun verifyEncodedAudioOutput() {
             val outputMode = encodedAudioRenderer.dolbyAtmosOutputMode
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     diagnostics =
-                        mutableState.value.diagnostics.copy(
+                        current.diagnostics.copy(
                             audioOutput = activeAudioOutputLabel(),
                             audioOutputVerified = true,
                             immersiveAudioCarrierOutput = encodedAudioRenderer.immersiveCarrierOutput,
@@ -1868,6 +1913,7 @@ internal class AndroidNativeDirectYPlayer(
                             dolbyAtmosOutput = outputMode.encodedPassthrough,
                         ),
                 )
+            }
         }
 
         private fun switchPassthroughToPcm(countFailure: Boolean) {
@@ -1884,10 +1930,10 @@ internal class AndroidNativeDirectYPlayer(
                 trackFormat = requireNotNull(audioTrackFormat),
             )
             captureAudioRoutingGeneration()
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     diagnostics =
-                        mutableState.value.diagnostics.copy(
+                        current.diagnostics.copy(
                             audioOutput = "原码不可用 · 自动回落 PCM",
                             audioOutputVerified = false,
                             immersiveAudioCarrierOutput = false,
@@ -1899,10 +1945,11 @@ internal class AndroidNativeDirectYPlayer(
                             spatialAudioOutput = false,
                             headTrackingAvailable = false,
                             audioUnderrunCount =
-                                mutableState.value.diagnostics.audioUnderrunCount +
+                                current.diagnostics.audioUnderrunCount +
                                     if (countFailure) 1 else 0,
                         ),
                 )
+            }
         }
 
         private fun handleAudioRoutingChange(): Boolean {
@@ -1915,16 +1962,17 @@ internal class AndroidNativeDirectYPlayer(
             if (generation == observedAudioRoutingGeneration) return false
             observedAudioRoutingGeneration = generation
             firstVideoFrameRendered = false
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     diagnostics =
-                        mutableState.value.diagnostics
+                        current.diagnostics
                             .invalidateOutputEvidence(YOutputEvidenceResetReason.AudioRouteChanged)
                             .copy(
                                 videoOutput = "音频路由已变化 · 等待新帧",
                                 audioOutput = waitingAudioOutputLabel(),
                             ),
                 )
+            }
             val coreFormat = audioTrackFormat ?: return false
             if (!isAudioPassthrough()) return true
 
@@ -2341,16 +2389,17 @@ internal class AndroidNativeDirectYPlayer(
             // resetting them here erased the measurement that explains the restart.
             lastQoePublishNs = 0L
             resetEndState()
-            mutableState.value =
-                mutableState.value.copy(
+            mutableState.update { current ->
+                current.copy(
                     diagnostics =
-                        mutableState.value.diagnostics.copy(
+                        current.diagnostics.copy(
                             videoOutputVerified = false,
                             audioOutputVerified = false,
                             avSyncOffsetMs = null,
                             avSyncMeasurement = "等待音视频时钟样本",
                         ),
                 )
+            }
         }
 
         fun releaseAll() {
@@ -2666,7 +2715,7 @@ internal fun extractNativeDirectHdr10PlusPayload(data: ByteBuffer): ByteArray? {
 }
 
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
-    value = transform(value)
+    update(transform)
 }
 
 private fun YVideoDecoderAttemptFailure.safeDiagnosticLabel(): String =
@@ -2710,6 +2759,7 @@ private const val QOE_PUBLISH_INTERVAL_NS = 5_000_000_000L
 private const val NANOS_PER_MILLISECOND = 1_000_000L
 private const val SUBTITLE_HISTORY_US = 60_000_000L
 private const val PUMP_IDLE_DELAY_MS = 2L
+private const val PUMP_PAUSED_IDLE_DELAY_MS = 20L
 private const val TRANSPORT_BUFFERING_DEBOUNCE_MS = 300L
 private const val NATIVE_DIRECT_THREAD_NAME = "YCore-NativeDirect"
 private const val COLOR_TRANSFER_ST2084 = 6
