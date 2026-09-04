@@ -30,6 +30,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.IOException
 import kotlinx.serialization.decodeFromString
@@ -1183,6 +1184,51 @@ class EmbyRepositoryTest {
             assertEquals(1, requests)
             assertFalse(result.reachable)
             assertEquals(null, result.source)
+        }
+
+    @Test
+    fun compareSources_does_not_retry_a_proxy_that_cannot_reach_its_origin() =
+        runTest {
+            var requests = 0
+            val repo =
+                testRepo {
+                    requests++
+                    // Cloudflare 530 / error 1033: the tunnel is down, and the body says
+                    // retry_after: 120. Retrying after 250ms only adds load to a failing link,
+                    // and every saved server is compared in parallel.
+                    respond(content = "", status = HttpStatusCode(530, "Origin Unreachable"))
+                }
+
+            val result = repo.compareSources(listOf(server), server.id, "电影A").single()
+
+            assertEquals(1, requests)
+            assertFalse(result.reachable)
+        }
+
+    @Test
+    fun compareSources_gives_up_on_a_server_that_never_answers() =
+        runTest {
+            val repo =
+                testRepo { request ->
+                    if (request.url.host == "slow") {
+                        awaitCancellation()
+                    } else {
+                        json(
+                            """{"Items":[{"Id":"m1","Name":"电影A","Type":"Movie",""" +
+                                """"MediaSources":[{"Id":"source","MediaStreams":""" +
+                                """[{"Type":"Video","Height":1080}]}]}]}""",
+                        )
+                    }
+                }
+            val slow = server.copy(id = "slow", baseUrl = "https://slow")
+
+            // A hung server must not hold the comparison - or the connection - for the client's
+            // full 30s request budget, which is longer than a cold start.
+            val sources = repo.compareSources(listOf(server, slow), server.id, "电影A")
+
+            assertEquals(setOf(server.id, "slow"), sources.mapTo(mutableSetOf()) { it.serverId })
+            assertTrue(sources.single { it.serverId == server.id }.reachable)
+            assertFalse(sources.single { it.serverId == "slow" }.reachable)
         }
 
     @Test
