@@ -517,6 +517,24 @@ bool is_remote_source(const std::string& source) {
     return scheme == "http" || scheme == "https" || scheme == "smb" || scheme == "webdav";
 }
 
+constexpr int kOpenStageDisc = 1;
+constexpr int kOpenStageOpenInput = 2;
+constexpr int kOpenStageStreamInfo = 3;
+
+int failure_status(int error, bool remote_source);
+
+// Packs the classified failure with the raw AVERROR magnitude and the open stage so the managed
+// side can record which call failed and why. Only numeric codes cross the boundary; no URL,
+// header or FFmpeg log text is ever attached. Legacy readers that only understand -2/-3/-4 still
+// see a negative status and fall back to the container class.
+jlong open_failure_status(int error, bool remote_source, int stage) {
+    const uint64_t category = static_cast<uint64_t>(-failure_status(error, remote_source)) & 0xFFu;
+    const uint64_t magnitude = static_cast<uint64_t>(static_cast<uint32_t>(-error));
+    const uint64_t packed =
+        (static_cast<uint64_t>(stage & 0xFF) << 40) | (category << 32) | magnitude;
+    return -static_cast<jlong>(packed);
+}
+
 int failure_status(int error, bool remote_source) {
     if (error == AVERROR_HTTP_UNAUTHORIZED || error == AVERROR_HTTP_FORBIDDEN) {
         return kFailureAuthorization;
@@ -1826,7 +1844,7 @@ jlong native_open(
 
     if (disc_source) {
         const int error = open_bluray_demux(disc_source_id, session.get());
-        if (error < 0) return failure_status(error, false);
+        if (error < 0) return open_failure_status(error, false, kOpenStageDisc);
     }
 
     AVDictionary* options = nullptr;
@@ -1851,11 +1869,11 @@ jlong native_open(
         : avformat_open_input(&session->format, source.c_str(), nullptr, &options);
     av_dict_free(&options);
     if (error < 0) {
-        return failure_status(error, session->remote_source);
+        return open_failure_status(error, session->remote_source, kOpenStageOpenInput);
     }
     error = avformat_find_stream_info(session->format, nullptr);
     if (error < 0) {
-        return failure_status(error, session->remote_source);
+        return open_failure_status(error, session->remote_source, kOpenStageStreamInfo);
     }
 
     session->selected.assign(session->format->nb_streams, 0);

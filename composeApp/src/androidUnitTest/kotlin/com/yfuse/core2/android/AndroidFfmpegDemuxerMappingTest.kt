@@ -93,6 +93,25 @@ class AndroidFfmpegDemuxerMappingTest {
         assertEquals(YPlaybackFailureCategory.Authorization, ffmpegFailureCategory(FFMPEG_FAILURE_AUTHORIZATION))
         assertEquals(YPlaybackFailureCategory.Network, ffmpegFailureCategory(FFMPEG_FAILURE_NETWORK))
         assertEquals(YPlaybackFailureCategory.Container, ffmpegFailureCategory(FFMPEG_FAILURE_CONTAINER))
+        assertNull(ffmpegFailureDetail(FFMPEG_FAILURE_CONTAINER))
+    }
+
+    @Test
+    fun `packed native open failures expose the stage and AVERROR without changing the class`() {
+        // AVERROR_INVALIDDATA is FFERRTAG('I','N','D','A'): little-endian tag bytes.
+        val invalidData = 0x41444E49L
+        val packed = -((FFMPEG_OPEN_STAGE_OPEN_INPUT.toLong() shl 40) or (4L shl 32) or invalidData)
+        assertEquals(YPlaybackFailureCategory.Container, ffmpegFailureCategory(packed))
+        assertEquals("stage=open_input error=tag:INDA", ffmpegFailureDetail(packed))
+
+        // AVERROR_HTTP_NOT_FOUND is FFERRTAG(0xF8,'4','0','4') and classifies as Network.
+        val notFound = 0x343034F8L
+        val network = -((FFMPEG_OPEN_STAGE_STREAM_INFO.toLong() shl 40) or (3L shl 32) or notFound)
+        assertEquals(YPlaybackFailureCategory.Network, ffmpegFailureCategory(network))
+        assertEquals("stage=find_stream_info error=tag:!404", ffmpegFailureDetail(network))
+
+        val timedOut = -((FFMPEG_OPEN_STAGE_DISC.toLong() shl 40) or (3L shl 32) or 110L)
+        assertEquals("stage=disc_open error=errno:110", ffmpegFailureDetail(timedOut))
     }
 
     @Test

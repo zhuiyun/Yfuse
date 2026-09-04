@@ -278,3 +278,19 @@ sleep 里，`close()` 也要等它醒来。
 
 `Adaptive` 内两处 `mutableState.value = childState.copy(...)` 保留原样：它们是整份子播放器状态的投影，
 不是 read-modify-write。
+
+### 诊断增强（2026-09-05，针对 OPPO PLG110 诊断包）
+
+诊断包 `Yfusediagnostics20260905073757` 显示 MKV/HEVC/Dolby Vision P5 片源在 NativeDirect
+因平台解复用器未暴露音轨而失败，随后 FFmpeg 在 `avformat_open_input` 返回 `AVERROR_INVALIDDATA`，
+软件回退被 Dolby 守卫拦下，native-only 制品无兼容内核，也未请求服务器转码。日志无法说明
+FFmpeg 具体拒绝了什么，因此补了三处诊断：
+
+| 改动 | 文件 |
+| --- | --- |
+| 原生 open 失败把阶段（disc_open / open_input / find_stream_info）与 AVERROR 幅值打包进状态码，Kotlin 解码为 `stage=… error=tag:INDA` 之类的安全标签；读/seek 路径的 -2/-3/-4 语义不变 | `scripts/native/ycore_demux_jni.cpp`、`FfmpegNativeBridge.kt`、`AndroidFfmpegDemuxerMappingTest.kt` |
+| FFmpeg 深度探测失败不再静默，记 `enhanced_probe_failed`（仅类型化字段，不含 URL） | `AndroidEnhancedMediaProbe.kt` |
+| NativeDirect 音轨缺失时记录服务器声明的音频编码与平台实际暴露的 MIME 列表 | `AndroidNativeDirectYPlayer.kt` |
+
+仍待做：native-only 制品在内部路由全部失败后，缩小设备能力声明重新协商 PlaybackInfo，
+让服务器只转码音频（AAC）、视频 copy，再走 NativeDirect。

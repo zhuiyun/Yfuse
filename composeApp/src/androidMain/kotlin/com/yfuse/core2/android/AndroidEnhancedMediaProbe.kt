@@ -1,6 +1,8 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YDolbyVisionNalEvidence
 import com.yfuse.core2.capability.YAudioRequirement
@@ -151,7 +153,22 @@ internal class AndroidEnhancedMediaProbe(
                 unconfiguredDolbyVisionSignal =
                     video.dolbyVisionConfig == null && (rpuCount > 0 || enhancementLayerCount > 0),
             )
-        } catch (_: Throwable) {
+        } catch (failure: Throwable) {
+            // A silent probe failure hides the reason the enhanced route was never able to help.
+            // Only typed, URL-free fields are recorded; Throwable.message can carry the source URL.
+            val typed = failure as? YPlaybackException
+            AppLog.warning(
+                category = "player.core2",
+                event = "enhanced_probe_failed",
+                message = "YCore FFmpeg truth probe could not open the source",
+                attributes =
+                    mapOf(
+                        "category" to (typed?.category?.name ?: failure::class.simpleName.orEmpty()),
+                        "stage" to (typed?.stage?.name ?: "Unknown"),
+                        "detail" to typed?.safeDetail.orEmpty(),
+                        "sourceScheme" to item.uri.substringBefore(':').lowercase(),
+                    ),
+            )
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
         } finally {
             demuxer.close()

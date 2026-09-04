@@ -709,10 +709,19 @@ internal class AndroidNativeDirectYPlayer(
                 }
             val sourceDeclaresAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0
             if (sourceDeclaresAudio && platformAudioTrackIndices.isEmpty()) {
+                // Name what the platform extractor did expose next to the codec the server declared,
+                // so a bundle can tell an unsupported audio codec from a broken track entry.
+                val exposedMimes =
+                    (0 until demux.trackCount)
+                        .mapNotNull { index -> demux.trackFormat(index).getString(MediaFormat.KEY_MIME)?.lowercase() }
+                        .distinct()
+                        .joinToString(",")
                 throw YPlaybackException(
                     category = YPlaybackFailureCategory.Container,
                     stage = YPlaybackFailureStage.Demux,
-                    safeDetail = "NativeDirect did not expose a server-declared audio track",
+                    safeDetail =
+                        "NativeDirect did not expose a server-declared audio track " +
+                            "(declared=${item.sourceHints?.audioCodec.orEmpty()}, platformTracks=$exposedMimes)",
                 )
             }
             if (platformAudioTrackIndices.isNotEmpty() && initialAudioTrack == null) {
