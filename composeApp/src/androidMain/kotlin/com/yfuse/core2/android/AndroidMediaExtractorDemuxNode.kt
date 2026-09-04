@@ -36,6 +36,43 @@ internal data class YExtractorSample(
 )
 
 /**
+ * The extractor surface [AndroidMediaExtractorReadAheadNode] owns.
+ *
+ * Named separately from the concrete node so the read-ahead queue policy - watermarks, seek
+ * invalidation, per-track backpressure, end-of-input ordering - is testable without a real
+ * MediaExtractor, which a JVM unit test cannot drive.
+ */
+internal interface YPlatformExtractorSource : YDemuxNode {
+    fun open(source: YAndroidMediaSource)
+
+    val trackCount: Int
+
+    fun trackFormat(index: Int): MediaFormat
+
+    fun findFirstTrack(mimePrefix: String): Int?
+
+    fun readSourcePrefix(maximumBytes: Int): ByteArray?
+
+    fun drmInitializationData(schemeUuid: UUID): ByteArray?
+
+    fun setMediaBitRateBitsPerSecond(value: Long)
+
+    fun transportQoeSnapshot(): YTransportPrefetchQoeSnapshot?
+
+    fun blockedForegroundReadMs(): Long
+
+    fun selectTrack(index: Int)
+
+    fun unselectTrack(index: Int)
+
+    fun seekTo(positionUs: Long)
+
+    fun readSample(target: ByteBuffer): YExtractorSample?
+
+    fun advance(): Boolean
+}
+
+/**
  * Platform demux node for Core2 NativeDirect.
  *
  * This class only separates compressed samples from their container. It never decodes video and it
@@ -49,7 +86,7 @@ internal class AndroidMediaExtractorDemuxNode(
     context: Context,
     private val createExtractor: () -> MediaExtractor = ::MediaExtractor,
     private val onBlockingReadStateChanged: ((Boolean) -> Unit)? = null,
-) : YDemuxNode {
+) : YPlatformExtractorSource {
     override val name: String = "MediaExtractor"
 
     private val appContext = context.applicationContext
@@ -59,7 +96,7 @@ internal class AndroidMediaExtractorDemuxNode(
     private var currentSource: YAndroidMediaSource? = null
     private var selectedTracks = emptySet<Int>()
 
-    fun open(source: YAndroidMediaSource) {
+    override fun open(source: YAndroidMediaSource) {
         release()
         val opened = createExtractor()
         try {
@@ -75,12 +112,12 @@ internal class AndroidMediaExtractorDemuxNode(
         }
     }
 
-    val trackCount: Int get() = extractor?.trackCount ?: 0
+    override val trackCount: Int get() = extractor?.trackCount ?: 0
 
-    fun trackFormat(index: Int): MediaFormat = requireExtractor().getTrackFormat(index)
+    override fun trackFormat(index: Int): MediaFormat = requireExtractor().getTrackFormat(index)
 
     /** Reads only a bounded container prefix for YCore-owned metadata parsing. */
-    fun readSourcePrefix(maximumBytes: Int): ByteArray? {
+    override fun readSourcePrefix(maximumBytes: Int): ByteArray? {
         require(maximumBytes > 0)
         mediaDataSource?.let { source ->
             val knownSize = runCatching { source.size }.getOrDefault(-1L)
@@ -115,7 +152,7 @@ internal class AndroidMediaExtractorDemuxNode(
         }
     }
 
-    fun drmInitializationData(schemeUuid: UUID): ByteArray? {
+    override fun drmInitializationData(schemeUuid: UUID): ByteArray? {
         requireExtractor()
             .psshInfo
             ?.get(schemeUuid)
@@ -129,9 +166,8 @@ internal class AndroidMediaExtractorDemuxNode(
                 source.headers,
                 source.credentials,
                 MAX_ADAPTIVE_DRM_MANIFEST_BYTES,
-            )
-            ?.decodeToString()
-            ?: return null
+            )?.decodeToString()
+                ?: return null
         return resolveWidevineAdaptiveInitializationData(root, source.uri) { childUri ->
             readBoundedUri(
                 childUri,
@@ -142,33 +178,33 @@ internal class AndroidMediaExtractorDemuxNode(
         }
     }
 
-    fun setMediaBitRateBitsPerSecond(value: Long) {
+    override fun setMediaBitRateBitsPerSecond(value: Long) {
         (mediaDataSource as? AndroidTransportMediaDataSource)
             ?.setMediaBitRateBitsPerSecond(value)
     }
 
-    fun transportQoeSnapshot(): YTransportPrefetchQoeSnapshot? =
+    override fun transportQoeSnapshot(): YTransportPrefetchQoeSnapshot? =
         (mediaDataSource as? AndroidTransportMediaDataSource)?.qoeSnapshot()
 
     /** Lock-free; safe to call from the codec/render pump. See the data source for why. */
-    fun blockedForegroundReadMs(): Long =
+    override fun blockedForegroundReadMs(): Long =
         (mediaDataSource as? AndroidTransportMediaDataSource)?.blockedForegroundReadMs() ?: 0L
 
-    fun findFirstTrack(mimePrefix: String): Int? =
+    override fun findFirstTrack(mimePrefix: String): Int? =
         (0 until trackCount).firstOrNull { index ->
             trackFormat(index)
                 .getString(MediaFormat.KEY_MIME)
                 ?.startsWith(mimePrefix, ignoreCase = true) == true
         }
 
-    fun selectTrack(index: Int) {
+    override fun selectTrack(index: Int) {
         require(index in 0 until trackCount) { "Track index $index is outside 0 until $trackCount" }
         if (index in selectedTracks) return
         requireExtractor().selectTrack(index)
         selectedTracks = selectedTracks + index
     }
 
-    fun unselectTrack(index: Int) {
+    override fun unselectTrack(index: Int) {
         if (index !in selectedTracks) return
         requireExtractor().unselectTrack(index)
         selectedTracks = selectedTracks - index
@@ -179,7 +215,7 @@ internal class AndroidMediaExtractorDemuxNode(
      * copied only once more into MediaCodec's input buffer; decoded output remains zero-copy on the
      * configured Surface path.
      */
-    fun readSample(target: ByteBuffer): YExtractorSample? {
+    override fun readSample(target: ByteBuffer): YExtractorSample? {
         val opened = requireExtractor()
         val trackIndex = opened.sampleTrackIndex
         if (trackIndex < 0) return null
@@ -209,11 +245,13 @@ internal class AndroidMediaExtractorDemuxNode(
         )
     }
 
-    fun advance(): Boolean = requireExtractor().advance()
+    override fun advance(): Boolean = requireExtractor().advance()
+
+    override fun seekTo(positionUs: Long) = seekTo(positionUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
 
     fun seekTo(
         positionUs: Long,
-        mode: Int = MediaExtractor.SEEK_TO_PREVIOUS_SYNC,
+        mode: Int,
     ) {
         establishTimelineOrigin()
         requireExtractor().seekTo(
@@ -435,8 +473,7 @@ internal fun String.isCore2RemoteMediaUri(): Boolean =
     substringBefore(':', missingDelimiterValue = "").lowercase() in
         setOf("http", "https", "smb", "webdav", "webdavs")
 
-internal fun shouldAttemptCronetMediaTransport(androidApi: Int): Boolean =
-    androidApi >= Build.VERSION_CODES.Q
+internal fun shouldAttemptCronetMediaTransport(androidApi: Int): Boolean = androidApi >= Build.VERSION_CODES.Q
 
 private fun String.isAdaptiveManifestUri(): Boolean {
     val path = substringBefore('?').substringBefore('#').lowercase()

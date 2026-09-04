@@ -21,14 +21,18 @@ import java.util.concurrent.atomic.AtomicInteger
  * the same owner because MediaExtractor is not thread-safe.
  */
 internal class AndroidMediaExtractorReadAheadNode(
-    context: Context,
-    onBlockingReadStateChanged: ((Boolean) -> Unit)? = null,
+    private val delegate: YPlatformExtractorSource,
 ) {
-    private val delegate =
+    constructor(
+        context: Context,
+        onBlockingReadStateChanged: ((Boolean) -> Unit)? = null,
+    ) : this(
         AndroidMediaExtractorDemuxNode(
             context = context,
             onBlockingReadStateChanged = onBlockingReadStateChanged,
-        )
+        ),
+    )
+
     private val monitor = Any()
     private val samples = ArrayDeque<YExtractorSample>()
     private var executor: ExecutorService? = null
