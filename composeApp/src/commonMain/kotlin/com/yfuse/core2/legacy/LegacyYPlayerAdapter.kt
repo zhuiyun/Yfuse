@@ -133,6 +133,7 @@ private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerSta
                 spatialAudioOutput = diagnostics.spatialAudioOutput,
                 headTrackingAvailable = diagnostics.headTrackingAvailable,
                 droppedFrames = diagnostics.droppedFrames,
+                bufferEvents = diagnostics.bufferEvents,
                 droppedFramesMeasured = diagnostics.outputEvidence.droppedFramesMeasured,
                 codecResetCount = diagnostics.outputEvidence.codecResetCount,
                 audioUnderrunCount = diagnostics.outputEvidence.audioUnderrunCount,

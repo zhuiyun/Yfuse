@@ -193,6 +193,7 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
                 bitrateBitsPerSecond = diagnostics.bitrateBitsPerSecond,
                 frameRate = diagnostics.frameRate,
                 droppedFrames = diagnostics.droppedFrames,
+                bufferEvents = diagnostics.bufferEvents,
                 sourceQueueBytes = diagnostics.sourceQueueBytes,
                 sourceBufferedMs = diagnostics.sourceBufferedMs,
                 sourceStarvationCount = diagnostics.sourceStarvationCount,

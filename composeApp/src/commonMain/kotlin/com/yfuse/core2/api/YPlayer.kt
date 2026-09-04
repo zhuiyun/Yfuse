@@ -375,6 +375,8 @@ data class YPlayerDiagnostics(
     val avSyncMeasured: Boolean = avSyncOffsetMs != null,
     val avSyncMeasurement: String = "当前内核不可测",
     val reason: String? = null,
+    /** Rebuffer transitions after first output; startup buffering is excluded. */
+    val bufferEvents: Int = 0,
 ) {
     /**
      * True only when one active playback session has independently verified native Dolby Vision

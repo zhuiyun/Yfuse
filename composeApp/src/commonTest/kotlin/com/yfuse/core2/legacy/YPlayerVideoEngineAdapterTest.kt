@@ -47,6 +47,7 @@ class YPlayerVideoEngineAdapterTest {
                 diagnostics =
                     YPlayerDiagnostics(
                         route = YPlaybackRoute.NativeDirect,
+                        bufferEvents = 3,
                         demuxer = "MediaExtractor",
                         decoder = "c2.vendor.hevc.decoder",
                         renderer = "Surface",
@@ -63,6 +64,7 @@ class YPlayerVideoEngineAdapterTest {
             )
 
         val state = engine.state.value
+        assertEquals(3, state.diagnostics.bufferEvents)
         assertEquals(PlaybackFailureKind.Decoder, state.errorKind)
         assertTrue(state.fallbacksExhausted)
         assertFalse(state.automaticFallbackBlocked)

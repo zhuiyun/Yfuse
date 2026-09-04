@@ -6,6 +6,7 @@ import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.feature.player.EngineTrack
+import com.yfuse.feature.player.PlaybackDiagnostics
 import com.yfuse.feature.player.PlaybackState
 import com.yfuse.feature.player.VideoEngine
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,7 @@ class LegacyYPlayerAdapterTest {
                 buffering = false,
                 positionMs = 12_345L,
                 durationMs = 90_000L,
+                diagnostics = PlaybackDiagnostics(bufferEvents = 4),
                 discNavigation =
                     PlaybackDiscNavigationState(
                         kind = PlaybackDiscKind.BluRay,
@@ -43,6 +45,7 @@ class LegacyYPlayerAdapterTest {
             )
 
         assertTrue(player.state.value.playing)
+        assertEquals(4, player.state.value.diagnostics.bufferEvents)
         assertEquals(12_345L, player.state.value.positionMs)
         assertEquals(YPlaybackRoute.Legacy, player.state.value.diagnostics.route)
         assertEquals(
