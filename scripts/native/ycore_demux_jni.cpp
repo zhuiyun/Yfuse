@@ -97,6 +97,9 @@ constexpr int kSoftwareFrameGrowBuffer = -1;
 constexpr int kSoftwareDecoderApiVersion = 2;
 constexpr int kDiscApiVersion = 2;
 constexpr int kAssRendererApiVersion = 1;
+// Version 2: session handles are positive registry ids. Version 1 (artifacts without this
+// getter) returned the DemuxSession pointer, which Android's pointer tagging turns negative.
+constexpr int kDemuxHandleContractVersion = 2;
 constexpr int kDiscBlockSize = 2048;
 constexpr int kDiscAvioBufferBytes = 64 * 1024;
 constexpr int64_t kBlurayClock = 90000;
@@ -2480,6 +2483,10 @@ jint native_ass_renderer_api_version(JNIEnv*, jclass) {
     return kAssRendererApiVersion;
 }
 
+jint native_demux_handle_contract_version(JNIEnv*, jclass) {
+    return kDemuxHandleContractVersion;
+}
+
 void native_configure_software_decoder(
     JNIEnv* env,
     jclass,
@@ -2838,6 +2845,7 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
 static const JNINativeMethod kMethods[] = {
     {"nativeDiscApiVersion", "()I", reinterpret_cast<void*>(native_disc_api_version)},
     {"nativeAssRendererApiVersion", "()I", reinterpret_cast<void*>(native_ass_renderer_api_version)},
+    {"nativeDemuxHandleContractVersion", "()I", reinterpret_cast<void*>(native_demux_handle_contract_version)},
     {"nativeRegisterBluRaySource", "(Ljava/lang/Object;)J", reinterpret_cast<void*>(native_register_bluray_source)},
     {"nativeUnregisterBluRaySource", "(J)V", reinterpret_cast<void*>(native_unregister_bluray_source)},
     {"nativeSelectDiscTitle", "(JI)Z", reinterpret_cast<void*>(native_select_disc_title)},
