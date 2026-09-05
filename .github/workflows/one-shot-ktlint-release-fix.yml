@@ -21,6 +21,21 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+      - name: Fix non-autocorrectable release line
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt')
+          text = path.read_text()
+          old = '                                message = "Primary server failed before playback; switched to an exact-media fallback",'
+          new = '''                                message =
+                                      "Primary server failed before playback; " +
+                                          "switched to an exact-media fallback",'''
+          if old not in text:
+              raise SystemExit('expected overlong failover message not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
       - name: Apply scoped ktlint formatting
         run: |
           chmod +x gradlew
