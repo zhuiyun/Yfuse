@@ -712,6 +712,7 @@ kotlin {
         }
 
         androidInstrumentedTest.dependencies {
+            compileOnly(libs.google.cast.tv)
             implementation(libs.androidx.test.junit)
             implementation(libs.androidx.test.runner)
         }
