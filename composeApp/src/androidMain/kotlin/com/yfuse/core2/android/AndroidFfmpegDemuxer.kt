@@ -64,7 +64,7 @@ internal class AndroidFfmpegDemuxer :
         return try {
             discSource = source.uri.startsWith("ycorebd://", ignoreCase = true)
             val request = ffmpegSourceRequest(source)
-            openedHandle = FfmpegNativeBridge.open(request.uri, request.headers)
+            openedHandle = FfmpegNativeBridge.open(request.uri, request.headers, probeOnly = source.probeOnly)
             handle = openedHandle
             val tracks =
                 (0 until FfmpegNativeBridge.trackCount(handle))

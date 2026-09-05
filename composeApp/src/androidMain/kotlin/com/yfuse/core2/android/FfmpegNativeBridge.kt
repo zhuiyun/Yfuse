@@ -81,14 +81,25 @@ internal object FfmpegNativeBridge {
     fun open(
         uri: String,
         headers: Map<String, String>,
+        probeOnly: Boolean = false,
     ): Long {
         check(available) { "YCore FFmpeg demux bridge is not installed" }
         val entries = headers.entries.toList()
-        return nativeOpen(
-            uri,
-            entries.map { it.key }.toTypedArray(),
-            entries.map { it.value }.toTypedArray(),
-        ).also { handle ->
+        val names = entries.map { it.key }.toTypedArray()
+        val values = entries.map { it.value }.toTypedArray()
+        val status =
+            if (probeOnly) {
+                // Older native artifacts predate the bounded probe entry point; the full open
+                // answers the same questions, only slower.
+                try {
+                    nativeOpenProbe(uri, names, values)
+                } catch (_: UnsatisfiedLinkError) {
+                    nativeOpen(uri, names, values)
+                }
+            } else {
+                nativeOpen(uri, names, values)
+            }
+        return status.also { handle ->
             if (handle < 0L) {
                 throwFfmpegFailure(handle, YPlaybackFailureStage.SourceOpen, lastOpenFailureDetail())
             }
@@ -252,6 +263,13 @@ internal object FfmpegNativeBridge {
     }
 
     private external fun nativeOpen(
+        uri: String,
+        headerNames: Array<String>,
+        headerValues: Array<String>,
+    ): Long
+
+    /** Same contract as [nativeOpen] with FFmpeg's stream analysis bounded for metadata probes. */
+    private external fun nativeOpenProbe(
         uri: String,
         headerNames: Array<String>,
         headerValues: Array<String>,

@@ -532,6 +532,9 @@ bool is_remote_source(const std::string& source) {
     return scheme == "http" || scheme == "https" || scheme == "smb" || scheme == "webdav";
 }
 
+constexpr const char* kProbeSizeBytes = "2097152";
+constexpr const char* kProbeAnalyzeDurationUs = "1000000";
+
 constexpr int kOpenStageDisc = 1;
 constexpr int kOpenStageOpenInput = 2;
 constexpr int kOpenStageStreamInfo = 3;
@@ -1827,12 +1830,12 @@ jboolean native_select_disc_menu_point(
     return selected >= 0 ? JNI_TRUE : JNI_FALSE;
 }
 
-jlong native_open(
+jlong open_session(
     JNIEnv* env,
-    jclass,
     jstring uri,
     jobjectArray header_names,
-    jobjectArray header_values) {
+    jobjectArray header_values,
+    bool probe_only) {
     if (!uri) {
         throw_illegal_argument(env, "Media URI is required");
         return 0;
@@ -1882,6 +1885,13 @@ jlong native_open(
         av_dict_set(&options, "rw_timeout", "15000000", 0);
     }
 
+    if (probe_only) {
+        // A truth probe only needs stream parameters. Keep FFmpeg from reading its default
+        // 5 MB / 5 s analysis window over the network before it answers.
+        av_dict_set(&options, "probesize", kProbeSizeBytes, 0);
+        av_dict_set(&options, "analyzeduration", kProbeAnalyzeDurationUs, 0);
+        av_dict_set(&options, "fflags", "nobuffer", 0);
+    }
     int error =
         disc_source
         ? 0
@@ -1902,6 +1912,24 @@ jlong native_open(
     session->ass_tracks.assign(session->format->nb_streams, nullptr);
     session->software_decoders.resize(session->format->nb_streams);
     return to_handle(session.release());
+}
+
+jlong native_open(
+    JNIEnv* env,
+    jclass,
+    jstring uri,
+    jobjectArray header_names,
+    jobjectArray header_values) {
+    return open_session(env, uri, header_names, header_values, false);
+}
+
+jlong native_open_probe(
+    JNIEnv* env,
+    jclass,
+    jstring uri,
+    jobjectArray header_names,
+    jobjectArray header_values) {
+    return open_session(env, uri, header_names, header_values, true);
 }
 
 void native_close(JNIEnv*, jclass, jlong handle) {
@@ -2779,6 +2807,7 @@ static const JNINativeMethod kMethods[] = {
     {"nativeSendDiscMenuCommand", "(JI)Z", reinterpret_cast<void*>(native_send_disc_menu_command)},
     {"nativeSelectDiscMenuPoint", "(JIIZ)Z", reinterpret_cast<void*>(native_select_disc_menu_point)},
     {"nativeOpen", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)J", reinterpret_cast<void*>(native_open)},
+    {"nativeOpenProbe", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)J", reinterpret_cast<void*>(native_open_probe)},
     {"nativeClose", "(J)V", reinterpret_cast<void*>(native_close)},
     {"nativeLastOpenFailure", "()Ljava/lang/String;", reinterpret_cast<void*>(native_last_open_failure)},
     {"nativeTrackCount", "(J)I", reinterpret_cast<void*>(native_track_count)},

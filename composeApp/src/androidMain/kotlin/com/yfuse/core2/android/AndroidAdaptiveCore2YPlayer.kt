@@ -160,6 +160,25 @@ internal class AndroidAdaptiveCore2YPlayer(
     @Volatile
     private var activeChild: YPlayer? = null
 
+    /**
+     * Waits until the current item has played for a while with a healthy forward buffer, so the
+     * next-item probe never shares the link with a starving startup. Returns false only when the
+     * current item ended or failed meanwhile; a missing child keeps the previous eager behaviour.
+     */
+    private suspend fun awaitNextItemPreloadWindow(): Boolean {
+        delay(NEXT_ITEM_PRELOAD_DELAY_MS)
+        var waitedMs = NEXT_ITEM_PRELOAD_DELAY_MS
+        while (waitedMs < NEXT_ITEM_PRELOAD_MAX_WAIT_MS) {
+            val state = activeChild?.state?.value ?: return true
+            if (state.phase == YPlaybackPhase.Ended || state.phase == YPlaybackPhase.Failed) return false
+            val bufferedAheadMs = state.bufferedPositionMs - state.positionMs
+            if (!state.buffering && bufferedAheadMs >= NEXT_ITEM_PRELOAD_MIN_BUFFER_AHEAD_MS) return true
+            delay(NEXT_ITEM_PRELOAD_POLL_MS)
+            waitedMs += NEXT_ITEM_PRELOAD_POLL_MS
+        }
+        return true
+    }
+
     init {
         // registerAudioDeviceCallback immediately invokes onAudioDevicesAdded with every output
         // already connected. Against the seeded fingerprint above that is now a no-op; before,
@@ -424,6 +443,9 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
             nextItemPreloadJob =
                 scope.launch(Dispatchers.IO) {
+                    // Probing the next episode right after the first frame competes with the
+                    // current item's read-ahead for the same link; wait for steady playback first.
+                    if (!awaitNextItemPreloadWindow()) return@launch
                     runCatching {
                         routeEvaluator.evaluate(
                             item = item,
@@ -1547,6 +1569,11 @@ internal class AndroidCore2PlayerFactory(
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     update(transform)
 }
+
+private const val NEXT_ITEM_PRELOAD_DELAY_MS = 15_000L
+private const val NEXT_ITEM_PRELOAD_POLL_MS = 1_000L
+private const val NEXT_ITEM_PRELOAD_MAX_WAIT_MS = 120_000L
+private const val NEXT_ITEM_PRELOAD_MIN_BUFFER_AHEAD_MS = 8_000L
 
 private const val TUNNEL_SPEED_EPSILON = 0.001f
 private const val NO_PENDING_SEEK_MS = -1L

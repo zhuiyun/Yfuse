@@ -150,6 +150,8 @@ data class YDemuxSource(
     val cacheIdentity: YCacheIdentity? = null,
     val cacheMaximumBytes: Long = 0L,
     val transportCredentials: YTransportCredentials? = null,
+    /** Metadata-only open: the demuxer may bound its own stream analysis instead of playing. */
+    val probeOnly: Boolean = false,
 )
 
 /**

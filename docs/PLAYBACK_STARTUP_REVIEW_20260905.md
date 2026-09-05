@@ -97,3 +97,16 @@ PlaybackInfo 在进入播放页后才发，详情页停留期间没有预取。
 - 降低 `MINIMUM_SAMPLES_BEFORE_TIME_LIMIT`（8）或 3 s 初始读前：解码器选定到首帧只有 0.9 s，
   不是瓶颈，改它只会换来起播后立刻 rebuffer。
 - 去掉 Dolby Vision 的 dvcC 恢复扫描：它是 P5/P8 走原生 DV 解码器的前提；应该做的是只扫一次并交接。
+
+---
+
+## 五、实施记录（2026-09-05，同分支）
+
+| 方案 | 改动 | 文件 |
+| --- | --- | --- |
+| 1 深度探测只在缺事实时跑 | `shouldRequestEnhancedProbe` 增加 `hdrType/bitDepth/hintedHighDynamicRange`：Matroska 的 HEVC/AV1 只有在动态范围未定（10-bit 却报 SDR，或服务器标 HDR 而平台报 SDR）时才探；TS/M2TS、音轨缺失/未知、DV 配置缺失的触发保留 | `YProbeTruthPolicy.kt`、`AndroidEnhancedMediaProbe.kt`、`YProbeTruthPolicyTest.kt` |
+| 2 深度探测限界并复用证据 | `YDemuxSource.probeOnly` → `FfmpegNativeBridge.open(probeOnly)` → 新 JNI 入口 `nativeOpenProbe`（`probesize=2 MiB`、`analyzeduration=1 s`、`nobuffer`；旧原生制品缺符号时回退到普通 open）；平台探测已见 RPU 时深度探测不再重读 24 个样本 | `ycore_demux_jni.cpp`、`FfmpegNativeBridge.kt`、`AndroidFfmpegDemuxer.kt`、`YDemuxer.kt`、`AndroidCore2MediaProbe.kt` |
+| 6 下一集预载延后 | 首帧后至少等 15 s，且当前项不在缓冲、前向缓冲 ≥ 8 s 才开始评估下一集 | `AndroidAdaptiveCore2YPlayer.kt` |
+
+未实施：3（共享源会话）、4（探测实例移交）、5（`PlayerStore` 出队列解耦 / PlaybackInfo 预取）、7（已验证路由落盘）。
+`nativeOpenProbe` 的限界只有在重新打包 `ycore-native.aar` 后才生效，之前 Kotlin 侧会自动回退到旧入口。

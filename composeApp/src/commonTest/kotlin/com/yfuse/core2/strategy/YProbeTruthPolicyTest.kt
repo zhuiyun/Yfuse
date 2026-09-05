@@ -2,6 +2,7 @@ package com.yfuse.core2.strategy
 
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YContainer
+import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -29,6 +30,69 @@ class YProbeTruthPolicyTest {
                 container = YContainer.Mp4,
                 videoCodec = YVideoCodec.H264,
                 audioCodec = YAudioCodec.Aac,
+            ),
+        )
+    }
+
+    @Test
+    fun settled_matroska_hevc_metadata_does_not_request_ffmpeg_truth() {
+        assertFalse(
+            shouldRequestEnhancedProbe(
+                container = YContainer.Matroska,
+                videoCodec = YVideoCodec.H265,
+                audioCodec = YAudioCodec.Aac,
+                hdrType = YHdrType.DolbyVision,
+                bitDepth = 10,
+            ),
+        )
+        assertFalse(
+            shouldRequestEnhancedProbe(
+                container = YContainer.Matroska,
+                videoCodec = YVideoCodec.H265,
+                audioCodec = YAudioCodec.Eac3,
+                hdrType = YHdrType.Hdr10,
+                bitDepth = 10,
+            ),
+        )
+        assertFalse(
+            shouldRequestEnhancedProbe(
+                container = YContainer.Matroska,
+                videoCodec = YVideoCodec.H265,
+                audioCodec = YAudioCodec.Aac,
+                hdrType = YHdrType.Sdr,
+                bitDepth = 8,
+            ),
+        )
+    }
+
+    @Test
+    fun unresolved_dynamic_range_and_transport_streams_still_request_ffmpeg_truth() {
+        assertTrue(
+            shouldRequestEnhancedProbe(
+                container = YContainer.Matroska,
+                videoCodec = YVideoCodec.H265,
+                audioCodec = YAudioCodec.Aac,
+                hdrType = YHdrType.Sdr,
+                bitDepth = 10,
+            ),
+        )
+        assertTrue(
+            shouldRequestEnhancedProbe(
+                container = YContainer.Matroska,
+                videoCodec = YVideoCodec.Av1,
+                audioCodec = YAudioCodec.Opus,
+                hdrType = YHdrType.Sdr,
+                bitDepth = 8,
+                hintedHighDynamicRange = true,
+            ),
+        )
+        assertTrue(
+            shouldRequestEnhancedProbe(
+                container = YContainer.M2ts,
+                videoCodec = YVideoCodec.H265,
+                audioCodec = YAudioCodec.Ac3,
+                hdrType = YHdrType.Hdr10,
+                bitDepth = 10,
             ),
         )
     }

@@ -496,8 +496,12 @@ internal class AndroidCore2RouteEvaluator(
                             platform.playbackRequest.video.hdrType == YHdrType.DolbyVision &&
                             platform.dolbyVisionConfig == null
                     val deep =
-                        (enhancedProbe.probe(item) as? YCore2ProbeResult.Success)
-                            ?.preservingPlatformDemuxCapability(platform)
+                        (
+                            enhancedProbe.probe(
+                                item,
+                                knownDolbyEvidence = platform.dolbyVisionStreamEvidence?.observedNals,
+                            ) as? YCore2ProbeResult.Success
+                        )?.preservingPlatformDemuxCapability(platform)
                     when {
                         deep?.dolbyVisionConfig != null -> deep
                         deep?.unconfiguredDolbyVisionSignal == true -> return null
