@@ -153,10 +153,6 @@ internal fun PlayerRoot(
     val core2TrialEnabled by playbackPreferences.core2TrialEnabled.collectAsState()
     val core2NativeOnlyEnabled by playbackPreferences.core2NativeOnlyEnabled.collectAsState()
     var core2DisabledForSession by remember { mutableStateOf(false) }
-    // Items the pure YCore runtime could not open from the original stream and is retrying on the
-    // server's transcode. One retry per item: a title nothing can play settles on an error instead
-    // of alternating between the two streams.
-    var core2ServerTranscodeRetryIds by remember { mutableStateOf(emptySet<String>()) }
     var sessionEngineSelection by remember {
         mutableStateOf(configuredEngineSelection)
     }
@@ -317,14 +313,12 @@ internal fun PlayerRoot(
                 videoSupport = videoSupport,
                 dolbyVisionRuntime = dolbyVisionRuntime,
             )
-        return when {
-            item.id in core2ServerTranscodeRetryIds ->
-                item.withForcedServerTranscode(CORE2_NATIVE_ONLY_TRANSCODE_REASON)
-            !core2NativeOnlyActive && plan.requiresServerTranscode ->
-                item.withForcedServerTranscode(
-                    plan.reason ?: "当前设备无法直接呈现片源，已预先选择服务器转码",
-                )
-            else -> item
+        return if (!core2NativeOnlyActive && plan.requiresServerTranscode) {
+            item.withForcedServerTranscode(
+                plan.reason ?: "当前设备无法直接呈现片源，已预先选择服务器转码",
+            )
+        } else {
+            item
         }
     }
 
@@ -340,7 +334,6 @@ internal fun PlayerRoot(
             sessionEngineSelection,
             dolbyVisionRuntime,
             core2NativeOnlyActive,
-            core2ServerTranscodeRetryIds,
         ) {
             activeItems.map(::preflightItem)
         }
@@ -511,47 +504,6 @@ internal fun PlayerRoot(
             return@LaunchedEffect
         }
         if (core2NativeOnlyActive) {
-            // The last layer under the pure runtime is the server, not a compatibility engine:
-            // the transcode is a stream YCore can open on its own. Transport, account and DRM
-            // failures would fail the same way on the transcode and are not retried.
-            val failedIndex = localState.currentIndex
-            val failedItem = activeItems.getOrNull(failedIndex)
-            val retryOnServer =
-                failedItem != null &&
-                    failedItem.id !in core2ServerTranscodeRetryIds &&
-                    preflightItems.getOrNull(failedIndex)?.startsWithServerTranscode() != true &&
-                    (failedItem.transcodeUrl.isNotBlank() || failedItem.fallbackTranscodeUrl.isNotBlank()) &&
-                    localState.errorKind != PlaybackFailureKind.Network &&
-                    localState.errorKind != PlaybackFailureKind.Authorization &&
-                    localState.errorKind != PlaybackFailureKind.Drm
-            if (retryOnServer && failedItem != null) {
-                resume =
-                    playbackHandoverSnapshot(
-                        state = localState,
-                        currentPositionMs = player.currentPositionMs(),
-                        playbackRequested = player.playbackRequested,
-                        requestedSpeed = requestedPlaybackSpeed,
-                        secondarySubtitle = secondarySubtitleRestore,
-                        subtitleDelayMs = subtitleControls.offsetMs,
-                        audioDelayMs = audioControls.delayMs,
-                    )
-                backendExtensions.prepareForHandover()
-                core2ServerTranscodeRetryIds = core2ServerTranscodeRetryIds + failedItem.id
-                engineGeneration++
-                AppLog.warning(
-                    category = "player.core2",
-                    event = "native_only_server_transcode_retry",
-                    message = "YCore Native could not open the original stream; retrying on the server transcode",
-                    attributes =
-                        mapOf(
-                            "itemIndex" to failedIndex.toString(),
-                            "failureKind" to (localState.errorKind?.name ?: "Unknown"),
-                            "failure" to localState.error.orEmpty(),
-                        ),
-                )
-                Toast.makeText(context, "YCore 纯内核无法直接播放，已切换服务器转码", Toast.LENGTH_SHORT).show()
-                return@LaunchedEffect
-            }
             AppLog.warning(
                 category = "player.core2",
                 event = "native_only_failure",
@@ -2992,9 +2944,9 @@ internal fun PlayerRoot(
                 transcodeLabel =
                     "转码播放".takeIf {
                         !core2NativeOnlyActive &&
-                            currentItem?.let { item ->
-                                item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
-                            } == true
+                        currentItem?.let { item ->
+                            item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
+                        } == true
                     },
                 transcodeActive = state.transcoding,
                 onTranscode = {
@@ -3221,9 +3173,6 @@ private fun PlaybackDeviceCapabilities.diagnosticLabel(): String {
             .ifBlank { "PCM" }
     return "显示 $display · 线路 $routes · 音频 $passthrough"
 }
-
-/** Why an item plays from the server transcode after the pure runtime rejected its original stream. */
-private const val CORE2_NATIVE_ONLY_TRANSCODE_REASON = "YCore 纯内核无法直接打开原始流，已切换服务器转码"
 
 /**
  * Toast for a terminal failure in the native-only runtime, which has no compatibility engine to
