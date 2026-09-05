@@ -1,0 +1,86 @@
+name: Apply PlayerStore timeout lifecycle fix
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - .github/workflows/one-shot-player-timeout-lifecycle.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Patch queue timeout lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt')
+          text = path.read_text()
+          old = '''            scope.launch {
+                // This is a user-facing wall-clock deadline, not coroutine virtual time.
+                // Keeping the timer on Default prevents runTest from jumping directly to
+                // 30 s while MockEngine/serialization is still completing on another
+                // dispatcher, which used to cancel otherwise healthy queue builds.
+                withContext(Dispatchers.Default) {
+                    delay(queueLoadTimeoutMs)
+                }
+                if (loadAttempt != attempt || !job.isActive) return@launch
+                job.cancel()
+                AppLog.warning(
+                    category = "feature.player",
+                    event = "queue_load_timeout",
+                    message = "Playback queue preparation timed out",
+                    attributes = mapOf("timeoutMs" to queueLoadTimeoutMs.toString()),
+                )
+                dispatch(PlayerMsg.Failed("播放准备超时，请检查服务器连接后重试"))
+            }
+'''
+          new = '''            scope.launch {
+                // Race queue completion against a real wall-clock deadline. A completed queue
+                // ends this watcher immediately, so no sleeping timeout coroutine can outlive the
+                // load/store and leak a late dispatch into the next test or a disposed screen.
+                val timedOut =
+                    withContext(Dispatchers.Default) {
+                        withTimeoutOrNull(queueLoadTimeoutMs) {
+                            job.join()
+                            false
+                        } ?: true
+                    }
+                if (!timedOut || loadAttempt != attempt || !job.isActive) return@launch
+                job.cancel()
+                AppLog.warning(
+                    category = "feature.player",
+                    event = "queue_load_timeout",
+                    message = "Playback queue preparation timed out",
+                    attributes = mapOf("timeoutMs" to queueLoadTimeoutMs.toString()),
+                )
+                dispatch(PlayerMsg.Failed("播放准备超时，请检查服务器连接后重试"))
+            }
+'''
+          if old not in text:
+              raise SystemExit('expected timeout block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          git diff -- composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt
+      - name: Commit patch and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "yfuse-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rm .github/workflows/one-shot-player-timeout-lifecycle.yml
+          git add composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt
+          git commit -m "fix(player): stop queue timeout watcher when load ends"
+          git push origin HEAD:master
