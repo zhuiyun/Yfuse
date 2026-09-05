@@ -41,7 +41,7 @@ class AndroidMediaExtractorReadAheadNodeTest {
             node.open(SOURCE)
             node.configureBufferPlan(targetAheadUs = targetUs, maximumBytes = 64L * 1024L * 1024L)
             node.selectTracks(setOf(VIDEO_TRACK))
-            node.awaitQueued(minimumSamples = 8)
+            node.awaitBufferedDuration(targetUs)
         }
 
         assertTrue(
@@ -174,6 +174,16 @@ class AndroidMediaExtractorReadAheadNodeTest {
             Thread.sleep(2)
         }
         throw AssertionError("read-ahead never queued $minimumSamples samples: ${snapshot()}")
+    }
+
+    private fun AndroidMediaExtractorReadAheadNode.awaitBufferedDuration(targetUs: Long): YExtractorReadAheadSnapshot {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (System.nanoTime() < deadline) {
+            val snapshot = snapshot()
+            if (snapshot.bufferedDurationUs >= targetUs) return snapshot
+            Thread.sleep(2)
+        }
+        throw AssertionError("read-ahead never reached ${targetUs}us: ${snapshot()}")
     }
 
     private fun AndroidMediaExtractorReadAheadNode.awaitTerminal(): YQueuedExtractorResult {
