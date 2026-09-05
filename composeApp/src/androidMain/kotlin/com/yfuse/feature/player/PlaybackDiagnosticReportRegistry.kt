@@ -267,6 +267,10 @@ internal object PlaybackDiagnosticReportRegistry {
                 "native.ycore.demux.openFailureDetail=" +
                     if (FfmpegNativeBridge.openFailureDetailAvailable) "available" else "legacy",
             )
+            appendLine(
+                "native.ycore.demux.handleContract=" +
+                    if (FfmpegNativeBridge.registryHandles) "registry" else "pointer",
+            )
             nativeLibraryFingerprints().forEach { (name, hash) ->
                 appendLine("native.$name.sha256=$hash")
             }

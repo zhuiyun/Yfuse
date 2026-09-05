@@ -47,6 +47,26 @@ internal object FfmpegNativeBridge {
             }.getOrDefault(false)
     }
 
+    /**
+     * How the loaded `libycore_demux.so` names an open session, so the bridge and the artifact
+     * cannot silently disagree about the sign of a handle again.
+     *
+     * Artifacts before the getter (contract 1) returned the session pointer, which Android's
+     * pointer tagging turns negative; contract 2 hands out positive registry ids. The report
+     * records the answer, and [open] only reads a negative result as a failure by its shape when
+     * the artifact still speaks the older contract.
+     */
+    val handleContractVersion: Int by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        if (!available) {
+            0
+        } else {
+            runCatching { nativeDemuxHandleContractVersion() }.getOrDefault(LEGACY_HANDLE_CONTRACT)
+        }
+    }
+
+    /** True when every negative open result is a classified failure status. */
+    val registryHandles: Boolean get() = handleContractVersion >= REGISTRY_HANDLE_CONTRACT
+
     fun registerBluRaySource(source: Any): Long {
         check(discNavigationAvailable) { "YCore Blu-ray runtime is not installed" }
         return nativeRegisterBluRaySource(source).also { handle ->
@@ -116,7 +136,8 @@ internal object FfmpegNativeBridge {
                 nativeOpen(uri, names, values)
             }
         return status.also { handle ->
-            if (isFfmpegOpenFailure(handle)) {
+            val failed = if (registryHandles) handle < 0L else isFfmpegOpenFailure(handle)
+            if (failed) {
                 throwFfmpegFailure(handle, YPlaybackFailureStage.SourceOpen, lastOpenFailureDetail())
             }
             check(handle != 0L) { "YCore FFmpeg demux session was not created" }
@@ -292,6 +313,8 @@ internal object FfmpegNativeBridge {
     ): Long
 
     private external fun nativeLastOpenFailure(): String?
+
+    private external fun nativeDemuxHandleContractVersion(): Int
 
     private external fun nativeClose(handle: Long)
 
@@ -555,6 +578,10 @@ internal const val FFMPEG_OPEN_STAGE_STREAM_INFO = 3
 
 /** Packed open statuses use bits 0-31 (AVERROR), 32-39 (class) and 40-47 (stage); nothing above. */
 internal const val FFMPEG_OPEN_STATUS_LIMIT = 1L shl 48
+
+/** Artifacts that predate [FfmpegNativeBridge.handleContractVersion] return session pointers. */
+internal const val LEGACY_HANDLE_CONTRACT = 1
+internal const val REGISTRY_HANDLE_CONTRACT = 2
 private const val FFMPEG_ERRNO_LIMIT = 0x1000L
 private const val FFMPEG_RESERVED_TAG_BYTE = 0xF8
 internal const val FFMPEG_SAMPLE_SYNC = 1L shl 0
