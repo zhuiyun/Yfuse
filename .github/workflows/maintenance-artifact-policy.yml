@@ -1,0 +1,66 @@
+name: Patch artifact retention policy
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - .github/workflows/maintenance-artifact-policy.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    name: Patch production artifact policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Patch publish workflow
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('.github/workflows/publish-android.yml')
+          text = path.read_text(encoding='utf-8')
+          start_marker = '      - name: Save release artifact\n'
+          end_marker = '\n      - name: Configure pinned SSH host\n'
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit('Save release artifact step not found')
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('Configure pinned SSH host step not found')
+
+          block = text[start:end]
+          if 'continue-on-error: true' not in block:
+              block = block.replace(
+                  start_marker,
+                  start_marker + '        continue-on-error: true\n',
+                  1,
+              )
+          if 'retention-days: 30' in block:
+              block = block.replace('retention-days: 30', 'retention-days: 7', 1)
+          elif 'retention-days: 7' not in block:
+              raise SystemExit('Unexpected release artifact retention setting')
+
+          updated = text[:start] + block + text[end:]
+          if updated == text:
+              raise SystemExit('Production artifact policy is already up to date')
+          path.write_text(updated, encoding='utf-8')
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/publish-android.yml
+          git diff --cached --check
+          git commit -m "ci: keep production artifact upload non-blocking"
+          git push origin HEAD:master
