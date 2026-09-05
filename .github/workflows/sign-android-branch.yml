@@ -6,6 +6,7 @@ on:
       - codex/merge-all-sign-20260815
       - codex/android-tv-p0-20260830
       - codex/ycore-sign-20260830
+      - codex/glass-navigation-sign-20260905
   pull_request:
     branches:
       - master
