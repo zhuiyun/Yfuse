@@ -9,6 +9,7 @@ import android.view.Surface
 import android.view.WindowManager
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YDualDolbyEvidenceState
+import com.yfuse.core2.api.YMediaSourceHints
 import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
@@ -191,6 +192,7 @@ internal class AndroidEnhancedPlaybackSession(
         runtimeCapabilityKey: YRuntimeVideoCapabilityKey? = null,
         requireDolbyVisionIdentity: Boolean = false,
         expectedAudio: Boolean = false,
+        sourceHints: YMediaSourceHints? = null,
     ): YDemuxOpenResult {
         close()
         dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.SourceChanged)
@@ -254,7 +256,7 @@ internal class AndroidEnhancedPlaybackSession(
             throw YPlaybackException(
                 category = YPlaybackFailureCategory.Container,
                 stage = YPlaybackFailureStage.Demux,
-                safeDetail = "Enhanced demux did not expose a server-declared audio track",
+                safeDetail = hiddenServerAudioTrackDetail(ENHANCED_HIDDEN_AUDIO_DETAIL, sourceHints),
             )
         }
         if (

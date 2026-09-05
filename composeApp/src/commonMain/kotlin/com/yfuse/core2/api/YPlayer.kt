@@ -161,6 +161,13 @@ data class YMediaSourceHints(
     val audioSampleRateHz: Int = 0,
     /** Distinguishes a genuinely silent source from a demuxer that lost a declared audio stream. */
     val audioTrackCount: Int = 0,
+    /**
+     * Server-declared codec identifiers of every audio track, in server order.
+     *
+     * Diagnostics only: when a demuxer hides a declared track this names what it hid, which is
+     * the difference between "container error" and "TrueHD is unsupported here" in a bundle.
+     */
+    val audioCodecs: List<String> = emptyList(),
     val dynamicRange: String? = null,
     val dolbyVision: Boolean = false,
     val dolbyVisionProfile: Int? = null,

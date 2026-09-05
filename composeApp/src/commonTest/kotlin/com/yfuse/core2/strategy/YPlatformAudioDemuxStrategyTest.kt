@@ -59,7 +59,42 @@ class YPlatformAudioDemuxStrategyTest {
         assertEquals(YDemuxPath.Platform, plan.demuxPath)
     }
 
-    private fun request(platformAudioDemuxSupported: Boolean): YPlaybackRequest =
+    @Test
+    fun platformVideoWithNoAudioButServerDeclaredAudioUsesEnhancedDemux() {
+        // MediaExtractor hid the only audio track (an unmapped Matroska CodecID). NativeDirect
+        // would open the container and refuse it at Demux, so the planner must not choose it.
+        val plan =
+            strategy.plan(
+                request = request(platformAudioDemuxSupported = true, audio = null, sourceDeclaresAudio = true),
+                capabilities = capabilities,
+            )
+
+        assertEquals(YPlaybackRoute.NativeEnhanced, plan.route)
+        assertEquals(YDemuxPath.Enhanced, plan.demuxPath)
+    }
+
+    @Test
+    fun platformVideoWithNoAudioAndNoServerAudioStaysOnPlatformDemux() {
+        val plan =
+            strategy.plan(
+                request = request(platformAudioDemuxSupported = true, audio = null, sourceDeclaresAudio = false),
+                capabilities = capabilities,
+            )
+
+        assertEquals(YPlaybackRoute.NativeDirect, plan.route)
+        assertEquals(YDemuxPath.Platform, plan.demuxPath)
+    }
+
+    private fun request(
+        platformAudioDemuxSupported: Boolean,
+        audio: YAudioRequirement? =
+            YAudioRequirement(
+                codec = YAudioCodec.Ac3,
+                channelCount = 6,
+                sampleRate = 48_000,
+            ),
+        sourceDeclaresAudio: Boolean = audio != null,
+    ): YPlaybackRequest =
         YPlaybackRequest(
             container = YContainer.Matroska,
             video =
@@ -71,15 +106,11 @@ class YPlatformAudioDemuxStrategyTest {
                     bitDepth = 10,
                     hdrType = YHdrType.Sdr,
                 ),
-            audio =
-                YAudioRequirement(
-                    codec = YAudioCodec.Ac3,
-                    channelCount = 6,
-                    sampleRate = 48_000,
-                ),
+            audio = audio,
             platformDemuxSupported = true,
             platformAudioDemuxSupported = platformAudioDemuxSupported,
             enhancedDemuxSupported = true,
             preferTunnel = false,
+            sourceDeclaresAudio = sourceDeclaresAudio,
         )
 }

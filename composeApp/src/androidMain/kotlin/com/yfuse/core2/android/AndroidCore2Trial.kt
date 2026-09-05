@@ -423,6 +423,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
                         audioChannelCount = source.sourceAudioChannelCount,
                         audioSampleRateHz = source.sourceAudioSampleRateHz,
                         audioTrackCount = source.audioTrackCount,
+                        audioCodecs = source.sourceAudioCodecs,
                         dynamicRange = source.sourceDynamicRange,
                         dolbyVision = source.dolbyVision,
                         dolbyVisionProfile = source.dolbyProfile,

@@ -709,19 +709,11 @@ internal class AndroidNativeDirectYPlayer(
                 }
             val sourceDeclaresAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0
             if (sourceDeclaresAudio && platformAudioTrackIndices.isEmpty()) {
-                // Name what the platform extractor did expose next to the codec the server declared,
-                // so a bundle can tell an unsupported audio codec from a broken track entry.
-                val exposedMimes =
-                    (0 until demux.trackCount)
-                        .mapNotNull { index -> demux.trackFormat(index).getString(MediaFormat.KEY_MIME)?.lowercase() }
-                        .distinct()
-                        .joinToString(",")
                 throw YPlaybackException(
                     category = YPlaybackFailureCategory.Container,
                     stage = YPlaybackFailureStage.Demux,
                     safeDetail =
-                        "NativeDirect did not expose a server-declared audio track " +
-                            "(declared=${item.sourceHints?.audioCodec.orEmpty()}, platformTracks=$exposedMimes)",
+                        hiddenServerAudioTrackDetail(NATIVE_DIRECT_HIDDEN_AUDIO_DETAIL, item.sourceHints),
                 )
             }
             if (platformAudioTrackIndices.isNotEmpty() && initialAudioTrack == null) {
@@ -2517,10 +2509,11 @@ internal fun yCoreNativeDirectFailureMessage(failure: YPlaybackException?): Stri
         YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
         YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
         YPlaybackFailureCategory.Container ->
-            if (failure.stage == YPlaybackFailureStage.Bitstream) {
-                "YCore 2.0 无法验证当前片源的杜比视界配置"
-            } else {
-                "YCore 2.0 原生解封装无法识别当前片源"
+            when {
+                failure.stage == YPlaybackFailureStage.Bitstream ->
+                    "YCore 2.0 无法验证当前片源的杜比视界配置"
+                failure.isHiddenServerAudioTrackFailure() -> YCORE_HIDDEN_AUDIO_TRACK_MESSAGE
+                else -> "YCore 2.0 原生解封装无法识别当前片源"
             }
         YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
         YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
