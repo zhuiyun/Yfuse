@@ -19,6 +19,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 
 private val jsonHeaders = headersOf(HttpHeaders.ContentType, "application/json")
 
@@ -37,7 +38,12 @@ fun testRepo(
             engine =
                 MockEngine(
                     MockEngineConfig().apply {
-                        dispatcher?.let { this.dispatcher = it }
+                        // Repository tests run inside runTest, whose virtual clock can advance
+                        // straight to a withTimeout deadline while MockEngine is still queued on
+                        // its real background dispatcher. Keep the mock network work on the
+                        // calling test path so 8s/15s production deadlines test the operation,
+                        // rather than a scheduler mismatch.
+                        this.dispatcher = dispatcher ?: Dispatchers.Unconfined
                         addHandler(handler)
                     },
                 ),
