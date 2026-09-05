@@ -40,11 +40,15 @@ class PlayerStoreTest {
     @Test
     fun queue_load_timeout_replaces_the_spinner_with_a_retryable_error() =
         runTest {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
             val store =
                 PlayerStoreFactory(
                     DefaultStoreFactory(),
-                    testRepo { awaitCancellation() },
-                    testRegistry(),
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { awaitCancellation() },
+                    registry,
                     itemId = "movie",
                     startPositionTicks = 0L,
                     queueLoadTimeoutMs = 50L,
@@ -126,7 +130,7 @@ class PlayerStoreTest {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
                 }
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
                     when {
                         request.url.encodedPath.endsWith("/PlaybackInfo") ->
                             json("""{"MediaSources":[],"PlaySessionId":"session-e2"}""")
@@ -277,7 +281,7 @@ class PlayerStoreTest {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
                 }
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
                     when {
                         request.url.encodedPath.endsWith("/PlaybackInfo") ->
                             json(
@@ -332,7 +336,7 @@ class PlayerStoreTest {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
                 }
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
                     when {
                         request.url.encodedPath.endsWith("/PlaybackInfo") ->
                             json("""{"MediaSources":[],"PlaySessionId":"session-e1"}""")
@@ -542,7 +546,7 @@ class PlayerStoreTest {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
                 }
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
                     when {
                         request.url.encodedPath.endsWith("/PlaybackInfo") ->
                             json(
