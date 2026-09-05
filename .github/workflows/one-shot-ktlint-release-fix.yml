@@ -21,10 +21,10 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
-      - name: Apply ktlint formatting
+      - name: Apply scoped ktlint formatting
         run: |
           chmod +x gradlew
-          ./gradlew ktlintFormat --no-daemon
+          ./gradlew :composeApp:ktlintCommonMainSourceSetFormat --no-daemon
       - name: Verify formatting scope
         run: |
           set -euo pipefail
@@ -34,10 +34,10 @@ jobs:
             'composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt' | sort)"
           printf 'ktlint changed:\n%s\n' "$changed"
           if [[ "$changed" != "$expected" ]]; then
-            echo '::error::ktlintFormat changed files outside the two known release blockers'
+            echo '::error::scoped ktlint format changed files outside the two known release blockers'
             exit 1
           fi
-          ./gradlew ktlintCheck --no-daemon
+          ./gradlew :composeApp:ktlintCommonMainSourceSetCheck --no-daemon
       - name: Commit fixes and remove one-shot workflow
         run: |
           set -euo pipefail
