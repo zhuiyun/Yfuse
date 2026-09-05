@@ -11,11 +11,16 @@ LIBS="$ROOT/composeApp/libs"
 DEST="$LIBS/libmpv-release.aar"
 DEST_SHA="$LIBS/libmpv-release.aar.sha256"
 DEST_SOURCES="$LIBS/libmpv-release.sources.txt"
-VERIFIER="$ROOT/scripts/verify-ycore-native.sh"
 GPU_AAR="$(dirname "$AAR")/ycore-gpu.aar"
 
-[[ -x "$VERIFIER" ]] || chmod +x "$VERIFIER"
-"$VERIFIER" "$AAR" "$SHA_FILE" "$SOURCES"
+# This is the Full compatibility carrier, not the standalone ycore-native.aar. The standalone
+# verifier intentionally rejects libmpv/libplayer and requires its own different embedded manifest.
+# Preserve all checksum, dependency, alignment, optical-disc and optional Dolby carrier gates.
+bash "$ROOT/scripts/verify-yfuse-mpv-bluray-aar.sh" "$AAR" "$SHA_FILE" "$SOURCES"
+if grep -Fx 'dolby-vision-rpu=true' "$SOURCES" >/dev/null &&
+  grep -Fx 'dolby-vision-fel=true' "$SOURCES" >/dev/null; then
+  bash "$ROOT/scripts/verify-yfuse-mpv-dolby-aar.sh" "$AAR" "$SHA_FILE" "$SOURCES"
+fi
 
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
