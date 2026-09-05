@@ -1565,6 +1565,17 @@ class MpvVideoEngine(
                 }
             val label =
                 when {
+                    // GPU-processed Dolby Vision is never native Dolby Vision output: the frames
+                    // are drawn by libplacebo and leave the device as HDR10 or SDR. Say so, so the
+                    // panel does not read like the native route.
+                    activeDolbyVisionPath == PlaybackDolbyVisionPath.MpvGpuNext ->
+                        buildString {
+                            append("Dolby Vision · GPU 处理（RPU ")
+                            append(if (dolbyEvidence.rpuRendered) "已应用" else "未应用")
+                            if (dolbyEvidence.felComposed) append("，FEL 已合成")
+                            append("）· 输出 ")
+                            append(output.ifBlank { "未知" })
+                        }
                     input.isNotBlank() && output.isNotBlank() && input != output ->
                         "$input → $output · mpv 色调映射"
                     output.isNotBlank() -> "$output · mpv 视频输出已建立"
@@ -1611,6 +1622,12 @@ class MpvVideoEngine(
             val outputDriver = instance.getPropertyString("current-ao")
             val outputFormat = instance.getPropertyString("audio-out-params/format")
             val decoder = instance.getPropertyString("audio-codec-name")
+            // FFmpeg names the codec "eac3" whether or not the stream carries Atmos objects; the
+            // profile ("Dolby Digital Plus + Dolby Atmos") is where JOC shows up. Older mpv builds
+            // have no codec-profile property, and a null there keeps the previous behaviour.
+            val codecProfile =
+                runCatching { instance.getPropertyString("current-tracks/audio/codec-profile") }.getOrNull()
+            val codecIdentity = listOfNotNull(decoder, codecProfile).joinToString(" ").ifBlank { null }
             val readiness = mpvAudioOutputReadiness(outputDriver, outputFormat)
             val passthroughStatus =
                 mpvAudioPassthroughStatus(
@@ -1638,11 +1655,11 @@ class MpvVideoEngine(
                             immersiveAudioCarrierOutput =
                                 readiness == PlaybackOutputReadiness.Rendering &&
                                     passthroughStatus is PlaybackOutputStatus.Active &&
-                                    isImmersiveAudioCarrierCodec(decoder ?: outputFormat),
+                                    isImmersiveAudioCarrierCodec(codecIdentity ?: outputFormat),
                             dolbyAtmosOutput =
                                 readiness == PlaybackOutputReadiness.Rendering &&
                                     passthroughStatus is PlaybackOutputStatus.Active &&
-                                    isDolbyObjectAudioCodec(decoder ?: outputFormat),
+                                    isDolbyObjectAudioCodec(codecIdentity ?: outputFormat),
                             spatialAudioOutput = false,
                             headTrackingAvailable = false,
                             outputEvidence =
@@ -1686,6 +1703,7 @@ class MpvVideoEngine(
                         "output" to (outputDriver ?: "unknown"),
                         "format" to (outputFormat ?: "unknown"),
                         "codec" to (decoder ?: "unknown"),
+                        "codecProfile" to (codecProfile ?: "unknown"),
                         "track" to (instance.getPropertyString("aid") ?: "unknown"),
                         "passthrough" to passthroughStatus.toString(),
                         "readiness" to readiness.name,

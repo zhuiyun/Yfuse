@@ -244,6 +244,28 @@ internal fun androidEncodedAudioEncoding(
         else -> null
     }
 
+/**
+ * The encodings worth trying for a codec, most specific first.
+ *
+ * TrueHD has two carriers on Android: `ENCODING_DOLBY_TRUEHD` and, since API 30, Dolby MAT, which is
+ * how most HDMI and eARC sinks actually accept it. A route that answers only for MAT used to get a
+ * TrueHD track it then failed to open, and the audio fell back to PCM.
+ */
+@SuppressLint("InlinedApi")
+internal fun androidEncodedAudioEncodingCandidates(
+    codec: YAudioCodec,
+    sdkInt: Int = Build.VERSION.SDK_INT,
+): List<Int> =
+    when (codec) {
+        YAudioCodec.TrueHd, YAudioCodec.TrueHdAtmos ->
+            if (sdkInt >= Build.VERSION_CODES.R) {
+                listOf(AudioFormat.ENCODING_DOLBY_TRUEHD, AudioFormat.ENCODING_DOLBY_MAT)
+            } else {
+                listOf(AudioFormat.ENCODING_DOLBY_TRUEHD)
+            }
+        else -> listOfNotNull(androidEncodedAudioEncoding(codec, sdkInt))
+    }
+
 /** Selects the encoding actually declared to AudioTrack without promoting carrier support to object audio. */
 internal fun encodedSinkCodec(
     sourceCodec: YAudioCodec,
@@ -257,30 +279,44 @@ internal fun encodedSinkCodec(
     }
 
 private fun buildEncodedAudioTrack(format: YAudioTrackFormat): AudioTrack {
-    val encoding = requireNotNull(androidEncodedAudioEncoding(format.codec))
+    val candidates = androidEncodedAudioEncodingCandidates(format.codec)
+    require(candidates.isNotEmpty()) { "${format.codec} has no Android encoded AudioTrack mapping" }
     val sampleRate = format.sampleRate.coerceAtLeast(1)
     val channelMask = encodedChannelMaskForCount(format.channelCount)
-    val minBuffer =
-        AudioTrack
-            .getMinBufferSize(sampleRate, channelMask, encoding)
-            .takeIf { it > 0 }
-            ?: DEFAULT_ENCODED_AUDIO_BUFFER_BYTES
-    val audioFormat =
+    val attributes =
+        AudioAttributes
+            .Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+            .build()
+
+    fun audioFormat(encoding: Int): AudioFormat =
         AudioFormat
             .Builder()
             .setEncoding(encoding)
             .setSampleRate(sampleRate)
             .setChannelMask(channelMask)
             .build()
+    // Ask the active route which carrier it takes before opening the track; below API 29 there
+    // is no such question, and the first candidate is the only one.
+    val encoding =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && candidates.size > 1) {
+            candidates.firstOrNull { candidate ->
+                runCatching { AudioTrack.isDirectPlaybackSupported(audioFormat(candidate), attributes) }
+                    .getOrDefault(false)
+            } ?: candidates.first()
+        } else {
+            candidates.first()
+        }
+    val minBuffer =
+        AudioTrack
+            .getMinBufferSize(sampleRate, channelMask, encoding)
+            .takeIf { it > 0 }
+            ?: DEFAULT_ENCODED_AUDIO_BUFFER_BYTES
     return AudioTrack
         .Builder()
-        .setAudioAttributes(
-            AudioAttributes
-                .Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                .build(),
-        ).setAudioFormat(audioFormat)
+        .setAudioAttributes(attributes)
+        .setAudioFormat(audioFormat(encoding))
         .setTransferMode(AudioTrack.MODE_STREAM)
         .setBufferSizeInBytes((minBuffer * 4).coerceAtLeast(DEFAULT_ENCODED_AUDIO_BUFFER_BYTES))
         .build()

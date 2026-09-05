@@ -24,6 +24,36 @@ class AndroidEncodedAudioTrackRenderNodeTest {
     }
 
     @Test
+    fun `truehd tries the mat carrier after the truehd encoding from api 30`() {
+        assertEquals(
+            listOf(AudioFormat.ENCODING_DOLBY_TRUEHD, AudioFormat.ENCODING_DOLBY_MAT),
+            androidEncodedAudioEncodingCandidates(YAudioCodec.TrueHdAtmos, Build.VERSION_CODES.R),
+        )
+        assertEquals(
+            listOf(AudioFormat.ENCODING_DOLBY_TRUEHD),
+            androidEncodedAudioEncodingCandidates(YAudioCodec.TrueHd, Build.VERSION_CODES.P),
+        )
+        assertEquals(
+            listOf(AudioFormat.ENCODING_E_AC3_JOC),
+            androidEncodedAudioEncodingCandidates(YAudioCodec.Eac3Joc, Build.VERSION_CODES.P),
+        )
+        assertEquals(emptyList(), androidEncodedAudioEncodingCandidates(YAudioCodec.Aac))
+    }
+
+    @Test
+    fun `mat carrier counts as truehd passthrough capability`() {
+        assertEquals(setOf(YAudioCodec.TrueHd), audioCodecsForEncoding(AudioFormat.ENCODING_DOLBY_MAT))
+        assertEquals(
+            AudioFormat.CHANNEL_OUT_7POINT1_SURROUND,
+            directPlaybackProbeChannelMask(AudioFormat.ENCODING_DOLBY_MAT),
+        )
+        assertEquals(
+            AudioFormat.CHANNEL_OUT_5POINT1,
+            directPlaybackProbeChannelMask(AudioFormat.ENCODING_E_AC3_JOC),
+        )
+    }
+
+    @Test
     fun `uses standard eac3 carrier for joc before api 28`() {
         assertEquals(
             AudioFormat.ENCODING_E_AC3,
