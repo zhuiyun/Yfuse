@@ -21,8 +21,9 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
-      - name: Fix non-autocorrectable release line
+      - name: Build target-only ktlint patch
         run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
 
@@ -36,23 +37,28 @@ jobs:
               raise SystemExit('expected overlong failover message not found')
           path.write_text(text.replace(old, new, 1))
           PY
-      - name: Apply scoped ktlint formatting
-        run: |
           chmod +x gradlew
           ./gradlew :composeApp:ktlintCommonMainSourceSetFormat --no-daemon
-      - name: Verify formatting scope
+          git diff -- \
+            composeApp/src/commonMain/kotlin/com/yfuse/core2/dolby/YMatroskaDolbyVisionMetadata.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt \
+            > /tmp/release-ktlint.patch
+          test -s /tmp/release-ktlint.patch
+          git reset --hard HEAD
+          git apply /tmp/release-ktlint.patch
+      - name: Verify target-only diff
         run: |
           set -euo pipefail
           changed="$(git diff --name-only | sort)"
           expected="$(printf '%s\n' \
             'composeApp/src/commonMain/kotlin/com/yfuse/core2/dolby/YMatroskaDolbyVisionMetadata.kt' \
             'composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt' | sort)"
-          printf 'ktlint changed:\n%s\n' "$changed"
+          printf 'retained changes:\n%s\n' "$changed"
           if [[ "$changed" != "$expected" ]]; then
-            echo '::error::scoped ktlint format changed files outside the two known release blockers'
+            echo '::error::target-only ktlint patch contains an unexpected file'
             exit 1
           fi
-          ./gradlew :composeApp:ktlintCommonMainSourceSetCheck --no-daemon
+          git diff --check
       - name: Commit fixes and remove one-shot workflow
         run: |
           set -euo pipefail
