@@ -1,0 +1,52 @@
+name: Apply release ktlint fixes
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/one-shot-ktlint-release-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Apply ktlint formatting
+        run: |
+          chmod +x gradlew
+          ./gradlew ktlintFormat --no-daemon
+      - name: Verify formatting scope
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'composeApp/src/commonMain/kotlin/com/yfuse/core2/dolby/YMatroskaDolbyVisionMetadata.kt' \
+            'composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt' | sort)"
+          printf 'ktlint changed:\n%s\n' "$changed"
+          if [[ "$changed" != "$expected" ]]; then
+            echo '::error::ktlintFormat changed files outside the two known release blockers'
+            exit 1
+          fi
+          ./gradlew ktlintCheck --no-daemon
+      - name: Commit fixes and remove one-shot workflow
+        run: |
+          set -euo pipefail
+          git config user.name yfuse-release-bot
+          git config user.email actions@users.noreply.github.com
+          git rm .github/workflows/one-shot-ktlint-release-fix.yml
+          git add \
+            composeApp/src/commonMain/kotlin/com/yfuse/core2/dolby/YMatroskaDolbyVisionMetadata.kt \
+            composeApp/src/commonMain/kotlin/com/yfuse/feature/player/PlayerStore.kt
+          git diff --cached --check
+          git commit -m 'style: apply remaining release ktlint fixes'
+          git push origin HEAD:master
