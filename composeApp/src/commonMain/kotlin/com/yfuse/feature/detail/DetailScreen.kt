@@ -24,8 +24,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
@@ -185,6 +187,8 @@ fun DetailScreen(component: DetailComponent) {
             identity = heroIdentity,
         )
     var seasonPickerOpen by remember { mutableStateOf(false) }
+    // Where the season title sits, in root coordinates; the floating season list opens from it.
+    var seasonPickerAnchor by remember { mutableStateOf<Rect?>(null) }
     var overviewExpanded by remember { mutableStateOf(false) }
     // Hoisted out of the list: the hero badges what this copy is, and 媒体信息 at the foot
     // of the page spells the same file out — one answer to "which file", read twice.
@@ -410,6 +414,12 @@ fun DetailScreen(component: DetailComponent) {
                 // route item also prevents a newly opened title inheriting the previous title's offset.
                 val listState = remember(component.itemId) { LazyListState() }
                 val detailBackdrop = rememberBackdropState()
+                // The season list follows its title, but not off the page: scrolling closes it.
+                LaunchedEffect(listState) {
+                    snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+                        if (scrolling) seasonPickerOpen = false
+                    }
+                }
                 val (overscrollPull, overscrollConnection) =
                     rememberOverscrollPull(
                         LocalAccessibilityOptions.current.reduceMotion,
@@ -494,7 +504,10 @@ fun DetailScreen(component: DetailComponent) {
                                         resumeTimeLabel = formatResumePosition(state.playPositionTicks),
                                         resolving = state.resolvingPlay,
                                         favoriteAvailable =
-                                            state.playServer?.kind?.capabilities()?.favorites != false,
+                                            state.playServer
+                                                ?.kind
+                                                ?.capabilities()
+                                                ?.favorites != false,
                                         favorite = detail.isFavorite,
                                         watchLater = state.watchLater,
                                         watchLaterMutating = state.watchLaterMutating,
@@ -544,15 +557,10 @@ fun DetailScreen(component: DetailComponent) {
                                                 ?.name
                                                 ?: "剧集",
                                         availableEpisodeCount = state.episodes.size,
-                                        seasons = state.seasons.map { it.id to it.name },
-                                        selectedSeasonId = state.selectedSeasonId,
+                                        seasonCount = state.seasons.size,
                                         pickerOpen = seasonPickerOpen,
                                         onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
-                                        onDismissPicker = { seasonPickerOpen = false },
-                                        onSelectSeason = {
-                                            seasonPickerOpen = false
-                                            component.store.accept(DetailIntent.SelectSeason(it))
-                                        },
+                                        onPickerAnchor = { seasonPickerAnchor = it },
                                         onManageProgress = {
                                             component.store.accept(DetailIntent.OpenProgressManager)
                                         },
@@ -706,6 +714,22 @@ fun DetailScreen(component: DetailComponent) {
                     onBack = component.onBack,
                     onPlay = { component.store.accept(DetailIntent.Play) },
                     onMore = { moreSheetOpen = true },
+                )
+
+                // Above the list and the top bar: it blurs the page, so it has to be a sibling
+                // drawn after everything it floats over.
+                SeasonPickerOverlay(
+                    open = seasonPickerOpen && state.seasons.size > 1,
+                    anchor = seasonPickerAnchor,
+                    backdrop = detailBackdrop,
+                    accent = detailAccent,
+                    seasons = state.seasons.map { it.id to it.name },
+                    selectedSeasonId = state.selectedSeasonId,
+                    onSelectSeason = {
+                        seasonPickerOpen = false
+                        component.store.accept(DetailIntent.SelectSeason(it))
+                    },
+                    onDismiss = { seasonPickerOpen = false },
                 )
 
                 if (state.resolvingPlay) {

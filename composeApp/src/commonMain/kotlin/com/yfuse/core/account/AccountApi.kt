@@ -1,5 +1,6 @@
 package com.yfuse.core.account
 
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.embyHttpEngine
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -83,12 +84,31 @@ class AccountApi(
         refreshToken: String,
         deviceName: String? = null,
         requestId: String? = null,
-    ): AuthResponse =
-        client
-            .post("$origin/api/v1/auth/refresh") {
+    ): AuthResponse {
+        val response =
+            client.post("$origin/api/v1/auth/refresh") {
                 contentType(ContentType.Application.Json)
                 setBody(RefreshRequest(refreshToken, deviceName, requestId))
+            }
+        if (response.status.isSuccess()) return response.body()
+        val error = response.decodedError()
+        if (!error.rejectsRefreshSchema() || (deviceName == null && requestId == null)) throw error
+        // The APK and the account backend ship independently. A backend older than the client
+        // decodes request bodies strictly and answers `invalid_json` to fields it does not know,
+        // which read on the device as "登录失败" until the backend was redeployed. The body it does
+        // know still refreshes the session; only the idempotency key and device label are lost.
+        AppLog.warning(
+            category = "account",
+            event = "refresh_legacy_schema_fallback",
+            message = "Account backend rejected the refresh request schema; retrying with the legacy body",
+            attributes = mapOf("code" to error.code),
+        )
+        return client
+            .post("$origin/api/v1/auth/refresh") {
+                contentType(ContentType.Application.Json)
+                setBody(LegacyRefreshRequest(refreshToken))
             }.decoded()
+    }
 
     suspend fun logout(accessToken: String) {
         client
@@ -215,6 +235,10 @@ private suspend fun HttpResponse.decodedUnit() {
     if (status.isSuccess()) return
     throw decodedError()
 }
+
+/** A well-formed body the backend still could not decode: the request schema, not the JSON. */
+private fun AccountApiException.rejectsRefreshSchema(): Boolean =
+    status == HttpStatusCode.BadRequest && code == "invalid_json"
 
 private suspend fun HttpResponse.decodedError(): AccountApiException {
     val envelope = runCatching { body<ErrorEnvelope>() }.getOrNull()

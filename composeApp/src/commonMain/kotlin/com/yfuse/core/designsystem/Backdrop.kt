@@ -107,6 +107,13 @@ class BackdropState internal constructor(
     internal val layer: GraphicsLayer,
     internal val enabled: Boolean,
 ) {
+    /**
+     * Whether surfaces above this backdrop actually blur it. False where the platform cannot
+     * (see [supportsBackdropBlur]) or the user asked for 降低透明度 — a surface then has to
+     * cover what it floats over with its fill alone.
+     */
+    val active: Boolean get() = enabled
+
     /** Where the captured content sits in root coordinates. */
     internal var origin by mutableStateOf(Offset.Zero)
 

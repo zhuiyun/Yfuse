@@ -8,11 +8,9 @@ on:
       - codex/ycore-sign-20260830
       - codex/glass-navigation-sign-20260905
   pull_request:
-    branches:
-      - master
+    branches: [master]
     types: [opened, synchronize, reopened]
-    paths:
-      - .github/sign-android-request
+    paths: [.github/sign-android-request]
   workflow_dispatch:
 
 permissions:
@@ -25,14 +23,119 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  sign:
+  native:
     if: >-
       github.event_name != 'pull_request' ||
       (github.head_ref == 'codex/merge-all-sign-20260815' &&
       github.event.pull_request.head.repo.full_name == github.repository)
+    name: Build current YCore native sources
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    steps:
+      - name: Check out complete source history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Audit all remote branches for merge-all requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .native-build/artifacts
+          if [[ "$GITHUB_REF" == refs/heads/codex/merge-all-sign-20260815 || "${GITHUB_HEAD_REF:-}" == codex/merge-all-sign-20260815 ]]; then
+            git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+            python3 - <<'PY'
+          import json
+          import pathlib
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          rows = []
+          for line in git('for-each-ref', '--format=%(refname) %(objectname)', 'refs/remotes/origin/').splitlines():
+              ref, sha = line.split()
+              if ref == 'refs/remotes/origin/HEAD':
+                  continue
+              result = subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'HEAD'], check=False)
+              if result.returncode not in (0, 1):
+                  raise SystemExit('Unable to verify ancestry for ' + ref)
+              row = {'branch': ref.removeprefix('refs/remotes/origin/'), 'sha': sha, 'contained': result.returncode == 0}
+              rows.append(row)
+              print(('CONTAINED ' if row['contained'] else 'UNMERGED ') + row['branch'] + ' ' + sha)
+          report = {'sourceCommit': git('rev-parse', 'HEAD'), 'sourceTree': git('rev-parse', 'HEAD^{tree}'), 'branchCount': len(rows), 'branches': rows}
+          pathlib.Path('.native-build/artifacts/branch-audit.json').write_text(json.dumps(report, indent=2) + '\n')
+          if not rows or any(not row['contained'] for row in rows):
+              raise SystemExit('Refusing to sign: remote branches remain unmerged')
+          PY
+          fi
+      - name: Set up Java 21
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install host native build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake binutils build-essential cmake curl git gperf libtool ninja-build pkg-config python3 python3-venv unzip wget yasm
+          python3 -m venv "$RUNNER_TEMP/yfuse-meson"
+          "$RUNNER_TEMP/yfuse-meson/bin/pip" install --disable-pip-version-check 'Jinja2==3.1.6' 'meson==1.6.1'
+          echo "$RUNNER_TEMP/yfuse-meson/bin" >> "$GITHUB_PATH"
+      - name: Build and verify current YCore and compatibility carrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build-ycore-native.sh --arch arm64
+          bash scripts/verify-yfuse-mpv-dolby-aar.sh
+          bash scripts/verify-ycore-native.sh
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import subprocess
+          import zipfile
+          root = pathlib.Path('.native-build/artifacts')
+          names = ['libmpv-yfuse-bluray.aar', 'ycore-gpu.aar']
+          libraries = {}
+          for name in names:
+              with zipfile.ZipFile(root / name) as archive:
+                  for entry in archive.namelist():
+                      if entry.startswith('jni/arm64-v8a/') and entry.endswith('.so'):
+                          key = entry.removeprefix('jni/arm64-v8a/')
+                          digest = hashlib.sha256(archive.read(entry)).hexdigest()
+                          if key in libraries and libraries[key] != digest:
+                              raise SystemExit('Conflicting native library: ' + key)
+                          libraries[key] = digest
+          with zipfile.ZipFile(root / names[0]) as archive:
+              demux = archive.read('jni/arm64-v8a/libycore_demux.so')
+              for symbol in (b'nativeOpenProbe', b'nativeLastOpenFailure'):
+                  if symbol not in demux:
+                      raise SystemExit('Current demux interface missing: ' + symbol.decode())
+          git = lambda *args: subprocess.check_output(['git', *args], text=True).strip()
+          report = {'sourceCommit': git('rev-parse', 'HEAD'), 'sourceTree': git('rev-parse', 'HEAD^{tree}'), 'demuxSourceSha256': hashlib.sha256(pathlib.Path('scripts/native/ycore_demux_jni.cpp').read_bytes()).hexdigest(), 'libraries': libraries}
+          (root / 'native-build-info.json').write_text(json.dumps(report, indent=2) + '\n')
+          PY
+      - name: Upload current native carrier and provenance
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: signing-native-${{ github.sha }}
+          path: |
+            .native-build/artifacts/libmpv-yfuse-bluray.aar
+            .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
+            .native-build/artifacts/ycore-gpu.aar
+            .native-build/artifacts/ycore-gpu.aar.sha256
+            .native-build/artifacts/NATIVE-SOURCES.txt
+            .native-build/artifacts/native-build-info.json
+            .native-build/artifacts/branch-audit.json
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    needs: native
     name: Compile, sign, and verify APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     environment:
       name: production
     env:
@@ -42,37 +145,23 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
       EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
-
     steps:
       - name: Publish workflow start
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          payload="$(jq -n \
-            --arg target_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --arg description "Signing run $GITHUB_RUN_ID is in progress" \
-            '{state: "pending", target_url: $target_url, description: $description, context: "yfuse/signed-apk"}')"
-          curl --fail-with-body --silent --show-error \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -d "$payload"
-
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=pending -f context=yfuse/signed-apk -f description="Signing run $GITHUB_RUN_ID is in progress" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 2
-
       - name: Set up Java
         uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
-
       - name: Install Android 36 and native build tools
         shell: bash
         run: |
@@ -84,12 +173,8 @@ jobs:
           fi
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" \
-            "platforms;android-36" \
-            "ndk;29.0.14206865" \
-            "cmake;3.22.1"
-
-      - name: Download player engines
+          "$sdkmanager" 'platforms;android-36' 'ndk;29.0.14206865' 'cmake;3.22.1'
+      - name: Download verified compatibility SDKs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,45 +184,42 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y p7zip-full
           fi
-          mkdir -p composeApp/libs
-          gh release download native-mpv-b955aa2-yfuse-dolby1-arm64-20260824 \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern libmpv-release.aar \
-            --dir composeApp/libs \
-            --clobber
           chmod +x gradlew scripts/fetch-engines.sh
           scripts/fetch-engines.sh
-          test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
-
-      # The Full package carries libmpv and MDK for compatibility and only the isolated GPU
-      # companion from YCore, built from the checked-out sources exactly as the quality gates
-      # build it, so the signed artifact and the gated one are the same package.
-      - name: Build and install current YCore GPU companion
+      - name: Download native libraries built from this commit
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: signing-native-${{ github.sha }}
+          path: .native-build/artifacts
+      - name: Install current native runtime without a stale binary fallback
         shell: bash
         run: |
           set -euo pipefail
-          artifacts="$RUNNER_TEMP/ycore-gpu-companion"
-          bash scripts/build-ycore-gpu-companion.sh "$artifacts"
-          install -m 0644 "$artifacts/ycore-gpu.aar" composeApp/libs/ycore-gpu.aar
-          install -m 0644 "$artifacts/ycore-gpu.aar.sha256" composeApp/libs/ycore-gpu.aar.sha256
-          install -m 0644 "$artifacts/NATIVE-SOURCES.txt" composeApp/libs/ycore-gpu.sources.txt
-
-      - name: Configure production signing
+          bash scripts/install-yfuse-mpv-bluray.sh
+          install -m 0644 .native-build/artifacts/ycore-gpu.aar composeApp/libs/ycore-gpu.aar
+          install -m 0644 .native-build/artifacts/ycore-gpu.aar.sha256 composeApp/libs/ycore-gpu.aar.sha256
+          install -m 0644 .native-build/artifacts/NATIVE-SOURCES.txt composeApp/libs/ycore-gpu.sources.txt
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          report = json.loads(pathlib.Path('.native-build/artifacts/native-build-info.json').read_text())
+          if report['sourceCommit'] != os.environ['GITHUB_SHA']:
+              raise SystemExit('Native artifact was built from another commit')
+          digest = hashlib.sha256(pathlib.Path('composeApp/libs/libmpv-release.aar').read_bytes()).hexdigest()
+          path = pathlib.Path('scripts/engine-checksums.sha256')
+          content = re.sub(r'^[0-9a-fA-F]{64}(\s+libmpv-(?:dolby-)?release\.aar)$', lambda match: digest + match.group(1), path.read_text(), flags=re.MULTILINE)
+          path.write_text(content)
+          PY
+      - name: Configure and verify production signing
         shell: bash
         run: |
           set -euo pipefail
-          required=(
-            ANDROID_KEYSTORE_BASE64
-            ANDROID_KEYSTORE_PASSWORD
-            ANDROID_KEY_ALIAS
-            ANDROID_KEY_PASSWORD
-          )
-          for name in "${required[@]}"; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::Missing required production secret: $name"
-              exit 1
-            fi
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then echo "::error::Missing required production secret: $name"; exit 1; fi
           done
           mkdir -p signing
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > signing/yfuse-release.jks
@@ -148,142 +230,82 @@ jobs:
             printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
             printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
           } > keystore.properties
-          chmod 600 keystore.properties
           printf 'tmdb.token=%s\n' "$TMDB_TOKEN" > local.properties
-          chmod 600 local.properties
-
-      - name: Verify configured certificate
-        shell: bash
-        run: |
-          set -euo pipefail
-          configured_cert="$(
-            keytool -list -v \
-              -keystore signing/yfuse-release.jks \
-              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
-              -alias "$ANDROID_KEY_ALIAS" |
-              sed -n 's/^[[:space:]]*SHA256: //p' |
-              head -n 1 |
-              tr -d ':[:space:]' |
-              tr '[:upper:]' '[:lower:]'
-          )"
-          expected_cert="$(tr -d ':[:space:]' <<<"$EXPECTED_ANDROID_CERT_SHA256" | tr '[:upper:]' '[:lower:]')"
-          if [[ -z "$configured_cert" || "$configured_cert" != "$expected_cert" ]]; then
-            echo "::error::Production signing certificate does not match the pinned certificate"
-            exit 1
-          fi
-
+          chmod 600 keystore.properties local.properties
+          actual="$(keytool -list -v -keystore signing/yfuse-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$EXPECTED_ANDROID_CERT_SHA256" ]]
       - name: Check source hygiene
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --check HEAD^
-
+        run: git diff --check HEAD^
       - name: Run tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew \
-            :composeApp:testDebugUnitTest \
-            :watchTogetherProtocol:jvmTest \
-            :watchTogetherServer:test \
-            --no-daemon
-
+        run: ./gradlew :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
       - name: Resolve signed build version
         id: version
         shell: bash
         run: |
           set -euo pipefail
-          request=".github/sign-android-request"
-          source_file="$request"
-          if [[ ! -f "$source_file" ]]; then
-            source_file="version.properties"
-          fi
+          source_file=.github/sign-android-request
+          [[ -f "$source_file" ]] || source_file=version.properties
           version_code="$(awk -F= '$1 == "version_code" || $1 == "VERSION_CODE" { print $2 }' "$source_file")"
           version_name="$(awk -F= '$1 == "version_name" || $1 == "VERSION_NAME" { print $2 }' "$source_file")"
           [[ "$version_code" =~ ^[0-9]+$ ]]
           [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
-
-      # The normal Full package: a native-only release has no MPV/Exo fallback and the build
-      # script refuses to sign one as a release.
-      # Match the existing production publish-android.yml confirmation for this same SDK.
       - name: Build signed release APK
         run: |
           ./gradlew :composeApp:assembleRelease \
             -PyfuseVersionCode=${{ steps.version.outputs.version_code }} \
             -PyfuseVersionName=${{ steps.version.outputs.version_name }} \
-            -PconfirmMdkDistributionRights=true \
-            --no-daemon
-
-      - name: Verify and stage signed APK
-        id: apk
+            -PconfirmMdkDistributionRights=true --no-daemon
+      - name: Verify APK signature, alignment, version, and native provenance
         shell: bash
         run: |
           set -euo pipefail
-          apk="composeApp/build/outputs/apk/release/composeApp-release.apk"
-          metadata="composeApp/build/outputs/apk/release/output-metadata.json"
+          apk=composeApp/build/outputs/apk/release/composeApp-release.apk
+          metadata=composeApp/build/outputs/apk/release/output-metadata.json
           test -s "$apk"
-          test -s "$metadata"
-          entries="$(mktemp)"
-          unzip -Z1 "$apk" > "$entries"
-          for required in libavcodec.so libavformat.so libmpv.so libmdk.so libycore_gpu.so; do
-            if ! grep -Fxq "lib/arm64-v8a/$required" "$entries"; then
-              echo "::error::Full package is missing lib/arm64-v8a/$required"
-              exit 1
-            fi
-          done
-
           android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
-          build_tools="$(find "$android_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          apksigner="$build_tools/apksigner"
-          zipalign="$build_tools/zipalign"
-          aapt="$build_tools/aapt"
-          test -x "$apksigner"
-          test -x "$zipalign"
-          test -x "$aapt"
-
-          signer_output="$("$apksigner" verify --verbose --print-certs "$apk")"
-          "$zipalign" -c -v 4 "$apk"
-          badging="$("$aapt" dump badging "$apk")"
-          expected_cert="$(tr -d ':[:space:]' <<<"$EXPECTED_ANDROID_CERT_SHA256" | tr '[:upper:]' '[:lower:]')"
-          normalized_signer_output="$(tr -d ':[:space:]' <<<"$signer_output" | tr '[:upper:]' '[:lower:]')"
-          if [[ "$normalized_signer_output" != *"$expected_cert"* ]]; then
-            echo "::error::APK signing certificate mismatch"
-            printf '%s\n' "$signer_output"
-            exit 1
-          fi
-          actual_cert="$expected_cert"
+          tools="$(find "$android_sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          signer_output="$("$tools/apksigner" verify --verbose --print-certs "$apk")"
+          "$tools/zipalign" -c -v 4 "$apk"
+          grep -Fq "$EXPECTED_ANDROID_CERT_SHA256" <<<"$signer_output"
+          badging="$("$tools/aapt" dump badging "$apk")"
           grep -Fq "package: name='com.yfuse'" <<<"$badging"
-
           version_code="$(jq -r '.elements[0].versionCode' "$metadata")"
           version_name="$(jq -r '.elements[0].versionName' "$metadata")"
+          [[ "$version_code" == '${{ steps.version.outputs.version_code }}' ]]
+          [[ "$version_name" == '${{ steps.version.outputs.version_name }}' ]]
           grep -Fq "versionCode='$version_code'" <<<"$badging"
           grep -Fq "versionName='$version_name'" <<<"$badging"
-
-          receiver_id="$(awk -F= '$1 == "yfuseCastReceiverApplicationId" { print $2 }' gradle.properties)"
-          [[ "$receiver_id" == "E9107559" ]]
-          dex_dir="$(mktemp -d)"
-          unzip -qq "$apk" 'classes*.dex' -d "$dex_dir"
-          if ! strings "$dex_dir"/classes*.dex | grep -F "$receiver_id" >/dev/null; then
-            echo "::error::Signed APK does not contain the configured Cast receiver application ID"
-            exit 1
-          fi
-
-          file_name="Yfuse-${version_code}-${version_name}-signed.apk"
+          python3 - "$apk" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+          import zipfile
+          report = json.loads(pathlib.Path('.native-build/artifacts/native-build-info.json').read_text())
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit('APK ZIP CRC verification failed')
+              for name in ['libavcodec.so', 'libavformat.so', 'libmpv.so', 'libmdk.so', 'libycore_demux.so', 'libycore_gpu.so']:
+                  archive.getinfo('lib/arm64-v8a/' + name)
+              for name, expected in report['libraries'].items():
+                  actual = hashlib.sha256(archive.read('lib/arm64-v8a/' + name)).hexdigest()
+                  if actual != expected:
+                      raise SystemExit('Packaged native library differs from current build: ' + name)
+              receiver = 'E9107559'
+              if 'yfuseCastReceiverApplicationId=' + receiver not in pathlib.Path('gradle.properties').read_text():
+                  raise SystemExit('Unexpected Cast receiver configuration')
+              if not any(receiver.encode() in archive.read(name) for name in archive.namelist() if name.endswith('.dex')):
+                  raise SystemExit('Cast receiver not embedded in APK')
+          PY
           mkdir -p build/signed-artifact
+          file_name="Yfuse-${version_code}-${version_name}-signed.apk"
           cp "$apk" "build/signed-artifact/$file_name"
-          sha256sum "build/signed-artifact/$file_name" > build/signed-artifact/SHA256SUMS
-          jq -n \
-            --arg packageName com.yfuse \
-            --arg versionCode "$version_code" \
-            --arg versionName "$version_name" \
-            --arg certificateSha256 "$actual_cert" \
-            --arg commit "$GITHUB_SHA" \
-            '{packageName: $packageName, versionCode: $versionCode, versionName: $versionName, certificateSha256: $certificateSha256, commit: $commit, runtime: "full"}' \
-            > build/signed-artifact/build-info.json
-          echo "file_name=$file_name" >> "$GITHUB_OUTPUT"
-
+          (cd build/signed-artifact && sha256sum "$file_name" > SHA256SUMS)
+          cp .native-build/artifacts/native-build-info.json build/signed-artifact/
+          if [[ -f .native-build/artifacts/branch-audit.json ]]; then cp .native-build/artifacts/branch-audit.json build/signed-artifact/; fi
+          jq -n --arg packageName com.yfuse --arg versionCode "$version_code" --arg versionName "$version_name" --arg certificateSha256 "$EXPECTED_ANDROID_CERT_SHA256" --arg commit "$GITHUB_SHA" '{packageName: $packageName, versionCode: $versionCode, versionName: $versionName, certificateSha256: $certificateSha256, commit: $commit, runtime: "full", nativeBuiltFromSource: true}' > build/signed-artifact/build-info.json
       - name: Upload signed APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -291,7 +313,6 @@ jobs:
           path: build/signed-artifact/
           if-no-files-found: error
           retention-days: 7
-
       - name: Publish workflow result
         if: always()
         shell: bash
@@ -299,22 +320,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           JOB_STATUS: ${{ job.status }}
         run: |
-          if [[ "$JOB_STATUS" == "success" ]]; then
-            state=success
-            description="Signed APK uploaded by run $GITHUB_RUN_ID"
-          else
-            state=failure
-            description="Signing run $GITHUB_RUN_ID failed"
-          fi
-          payload="$(jq -n \
-            --arg state "$state" \
-            --arg target_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --arg description "$description" \
-            '{state: $state, target_url: $target_url, description: $description, context: "yfuse/signed-apk"}')"
-          curl --fail-with-body --silent --show-error \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -d "$payload"
+          state=failure
+          [[ "$JOB_STATUS" != success ]] || state=success
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state="$state" -f context=yfuse/signed-apk -f description="Signing run $GITHUB_RUN_ID: $JOB_STATUS" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      - name: Remove signing material
+        if: always()
+        run: rm -f signing/yfuse-release.jks keystore.properties local.properties

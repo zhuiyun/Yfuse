@@ -12,6 +12,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
@@ -47,6 +48,7 @@ import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.playbackBufferProfile
 import com.yfuse.core2.android.AndroidSpatialAudioProbe
 import com.yfuse.core2.android.createAndroidSpatialAudioStateMonitor
+import com.yfuse.tv.player.isTelevisionDevice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -236,6 +238,39 @@ class ExoVideoEngine(
                         .setBackBuffer(profile.backBufferMs, profile.backBufferMs > 0)
                         .build()
                 }
+
+            // 隧道播放 on television devices: the decoder and the AudioTrack share one HW_AV_SYNC
+            // clock, which is the lowest-power and best-synchronised output Android TV has. The
+            // selector only tunnels when both the video decoder and the audio sink report support,
+            // so a device without it keeps the ordinary Surface path. Audio offload is requested
+            // the same way; it applies to audio-only playback and lets the CPU sleep between
+            // buffers. Speed changes must keep working, so offload is declined where the sink
+            // cannot change speed.
+            val tunnelingPreferred = decoderMode != DecoderMode.Software && isTelevisionDevice(context)
+            trackSelector.setParameters(
+                trackSelector
+                    .buildUponParameters()
+                    .setTunnelingEnabled(tunnelingPreferred)
+                    .setAudioOffloadPreferences(
+                        TrackSelectionParameters.AudioOffloadPreferences
+                            .Builder()
+                            .setAudioOffloadMode(
+                                TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED,
+                            ).setIsGaplessSupportRequired(false)
+                            .setIsSpeedChangeSupportRequired(true)
+                            .build(),
+                    ).build(),
+            )
+            AppLog.info(
+                category = "player.exo",
+                event = "output_preferences",
+                message = "ExoPlayer output preferences applied",
+                attributes =
+                    mapOf(
+                        "tunnelingPreferred" to tunnelingPreferred.toString(),
+                        "audioOffloadPreferred" to "true",
+                    ),
+            )
 
             ExoPlayer
                 .Builder(context, renderersFactory)

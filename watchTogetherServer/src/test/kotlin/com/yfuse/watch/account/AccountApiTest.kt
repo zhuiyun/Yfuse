@@ -205,6 +205,35 @@ class AccountApiTest {
         }
 
     @Test
+    fun refresh_accepts_fields_this_build_does_not_know_but_still_rejects_malformed_bodies() =
+        testApplication {
+            application {
+                watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
+            }
+
+            val refresh = register().string("refreshToken")
+            val requestId = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32) { 7 })
+            // A client newer than the deployed service sends fields the service has never seen.
+            // Rejecting them as invalid_json signed every updated device out until a redeploy.
+            val refreshed =
+                client.post("/api/v1/auth/refresh") {
+                    secureJson(
+                        """{"refreshToken":"$refresh","deviceName":"OPPO PLG110","requestId":"$requestId",""" +
+                            """"futureField":{"nested":true}}""",
+                    )
+                }
+            assertEquals(HttpStatusCode.OK, refreshed.status)
+
+            val malformed = client.post("/api/v1/auth/refresh") { secureJson("{") }
+            assertEquals(HttpStatusCode.BadRequest, malformed.status)
+            assertEquals("invalid_json", malformed.errorCode())
+
+            val missingRequiredField = client.post("/api/v1/auth/refresh") { secureJson("""{"deviceName":"x"}""") }
+            assertEquals(HttpStatusCode.BadRequest, missingRequiredField.status)
+            assertEquals("invalid_json", missingRequiredField.errorCode())
+        }
+
+    @Test
     fun expired_access_token_can_only_be_recovered_with_a_live_refresh_token() {
         var nowEpochMs = 1_700_000_000_000L
         testApplication {
