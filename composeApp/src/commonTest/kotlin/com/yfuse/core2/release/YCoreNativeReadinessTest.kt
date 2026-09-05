@@ -79,6 +79,30 @@ class YCoreNativeReadinessTest {
     }
 
     @Test
+    fun dolby_vision_brand_and_profile_suffixed_codec_names_are_admitted_as_hevc() {
+        listOf("dvhe", "dvh1", "hevc (Main 10)", "HEVC Main10").forEach { codec ->
+            val block =
+                evaluateCore2NativeBaseline(
+                    Core2NativeBaselineSource(
+                        hasMetadata = true,
+                        scheme = "https",
+                        container = "mkv",
+                        videoCodec = codec,
+                        serverTranscode = false,
+                        adaptiveManifest = false,
+                        disc = false,
+                        drm = false,
+                        dolbyVision = true,
+                        dolbyVisionSupported = true,
+                        externalSubtitleSupported = true,
+                    ),
+                )
+
+            assertEquals(null, block, "codec $codec")
+        }
+    }
+
+    @Test
     fun transport_stream_and_vc1_are_admitted_to_runtime_capability_checks() {
         val block =
             evaluateCore2NativeBaseline(

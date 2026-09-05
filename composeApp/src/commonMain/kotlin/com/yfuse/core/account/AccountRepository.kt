@@ -7,6 +7,7 @@ import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.security.AesGcmPayload
 import com.yfuse.core.security.RecoveryKeyEnvelope
 import com.yfuse.core.security.SecureStore
@@ -20,11 +21,15 @@ import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.applyCloudSyncSnapshot
 import com.yfuse.core.sync.captureCloudSyncSnapshot
 import com.yfuse.deviceModel
+import io.ktor.client.network.sockets.ConnectTimeoutException
+import io.ktor.client.network.sockets.SocketTimeoutException
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -553,6 +558,7 @@ class AccountRepository(
                     )
             }.onFailure { error ->
                 if (!restoringCredentials && _state.value is AccountState.SignedOut) return@onFailure
+                val phase = if (restoringCredentials) "refresh" else "sync"
                 if (
                     restoringCredentials &&
                     (
@@ -561,29 +567,50 @@ class AccountRepository(
                             error.status == HttpStatusCode.Unauthorized
                     )
                 ) {
+                    logRestoreFailure(error, phase = phase, outcome = "signed_out")
                     runCatching { secureStore.clear() }
                     setSignedOut()
                 } else {
                     val current = _state.value as? AccountState.SignedIn
                     if (current != null) {
+                        logRestoreFailure(error, phase = phase, outcome = "signed_in_without_cloud")
                         _state.value =
                             current.copy(
                                 syncing = false,
                                 message = "已登录，暂时无法读取云端数据",
                             )
                     } else {
-                        _state.value =
-                            AccountState.RestoreFailed(
-                                if (error is SecureStoreException) {
-                                    "本机登录信息暂时无法读取或保存，请重试。"
-                                } else {
-                                    "网络暂不可用，本机登录信息仍已安全保留。"
-                                },
-                            )
+                        logRestoreFailure(error, phase = phase, outcome = "retryable")
+                        _state.value = AccountState.RestoreFailed(restoreFailureMessage(error))
                     }
                 }
             }
         }
+    }
+
+    /**
+     * The diagnostic package used to carry nothing about the account page: a device that showed
+     * "暂时无法恢复账号" exported a log with no account entry at all, so the cause (server down,
+     * expired refresh token, timeout) could only be guessed. Tokens never enter the log; the
+     * status and exception type are enough to tell those apart.
+     */
+    private fun logRestoreFailure(
+        error: Throwable,
+        phase: String,
+        outcome: String,
+    ) {
+        AppLog.warning(
+            category = "account",
+            event = "restore_failed",
+            message = "Account session restore failed",
+            throwable = error,
+            attributes =
+                mapOf(
+                    "phase" to phase,
+                    "reason" to restoreFailureReason(error),
+                    "outcome" to outcome,
+                ),
+        )
     }
 
     private suspend fun validAccessTokenForWatch(): String? =
@@ -1068,3 +1095,39 @@ class AccountRepository(
         val USERNAME_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9_.-]{2,39}")
     }
 }
+
+/**
+ * Wording for a restore that failed without invalidating the stored session.
+ *
+ * Every non-Keystore failure used to read "网络暂不可用". When the account service itself is down,
+ * or a Cloudflare edge in front of it answers 530, or the request times out, that copy sends
+ * the user off to toggle Wi-Fi while nothing on the phone is wrong. Name the layer that failed.
+ */
+internal fun restoreFailureMessage(error: Throwable): String =
+    when {
+        error is SecureStoreException -> "本机登录信息暂时无法读取或保存，请重试。"
+        error is AccountApiException ->
+            if (error.status.value >= 500) {
+                "账号服务暂时不可用（HTTP ${error.status.value}），本机登录信息仍已安全保留。"
+            } else {
+                "账号服务返回异常（HTTP ${error.status.value}），本机登录信息仍已安全保留。"
+            }
+        error.isRestoreTimeout() -> "账号服务响应超时，本机登录信息仍已安全保留。"
+        else -> "网络暂不可用，本机登录信息仍已安全保留。"
+    }
+
+/** Compact, token-free classification for the diagnostic log. */
+internal fun restoreFailureReason(error: Throwable): String =
+    when {
+        error is SecureStoreCorruptedException -> "secure_store_corrupted"
+        error is SecureStoreException -> "secure_store"
+        error is AccountApiException -> "http_${error.status.value}:${error.code}"
+        error.isRestoreTimeout() -> "timeout"
+        else -> "network:${error::class.simpleName ?: "unknown"}"
+    }
+
+private fun Throwable.isRestoreTimeout(): Boolean =
+    this is TimeoutCancellationException ||
+        this is HttpRequestTimeoutException ||
+        this is ConnectTimeoutException ||
+        this is SocketTimeoutException

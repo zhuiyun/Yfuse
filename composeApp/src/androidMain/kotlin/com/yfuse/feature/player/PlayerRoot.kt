@@ -519,7 +519,7 @@ internal fun PlayerRoot(
             Toast
                 .makeText(
                     context,
-                    "YCore Native 播放失败，纯内核模式未切换兼容内核",
+                    core2NativeOnlyFailureToast(localState.errorKind),
                     Toast.LENGTH_SHORT,
                 ).show()
             return@LaunchedEffect
@@ -3173,3 +3173,15 @@ private fun PlaybackDeviceCapabilities.diagnosticLabel(): String {
             .ifBlank { "PCM" }
     return "显示 $display · 线路 $routes · 音频 $passthrough"
 }
+
+/**
+ * Toast for a terminal failure in the native-only runtime, which has no compatibility engine to
+ * hand over to. A source the server could not deliver is not an engine failure: telling the user
+ * the kernel "did not switch" hid the fact that the server behind their tunnel was unreachable.
+ */
+internal fun core2NativeOnlyFailureToast(kind: PlaybackFailureKind?): String =
+    when (kind) {
+        PlaybackFailureKind.Network -> "片源连接失败，请检查服务器或网络后重试"
+        PlaybackFailureKind.Authorization -> "片源授权已失效，请刷新播放地址后重试"
+        else -> "YCore Native 播放失败，纯内核模式未切换兼容内核"
+    }

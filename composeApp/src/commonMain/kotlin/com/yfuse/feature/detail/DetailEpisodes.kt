@@ -1,8 +1,10 @@
 package com.yfuse.feature.detail
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +23,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,9 +40,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Dimens
@@ -48,6 +63,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
@@ -55,6 +71,22 @@ import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.Episode
 import com.yfuse.core.network.EmbyImages
 
+/** Width of the floating season list; wide enough for "第 12 季 · 特别篇" without wrapping. */
+private val SeasonPickerWidth = 236.dp
+private val SeasonPickerMaxHeight = 360.dp
+private val SeasonPickerGap = 8.dp
+
+/** Scale the season list grows from; the rest of the way is the settle spring. */
+private const val SEASON_PICKER_SCALE_FROM = 0.82f
+
+/**
+ * Season header with the `切换季数 ▾` chip.
+ *
+ * The season list is a floating glass panel anchored to the chip. It is a real [Popup]: an
+ * overlay drawn inline from a lazy item would be painted under the rows that follow it, and
+ * a separate window is also what lets the panel scale in over the episode strip instead of
+ * pushing it down the page.
+ */
 @Composable
 private fun EpisodeHeader(
     accent: Color,
@@ -64,6 +96,7 @@ private fun EpisodeHeader(
     selectedSeasonId: String?,
     pickerOpen: Boolean,
     onTogglePicker: () -> Unit,
+    onDismissPicker: () -> Unit,
     onSelectSeason: (String) -> Unit,
     onManageProgress: () -> Unit,
     onSeeAll: () -> Unit,
@@ -76,11 +109,7 @@ private fun EpisodeHeader(
         animationSpec = Motion.settle(reduceMotion),
         label = "seasonChevron",
     )
-    Column(
-        modifier.animateContentSize(
-            animationSpec = if (reduceMotion) snap() else Motion.settle(),
-        ),
-    ) {
+    Column(modifier) {
         SectionHeader(seasonLabel) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -123,73 +152,181 @@ private fun EpisodeHeader(
                     Text("管理进度", style = AppTypography.caption.strong, color = accent)
                 }
                 if (seasons.size > 1) {
-                    Row(
-                        Modifier
-                            .pressable(onClick = onTogglePicker)
-                            .heightIn(min = 44.dp)
-                            .shadow(GlassLift.control, GlassShapes.thumb)
-                            .liquidGlass(
-                                shape = GlassShapes.thumb,
-                                fill = accent.copy(alpha = 0.13f),
-                                border = accent.copy(alpha = 0.28f),
-                                sheen = 0.7f,
-                            ).padding(horizontal = 10.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("切换季数", style = AppTypography.caption.medium, color = accent)
-                        Icon(
-                            AppIcons.ChevronDown,
-                            null,
-                            tint = accent,
-                            modifier = Modifier.size(9.dp).graphicsLayer { rotationZ = rotation },
+                    // The popup is a child of this box so its position provider receives the
+                    // chip's bounds as the anchor.
+                    Box {
+                        Row(
+                            Modifier
+                                .pressable(onClick = onTogglePicker)
+                                .heightIn(min = 44.dp)
+                                .shadow(GlassLift.control, GlassShapes.thumb)
+                                .liquidGlass(
+                                    shape = GlassShapes.thumb,
+                                    fill = accent.copy(alpha = 0.13f),
+                                    border = accent.copy(alpha = 0.28f),
+                                    sheen = 0.7f,
+                                ).padding(horizontal = 10.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("切换季数", style = AppTypography.caption.medium, color = accent)
+                            Icon(
+                                AppIcons.ChevronDown,
+                                null,
+                                tint = accent,
+                                modifier = Modifier.size(9.dp).graphicsLayer { rotationZ = rotation },
+                            )
+                        }
+                        SeasonPickerPopup(
+                            open = pickerOpen,
+                            accent = accent,
+                            seasons = seasons,
+                            selectedSeasonId = selectedSeasonId,
+                            onSelectSeason = onSelectSeason,
+                            onDismiss = onDismissPicker,
                         )
                     }
                 }
             }
         }
-        if (pickerOpen && seasons.size > 1) {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(bottom = 12.dp),
-            ) {
-                itemsIndexed(
-                    seasons,
-                    key = { index, season -> "season-${season.first}-$index" },
-                ) { _, (id, name) ->
-                    val selected = id == selectedSeasonId
+    }
+}
+
+/**
+ * The floating season list. Glass over the page, right-aligned under the chip, scaling in
+ * from its top-right corner and back out again; it stays composed while the exit runs so the
+ * close is as deliberate as the open.
+ */
+@Composable
+private fun SeasonPickerPopup(
+    open: Boolean,
+    accent: Color,
+    seasons: List<Pair<String, String>>,
+    selectedSeasonId: String?,
+    onSelectSeason: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(open, reduceMotion) {
+        if (open) {
+            progress.animateTo(1f, Motion.settle(reduceMotion))
+        } else {
+            progress.animateTo(
+                0f,
+                if (reduceMotion) snap() else tween(Motion.QUICK, easing = Motion.Curve),
+            )
+        }
+    }
+    // Composed while opening, open, or still animating shut.
+    if (!open && progress.value <= 0f) return
+    val gapPx = with(LocalDensity.current) { SeasonPickerGap.roundToPx() }
+    val positionProvider = remember(gapPx) { SeasonPickerPositionProvider(gapPx) }
+
+    Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true),
+    ) {
+        Column(
+            Modifier
+                .graphicsLayer {
+                    val entered = progress.value
+                    alpha = entered
+                    val scale = SEASON_PICKER_SCALE_FROM + (1f - SEASON_PICKER_SCALE_FROM) * entered
+                    scaleX = scale
+                    scaleY = scale
+                    transformOrigin = TransformOrigin(1f, 0f)
+                }.width(SeasonPickerWidth)
+                .shadow(Shadows.menu, GlassShapes.sheet)
+                .liquidGlass(
+                    shape = GlassShapes.sheet,
+                    fill =
+                        if (palette.isDark) {
+                            Color(0xFF111A29).copy(alpha = 0.90f)
+                        } else {
+                            Color.White.copy(alpha = 0.80f)
+                        },
+                    border = palette.border,
+                ).heightIn(max = SeasonPickerMaxHeight)
+                .verticalScroll(rememberScrollState())
+                .padding(8.dp),
+        ) {
+            seasons.forEach { (id, name) ->
+                val selected = id == selectedSeasonId
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .semantics { this.selected = selected }
+                        .pressable(
+                            role = Role.RadioButton,
+                            focusShape = GlassShapes.chip,
+                            onClick = { onSelectSeason(id) },
+                        ).then(
+                            if (selected) {
+                                Modifier.background(accent.copy(alpha = 0.12f), GlassShapes.chip)
+                            } else {
+                                Modifier
+                            },
+                        ).heightIn(min = 48.dp)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
                         name,
                         style = if (selected) AppTypography.body.strong else AppTypography.body.medium,
-                        color = if (selected) accent else palette.body,
+                        color = if (selected) accent else palette.text,
                         maxLines = 1,
-                        modifier =
-                            Modifier
-                                .pressable { onSelectSeason(id) }
-                                // No lift: these read as one picker's options, and a shadow under
-                                // each would break the row into a scatter of separate keys.
-                                .liquidGlass(
-                                    shape = GlassShapes.thumb,
-                                    fill =
-                                        if (selected) {
-                                            accent.copy(alpha = 0.14f)
-                                        } else if (palette.isDark) {
-                                            palette.card2
-                                        } else {
-                                            Color.White.copy(alpha = 0.30f)
-                                        },
-                                    border =
-                                        if (selected) {
-                                            accent.copy(alpha = 0.30f)
-                                        } else {
-                                            palette.border
-                                        },
-                                    sheen = 0.7f,
-                                ).padding(horizontal = 12.dp, vertical = 7.dp),
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
+                    if (selected) {
+                        Spacer(Modifier.width(10.dp))
+                        Box(
+                            Modifier
+                                .size(22.dp)
+                                .background(accent, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                AppIcons.Check,
+                                contentDescription = "当前季",
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * Right edge on the chip's right edge, opening below it; above it when the chip is too close
+ * to the bottom of the window. Never off-screen horizontally.
+ */
+private class SeasonPickerPositionProvider(
+    private val gapPx: Int,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val maxX = (windowSize.width - popupContentSize.width).coerceAtLeast(0)
+        val x = (anchorBounds.right - popupContentSize.width).coerceIn(0, maxX)
+        val below = anchorBounds.bottom + gapPx
+        val y =
+            if (below + popupContentSize.height <= windowSize.height) {
+                below
+            } else {
+                (anchorBounds.top - gapPx - popupContentSize.height).coerceAtLeast(0)
+            }
+        return IntOffset(x, y)
     }
 }
 
@@ -207,6 +344,7 @@ internal fun EpisodeSection(
     selectedSeasonId: String?,
     pickerOpen: Boolean,
     onTogglePicker: () -> Unit,
+    onDismissPicker: () -> Unit,
     onSelectSeason: (String) -> Unit,
     onManageProgress: () -> Unit,
     onPlayEpisode: (Episode) -> Unit,
@@ -231,6 +369,7 @@ internal fun EpisodeSection(
             selectedSeasonId = selectedSeasonId,
             pickerOpen = pickerOpen,
             onTogglePicker = onTogglePicker,
+            onDismissPicker = onDismissPicker,
             onSelectSeason = onSelectSeason,
             onManageProgress = onManageProgress,
             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
