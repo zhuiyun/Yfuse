@@ -26,7 +26,7 @@ class AndroidMediaExtractorReadAheadNodeTest {
         node.configureBufferPlan(targetAheadUs = 3_000_000L, maximumBytes = 64L * 1024L * 1024L)
         node.selectTracks(setOf(VIDEO_TRACK))
 
-        val snapshot = node.awaitQueued(minimumSamples = 8)
+        val snapshot = node.awaitBufferedDuration(3_000_000L)
 
         assertTrue(snapshot.bufferedDurationUs >= 3_000_000L, "buffered ${snapshot.bufferedDurationUs}")
         // A watermark that keeps filling would defeat the point of bounding the queue at all.
