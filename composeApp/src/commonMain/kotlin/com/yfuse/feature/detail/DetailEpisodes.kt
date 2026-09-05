@@ -110,11 +110,12 @@ private fun EpisodeHeader(
 ) {
     val palette = LocalPalette.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val rotation by animateFloatAsState(
-        targetValue = if (pickerOpen) 180f else 0f,
-        animationSpec = Motion.settle(reduceMotion),
-        label = "seasonChevron",
-    )
+    val rotation by
+        animateFloatAsState(
+            targetValue = if (pickerOpen) 180f else 0f,
+            animationSpec = Motion.settle(reduceMotion),
+            label = "seasonChevron",
+        )
     Row(
         modifier.fillMaxWidth().padding(bottom = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -407,7 +408,11 @@ internal fun EpisodeSection(
         remember(episodes, selectedEpisodeId) {
             episodeFocusIndex(episodes, selectedEpisodeId)
         }
-    var initiallyPositioned by remember(selectedSeasonId) { mutableStateOf(false) }
+    // The selector now lives outside this section. Scope initial placement to the displayed
+    // episode group without referencing the removed selectedSeasonId parameter. Episode identity
+    // also separates groups with identical season labels and stays stable across progress updates.
+    val firstEpisodeId = episodes.firstOrNull()?.id
+    var initiallyPositioned by remember(baseUrl, seasonLabel, firstEpisodeId) { mutableStateOf(false) }
 
     Column(Modifier.padding(top = Dimens.sectionGap)) {
         EpisodeHeader(
@@ -429,6 +434,9 @@ internal fun EpisodeSection(
                     -((maxWidth - 210.dp) / 2f).coerceAtLeast(0.dp).roundToPx()
                 }
             LaunchedEffect(
+                baseUrl,
+                seasonLabel,
+                firstEpisodeId,
                 selectedEpisodeId,
                 focusedEpisodeIndex,
                 reduceMotion,
@@ -489,11 +497,12 @@ private fun EpisodeCard(
     val selectedHighlight = Color.White
     val watching = (episode.playedPercentage ?: 0.0) > 0.0
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val selectedScale by animateFloatAsState(
-        targetValue = if (selected) 1.04f else 1f,
-        animationSpec = Motion.settle(reduceMotion),
-        label = "episodeCardSelectionScale",
-    )
+    val selectedScale by
+        animateFloatAsState(
+            targetValue = if (selected) 1.04f else 1f,
+            animationSpec = Motion.settle(reduceMotion),
+            label = "episodeCardSelectionScale",
+        )
     Column(
         Modifier
             .width(210.dp)
