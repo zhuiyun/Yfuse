@@ -131,12 +131,13 @@ jobs:
           git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
       - name: Upload preview APK
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Yfuse-preview-${{ github.event.pull_request.number }}-${{ github.sha }}
           path: composeApp/build/outputs/apk/release/composeApp-release.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           compression-level: 0
 
   supply-chain:
@@ -157,9 +158,10 @@ jobs:
       - name: Scan locked Maven dependencies with OSV
         run: python3 scripts/supply_chain_check.py --root . --sbom build/sbom/yfuse.spdx.json
       - name: Upload SPDX SBOM
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: yfuse-sbom-${{ github.sha }}
           path: build/sbom/yfuse.spdx.json
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 7
