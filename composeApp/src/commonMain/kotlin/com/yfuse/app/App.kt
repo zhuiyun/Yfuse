@@ -45,10 +45,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -92,6 +92,9 @@ import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.backdropSource
+import com.yfuse.core.designsystem.drawLensIsland
+import com.yfuse.core.designsystem.liquidNavigationGlass
+import com.yfuse.core.designsystem.navigationGlass
 import com.yfuse.core.designsystem.overlayGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberBackdropState
@@ -126,7 +129,11 @@ internal data class NavigationGlassVisuals(
     val selection: Color,
 )
 
-/** One navigation material for the bottom dock, its detached keys and the expanded rail. */
+/**
+ * The navigation furniture's plate and pill for the two fallback materials — 毛玻璃 and
+ * 减弱透明度. The liquid style draws a lens instead: see `Modifier.navigationGlass` and
+ * `drawLensIsland`.
+ */
 internal fun navigationGlassVisuals(
     palette: com.yfuse.core.designsystem.Palette,
     accent: com.yfuse.core.designsystem.AccentColors,
@@ -741,7 +748,9 @@ private fun BottomNavigationDock(
             .padding(horizontal = Dimens.tabBarInset)
             .padding(bottom = Dimens.tabBarInset)
             .height(Dimens.tabBarHeight),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        // The gap between the capsule and 搜索 is the same token as the margin to the screen
+        // edge, so the three spaces across the row read as one rhythm.
+        horizontalArrangement = Arrangement.spacedBy(Dimens.tabBarInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (collapsed) {
@@ -770,9 +779,7 @@ private fun CollapsedNavButton(
     backdrop: BackdropState,
     onClick: () -> Unit,
 ) {
-    val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val navigationGlass = navigationGlassVisuals(palette, accent)
     val item = tabs.firstOrNull { it.tab == active } ?: tabs.first()
     Box(
         Modifier
@@ -785,16 +792,10 @@ private fun CollapsedNavButton(
             )
             // Round, like the search key beside it and like the capsule it collapsed out of.
             // A rounded square made the pair read as two unrelated controls.
-            .shadow(Shadows.tabBar, CircleShape)
-            .backdropBlur(backdrop, CircleShape)
-            .overlayGlass(
-                CircleShape,
-                navigationGlass.shell,
-                palette.tabbarBorder,
-            ),
+            .navigationGlass(backdrop, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        LiquidGlassTabIcon(item = item, selected = true, tint = accent.accent, compact = true)
+        LiquidGlassTabIcon(item = item, tint = accent.accent, compact = true)
     }
 }
 
@@ -804,6 +805,11 @@ private fun CollapsedNavButton(
  * Round where the tabs are a capsule, because it is not one of them: it does not hold a
  * position in the app, it takes you out of wherever you are and hands you back somewhere
  * else. It stays put when the bar collapses.
+ *
+ * Its resting state is the same ink as the tabs, at full size. It used to be grey and
+ * shrunk like an unselected tab, which is the language of "not where you are" — but
+ * search is not a place, it is an action that is always available, and it should look it.
+ * Only while the search page is open does it take the accent and an island of its own.
  */
 @Composable
 private fun SearchButton(
@@ -814,26 +820,17 @@ private fun SearchButton(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val liquid = liquidNavigationGlass()
     val navigationGlass = navigationGlassVisuals(palette, accent)
     val tint by animateColorAsState(
-        targetValue = if (selected) accent.accent else palette.sub2,
+        targetValue = if (selected) accent.accent else palette.text,
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "searchTint",
     )
-    val fill by animateColorAsState(
-        targetValue = if (selected) navigationGlass.selection else navigationGlass.shell,
-        animationSpec = Motion.settle<Color>(reduceMotion),
-        label = "searchFill",
-    )
-    val border by animateColorAsState(
-        targetValue = if (selected) accent.border else palette.tabbarBorder,
-        animationSpec = Motion.settle<Color>(reduceMotion),
-        label = "searchBorder",
-    )
-    val iconScale by animateFloatAsState(
-        targetValue = if (selected) 1f else INACTIVE_TAB_ICON_SCALE,
-        animationSpec = Motion.tabIcon(reduceMotion),
-        label = "searchIconScale",
+    val islandAlpha by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = Motion.settle<Float>(reduceMotion),
+        label = "searchIsland",
     )
     Box(
         Modifier
@@ -845,36 +842,41 @@ private fun SearchButton(
                 onClickLabel = "搜索",
                 onClick = onClick,
             ).semantics(mergeDescendants = true) { this.selected = selected }
-            .shadow(Shadows.tabBar, CircleShape)
-            .backdropBlur(backdrop, CircleShape)
-            .overlayGlass(
-                CircleShape,
-                fill,
-                border,
-            ),
+            .navigationGlass(backdrop, CircleShape)
+            .drawBehind {
+                if (islandAlpha <= 0f) return@drawBehind
+                // The island sits just inside the rim, as the tab pill sits inside the bar.
+                val inset = SEARCH_ISLAND_INSET.toPx()
+                val rect = Rect(inset, inset, size.width - inset, size.height - inset)
+                if (liquid) {
+                    drawLensIsland(rect, dark = palette.isDark, accent = accent.accent, alpha = islandAlpha)
+                } else {
+                    val selection = navigationGlass.selection
+                    drawRoundRect(
+                        color = selection.copy(alpha = selection.alpha * islandAlpha),
+                        topLeft = rect.topLeft,
+                        size = rect.size,
+                        cornerRadius = CornerRadius(rect.height / 2f),
+                    )
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             AppIcons.SearchTab,
             contentDescription = "搜索",
             tint = tint,
-            modifier =
-                Modifier
-                    .size(23.dp)
-                    .graphicsLayer {
-                        scaleX = iconScale
-                        scaleY = iconScale
-                    },
+            modifier = Modifier.size(26.dp),
         )
     }
 }
 
 /**
- * `.tabbar` — 浮层: left/right 14, bottom 14, height 62, radius 26 (大档), glass fill,
- * 1px hairline, `0 12px 30px rgba(60,90,150,.18)`, items spaced `space-around`.
+ * `.tabbar` — 浮层: left/right 14, bottom 14, height 62, a full capsule, items spaced
+ * `space-around`. The material is the navigation lens — see `Modifier.navigationGlass`.
  *
  * §3 fixes the bottom stack as 内容 → 迷你播放器 → tab bar, with the mini player sharing
- * this material, radius and horizontal inset so the two read as one continuous overlay.
+ * the horizontal inset so the two read as one continuous overlay.
  */
 @Composable
 private fun GlassTabBar(
@@ -886,14 +888,12 @@ private fun GlassTabBar(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val liquid = liquidNavigationGlass()
     val navigationGlass = navigationGlassVisuals(palette, accent)
     // -1 while 搜索 is open: it is not one of the cells any more, so the pill has nowhere to
     // be and is not drawn rather than parking under 首页 and claiming the user is there.
     val selectedIndex = tabs.indexOfFirst { it.tab == active }
     val hasSelection = selectedIndex >= 0
-    // The shell uses the same semantic material as the rail and detached keys. The glass
-    // implementation itself resolves liquid/frosted differences; overriding alpha here used
-    // to turn only the phone dock into a near-opaque plate.
     // Two independently sprung edges make the selected glass pull slightly in the direction
     // of travel. The draw phase caps that stretch, so a jump across the bar never turns the
     // indicator into a stripe spanning unrelated icons.
@@ -954,23 +954,17 @@ private fun GlassTabBar(
             // reading four unrelated controls.
             .selectableGroup()
             .height(Dimens.tabBarHeight)
-            // The reference uses a true capsule rather than a rounded rectangle: the shell
-            // stays soft after increasing the fixed bar height. Text is already single-line and
-            // scaled by the accessibility typography tokens, so an unbounded minimum here lets
-            // the children's fillMaxHeight consume the whole screen.
-            .shadow(Shadows.tabBar, CircleShape)
-            .backdropBlur(backdrop, CircleShape)
-            .overlayGlass(CircleShape, navigationGlass.shell, palette.tabbarBorder)
-            // After the fill and before the buttons: the pill belongs to the material, not
+            // A true capsule rather than a rounded rectangle, so the shell stays soft at the
+            // taller bar height.
+            .navigationGlass(backdrop, CircleShape)
+            // After the material and before the buttons: the island belongs to the glass, not
             // over the icons.
             .drawBehind {
                 if (indicatorAlpha <= 0f) return@drawBehind
                 val cell = size.width / tabs.size
-                // Search/Profile sit over quiet page backgrounds, where the former 12% pill
-                // nearly disappeared. A slightly larger, stronger indicator stays legible over both
-                // artwork-heavy roots and plain roots without turning into a filled button.
-                // The selected region nearly fills its cell, matching the broad soft island
-                // in the reference instead of reading as a small Material indicator.
+                // The selected region nearly fills its cell — a broad island, not a small
+                // Material indicator — so it stays legible over artwork-heavy roots and the
+                // quiet ones alike.
                 val bounds =
                     tabIndicatorBounds(
                         rawLeft = indicatorLeft.value,
@@ -979,21 +973,25 @@ private fun GlassTabBar(
                     )
                 val pillWidth = cell * bounds.width
                 val pillHeight = size.height * 0.86f
-                drawRoundRect(
-                    color =
-                        navigationGlass.selection.copy(
-                            alpha =
-                                navigationGlass.selection.alpha *
-                                    indicatorAlpha.coerceIn(0f, 1f),
-                        ),
-                    topLeft =
-                        Offset(
-                            x = cell * bounds.left,
-                            y = (size.height - pillHeight) / 2f,
-                        ),
-                    size = Size(pillWidth, pillHeight),
-                    cornerRadius = CornerRadius(pillHeight / 2f),
-                )
+                val left = cell * bounds.left
+                val top = (size.height - pillHeight) / 2f
+                val alpha = indicatorAlpha.coerceIn(0f, 1f)
+                if (liquid) {
+                    drawLensIsland(
+                        rect = Rect(left, top, left + pillWidth, top + pillHeight),
+                        dark = palette.isDark,
+                        accent = accent.accent,
+                        alpha = alpha,
+                    )
+                } else {
+                    val selection = navigationGlass.selection
+                    drawRoundRect(
+                        color = selection.copy(alpha = selection.alpha * alpha),
+                        topLeft = Offset(left, top),
+                        size = Size(pillWidth, pillHeight),
+                        cornerRadius = CornerRadius(pillHeight / 2f),
+                    )
+                }
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1013,11 +1011,11 @@ private fun RowScope.TabButton(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    // The tint used to cut straight from grey to accent while the pill slid underneath it;
-    // crossfading them puts the two halves of the same transition on the same clock — which
-    // now means the same spring, so the tint tracks the pill even through rapid taps.
+    // Unselected tabs are the page's ink, not a grey: the glyphs are silhouettes now and
+    // have to hold their own over artwork. Crossfading the tint puts it on the same spring
+    // as the island sliding underneath, so the two halves of one transition stay together.
     val tint by animateColorAsState(
-        targetValue = if (selected) accent.accent else palette.sub2,
+        targetValue = if (selected) accent.accent else palette.text,
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "tabTint",
     )
@@ -1045,7 +1043,7 @@ private fun RowScope.TabButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        LiquidGlassTabIcon(item = item, selected = selected, tint = tint)
+        LiquidGlassTabIcon(item = item, tint = tint)
     }
 }
 
@@ -1057,17 +1055,13 @@ private fun GlassNavigationRail(
     backdrop: BackdropState,
     modifier: Modifier = Modifier,
 ) {
-    val palette = LocalPalette.current
-    val navigationGlass = navigationGlassVisuals(palette, LocalAccentColors.current)
     Column(
         modifier
             .padding(start = Dimens.tabBarInset, top = 72.dp, bottom = 72.dp)
             .width(76.dp)
             .fillMaxHeight()
             .selectableGroup()
-            .shadow(Shadows.tabBar, GlassShapes.tabBar)
-            .backdropBlur(backdrop, GlassShapes.tabBar)
-            .overlayGlass(GlassShapes.tabBar, navigationGlass.shell, palette.tabbarBorder)
+            .navigationGlass(backdrop, GlassShapes.tabBar)
             .padding(horizontal = 6.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceEvenly,
@@ -1091,24 +1085,33 @@ private fun RailTabButton(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val liquid = liquidNavigationGlass()
     val navigationGlass = navigationGlassVisuals(palette, accent)
     val tint by animateColorAsState(
-        targetValue = if (selected) accent.accent else palette.sub2,
+        targetValue = if (selected) accent.accent else palette.text,
         animationSpec = Motion.settle<Color>(reduceMotion),
         label = "railTabTint",
     )
-    val selection by animateColorAsState(
-        targetValue = if (selected) navigationGlass.selection else Color.Transparent,
-        animationSpec = Motion.settle<Color>(reduceMotion),
-        label = "railTabSelection",
+    val islandAlpha by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = Motion.settle<Float>(reduceMotion),
+        label = "railTabIsland",
     )
     Column(
         Modifier
             .width(64.dp)
             .heightIn(min = 58.dp)
             .clip(GlassShapes.card)
-            .background(selection)
-            .pressable(
+            .drawBehind {
+                if (islandAlpha <= 0f) return@drawBehind
+                val rect = Rect(Offset.Zero, size)
+                if (liquid) {
+                    drawLensIsland(rect, dark = palette.isDark, accent = accent.accent, alpha = islandAlpha)
+                } else {
+                    val selection = navigationGlass.selection
+                    drawRect(color = selection.copy(alpha = selection.alpha * islandAlpha))
+                }
+            }.pressable(
                 pressedScale = 0.96f,
                 haptic = HapticSignal.Select,
                 role = Role.Tab,
@@ -1117,34 +1120,26 @@ private fun RailTabButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        LiquidGlassTabIcon(item = item, selected = selected, tint = tint, compact = true)
+        LiquidGlassTabIcon(item = item, tint = tint, compact = true)
     }
 }
 
 /**
- * Liquid-glass ink for tab glyphs.
+ * A tab glyph in its optical box.
  *
- * The material follows the icon contour rather than putting every glyph inside another
- * circle. A faint displaced copy gives the stroke optical thickness; the foreground is
- * masked with a bright-top/deep-bottom refraction ramp. Selected icons grow slightly and
- * pick up the current accent while inactive icons retain a neutral glass tint.
+ * The glyphs are silhouettes, so there is nothing for the material to do here beyond the
+ * tint: the holes cut through them show the lens underneath. Unselected tabs used to shrink
+ * to 94%, which made the four read as a row of things not quite in focus; every glyph now
+ * sits at full size and only the ink changes.
  */
 @Composable
 private fun LiquidGlassTabIcon(
     item: TabItem,
-    selected: Boolean,
     tint: Color,
     compact: Boolean = false,
 ) {
     val boxSize = if (compact) 34.dp else 38.dp
     val iconSize = if (compact) 25.dp else 28.dp
-    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val scale by animateFloatAsState(
-        targetValue = if (selected) 1f else INACTIVE_TAB_ICON_SCALE,
-        animationSpec = Motion.tabIcon(reduceMotion),
-        label = "tabIconScale",
-    )
-
     Box(
         Modifier.size(boxSize),
         contentAlignment = Alignment.Center,
@@ -1153,13 +1148,7 @@ private fun LiquidGlassTabIcon(
             item.icon,
             contentDescription = item.label,
             tint = tint,
-            modifier =
-                Modifier
-                    .size(iconSize)
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                    },
+            modifier = Modifier.size(iconSize),
         )
     }
 }
@@ -1204,4 +1193,6 @@ internal fun rootTabMotion(
 private const val TAB_PILL_WIDTH_FRACTION = 0.82f
 private const val TAB_PILL_MIN_SCALE = 0.94f
 private const val TAB_PILL_MAX_SCALE = 1.12f
-private const val INACTIVE_TAB_ICON_SCALE = 0.94f
+
+/** How far 搜索's island sits inside its rim, as the tab island sits inside the bar. */
+private val SEARCH_ISLAND_INSET = 3.dp
