@@ -31,6 +31,7 @@ internal sealed interface YMatroskaDolbyVisionMetadataResult {
 internal object YMatroskaDolbyVisionMetadataParser {
     fun parse(bytes: ByteArray): YMatroskaDolbyVisionMetadataResult {
         if (bytes.isEmpty()) return YMatroskaDolbyVisionMetadataResult.Truncated
+        if (bytes.first() == 0.toByte()) return YMatroskaDolbyVisionMetadataResult.Invalid
         val ebml = readElement(bytes, 0) ?: return YMatroskaDolbyVisionMetadataResult.Truncated
         if (ebml.id != ID_EBML) return YMatroskaDolbyVisionMetadataResult.Invalid
         var position = ebml.completeEnd(bytes.size) ?: return YMatroskaDolbyVisionMetadataResult.Truncated
@@ -174,6 +175,7 @@ internal sealed interface YMatroskaTrackCodecResult {
 internal object YMatroskaTrackCodecParser {
     fun parse(bytes: ByteArray): YMatroskaTrackCodecResult {
         if (bytes.isEmpty()) return YMatroskaTrackCodecResult.Truncated
+        if (bytes.first() == 0.toByte()) return YMatroskaTrackCodecResult.Invalid
         val ebml = readElement(bytes, 0) ?: return YMatroskaTrackCodecResult.Truncated
         if (ebml.id != ID_EBML) return YMatroskaTrackCodecResult.Invalid
         var position = ebml.completeEnd(bytes.size) ?: return YMatroskaTrackCodecResult.Truncated
