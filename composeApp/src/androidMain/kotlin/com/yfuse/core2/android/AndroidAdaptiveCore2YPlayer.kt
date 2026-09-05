@@ -87,6 +87,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             nowEpochMs = System::currentTimeMillis,
         ),
     private val adaptiveFeedbackSink: AndroidYCoreHttpProxy? = null,
+    private val verifiedRouteMemory: AndroidYCoreVerifiedRouteMemory = AndroidYCoreVerifiedRouteMemory(context),
     private val onRelease: () -> Unit = {},
 ) : YPlayer {
     private val nativeOnly = fallbackRouteFactory == null
@@ -358,6 +359,9 @@ internal class AndroidAdaptiveCore2YPlayer(
         var forceSoftwareFallback = false
         var bypassLearnedRouteMemoryOnce = false
         var pendingFailureKey: YCore2FailureKey? = null
+
+        /** The media and probe behind the child being started, recorded once the child renders. */
+        var pendingVerifiedRoute: Pair<YMediaItem, YCore2ProbeResult.Success>? = null
         var finalizeChildLearning: (() -> Unit)? = null
         var nextItemPreloadJob: Job? = null
         var preloadedNextRoute: PreloadedNextRoute? = null
@@ -625,6 +629,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         fun createChild(positionMs: Long): YPlayer? {
             pendingFailureKey = null
+            pendingVerifiedRoute = null
             val bypassLearnedRouteMemory =
                 shouldBypassLearnedYCoreRouteMemory(
                     manualRetry = bypassLearnedRouteMemoryOnce,
@@ -674,6 +679,22 @@ internal class AndroidAdaptiveCore2YPlayer(
                     attributes = mapOf("itemIndex" to currentIndex.toString()),
                 )
             }
+            // A route this device already rendered for exactly this media skips the probes and
+            // starts at planning; the device-side gates below still run on it.
+            val rememberedProbe =
+                if (warmedRoute == null && !bypassLearnedRouteMemory && !forceSoftwareFallback) {
+                    verifiedRouteMemory.probeFor(item)
+                } else {
+                    null
+                }
+            if (rememberedProbe != null) {
+                AppLog.info(
+                    category = "player.core2",
+                    event = "verified_route_reused",
+                    message = "YCore reused the probe a verified playback of this media established",
+                    attributes = mapOf("itemIndex" to currentIndex.toString()),
+                )
+            }
             var decision =
                 warmedRoute?.decision
                     ?: routeEvaluator.evaluate(
@@ -681,6 +702,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         preferTunnel = tunnelAllowed,
                         allowAudioPassthrough = allowAudioPassthrough,
                         forcePowerSaver = forcePowerSaver,
+                        rememberedProbe = rememberedProbe,
                     )
             if (forceSoftwareFallback) {
                 return createInternalSoftwareRoute(item, singleRequest, decision)
@@ -712,6 +734,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         preferTunnel = false,
                         allowAudioPassthrough = allowAudioPassthrough,
                         forcePowerSaver = forcePowerSaver,
+                        rememberedProbe = rememberedProbe,
                     ) ?: return createInconclusiveSourceRoute(item, singleRequest)
             }
             val learnedAdvice = learningEngine.advice(decision.toFailureKey().toLearningKey())
@@ -743,15 +766,22 @@ internal class AndroidAdaptiveCore2YPlayer(
                         "decodePath" to plan.decodePath.name,
                         "renderPath" to plan.renderPath.name,
                         "platformDemuxSupported" to
-                            decision.probe.playbackRequest.platformDemuxSupported.toString(),
+                            decision.probe.playbackRequest.platformDemuxSupported
+                                .toString(),
                         "enhancedDemuxSupported" to
-                            decision.probe.playbackRequest.enhancedDemuxSupported.toString(),
+                            decision.probe.playbackRequest.enhancedDemuxSupported
+                                .toString(),
                         "videoCodec" to decision.probe.playbackRequest.video.codec.name,
                         "audioCodec" to
-                            (decision.probe.playbackRequest.audio?.codec?.name ?: "None"),
+                            (
+                                decision.probe.playbackRequest.audio
+                                    ?.codec
+                                    ?.name ?: "None"
+                            ),
                     ),
             )
             pendingFailureKey = decision.toFailureKey()
+            pendingVerifiedRoute = item to decision.probe
             return when {
                 !forceSoftwareFallback && tunnelAllowed && decision.nativeTunnelExecutable ->
                     AndroidNativeTunnelYPlayer(
@@ -871,6 +901,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             activeChild = next
             val childIndex = currentIndex
             val childFailureKey = pendingFailureKey
+            val childVerifiedRoute = pendingVerifiedRoute
             var failureRecorded = false
             var successRecorded = false
             var learningRecorded = false
@@ -969,7 +1000,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             prematureEnd &&
                             !recoveryQueued &&
                             (sameRouteRecoveryAttempts[prematureEndRecoveryKey] ?: 0) <
-                                MAX_PREMATURE_END_RECOVERY_ATTEMPTS
+                            MAX_PREMATURE_END_RECOVERY_ATTEMPTS
                         ) {
                             recoveryQueued = true
                             sameRouteRecoveryAttempts[prematureEndRecoveryKey] =
@@ -1040,6 +1071,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                             if (childFailureKey != null && category != null) {
                                 failureLedger.recordFailure(childFailureKey, category)
                             }
+                            // A local failure on the remembered route means the remembered facts
+                            // no longer describe this media on this device; a transport, account
+                            // or DRM failure says nothing about them.
+                            if (category != null && category !in VERIFIED_ROUTE_NEUTRAL_FAILURES) {
+                                childVerifiedRoute?.first?.let(verifiedRouteMemory::forget)
+                            }
                             if (!prematureEnd) recordLearning(childState, terminal = true)
                         }
                         if (
@@ -1050,6 +1087,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                         ) {
                             successRecorded = true
                             failureLedger.recordSuccess(childFailureKey)
+                            childVerifiedRoute?.let { (verifiedItem, probe) ->
+                                verifiedRouteMemory.recordVerified(verifiedItem, probe)
+                            }
                         }
                         if (
                             !nextItemPreloadRequested &&
@@ -1354,7 +1394,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 command.index == currentIndex &&
                                 activeState != null &&
                                 activeState.phase in
-                                    setOf(YPlaybackPhase.Failed, YPlaybackPhase.Ended) &&
+                                setOf(YPlaybackPhase.Failed, YPlaybackPhase.Ended) &&
                                 activeState.diagnostics.route == command.route
                             ) {
                                 pendingPositionMs = command.positionMs
@@ -1600,6 +1640,14 @@ internal fun canRetryCore2RouteInPlace(route: YPlaybackRoute): Boolean =
             YPlaybackRoute.NativeEnhanced,
             YPlaybackRoute.GpuEnhanced,
         )
+
+/** Failure categories that say nothing about whether the remembered media facts still hold. */
+private val VERIFIED_ROUTE_NEUTRAL_FAILURES =
+    setOf(
+        YPlaybackFailureCategory.Network,
+        YPlaybackFailureCategory.Authorization,
+        YPlaybackFailureCategory.Drm,
+    )
 
 private const val MIN_LEARNING_PLAYBACK_MS = 30_000L
 private const val MAX_PREMATURE_END_RECOVERY_ATTEMPTS = 1
