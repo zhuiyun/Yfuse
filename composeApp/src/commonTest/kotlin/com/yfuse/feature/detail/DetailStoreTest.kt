@@ -1202,8 +1202,11 @@ class DetailStoreTest {
                             """{"Items":[{"Id":"aseason1","Name":"第 1 季","IndexNumber":1}]}""",
                         )
                     path.endsWith("/Shows/s1/Episodes") -> {
-                        onFirstEpisodesRequest(request.url.parameters["SeasonId"])
-                        if (request.url.parameters["SeasonId"] == null) {
+                        val coordinateLookup = request.url.parameters["Season"] != null
+                        if (!coordinateLookup) {
+                            onFirstEpisodesRequest(request.url.parameters["SeasonId"])
+                        }
+                        if (request.url.parameters["SeasonId"] == null && !coordinateLookup) {
                             beforeInitialEpisodes()
                         }
                         if (request.url.parameters["SeasonId"] == "season2") {
