@@ -21,8 +21,8 @@ import androidx.compose.ui.unit.dp
 /**
  * One continuous glass pane for the dock, detached search key and navigation rail.
  *
- * The page is sampled once by each surface. A restrained tint and one fine, directional
- * rim sit above that sample; a single neutral shadow lifts the furniture off the page.
+ * The page is sampled once by each surface. A restrained pearl tint and one fine,
+ * directional rim sit above that sample; a single neutral shadow lifts it off the page.
  * There is deliberately no wide inner stroke, dark underside or second contact shadow:
  * those concentric edges made the old dock look like two nested navigation bars.
  *
@@ -43,6 +43,7 @@ fun Modifier.navigationGlass(
             .overlayGlass(shape, palette.glassStrong, palette.tabbarBorder)
     }
     val ink = if (palette.isDark) NavigationGlassInk.Dark else NavigationGlassInk.Light
+    val accent = LocalAccentColors.current.accent
     return this
         .shadow(ink.shadow, shape)
         .backdropBlur(
@@ -55,6 +56,16 @@ fun Modifier.navigationGlass(
         .drawWithCache {
             val outline = shape.createOutline(size, layoutDirection, this)
             val tint = Brush.verticalGradient(0f to ink.tintTop, 1f to ink.tintBottom)
+            // A quiet shared pearl tint coordinates the detached search key and dock;
+            // most of their colour still comes from the actual page beneath the glass.
+            val pearl =
+                Brush.linearGradient(
+                    0f to lerp(PearlRose, accent, 0.18f).copy(alpha = 0.035f),
+                    0.5f to Color.Transparent,
+                    1f to lerp(PearlBlue, accent, 0.18f).copy(alpha = 0.045f),
+                    start = Offset.Zero,
+                    end = Offset(size.width, size.height),
+                )
             val sheen =
                 Brush.radialGradient(
                     0f to Color.White.copy(alpha = ink.sheenAlpha),
@@ -75,6 +86,7 @@ fun Modifier.navigationGlass(
             val rimStroke = Stroke(NavigationGlassRim.toPx() * 2f)
             onDrawBehind {
                 drawOutline(outline, brush = tint)
+                drawOutline(outline, brush = pearl)
                 drawOutline(outline, brush = sheen)
                 drawOutline(outline, brush = rim, style = rimStroke)
             }
@@ -100,10 +112,10 @@ fun liquidNavigationGlass(): Boolean =
 /**
  * A softly tinted capsule embedded in the dock, not another floating glass button.
  *
- * A single translucent colour ramp lets the already-blurred poster colour through.
- * Its accent comes from the current theme rather than a fixed blue plate. One fine
- * highlight distinguishes the selected region; no island shadow, extra blur or glow
- * is painted outside it. Existing geometry and reduced-motion transitions stay in App.
+ * Rose and blue pearl ends blend through the current accent without a fixed blue plate.
+ * The translucent ramp lets the already-blurred poster colour through. One fine highlight
+ * distinguishes the selected region; no island shadow, extra blur or glow is painted
+ * outside it. Existing geometry and reduced-motion transitions stay in App.
  */
 fun DrawScope.drawLensIsland(
     rect: Rect,
@@ -176,9 +188,9 @@ internal fun navigationSelectionInk(
     accent: Color,
 ): NavigationSelectionInk =
     NavigationSelectionInk(
-        top = lerp(accent, Color.White, if (dark) 0.58f else 0.78f).copy(alpha = if (dark) 0.24f else 0.28f),
-        middle = accent.copy(alpha = if (dark) 0.12f else 0.10f),
-        bottom = lerp(accent, Color.White, if (dark) 0.24f else 0.52f).copy(alpha = 0.18f),
+        top = lerp(PearlRose, accent, 0.20f).copy(alpha = if (dark) 0.22f else 0.24f),
+        middle = accent.copy(alpha = if (dark) 0.12f else 0.14f),
+        bottom = lerp(PearlBlue, accent, 0.20f).copy(alpha = if (dark) 0.20f else 0.22f),
         rimNear = if (dark) 0.28f else 0.38f,
         rimSide = if (dark) 0.06f else 0.10f,
         rimFar = if (dark) 0.14f else 0.20f,
@@ -188,8 +200,10 @@ internal fun navigationSelectionInk(
 val NavigationGlassBlurRadius: Dp = 18.dp
 
 internal val NavigationGlassRim: Dp = 0.75.dp
-internal val NavigationGlassRefraction = BackdropRefraction(edgeX = 0.12f, edgeY = 0.22f, strength = 6.dp)
+internal val NavigationGlassRefraction = BackdropRefraction(edgeX = 0.12f, edgeY = 0.18f, strength = 4.dp)
 private const val NAVIGATION_GLASS_SATURATION = 1.30f
+private val PearlRose = Color(0xFFE5A4EE)
+private val PearlBlue = Color(0xFFB4DAFA)
 
 internal class NavigationGlassInk(
     val tintTop: Color,
@@ -203,8 +217,8 @@ internal class NavigationGlassInk(
     companion object {
         val Light =
             NavigationGlassInk(
-                tintTop = Color.White.copy(alpha = 0.38f),
-                tintBottom = Color.White.copy(alpha = 0.30f),
+                tintTop = Color.White.copy(alpha = 0.24f),
+                tintBottom = Color.White.copy(alpha = 0.14f),
                 sheenAlpha = 0.10f,
                 rimNear = 0.56f,
                 rimSide = 0.12f,
@@ -213,8 +227,8 @@ internal class NavigationGlassInk(
             )
         val Dark =
             NavigationGlassInk(
-                tintTop = Color(0xFF313743).copy(alpha = 0.44f),
-                tintBottom = Color(0xFF171B24).copy(alpha = 0.46f),
+                tintTop = Color(0xFF313743).copy(alpha = 0.26f),
+                tintBottom = Color(0xFF171B24).copy(alpha = 0.36f),
                 sheenAlpha = 0.06f,
                 rimNear = 0.34f,
                 rimSide = 0.08f,

@@ -31,6 +31,22 @@ internal object FfmpegNativeBridge {
         available && runCatching { nativeDiscApiVersion() >= DISC_API_VERSION }.getOrDefault(false)
     }
 
+    /**
+     * Whether the loaded `libycore_demux.so` can name the FFmpeg error behind a failed open.
+     *
+     * The getter and the stage-packed open status arrived together, so a library without it
+     * also reports failures in an older shape this bridge cannot decode. The playback report
+     * records the answer: a production package still carrying the older artifact is otherwise
+     * indistinguishable from a real container failure in an exported bundle.
+     */
+    val openFailureDetailAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        available &&
+            runCatching {
+                nativeLastOpenFailure()
+                true
+            }.getOrDefault(false)
+    }
+
     fun registerBluRaySource(source: Any): Long {
         check(discNavigationAvailable) { "YCore Blu-ray runtime is not installed" }
         return nativeRegisterBluRaySource(source).also { handle ->
@@ -449,7 +465,13 @@ internal fun ffmpegFailureCategory(status: Long): YPlaybackFailureCategory =
     when (ffmpegFailureClass(status)) {
         FFMPEG_FAILURE_AUTHORIZATION -> YPlaybackFailureCategory.Authorization
         FFMPEG_FAILURE_NETWORK -> YPlaybackFailureCategory.Network
-        else -> YPlaybackFailureCategory.Container
+        FFMPEG_FAILURE_CONTAINER -> YPlaybackFailureCategory.Container
+        // Any other class byte means the native artifact packs its status differently from this
+        // bridge (a production package can carry an older libycore_demux.so than the source tree).
+        // Such a status must stay Unknown: calling it a container failure told the user the file
+        // could not be parsed and let the failure ledger penalise the route for that container
+        // and codec, so a flapping server taught the device to avoid ordinary HEVC MKV.
+        else -> YPlaybackFailureCategory.Unknown
     }
 
 /**
@@ -471,7 +493,25 @@ internal fun ffmpegFailureDetail(status: Long): String? {
             FFMPEG_OPEN_STAGE_STREAM_INFO -> "find_stream_info"
             else -> "unknown"
         }
-    return "stage=$stage error=${ffmpegErrorLabel(packed and 0xFFFF_FFFFL)}"
+    val failureClass = ffmpegFailureClass(status)
+    val recognizedClass =
+        failureClass == FFMPEG_FAILURE_AUTHORIZATION ||
+            failureClass == FFMPEG_FAILURE_NETWORK ||
+            failureClass == FFMPEG_FAILURE_CONTAINER
+    return buildString {
+        append("stage=")
+        append(stage)
+        if (!recognizedClass) {
+            // Keep the raw status: an unrecognised layout is only decodable against the native
+            // artifact that produced it, and the report already names that artifact's hash.
+            append(" class=")
+            append(-failureClass)
+            append(" raw=")
+            append(status)
+        }
+        append(" error=")
+        append(ffmpegErrorLabel(packed and 0xFFFF_FFFFL))
+    }
 }
 
 /**

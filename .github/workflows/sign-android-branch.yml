@@ -6,6 +6,7 @@ on:
       - codex/merge-all-sign-20260815
       - codex/android-tv-p0-20260830
       - codex/ycore-sign-20260830
+      - codex/glass-navigation-sign-20260905
   pull_request:
     branches:
       - master
@@ -206,11 +207,13 @@ jobs:
 
       # The normal Full package: a native-only release has no MPV/Exo fallback and the build
       # script refuses to sign one as a release.
+      # Match the existing production publish-android.yml confirmation for this same SDK.
       - name: Build signed release APK
         run: |
           ./gradlew :composeApp:assembleRelease \
             -PyfuseVersionCode=${{ steps.version.outputs.version_code }} \
             -PyfuseVersionName=${{ steps.version.outputs.version_name }} \
+            -PconfirmMdkDistributionRights=true \
             --no-daemon
 
       - name: Verify and stage signed APK

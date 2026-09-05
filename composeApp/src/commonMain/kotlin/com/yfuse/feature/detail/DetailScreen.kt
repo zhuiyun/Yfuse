@@ -548,6 +548,7 @@ fun DetailScreen(component: DetailComponent) {
                                         selectedSeasonId = state.selectedSeasonId,
                                         pickerOpen = seasonPickerOpen,
                                         onTogglePicker = { seasonPickerOpen = !seasonPickerOpen },
+                                        onDismissPicker = { seasonPickerOpen = false },
                                         onSelectSeason = {
                                             seasonPickerOpen = false
                                             component.store.accept(DetailIntent.SelectSeason(it))

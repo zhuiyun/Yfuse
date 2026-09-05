@@ -5,6 +5,7 @@ import com.yfuse.BuildConfig
 import com.yfuse.core.logging.DiagnosticLogStore
 import com.yfuse.core.logging.redactDiagnosticText
 import com.yfuse.core.model.PlayerEngine
+import com.yfuse.core2.android.FfmpegNativeBridge
 import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
@@ -258,6 +259,14 @@ internal object PlaybackDiagnosticReportRegistry {
             appendLine("native.mdk.compile.version=$MDK_SDK_COMPILE_VERSION")
             appendLine("native.ycore.gpu.packaged=${BuildConfig.YFUSE_YCORE_GPU_INCLUDED}")
             appendLine("native.package.profile=${BuildConfig.YFUSE_PACKAGE_PROFILE}")
+            // The demux bridge has no revision string of its own; whether it can explain a
+            // failed open is the one observable that separates the current artifact from the
+            // older one whose statuses this build cannot decode.
+            appendLine("native.ycore.demux.loaded=${FfmpegNativeBridge.available}")
+            appendLine(
+                "native.ycore.demux.openFailureDetail=" +
+                    if (FfmpegNativeBridge.openFailureDetailAvailable) "available" else "legacy",
+            )
             nativeLibraryFingerprints().forEach { (name, hash) ->
                 appendLine("native.$name.sha256=$hash")
             }

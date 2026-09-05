@@ -115,6 +115,22 @@ class AndroidFfmpegDemuxerMappingTest {
     }
 
     @Test
+    fun `native open statuses in an unrecognised layout stay Unknown instead of penalising the container`() {
+        // Recorded by a 1.0.28 device whose libycore_demux.so predates the stage-packed status:
+        // no stage or class byte, and a low word that is not an AVERROR magnitude either.
+        val legacy = -3_422_335_664L
+        assertEquals(YPlaybackFailureCategory.Unknown, ffmpegFailureCategory(legacy))
+        assertEquals(
+            "stage=unknown class=0 raw=-3422335664 error=code:3422335664",
+            ffmpegFailureDetail(legacy),
+        )
+
+        // A bare status outside the -2/-3/-4 classes is equally undecodable.
+        assertEquals(YPlaybackFailureCategory.Unknown, ffmpegFailureCategory(-1L))
+        assertNull(ffmpegFailureDetail(-1L))
+    }
+
+    @Test
     fun `native bitmap subtitle payload preserves authored canvas and ARGB pixels`() {
         val payload =
             ByteBuffer

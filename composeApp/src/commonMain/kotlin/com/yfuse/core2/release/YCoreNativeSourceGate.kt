@@ -63,7 +63,14 @@ private fun String?.normalizedContainer(): String =
         .removePrefix(".")
 
 private fun String?.normalizedVideoCodec(): String {
-    val value = orEmpty().trim().lowercase()
+    // Servers append profile text to some codec names ("hevc (Main 10)"); only the codec token
+    // decides admission here, the profile is verified from the demuxed stream at runtime.
+    val value =
+        orEmpty()
+            .trim()
+            .lowercase()
+            .substringBefore(' ')
+            .substringBefore('(')
     return when {
         value.startsWith("avc1.") -> "avc1"
         value.startsWith("hvc1.") -> "hvc1"
@@ -71,6 +78,10 @@ private fun String?.normalizedVideoCodec(): String {
         value.startsWith("av01.") -> "av01"
         value.startsWith("vp09.") -> "vp09"
         value.startsWith("prores") -> "prores"
+        // Dolby Vision sample-entry brands are HEVC and H.264 bitstreams with RPU metadata;
+        // reporting them as an unsupported codec sent verified HEVC sources to the fallback.
+        value.startsWith("dvhe") || value.startsWith("dvh1") -> "hevc"
+        value.startsWith("dvav") || value.startsWith("dva1") -> "avc"
         else -> value.filter(Char::isLetterOrDigit)
     }
 }

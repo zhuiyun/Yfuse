@@ -310,10 +310,66 @@ class AccountRepositoryStateTest {
                     awaitAccountState(repository) { it is AccountState.RestoreFailed },
                 )
 
-            assertEquals("网络暂不可用，本机登录信息仍已安全保留。", failed.message)
+            assertEquals("账号服务暂时不可用（HTTP 503），本机登录信息仍已安全保留。", failed.message)
             assertEquals(originalSecrets, secureStore.snapshot().filterKeys { it != "pending_refresh" })
             assertEquals(0, secureStore.clearCount)
         }
+
+    @Test
+    fun restore_session_names_an_edge_failure_in_front_of_the_account_service() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val originalSecrets = secureStore.snapshot()
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        assertEquals(REFRESH_PATH, request.url.encodedPath)
+                        // A Cloudflare tunnel that cannot reach the origin answers with its own
+                        // HTML page, not the account service's JSON envelope.
+                        respond(
+                            content = "<html><title>Error 1033: Cloudflare Tunnel error</title></html>",
+                            status = HttpStatusCode(530, "Origin Unreachable"),
+                            headers = headersOf(HttpHeaders.ContentType, ContentType.Text.Html.toString()),
+                        )
+                    },
+                )
+            val repository = accountRepository(api, secureStore)
+
+            repository.start()
+            val failed =
+                assertIs<AccountState.RestoreFailed>(
+                    awaitAccountState(repository) { it is AccountState.RestoreFailed },
+                )
+
+            assertEquals("账号服务暂时不可用（HTTP 530），本机登录信息仍已安全保留。", failed.message)
+            assertEquals(originalSecrets, secureStore.snapshot().filterKeys { it != "pending_refresh" })
+            assertEquals(0, secureStore.clearCount)
+        }
+
+    @Test
+    fun restore_failure_wording_separates_the_phone_the_network_and_the_service() {
+        assertEquals(
+            "本机登录信息暂时无法读取或保存，请重试。",
+            restoreFailureMessage(SecureStoreException("keystore busy")),
+        )
+        assertEquals(
+            "账号服务返回异常（HTTP 429），本机登录信息仍已安全保留。",
+            restoreFailureMessage(
+                AccountApiException("rate_limited", "slow down", HttpStatusCode.TooManyRequests),
+            ),
+        )
+        assertEquals(
+            "网络暂不可用，本机登录信息仍已安全保留。",
+            restoreFailureMessage(IllegalStateException("connection reset")),
+        )
+        assertEquals(
+            "http_429:rate_limited",
+            restoreFailureReason(
+                AccountApiException("rate_limited", "slow down", HttpStatusCode.TooManyRequests),
+            ),
+        )
+        assertEquals("network:IllegalStateException", restoreFailureReason(IllegalStateException("x")))
+    }
 
     @Test
     fun stalled_refresh_becomes_retryable_without_erasing_credentials() =
@@ -337,8 +393,12 @@ class AccountRepositoryStateTest {
             val repository = accountRepository(api, secureStore, restoreRequestTimeoutMillis = 1_000)
 
             repository.start()
-            awaitAccountState(repository) { it is AccountState.RestoreFailed }
+            val stalled =
+                assertIs<AccountState.RestoreFailed>(
+                    awaitAccountState(repository) { it is AccountState.RestoreFailed },
+                )
 
+            assertEquals("账号服务响应超时，本机登录信息仍已安全保留。", stalled.message)
             assertTrue(firstRefreshStarted.isCompleted)
             assertEquals(originalSecrets, secureStore.snapshot().filterKeys { it != "pending_refresh" })
             assertEquals(0, secureStore.clearCount)
