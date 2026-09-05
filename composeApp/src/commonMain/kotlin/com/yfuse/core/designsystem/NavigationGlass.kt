@@ -186,7 +186,10 @@ internal data class NavigationSelectionInk(
     val rimBottom: Float,
 )
 
-internal fun navigationSelectionInk(dark: Boolean, accent: Color): NavigationSelectionInk =
+internal fun navigationSelectionInk(
+    dark: Boolean,
+    accent: Color,
+): NavigationSelectionInk =
     NavigationSelectionInk(
         rose = lerp(PearlRose, accent, 0.20f).copy(alpha = if (dark) 0.22f else 0.24f),
         center = lerp(PearlLilac, accent, 0.30f).copy(alpha = if (dark) 0.12f else 0.14f),
