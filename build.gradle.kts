@@ -31,6 +31,7 @@ val securityOverrides =
     }
 val nativeOnlyRuntimeRequested =
     providers.gradleProperty("yfuseNativeOnlyRuntime").orNull?.trim()?.lowercase() in setOf("", "true")
+val sharedComposeSourceRoot = rootProject.file("composeApp/src").toPath().toAbsolutePath().normalize()
 
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
@@ -87,6 +88,18 @@ subprojects {
         filter {
             // Generated sources are nobody's to format.
             exclude { it.file.path.contains("/build/") }
+            // tvApp compiles the established composeApp KMP trees directly. Those files are
+            // already owned by composeApp's ktlint tasks and baseline; linting them again as
+            // tvApp would incorrectly treat all existing composeApp debt as new TV violations.
+            if (project.name == "tvApp") {
+                exclude { element ->
+                    element.file
+                        .toPath()
+                        .toAbsolutePath()
+                        .normalize()
+                        .startsWith(sharedComposeSourceRoot)
+                }
+            }
         }
     }
 }
