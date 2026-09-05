@@ -1111,8 +1111,7 @@ private fun RailTabButton(
                     val selection = navigationGlass.selection
                     drawRect(color = selection.copy(alpha = selection.alpha * islandAlpha))
                 }
-            }
-            .pressable(
+            }.pressable(
                 pressedScale = 0.96f,
                 haptic = HapticSignal.Select,
                 role = Role.Tab,

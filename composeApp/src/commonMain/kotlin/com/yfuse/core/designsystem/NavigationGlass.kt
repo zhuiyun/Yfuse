@@ -62,8 +62,7 @@ fun Modifier.navigationGlass(
             radius = NavigationGlassBlurRadius,
             saturation = NAVIGATION_GLASS_SATURATION,
             refraction = BackdropRefraction(),
-        )
-        .clip(shape)
+        ).clip(shape)
         .drawWithCache {
             val outline = shape.createOutline(size, layoutDirection, this)
             val tint = Brush.verticalGradient(0f to ink.tintTop, 1f to ink.tintBottom)
