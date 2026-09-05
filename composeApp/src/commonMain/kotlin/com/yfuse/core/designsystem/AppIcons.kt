@@ -1,11 +1,14 @@
 package com.yfuse.core.designsystem
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathBuilder
+import androidx.compose.ui.graphics.vector.PathData
+import androidx.compose.ui.graphics.vector.group
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
@@ -64,12 +67,13 @@ object AppIcons {
             roundRect(13f, 13f, 8.1f, 8.1f, 2.3f)
         }.build()
 
+    /** 搜索 in the dock: a heavy ring so it carries the same weight as the solid tab glyphs. */
     val SearchTab =
         search(
             name = "search-tab",
-            width = TAB_STROKE,
-            radius = 7.2f,
-            center = 10.2f,
+            width = TAB_SEARCH_STROKE,
+            radius = 6.7f,
+            center = 10.6f,
             handleEnd = 21f,
         )
 
@@ -639,58 +643,72 @@ object AppIcons {
     //
     // The bar's own family, drawn apart from the general set.
     //
-    // The tabs used to borrow generic glyphs — a house, four squares, a person — which say
-    // "an app" rather than "this app", and at the bar's 30dp they were four outlines of
-    // roughly equal weight with nothing to tell them apart at a glance. Each of these has one
-    // feature that is unmistakable in peripheral vision: a triangle inside a screen, the
-    // offset edge of a stack, a status lamp, a shoulder. They share [TAB_STROKE], the same
-    // optical box, and the same corner radius, so they still read as one set.
+    // The tabs used to be fine 1.6 outlines in a grey ink: four drawings of roughly equal
+    // weight, which at the bar's size read as one texture and disappeared over artwork. These
+    // are silhouettes — solid shapes with the one feature each needs cut straight through
+    // them, so the glass shows in the holes and the glyph still reads at a glance from the
+    // edge of vision. They share the optical box, the corner radius and [TAB_SOLID_LINE] for
+    // the few strokes that remain, so they still read as one set.
 
-    /** 首页 — a fine playback display with a solid optical anchor. */
+    /** 首页 — a playback display with the play triangle cut out of it, on a short stand. */
     val TabHome =
-        strokeVector("tab-home", width = TAB_STROKE) {
-            roundRect(2.9f, 4.7f, 18.2f, 12.8f, 2.7f)
-        }.andPath(width = TAB_STROKE) {
-            moveTo(8.2f, 20.3f)
-            horizontalLineTo(15.8f)
-        }.andSolidPath {
-            moveTo(10.1f, 8.3f)
-            lineTo(15.2f, 11.1f)
-            lineTo(10.1f, 13.9f)
-            close()
-        }.build()
+        solidParts("tab-home")
+            .andSolidShape(evenOdd = true) {
+                roundRect(3f, 4.2f, 18f, 14f, 3.2f)
+                moveTo(10.1f, 7.8f)
+                lineTo(15.7f, 11f)
+                lineTo(10.1f, 14.2f)
+                close()
+            }.andPath(width = TAB_SOLID_LINE) {
+                moveTo(8.6f, 21f)
+                horizontalLineTo(15.4f)
+            }.build()
 
-    /** 库 — two slim viewing panes with a restrained overlap. */
+    /**
+     * 库 — two viewing panes, the front one solid and the back one lighter, with a gap cut
+     * around the front pane so the overlap reads as two things rather than one blob.
+     */
     val TabLibrary =
-        strokeVector("tab-library", width = TAB_STROKE) {
-            roundRect(8.8f, 4.1f, 11.6f, 15.2f, 2.5f)
-        }.andPath(width = TAB_STROKE) {
-            roundRect(3.6f, 6.6f, 11.6f, 13.3f, 2.5f)
-        }.andDots(12.2f to 16.9f, 17.3f to 16.4f)
-            .build()
+        solidParts("tab-library")
+            .andClippedSolidShape(
+                alpha = 0.55f,
+                clip = { roundRect(9.4f, 3f, 11.6f, 14.4f, 3.2f) },
+            ) {
+                roundRect(9.4f, 3f, 11.6f, 14.4f, 3.2f)
+                roundRect(2.05f, 5.65f, 13.5f, 16.3f, 4.15f)
+            }.andSolidShape {
+                roundRect(3f, 6.6f, 11.6f, 14.4f, 3.2f)
+            }.build()
 
-    /** 服务器 — one reachable unit, two lamps and a short grounding line. */
+    /** 服务器 — one unit with two lamps cut through it, an antenna arc and a grounding line. */
     val TabServers =
-        strokeVector("tab-servers", width = TAB_STROKE) {
-            roundRect(2.9f, 9.3f, 18.2f, 8.2f, 2.5f)
-        }.andPath(width = TAB_STROKE) {
-            moveTo(7.2f, 6.1f)
-            curveToRelative(2.8f, -2.45f, 6.8f, -2.45f, 9.6f, 0f)
-        }.andPath(width = TAB_STROKE) {
-            moveTo(7f, 20.4f)
-            horizontalLineTo(17f)
-        }.andDots(6.7f to 13.4f, 9.8f to 13.4f)
-            .build()
+        solidParts("tab-servers")
+            .andSolidShape(evenOdd = true) {
+                roundRect(3f, 9.2f, 18f, 8.6f, 3.2f)
+                circle(7.5f, 13.5f, 1.4f)
+                circle(11.1f, 13.5f, 1.4f)
+            }.andPath(width = TAB_SOLID_LINE) {
+                moveTo(7.4f, 5.9f)
+                curveToRelative(2.7f, -2.4f, 6.5f, -2.4f, 9.2f, 0f)
+            }.andPath(width = TAB_SOLID_LINE) {
+                moveTo(7f, 21f)
+                horizontalLineTo(17f)
+            }.build()
 
-    /** 我的 — head and shoulders, with the shoulder line left open. */
+    /** 我的 — solid head and shoulders. */
     val TabProfile =
-        strokeVector("tab-profile", width = TAB_STROKE) {
-            circle(12f, 8.2f, 3.7f)
-        }.andPath(width = TAB_STROKE) {
-            moveTo(4.6f, 20.4f)
-            curveToRelative(0.9f, -4.3f, 3.9f, -6.3f, 7.4f, -6.3f)
-            reflectiveCurveToRelative(6.5f, 2f, 7.4f, 6.3f)
-        }.build()
+        solidParts("tab-profile")
+            .andSolidShape {
+                circle(12f, 7.9f, 4.3f)
+            }.andSolidShape {
+                moveTo(3.9f, 20.2f)
+                curveToRelative(0.9f, -4.6f, 4.2f, -7f, 8.1f, -7f)
+                reflectiveCurveToRelative(7.2f, 2.4f, 8.1f, 7f)
+                curveToRelative(0.15f, 0.8f, -0.5f, 1.5f, -1.3f, 1.5f)
+                horizontalLineTo(5.2f)
+                curveToRelative(-0.8f, 0f, -1.45f, -0.7f, -1.3f, -1.5f)
+                close()
+            }.build()
 }
 
 // ---------------------------------------------------------------- the system
@@ -708,8 +726,14 @@ private const val TRANSPORT_STROKE = 1.65f
 
 private const val TRANSPORT_DIGIT_STROKE = 1.35f
 
-/** Fine rounded edge for the enlarged bottom-navigation glass glyphs. */
+/** Fine rounded edge for the enlarged navigation glass glyphs outside the dock. */
 private const val TAB_STROKE = 1.6f
+
+/** The few strokes left in the dock's silhouette family: stands, antennae, grounding lines. */
+private const val TAB_SOLID_LINE = 2.5f
+
+/** 搜索's ring, weighted to match a solid glyph beside it. */
+private const val TAB_SEARCH_STROKE = 2.7f
 
 /**
  * Solid glyphs sit a unit inside [BOX]: equal areas of ink and outline do not read as
@@ -784,6 +808,47 @@ private fun VectorParts.andSolidPath(block: PathBuilder.() -> Unit): VectorParts
             strokeLineJoin = StrokeJoin.Round,
             pathBuilder = block,
         )
+    }
+
+/** Starts a glyph made of solid shapes rather than strokes. */
+private fun solidParts(name: String): VectorParts = VectorParts(name, newBuilder(name))
+
+/**
+ * A solid shape. With [evenOdd], any contour drawn inside another becomes a hole, so the
+ * material under the glyph shows through instead of a second colour being painted in.
+ */
+private fun VectorParts.andSolidShape(
+    alpha: Float = 1f,
+    evenOdd: Boolean = false,
+    block: PathBuilder.() -> Unit,
+): VectorParts =
+    apply {
+        builder.path(
+            fill = SolidColor(Color.Black),
+            fillAlpha = alpha,
+            pathFillType = if (evenOdd) PathFillType.EvenOdd else PathFillType.NonZero,
+            pathBuilder = block,
+        )
+    }
+
+/**
+ * An even-odd solid shape confined to [clip]: the way to cut a gap around one shape out of
+ * another without the cutter's outline leaking past the shape it is cutting.
+ */
+private fun VectorParts.andClippedSolidShape(
+    alpha: Float = 1f,
+    clip: PathBuilder.() -> Unit,
+    block: PathBuilder.() -> Unit,
+): VectorParts =
+    apply {
+        builder.group(clipPathData = PathData(clip)) {
+            path(
+                fill = SolidColor(Color.Black),
+                fillAlpha = alpha,
+                pathFillType = PathFillType.EvenOdd,
+                pathBuilder = block,
+            )
+        }
     }
 
 private fun VectorParts.build(): ImageVector = builder.build()

@@ -13,10 +13,12 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
@@ -38,6 +40,34 @@ import androidx.compose.ui.unit.dp
  * already using.
  */
 expect val supportsBackdropBlur: Boolean
+
+/**
+ * How a surface bends what lies behind it — the one thing that separates glass from a
+ * translucent plate.
+ *
+ * Within the outer [edgeX] of the width and [edgeY] of the height the backdrop is sampled
+ * from further inside, by up to [strength] at the very edge and nothing at the inner
+ * boundary, so a poster's edge or a line of text curves inward as it passes under the
+ * rim while the centre stays undistorted and legible.
+ */
+data class BackdropRefraction(
+    val edgeX: Float = 0.20f,
+    val edgeY: Float = 0.35f,
+    val strength: Dp = 27.dp,
+)
+
+/**
+ * The refraction and blur for one surface, as a single render effect, or null where the
+ * platform cannot bend pixels — in which case the caller falls back to blur alone. On
+ * Android this needs a `RuntimeShader`, which arrived in API 33.
+ */
+expect fun refractiveBlurEffect(
+    blurRadiusPx: Float,
+    widthPx: Float,
+    heightPx: Float,
+    refraction: BackdropRefraction,
+    strengthPx: Float,
+): RenderEffect?
 
 /** 设计说明文档 §8.1 — `blur(20-22px)`. */
 val BackdropBlurRadius: Dp = 20.dp
@@ -163,28 +193,38 @@ fun Modifier.backdropBlur(
     state: BackdropState,
     shape: Shape,
     radius: Dp? = null,
+    saturation: Float? = null,
+    refraction: BackdropRefraction? = null,
 ): Modifier {
     val frosted = frostedGlass()
     val resolvedRadius = radius ?: if (frosted) FrostedBackdropBlurRadius else BackdropBlurRadius
-    val saturation =
-        if (frosted) {
-            FROSTED_BACKDROP_SATURATION
-        } else {
-            LIQUID_BACKDROP_SATURATION
-        }
+    val resolvedSaturation =
+        saturation
+            ?: if (frosted) {
+                FROSTED_BACKDROP_SATURATION
+            } else {
+                LIQUID_BACKDROP_SATURATION
+            }
     val blurLayer = rememberGraphicsLayer()
-    val radiusPx = with(LocalDensity.current) { resolvedRadius.toPx() }
+    val density = LocalDensity.current
+    val radiusPx = with(density) { resolvedRadius.toPx() }
+    val refractionPx = refraction?.let { with(density) { it.strength.toPx() } } ?: 0f
     // Radius changes only with density or the caller's material token. Reuse the effect
     // instead of allocating an identical RenderEffect from every draw pass.
     val blurEffect = remember(radiusPx) { BlurEffect(radiusPx, radiusPx) }
+    // Refraction is keyed to the surface's size — the shader needs it to know where the
+    // edges are — so it is rebuilt when the size changes, not per frame. Plain fields, not
+    // snapshot state: this is written from inside the draw, and a state written by the draw
+    // that reads it is an invalidation loop.
+    val refractive = remember { RefractionCache() }
     // The saturation is a property of the material, not of this surface, so it is built once
     // rather than per frame.
     val vibrancy =
-        remember(saturation) {
+        remember(resolvedSaturation) {
             Paint().apply {
                 colorFilter =
                     ColorFilter.colorMatrix(
-                        ColorMatrix().apply { setToSaturation(saturation) },
+                        ColorMatrix().apply { setToSaturation(resolvedSaturation) },
                     )
             }
         }
@@ -196,7 +236,18 @@ fun Modifier.backdropBlur(
         .drawBehind {
             if (!state.hasContent) return@drawBehind
             val source = state.sample()
-            blurLayer.renderEffect = blurEffect
+            if (refraction != null && size != refractive.size) {
+                refractive.size = size
+                refractive.effect =
+                    refractiveBlurEffect(
+                        blurRadiusPx = radiusPx,
+                        widthPx = size.width,
+                        heightPx = size.height,
+                        refraction = refraction,
+                        strengthPx = refractionPx,
+                    )
+            }
+            blurLayer.renderEffect = refractive.effect ?: blurEffect
             blurLayer.record {
                 translate(
                     left = state.origin.x - origin.x,
@@ -213,4 +264,10 @@ fun Modifier.backdropBlur(
                 canvas.restore()
             }
         }
+}
+
+/** The last refraction effect built for a surface, and the size it was built for. */
+private class RefractionCache {
+    var size: Size = Size.Zero
+    var effect: RenderEffect? = null
 }

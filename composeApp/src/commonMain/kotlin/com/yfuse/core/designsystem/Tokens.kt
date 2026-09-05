@@ -403,7 +403,7 @@ object Dimens {
      * back the difference — which [contentBottom] passes on as less dead space under every
      * scrolling list in the app.
      */
-    val tabBarHeight = 56.dp
+    val tabBarHeight = 62.dp
     val tabBarInset = 14.dp
 
     /** 卡片描边 */
