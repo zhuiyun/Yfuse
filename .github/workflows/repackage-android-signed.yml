@@ -20,7 +20,7 @@ jobs:
   repackage:
     name: Build, sign, and verify current master APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     environment:
       name: production
     env:
@@ -92,15 +92,12 @@ jobs:
           test -s composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
 
-      - name: Build and install source-matched YCore GPU companion
+      - name: Build and install source-matched standalone YCore runtime
         shell: bash
         run: |
           set -euo pipefail
-          artifacts="$RUNNER_TEMP/ycore-gpu-companion"
-          bash scripts/build-ycore-gpu-companion.sh "$artifacts"
-          install -m 0644 "$artifacts/ycore-gpu.aar" composeApp/libs/ycore-gpu.aar
-          install -m 0644 "$artifacts/ycore-gpu.aar.sha256" composeApp/libs/ycore-gpu.aar.sha256
-          install -m 0644 "$artifacts/NATIVE-SOURCES.txt" composeApp/libs/ycore-gpu.sources.txt
+          bash scripts/build-ycore-native.sh --arch arm64
+          bash scripts/install-ycore-native.sh .native-build/artifacts
 
       - name: Configure production signing
         shell: bash
