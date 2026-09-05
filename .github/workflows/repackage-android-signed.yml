@@ -30,7 +30,7 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
       EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
-      SOURCE_SHA: 7178f41d71ceb9af608841afc5b3c169d5cbe280
+      SOURCE_SHA: fbdd4c94443b53e4b89e2439d4273764d403f325
       VERSION_CODE: "190"
       VERSION_NAME: "1.0.28"
 
@@ -92,30 +92,15 @@ jobs:
           test -s composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
 
-      - name: Download verified YCore GPU companion
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: ycore-native-arm64
-          path: .native-build/artifacts
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: 33620815654
-
-      - name: Verify and install YCore GPU companion
+      - name: Build and install source-matched YCore GPU companion
         shell: bash
         run: |
           set -euo pipefail
-          artifacts=.native-build/artifacts
-          test -s "$artifacts/ycore-native.aar"
-          test -s "$artifacts/ycore-native.aar.sha256"
-          test -s "$artifacts/ycore-gpu.aar"
-          test -s "$artifacts/ycore-gpu.aar.sha256"
-          test -s "$artifacts/NATIVE-SOURCES.txt"
-          bash scripts/verify-ycore-native.sh \
-            "$artifacts/ycore-native.aar" \
-            "$artifacts/ycore-native.aar.sha256" \
-            "$artifacts/NATIVE-SOURCES.txt"
-          bash scripts/install-ycore-native.sh "$artifacts"
+          artifacts="$RUNNER_TEMP/ycore-gpu-companion"
+          bash scripts/build-ycore-gpu-companion.sh "$artifacts"
+          install -m 0644 "$artifacts/ycore-gpu.aar" composeApp/libs/ycore-gpu.aar
+          install -m 0644 "$artifacts/ycore-gpu.aar.sha256" composeApp/libs/ycore-gpu.aar.sha256
+          install -m 0644 "$artifacts/NATIVE-SOURCES.txt" composeApp/libs/ycore-gpu.sources.txt
 
       - name: Configure production signing
         shell: bash
@@ -217,6 +202,10 @@ jobs:
             --arg sourceCommit "$SOURCE_SHA" \
             '{packageName: $packageName, versionCode: $versionCode, versionName: $versionName, certificateSha256: $certificateSha256, sourceCommit: $sourceCommit, runtime: "system-ycore"}' \
             > build/signed-artifact/build-info.json
+
+          base64 --wrap=0 "build/signed-artifact/$file_name" |
+            split --bytes=700000 --numeric-suffixes=0 --suffix-length=3 - \
+              "build/signed-artifact/${file_name}.b64.part-"
 
       - name: Publish signed build asset
         shell: bash
