@@ -263,15 +263,13 @@ private fun SeasonPickerPopup(
                             role = Role.RadioButton,
                             focusShape = GlassShapes.chip,
                             onClick = { onSelectSeason(id) },
-                        )
-                        .then(
+                        ).then(
                             if (selected) {
                                 Modifier.background(accent.copy(alpha = 0.12f), GlassShapes.chip)
                             } else {
                                 Modifier
                             },
-                        )
-                        .heightIn(min = 48.dp)
+                        ).heightIn(min = 48.dp)
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
