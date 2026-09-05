@@ -431,7 +431,11 @@ class PlayerStoreTest {
                     mediaVersionPreference = MediaVersionPreference.HdrFirst,
                 ).create()
 
-            val next = store.states.first { !it.loading }.items.single { it.id == "e2" }
+            val next =
+                store.states
+                    .first { !it.loading }
+                    .items
+                    .single { it.id == "e2" }
 
             assertEquals("e2-hdr", next.versionId)
             assertTrue("MediaSourceId=e2-hdr" in next.url, next.url)
