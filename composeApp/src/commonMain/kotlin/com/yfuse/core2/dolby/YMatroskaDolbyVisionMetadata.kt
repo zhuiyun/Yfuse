@@ -145,6 +145,110 @@ internal object YMatroskaDolbyVisionMetadataParser {
     }
 }
 
+/** Track type and CodecID of one Matroska TrackEntry, read from the header without demuxing. */
+internal data class YMatroskaTrackCodec(
+    val trackType: Long,
+    val codecId: String,
+) {
+    val audio: Boolean get() = trackType == TRACK_TYPE_AUDIO
+}
+
+/** Result of a bounded read of every TrackEntry's CodecID. */
+internal sealed interface YMatroskaTrackCodecResult {
+    data class Found(
+        val tracks: List<YMatroskaTrackCodec>,
+    ) : YMatroskaTrackCodecResult
+
+    /** More source bytes are required before the Tracks element is complete. */
+    data object Truncated : YMatroskaTrackCodecResult
+
+    /** The supplied bytes do not begin with a valid Matroska/EBML document. */
+    data object Invalid : YMatroskaTrackCodecResult
+}
+
+/**
+ * Lists what the container itself declares when MediaExtractor exposes fewer tracks than the
+ * server does. It is the only way a diagnostics bundle can say "A_TRUEHD was hidden" rather than
+ * "an audio track was hidden", and it reads the same bounded header prefix as the Dolby parser.
+ */
+internal object YMatroskaTrackCodecParser {
+    fun parse(bytes: ByteArray): YMatroskaTrackCodecResult {
+        if (bytes.isEmpty()) return YMatroskaTrackCodecResult.Truncated
+        val ebml = readElement(bytes, 0) ?: return YMatroskaTrackCodecResult.Truncated
+        if (ebml.id != ID_EBML) return YMatroskaTrackCodecResult.Invalid
+        var position = ebml.completeEnd(bytes.size) ?: return YMatroskaTrackCodecResult.Truncated
+        while (position < bytes.size) {
+            val element = readElement(bytes, position) ?: return YMatroskaTrackCodecResult.Truncated
+            if (element.id == ID_SEGMENT) {
+                return parseSegment(bytes, element.dataStart, element.availableEnd(bytes.size))
+            }
+            position = element.completeEnd(bytes.size) ?: return YMatroskaTrackCodecResult.Truncated
+        }
+        return YMatroskaTrackCodecResult.Truncated
+    }
+
+    private fun parseSegment(
+        bytes: ByteArray,
+        start: Int,
+        end: Int,
+    ): YMatroskaTrackCodecResult {
+        var position = start
+        while (position < end) {
+            val element = readElement(bytes, position) ?: return YMatroskaTrackCodecResult.Truncated
+            when (element.id) {
+                ID_TRACKS -> {
+                    val tracksEnd = element.completeEnd(end) ?: return YMatroskaTrackCodecResult.Truncated
+                    return parseTracks(bytes, element.dataStart, tracksEnd)
+                }
+                ID_CLUSTER -> return YMatroskaTrackCodecResult.Truncated
+            }
+            position = element.completeEnd(end) ?: return YMatroskaTrackCodecResult.Truncated
+        }
+        return YMatroskaTrackCodecResult.Truncated
+    }
+
+    private fun parseTracks(
+        bytes: ByteArray,
+        start: Int,
+        end: Int,
+    ): YMatroskaTrackCodecResult {
+        val tracks = mutableListOf<YMatroskaTrackCodec>()
+        var position = start
+        while (position < end) {
+            val element = readElement(bytes, position) ?: return YMatroskaTrackCodecResult.Invalid
+            val elementEnd = element.completeEnd(end) ?: return YMatroskaTrackCodecResult.Invalid
+            if (element.id == ID_TRACK_ENTRY) {
+                parseTrackCodec(bytes, element.dataStart, elementEnd)?.let(tracks::add)
+            }
+            position = elementEnd
+        }
+        return YMatroskaTrackCodecResult.Found(tracks)
+    }
+
+    private fun parseTrackCodec(
+        bytes: ByteArray,
+        start: Int,
+        end: Int,
+    ): YMatroskaTrackCodec? {
+        var trackType: Long? = null
+        var codecId: String? = null
+        var position = start
+        while (position < end) {
+            val element = readElement(bytes, position) ?: return null
+            val elementEnd = element.completeEnd(end) ?: return null
+            when (element.id) {
+                ID_TRACK_TYPE -> trackType = readUnsigned(bytes, element.dataStart, elementEnd)
+                ID_CODEC_ID -> codecId = readAscii(bytes, element.dataStart, elementEnd)
+            }
+            position = elementEnd
+        }
+        return YMatroskaTrackCodec(
+            trackType = trackType ?: return null,
+            codecId = codecId ?: return null,
+        )
+    }
+}
+
 private data class EbmlElement(
     val id: Long,
     val dataStart: Int,
@@ -254,6 +358,7 @@ private const val ID_BLOCK_ADD_ID_VALUE = 0x41F0L
 private const val ID_BLOCK_ADD_ID_TYPE = 0x41E7L
 private const val ID_BLOCK_ADD_ID_EXTRA_DATA = 0x41EDL
 private const val TRACK_TYPE_VIDEO = 1L
+private const val TRACK_TYPE_AUDIO = 2L
 private const val BLOCK_ADD_TYPE_USE_VALUE = 0L
 private const val BLOCK_ADD_TYPE_DVCC = 0x64766343L
 private const val BLOCK_ADD_TYPE_DVVC = 0x64767643L

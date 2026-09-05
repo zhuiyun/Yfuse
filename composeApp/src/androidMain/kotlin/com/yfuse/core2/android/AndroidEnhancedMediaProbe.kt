@@ -1,6 +1,9 @@
 package com.yfuse.core2.android
 
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YMediaSourceHints
+import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.bitstream.YBitstream
 import com.yfuse.core2.bitstream.YDolbyVisionNalEvidence
 import com.yfuse.core2.capability.YAudioRequirement
@@ -21,8 +24,23 @@ import com.yfuse.core2.strategy.shouldRequestEnhancedProbe
  */
 internal class AndroidEnhancedMediaProbe(
     private val createDemuxer: () -> AndroidFfmpegDemuxer = ::AndroidFfmpegDemuxer,
+    private val clock: () -> Long = System::nanoTime,
+    /** Test seam replacing the FFmpeg open; production always demuxes the real source. */
+    private val probeSource: ((YMediaItem) -> YCore2ProbeResult?)? = null,
 ) {
     private val probeCacheLock = Any()
+
+    /**
+     * Recent deep-probe failures, each with the nanoTime after which it may be retried.
+     *
+     * Route evaluation runs again for every recovery tier and every in-place retry. When FFmpeg
+     * cannot open a source, each of those evaluations used to pay the full open (about five
+     * seconds over the network) for the same answer before the actual open failed again in
+     * milliseconds. Remembering the failure briefly keeps the recovery chain honest about time
+     * without pinning the route: the window is short enough that a recovered network or a
+     * refreshed URL is retried on the next evaluation after it.
+     */
+    private val failureCache = HashMap<String, TimedProbeFailure>()
 
     /**
      * Successful deep probes for this evaluator's lifetime, newest last.
@@ -33,25 +51,56 @@ internal class AndroidEnhancedMediaProbe(
      */
     private val probeCache = LinkedHashMap<String, YCore2ProbeResult.Success>()
 
-    fun probe(item: YMediaItem): YCore2ProbeResult? {
+    /**
+     * [knownDolbyEvidence] is the platform probe's own RPU/enhancement-layer scan of the same
+     * source. When it already saw RPU NAL units there is nothing left for the sample read here
+     * to learn, so the probe stops at stream metadata instead of pulling 24 more video samples.
+     */
+    fun probe(
+        item: YMediaItem,
+        knownDolbyEvidence: YDolbyVisionNalEvidence? = null,
+    ): YCore2ProbeResult? {
         val cacheKey = item.enhancedProbeCacheKey()
-        synchronized(probeCacheLock) { probeCache[cacheKey] }?.let { cached -> return cached }
-        val result = probeUncached(item)
-        // Successes only: a failure here is usually an unreachable source, and caching it would
-        // keep the route unplayable for the rest of the session after the network recovers.
-        if (result is YCore2ProbeResult.Success) {
-            synchronized(probeCacheLock) {
-                probeCache.remove(cacheKey)
-                probeCache[cacheKey] = result
-                while (probeCache.size > MAX_CACHED_ENHANCED_PROBES) {
-                    probeCache.remove(probeCache.keys.first())
+        val now = clock()
+        synchronized(probeCacheLock) {
+            probeCache[cacheKey]?.let { cached -> return cached }
+            failureCache[cacheKey]?.let { failed ->
+                if (now - failed.retryAfterNs < 0L) return failed.result
+                failureCache.remove(cacheKey)
+            }
+        }
+        val result = probeUncached(item, knownDolbyEvidence)
+        synchronized(probeCacheLock) {
+            when (result) {
+                is YCore2ProbeResult.Success -> {
+                    failureCache.remove(cacheKey)
+                    probeCache.remove(cacheKey)
+                    probeCache[cacheKey] = result
+                    while (probeCache.size > MAX_CACHED_ENHANCED_PROBES) {
+                        probeCache.remove(probeCache.keys.first())
+                    }
                 }
+                // Failures are remembered only for a short window, never for the session: a
+                // failure here is often an unreachable source, and the route must become
+                // playable again as soon as the network recovers.
+                is YCore2ProbeResult.Failure -> {
+                    failureCache[cacheKey] =
+                        TimedProbeFailure(result, retryAfterNs = now + FAILED_ENHANCED_PROBE_RETRY_NS)
+                    while (failureCache.size > MAX_CACHED_ENHANCED_PROBES) {
+                        failureCache.remove(failureCache.keys.first())
+                    }
+                }
+                null -> Unit
             }
         }
         return result
     }
 
-    private fun probeUncached(item: YMediaItem): YCore2ProbeResult? {
+    private fun probeUncached(
+        item: YMediaItem,
+        knownDolbyEvidence: YDolbyVisionNalEvidence?,
+    ): YCore2ProbeResult? {
+        probeSource?.let { source -> return source(item) }
         val demuxer = createDemuxer()
         if (!demuxer.available) return null
         return try {
@@ -63,6 +112,7 @@ internal class AndroidEnhancedMediaProbe(
                         cacheIdentity = item.cacheIdentity,
                         cacheMaximumBytes = item.cacheMaximumBytes,
                         transportCredentials = item.transportCredentials,
+                        probeOnly = true,
                     ),
                 )
             val videoTrack =
@@ -98,7 +148,10 @@ internal class AndroidEnhancedMediaProbe(
             val packing = video.samplePacking
             var rpuCount = 0
             var enhancementLayerCount = 0
-            if (packing != null && (video.dolbyVisionConfig != null || item.sourceHints?.dolbyVision == true)) {
+            if (knownDolbyEvidence?.rpuPresent == true) {
+                rpuCount = knownDolbyEvidence.rpuCount
+                enhancementLayerCount = knownDolbyEvidence.enhancementLayerCount
+            } else if (packing != null && (video.dolbyVisionConfig != null || item.sourceHints?.dolbyVision == true)) {
                 demuxer.selectTracks(setOf(videoTrack.id))
                 repeat(DOLBY_PROBE_SAMPLE_LIMIT) {
                     val sample = demuxer.readSample() ?: return@repeat
@@ -151,12 +204,34 @@ internal class AndroidEnhancedMediaProbe(
                 unconfiguredDolbyVisionSignal =
                     video.dolbyVisionConfig == null && (rpuCount > 0 || enhancementLayerCount > 0),
             )
-        } catch (_: Throwable) {
+        } catch (failure: Throwable) {
+            val typed = failure as? YPlaybackException
+            // The deep probe is the first FFmpeg open of a source. When it fails, the bundle
+            // needs the same typed detail the playback open reports, or the five seconds it
+            // cost stay unexplained between "route_selected" lines.
+            AppLog.warning(
+                category = "player.core2",
+                event = "enhanced_probe_failed",
+                message = "YCore FFmpeg truth probe could not open the source",
+                throwable = failure,
+                attributes =
+                    mapOf(
+                        "failureCategory" to (typed?.category?.name ?: "Unknown"),
+                        "failureStage" to (typed?.stage?.name ?: "Unknown"),
+                        "failureDetail" to typed?.safeDetail.orEmpty(),
+                        "sourceScheme" to item.uri.substringBefore(':').lowercase(),
+                    ),
+            )
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
         } finally {
             demuxer.close()
         }
     }
+
+    private class TimedProbeFailure(
+        val result: YCore2ProbeResult.Failure,
+        val retryAfterNs: Long,
+    )
 }
 
 private val ENHANCED_AUDIO_ONLY_VIDEO_PLACEHOLDER =
@@ -172,7 +247,7 @@ private val ENHANCED_AUDIO_ONLY_VIDEO_PLACEHOLDER =
 
 private const val DOLBY_PROBE_SAMPLE_LIMIT = 24
 
-internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
+internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(hintedHighDynamicRange: Boolean = false): Boolean {
     val request = playbackRequest
     // A successful video probe is not proof that MediaExtractor exposed every elementary stream.
     // When it reports no audio at all, ask FFmpeg once before treating the source as video-only.
@@ -185,12 +260,23 @@ internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(): Boolean {
         container = request.container,
         videoCodec = request.video.codec,
         audioCodec = request.audio?.codec,
+        hdrType = request.video.hdrType,
+        bitDepth = request.video.bitDepth,
+        hintedHighDynamicRange = hintedHighDynamicRange,
     )
 }
 
 internal fun YCore2ProbeResult.Success.requiresEnhancedTruthProbe(item: YMediaItem): Boolean =
     (item.sourceHints?.dolbyVision == true && dolbyVisionConfig == null) ||
-        requiresEnhancedTruthProbe()
+        requiresEnhancedTruthProbe(hintedHighDynamicRange = item.sourceHints.hintsHighDynamicRange())
+
+/** True when the server labels the source HDR/HLG/Dolby Vision, whatever the platform extractor says. */
+internal fun YMediaSourceHints?.hintsHighDynamicRange(): Boolean {
+    if (this == null) return false
+    if (dolbyVision) return true
+    val label = dynamicRange?.uppercase() ?: return false
+    return HIGH_DYNAMIC_RANGE_LABEL_MARKERS.any(label::contains)
+}
 
 /**
  * Everything a deep probe result depends on besides the bytes it reads.
@@ -208,3 +294,5 @@ private fun YMediaItem.enhancedProbeCacheKey(): String =
     ).joinToString("\u0000")
 
 private const val MAX_CACHED_ENHANCED_PROBES = 4
+private val HIGH_DYNAMIC_RANGE_LABEL_MARKERS = listOf("HDR", "HLG", "DOLBY", "PQ")
+private const val FAILED_ENHANCED_PROBE_RETRY_NS = 30_000_000_000L

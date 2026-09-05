@@ -29,12 +29,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.URI
 
 /**
@@ -84,6 +85,9 @@ internal class AndroidNativeEnhancedYPlayer(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val commands = Channel<Command>(Channel.UNLIMITED)
+
+    /** Conflated hint that wakes an idle run loop as soon as a command is queued. */
+    private val wakeSignal = Channel<Unit>(Channel.CONFLATED)
     private val worker: Job = scope.launch { runLoop() }
 
     @Volatile
@@ -99,13 +103,13 @@ internal class AndroidNativeEnhancedYPlayer(
                 errorCategory = null,
             )
         }
-        commands.trySend(Command.Prepare)
+        submit(Command.Prepare)
     }
 
     override fun setVideoOutput(output: YVideoOutput?): Boolean {
         if (released) return false
         if (output != null && output !is AndroidSurfaceVideoOutput) return false
-        commands.trySend(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
+        submit(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
         return true
     }
 
@@ -119,7 +123,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 errorCategory = null,
             )
         }
-        commands.trySend(Command.Play)
+        submit(Command.Play)
     }
 
     override fun pause() {
@@ -127,7 +131,7 @@ internal class AndroidNativeEnhancedYPlayer(
         mutableState.updateState {
             it.copy(playbackRequested = false, playing = false, buffering = false)
         }
-        commands.trySend(Command.Pause)
+        submit(Command.Pause)
     }
 
     override fun seekTo(positionMs: Long) {
@@ -140,13 +144,13 @@ internal class AndroidNativeEnhancedYPlayer(
                 phase = if (it.phase == YPlaybackPhase.Ended) YPlaybackPhase.Ready else it.phase,
             )
         }
-        commands.trySend(Command.Seek(target * MICROS_PER_MILLISECOND))
+        submit(Command.Seek(target * MICROS_PER_MILLISECOND))
     }
 
     override fun setSpeed(speed: Float) {
         if (released || !speed.isFinite() || speed <= 0f) return
         mutableState.updateState { it.copy(speed = speed) }
-        commands.trySend(Command.SetSpeed(speed))
+        submit(Command.SetSpeed(speed))
     }
 
     override fun selectTrack(
@@ -158,7 +162,7 @@ internal class AndroidNativeEnhancedYPlayer(
             YTrackType.Audio -> {
                 val trackId = id.removePrefix(AUDIO_TRACK_PREFIX).toIntOrNull() ?: return
                 if (mutableState.value.audioTracks.any { it.id == id && !it.selected }) {
-                    commands.trySend(Command.SelectAudioTrack(trackId))
+                    submit(Command.SelectAudioTrack(trackId))
                 }
             }
             YTrackType.Subtitle -> {
@@ -182,7 +186,7 @@ internal class AndroidNativeEnhancedYPlayer(
                         }
                     }
                 if (id == SUBTITLE_OFF || mutableState.value.subtitleTracks.any { it.id == id && !it.selected }) {
-                    commands.trySend(command)
+                    submit(command)
                 }
             }
         }
@@ -201,7 +205,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 errorCategory = null,
             )
         }
-        commands.trySend(Command.SelectItem(index))
+        submit(Command.SelectItem(index))
     }
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
@@ -216,22 +220,29 @@ internal class AndroidNativeEnhancedYPlayer(
                 buffering = it.playbackRequested,
             )
         }
-        commands.trySend(Command.Prepare)
+        submit(Command.Prepare)
     }
 
     override fun release() {
         if (released) return
         released = true
         commands.close()
+        wakeSignal.trySend(Unit)
         worker.cancel()
         scope.cancel()
-        mutableState.value =
-            mutableState.value.copy(
+        mutableState.update { current ->
+            current.copy(
                 phase = YPlaybackPhase.Idle,
                 playing = false,
                 playbackRequested = false,
                 buffering = false,
             )
+        }
+    }
+
+    private fun submit(command: Command) {
+        commands.trySend(command)
+        wakeSignal.trySend(Unit)
     }
 
     private suspend fun runLoop() {
@@ -353,6 +364,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
                     requireDolbyVisionIdentity = requireDolbyVisionIdentity,
                     expectedAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
+                    sourceHints = item.sourceHints,
                 )
             prepared = true
             activePlan = playbackPlan
@@ -702,6 +714,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 mapOf(
                                     "failureCategory" to (typed?.category?.name ?: "Unknown"),
                                     "failureStage" to (typed?.stage?.name ?: "Unknown"),
+                                    "failureDetail" to typed?.safeDetail.orEmpty(),
                                     "itemIndex" to currentIndex.toString(),
                                     "sourceScheme" to request.items[currentIndex].uri.substringBefore(':').lowercase(),
                                 ),
@@ -748,7 +761,12 @@ internal class AndroidNativeEnhancedYPlayer(
 
                 val didWork = if (prepared && requestedPlay) session.pump() else false
                 publishSnapshot()
-                if (!handled && !didWork) delay(PUMP_IDLE_DELAY_MS)
+                if (!handled && !didWork) {
+                    // A queued command ends the wait at once; a paused session has no pump work
+                    // and can sleep longer without delaying command handling.
+                    val idleDelayMs = if (requestedPlay) PUMP_IDLE_DELAY_MS else PUMP_PAUSED_IDLE_DELAY_MS
+                    withTimeoutOrNull(idleDelayMs) { wakeSignal.receiveCatching() }
+                }
             }
         } finally {
             session.release()
@@ -802,7 +820,12 @@ internal fun yCoreEnhancedFailureMessage(failure: YPlaybackException?): String =
         YPlaybackFailureCategory.Authorization -> "YCore 2.0 片源授权已失效，请刷新播放地址后重试"
         YPlaybackFailureCategory.Drm -> "YCore 2.0 无法建立当前片源的 DRM 会话"
         YPlaybackFailureCategory.Network -> "YCore 2.0 无法连接片源，请检查服务器或网络"
-        YPlaybackFailureCategory.Container -> "YCore 2.0 无法解析当前片源容器"
+        YPlaybackFailureCategory.Container ->
+            if (failure.isHiddenServerAudioTrackFailure()) {
+                YCORE_HIDDEN_AUDIO_TRACK_MESSAGE
+            } else {
+                "YCore 2.0 无法解析当前片源容器"
+            }
         YPlaybackFailureCategory.Decoder -> "YCore 2.0 无法启动当前视频解码器"
         YPlaybackFailureCategory.Renderer -> "YCore 2.0 无法建立视频输出"
         YPlaybackFailureCategory.AudioSink -> "YCore 2.0 无法建立音频输出"
@@ -873,7 +896,7 @@ private fun YDemuxOpenResult.toSubtitleTracks(): List<YTrack> =
     }
 
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
-    value = transform(value)
+    update(transform)
 }
 
 private fun nativeGpuOutputLabel(
@@ -900,3 +923,4 @@ private const val SUBTITLE_TRACK_PREFIX = "subtitle:"
 private const val SUBTITLE_OFF = "off"
 private const val STATE_PUBLISH_INTERVAL_NS = 200_000_000L
 private const val PUMP_IDLE_DELAY_MS = 2L
+private const val PUMP_PAUSED_IDLE_DELAY_MS = 20L

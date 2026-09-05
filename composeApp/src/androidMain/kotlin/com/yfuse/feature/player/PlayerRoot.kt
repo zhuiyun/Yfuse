@@ -824,6 +824,7 @@ internal fun PlayerRoot(
                     "sourceSizeBytes" to (version?.sourceSizeBytes?.toString() ?: "unknown"),
                     "audioCodec" to (activeProbe.audioCodec?.name ?: "unknown"),
                     "audioTracks" to (version?.audioTrackCount ?: 0).toString(),
+                    "serverAudioCodecs" to version?.sourceAudioCodecs?.joinToString(",").orEmpty(),
                     "engine" to kind.name,
                     "decoderMode" to effectiveDecoderMode.name,
                     "renderPath" to activePlan.renderPath.name,

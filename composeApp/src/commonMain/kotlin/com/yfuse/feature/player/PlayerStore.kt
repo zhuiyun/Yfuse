@@ -117,6 +117,8 @@ data class PlayerMediaVersion(
     val sourceAudioSampleRateHz: Int = 0,
     /** Lets an engine distinguish a genuinely silent file from a missing audio track. */
     val audioTrackCount: Int = 0,
+    /** Server codec identifiers of every audio track, so diagnostics can name a hidden one. */
+    val sourceAudioCodecs: List<String> = emptyList(),
     /** Sidecars belong to a physical version and change atomically with its media URL. */
     val externalSubtitles: List<PlayerExternalSubtitle> = emptyList(),
     /** Initial method approved by PlaybackInfo for [url]. */
@@ -283,6 +285,7 @@ internal fun List<MediaVersion>.toPlayerMediaVersions(
             sourceAudioChannelCount = preferredAudio?.channelCount?.coerceAtLeast(0) ?: 0,
             sourceAudioSampleRateHz = preferredAudio?.sampleRateHz?.coerceAtLeast(0) ?: 0,
             audioTrackCount = version.audioTracks.size,
+            sourceAudioCodecs = version.audioTracks.mapNotNull { track -> track.codec?.takeIf(String::isNotBlank) },
             externalSubtitles =
                 version.subtitleTracks
                     .mapNotNull { track ->

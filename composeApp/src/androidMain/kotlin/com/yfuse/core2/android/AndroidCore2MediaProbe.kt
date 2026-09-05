@@ -24,6 +24,9 @@ import com.yfuse.core2.dolby.YDolbyVisionRouter
 import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
 import com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataParser
 import com.yfuse.core2.dolby.YMatroskaDolbyVisionMetadataResult
+import com.yfuse.core2.dolby.YMatroskaTrackCodec
+import com.yfuse.core2.dolby.YMatroskaTrackCodecParser
+import com.yfuse.core2.dolby.YMatroskaTrackCodecResult
 import com.yfuse.core2.quirk.YDeviceIdentity
 import com.yfuse.core2.quirk.YDeviceQuirkAction
 import com.yfuse.core2.quirk.YDeviceQuirkDatabase
@@ -227,6 +230,9 @@ internal class AndroidCore2MediaProbe(
             val audioIndex = demux.findFirstTrack("audio/")
             val audioFormat = audioIndex?.let(demux::trackFormat)
             val audioMime = audioFormat?.getString(MediaFormat.KEY_MIME)?.lowercase()
+            if (audioIndex == null && (item.sourceHints?.audioTrackCount ?: 0) > 0) {
+                demux.reportHiddenPlatformAudio(item, container)
+            }
 
             val video =
                 YVideoRequirement(
@@ -393,6 +399,55 @@ private fun AndroidMediaExtractorDemuxNode.matroskaDolbyVisionConfigOrNull(
     return null
 }
 
+/**
+ * Names the audio track MediaExtractor hid.
+ *
+ * The platform extractor drops any Matroska audio CodecID it does not map, silently. The server
+ * knows what it declared and the container header knows what it carries; recording both is what
+ * turns "did not expose a server-declared audio track" into an actionable codec name.
+ */
+private fun AndroidMediaExtractorDemuxNode.reportHiddenPlatformAudio(
+    item: YMediaItem,
+    container: YContainer,
+) {
+    val hints = item.sourceHints
+    val matroskaCodecIds =
+        if (container == YContainer.Matroska) matroskaTrackCodecIdsOrNull() else null
+    AppLog.warning(
+        category = "player.core2",
+        event = "platform_audio_track_hidden",
+        message = "MediaExtractor exposed no audio track for a source that declares one",
+        attributes =
+            mapOf(
+                "container" to container.name,
+                "serverAudioTracks" to (hints?.audioTrackCount ?: 0).toString(),
+                "serverAudioCodecs" to hints?.audioCodecs.orEmpty().joinToString(","),
+                "matroskaAudioCodecIds" to
+                    matroskaCodecIds
+                        ?.filter(YMatroskaTrackCodec::audio)
+                        ?.joinToString(",", transform = YMatroskaTrackCodec::codecId)
+                        .orEmpty(),
+                "matroskaTrackCodecIds" to
+                    matroskaCodecIds
+                        ?.joinToString(",") { track -> "${track.trackType}:${track.codecId}" }
+                        .orEmpty(),
+            ),
+    )
+}
+
+private fun AndroidMediaExtractorDemuxNode.matroskaTrackCodecIdsOrNull(): List<YMatroskaTrackCodec>? {
+    for (maximumBytes in MATROSKA_METADATA_PROBE_BYTES) {
+        val bytes = runCatching { readSourcePrefix(maximumBytes) }.getOrNull() ?: return null
+        when (val result = YMatroskaTrackCodecParser.parse(bytes)) {
+            is YMatroskaTrackCodecResult.Found -> return result.tracks
+            YMatroskaTrackCodecResult.Invalid -> return null
+            YMatroskaTrackCodecResult.Truncated -> Unit
+        }
+        if (bytes.size < maximumBytes) return null
+    }
+    return null
+}
+
 /** Evaluates the best current route against platform and bounded FFmpeg metadata truth. */
 internal class AndroidCore2RouteEvaluator(
     context: Context,
@@ -441,8 +496,12 @@ internal class AndroidCore2RouteEvaluator(
                             platform.playbackRequest.video.hdrType == YHdrType.DolbyVision &&
                             platform.dolbyVisionConfig == null
                     val deep =
-                        (enhancedProbe.probe(item) as? YCore2ProbeResult.Success)
-                            ?.preservingPlatformDemuxCapability(platform)
+                        (
+                            enhancedProbe.probe(
+                                item,
+                                knownDolbyEvidence = platform.dolbyVisionStreamEvidence?.observedNals,
+                            ) as? YCore2ProbeResult.Success
+                        )?.preservingPlatformDemuxCapability(platform)
                     when {
                         deep?.dolbyVisionConfig != null -> deep
                         deep?.unconfiguredDolbyVisionSignal == true -> return null
@@ -467,6 +526,7 @@ internal class AndroidCore2RouteEvaluator(
         val requested =
             resolved.playbackRequest.copy(
                 enhancedDemuxSupported = resolved.playbackRequest.enhancedDemuxSupported,
+                sourceDeclaresAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
                 preferTunnel = preferTunnel && !resolved.unconfiguredDolbyVisionSignal,
                 allowAudioPassthrough = allowAudioPassthrough,
                 decoderPreference =

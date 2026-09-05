@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -64,6 +65,20 @@ constexpr int kPacketStatusGrowBuffer = -1;
 constexpr int kFailureAuthorization = -2;
 constexpr int kFailureNetwork = -3;
 constexpr int kFailureContainer = -4;
+
+// Human-readable reason for the most recent native_open failure on this thread. The Kotlin
+// bridge reads it right after a negative open status so diagnostics can name the FFmpeg error
+// and the stage that produced it instead of only its coarse classification. It never carries
+// the source URI or headers.
+thread_local std::string g_last_open_failure;
+
+void record_open_failure(const char* stage, int error) {
+    char text[AV_ERROR_MAX_STRING_SIZE] = {0};
+    if (av_strerror(error, text, sizeof(text)) < 0) {
+        std::snprintf(text, sizeof(text), "unknown error");
+    }
+    g_last_open_failure = std::string(stage) + ": " + text + " (" + std::to_string(error) + ")";
+}
 
 constexpr int kSampleFlagSync = 1 << 0;
 constexpr int kSampleFlagEncrypted = 1 << 1;
@@ -515,6 +530,27 @@ bool is_remote_source(const std::string& source) {
         return static_cast<char>(std::tolower(value));
     });
     return scheme == "http" || scheme == "https" || scheme == "smb" || scheme == "webdav";
+}
+
+constexpr const char* kProbeSizeBytes = "2097152";
+constexpr const char* kProbeAnalyzeDurationUs = "1000000";
+
+constexpr int kOpenStageDisc = 1;
+constexpr int kOpenStageOpenInput = 2;
+constexpr int kOpenStageStreamInfo = 3;
+
+int failure_status(int error, bool remote_source);
+
+// Packs the classified failure with the raw AVERROR magnitude and the open stage so the managed
+// side can record which call failed and why. Only numeric codes cross the boundary; no URL,
+// header or FFmpeg log text is ever attached. Legacy readers that only understand -2/-3/-4 still
+// see a negative status and fall back to the container class.
+jlong open_failure_status(int error, bool remote_source, int stage) {
+    const uint64_t category = static_cast<uint64_t>(-failure_status(error, remote_source)) & 0xFFu;
+    const uint64_t magnitude = static_cast<uint64_t>(static_cast<uint32_t>(-error));
+    const uint64_t packed =
+        (static_cast<uint64_t>(stage & 0xFF) << 40) | (category << 32) | magnitude;
+    return -static_cast<jlong>(packed);
 }
 
 int failure_status(int error, bool remote_source) {
@@ -1794,12 +1830,12 @@ jboolean native_select_disc_menu_point(
     return selected >= 0 ? JNI_TRUE : JNI_FALSE;
 }
 
-jlong native_open(
+jlong open_session(
     JNIEnv* env,
-    jclass,
     jstring uri,
     jobjectArray header_names,
-    jobjectArray header_values) {
+    jobjectArray header_values,
+    bool probe_only) {
     if (!uri) {
         throw_illegal_argument(env, "Media URI is required");
         return 0;
@@ -1814,6 +1850,7 @@ jlong native_open(
     const std::string headers = build_headers(env, header_names, header_values, &headers_valid);
     if (!headers_valid || env->ExceptionCheck()) return 0;
 
+    g_last_open_failure.clear();
     auto session = std::make_unique<DemuxSession>();
     int64_t disc_source_id = 0;
     const bool disc_source = ycore_disc::parse_source_id(source, &disc_source_id);
@@ -1826,7 +1863,10 @@ jlong native_open(
 
     if (disc_source) {
         const int error = open_bluray_demux(disc_source_id, session.get());
-        if (error < 0) return failure_status(error, false);
+        if (error < 0) {
+            record_open_failure("open_bluray_demux", error);
+            return open_failure_status(error, false, kOpenStageDisc);
+        }
     }
 
     AVDictionary* options = nullptr;
@@ -1845,17 +1885,26 @@ jlong native_open(
         av_dict_set(&options, "rw_timeout", "15000000", 0);
     }
 
+    if (probe_only) {
+        // A truth probe only needs stream parameters. Keep FFmpeg from reading its default
+        // 5 MB / 5 s analysis window over the network before it answers.
+        av_dict_set(&options, "probesize", kProbeSizeBytes, 0);
+        av_dict_set(&options, "analyzeduration", kProbeAnalyzeDurationUs, 0);
+        av_dict_set(&options, "fflags", "nobuffer", 0);
+    }
     int error =
         disc_source
         ? 0
         : avformat_open_input(&session->format, source.c_str(), nullptr, &options);
     av_dict_free(&options);
     if (error < 0) {
-        return failure_status(error, session->remote_source);
+        record_open_failure("avformat_open_input", error);
+        return open_failure_status(error, session->remote_source, kOpenStageOpenInput);
     }
     error = avformat_find_stream_info(session->format, nullptr);
     if (error < 0) {
-        return failure_status(error, session->remote_source);
+        record_open_failure("avformat_find_stream_info", error);
+        return open_failure_status(error, session->remote_source, kOpenStageStreamInfo);
     }
 
     session->selected.assign(session->format->nb_streams, 0);
@@ -1865,8 +1914,30 @@ jlong native_open(
     return to_handle(session.release());
 }
 
+jlong native_open(
+    JNIEnv* env,
+    jclass,
+    jstring uri,
+    jobjectArray header_names,
+    jobjectArray header_values) {
+    return open_session(env, uri, header_names, header_values, false);
+}
+
+jlong native_open_probe(
+    JNIEnv* env,
+    jclass,
+    jstring uri,
+    jobjectArray header_names,
+    jobjectArray header_values) {
+    return open_session(env, uri, header_names, header_values, true);
+}
+
 void native_close(JNIEnv*, jclass, jlong handle) {
     delete from_handle(handle);
+}
+
+jstring native_last_open_failure(JNIEnv* env, jclass) {
+    return g_last_open_failure.empty() ? nullptr : nullable_string(env, g_last_open_failure.c_str());
 }
 
 jint native_track_count(JNIEnv* env, jclass, jlong handle) {
@@ -2736,7 +2807,9 @@ static const JNINativeMethod kMethods[] = {
     {"nativeSendDiscMenuCommand", "(JI)Z", reinterpret_cast<void*>(native_send_disc_menu_command)},
     {"nativeSelectDiscMenuPoint", "(JIIZ)Z", reinterpret_cast<void*>(native_select_disc_menu_point)},
     {"nativeOpen", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)J", reinterpret_cast<void*>(native_open)},
+    {"nativeOpenProbe", "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)J", reinterpret_cast<void*>(native_open_probe)},
     {"nativeClose", "(J)V", reinterpret_cast<void*>(native_close)},
+    {"nativeLastOpenFailure", "()Ljava/lang/String;", reinterpret_cast<void*>(native_last_open_failure)},
     {"nativeTrackCount", "(J)I", reinterpret_cast<void*>(native_track_count)},
     {"nativeContainerName", "(J)Ljava/lang/String;", reinterpret_cast<void*>(native_container_name)},
     {"nativeDurationUs", "(J)J", reinterpret_cast<void*>(native_duration_us)},

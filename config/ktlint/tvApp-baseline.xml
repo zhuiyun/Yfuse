@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<baseline version="1.0">
+    <file name="build.gradle.kts">
+        <error line="368" column="36" source="standard:chain-method-continuation" />
+        <error line="368" column="47" source="standard:chain-method-continuation" />
+        <error line="368" column="54" source="standard:chain-method-continuation" />
+        <error line="368" column="75" source="standard:chain-method-continuation" />
+    </file>
+    <file name="src/androidMain/kotlin/com/yfuse/tv/TvMainActivity.kt">
+        <error line="54" column="25" source="standard:multiline-expression-wrapping" />
+    </file>
+</baseline>

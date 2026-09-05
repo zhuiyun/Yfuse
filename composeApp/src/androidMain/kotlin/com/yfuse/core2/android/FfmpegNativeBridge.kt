@@ -81,18 +81,43 @@ internal object FfmpegNativeBridge {
     fun open(
         uri: String,
         headers: Map<String, String>,
+        probeOnly: Boolean = false,
     ): Long {
         check(available) { "YCore FFmpeg demux bridge is not installed" }
         val entries = headers.entries.toList()
-        return nativeOpen(
-            uri,
-            entries.map { it.key }.toTypedArray(),
-            entries.map { it.value }.toTypedArray(),
-        ).also { handle ->
-            if (handle < 0L) throwFfmpegFailure(handle, YPlaybackFailureStage.SourceOpen)
+        val names = entries.map { it.key }.toTypedArray()
+        val values = entries.map { it.value }.toTypedArray()
+        val status =
+            if (probeOnly) {
+                // Older native artifacts predate the bounded probe entry point; the full open
+                // answers the same questions, only slower.
+                try {
+                    nativeOpenProbe(uri, names, values)
+                } catch (_: UnsatisfiedLinkError) {
+                    nativeOpen(uri, names, values)
+                }
+            } else {
+                nativeOpen(uri, names, values)
+            }
+        return status.also { handle ->
+            if (handle < 0L) {
+                throwFfmpegFailure(handle, YPlaybackFailureStage.SourceOpen, lastOpenFailureDetail())
+            }
             check(handle != 0L) { "YCore FFmpeg demux session was not created" }
         }
     }
+
+    /**
+     * FFmpeg's own reason for the open failure that just returned a negative status.
+     *
+     * Older native artifacts predate the getter, so a missing symbol degrades to the classified
+     * status alone instead of failing the open a second time. The text is FFmpeg's `av_strerror`
+     * output plus the stage name; it never contains the source URI or headers.
+     */
+    private fun lastOpenFailureDetail(): String? =
+        runCatching { nativeLastOpenFailure() }
+            .getOrNull()
+            ?.takeIf(String::isNotBlank)
 
     fun close(handle: Long) {
         if (handle != 0L && available) nativeClose(handle)
@@ -242,6 +267,15 @@ internal object FfmpegNativeBridge {
         headerNames: Array<String>,
         headerValues: Array<String>,
     ): Long
+
+    /** Same contract as [nativeOpen] with FFmpeg's stream analysis bounded for metadata probes. */
+    private external fun nativeOpenProbe(
+        uri: String,
+        headerNames: Array<String>,
+        headerValues: Array<String>,
+    ): Long
+
+    private external fun nativeLastOpenFailure(): String?
 
     private external fun nativeClose(handle: Long)
 
@@ -393,19 +427,67 @@ internal object FfmpegNativeBridge {
 private fun throwFfmpegFailure(
     status: Long,
     stage: YPlaybackFailureStage,
+    detail: String? = null,
 ): Nothing =
     throw YPlaybackException(
         category = ffmpegFailureCategory(status),
         stage = stage,
-        safeDetail = "FFmpeg ${stage.name} returned a classified failure",
+        safeDetail =
+            buildString {
+                append("FFmpeg ")
+                append(stage.name)
+                append(" returned a classified failure")
+                (detail ?: ffmpegFailureDetail(status))?.let { reason ->
+                    append(" (")
+                    append(reason)
+                    append(')')
+                }
+            },
     )
 
 internal fun ffmpegFailureCategory(status: Long): YPlaybackFailureCategory =
-    when (status) {
+    when (ffmpegFailureClass(status)) {
         FFMPEG_FAILURE_AUTHORIZATION -> YPlaybackFailureCategory.Authorization
         FFMPEG_FAILURE_NETWORK -> YPlaybackFailureCategory.Network
         else -> YPlaybackFailureCategory.Container
     }
+
+/**
+ * The failure class of a native status. Read and seek paths still return the bare -2/-3/-4
+ * classes; the open path packs the class into bits 32-39 together with the open stage in bits
+ * 40-47 and the AVERROR magnitude in the low 32 bits, so the bundle can name the failing call.
+ */
+internal fun ffmpegFailureClass(status: Long): Long =
+    if (status >= FFMPEG_FAILURE_CONTAINER) status else -((-status ushr 32) and 0xFFL)
+
+/** Human-readable stage and error for a packed open status; null for the bare legacy classes. */
+internal fun ffmpegFailureDetail(status: Long): String? {
+    if (status >= FFMPEG_FAILURE_CONTAINER) return null
+    val packed = -status
+    val stage =
+        when (((packed ushr 40) and 0xFFL).toInt()) {
+            FFMPEG_OPEN_STAGE_DISC -> "disc_open"
+            FFMPEG_OPEN_STAGE_OPEN_INPUT -> "open_input"
+            FFMPEG_OPEN_STAGE_STREAM_INFO -> "find_stream_info"
+            else -> "unknown"
+        }
+    return "stage=$stage error=${ffmpegErrorLabel(packed and 0xFFFF_FFFFL)}"
+}
+
+/**
+ * Labels an AVERROR magnitude: small values are errno numbers, larger ones are FFmpeg's
+ * four-character tags (little-endian, a leading 0xF8 byte marks the reserved "!" family, as in
+ * `!404` or `!DEM`).
+ */
+internal fun ffmpegErrorLabel(magnitude: Long): String {
+    if (magnitude < FFMPEG_ERRNO_LIMIT) return "errno:$magnitude"
+    val bytes = (0 until 4).map { index -> ((magnitude ushr (8 * index)) and 0xFFL).toInt() }
+    val printable = bytes.drop(1).all { it in 0x20..0x7E }
+    if (!printable) return "code:$magnitude"
+    val head = if (bytes[0] == FFMPEG_RESERVED_TAG_BYTE) "!" else bytes[0].toChar().toString()
+    if (bytes[0] != FFMPEG_RESERVED_TAG_BYTE && bytes[0] !in 0x20..0x7E) return "code:$magnitude"
+    return "tag:" + head + bytes.drop(1).joinToString("") { it.toChar().toString() }
+}
 
 internal fun Long.timestampOrNull(): Long? = takeUnless { it == Long.MIN_VALUE }
 
@@ -415,6 +497,11 @@ internal const val FFMPEG_PACKET_GROW_BUFFER = -1L
 internal const val FFMPEG_FAILURE_AUTHORIZATION = -2L
 internal const val FFMPEG_FAILURE_NETWORK = -3L
 internal const val FFMPEG_FAILURE_CONTAINER = -4L
+internal const val FFMPEG_OPEN_STAGE_DISC = 1
+internal const val FFMPEG_OPEN_STAGE_OPEN_INPUT = 2
+internal const val FFMPEG_OPEN_STAGE_STREAM_INFO = 3
+private const val FFMPEG_ERRNO_LIMIT = 0x1000L
+private const val FFMPEG_RESERVED_TAG_BYTE = 0xF8
 internal const val FFMPEG_SAMPLE_SYNC = 1L shl 0
 internal const val FFMPEG_SAMPLE_ENCRYPTED = 1L shl 1
 internal const val FFMPEG_TRACK_VIDEO = 1

@@ -22,12 +22,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Unified YPlayer wrapper for Android multimedia tunneling.
@@ -66,6 +67,9 @@ internal class AndroidNativeTunnelYPlayer(
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val commands = Channel<Command>(Channel.UNLIMITED)
+
+    /** Conflated hint that wakes an idle run loop as soon as a command is queued. */
+    private val wakeSignal = Channel<Unit>(Channel.CONFLATED)
     private val worker: Job = scope.launch { runLoop() }
 
     @Volatile
@@ -75,7 +79,7 @@ internal class AndroidNativeTunnelYPlayer(
 
     override fun setVideoOutput(output: YVideoOutput?): Boolean {
         if (released || output != null && output !is AndroidSurfaceVideoOutput) return false
-        commands.trySend(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
+        send(Command.SetVideoOutput(output as AndroidSurfaceVideoOutput?))
         return true
     }
 
@@ -84,7 +88,7 @@ internal class AndroidNativeTunnelYPlayer(
         mutableState.updateState {
             it.copy(playbackRequested = true, error = null, errorCategory = null)
         }
-        commands.trySend(Command.Play)
+        send(Command.Play)
     }
 
     override fun pause() {
@@ -92,14 +96,14 @@ internal class AndroidNativeTunnelYPlayer(
         mutableState.updateState {
             it.copy(playbackRequested = false, playing = false, buffering = false)
         }
-        commands.trySend(Command.Pause)
+        send(Command.Pause)
     }
 
     override fun seekTo(positionMs: Long) {
         if (released) return
         val target = positionMs.coerceAtLeast(0L)
         mutableState.updateState { it.copy(positionMs = target, buffering = it.playbackRequested) }
-        commands.trySend(Command.Seek(target * MICROS_PER_MILLISECOND))
+        send(Command.Seek(target * MICROS_PER_MILLISECOND))
     }
 
     override fun setSpeed(speed: Float) {
@@ -161,7 +165,7 @@ internal class AndroidNativeTunnelYPlayer(
                 errorCategory = null,
             )
         }
-        commands.trySend(Command.SelectItem(index))
+        send(Command.SelectItem(index))
     }
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
@@ -172,19 +176,23 @@ internal class AndroidNativeTunnelYPlayer(
         if (released) return
         released = true
         commands.close()
+        wakeSignal.trySend(Unit)
         worker.cancel()
         scope.cancel()
-        mutableState.value =
-            mutableState.value.copy(
+        mutableState.update { current ->
+            current.copy(
                 phase = YPlaybackPhase.Idle,
                 playing = false,
                 playbackRequested = false,
                 buffering = false,
             )
+        }
     }
 
     private fun send(command: Command) {
-        if (!released) commands.trySend(command)
+        if (released) return
+        commands.trySend(command)
+        wakeSignal.trySend(Unit)
     }
 
     private suspend fun runLoop() {
@@ -463,7 +471,12 @@ internal class AndroidNativeTunnelYPlayer(
                         false
                     }
                 publishSnapshot()
-                if (!handled && !didWork) delay(PUMP_IDLE_DELAY_MS)
+                if (!handled && !didWork) {
+                    // A queued command ends the wait at once; a paused session has no pump work
+                    // and can sleep longer without delaying command handling.
+                    val idleDelayMs = if (requestedPlay) PUMP_IDLE_DELAY_MS else PUMP_PAUSED_IDLE_DELAY_MS
+                    withTimeoutOrNull(idleDelayMs) { wakeSignal.receiveCatching() }
+                }
             }
         } finally {
             session.close()
@@ -501,11 +514,12 @@ private fun YMediaItem.toAndroidTunnelSource(): YAndroidMediaSource =
     )
 
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
-    value = transform(value)
+    update(transform)
 }
 
 private const val PRIMARY_AUDIO_TRACK_ID = "audio:tunnel-primary"
 private const val MICROS_PER_MILLISECOND = 1_000L
 private const val STATE_PUBLISH_INTERVAL_NS = 200_000_000L
 private const val PUMP_IDLE_DELAY_MS = 2L
+private const val PUMP_PAUSED_IDLE_DELAY_MS = 20L
 private const val SPEED_EPSILON = 0.0001f
