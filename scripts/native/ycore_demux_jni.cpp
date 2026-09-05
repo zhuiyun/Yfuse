@@ -165,6 +165,17 @@ std::mutex g_disc_sources_mutex;
 std::unordered_map<int64_t, std::shared_ptr<DiscSource>> g_disc_sources;
 std::atomic<int64_t> g_next_disc_source_id{1};
 
+struct DemuxSession;
+
+// Open demux sessions are handed to Kotlin as small positive ids, never as the session pointer.
+// Android 11+ tags every arm64 heap pointer in its top byte (0xb4...), so a raw `DemuxSession*`
+// cast to jlong is negative and the Kotlin bridge read every successful open as a packed
+// failure status: the pointer bits decoded as a random class and stage, the source was
+// reported as unplayable, and the session itself leaked with its network connection.
+std::mutex g_demux_sessions_mutex;
+std::unordered_map<int64_t, DemuxSession*> g_demux_sessions;
+std::atomic<int64_t> g_next_demux_session_id{1};
+
 struct SoftwareDecoder {
     AVCodecContext* codec = nullptr;
     AVFrame* frame = nullptr;
@@ -219,11 +230,33 @@ struct DemuxSession {
 };
 
 DemuxSession* from_handle(jlong handle) {
-    return reinterpret_cast<DemuxSession*>(static_cast<intptr_t>(handle));
+    if (handle <= 0) return nullptr;
+    std::lock_guard<std::mutex> lock(g_demux_sessions_mutex);
+    const auto found = g_demux_sessions.find(static_cast<int64_t>(handle));
+    return found == g_demux_sessions.end() ? nullptr : found->second;
 }
 
+// Registers an opened session and returns its handle, or 0 when the id space is exhausted.
+// Handles are always positive so the Kotlin bridge can keep reserving negative values for
+// classified failure statuses.
 jlong to_handle(DemuxSession* session) {
-    return static_cast<jlong>(reinterpret_cast<intptr_t>(session));
+    if (!session) return 0;
+    const int64_t session_id = g_next_demux_session_id.fetch_add(1);
+    if (session_id <= 0) return 0;
+    std::lock_guard<std::mutex> lock(g_demux_sessions_mutex);
+    g_demux_sessions.emplace(session_id, session);
+    return static_cast<jlong>(session_id);
+}
+
+// Removes a handle from the registry and returns the session it named, if any.
+DemuxSession* release_handle(jlong handle) {
+    if (handle <= 0) return nullptr;
+    std::lock_guard<std::mutex> lock(g_demux_sessions_mutex);
+    const auto found = g_demux_sessions.find(static_cast<int64_t>(handle));
+    if (found == g_demux_sessions.end()) return nullptr;
+    DemuxSession* session = found->second;
+    g_demux_sessions.erase(found);
+    return session;
 }
 
 JNIEnv* disc_env(JavaVM* vm, bool* attached) {
@@ -1911,7 +1944,13 @@ jlong open_session(
     session->subtitle_decoders.assign(session->format->nb_streams, nullptr);
     session->ass_tracks.assign(session->format->nb_streams, nullptr);
     session->software_decoders.resize(session->format->nb_streams);
-    return to_handle(session.release());
+    const jlong handle = to_handle(session.get());
+    if (handle <= 0) {
+        throw_illegal_state(env, "FFmpeg demux session id space is exhausted");
+        return 0;
+    }
+    session.release();
+    return handle;
 }
 
 jlong native_open(
@@ -1933,7 +1972,7 @@ jlong native_open_probe(
 }
 
 void native_close(JNIEnv*, jclass, jlong handle) {
-    delete from_handle(handle);
+    delete release_handle(handle);
 }
 
 jstring native_last_open_failure(JNIEnv* env, jclass) {

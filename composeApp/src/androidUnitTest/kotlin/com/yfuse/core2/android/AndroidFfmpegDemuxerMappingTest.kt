@@ -13,8 +13,10 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AndroidFfmpegDemuxerMappingTest {
     @Test
@@ -116,18 +118,43 @@ class AndroidFfmpegDemuxerMappingTest {
 
     @Test
     fun `native open statuses in an unrecognised layout stay Unknown instead of penalising the container`() {
-        // Recorded by a 1.0.28 device whose libycore_demux.so predates the stage-packed status:
-        // no stage or class byte, and a low word that is not an AVERROR magnitude either.
-        val legacy = -3_422_335_664L
-        assertEquals(YPlaybackFailureCategory.Unknown, ffmpegFailureCategory(legacy))
+        // A packed status whose class byte is not one this bridge knows: decodable only against
+        // the native artifact that produced it, so the raw value stays in the detail.
+        val unknownClass = -((FFMPEG_OPEN_STAGE_OPEN_INPUT.toLong() shl 40) or (9L shl 32) or 0x41444E49L)
+        assertEquals(YPlaybackFailureCategory.Unknown, ffmpegFailureCategory(unknownClass))
         assertEquals(
-            "stage=unknown class=0 raw=-3422335664 error=code:3422335664",
-            ffmpegFailureDetail(legacy),
+            "stage=open_input class=9 raw=$unknownClass error=tag:INDA",
+            ffmpegFailureDetail(unknownClass),
         )
 
         // A bare status outside the -2/-3/-4 classes is equally undecodable.
         assertEquals(YPlaybackFailureCategory.Unknown, ffmpegFailureCategory(-1L))
         assertNull(ffmpegFailureDetail(-1L))
+    }
+
+    @Test
+    fun `tagged heap pointers returned as session handles are not mistaken for open failures`() {
+        // Recorded by a 1.0.28 OPPO PLG110 on Android 16: libycore_demux.so returned the session
+        // pointer as the handle, and Android's 0xb4 top-byte pointer tag makes it negative. The
+        // bridge decoded it as "class=145 raw=-5476376674047646560 error=code:3906493280" and
+        // reported a playable Dolby Vision MKV as an unknown open failure.
+        assertFalse(isFfmpegOpenFailure(-5_476_376_674_047_646_560L))
+        // The first session of the same bundle landed on a pointer whose bits happened to read as
+        // the Container class and was reported as a corrupt file.
+        assertFalse(isFfmpegOpenFailure(-5_476_376_067_973_100_208L))
+        // Untagged pointers and registry ids are positive and were never at risk.
+        assertFalse(isFfmpegOpenFailure(0x7F00_1234_5678L))
+        assertFalse(isFfmpegOpenFailure(1L))
+
+        // Every status the native artifact can actually produce still classifies as a failure.
+        assertTrue(isFfmpegOpenFailure(-1L))
+        assertTrue(isFfmpegOpenFailure(FFMPEG_FAILURE_AUTHORIZATION))
+        assertTrue(isFfmpegOpenFailure(FFMPEG_FAILURE_NETWORK))
+        assertTrue(isFfmpegOpenFailure(FFMPEG_FAILURE_CONTAINER))
+        val packed = -((FFMPEG_OPEN_STAGE_STREAM_INFO.toLong() shl 40) or (3L shl 32) or 0x343034F8L)
+        assertTrue(isFfmpegOpenFailure(packed))
+        assertTrue(isFfmpegOpenFailure(-(FFMPEG_OPEN_STATUS_LIMIT - 1L)))
+        assertFalse(isFfmpegOpenFailure(-FFMPEG_OPEN_STATUS_LIMIT - 1L))
     }
 
     @Test

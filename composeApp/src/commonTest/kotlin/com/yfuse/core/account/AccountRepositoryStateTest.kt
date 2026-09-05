@@ -347,6 +347,85 @@ class AccountRepositoryStateTest {
         }
 
     @Test
+    fun restore_session_falls_back_to_the_legacy_refresh_body_for_a_strict_older_backend() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val refreshBodies = mutableListOf<String>()
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        when (request.url.encodedPath) {
+                            REFRESH_PATH -> {
+                                val body = request.body.toByteArray().decodeToString()
+                                refreshBodies += body
+                                // A backend deployed before the idempotent refresh contract decodes
+                                // strictly and rejects the requestId field as malformed JSON. The
+                                // 1.0.28 diagnostic bundle recorded exactly this as "登录失败".
+                                if (body.contains("requestId")) {
+                                    respondAccountJson(
+                                        body =
+                                            json.encodeToString(
+                                                ErrorEnvelope(ErrorBody("invalid_json", "JSON 请求格式无效")),
+                                            ),
+                                        status = HttpStatusCode.BadRequest,
+                                    )
+                                } else {
+                                    respondAccountJson(
+                                        json.encodeToString(authResponse(refreshToken = "legacy-refresh")),
+                                    )
+                                }
+                            }
+                            SYNC_PATH -> respondAccountJson(json.encodeToString(SyncResponse(version = 5)))
+                            else -> error("Unexpected path ${request.url.encodedPath}")
+                        }
+                    },
+                )
+            val repository = accountRepository(api, secureStore)
+
+            repository.start()
+            awaitAccountState(repository) { it is AccountState.SignedIn && it.syncVersion == 5L }
+
+            assertEquals(2, refreshBodies.size)
+            assertEquals(
+                LegacyRefreshRequest("stored-refresh-token"),
+                json.decodeFromString<LegacyRefreshRequest>(refreshBodies[1]),
+            )
+            assertEquals("legacy-refresh", secureStore.text(KEY_REFRESH_TOKEN))
+            assertEquals(0, secureStore.clearCount)
+        }
+
+    @Test
+    fun restore_session_reports_a_backend_that_rejects_even_the_legacy_refresh_body() =
+        runTest {
+            val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
+            val originalSecrets = secureStore.snapshot()
+            var refreshRequests = 0
+            val api =
+                accountApi(
+                    MockEngine { request ->
+                        assertEquals(REFRESH_PATH, request.url.encodedPath)
+                        refreshRequests += 1
+                        respondAccountJson(
+                            body = json.encodeToString(ErrorEnvelope(ErrorBody("invalid_json", "JSON 请求格式无效"))),
+                            status = HttpStatusCode.BadRequest,
+                        )
+                    },
+                )
+            val repository = accountRepository(api, secureStore)
+
+            repository.start()
+            val failed =
+                assertIs<AccountState.RestoreFailed>(
+                    awaitAccountState(repository) { it is AccountState.RestoreFailed },
+                )
+
+            assertEquals(2, refreshRequests)
+            assertEquals("账号服务返回异常（HTTP 400），本机登录信息仍已安全保留。", failed.message)
+            assertEquals(originalSecrets, secureStore.snapshot().filterKeys { it != "pending_refresh" })
+            assertEquals(0, secureStore.clearCount)
+        }
+
+    @Test
     fun restore_failure_wording_separates_the_phone_the_network_and_the_service() {
         assertEquals(
             "本机登录信息暂时无法读取或保存，请重试。",

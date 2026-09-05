@@ -116,7 +116,7 @@ internal object FfmpegNativeBridge {
                 nativeOpen(uri, names, values)
             }
         return status.also { handle ->
-            if (handle < 0L) {
+            if (isFfmpegOpenFailure(handle)) {
                 throwFfmpegFailure(handle, YPlaybackFailureStage.SourceOpen, lastOpenFailureDetail())
             }
             check(handle != 0L) { "YCore FFmpeg demux session was not created" }
@@ -461,6 +461,18 @@ private fun throwFfmpegFailure(
             },
     )
 
+/**
+ * Whether a native open result is a classified failure status rather than a session handle.
+ *
+ * Failure statuses are the bare -1..-4 classes or the stage-packed form, whose magnitude fits in
+ * 48 bits. Session handles are positive registry ids from the current native artifact, but the
+ * artifacts shipped up to 1.0.28 returned the session pointer itself, and Android 11+ tags every
+ * arm64 heap pointer in its top byte (`0xb4...`), so such a handle arrives as a large negative
+ * number. Treating it as a status decoded the pointer bits into a random failure class and stage,
+ * reported a playable source as unplayable, and leaked the open session with its connection.
+ */
+internal fun isFfmpegOpenFailure(status: Long): Boolean = status < 0L && status >= -FFMPEG_OPEN_STATUS_LIMIT
+
 internal fun ffmpegFailureCategory(status: Long): YPlaybackFailureCategory =
     when (ffmpegFailureClass(status)) {
         FFMPEG_FAILURE_AUTHORIZATION -> YPlaybackFailureCategory.Authorization
@@ -540,6 +552,9 @@ internal const val FFMPEG_FAILURE_CONTAINER = -4L
 internal const val FFMPEG_OPEN_STAGE_DISC = 1
 internal const val FFMPEG_OPEN_STAGE_OPEN_INPUT = 2
 internal const val FFMPEG_OPEN_STAGE_STREAM_INFO = 3
+
+/** Packed open statuses use bits 0-31 (AVERROR), 32-39 (class) and 40-47 (stage); nothing above. */
+internal const val FFMPEG_OPEN_STATUS_LIMIT = 1L shl 48
 private const val FFMPEG_ERRNO_LIMIT = 0x1000L
 private const val FFMPEG_RESERVED_TAG_BYTE = 0xF8
 internal const val FFMPEG_SAMPLE_SYNC = 1L shl 0

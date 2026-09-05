@@ -43,6 +43,16 @@ internal data class RefreshRequest(
     val requestId: String? = null,
 )
 
+/**
+ * The refresh body every account backend has accepted. A backend deployed before the idempotent
+ * refresh contract decodes requests strictly and rejects the `requestId` field as `invalid_json`,
+ * so the client falls back to this shape rather than leaving the user signed out.
+ */
+@Serializable
+internal data class LegacyRefreshRequest(
+    val refreshToken: String,
+)
+
 @Serializable
 internal data class PendingAccountRefresh(
     val refreshToken: String,

@@ -434,9 +434,13 @@ private class ResponseTooLargeException : RuntimeException()
 
 private const val MAX_AUTHORIZATION_HEADER_BYTES = 256
 
+// Request bodies tolerate fields this build does not know: the APK and this service are deployed
+// independently, and rejecting a newer client's optional field as `invalid_json` locked every
+// updated device out of its account until the service caught up. Required fields, types and
+// malformed JSON are still rejected.
 private val apiJson =
     Json {
-        ignoreUnknownKeys = false
+        ignoreUnknownKeys = true
         encodeDefaults = false
         explicitNulls = false
     }
