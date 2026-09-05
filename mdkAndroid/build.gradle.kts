@@ -39,6 +39,11 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // Both Full applications obtain the shared C++ runtime from the verified native
+            // carrier. Do not let this bridge's NDK copy win the application's pickFirst rule:
+            // that silently replaced the current, hash-verified carrier's runtime at packaging.
+            // Keep linking dynamically; exclude only this library module's redundant copy.
+            excludes += "**/libc++_shared.so"
         }
     }
 }
