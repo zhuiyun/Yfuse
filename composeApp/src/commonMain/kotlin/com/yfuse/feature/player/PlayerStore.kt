@@ -1310,14 +1310,17 @@ class PlayerStoreFactory(
                 }
             loadJob = job
             scope.launch {
-                // This is a user-facing wall-clock deadline, not coroutine virtual time.
-                // Keeping the timer on Default prevents runTest from jumping directly to
-                // 30 s while MockEngine/serialization is still completing on another
-                // dispatcher, which used to cancel otherwise healthy queue builds.
-                withContext(Dispatchers.Default) {
-                    delay(queueLoadTimeoutMs)
-                }
-                if (loadAttempt != attempt || !job.isActive) return@launch
+                // Race queue completion against a real wall-clock deadline. A completed queue
+                // ends this watcher immediately, so no sleeping timeout coroutine can outlive the
+                // load/store and leak a late dispatch into the next test or a disposed screen.
+                val timedOut =
+                    withContext(Dispatchers.Default) {
+                        withTimeoutOrNull(queueLoadTimeoutMs) {
+                            job.join()
+                            false
+                        } ?: true
+                    }
+                if (!timedOut || loadAttempt != attempt || !job.isActive) return@launch
                 job.cancel()
                 AppLog.warning(
                     category = "feature.player",
