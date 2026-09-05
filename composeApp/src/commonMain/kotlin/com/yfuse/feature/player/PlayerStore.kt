@@ -27,11 +27,13 @@ import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
 import com.yfuse.core.sync.watchMatchKeys
 import com.yfuse.core2.network.YTransportCredentials
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 
@@ -1308,7 +1310,13 @@ class PlayerStoreFactory(
                 }
             loadJob = job
             scope.launch {
-                delay(queueLoadTimeoutMs)
+                // This is a user-facing wall-clock deadline, not coroutine virtual time.
+                // Keeping the timer on Default prevents runTest from jumping directly to
+                // 30 s while MockEngine/serialization is still completing on another
+                // dispatcher, which used to cancel otherwise healthy queue builds.
+                withContext(Dispatchers.Default) {
+                    delay(queueLoadTimeoutMs)
+                }
                 if (loadAttempt != attempt || !job.isActive) return@launch
                 job.cancel()
                 AppLog.warning(
