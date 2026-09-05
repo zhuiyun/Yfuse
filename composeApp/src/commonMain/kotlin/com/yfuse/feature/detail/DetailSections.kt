@@ -265,12 +265,6 @@ internal fun OverviewSection(
     }
 }
 
-/**
- * Season header with the `切换季数 ▾` chip. The season list expands inline rather than
- * as an overlay: a popup drawn from inside a lazy item is painted under the rows that
- * follow it, and the old one hard-coded a white plate that broke under the dark theme.
- */
-
 @Composable
 internal fun CastRow(
     baseUrl: String,
