@@ -19,12 +19,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * One continuous, lightly frosted glass shell shared by the dock, search key and rail.
+ * One continuous glass pane for the dock, detached search key and navigation rail.
  *
- * Only the page is sampled, once per surface. Selection is a translucent tint on this
- * same sample, not a second blurred pane. A fine directional rim replaces the old 7dp
- * inner glow; subdued refraction avoids the apparent second capsule around the dock.
- * The existing opaque/frosted accessibility fallbacks remain authoritative.
+ * The page is sampled once by each surface. A restrained pearl tint and one fine,
+ * directional rim sit above that sample; a single neutral shadow lifts it off the page.
+ * There is deliberately no wide inner stroke, dark underside or second contact shadow:
+ * those concentric edges made the old dock look like two nested navigation bars.
+ *
+ * The selected capsule is retained by [drawLensIsland]. It shares this pane's backdrop
+ * instead of capturing or blurring the navigation itself. Frosted glass, older platforms
+ * and reduced transparency keep the existing accessible fallback material.
  */
 @Composable
 fun Modifier.navigationGlass(
@@ -41,8 +45,7 @@ fun Modifier.navigationGlass(
     val ink = if (palette.isDark) NavigationGlassInk.Dark else NavigationGlassInk.Light
     val accent = LocalAccentColors.current.accent
     return this
-        .shadow(ink.farShadow, shape)
-        .shadow(ink.nearShadow, shape)
+        .shadow(ink.shadow, shape)
         .backdropBlur(
             backdrop,
             shape,
@@ -53,8 +56,8 @@ fun Modifier.navigationGlass(
         .drawWithCache {
             val outline = shape.createOutline(size, layoutDirection, this)
             val tint = Brush.verticalGradient(0f to ink.tintTop, 1f to ink.tintBottom)
-            // Very faint pearl colours unify the detached search key with the dock without
-            // painting an opaque fixed gradient over the artwork underneath either one.
+            // A quiet shared pearl tint coordinates the detached search key and dock;
+            // most of their colour still comes from the actual page beneath the glass.
             val pearl =
                 Brush.linearGradient(
                     0f to lerp(PearlRose, accent, 0.18f).copy(alpha = 0.035f),
@@ -63,61 +66,56 @@ fun Modifier.navigationGlass(
                     start = Offset.Zero,
                     end = Offset(size.width, size.height),
                 )
-            val light =
-                Brush.verticalGradient(
-                    0f to Color.White.copy(alpha = ink.flareNear),
-                    0.45f to Color.Transparent,
-                    1f to Color.White.copy(alpha = ink.flareFar),
+            val sheen =
+                Brush.radialGradient(
+                    0f to Color.White.copy(alpha = ink.sheenAlpha),
+                    1f to Color.Transparent,
+                    center = Offset(size.width * 0.28f, 0f),
+                    radius = (size.width * 0.65f).coerceAtLeast(1f),
                 )
             val rim =
-                Brush.linearGradient(
+                cssLinearGradient(
+                    135f,
                     0f to Color.White.copy(alpha = ink.rimNear),
                     0.38f to Color.White.copy(alpha = ink.rimSide),
-                    0.70f to Color.White.copy(alpha = ink.rimSide * 0.7f),
+                    0.68f to Color.White.copy(alpha = ink.rimSide),
                     1f to Color.White.copy(alpha = ink.rimFar),
-                    start = Offset.Zero,
-                    end = Offset(size.width, size.height),
                 )
-            val underside =
-                Brush.verticalGradient(
-                    0.8f to Color.Transparent,
-                    1f to ink.underside,
-                )
-            // The outer clip removes half the centred stroke. No broad inner stroke or
-            // extra outline: the only visible edge is this narrow directional highlight.
+            // The clip removes the outer half of a centred stroke. Double it so the
+            // visible edge is exactly the token, without another inset contour.
             val rimStroke = Stroke(NavigationGlassRim.toPx() * 2f)
-            val hairline = Stroke(Dimens.hairline.toPx())
             onDrawBehind {
                 drawOutline(outline, brush = tint)
                 drawOutline(outline, brush = pearl)
-                drawOutline(outline, brush = light)
+                drawOutline(outline, brush = sheen)
                 drawOutline(outline, brush = rim, style = rimStroke)
-                drawOutline(outline, brush = underside, style = hairline)
             }
         }
 }
 
-/** A transparent lens needs a real backdrop; older devices keep the readable fallback. */
-internal fun navigationLensEnabled(
+internal fun useLiquidNavigationMaterial(
     reduceTransparency: Boolean,
     frosted: Boolean,
-    supportsBlur: Boolean,
-): Boolean = supportsBlur && !reduceTransparency && !frosted
+    blurSupported: Boolean,
+): Boolean = blurSupported && !reduceTransparency && !frosted
 
+/** Keep the shell and selection on the same material, including the no-blur fallback. */
 @Composable
 @ReadOnlyComposable
 fun liquidNavigationGlass(): Boolean =
-    navigationLensEnabled(
+    useLiquidNavigationMaterial(
         reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency,
         frosted = frostedGlass(),
-        supportsBlur = supportsBackdropBlur,
+        blurSupported = supportsBackdropBlur,
     )
 
 /**
- * The retained inner selection capsule. Soft rose/lilac/blue pearl tint, a quiet top
- * highlight and one fine rim sit on the dock's existing backdrop. There is deliberately
- * no second blur, broad shadow, white plate, or separate background behind the icon.
- * Caller-owned bounds and alpha preserve the current elastic tab/search transitions.
+ * A softly tinted capsule embedded in the dock, not another floating glass button.
+ *
+ * Rose and blue pearl ends blend through the current accent without a fixed blue plate.
+ * The translucent ramp lets the already-blurred poster colour through. One fine highlight
+ * distinguishes the selected region; no island shadow, extra blur or glow is painted
+ * outside it. Existing geometry and reduced-motion transitions stay in App.
  */
 fun DrawScope.drawLensIsland(
     rect: Rect,
@@ -125,65 +123,64 @@ fun DrawScope.drawLensIsland(
     accent: Color,
     alpha: Float = 1f,
 ) {
-    if (!alpha.isFinite() || alpha <= 0f || rect.isEmpty) return
-    val a = alpha.coerceIn(0f, 1f)
+    val a = navigationSelectionAlpha(alpha)
+    if (a <= 0f) return
+    val edgePx = minOf(NavigationGlassRim.toPx(), rect.width * 0.25f, rect.height * 0.25f)
+    val rimRect = navigationLensRimRect(rect, edgePx) ?: return
     val ink = navigationSelectionInk(dark, accent)
-    val corner = CornerRadius(rect.height / 2f)
     val body =
         Brush.linearGradient(
-            0f to ink.rose.faded(a),
-            0.48f to ink.center.faded(a),
-            1f to ink.blue.faded(a),
+            0f to ink.top.copy(alpha = ink.top.alpha * a),
+            0.52f to ink.middle.copy(alpha = ink.middle.alpha * a),
+            1f to ink.bottom.copy(alpha = ink.bottom.alpha * a),
             start = rect.topLeft,
             end = rect.bottomRight,
         )
-    drawRoundRect(brush = body, topLeft = rect.topLeft, size = rect.size, cornerRadius = corner)
-    val sheen =
-        Brush.verticalGradient(
-            0f to Color.White.copy(alpha = ink.sheen * a),
-            0.62f to Color.Transparent,
-            startY = rect.top,
-            endY = rect.bottom,
-        )
-    drawRoundRect(brush = sheen, topLeft = rect.topLeft, size = rect.size, cornerRadius = corner)
-
-    // Keep the stroke inside its animated bounds, including at the dock's end stops.
-    val strokePx = NavigationSelectionRim.toPx().coerceAtMost(minOf(rect.width, rect.height) / 2f)
-    val inset =
-        Rect(
-            left = rect.left + strokePx / 2f,
-            top = rect.top + strokePx / 2f,
-            right = rect.right - strokePx / 2f,
-            bottom = rect.bottom - strokePx / 2f,
-        )
+    drawRoundRect(
+        brush = body,
+        topLeft = rect.topLeft,
+        size = rect.size,
+        cornerRadius = CornerRadius(minOf(rect.width, rect.height) / 2f),
+    )
     val rim =
         Brush.linearGradient(
-            0f to Color.White.copy(alpha = ink.rimTop * a),
-            0.38f to Color.White.copy(alpha = ink.rimSide * a),
-            0.68f to Color.White.copy(alpha = ink.rimSide * a),
-            1f to Color.White.copy(alpha = ink.rimBottom * a),
+            0f to Color.White.copy(alpha = ink.rimNear * a),
+            0.42f to Color.White.copy(alpha = ink.rimSide * a),
+            0.72f to Color.White.copy(alpha = ink.rimSide * a),
+            1f to Color.White.copy(alpha = ink.rimFar * a),
             start = rect.topLeft,
             end = rect.bottomRight,
         )
     drawRoundRect(
         brush = rim,
-        topLeft = inset.topLeft,
-        size = inset.size,
-        cornerRadius = CornerRadius(inset.height / 2f),
-        style = Stroke(strokePx),
+        topLeft = rimRect.topLeft,
+        size = rimRect.size,
+        cornerRadius = CornerRadius(minOf(rimRect.width, rimRect.height) / 2f),
+        style = Stroke(edgePx),
     )
 }
 
-private fun Color.faded(alpha: Float): Color = copy(alpha = this.alpha * alpha)
+internal fun navigationSelectionAlpha(alpha: Float): Float = if (alpha.isFinite()) alpha.coerceIn(0f, 1f) else 0f
+
+/** Inset the stroke by half its width so the selection cannot paint into neighbouring tabs. */
+internal fun navigationLensRimRect(
+    rect: Rect,
+    strokeWidth: Float,
+): Rect? {
+    if (!rect.left.isFinite() || !rect.top.isFinite() || !rect.right.isFinite() || !rect.bottom.isFinite()) return null
+    if (!rect.width.isFinite() || !rect.height.isFinite() || rect.isEmpty) return null
+    if (!strokeWidth.isFinite() || strokeWidth <= 0f || strokeWidth >= minOf(rect.width, rect.height)) return null
+    val inset = strokeWidth / 2f
+    return Rect(rect.left + inset, rect.top + inset, rect.right - inset, rect.bottom - inset)
+}
 
 internal data class NavigationSelectionInk(
-    val rose: Color,
-    val center: Color,
-    val blue: Color,
-    val sheen: Float,
-    val rimTop: Float,
+    val top: Color,
+    val middle: Color,
+    val bottom: Color,
+    val rimNear: Float,
     val rimSide: Float,
-    val rimBottom: Float,
+    val rimFar: Float,
 )
 
 internal fun navigationSelectionInk(
@@ -191,71 +188,52 @@ internal fun navigationSelectionInk(
     accent: Color,
 ): NavigationSelectionInk =
     NavigationSelectionInk(
-        rose = lerp(PearlRose, accent, 0.20f).copy(alpha = if (dark) 0.22f else 0.24f),
-        center = lerp(PearlLilac, accent, 0.30f).copy(alpha = if (dark) 0.12f else 0.14f),
-        blue = lerp(PearlBlue, accent, 0.20f).copy(alpha = if (dark) 0.20f else 0.22f),
-        sheen = if (dark) 0.09f else 0.16f,
-        rimTop = if (dark) 0.34f else 0.58f,
+        top = lerp(PearlRose, accent, 0.20f).copy(alpha = if (dark) 0.22f else 0.24f),
+        middle = accent.copy(alpha = if (dark) 0.12f else 0.14f),
+        bottom = lerp(PearlBlue, accent, 0.20f).copy(alpha = if (dark) 0.20f else 0.22f),
+        rimNear = if (dark) 0.28f else 0.38f,
         rimSide = if (dark) 0.06f else 0.10f,
-        rimBottom = if (dark) 0.16f else 0.28f,
+        rimFar = if (dark) 0.14f else 0.20f,
     )
 
-/** Blur the page detail, not the tab glyphs, while retaining the poster's colour. */
+/** Diffuse poster detail while retaining its colour, without the old over-saturated bands. */
 val NavigationGlassBlurRadius: Dp = 18.dp
 
+internal val NavigationGlassRim: Dp = 0.75.dp
 internal val NavigationGlassRefraction = BackdropRefraction(edgeX = 0.12f, edgeY = 0.18f, strength = 4.dp)
-internal val NavigationGlassRim: Dp = 0.7.dp
-internal val NavigationSelectionRim: Dp = 0.75.dp
 private const val NAVIGATION_GLASS_SATURATION = 1.30f
 private val PearlRose = Color(0xFFE5A4EE)
-private val PearlLilac = Color(0xFFD0C8F8)
 private val PearlBlue = Color(0xFFB4DAFA)
 
-/** Material tokens shared by every navigation surface; neither theme adds an inner ring. */
 internal class NavigationGlassInk(
     val tintTop: Color,
     val tintBottom: Color,
-    val hairline: Float,
+    val sheenAlpha: Float,
     val rimNear: Float,
     val rimSide: Float,
     val rimFar: Float,
-    val glow: Float,
-    val flareNear: Float,
-    val flareFar: Float,
-    val underside: Color,
-    val farShadow: CssShadow,
-    val nearShadow: CssShadow,
+    val shadow: CssShadow,
 ) {
     companion object {
         val Light =
             NavigationGlassInk(
                 tintTop = Color.White.copy(alpha = 0.24f),
                 tintBottom = Color.White.copy(alpha = 0.14f),
-                hairline = 0f,
-                rimNear = 0.64f,
+                sheenAlpha = 0.10f,
+                rimNear = 0.56f,
                 rimSide = 0.12f,
-                rimFar = 0.38f,
-                glow = 0f,
-                flareNear = 0.10f,
-                flareFar = 0.025f,
-                underside = Color(0xFF202538).copy(alpha = 0.05f),
-                farShadow = CssShadow(0.dp, 8.dp, 24.dp, 0.dp, Color(0xFF202538).copy(alpha = 0.14f)),
-                nearShadow = CssShadow(0.dp, 1.dp, 4.dp, 0.dp, Color(0xFF202538).copy(alpha = 0.04f)),
+                rimFar = 0.28f,
+                shadow = CssShadow(0.dp, 8.dp, 24.dp, 0.dp, Color(0xFF161B25).copy(alpha = 0.14f)),
             )
         val Dark =
             NavigationGlassInk(
-                tintTop = Color(0xFF303546).copy(alpha = 0.26f),
-                tintBottom = Color(0xFF121622).copy(alpha = 0.36f),
-                hairline = 0f,
-                rimNear = 0.42f,
+                tintTop = Color(0xFF313743).copy(alpha = 0.26f),
+                tintBottom = Color(0xFF171B24).copy(alpha = 0.36f),
+                sheenAlpha = 0.06f,
+                rimNear = 0.34f,
                 rimSide = 0.08f,
-                rimFar = 0.24f,
-                glow = 0f,
-                flareNear = 0.06f,
-                flareFar = 0.015f,
-                underside = Color.Black.copy(alpha = 0.10f),
-                farShadow = CssShadow(0.dp, 8.dp, 24.dp, 0.dp, Color.Black.copy(alpha = 0.26f)),
-                nearShadow = CssShadow(0.dp, 1.dp, 4.dp, 0.dp, Color.Black.copy(alpha = 0.10f)),
+                rimFar = 0.18f,
+                shadow = CssShadow(0.dp, 8.dp, 24.dp, 0.dp, Color.Black.copy(alpha = 0.30f)),
             )
     }
 }
