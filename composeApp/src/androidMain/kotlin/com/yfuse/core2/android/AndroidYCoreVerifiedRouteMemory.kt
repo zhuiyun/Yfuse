@@ -2,7 +2,6 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import android.os.Build
-import android.util.Base64
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.capability.YAudioCodec
 import com.yfuse.core2.capability.YAudioRequirement
@@ -12,6 +11,7 @@ import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.strategy.YPlaybackRequest
+import java.util.Base64
 
 /**
  * The probe result the device has since proven on screen, keyed by media identity.
@@ -225,14 +225,15 @@ internal fun decodeVerifiedRouteRecord(
     }.getOrNull()
 
 private fun String.encodeOpaque(): String =
-    Base64.encodeToString(
-        toByteArray(Charsets.UTF_8),
-        Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
-    )
+    Base64
+        .getUrlEncoder()
+        .withoutPadding()
+        .encodeToString(toByteArray(Charsets.UTF_8))
 
 private fun String.decodeOpaque(): String =
     Base64
-        .decode(this, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        .getUrlDecoder()
+        .decode(this)
         .toString(Charsets.UTF_8)
 
 private const val PREFERENCES_NAME = "yfuse_ycore2_verified_routes"
