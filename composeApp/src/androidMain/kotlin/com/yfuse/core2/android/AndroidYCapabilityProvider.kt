@@ -1,10 +1,12 @@
 package com.yfuse.core2.android
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioTrack
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.Spatializer
@@ -64,14 +66,14 @@ internal class AndroidYCapabilityProvider(
 
     private fun queryAudioPassthrough(): Set<YAudioCodec> {
         val manager = appContext.getSystemService(AudioManager::class.java) ?: return emptySet()
-        val encodings =
+        val attributes =
+            AudioAttributes
+                .Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                .build()
+        val declared =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val attributes =
-                    AudioAttributes
-                        .Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                        .build()
                 runCatching {
                     manager.getDirectProfilesForAttributes(attributes).mapTo(mutableSetOf()) { it.format }
                 }.getOrDefault(emptySet())
@@ -82,7 +84,32 @@ internal class AndroidYCapabilityProvider(
                         .flatMapTo(mutableSetOf()) { it.encodings.asIterable() }
                 }.getOrDefault(emptySet())
             }
-        return encodings.flatMapTo(mutableSetOf(), ::audioCodecsForEncoding)
+        // What the device declares and what the active route accepts are two different lists.
+        // HDMI routes routinely declare E-AC-3 but answer the direct-playback query for E-AC-3
+        // JOC, and TrueHD over HDMI/eARC often exists only as the MAT carrier; a device that fails
+        // the declared list on either still plays Atmos when asked directly. The union keeps the
+        // exact JOC transport reachable, which is what the dual-Dolby claim depends on.
+        val direct = directPlaybackEncodings(attributes)
+        return (declared + direct).flatMapTo(mutableSetOf(), ::audioCodecsForEncoding)
+    }
+
+    private fun directPlaybackEncodings(attributes: AudioAttributes): Set<Int> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return emptySet()
+        return DIRECT_PLAYBACK_PROBE_ENCODINGS
+            .filter { (_, minSdk) -> Build.VERSION.SDK_INT >= minSdk }
+            .filterTo(mutableSetOf()) { (encoding, _) ->
+                runCatching {
+                    AudioTrack.isDirectPlaybackSupported(
+                        AudioFormat
+                            .Builder()
+                            .setEncoding(encoding)
+                            .setSampleRate(DIRECT_PLAYBACK_PROBE_SAMPLE_RATE)
+                            .setChannelMask(directPlaybackProbeChannelMask(encoding))
+                            .build(),
+                        attributes,
+                    )
+                }.getOrDefault(false)
+            }.mapTo(mutableSetOf()) { (encoding, _) -> encoding }
     }
 
     private fun MediaCodecInfo.toYDecoders(type: String): List<YVideoDecoderCapability> {
@@ -438,12 +465,41 @@ internal fun String.toYAudioCodec(): YAudioCodec? =
 
 private const val MIME_DOLBY_VISION = "video/dolby-vision"
 
+/** Encodings asked of the active route directly, with the API level that introduced each constant. */
+@SuppressLint("InlinedApi")
+private val DIRECT_PLAYBACK_PROBE_ENCODINGS: List<Pair<Int, Int>> =
+    listOf(
+        AudioFormat.ENCODING_AC3 to Build.VERSION_CODES.LOLLIPOP,
+        AudioFormat.ENCODING_E_AC3 to Build.VERSION_CODES.LOLLIPOP,
+        AudioFormat.ENCODING_E_AC3_JOC to Build.VERSION_CODES.P,
+        AudioFormat.ENCODING_DOLBY_TRUEHD to Build.VERSION_CODES.P,
+        AudioFormat.ENCODING_DOLBY_MAT to Build.VERSION_CODES.R,
+        AudioFormat.ENCODING_DTS to Build.VERSION_CODES.LOLLIPOP,
+        AudioFormat.ENCODING_DTS_HD to Build.VERSION_CODES.LOLLIPOP,
+    )
+private const val DIRECT_PLAYBACK_PROBE_SAMPLE_RATE = 48_000
+
+/** Object and lossless carriers are queried as 7.1 frames; the compressed Dolby/DTS cores as 5.1. */
+@SuppressLint("InlinedApi")
+internal fun directPlaybackProbeChannelMask(encoding: Int): Int =
+    when (encoding) {
+        AudioFormat.ENCODING_DOLBY_TRUEHD,
+        AudioFormat.ENCODING_DOLBY_MAT,
+        AudioFormat.ENCODING_DTS_HD,
+        -> AudioFormat.CHANNEL_OUT_7POINT1_SURROUND
+        else -> AudioFormat.CHANNEL_OUT_5POINT1
+    }
+
+@SuppressLint("InlinedApi")
 internal fun audioCodecsForEncoding(encoding: Int): Set<YAudioCodec> =
     when (encoding) {
         AudioFormat.ENCODING_AC3 -> setOf(YAudioCodec.Ac3)
         AudioFormat.ENCODING_E_AC3 -> setOf(YAudioCodec.Eac3)
         AudioFormat.ENCODING_E_AC3_JOC -> setOf(YAudioCodec.Eac3, YAudioCodec.Eac3Joc)
         AudioFormat.ENCODING_DOLBY_TRUEHD -> setOf(YAudioCodec.TrueHd)
+        // Dolby MAT is the HDMI/eARC carrier TrueHD travels in since API 30; a route that only
+        // accepts MAT still takes the TrueHD bitstream, framed by the sink.
+        AudioFormat.ENCODING_DOLBY_MAT -> setOf(YAudioCodec.TrueHd)
         AudioFormat.ENCODING_DTS -> setOf(YAudioCodec.Dts)
         AudioFormat.ENCODING_DTS_HD -> setOf(YAudioCodec.DtsHd)
         AudioFormat.ENCODING_DTS_HD_MA -> setOf(YAudioCodec.DtsHd)

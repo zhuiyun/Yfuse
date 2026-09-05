@@ -432,6 +432,47 @@ class PlaybackPlannerTest {
         assertFalse(plan.requiresServerTranscode)
     }
 
+    @Test
+    fun dolby_vision_source_never_reaches_mdk_unless_locked() {
+        val dolbyProbe =
+            probe("mkv").let { base ->
+                base.copy(
+                    source =
+                        base.source.copy(
+                            dolbyVision = true,
+                            needsDolbyDecoder = true,
+                            dynamicRange = "Dolby Vision",
+                            videoCodec = PlaybackVideoCodec.Hevc,
+                            dolbyVisionProfile = 5,
+                            bitDepth = 10,
+                        ),
+                )
+            }
+        // No Dolby Vision display: the planner tone-maps locally, and every engine after the
+        // primary is a fallback candidate. MDK would render Profile 5 with a plain HEVC decoder
+        // and show a green/magenta picture without ever failing.
+        val plan =
+            planPlayback(
+                probe = dolbyProbe,
+                capabilities = capabilities(dolby = false),
+                preferredEngine = PlayerEngine.Mdk,
+                preferredDecoderMode = DecoderMode.Auto,
+                optimizationMode = PlaybackOptimizationMode.Compatibility,
+            )
+        assertFalse(PlayerEngine.Mdk in plan.engineOrder)
+        assertEquals(PlayerEngine.Mpv, plan.primaryEngine)
+
+        val locked =
+            planPlayback(
+                probe = dolbyProbe,
+                capabilities = capabilities(dolby = false),
+                preferredEngine = PlayerEngine.Mdk,
+                preferredDecoderMode = DecoderMode.Auto,
+                engineSelection = PlaybackEngineSelection.LockMdk,
+            )
+        assertEquals(listOf(PlayerEngine.Mdk), locked.engineOrder)
+    }
+
     private fun probe(
         container: String,
         disc: Boolean = false,

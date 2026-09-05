@@ -470,12 +470,25 @@ internal class AndroidCore2RouteEvaluator(
         (platformProbe.probe(item) as? YCore2ProbeResult.Success)
             ?.withConfirmedDolbyVisionSourceHint(item)
 
+    /**
+     * [rememberedProbe] is a probe result this device has already proven on screen for exactly
+     * this media (see [AndroidYCoreVerifiedRouteMemory]); with one supplied, the platform and
+     * FFmpeg probes are skipped and the evaluation starts at planning. Every device-side gate
+     * still runs: quirks, Dolby routing, the runtime decoder evidence and the failure memory.
+     */
     fun evaluate(
         item: YMediaItem,
         preferTunnel: Boolean = true,
         allowAudioPassthrough: Boolean = true,
         forcePowerSaver: Boolean = false,
+        rememberedProbe: YCore2ProbeResult.Success? = null,
     ): YCore2RouteDecision? {
+        val resolved = rememberedProbe ?: resolveProbe(item) ?: return null
+        return decide(item, resolved, preferTunnel, allowAudioPassthrough, forcePowerSaver)
+    }
+
+    /** The platform probe, refined by the FFmpeg truth probe where the policy asks for it. */
+    private fun resolveProbe(item: YMediaItem): YCore2ProbeResult.Success? {
         val platform =
             (platformProbe.probe(item) as? YCore2ProbeResult.Success)
                 ?.withConfirmedDolbyVisionSourceHint(item)
@@ -522,7 +535,17 @@ internal class AndroidCore2RouteEvaluator(
                     }
                 }
                 else -> platform
-            } ?: return null
+            }
+        return resolved
+    }
+
+    private fun decide(
+        item: YMediaItem,
+        resolved: YCore2ProbeResult.Success,
+        preferTunnel: Boolean,
+        allowAudioPassthrough: Boolean,
+        forcePowerSaver: Boolean,
+    ): YCore2RouteDecision? {
         val requested =
             resolved.playbackRequest.copy(
                 enhancedDemuxSupported = resolved.playbackRequest.enhancedDemuxSupported,

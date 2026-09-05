@@ -269,6 +269,45 @@ internal class AndroidAdaptiveHttpRouteState(
 }
 
 /**
+ * Route facts for one source URI, shared by every open of that URI in this process.
+ *
+ * The platform probe, the FFmpeg truth probe, the child player and the next-item preload each
+ * build a transport of their own, and each used to start from a blank [AndroidAdaptiveHttpRouteState].
+ * A recorded startup paid the same two redirects on every one of those opens, because the target
+ * the first open had already resolved lived in a state the second open could not see. The facts
+ * in the state are properties of the URI, not of the open: the redirect target, whether the
+ * origin accepts ranges, whether Cronet works against it. A bounded map keyed by the exact URI
+ * hands the same state to every open, and a rotated token is a new URI and so a new state.
+ */
+internal class AndroidSourceRouteStateRegistry(
+    private val maxEntries: Int = SOURCE_ROUTE_STATE_ENTRIES,
+) {
+    private val states =
+        object : LinkedHashMap<String, AndroidAdaptiveHttpRouteState>(16, 0.75f, true) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, AndroidAdaptiveHttpRouteState>?,
+            ): Boolean = size > maxEntries
+        }
+
+    @Synchronized
+    fun forSource(
+        uri: String,
+        onCronetDisabled: (String) -> Unit = {},
+    ): AndroidAdaptiveHttpRouteState =
+        states.getOrPut(uri) { AndroidAdaptiveHttpRouteState(onCronetDisabled = onCronetDisabled) }
+
+    @Synchronized
+    fun size(): Int = states.size
+
+    companion object {
+        val shared = AndroidSourceRouteStateRegistry()
+    }
+}
+
+/** Enough for the current item, its neighbours in the queue and one preload; older sources re-resolve. */
+private const val SOURCE_ROUTE_STATE_ENTRIES = 8
+
+/**
  * Process-wide memory of origins whose Cronet probe already failed.
  *
  * [AndroidAdaptiveHttpRouteState] only lives for one media source, so without this every new

@@ -357,19 +357,22 @@ internal class AndroidMediaExtractorDemuxNode(
                     return
                 }
                 val cronetHostHealth = AndroidCronetHostHealth.shared
+                // Shared with every other open of this URI in the process, so the probe's
+                // resolved redirect and accepted-range facts carry over to the player and the
+                // preload instead of being paid again on each open.
                 val routeState =
-                    AndroidAdaptiveHttpRouteState(
-                        onCronetDisabled = cronetHostHealth::recordFailure,
-                    ).apply {
-                        // The Play-services Cronet dynamite module on the affected Android 9
-                        // device resolves an API class that is absent from its own class loader.
-                        // Keep the media path on the validated OkHttp range transport on API 28
-                        // and below; this also avoids paying for a known-failing provider probe.
-                        if (!shouldAttemptCronetMediaTransport(Build.VERSION.SDK_INT)) disableCronet()
-                        // An origin that already refused Cronet in this process would otherwise
-                        // charge every later playback the full open timeout before falling back.
-                        if (!cronetHostHealth.isAvailable(source.uri)) disableCronet()
-                    }
+                    AndroidSourceRouteStateRegistry.shared
+                        .forSource(source.uri, onCronetDisabled = cronetHostHealth::recordFailure)
+                        .apply {
+                            // The Play-services Cronet dynamite module on the affected Android 9
+                            // device resolves an API class that is absent from its own class loader.
+                            // Keep the media path on the validated OkHttp range transport on API 28
+                            // and below; this also avoids paying for a known-failing provider probe.
+                            if (!shouldAttemptCronetMediaTransport(Build.VERSION.SDK_INT)) disableCronet()
+                            // An origin that already refused Cronet in this process would otherwise
+                            // charge every later playback the full open timeout before falling back.
+                            if (!cronetHostHealth.isAvailable(source.uri)) disableCronet()
+                        }
                 val rangeSource =
                     AndroidTransportMediaDataSource(
                         uri = source.uri,
