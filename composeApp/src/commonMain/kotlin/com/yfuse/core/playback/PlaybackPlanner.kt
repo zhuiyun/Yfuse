@@ -249,6 +249,11 @@ fun planPlayback(
             else -> preferredEngine
         }
 
+    // MDK configures a generic HEVC decoder and has no encoded audio output, so a Dolby Vision
+    // source there is a green/magenta picture (Profile 5) or a silently stripped base layer
+    // (Profile 8) rather than a failure the fallback chain could act on. It stays out of the
+    // chain for Dolby sources unless the user locked it.
+    val dolbyVisionSource = probe.source.dolbyVision
     val requestedOrder =
         when {
             strictPlatformPath -> listOf(PlayerEngine.Exo)
@@ -261,7 +266,9 @@ fun planPlayback(
                 listOf(contentEngine, PlayerEngine.Mpv, PlayerEngine.Mdk, PlayerEngine.Exo)
             else ->
                 listOf(contentEngine, preferredEngine, PlayerEngine.Exo, PlayerEngine.Mpv, PlayerEngine.Mdk)
-        }.filter(PlayerEngine.selectable::contains).distinct()
+        }.filter(PlayerEngine.selectable::contains)
+            .filterNot { dolbyVisionSource && it == PlayerEngine.Mdk && lockedEngine != PlayerEngine.Mdk }
+            .distinct()
 
     val performanceRankingEligible =
         engineSelection == PlaybackEngineSelection.Auto &&
