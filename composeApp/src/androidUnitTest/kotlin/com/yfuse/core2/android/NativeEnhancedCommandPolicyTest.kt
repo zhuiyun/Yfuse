@@ -7,6 +7,30 @@ import kotlin.test.assertTrue
 
 class NativeEnhancedCommandPolicyTest {
     @Test
+    fun primary_and_secondary_selections_survive_the_same_worker_batch() {
+        val primary = AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack(1, null)
+        val secondary = AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack(2, null, secondary = true)
+        val secondaryOff = AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack(null, null, secondary = true)
+
+        assertEquals(
+            listOf(primary, secondaryOff),
+            coalesceNativeEnhancedCommands(listOf(primary, secondary, secondaryOff)),
+        )
+        assertEquals(
+            listOf(secondary, primary),
+            coalesceNativeEnhancedCommands(listOf(secondary, primary)),
+        )
+    }
+
+    @Test
+    fun seek_remains_a_barrier_between_subtitle_selections() {
+        val before = AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack(null, "external:0", secondary = true)
+        val seek = AndroidNativeEnhancedYPlayer.Command.Seek(20_000_000L)
+        val after = AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack(3, null, secondary = true)
+        assertEquals(listOf(before, seek, after), coalesceNativeEnhancedCommands(listOf(before, seek, after)))
+    }
+
+    @Test
     fun consecutive_scrub_and_speed_commands_keep_only_the_latest_value() {
         val commands =
             listOf(

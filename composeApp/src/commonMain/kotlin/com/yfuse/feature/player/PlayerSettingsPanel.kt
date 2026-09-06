@@ -177,6 +177,22 @@ internal fun SettingsPanel(
                                 color = Color.White.copy(alpha = 0.68f),
                             )
                         }
+                        if (subtitleControls.secondaryOffsetAvailable && subtitleControls.secondaryTrackId != null) {
+                            GroupLabel("副字幕时间偏移")
+                            listOf(-5000L, -2000L, -1000L, 0L, 1000L, 2000L, 5000L).forEach { offset ->
+                                val label =
+                                    when {
+                                        offset < 0L -> "提前 ${-offset / 1000} 秒"
+                                        offset > 0L -> "延后 ${offset / 1000} 秒"
+                                        else -> "同步"
+                                    }
+                                OptionRow(
+                                    label,
+                                    subtitleControls.secondaryOffsetMs == offset,
+                                    onClick = { subtitleActions.onSecondaryOffset(offset) },
+                                )
+                            }
+                        }
                         GroupLabel("字幕样式")
                         if (
                             subtitleControls.scaleAvailable &&

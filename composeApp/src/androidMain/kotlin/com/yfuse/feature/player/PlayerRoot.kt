@@ -2675,6 +2675,7 @@ internal fun PlayerRoot(
                     subtitleControls.copy(
                         secondaryTrackId = secondarySubtitleTrackId,
                         secondarySupported = backendExtensions.supportsSecondarySubtitleTrack,
+                        secondaryOffsetAvailable = backendExtensions.supportsSecondarySubtitleOffset,
                         secondaryUnavailableReason =
                             if (backendExtensions.supportsSecondarySubtitleTrack) {
                                 null
@@ -2848,6 +2849,11 @@ internal fun PlayerRoot(
                                 )
                             }
                         },
+                        onSecondaryOffset = { offset ->
+                            if (backendExtensions.setSecondarySubtitleOffsetMs(offset)) {
+                                subtitleControls = subtitleControls.copy(secondaryOffsetMs = offset)
+                            }
+                        },
                         onSecondaryTrack = secondary@{ id ->
                             if (id == EngineTrack.OFF) {
                                 backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
@@ -2944,9 +2950,9 @@ internal fun PlayerRoot(
                 transcodeLabel =
                     "转码播放".takeIf {
                         !core2NativeOnlyActive &&
-                        currentItem?.let { item ->
-                            item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
-                        } == true
+                            currentItem?.let { item ->
+                                item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
+                            } == true
                     },
                 transcodeActive = state.transcoding,
                 onTranscode = {

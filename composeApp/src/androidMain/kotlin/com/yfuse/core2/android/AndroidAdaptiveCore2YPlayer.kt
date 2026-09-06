@@ -211,7 +211,9 @@ internal class AndroidAdaptiveCore2YPlayer(
     override fun seekTo(positionMs: Long) {
         if (released) return
         val target = positionMs.coerceAtLeast(0L)
-        mutableState.updateState { it.copy(positionMs = target) }
+        mutableState.updateState {
+            it.copy(positionMs = target, subtitleCues = emptyList(), secondarySubtitleCues = emptyList())
+        }
         pendingSeekMs.set(target)
         queuePendingSeek()
     }
@@ -226,6 +228,26 @@ internal class AndroidAdaptiveCore2YPlayer(
         type: YTrackType,
         id: String,
     ) = send(Command.SelectTrack(type, id))
+
+    @Volatile
+    private var secondarySubtitleSupported = false
+
+    override val supportsSecondarySubtitleTrack: Boolean get() = secondarySubtitleSupported
+
+    override val supportsSecondarySubtitleOffset: Boolean get() = activeChild?.supportsSecondarySubtitleOffset == true
+
+    override fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean {
+        if (released || !supportsSecondarySubtitleOffset || offsetMs !in -60_000L..60_000L) return false
+        send(Command.SecondarySubtitleOffset(offsetMs))
+        return true
+    }
+
+    override fun selectSecondarySubtitleTrack(id: String): Boolean {
+        if (released || !supportsSecondarySubtitleTrack) return false
+        if (id != "off" && mutableState.value.subtitleTracks.none { it.id == id && !it.selected }) return false
+        send(Command.SelectSecondarySubtitle(id))
+        return true
+    }
 
     override fun selectItem(index: Int) {
         if (released || index !in queueItems.indices) return
@@ -349,6 +371,7 @@ internal class AndroidAdaptiveCore2YPlayer(
     private suspend fun runLoop() {
         var currentIndex = request.startIndex
         var child: YPlayer? = null
+        var secondarySubtitleOffsetMs = 0L
         var childCollector: Job? = null
         var output: YVideoOutput? = null
         var requestedPlay = request.autoPlay
@@ -376,6 +399,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             childCollector = null
             child?.release()
             child = null
+            secondarySubtitleSupported = false
             activeChild = null
         }
 
@@ -898,6 +922,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 ),
             )
             child = next
+            secondarySubtitleSupported = next.supportsSecondarySubtitleTrack
             activeChild = next
             val childIndex = currentIndex
             val childFailureKey = pendingFailureKey
@@ -1188,6 +1213,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                     }
                 }
+            next.setSecondarySubtitleOffsetMs(secondarySubtitleOffsetMs)
             next.prepare()
             if (requestedPlay) next.play()
         }
@@ -1271,6 +1297,13 @@ internal class AndroidAdaptiveCore2YPlayer(
                             } else {
                                 active?.setSpeed(speed)
                             }
+                        }
+                        is Command.SecondarySubtitleOffset -> {
+                            secondarySubtitleOffsetMs = command.offsetMs
+                            child?.setSecondarySubtitleOffsetMs(command.offsetMs)
+                        }
+                        is Command.SelectSecondarySubtitle -> {
+                            child?.selectSecondarySubtitleTrack(command.id)
                         }
                         is Command.SelectTrack -> {
                             val active = child
@@ -1517,6 +1550,14 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         data class SetSpeed(
             val speed: Float,
+        ) : Command
+
+        data class SecondarySubtitleOffset(
+            val offsetMs: Long,
+        ) : Command
+
+        data class SelectSecondarySubtitle(
+            val id: String,
         ) : Command
 
         data class SelectTrack(

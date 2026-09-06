@@ -64,6 +64,7 @@ internal fun PlayerTrackEffects(
         currentItemId,
         state.subtitleTracks,
         secondarySubtitleRestore,
+        state.secondarySubtitleTrackId,
         backendExtensions.supportsSecondarySubtitleTrack,
     ) {
         if (currentItemId != handoverItemId || state.subtitleTracks.isEmpty()) {
@@ -84,6 +85,18 @@ internal fun PlayerTrackEffects(
         }
     }
 
+    LaunchedEffect(
+        backendExtensions,
+        currentItemId,
+        state.subtitleTracks,
+        subtitleControls.secondaryOffsetMs,
+        state.secondarySubtitleOffsetMs,
+        backendExtensions.supportsSecondarySubtitleOffset,
+    ) {
+        if (backendExtensions.supportsSecondarySubtitleOffset) {
+            backendExtensions.setSecondarySubtitleOffsetMs(subtitleControls.secondaryOffsetMs)
+        }
+    }
     LaunchedEffect(backendExtensions, engineKind, subtitleControls.offsetMs) {
         val applied = backendExtensions.setSubtitleOffsetMs(subtitleControls.offsetMs)
         if (!applied && subtitleControls.offsetMs != 0L) {

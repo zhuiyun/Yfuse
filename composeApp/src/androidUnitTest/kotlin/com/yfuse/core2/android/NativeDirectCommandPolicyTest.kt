@@ -6,6 +6,30 @@ import kotlin.test.assertIs
 
 class NativeDirectCommandPolicyTest {
     @Test
+    fun primary_and_secondary_selections_survive_the_same_worker_batch() {
+        val primary = AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack(1, null)
+        val secondary = AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack(2, null, secondary = true)
+        val secondaryOff = AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack(null, null, secondary = true)
+
+        assertEquals(
+            listOf(primary, secondaryOff),
+            coalesceNativeDirectCommands(listOf(primary, secondary, secondaryOff)),
+        )
+        assertEquals(
+            listOf(secondary, primary),
+            coalesceNativeDirectCommands(listOf(secondary, primary)),
+        )
+    }
+
+    @Test
+    fun seek_remains_a_barrier_between_subtitle_selections() {
+        val before = AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack(null, "external:0", secondary = true)
+        val seek = AndroidNativeDirectYPlayer.Command.Seek(20_000_000L)
+        val after = AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack(3, null, secondary = true)
+        assertEquals(listOf(before, seek, after), coalesceNativeDirectCommands(listOf(before, seek, after)))
+    }
+
+    @Test
     fun one_hundred_scrub_updates_execute_only_the_latest_seek() {
         val commands =
             (1L..100L).map { index ->

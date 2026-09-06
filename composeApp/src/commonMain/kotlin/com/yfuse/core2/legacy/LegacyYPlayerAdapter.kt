@@ -60,6 +60,14 @@ internal class LegacyYPlayerAdapter(
         }
     }
 
+    override val supportsSecondarySubtitleTrack: Boolean get() = engine.supportsSecondarySubtitleTrack
+
+    override fun selectSecondarySubtitleTrack(id: String): Boolean = engine.selectSecondarySubtitleTrack(id)
+
+    override val supportsSecondarySubtitleOffset: Boolean get() = engine.supportsSecondarySubtitleOffset
+
+    override fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean = engine.setSecondarySubtitleOffsetMs(offsetMs)
+
     override fun selectItem(index: Int) = engine.selectItem(index)
 
     override fun selectDiscTitle(index: Int): Boolean = engine.selectDiscTitle(index)
@@ -86,7 +94,8 @@ private class MappedStateFlow<Source, Target>(
 
     override val replayCache: List<Target> get() = listOf(value)
 
-    override suspend fun collect(collector: FlowCollector<Target>): Nothing = source.collect { value -> collector.emit(transform(value)) }
+    override suspend fun collect(collector: FlowCollector<Target>): Nothing =
+        source.collect { value -> collector.emit(transform(value)) }
 }
 
 private fun PlaybackState.toYPlayerState(playbackRequested: Boolean): YPlayerState =

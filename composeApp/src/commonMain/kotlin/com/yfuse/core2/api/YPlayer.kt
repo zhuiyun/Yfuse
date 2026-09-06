@@ -41,6 +41,17 @@ interface YPlayer {
         id: String,
     )
 
+    /** True only when this player can decode and present two subtitle tracks. */
+    val supportsSecondarySubtitleTrack: Boolean get() = false
+
+    /** "off" disables only the secondary slot. Returns whether the command was accepted. */
+    fun selectSecondarySubtitleTrack(id: String): Boolean = false
+
+    val supportsSecondarySubtitleOffset: Boolean get() = false
+
+    /** Positive values delay only the secondary subtitle. */
+    fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean = false
+
     fun selectItem(index: Int)
 
     fun selectDiscTitle(index: Int): Boolean = false
@@ -424,6 +435,10 @@ data class YPlayerState(
     val subtitleTracks: List<YTrack> = emptyList(),
     /** Buffered Core2 cues; presentation applies the user subtitle delay against [positionMs]. */
     val subtitleCues: List<YSubtitleCue> = emptyList(),
+    /** Independent secondary channel, using the same media time as the primary channel. */
+    val secondarySubtitleCues: List<YSubtitleCue> = emptyList(),
+    val secondarySubtitleTrackId: String? = null,
+    val secondarySubtitleOffsetMs: Long = 0L,
     val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
     val error: String? = null,
     val errorCategory: YPlaybackFailureCategory? = null,

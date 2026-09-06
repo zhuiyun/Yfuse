@@ -5,8 +5,10 @@ import android.graphics.Bitmap
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -40,6 +42,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
+import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import com.yfuse.core2.subtitle.YSubtitleTimeline
 import kotlin.math.roundToInt
@@ -123,13 +126,49 @@ private fun Core2SubtitleOverlay(
     modifier: Modifier,
 ) {
     val playerState by engine.player.state.collectAsState()
+    Core2SubtitleChannel(
+        cues = playerState.subtitleCues,
+        positionMs = playerState.positionMs,
+        offsetMs = offsetMs,
+        scale = scale,
+        brightness = brightness,
+        position = position,
+        appearance = appearance,
+        secondary = false,
+        dual = playerState.secondarySubtitleTrackId != null,
+        modifier = modifier,
+    )
+    Core2SubtitleChannel(
+        cues = playerState.secondarySubtitleCues,
+        positionMs = playerState.positionMs,
+        offsetMs = playerState.secondarySubtitleOffsetMs,
+        scale = scale,
+        brightness = brightness,
+        position = position,
+        appearance = appearance,
+        secondary = true,
+        dual = true,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun Core2SubtitleChannel(
+    cues: List<YSubtitleCue>,
+    positionMs: Long,
+    offsetMs: Long,
+    scale: Float,
+    brightness: Float,
+    position: Float,
+    appearance: SubtitleAppearance,
+    secondary: Boolean,
+    dual: Boolean,
+    modifier: Modifier,
+) {
+    val timeline = remember(cues) { YSubtitleTimeline(cues) }
     val activeCues =
-        remember(playerState.subtitleCues, playerState.positionMs, offsetMs) {
-            YSubtitleTimeline(playerState.subtitleCues)
-                .activeAt(
-                    playbackPositionUs = playerState.positionMs * MICROS_PER_MILLISECOND,
-                    delayUs = offsetMs * MICROS_PER_MILLISECOND,
-                )
+        remember(timeline, positionMs, offsetMs) {
+            timeline.activeAt(positionMs * MICROS_PER_MILLISECOND, offsetMs * MICROS_PER_MILLISECOND)
         }
     if (activeCues.isEmpty()) return
     val activeText = activeCues.mapNotNull { cue -> cue.payload as? YSubtitlePayload.Text }
@@ -155,7 +194,17 @@ private fun Core2SubtitleOverlay(
             val positionDelta =
                 payload.canvasHeight *
                     (position.coerceIn(0.60f, 0.96f) - DEFAULT_SUBTITLE_POSITION)
-            val y = authoredY + positionDelta
+            // Move a secondary bitmap display set as a group, preserving relative rectangle positions.
+            val displayTop = activeBitmaps.minOf { it.y.toFloat() / it.canvasHeight }
+            val y =
+                if (secondary) {
+                    authoredY + payload.canvasHeight * (0.05f - displayTop)
+                } else if (dual) {
+                    val displayBottom = activeBitmaps.maxOf { (it.y + it.height).toFloat() / it.canvasHeight }
+                    authoredY + payload.canvasHeight * (position.coerceIn(0.60f, 0.96f) - displayBottom)
+                } else {
+                    authoredY + positionDelta
+                }
             Image(
                 bitmap = bitmap,
                 contentDescription = null,
@@ -170,69 +219,84 @@ private fun Core2SubtitleOverlay(
                         ).graphicsLayer(alpha = brightness.coerceIn(0.35f, 1f)),
             )
         }
-        activeText.forEach { payload ->
-            val cueStyle = payload.style
-            val authoredColor = cueStyle.primaryColorArgb?.let(::Color) ?: Color.White
-            val useAuthoredColor = appearance == SubtitleAppearance()
-            val requestedColor = Color(appearance.textColorArgb.toULong())
-            val backgroundColor = Color(appearance.backgroundColorArgb.toULong())
-            val outlineColor = Color(appearance.outlineColorArgb.toULong())
-            val textScale = scale.coerceIn(0.6f, 1.8f)
-            val authoredSize = cueStyle.fontSizePoints?.coerceIn(10f, 64f) ?: 22f
-            val alignment = cueStyle.alignment.toComposeAlignment()
-            Text(
-                text = payload.plainText,
-                color =
-                    (if (useAuthoredColor) authoredColor else requestedColor).copy(
-                        alpha =
-                            (if (useAuthoredColor) authoredColor.alpha else requestedColor.alpha) *
-                                brightness.coerceIn(0.35f, 1f),
-                    ),
-                fontSize = (authoredSize * textScale).sp,
-                lineHeight = (authoredSize * 1.23f * textScale).sp,
-                textAlign = cueStyle.alignment.toTextAlign(),
-                fontWeight = if (cueStyle.bold) FontWeight.Bold else FontWeight.Normal,
-                fontStyle = if (cueStyle.italic) FontStyle.Italic else FontStyle.Normal,
-                textDecoration = if (cueStyle.underline) TextDecoration.Underline else TextDecoration.None,
-                style =
-                    androidx.compose.ui.text.TextStyle(
-                        background = backgroundColor,
-                        shadow =
-                            Shadow(
-                                color = outlineColor,
-                                offset = Offset(0f, cueStyle.shadow ?: 2f),
-                                blurRadius =
-                                    if (appearance.outlineWidth <= 0f) {
-                                        0f
-                                    } else {
-                                        maxOf(
-                                            2f,
-                                            maxOf(cueStyle.outline ?: 0f, appearance.outlineWidth) * 2.5f,
-                                        )
-                                    },
-                            ),
-                    ),
-                modifier =
+        activeText
+            .groupBy { payload -> core2SubtitleAlignment(payload.style.alignment, secondary, dual) }
+            .forEach { (alignmentCode, payloads) ->
+                val textModifier =
                     Modifier
-                        .align(alignment)
+                        .align(alignmentCode.toComposeAlignment())
                         .fillMaxWidth(0.92f)
                         .padding(horizontal = 12.dp)
                         .then(
-                            if (cueStyle.alignment <= 3) {
-                                Modifier.padding(
-                                    bottom =
-                                        (maxHeight.value * (1f - position.coerceIn(0.60f, 0.96f))).dp,
-                                )
-                            } else if (cueStyle.alignment >= 7) {
-                                Modifier.padding(top = (maxHeight.value * 0.05f).dp)
-                            } else {
-                                Modifier
+                            when {
+                                alignmentCode <= 3 ->
+                                    Modifier.padding(
+                                        bottom = (maxHeight.value * (1f - position.coerceIn(0.60f, 0.96f))).dp,
+                                    )
+                                alignmentCode >= 7 -> Modifier.padding(top = (maxHeight.value * 0.05f).dp)
+                                else -> Modifier
                             },
-                        ),
-            )
-        }
+                        )
+                Column(modifier = textModifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    payloads.forEach { payload ->
+                        val cueStyle = payload.style
+                        val authoredColor = cueStyle.primaryColorArgb?.let(::Color) ?: Color.White
+                        val useAuthoredColor = appearance == SubtitleAppearance()
+                        val requestedColor = Color(appearance.textColorArgb.toULong())
+                        val backgroundColor = Color(appearance.backgroundColorArgb.toULong())
+                        val outlineColor = Color(appearance.outlineColorArgb.toULong())
+                        val textScale = scale.coerceIn(0.6f, 1.8f)
+                        val authoredSize = cueStyle.fontSizePoints?.coerceIn(10f, 64f) ?: 22f
+                        Text(
+                            text = payload.plainText,
+                            color =
+                                (if (useAuthoredColor) authoredColor else requestedColor).copy(
+                                    alpha =
+                                        (if (useAuthoredColor) authoredColor.alpha else requestedColor.alpha) *
+                                            brightness.coerceIn(0.35f, 1f),
+                                ),
+                            fontSize = (authoredSize * textScale).sp,
+                            lineHeight = (authoredSize * 1.23f * textScale).sp,
+                            textAlign = alignmentCode.toTextAlign(),
+                            fontWeight = if (cueStyle.bold) FontWeight.Bold else FontWeight.Normal,
+                            fontStyle = if (cueStyle.italic) FontStyle.Italic else FontStyle.Normal,
+                            textDecoration = if (cueStyle.underline) TextDecoration.Underline else TextDecoration.None,
+                            style =
+                                androidx.compose.ui.text.TextStyle(
+                                    background = backgroundColor,
+                                    shadow =
+                                        Shadow(
+                                            color = outlineColor,
+                                            offset = Offset(0f, cueStyle.shadow ?: 2f),
+                                            blurRadius =
+                                                if (appearance.outlineWidth <= 0f) {
+                                                    0f
+                                                } else {
+                                                    maxOf(
+                                                        2f,
+                                                        maxOf(cueStyle.outline ?: 0f, appearance.outlineWidth) * 2.5f,
+                                                    )
+                                                },
+                                        ),
+                                ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
     }
 }
+
+internal fun core2SubtitleAlignment(
+    authored: Int,
+    secondary: Boolean,
+    dual: Boolean,
+): Int =
+    when {
+        secondary -> 8
+        dual -> 2
+        else -> authored
+    }
 
 private fun Int.toComposeAlignment(): Alignment =
     when (this) {
