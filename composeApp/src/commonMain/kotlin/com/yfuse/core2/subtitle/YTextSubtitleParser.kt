@@ -207,7 +207,7 @@ private fun String.decodeBasicEntities(): String =
         .replace("&nbsp;", " ")
 
 private val SIMPLE_TAG = Regex("</?[A-Za-z][^>]*>")
-private val ASS_OVERRIDE = Regex("\\{[^}]*}")
+private val ASS_OVERRIDE = Regex("\\{[^}]*\\}")
 private val DEFAULT_ASS_FIELDS =
     listOf("layer", "start", "end", "style", "name", "marginl", "marginr", "marginv", "effect", "text")
 private val DEFAULT_ASS_STYLE_FIELDS =
