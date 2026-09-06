@@ -26,7 +26,7 @@ internal fun DialogBackdropHost(content: @Composable () -> Unit) {
     }
 }
 
-/** Low-reflection grey frost; the blur is behind the fill and never touches foreground text. */
+/** Low-reflection liquid glass; refraction and diffusion affect the page, never the text. */
 @Composable
 fun Modifier.mutedGlassPanel(
     shape: Shape = GlassShapes.sheet,
@@ -37,16 +37,34 @@ fun Modifier.mutedGlassPanel(
     val backdrop = LocalDialogBackdrop.current.takeIf { samplePage }
     val opaque = LocalAccessibilityOptions.current.reduceTransparency || backdrop?.active != true
     val tint = if (dark) Color(0xFF242831) else Color(0xFF9DA3AD)
-    val body = tint.copy(alpha = if (opaque) 1f else if (dark) 0.78f else 0.58f)
-    val edge = Color.White.copy(alpha = if (dark) 0.12f else 0.20f)
+    val body = tint.copy(alpha = if (opaque) 1f else if (dark) 0.55f else 0.36f)
+    val rim = Brush.linearGradient(
+        0f to Color.White.copy(alpha = if (dark) 0.22f else 0.30f),
+        0.38f to Color.White.copy(alpha = 0.06f),
+        0.70f to Color.White.copy(alpha = 0.04f),
+        1f to Color.White.copy(alpha = 0.16f),
+    )
     return this
-        .then(if (!opaque && backdrop != null) Modifier.backdropBlur(backdrop, shape, 28.dp, 1.05f) else Modifier)
+        .then(
+            if (!opaque && backdrop != null) {
+                Modifier.backdropBlur(
+                    backdrop, shape, radius = 22.dp, saturation = 1.12f,
+                    refraction = BackdropRefraction(edgeX = 0.08f, edgeY = 0.10f, strength = 3.dp),
+                )
+            } else Modifier,
+        )
         .clip(shape)
         .background(
             Brush.verticalGradient(
                 listOf(body, body.copy(alpha = (body.alpha + 0.04f).coerceAtMost(1f))),
             ),
-        ).border(0.5.dp, edge, shape)
+        ).background(
+            Brush.verticalGradient(
+                0f to Color.White.copy(alpha = if (opaque) 0f else 0.035f),
+                0.30f to Color.Transparent,
+                1f to Color.Black.copy(alpha = if (opaque) 0f else 0.025f),
+            ),
+        ).border(0.6.dp, rim, shape)
 }
 
 /** Nested controls inherit the modal's quiet material, including callers with white fills. */

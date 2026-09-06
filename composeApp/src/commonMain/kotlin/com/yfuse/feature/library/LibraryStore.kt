@@ -10,6 +10,7 @@ import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
+import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
@@ -252,7 +253,7 @@ class LibraryStoreFactory(
                 Msg.Loading -> copy(loading = true, error = null)
                 is Msg.Cached ->
                     copy(
-                        content = msg.content,
+                        content = msg.content.copy(resume = deduplicatePlaybackHistory(msg.content.resume)),
                         contentSource = LibraryContentSource.Cached,
                         updatedAtEpochMs = msg.updatedAtEpochMs,
                         error = null,
@@ -260,7 +261,7 @@ class LibraryStoreFactory(
                 is Msg.Loaded ->
                     copy(
                         loading = false,
-                        content = msg.content,
+                        content = msg.content.copy(resume = deduplicatePlaybackHistory(msg.content.resume)),
                         contentSource = LibraryContentSource.Live,
                         updatedAtEpochMs = msg.updatedAtEpochMs,
                         error = null,

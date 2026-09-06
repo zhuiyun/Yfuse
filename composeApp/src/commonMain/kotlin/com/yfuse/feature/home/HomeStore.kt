@@ -13,6 +13,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaItem
+import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
@@ -613,7 +614,8 @@ class HomeStoreFactory(
                         error = null,
                         recommendationNotice = null,
                     )
-                is Msg.ResumeLoaded -> copy(resume = msg.items)
+                is Msg.ResumeLoaded ->
+                    copy(resume = deduplicatePlaybackHistory(msg.items, { it.item }, { it.server.id }))
                 is Msg.NextUpLoaded -> copy(nextUp = msg.items)
                 is Msg.LibraryLoaded -> copy(libraryContent = msg.content)
                 // Resume entries carry their own server, so changing the default only changes

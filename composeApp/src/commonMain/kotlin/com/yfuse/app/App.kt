@@ -772,10 +772,16 @@ private fun BottomNavigationDock(
             },
             label = "navigationDockScale",
         ) { isCollapsed ->
-            if (isCollapsed) {
-                CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
-            } else {
-                GlassTabBar(active = active, onSelect = onSelect, backdrop = backdrop)
+            // AnimatedContent forwards its weighted minimum width to its direct child.
+            // Absorb that constraint here so the collapsed key can stay square, while
+            // the expanded bar still fills the dock. Both transition states keep the
+            // same outer bounds, avoiding a size jump when the animation is interrupted.
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                if (isCollapsed) {
+                    CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
+                } else {
+                    GlassTabBar(active = active, onSelect = onSelect, backdrop = backdrop)
+                }
             }
         }
         SearchButton(
