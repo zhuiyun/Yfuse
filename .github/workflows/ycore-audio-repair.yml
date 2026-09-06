@@ -38,7 +38,7 @@ jobs:
           patch_file=.github/repairs/ycore-audio.patch.gz
           if [[ -f "$patch_file" ]]; then
             gzip -dc "$patch_file" > "$RUNNER_TEMP/repair.patch"
-            echo 'de08a62ef36fa2fc6ca1889bcb271f164683457e3c6c527e1ca7ab75379117a5  '"$RUNNER_TEMP/repair.patch" | sha256sum -c -
+            echo '5ad3a13adcdb79be4df0aec2e62004c48339dce4ef048d816e2ed7e630240b35  '"$RUNNER_TEMP/repair.patch" | sha256sum -c -
             git apply --check "$RUNNER_TEMP/repair.patch"
             git apply "$RUNNER_TEMP/repair.patch"
             mapfile -t kotlin_files < <(git diff --name-only -- '*.kt')
@@ -49,7 +49,7 @@ jobs:
             git add -- composeApp/src .github/sign-android-request
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'fix(ycore): unblock PCM startup and preserve truthful output evidence'
+            git commit -m 'test: make selected-source fixture deterministic and format audio diagnostics'
             git push origin "HEAD:$GITHUB_REF_NAME"
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
