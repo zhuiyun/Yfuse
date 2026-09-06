@@ -26,6 +26,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -42,6 +43,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WatchTogetherServerTest {
@@ -1506,6 +1508,74 @@ class WatchTogetherServerTest {
                 assertTrue(member["ready"]!!.jsonPrimitive.boolean)
                 assertEquals(86L, member["latencyMs"]?.jsonPrimitive?.long)
                 assertEquals(-120L, member["syncDriftMs"]?.jsonPrimitive?.long)
+            }
+        }
+
+    @Test
+    fun playback_status_echoes_duration_and_coalesces_presence_only_changes() =
+        testApplication {
+            application { watchTogetherModule(presenceBroadcastIntervalMs = 200L) }
+            val socketClient =
+                createClient {
+                    install(WebSockets)
+                }
+
+            socketClient.webSocket("/watch") {
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:33"}""")
+                incoming.receive() // welcome
+                incoming.receive() // own roomUpdate
+                send(presenceStatus(latencyMs = 80, syncDriftMs = 0))
+                val readiness = (incoming.receive() as Frame.Text).readText().asJson()
+                val member = readiness["participants"]!!.jsonArray.single().jsonObject
+                assertEquals(5_400_000L, member["durationMs"]?.jsonPrimitive?.long)
+
+                // Latency and drift alone do not fan out immediately: three reports inside the
+                // window collapse into one update carrying the latest values.
+                send(presenceStatus(latencyMs = 90, syncDriftMs = -100))
+                send(presenceStatus(latencyMs = 100, syncDriftMs = -200))
+                assertNull(withTimeoutOrNull(100L) { incoming.receive() })
+                send(presenceStatus(latencyMs = 110, syncDriftMs = -300))
+                val coalesced =
+                    withTimeout(2_000L) { (incoming.receive() as Frame.Text).readText().asJson() }
+                val presence = coalesced["participants"]!!.jsonArray.single().jsonObject
+                assertEquals(110L, presence["latencyMs"]?.jsonPrimitive?.long)
+                assertEquals(-300L, presence["syncDriftMs"]?.jsonPrimitive?.long)
+                assertNull(withTimeoutOrNull(300L) { incoming.receive() })
+
+                // A readiness change still goes out at once.
+                send(presenceStatus(latencyMs = 110, syncDriftMs = -300, buffering = true))
+                val buffering =
+                    withTimeoutOrNull(100L) { (incoming.receive() as Frame.Text).readText().asJson() }
+                val bufferingMember = buffering!!["participants"]!!.jsonArray.single().jsonObject
+                assertTrue(bufferingMember["buffering"]!!.jsonPrimitive.boolean)
+            }
+        }
+
+    private fun presenceStatus(
+        latencyMs: Long,
+        syncDriftMs: Long,
+        buffering: Boolean = false,
+    ): String =
+        """{"type":"playbackStatus","ready":${!buffering},"buffering":$buffering,"mediaAvailable":true,""" +
+            """"latencyMs":$latencyMs,"syncDriftMs":$syncDriftMs,"durationMs":5400000}"""
+
+    @Test
+    fun playback_status_rejects_an_invalid_duration() =
+        testApplication {
+            application { watchTogetherModule() }
+            val socketClient =
+                createClient {
+                    install(WebSockets)
+                }
+
+            socketClient.webSocket("/watch") {
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:33"}""")
+                incoming.receive() // welcome
+                incoming.receive() // own roomUpdate
+                send("""{"type":"playbackStatus","ready":true,"durationMs":-1}""")
+                val error = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("error", error["type"]?.jsonPrimitive?.content)
+                assertEquals("playback_status_invalid", error["errorCode"]?.jsonPrimitive?.content)
             }
         }
 

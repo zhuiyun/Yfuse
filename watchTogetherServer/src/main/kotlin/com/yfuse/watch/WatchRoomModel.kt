@@ -31,6 +31,8 @@ internal class Participant(
     var mediaAvailable: Boolean = true,
     var latencyMs: Long? = null,
     var syncDriftMs: Long? = null,
+    /** Local media length reported by the member, so the host can spot a mismatched cut. */
+    var durationMs: Long? = null,
 )
 
 /** Long-lived room membership. The digest is never sent or logged. */
@@ -74,6 +76,8 @@ internal class Room(
     var playlistRevision: Long = 0L,
     var emptySinceMs: Long? = null,
     var hostAbsentSinceMs: Long? = null,
+    /** Set while a coalesced presence-only room update is waiting to be sent. */
+    var presenceBroadcastPending: Boolean = false,
 ) {
     fun isAuthorizedHost(participant: Participant): Boolean =
         participant.id == hostId && participant.authorizedHostEpoch == hostEpoch

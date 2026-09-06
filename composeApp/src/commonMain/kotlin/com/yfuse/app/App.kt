@@ -460,6 +460,34 @@ fun App(root: RootComponent) {
                             }
                         }
 
+                        // A room survives the process: the client keeps the capabilities the
+                        // server granted, so a restart can offer to go back instead of making
+                        // the guest hunt for the invite again. Declining forgets the room.
+                        val resumableRoom by watchTogether.resumableRoom.collectAsState()
+                        val rejoinOffer =
+                            resumableRoom?.takeIf {
+                                watchAvailable &&
+                                    watchState.roomCode == null &&
+                                    !watchState.connecting &&
+                                    !watchState.reconnecting
+                            }
+                        var rejoinDeclinedFor by remember { mutableStateOf<String?>(null) }
+                        if (rejoinOffer != null && rejoinDeclinedFor != rejoinOffer.roomCode) {
+                            ConfirmDialog(
+                                title = "回到上次的一起看房间？",
+                                message = "房间 ${rejoinOffer.roomCode} 还在，你上次离开时没有退出。",
+                                confirmLabel = "回到房间",
+                                dismissLabel = "不用了",
+                                onConfirm = {
+                                    watchTogether.rejoinPersistedRoom(WatchTogetherPreferences.DEFAULT_ENDPOINT)
+                                },
+                                onDismiss = {
+                                    rejoinDeclinedFor = rejoinOffer.roomCode
+                                    watchTogether.discardPersistedRoom()
+                                },
+                            )
+                        }
+
                         if (roomInfoOpen) {
                             WatchRoomInfoDialog(
                                 state = watchState,

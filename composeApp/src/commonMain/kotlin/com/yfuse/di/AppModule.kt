@@ -62,6 +62,7 @@ import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.createSecureStore
 import com.yfuse.core.sync.ProgressSyncPreferences
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.WatchRoomResumeStore
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncStore
@@ -186,7 +187,7 @@ fun appModule(
     single { DanmakuRepository(createDanmakuClient()) }
     single { ServerSyncManager(get(), get(), get(), get(), get()) }
     single { AccountAccessTokenSource() }
-    single { WatchTogetherClient(get(), get()) }
+    single { WatchTogetherClient(get(), get(), WatchRoomResumeStore(get())) }
     single { WatchInviteResolver(get(), get()) }
     single<SecureStore> { createSecureStore(get(), namespace = "account") }
     single { AccountApi(createAccountClient()) }

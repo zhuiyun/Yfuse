@@ -44,14 +44,19 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.sql.SQLTransientException
@@ -101,6 +106,19 @@ private const val ROOM_GRACE_MS = 5 * 60_000L
  * short enough that a host who has genuinely walked away doesn't strand the room.
  */
 private const val HOST_GRACE_MS = 20_000L
+
+/**
+ * Latency and drift changes are coalesced into one room update per interval: they change
+ * every second on every guest, and a full snapshot per change made steady-state traffic
+ * grow with the square of the room size.
+ */
+private const val PRESENCE_BROADCAST_INTERVAL_MS = 5_000L
+
+/**
+ * A member whose socket cannot take a broadcast within this window is dropped. Broadcasts
+ * run on the sender's read loop, so a stalled receiver used to freeze the whole room.
+ */
+private const val BROADCAST_SEND_TIMEOUT_MS = 2_000L
 
 /**
  * Caps, so one client can't exhaust a small shared box. All three are far above anything a
@@ -361,6 +379,8 @@ internal fun Application.watchTogetherModule(
     hostGraceMs: Long = HOST_GRACE_MS,
     /** Empty rooms retain their code briefly for reconnects, then release quota on sweep. */
     roomGraceMs: Long = ROOM_GRACE_MS,
+    /** Injectable so tests can observe presence coalescing without waiting out the real window. */
+    presenceBroadcastIntervalMs: Long = PRESENCE_BROADCAST_INTERVAL_MS,
     maxActiveRoomsPerIp: Int =
         System
             .getenv("WATCH_MAX_ACTIVE_ROOMS_PER_IP")
@@ -1491,19 +1511,21 @@ internal fun Application.watchTogetherModule(
                                 message.latencyMs !in 0L..WatchProtocol.MAX_LATENCY_MS ||
                                 message.syncDriftMs != null &&
                                 message.syncDriftMs !in
-                                -WatchProtocol.MAX_SYNC_DRIFT_MS..WatchProtocol.MAX_SYNC_DRIFT_MS
+                                -WatchProtocol.MAX_SYNC_DRIFT_MS..WatchProtocol.MAX_SYNC_DRIFT_MS ||
+                                message.durationMs != null &&
+                                message.durationMs !in 0L..WatchProtocol.MAX_TIMELINE_POSITION_MS
                             ) {
                                 return@consumeEach sendError(
                                     "播放状态数据无效",
                                     "playback_status_invalid",
                                 )
                             }
-                            val changed =
+                            val change =
                                 synchronized(room) {
                                     val participant =
                                         room.participants[clientId]
                                             ?.takeIf { it.session === this }
-                                            ?: return@synchronized false
+                                            ?: return@synchronized PlaybackStatusChange.None
                                     val nextMediaAvailable = message.mediaAvailable ?: true
                                     val nextBuffering = message.buffering == true && nextMediaAvailable
                                     val nextReady =
@@ -1512,22 +1534,35 @@ internal fun Application.watchTogetherModule(
                                             !nextBuffering
                                     val nextLatencyMs = message.latencyMs
                                     val nextSyncDriftMs = message.syncDriftMs
-                                    val differs =
+                                    val nextDurationMs = message.durationMs?.takeIf { it > 0L }
+                                    val readinessDiffers =
                                         !participant.statusKnown ||
                                             participant.ready != nextReady ||
                                             participant.buffering != nextBuffering ||
                                             participant.mediaAvailable != nextMediaAvailable ||
-                                            participant.latencyMs != nextLatencyMs ||
+                                            participant.durationMs != nextDurationMs
+                                    val presenceDiffers =
+                                        participant.latencyMs != nextLatencyMs ||
                                             participant.syncDriftMs != nextSyncDriftMs
                                     participant.statusKnown = true
                                     participant.ready = nextReady
                                     participant.buffering = nextBuffering
                                     participant.mediaAvailable = nextMediaAvailable
+                                    participant.durationMs = nextDurationMs
                                     participant.latencyMs = nextLatencyMs
                                     participant.syncDriftMs = nextSyncDriftMs
-                                    differs
+                                    when {
+                                        readinessDiffers -> PlaybackStatusChange.Readiness
+                                        presenceDiffers -> PlaybackStatusChange.Presence
+                                        else -> PlaybackStatusChange.None
+                                    }
                                 }
-                            if (changed) broadcastRoomUpdate(room)
+                            when (change) {
+                                PlaybackStatusChange.Readiness -> broadcastRoomUpdate(room)
+                                PlaybackStatusChange.Presence ->
+                                    appScope.schedulePresenceBroadcast(room, presenceBroadcastIntervalMs)
+                                PlaybackStatusChange.None -> Unit
+                            }
                         }
 
                         "chat" -> {
@@ -1813,6 +1848,76 @@ private suspend fun WebSocketSession.sendMessage(message: WatchWireMessage) {
     )
 }
 
+/** Which part of a `playbackStatus` report changed, and therefore how urgently it is fanned out. */
+private enum class PlaybackStatusChange {
+    /** Ready, buffering, media or duration changed: the room's start gate depends on it. */
+    Readiness,
+
+    /** Only latency or drift changed: informational, coalesced per [PRESENCE_BROADCAST_INTERVAL_MS]. */
+    Presence,
+    None,
+}
+
+/**
+ * Sends [message] to one member for a broadcast, dropping the member instead of waiting on
+ * a socket that will not take it. The broadcaster's read loop is what runs this, so a slow
+ * receiver otherwise stalls every other member's commands behind it.
+ */
+private suspend fun Participant.deliverBroadcast(message: WatchWireMessage): Boolean {
+    val delivered =
+        withTimeoutOrNull(BROADCAST_SEND_TIMEOUT_MS) {
+            runCatching { session.sendMessage(message) }.isSuccess
+        } ?: false
+    if (!delivered) {
+        System.err.println("watch-together: dropping slow member $id from broadcast")
+        // Cancelling the session job runs the handler's cleanup, which removes the member.
+        runCatching { session.cancel(CancellationException("broadcast timed out")) }
+    }
+    return delivered
+}
+
+/** Fans one payload per member out concurrently, bounded by [BROADCAST_SEND_TIMEOUT_MS] overall. */
+private suspend fun broadcastTo(
+    members: List<Participant>,
+    payloadFor: (Participant) -> WatchWireMessage,
+) {
+    if (members.isEmpty()) return
+    coroutineScope {
+        members
+            .map { member -> async { member.deliverBroadcast(payloadFor(member)) } }
+            .awaitAll()
+    }
+}
+
+/**
+ * Coalesces latency/drift-only updates: the first report arms one delayed room update, and
+ * every further report inside the window rides on it.
+ */
+private fun CoroutineScope.schedulePresenceBroadcast(
+    room: Room,
+    intervalMs: Long,
+) {
+    val armed =
+        synchronized(room) {
+            if (room.presenceBroadcastPending) {
+                false
+            } else {
+                room.presenceBroadcastPending = true
+                true
+            }
+        }
+    if (!armed) return
+    launch {
+        try {
+            delay(intervalMs)
+        } finally {
+            synchronized(room) { room.presenceBroadcastPending = false }
+        }
+        val stillPopulated = synchronized(room) { room.participants.isNotEmpty() }
+        if (stillPopulated) broadcastRoomUpdate(room)
+    }
+}
+
 private suspend fun WebSocketSession.sendError(
     message: String,
     errorCode: String? = null,
@@ -1882,26 +1987,24 @@ private suspend fun broadcastRoomUpdate(room: Room) {
                         },
             )
         }
-    snapshot.members.forEach { member ->
-        val payload =
-            WatchWireMessage(
-                type = "roomUpdate",
-                roomCode = room.code,
-                isHost = member.id == snapshot.hostId,
-                canControl = member.id in snapshot.canControlIds,
-                controlMode = snapshot.controlMode.wireValue,
-                participantCount = snapshot.members.size,
-                participants = snapshot.participants,
-                playlist = snapshot.playlist,
-                playlistRevision = snapshot.playlistRevision,
-                mediaKey = snapshot.timeline.mediaKey,
-                positionMs = snapshot.timeline.anchorPositionMs,
-                paused = snapshot.timeline.paused,
-                rate = snapshot.timeline.rate,
-                seq = snapshot.timeline.seq,
-                anchorAtMs = snapshot.timeline.anchorAtServerMs,
-            )
-        runCatching { member.session.sendMessage(payload) }
+    broadcastTo(snapshot.members) { member ->
+        WatchWireMessage(
+            type = "roomUpdate",
+            roomCode = room.code,
+            isHost = member.id == snapshot.hostId,
+            canControl = member.id in snapshot.canControlIds,
+            controlMode = snapshot.controlMode.wireValue,
+            participantCount = snapshot.members.size,
+            participants = snapshot.participants,
+            playlist = snapshot.playlist,
+            playlistRevision = snapshot.playlistRevision,
+            mediaKey = snapshot.timeline.mediaKey,
+            positionMs = snapshot.timeline.anchorPositionMs,
+            paused = snapshot.timeline.paused,
+            rate = snapshot.timeline.rate,
+            seq = snapshot.timeline.seq,
+            anchorAtMs = snapshot.timeline.anchorAtServerMs,
+        )
     }
 }
 
@@ -1929,6 +2032,7 @@ private fun Room.wireParticipants(): List<WatchWireParticipant> =
             mediaAvailable = participant.mediaAvailable,
             latencyMs = participant.latencyMs,
             syncDriftMs = participant.syncDriftMs,
+            durationMs = participant.durationMs,
             canControl = canControl(participant),
             isModerator = participant.id in moderatorIds,
         )
@@ -1939,9 +2043,8 @@ private suspend fun broadcastChat(
     chat: WatchWireChatMessage,
 ) {
     val members = synchronized(room) { room.participants.values.toList() }
-    members.forEach { member ->
-        runCatching { member.session.sendMessage(WatchWireMessage(type = "chat", chat = chat)) }
-    }
+    val payload = WatchWireMessage(type = "chat", chat = chat)
+    broadcastTo(members) { payload }
 }
 
 /**
@@ -1955,18 +2058,14 @@ private suspend fun broadcastReaction(
     reaction: String,
 ) {
     val members = synchronized(room) { room.participants.values.toList() }
-    members.forEach { member ->
-        runCatching {
-            member.session.sendMessage(
-                WatchWireMessage(
-                    type = "reaction",
-                    clientId = clientId,
-                    name = name,
-                    reaction = reaction,
-                ),
-            )
-        }
-    }
+    val payload =
+        WatchWireMessage(
+            type = "reaction",
+            clientId = clientId,
+            name = name,
+            reaction = reaction,
+        )
+    broadcastTo(members) { payload }
 }
 
 private fun normalizeName(raw: String?): String =
@@ -2036,5 +2135,5 @@ private suspend fun broadcastSync(
             seq = timeline.seq,
             anchorAtMs = timeline.anchorAtServerMs,
         )
-    members.forEach { member -> runCatching { member.session.sendMessage(payload) } }
+    broadcastTo(members) { payload }
 }

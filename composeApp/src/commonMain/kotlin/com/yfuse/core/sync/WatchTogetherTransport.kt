@@ -71,13 +71,20 @@ internal class ClockSync {
             if (rttSamples.isEmpty()) null else rttSamples.sorted()[rttSamples.size / 2]
         }
 
-    fun serverNow(): Long =
+    /** The server clock estimate, or null until at least one pong has been recorded. */
+    fun serverNowOrNull(): Long? =
         synchronized(lock) {
-            if (samples.isEmpty()) return@synchronized System.currentTimeMillis()
+            if (samples.isEmpty()) return@synchronized null
             samples
                 .map { it.serverAtArrivalMs + it.receivedAt.elapsedNow().inWholeMilliseconds }
                 .sorted()[samples.size / 2]
         }
+
+    /**
+     * Falls back to the device clock before any sample exists. Callers that would seek on this
+     * value must use [serverNowOrNull] instead: a wrong device clock is not a room timeline.
+     */
+    fun serverNow(): Long = serverNowOrNull() ?: System.currentTimeMillis()
 
     private companion object {
         const val MAX_SAMPLES = 7
@@ -91,6 +98,8 @@ internal data class LocalPlaybackStatus(
     val buffering: Boolean = true,
     val mediaAvailable: Boolean = true,
     val syncDriftMs: Long? = null,
+    /** Local media length when the player knows it; null until then. */
+    val durationMs: Long? = null,
 )
 
 private data class QueuedWatchMessage<Owner : Any, Message>(
@@ -209,6 +218,12 @@ internal const val MAX_RECONNECT_ATTEMPTS = 10
 internal const val MAX_RECONNECT_WINDOW_MS = 5 * 60 * 1000L
 internal const val LATENCY_REPORT_BUCKET_MS = 10L
 internal const val DRIFT_REPORT_BUCKET_MS = 50L
+
+/** Drift-only status reports are spaced out this much; the server coalesces them further. */
+internal const val DRIFT_REPORT_INTERVAL_MS = 5_000L
+
+/** Drift at or beyond this is a visible seek on the guest and is reported without waiting. */
+internal const val DRIFT_URGENT_MS = 2_000L
 internal val WATCH_AUTH_CLOSE_REASONS = setOf("account_auth_required", "account_auth_expired")
 
 private const val BASE_BACKOFF_MS = 1_000L

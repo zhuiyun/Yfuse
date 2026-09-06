@@ -12,7 +12,9 @@ internal fun WatchWireParticipant.toDomain(selfClientId: String): WatchParticipa
         latencyMs != null &&
         latencyMs !in 0L..WatchProtocol.MAX_LATENCY_MS ||
         syncDriftMs != null &&
-        syncDriftMs !in -WatchProtocol.MAX_SYNC_DRIFT_MS..WatchProtocol.MAX_SYNC_DRIFT_MS
+        syncDriftMs !in -WatchProtocol.MAX_SYNC_DRIFT_MS..WatchProtocol.MAX_SYNC_DRIFT_MS ||
+        durationMs != null &&
+        durationMs !in 0L..WatchProtocol.MAX_TIMELINE_POSITION_MS
     ) {
         return null
     }
@@ -28,6 +30,7 @@ internal fun WatchWireParticipant.toDomain(selfClientId: String): WatchParticipa
         mediaAvailable = mediaAvailable,
         latencyMs = latencyMs,
         syncDriftMs = syncDriftMs,
+        durationMs = durationMs?.takeIf { it > 0L },
         canControl = canControl,
         isModerator = isModerator,
     )

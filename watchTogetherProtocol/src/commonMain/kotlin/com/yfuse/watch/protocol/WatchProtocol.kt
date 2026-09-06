@@ -33,6 +33,7 @@ data class WatchWireMessage(
     val mediaAvailable: Boolean? = null,
     val latencyMs: Long? = null,
     val syncDriftMs: Long? = null,
+    val durationMs: Long? = null,
     val mediaKey: String? = null,
     val positionMs: Long? = null,
     val paused: Boolean? = null,
@@ -68,6 +69,7 @@ data class WatchWireParticipant(
     val mediaAvailable: Boolean = true,
     val latencyMs: Long? = null,
     val syncDriftMs: Long? = null,
+    val durationMs: Long? = null,
     val canControl: Boolean = false,
     val isModerator: Boolean = false,
 )
