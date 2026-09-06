@@ -45,6 +45,9 @@ jobs:
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+      # Ed25519 private key (PEM) that signs update manifests; the matching public key is
+      # pinned in gradle.properties as yfuse.updateManifestPublicKey.
+      UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
       # Public certificate fingerprint pinned from the currently published APK.
       # Changing this requires an explicit signing-key migration.
       EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
@@ -375,6 +378,29 @@ jobs:
             --no-daemon >/dev/null
           git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
 
+      - name: Verify update-manifest signing key matches the pinned public key
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+            echo "::error::UPDATE_MANIFEST_SIGNING_KEY secret is not set; release builds refuse unsigned manifests, so nothing can be published"
+            exit 1
+          fi
+          pinned="$(sed -n 's/^yfuse\.updateManifestPublicKey=//p' gradle.properties | tr -d '[:space:]')"
+          if [[ -z "$pinned" ]]; then
+            echo "::error::gradle.properties has no yfuse.updateManifestPublicKey; pin the public key before publishing"
+            exit 1
+          fi
+          umask 077
+          key_file="$(mktemp)"
+          printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" > "$key_file"
+          derived="$(openssl pkey -in "$key_file" -pubout -outform DER | base64 -w0)"
+          rm -f "$key_file"
+          if [[ "$derived" != "$pinned" ]]; then
+            echo "::error::UPDATE_MANIFEST_SIGNING_KEY does not correspond to the public key pinned in gradle.properties"
+            exit 1
+          fi
+
       - name: Build signed release APK
         shell: bash
         run: |
@@ -492,6 +518,29 @@ jobs:
           create_manifest \
             "$UPDATE_BASE_URL/$APK_FILE_NAME" \
             build/update/update-v2.json
+
+          # Sign every field that decides what gets installed. The payload layout mirrors
+          # UpdateManifest.signedPayload() in the app: change both or neither.
+          umask 077
+          key_file="$(mktemp)"
+          printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" > "$key_file"
+          sign_manifest() {
+            local file="$1"
+            local payload
+            payload="$(mktemp)"
+            jq -j '[.versionCode, .versionName, .apkUrl, .sha256, .size, .notes] | map(tostring) | join("\n")' \
+              "$file" > "$payload"
+            local signature
+            signature="$(openssl pkeyutl -sign -inkey "$key_file" -rawin -in "$payload" | base64 -w0)"
+            rm -f "$payload"
+            jq --arg signature "$signature" '. + {signature: $signature}' "$file" > "$file.signed"
+            mv "$file.signed" "$file"
+          }
+          sign_manifest build/update/update.json
+          sign_manifest build/update/update-v2.json
+          rm -f "$key_file"
+          jq -e '.signature | type == "string" and length > 0' build/update/update.json >/dev/null
+          jq -e '.signature | type == "string" and length > 0' build/update/update-v2.json >/dev/null
 
           jq -e \
             --arg apkUrl "$LEGACY_UPDATE_BASE_URL/$APK_FILE_NAME" \

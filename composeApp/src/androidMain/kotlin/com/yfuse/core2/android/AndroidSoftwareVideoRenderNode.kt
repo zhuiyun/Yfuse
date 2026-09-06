@@ -7,6 +7,7 @@ import android.graphics.RectF
 import android.os.Build
 import android.os.Process
 import android.view.Surface
+import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -62,6 +63,7 @@ internal class AndroidSoftwareVideoRenderNode {
                 val source = frame.data.duplicate()
                 ByteArray(source.remaining()).also(source::get)
             } catch (throwable: Throwable) {
+                if (throwable is CancellationException) throw throwable
                 inFlightFrames.decrementAndGet()
                 throw throwable
             }
@@ -79,12 +81,14 @@ internal class AndroidSoftwareVideoRenderNode {
                         )
                     }
                 } catch (throwable: Throwable) {
+                    if (throwable is CancellationException) throw throwable
                     failure.compareAndSet(null, throwable)
                 } finally {
                     inFlightFrames.decrementAndGet()
                 }
             }
         } catch (throwable: Throwable) {
+            if (throwable is CancellationException) throw throwable
             inFlightFrames.decrementAndGet()
             throw throwable
         }
@@ -111,6 +115,7 @@ internal class AndroidSoftwareVideoRenderNode {
             try {
                 active.submit { Unit }.get()
             } catch (throwable: Throwable) {
+                if (throwable is CancellationException) throw throwable
                 failure.compareAndSet(null, throwable.cause ?: throwable)
             }
         }

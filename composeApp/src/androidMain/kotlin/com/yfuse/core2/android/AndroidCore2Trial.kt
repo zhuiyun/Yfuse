@@ -30,6 +30,7 @@ import com.yfuse.feature.player.externalSubtitleFormatHint
 import com.yfuse.feature.player.playbackExternalSubtitles
 import com.yfuse.feature.player.persistentPlaybackCacheUrl
 import com.yfuse.feature.player.startsWithServerTranscode
+import kotlinx.coroutines.CancellationException
 
 /**
  * Separate construction boundary for the production Core2 route with a user-controlled rollback.
@@ -196,6 +197,7 @@ internal object AndroidCore2TrialFactory {
             player.prepare()
             YPlayerVideoEngineAdapter(player)
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             cacheProxy?.close()
             yCoreProxy?.close()
             throw error

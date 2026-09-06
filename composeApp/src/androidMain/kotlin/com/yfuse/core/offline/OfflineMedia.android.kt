@@ -1378,6 +1378,7 @@ internal class AndroidOfflineMediaManager(
                 }
                 throw cancelled
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 val current = _items.value.firstOrNull { it.id == snapshot.id }
                 if (current == null || current.downloadRevision != snapshot.downloadRevision) {
                     return@withContext
@@ -1937,6 +1938,7 @@ private fun publishOfflineFileToTree(
                 ?: temporary
         return published.toString()
     } catch (error: Throwable) {
+        if (error is CancellationException) throw error
         runCatching { DocumentsContract.deleteDocument(resolver, temporary) }
         if (error is OfflineStorageException) throw error
         throw OfflineStorageException("无法保存到所选下载目录", error)

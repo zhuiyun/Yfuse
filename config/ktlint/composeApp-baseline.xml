@@ -178,22 +178,22 @@
         <error line="207" column="23" source="standard:property-naming" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core/playback/PlaybackOfflineLicense.android.kt">
-        <error line="413" column="43" source="standard:chain-method-continuation" />
-        <error line="413" column="54" source="standard:chain-method-continuation" />
-        <error line="413" column="67" source="standard:chain-method-continuation" />
-        <error line="413" column="75" source="standard:chain-method-continuation" />
-        <error line="442" column="50" source="standard:function-signature" />
+        <error line="419" column="43" source="standard:chain-method-continuation" />
+        <error line="419" column="54" source="standard:chain-method-continuation" />
+        <error line="419" column="67" source="standard:chain-method-continuation" />
+        <error line="419" column="75" source="standard:chain-method-continuation" />
+        <error line="448" column="50" source="standard:function-signature" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core/security/PlatformSignature.android.kt">
         <error line="3" column="1" source="standard:import-ordering" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveCore2YPlayer.kt">
-        <error line="746" column="82" source="standard:chain-method-continuation" />
-        <error line="748" column="82" source="standard:chain-method-continuation" />
-        <error line="751" column="66" source="standard:chain-method-continuation" />
-        <error line="751" column="73" source="standard:chain-method-continuation" />
-        <error line="972" column="1" source="standard:indent" />
-        <error line="1357" column="1" source="standard:indent" />
+        <error line="747" column="82" source="standard:chain-method-continuation" />
+        <error line="749" column="82" source="standard:chain-method-continuation" />
+        <error line="752" column="66" source="standard:chain-method-continuation" />
+        <error line="752" column="73" source="standard:chain-method-continuation" />
+        <error line="973" column="1" source="standard:indent" />
+        <error line="1358" column="1" source="standard:indent" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidAdaptiveDrmInitializationData.kt">
         <error line="47" column="18" source="standard:multiline-expression-wrapping" />
@@ -206,8 +206,6 @@
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidCore2Trial.kt">
         <error line="3" column="1" source="standard:import-ordering" />
-        <error line="439" column="1" source="standard:indent" />
-        <error line="440" column="1" source="standard:indent" />
         <error line="441" column="1" source="standard:indent" />
         <error line="442" column="1" source="standard:indent" />
         <error line="443" column="1" source="standard:indent" />
@@ -221,11 +219,13 @@
         <error line="451" column="1" source="standard:indent" />
         <error line="452" column="1" source="standard:indent" />
         <error line="453" column="1" source="standard:indent" />
+        <error line="454" column="1" source="standard:indent" />
+        <error line="455" column="1" source="standard:indent" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNode.kt">
-        <error line="143" column="27" source="standard:multiline-expression-wrapping" />
-        <error line="312" column="34" source="standard:chain-method-continuation" />
-        <error line="320" column="51" source="standard:function-expression-body" />
+        <error line="144" column="27" source="standard:multiline-expression-wrapping" />
+        <error line="314" column="34" source="standard:chain-method-continuation" />
+        <error line="322" column="51" source="standard:function-expression-body" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidEnhancedPlaybackSession.kt">
         <error line="3" column="1" source="standard:import-ordering" />
@@ -236,40 +236,40 @@
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidFfmpegDemuxer.kt">
         <error line="3" column="1" source="standard:import-ordering" />
-        <error line="335" column="69" source="standard:chain-method-continuation" />
-        <error line="335" column="80" source="standard:argument-list-wrapping" />
-        <error line="335" column="99" source="standard:argument-list-wrapping" />
-        <error line="335" column="101" source="standard:function-literal" />
-        <error line="335" column="106" source="standard:function-literal" />
-        <error line="335" column="107" source="standard:chain-method-continuation" />
-        <error line="335" column="115" source="standard:chain-method-continuation" />
-        <error line="335" column="121" source="standard:max-line-length" />
-        <error line="335" column="130" source="standard:argument-list-wrapping" />
-        <error line="335" column="131" source="standard:argument-list-wrapping" />
-        <error line="336" column="71" source="standard:chain-method-continuation" />
-        <error line="336" column="82" source="standard:argument-list-wrapping" />
-        <error line="336" column="101" source="standard:argument-list-wrapping" />
-        <error line="336" column="103" source="standard:function-literal" />
-        <error line="336" column="108" source="standard:function-literal" />
-        <error line="336" column="109" source="standard:chain-method-continuation" />
-        <error line="336" column="117" source="standard:chain-method-continuation" />
-        <error line="336" column="121" source="standard:max-line-length" />
-        <error line="336" column="132" source="standard:argument-list-wrapping" />
-        <error line="336" column="133" source="standard:argument-list-wrapping" />
-        <error line="341" column="65" source="standard:argument-list-wrapping" />
-        <error line="341" column="88" source="standard:argument-list-wrapping" />
-        <error line="341" column="90" source="standard:function-literal" />
-        <error line="341" column="95" source="standard:function-literal" />
-        <error line="341" column="119" source="standard:argument-list-wrapping" />
-        <error line="341" column="120" source="standard:argument-list-wrapping" />
-        <error line="341" column="121" source="standard:max-line-length" />
-        <error line="392" column="57" source="standard:function-signature" />
-        <error line="392" column="70" source="standard:argument-list-wrapping" />
-        <error line="392" column="80" source="standard:argument-list-wrapping" />
-        <error line="392" column="82" source="standard:function-literal" />
-        <error line="392" column="83" source="standard:wrapping" />
-        <error line="392" column="120" source="standard:max-line-length" />
-        <error line="392" column="127" source="standard:function-literal" />
+        <error line="337" column="69" source="standard:chain-method-continuation" />
+        <error line="337" column="80" source="standard:argument-list-wrapping" />
+        <error line="337" column="99" source="standard:argument-list-wrapping" />
+        <error line="337" column="101" source="standard:function-literal" />
+        <error line="337" column="106" source="standard:function-literal" />
+        <error line="337" column="107" source="standard:chain-method-continuation" />
+        <error line="337" column="115" source="standard:chain-method-continuation" />
+        <error line="337" column="121" source="standard:max-line-length" />
+        <error line="337" column="130" source="standard:argument-list-wrapping" />
+        <error line="337" column="131" source="standard:argument-list-wrapping" />
+        <error line="338" column="71" source="standard:chain-method-continuation" />
+        <error line="338" column="82" source="standard:argument-list-wrapping" />
+        <error line="338" column="101" source="standard:argument-list-wrapping" />
+        <error line="338" column="103" source="standard:function-literal" />
+        <error line="338" column="108" source="standard:function-literal" />
+        <error line="338" column="109" source="standard:chain-method-continuation" />
+        <error line="338" column="117" source="standard:chain-method-continuation" />
+        <error line="338" column="121" source="standard:max-line-length" />
+        <error line="338" column="132" source="standard:argument-list-wrapping" />
+        <error line="338" column="133" source="standard:argument-list-wrapping" />
+        <error line="343" column="65" source="standard:argument-list-wrapping" />
+        <error line="343" column="88" source="standard:argument-list-wrapping" />
+        <error line="343" column="90" source="standard:function-literal" />
+        <error line="343" column="95" source="standard:function-literal" />
+        <error line="343" column="119" source="standard:argument-list-wrapping" />
+        <error line="343" column="120" source="standard:argument-list-wrapping" />
+        <error line="343" column="121" source="standard:max-line-length" />
+        <error line="394" column="57" source="standard:function-signature" />
+        <error line="394" column="70" source="standard:argument-list-wrapping" />
+        <error line="394" column="80" source="standard:argument-list-wrapping" />
+        <error line="394" column="82" source="standard:function-literal" />
+        <error line="394" column="83" source="standard:wrapping" />
+        <error line="394" column="120" source="standard:max-line-length" />
+        <error line="394" column="127" source="standard:function-literal" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidFfmpegSoftwareDecoderNode.kt">
         <error line="59" column="59" source="standard:function-signature" />
@@ -297,46 +297,46 @@
         <error line="276" column="41" source="standard:function-signature" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidMediaCodecAudioNode.kt">
-        <error line="199" column="49" source="standard:function-signature" />
-        <error line="199" column="86" source="standard:binary-expression-wrapping" />
-        <error line="199" column="120" source="standard:max-line-length" />
+        <error line="201" column="49" source="standard:function-signature" />
+        <error line="201" column="86" source="standard:binary-expression-wrapping" />
+        <error line="201" column="120" source="standard:max-line-length" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeEnhancedYPlayer.kt">
-        <error line="175" column="51" source="standard:multiline-expression-wrapping" />
-        <error line="175" column="84" source="standard:chain-method-continuation" />
-        <error line="384" column="31" source="standard:chain-method-continuation" />
-        <error line="686" column="70" source="standard:chain-method-continuation" />
-        <error line="688" column="60" source="standard:chain-method-continuation" />
-        <error line="719" column="82" source="standard:chain-method-continuation" />
-        <error line="719" column="86" source="standard:chain-method-continuation" />
-        <error line="719" column="107" source="standard:chain-method-continuation" />
+        <error line="176" column="51" source="standard:multiline-expression-wrapping" />
+        <error line="176" column="84" source="standard:chain-method-continuation" />
+        <error line="385" column="31" source="standard:chain-method-continuation" />
+        <error line="687" column="70" source="standard:chain-method-continuation" />
+        <error line="689" column="60" source="standard:chain-method-continuation" />
+        <error line="721" column="82" source="standard:chain-method-continuation" />
+        <error line="721" column="86" source="standard:chain-method-continuation" />
+        <error line="721" column="107" source="standard:chain-method-continuation" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidNativeTunnelYPlayer.kt">
         <error line="3" column="1" source="standard:import-ordering" />
-        <error line="225" column="1" source="standard:indent" />
         <error line="226" column="1" source="standard:indent" />
         <error line="227" column="1" source="standard:indent" />
         <error line="228" column="1" source="standard:indent" />
         <error line="229" column="1" source="standard:indent" />
         <error line="230" column="1" source="standard:indent" />
+        <error line="231" column="1" source="standard:indent" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidSoftwareVideoRenderNode.kt">
-        <error line="148" column="34" source="standard:chain-method-continuation" />
+        <error line="153" column="34" source="standard:chain-method-continuation" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidSpatialAudioProbe.kt">
         <error line="80" column="75" source="standard:function-signature" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidVulkanVideoOutput.kt">
         <error line="3" column="1" source="standard:import-ordering" />
-        <error line="32" column="40" source="standard:annotation" />
-        <error line="32" column="76" source="standard:annotation" />
-        <error line="41" column="1" source="standard:spacing-between-declarations-with-annotations" />
-        <error line="140" column="1" source="standard:indent" />
-        <error line="143" column="1" source="standard:indent" />
-        <error line="144" column="43" source="standard:multiline-expression-wrapping" />
-        <error line="152" column="1" source="standard:indent" />
-        <error line="157" column="1" source="standard:indent" />
+        <error line="33" column="40" source="standard:annotation" />
+        <error line="33" column="76" source="standard:annotation" />
+        <error line="42" column="1" source="standard:spacing-between-declarations-with-annotations" />
+        <error line="141" column="1" source="standard:indent" />
+        <error line="144" column="1" source="standard:indent" />
+        <error line="145" column="43" source="standard:multiline-expression-wrapping" />
+        <error line="153" column="1" source="standard:indent" />
         <error line="158" column="1" source="standard:indent" />
+        <error line="159" column="1" source="standard:indent" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreBluRaySource.kt">
         <error line="239" column="56" source="standard:function-signature" />
@@ -388,8 +388,8 @@
         <error line="23" column="122" source="standard:argument-list-wrapping" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/YCoreDiscBlockSource.kt">
-        <error line="175" column="23" source="standard:class-signature" />
-        <error line="175" column="43" source="standard:class-signature" />
+        <error line="177" column="23" source="standard:class-signature" />
+        <error line="177" column="43" source="standard:class-signature" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/YCoreHiddenAudioTrack.kt">
         <error line="29" column="25" source="standard:chain-method-continuation" />
@@ -449,7 +449,7 @@
         <error line="198" column="41" source="standard:function-signature" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/tv/integration/AndroidTvProviderPublisher.kt">
-        <error line="181" column="19" source="standard:multiline-expression-wrapping" />
+        <error line="182" column="19" source="standard:multiline-expression-wrapping" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/tv/integration/CastConnectReceiverBridge.kt">
         <error line="129" column="47" source="standard:chain-method-continuation" />
@@ -818,7 +818,7 @@
         <error line="254" column="60" source="standard:chain-method-continuation" />
     </file>
     <file name="src/commonMain/kotlin/com/yfuse/feature/home/HomeTabComponent.kt">
-        <error line="215" column="70" source="standard:chain-method-continuation" />
+        <error line="217" column="70" source="standard:chain-method-continuation" />
     </file>
     <file name="src/commonMain/kotlin/com/yfuse/feature/player/PlaybackExperienceOverlay.kt">
         <error line="146" column="21" source="standard:chain-method-continuation" />

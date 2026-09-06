@@ -23,6 +23,7 @@ import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -704,6 +705,7 @@ internal class AndroidNativeEnhancedYPlayer(
                         }
                         publishSnapshot(force = true)
                     } catch (failure: Throwable) {
+                        if (failure is CancellationException) throw failure
                         val typed = failure as? YPlaybackException
                         AppLog.error(
                             category = "core2.native",

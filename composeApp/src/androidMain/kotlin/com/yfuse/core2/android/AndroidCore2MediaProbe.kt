@@ -43,6 +43,7 @@ import com.yfuse.core2.strategy.YPlaybackRequest
 import com.yfuse.core2.strategy.YPlaybackStrategy
 import com.yfuse.core2.strategy.YRenderPath
 import com.yfuse.core2.strategy.enhancedAudioCodecIsMoreReliable
+import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 
 internal enum class YCore2ProbeFailure {
@@ -279,7 +280,8 @@ internal class AndroidCore2MediaProbe(
                     },
                 unconfiguredDolbyVisionSignal = unconfiguredDolbyVisionSignal,
             )
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
         } finally {
             demux.release()

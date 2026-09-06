@@ -728,6 +728,18 @@ kotlin {
 }
 
 // TMDB token comes from local.properties (gitignored) so it never lands in git.
+/**
+ * Ed25519 public key (base64 SubjectPublicKeyInfo) that update manifests must be signed with.
+ * Empty means no signing is configured: debug builds then accept unsigned manifests with a
+ * warning, release builds refuse them. The publish workflow refuses to release without it.
+ */
+val updateManifestPublicKey: String =
+    providers
+        .gradleProperty("yfuse.updateManifestPublicKey")
+        .orElse(providers.environmentVariable("YFUSE_UPDATE_MANIFEST_PUBLIC_KEY"))
+        .getOrElse("")
+        .trim()
+
 val tmdbToken: String =
     Properties()
         .apply {
@@ -885,6 +897,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
+        buildConfigField("String", "UPDATE_MANIFEST_PUBLIC_KEY", "\"$updateManifestPublicKey\"")
         buildConfigField("boolean", "YFUSE_MDK_INCLUDED", includeMdk.toString())
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", nativeOnlyRuntime.toString())
         buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", packagedYCoreGpu.toString())

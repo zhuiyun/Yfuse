@@ -243,6 +243,7 @@ class PlaybackSyncManager(
                 }
                 handleCloudFailure(error)
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 recordFailure(error)
             }
         }

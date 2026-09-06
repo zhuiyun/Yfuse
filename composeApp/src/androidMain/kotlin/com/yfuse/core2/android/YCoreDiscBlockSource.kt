@@ -3,6 +3,7 @@ package com.yfuse.core2.android
 import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import java.util.LinkedHashMap
 
@@ -140,7 +141,8 @@ internal class AndroidTransportDiscBlockSource(
                     total += count
                 }
                 if (total != expected) DiscWindowResult.Failure else DiscWindowResult.Loaded(bytes)
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 DiscWindowResult.Failure
             } finally {
                 runCatching { transport.close() }

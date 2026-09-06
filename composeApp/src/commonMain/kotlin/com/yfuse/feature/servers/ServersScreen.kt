@@ -206,6 +206,12 @@ fun ServersScreen(component: ServersComponent) {
                             divider = true,
                             onValueChange = { store.accept(ServersIntent.BasePathChanged(it)) },
                         )
+                        CleartextRiskRow(
+                            validation = validateEmbyServerEndpoint(form.url, form.httpRiskAccepted),
+                            accepted = form.httpRiskAccepted,
+                            onAcceptedChange = { store.accept(ServersIntent.HttpRiskAcceptedChanged(it)) },
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                        )
                         if (form.kind == MediaServerKind.Plex) {
                             FormInput(
                                 label = "Plex Token",
@@ -800,7 +806,7 @@ private fun OnboardingScreen(
                 when (step) {
                     2 ->
                         form.username.isNotBlank() &&
-                            validateEmbyServerEndpoint(form.url).allowed
+                            validateEmbyServerEndpoint(form.url, form.httpRiskAccepted).allowed
                     3 -> form.canSubmit
                     else -> true
                 }

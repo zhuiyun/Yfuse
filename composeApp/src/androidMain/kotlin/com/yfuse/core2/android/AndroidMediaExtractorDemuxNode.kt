@@ -13,6 +13,7 @@ import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.sync.YMediaTimestampTimeline
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
@@ -105,6 +106,7 @@ internal class AndroidMediaExtractorDemuxNode(
             currentSource = source
             selectedTracks = emptySet()
         } catch (throwable: Throwable) {
+            if (throwable is CancellationException) throw throwable
             runCatching { opened.release() }
             runCatching { mediaDataSource?.close() }
             mediaDataSource = null

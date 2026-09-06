@@ -5,7 +5,10 @@ import android.app.Application
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.StatFs
 import android.os.storage.StorageManager
@@ -14,6 +17,7 @@ import androidx.core.content.FileProvider
 import com.russhwolf.settings.Settings
 import com.yfuse.BuildConfig
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.security.verifyEd25519Signature
 import com.yfuse.feature.player.PlaybackRemotePolicyRegistry
 import com.yfuse.feature.player.PlaybackRemotePolicyUnpublishedException
 import kotlinx.coroutines.CoroutineScope
@@ -169,7 +173,65 @@ data class UpdateManifest(
     val sha256: String,
     val size: Long,
     val notes: String = "",
+    /** Base64 Ed25519 signature over [signedPayload]; null on manifests published before signing. */
+    val signature: String? = null,
 )
+
+/**
+ * The bytes the publisher signs: every field that decides what gets installed, joined with
+ * newlines in a fixed order. Notes come last because they may themselves contain newlines.
+ * The workflow builds the identical string with printf; change both or neither.
+ */
+internal fun UpdateManifest.signedPayload(): ByteArray =
+    listOf(versionCode.toString(), versionName, apkUrl, sha256, size.toString(), notes)
+        .joinToString("\n")
+        .encodeToByteArray()
+
+internal enum class UpdateManifestTrust {
+    /** Signature present and valid for the pinned key. */
+    Signed,
+
+    /** No key is pinned in this build and it is a debug build: accepted, loudly. */
+    UnverifiedDebug,
+
+    /** No key is pinned in a release build: nothing can be trusted, refuse. */
+    RejectedNoKey,
+
+    /** A key is pinned but the manifest carries no signature. */
+    RejectedUnsigned,
+
+    /** A key is pinned and the signature does not verify. */
+    RejectedInvalidSignature,
+}
+
+/**
+ * Decides whether a manifest may drive an install. TLS to a bare IP only proves the host
+ * answered; this is the trust root that says the file came from the release pipeline.
+ */
+internal fun UpdateManifest.trustVerdict(
+    pinnedPublicKeyBase64: String,
+    releaseBuild: Boolean,
+    verify: (publicKeyBase64: String, payload: ByteArray, signatureBase64: String) -> Boolean,
+): UpdateManifestTrust {
+    val key = pinnedPublicKeyBase64.trim()
+    if (key.isEmpty()) {
+        return if (releaseBuild) UpdateManifestTrust.RejectedNoKey else UpdateManifestTrust.UnverifiedDebug
+    }
+    val signature = signature?.trim()?.takeIf { it.isNotEmpty() } ?: return UpdateManifestTrust.RejectedUnsigned
+    return if (verify(key, signedPayload(), signature)) {
+        UpdateManifestTrust.Signed
+    } else {
+        UpdateManifestTrust.RejectedInvalidSignature
+    }
+}
+
+internal fun UpdateManifestTrust.rejectionMessage(): String? =
+    when (this) {
+        UpdateManifestTrust.Signed, UpdateManifestTrust.UnverifiedDebug -> null
+        UpdateManifestTrust.RejectedNoKey -> "此版本未内置升级签名公钥，无法校验升级来源"
+        UpdateManifestTrust.RejectedUnsigned -> "升级信息未签名，已拒绝"
+        UpdateManifestTrust.RejectedInvalidSignature -> "升级信息签名无效，已拒绝"
+    }
 
 /**
  * What a partially downloaded package belongs to.
@@ -785,6 +847,7 @@ class AppUpdateManager(
                                 json
                                     .decodeFromString<UpdateManifest>(input.readUpdateManifestText())
                                     .validateForUpdateSource(UPDATE_MANIFEST)
+                                    .requireTrusted()
                             }
                         } finally {
                             connection.disconnect()
@@ -1608,8 +1671,53 @@ class AppUpdateManager(
         install(apk)
     }
 
+    /**
+     * Refuses a manifest the pinned key did not sign. Debug builds without a key log and go on,
+     * so a developer can point at a scratch server; release builds never do.
+     */
+    private fun UpdateManifest.requireTrusted(): UpdateManifest {
+        val verdict =
+            trustVerdict(
+                pinnedPublicKeyBase64 = BuildConfig.UPDATE_MANIFEST_PUBLIC_KEY,
+                releaseBuild = !BuildConfig.DEBUG,
+                verify = ::verifyEd25519Signature,
+            )
+        if (verdict == UpdateManifestTrust.UnverifiedDebug) {
+            AppLog.warning(
+                category = "update",
+                event = "manifest_unverified_debug",
+                message = "Update manifest accepted without a signature (debug build, no pinned key)",
+            )
+        }
+        verdict.rejectionMessage()?.let { reason ->
+            AppLog.warning(
+                category = "update",
+                event = "manifest_rejected",
+                message = "Update manifest rejected",
+                attributes = mapOf("verdict" to verdict.name),
+            )
+            throw IllegalStateException(reason)
+        }
+        return this
+    }
+
     fun install(apk: File) {
         pendingInstall = apk
+        // The system installer also checks this, but only after the user has already tapped
+        // through; a package that would replace us with a different signer is refused here,
+        // with the file removed so a later "install" cannot pick it up again.
+        if (!apkSignerMatchesInstalledApp(appContext, apk)) {
+            AppLog.error(
+                category = "update",
+                event = "installer_signer_mismatch",
+                message = "Downloaded package is not signed by the installed application's key",
+            )
+            pendingInstall = null
+            runCatching { apk.delete() }
+            val manifest = (_state.value as? UpdateState.Ready)?.manifest
+            _state.value = UpdateState.Error("安装包签名与当前应用不一致，已拒绝安装", manifest)
+            return
+        }
         if (!appContext.packageManager.canRequestPackageInstalls()) {
             AppLog.info(
                 category = "update",
@@ -1914,3 +2022,48 @@ private fun allocatableUpdateBytes(
     }
 
 private fun URL.portOrDefault(): Int = port.takeIf { it >= 0 } ?: defaultPort
+
+/**
+ * True when every signing certificate of [apk] is one the installed application is signed
+ * with. Unreadable packages count as a mismatch: the installer would refuse them anyway, and
+ * treating "unknown" as "fine" is exactly the gap this check closes.
+ */
+internal fun apkSignerMatchesInstalledApp(
+    context: Context,
+    apk: File,
+): Boolean =
+    runCatching {
+        val packageManager = context.packageManager
+        val installed = packageManager.signerDigests(packageManager.getPackageInfo(context.packageName, SIGNING_FLAGS))
+        val archive = packageManager.getPackageArchiveInfo(apk.absolutePath, SIGNING_FLAGS)
+        val candidate = archive?.let(packageManager::signerDigests).orEmpty()
+        installed.isNotEmpty() && candidate.isNotEmpty() && candidate.all { it in installed }
+    }.getOrDefault(false)
+
+private val SIGNING_FLAGS: Int =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        PackageManager.GET_SIGNING_CERTIFICATES
+    } else {
+        @Suppress("DEPRECATION")
+        PackageManager.GET_SIGNATURES
+    }
+
+@Suppress("DEPRECATION")
+private fun PackageManager.signerDigests(info: PackageInfo): Set<String> {
+    val signatures =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val signingInfo = info.signingInfo ?: return emptySet()
+            if (signingInfo.hasMultipleSigners()) {
+                signingInfo.apkContentsSigners
+            } else {
+                signingInfo.signingCertificateHistory
+            }
+        } else {
+            info.signatures
+        } ?: return emptySet()
+    val digest = MessageDigest.getInstance("SHA-256")
+    return signatures
+        .map { signature ->
+            digest.digest(signature.toByteArray()).joinToString("") { "%02x".format(it) }
+        }.toSet()
+}

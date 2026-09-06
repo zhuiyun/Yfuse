@@ -26,6 +26,7 @@ import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.CalendarComponent
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -185,6 +186,7 @@ class HomeTabComponent(
         try {
             navigation.push(config)
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             playerNavigation.complete(config)
             throw failure
         }

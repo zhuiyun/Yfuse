@@ -16,6 +16,7 @@ import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -455,6 +456,7 @@ internal class AndroidNativeTunnelYPlayer(
                         }
                         publishSnapshot(force = true)
                     } catch (failure: Throwable) {
+                        if (failure is CancellationException) throw failure
                         publishFailure(failure)
                     }
                 }
@@ -464,6 +466,7 @@ internal class AndroidNativeTunnelYPlayer(
                         try {
                             session.pump()
                         } catch (failure: Throwable) {
+                            if (failure is CancellationException) throw failure
                             publishFailure(failure)
                             false
                         }

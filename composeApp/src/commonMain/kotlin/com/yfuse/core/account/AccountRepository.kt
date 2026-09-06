@@ -25,6 +25,7 @@ import io.ktor.client.network.sockets.ConnectTimeoutException
 import io.ktor.client.network.sockets.SocketTimeoutException
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -315,6 +316,7 @@ class AccountRepository(
                                         verifiedPlaintext.fill(0)
                                         key
                                     } catch (error: Throwable) {
+                                        if (error is CancellationException) throw error
                                         key.fill(0)
                                         throw IllegalArgumentException("当前密码错误或云端加密数据无效", error)
                                     }
@@ -850,6 +852,7 @@ class AccountRepository(
             secureStore.put(KEY_VAULT_USER_ID, userId.encodeToByteArray())
             secureStore.put(KEY_VAULT_KEY, vaultKey)
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             runCatching { clearVaultSecrets() }
             throw error
         }

@@ -13,6 +13,7 @@ import androidx.annotation.RequiresApi
 import com.yfuse.core2.render.YGpuColorPipelineConfig
 import com.yfuse.core2.render.YGpuColorTransfer
 import com.yfuse.core2.render.YNativeGpuFeature
+import kotlinx.coroutines.CancellationException
 import java.io.Closeable
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
@@ -165,6 +166,7 @@ internal class AndroidVulkanVideoOutput @RequiresApi(Build.VERSION_CODES.P) cons
         try {
             switchDecoderSurface(replacement.surface)
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             replacement.setOnImageAvailableListener(null, null)
             replacement.close()
             throw failure

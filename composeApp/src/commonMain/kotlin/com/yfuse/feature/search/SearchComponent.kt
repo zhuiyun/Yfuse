@@ -20,6 +20,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.navigation.SingleFlightNavigationGuard
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
 /** Search tab navigation: query/results -> detail -> player. */
@@ -118,6 +119,7 @@ class SearchComponent(
         try {
             navigation.push(config)
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             playerNavigation.complete(config)
             throw failure
         }

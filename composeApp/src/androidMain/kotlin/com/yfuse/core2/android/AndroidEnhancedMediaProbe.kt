@@ -15,6 +15,7 @@ import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
 import com.yfuse.core2.strategy.YPlaybackRequest
 import com.yfuse.core2.strategy.shouldRequestEnhancedProbe
+import kotlinx.coroutines.CancellationException
 
 /**
  * Deep metadata probe over the demux-only FFmpeg bridge.
@@ -205,6 +206,7 @@ internal class AndroidEnhancedMediaProbe(
                     video.dolbyVisionConfig == null && (rpuCount > 0 || enhancementLayerCount > 0),
             )
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             val typed = failure as? YPlaybackException
             // The deep probe is the first FFmpeg open of a source. When it fails, the bundle
             // needs the same typed detail the playback open reports, or the five seconds it

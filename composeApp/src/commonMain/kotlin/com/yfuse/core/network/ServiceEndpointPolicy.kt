@@ -7,6 +7,10 @@ enum class EndpointTransportDecision {
     Cleartext,
     LocalCleartextConfirmationRequired,
     LocalCleartextConfirmed,
+
+    /** Plain HTTP to a host outside private address space; allowed only after explicit consent. */
+    PublicCleartextConfirmationRequired,
+    PublicCleartextConfirmed,
     PublicCleartextRejected,
     Invalid,
 }
@@ -15,15 +19,25 @@ data class ServiceEndpointValidation(
     val normalizedEndpoint: String?,
     val decision: EndpointTransportDecision,
     val message: String?,
+    /** The risk the user is asked to acknowledge for a cleartext address; null when there is none. */
+    val cleartextWarning: String? = null,
 ) {
     val allowed: Boolean
         get() =
             decision == EndpointTransportDecision.Secure ||
                 decision == EndpointTransportDecision.Cleartext ||
-                decision == EndpointTransportDecision.LocalCleartextConfirmed
+                decision == EndpointTransportDecision.LocalCleartextConfirmed ||
+                decision == EndpointTransportDecision.PublicCleartextConfirmed
 
     val requiresCleartextConfirmation: Boolean
-        get() = decision == EndpointTransportDecision.LocalCleartextConfirmationRequired
+        get() =
+            decision == EndpointTransportDecision.LocalCleartextConfirmationRequired ||
+                decision == EndpointTransportDecision.PublicCleartextConfirmationRequired
+
+    val cleartextConfirmed: Boolean
+        get() =
+            decision == EndpointTransportDecision.LocalCleartextConfirmed ||
+                decision == EndpointTransportDecision.PublicCleartextConfirmed
 }
 
 /**

@@ -5,6 +5,7 @@ import android.media.NotProvisionedException
 import com.russhwolf.settings.Settings
 import com.yfuse.core.security.createSecureStore
 import com.yfuse.core2.adaptive.parseYDashManifest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -75,6 +76,7 @@ private class AndroidPlaybackOfflineLicenseManager(
                                     )
                                 catalog.put(license, keySetId)
                             } catch (error: Throwable) {
+                                if (error is CancellationException) throw error
                                 runCatching { releaseKeySet(drm, keySetId, request.configuration) }
                                 throw error
                             } finally {
@@ -86,6 +88,7 @@ private class AndroidPlaybackOfflineLicenseManager(
                     }
                 }
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 throw wrap(error)
             } finally {
                 initializationData.fill(0)
@@ -113,6 +116,7 @@ private class AndroidPlaybackOfflineLicenseManager(
                 catalog.update(updated)
                 catalog.get(updated.id)
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 throw wrap(error)
             } finally {
                 keySetId.fill(0)
@@ -167,6 +171,7 @@ private class AndroidPlaybackOfflineLicenseManager(
                     result.second.fill(0)
                 }
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 throw wrap(error)
             } finally {
                 oldKeySetId.fill(0)
@@ -204,6 +209,7 @@ private class AndroidPlaybackOfflineLicenseManager(
             }
             catalog.remove(licenseId)
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             throw wrap(error)
         } finally {
             keySetId.fill(0)

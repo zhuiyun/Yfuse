@@ -2,6 +2,7 @@ package com.yfuse.core.playback
 
 import com.russhwolf.settings.Settings
 import com.yfuse.core.security.SecureStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -113,6 +114,7 @@ internal class PlaybackOfflineLicenseCatalog(
                 try {
                     write(updated)
                 } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
                     if (previousKey == null) {
                         secureStore.remove(secretKey(license.id))
                     } else {
@@ -140,6 +142,7 @@ internal class PlaybackOfflineLicenseCatalog(
             try {
                 secureStore.remove(secretKey(id))
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 runCatching { write(previous) }.exceptionOrNull()?.let(error::addSuppressed)
                 throw error
             }

@@ -8,6 +8,7 @@ import com.yfuse.core2.demux.YSubtitlePacketDecoder
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
+import kotlinx.coroutines.CancellationException
 import java.util.ArrayDeque
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
@@ -248,6 +249,7 @@ internal class AndroidDemuxReadAheadNode(
                 }
             }
         } catch (throwable: Throwable) {
+            if (throwable is CancellationException) throw throwable
             synchronized(monitor) {
                 failure = throwable
                 endOfInput = true

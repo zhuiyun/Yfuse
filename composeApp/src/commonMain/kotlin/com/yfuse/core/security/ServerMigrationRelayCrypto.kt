@@ -1,5 +1,6 @@
 package com.yfuse.core.security
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -66,6 +67,7 @@ class ServerMigrationRelayCrypto(
                     expiresAtEpochSeconds = expiresAtEpochSeconds,
                 )
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 transferSecret.fill(0)
                 throw error
             } finally {

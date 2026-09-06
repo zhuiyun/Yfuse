@@ -38,6 +38,7 @@ import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.util.lockOrientationOnCompactScreens
+import kotlinx.coroutines.CancellationException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -257,6 +258,7 @@ class QrScannerActivity : ComponentActivity() {
             reader.reset()
             if (!result.isNullOrBlank()) finishWithResult(result)
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             AppLog.warning(
                 category = "server.migration",
                 event = "qr_frame_decode_failed",
