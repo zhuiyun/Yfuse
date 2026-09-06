@@ -73,5 +73,8 @@ class YSubtitleRegexRegressionTest {
     private fun standalone(
         text: String,
         format: YSubtitleFormat,
-    ): YSubtitlePayload.Text = assertIs<YSubtitlePayload.Text>(YTextSubtitleParser.parse(text, format).cues.single().payload)
+    ): YSubtitlePayload.Text {
+        val cue = YTextSubtitleParser.parse(text, format).cues.single()
+        return assertIs<YSubtitlePayload.Text>(cue.payload)
+    }
 }
