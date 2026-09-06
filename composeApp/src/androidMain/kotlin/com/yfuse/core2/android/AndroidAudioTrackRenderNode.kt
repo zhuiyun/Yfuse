@@ -10,6 +10,7 @@ import android.media.MediaFormat
 import android.media.PlaybackParams
 import android.os.Build
 import androidx.annotation.RequiresApi
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.graph.YAudioRenderNode
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicLong
@@ -37,6 +38,11 @@ internal class AndroidAudioTrackRenderNode(
     private var basePresentationTimeUs: Long? = null
     private var requestedPlay = false
     private var speed = 1f
+    private var writtenBytes = 0L
+    private var zeroWriteCount = 0L
+    private var startThresholdFrames = 0
+    private var lastTimestampFrames: Long? = null
+    private var lastPlaybackHeadFrames = 0L
     private val clockProgressGuard = AndroidAudioClockProgressGuard()
     private val routedOutputProgress = AndroidRoutedOutputProgress()
     private var lastClockSource: YAudioClockFrameSource? = null
@@ -53,12 +59,33 @@ internal class AndroidAudioTrackRenderNode(
     private val routingListener =
         AudioRouting.OnRoutingChangedListener {
             routingGeneration.incrementAndGet()
+            // Android may change the start threshold when an output device changes.
+            track?.let(::configureStartThreshold)
             configuredFormat?.let { format ->
                 spatialAudioState = spatialAudioProbe?.current(format) ?: AndroidSpatialAudioState()
             }
         }
 
     val routingChangeGeneration: Long get() = routingGeneration.get()
+
+    val outputAdvancing: Boolean get() = currentRouteOutputAdvancing()
+
+    /** Numeric sink evidence only: no media URL, credentials, or account identifiers. */
+    fun outputDiagnostics(): Map<String, String> =
+        mapOf(
+            "pcmWrittenBytes" to writtenBytes.toString(),
+            "pcmZeroWrites" to zeroWriteCount.toString(),
+            "audioPlayState" to (track?.playState?.toString() ?: "unconfigured"),
+            "audioSampleRate" to sampleRate.toString(),
+            "audioChannelCount" to (configuredFormat?.getInteger(MediaFormat.KEY_CHANNEL_COUNT)?.toString() ?: "0"),
+            "audioBufferFrames" to (track?.bufferSizeInFrames?.toString() ?: "0"),
+            "audioStartThresholdFrames" to startThresholdFrames.toString(),
+            "audioPlaybackHeadFrames" to lastPlaybackHeadFrames.toString(),
+            "audioTimestampFrames" to (lastTimestampFrames?.toString() ?: "unavailable"),
+            "audioClockSource" to clockSource,
+            "audioClockStalled" to clockStalled.toString(),
+            "audioUnderruns" to underrunCount.toString(),
+        )
 
     val spatialAudioOutput: Boolean
         get() = currentRouteOutputAdvancing() && spatialAudioState.active
@@ -85,7 +112,11 @@ internal class AndroidAudioTrackRenderNode(
     fun configure(format: MediaFormat) {
         release()
         sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-        track = createTrack(format).also { it.addOnRoutingChangedListener(routingListener, null) }
+        track =
+            createTrack(format).also {
+                configureStartThreshold(it)
+                it.addOnRoutingChangedListener(routingListener, null)
+            }
         configuredFormat = format
         spatialAudioState = spatialAudioProbe?.current(format) ?: AndroidSpatialAudioState()
         basePresentationTimeUs = null
@@ -135,7 +166,11 @@ internal class AndroidAudioTrackRenderNode(
         while (data.hasRemaining()) {
             val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_BLOCKING)
             check(written >= 0) { "AudioTrack.write failed with code $written" }
-            if (written == 0) continue
+            if (written == 0) {
+                zeroWriteCount++
+                continue
+            }
+            writtenBytes += written
             total += written
         }
         return total
@@ -157,6 +192,7 @@ internal class AndroidAudioTrackRenderNode(
         val shouldAnchorClock = basePresentationTimeUs == null
         val written = audioTrack.write(data, data.remaining(), AudioTrack.WRITE_NON_BLOCKING)
         check(written >= 0) { "AudioTrack.write failed with code $written" }
+        if (written == 0) zeroWriteCount++ else writtenBytes += written
         if (shouldAnchorClock && written > 0) {
             basePresentationTimeUs = presentationTimeUs.coerceAtLeast(0L)
         }
@@ -173,13 +209,15 @@ internal class AndroidAudioTrackRenderNode(
         val nowNs = System.nanoTime()
         val timestamp = AudioTimestamp()
         val hasTimestamp = runCatching { audioTrack.getTimestamp(timestamp) }.getOrDefault(false)
+        lastTimestampFrames = timestamp.framePosition.takeIf { hasTimestamp }
+        lastPlaybackHeadFrames = audioTrack.playbackHeadPosition.toLong() and 0xffff_ffffL
         val selection =
             clockProgressGuard.select(
                 nowNs = nowNs,
                 playing = requestedPlay && audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING,
                 timestampFrames = timestamp.framePosition.takeIf { hasTimestamp },
                 timestampRealtimeNs = timestamp.nanoTime.takeIf { hasTimestamp },
-                playbackHeadFrames = audioTrack.playbackHeadPosition.toLong() and 0xffff_ffffL,
+                playbackHeadFrames = lastPlaybackHeadFrames,
             )
         if (selection == null) {
             lastClockSource = null
@@ -224,6 +262,9 @@ internal class AndroidAudioTrackRenderNode(
         basePresentationTimeUs = null
         resetClockProgress()
         spatialAudioState = AndroidSpatialAudioState()
+        writtenBytes = 0L
+        zeroWriteCount = 0L
+        startThresholdFrames = 0
         if (audioTrack != null) {
             runCatching { audioTrack.removeOnRoutingChangedListener(routingListener) }
             runCatching { audioTrack.pause() }
@@ -237,6 +278,36 @@ internal class AndroidAudioTrackRenderNode(
         routedOutputProgress.reset()
         lastClockSource = null
         staleClockFallback = false
+        lastTimestampFrames = null
+        lastPlaybackHeadFrames = 0L
+    }
+
+    private fun configureStartThreshold(audioTrack: AudioTrack) {
+        if (sampleRate <= 0) return
+        var target = 0
+        val result =
+            runCatching {
+                target = nativeDirectAudioStartThresholdFrames(sampleRate, audioTrack.bufferCapacityInFrames)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    // Capacity protects against jitter; it must not also require two seconds of
+                    // interleaved PCM before AudioTrack will begin consuming the first frame.
+                    audioTrack.setStartThresholdInFrames(target)
+                } else {
+                    // Pre-31 has no independent threshold. Reduce the effective streaming buffer,
+                    // leaving its allocation intact; the platform clamps to its hardware minimum.
+                    audioTrack.setBufferSizeInFrames(target)
+                }.also { check(it > 0) { "AudioTrack rejected startup threshold: $it" } }
+            }
+        result.onSuccess { startThresholdFrames = it }.onFailure { error ->
+            // A route callback can race release. Never crash the routing callback thread.
+            AppLog.warning(
+                category = "player.core2",
+                event = "audio_start_threshold_failed",
+                message = "AudioTrack startup threshold could not be applied",
+                throwable = error,
+                attributes = mapOf("targetFrames" to target.toString()),
+            )
+        }
     }
 
     private fun currentRouteOutputAdvancing(): Boolean {
@@ -306,6 +377,15 @@ private fun buildAudioTrack(format: MediaFormat): AudioTrack {
         .also { track ->
             check(track.state == AudioTrack.STATE_INITIALIZED) { "AudioTrack failed to initialize" }
         }
+}
+
+/** Forty milliseconds primes common PCM codecs without filling the resilience buffer. */
+internal fun nativeDirectAudioStartThresholdFrames(
+    sampleRate: Int,
+    capacityFrames: Int,
+): Int {
+    require(sampleRate > 0 && capacityFrames > 0)
+    return (sampleRate.toLong() * 40L / 1_000L).coerceIn(1L, capacityFrames.toLong()).toInt()
 }
 
 internal fun nativeDirectAudioBufferSizeBytes(

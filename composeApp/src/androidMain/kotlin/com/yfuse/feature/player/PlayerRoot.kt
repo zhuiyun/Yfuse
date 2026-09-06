@@ -510,7 +510,7 @@ internal fun PlayerRoot(
                 message = "YCore Native failed without invoking a compatibility engine",
                 attributes =
                     mapOf(
-                        "engine" to kind.name,
+                        "engine" to attachedEngineLabel,
                         "itemIndex" to localState.currentIndex.toString(),
                         "failureKind" to (localState.errorKind?.name ?: "Unknown"),
                         "failure" to localState.error.orEmpty(),
@@ -543,7 +543,7 @@ internal fun PlayerRoot(
             message = "YCore 2.0 trial failed; rebuilt the selected Legacy engine",
             attributes =
                 mapOf(
-                    "engine" to kind.name,
+                    "engine" to attachedEngineLabel,
                     "itemIndex" to localState.currentIndex.toString(),
                     "failureKind" to (localState.errorKind?.name ?: "Unknown"),
                     "failure" to localState.error.orEmpty(),
@@ -715,7 +715,7 @@ internal fun PlayerRoot(
             message = "YCore resumed the active backend after connectivity returned",
             attributes =
                 mapOf(
-                    "engine" to kind.name,
+                    "engine" to attachedEngineLabel,
                     "positionMs" to decision.resumePositionMs.toString(),
                     "network" to playbackNetworkClass.name,
                 ),
@@ -825,7 +825,7 @@ internal fun PlayerRoot(
                     "audioCodec" to (activeProbe.audioCodec?.name ?: "unknown"),
                     "audioTracks" to (version?.audioTrackCount ?: 0).toString(),
                     "serverAudioCodecs" to version?.sourceAudioCodecs?.joinToString(",").orEmpty(),
-                    "engine" to kind.name,
+                    "engine" to attachedEngineLabel,
                     "decoderMode" to effectiveDecoderMode.name,
                     "renderPath" to activePlan.renderPath.name,
                     "dolbyVisionPath" to activePlan.dolbyVisionPath.name,
@@ -1068,7 +1068,7 @@ internal fun PlayerRoot(
         val attributes =
             mapOf(
                 "itemIndex" to state.currentIndex.toString(),
-                "engine" to kind.name,
+                "engine" to attachedEngineLabel,
                 "decoder" to state.diagnostics.decoder,
                 "profile" to (version.dolbyProfile?.toString() ?: "unknown"),
                 "videoReadiness" to state.diagnostics.videoReadiness.name,
@@ -1131,13 +1131,15 @@ internal fun PlayerRoot(
             attributes =
                 mapOf(
                     "itemIndex" to state.currentIndex.toString(),
-                    "engine" to kind.name,
+                    "engine" to attachedEngineLabel,
                     "profile" to
                         (
                             version.dolbyProfile?.toString()
                                 ?: if (version.dolbyVision) "unknown" else "not-dolby-vision"
                         ),
-                    "health" to runtimeAssessment.health.grade.name,
+                    "health" to
+                        if (runtimeAssessment.runtimeFault != null) "Fault" else runtimeAssessment.health.grade.name,
+                    "decodeHealth" to runtimeAssessment.health.grade.name,
                     "startupTimeMs" to
                         (runtimeAssessment.health.startupTimeMs?.toString() ?: "pending"),
                     "observedPlaybackMs" to runtimeAssessment.health.observedPlaybackMs.toString(),
@@ -1582,7 +1584,7 @@ internal fun PlayerRoot(
             attributes =
                 mapOf(
                     "itemIndex" to itemIndex.toString(),
-                    "engine" to kind.name,
+                    "engine" to attachedEngineLabel,
                     "fromVersionId" to committedVersionId.orEmpty(),
                     "toVersionId" to versionId,
                 ),
@@ -1881,7 +1883,7 @@ internal fun PlayerRoot(
                 message = "Playback transport was reopened after sustained source starvation",
                 attributes =
                     mapOf(
-                        "engine" to kind.name,
+                        "engine" to attachedEngineLabel,
                         "itemIndex" to state.currentIndex.toString(),
                         "positionMs" to positionMs.toString(),
                         "fault" to fault.kind.name,
@@ -1916,7 +1918,7 @@ internal fun PlayerRoot(
                     message = "YCore Native restarted its local pipeline after a silent output fault",
                     attributes =
                         mapOf(
-                            "engine" to kind.name,
+                            "engine" to attachedEngineLabel,
                             "itemIndex" to state.currentIndex.toString(),
                             "positionMs" to positionMs.toString(),
                             "fault" to fault.kind.name,
@@ -1937,7 +1939,7 @@ internal fun PlayerRoot(
                 message = "YCore Native exhausted local recovery without using Legacy fallback",
                 attributes =
                     mapOf(
-                        "engine" to kind.name,
+                        "engine" to attachedEngineLabel,
                         "itemIndex" to state.currentIndex.toString(),
                         "fault" to fault.kind.name,
                     ),
@@ -1970,7 +1972,7 @@ internal fun PlayerRoot(
                 message = "YCore 2.0 trial had a silent output fault; rebuilt the selected Legacy engine",
                 attributes =
                     mapOf(
-                        "engine" to kind.name,
+                        "engine" to attachedEngineLabel,
                         "itemIndex" to state.currentIndex.toString(),
                         "fault" to fault.kind.name,
                     ),
@@ -1987,7 +1989,7 @@ internal fun PlayerRoot(
             message = "YCore detected a silent playback failure",
             attributes =
                 mapOf(
-                    "engine" to kind.name,
+                    "engine" to attachedEngineLabel,
                     "fault" to fault.kind.name,
                     "nextEngine" to (nextEngine?.name ?: "server"),
                 ),
@@ -2085,7 +2087,7 @@ internal fun PlayerRoot(
             message = "Playback handover position was checked against the 250 ms budget",
             attributes =
                 mapOf(
-                    "engine" to kind.name,
+                    "engine" to attachedEngineLabel,
                     "targetMs" to engineHandoverSnapshot.positionMs.toString(),
                     "actualMs" to actual.toString(),
                     "errorMs" to error.toString(),
@@ -2944,9 +2946,9 @@ internal fun PlayerRoot(
                 transcodeLabel =
                     "转码播放".takeIf {
                         !core2NativeOnlyActive &&
-                        currentItem?.let { item ->
-                            item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
-                        } == true
+                            currentItem?.let { item ->
+                                item.transcodeUrl.isNotBlank() || item.fallbackTranscodeUrl.isNotBlank()
+                            } == true
                     },
                 transcodeActive = state.transcoding,
                 onTranscode = {

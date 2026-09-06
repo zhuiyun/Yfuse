@@ -32,15 +32,14 @@ import com.yfuse.core2.demux.YDemuxer
 import com.yfuse.core2.demux.YSampleFlag
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.demux.YVideoTrackFormat
-import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.dolby.FailClosedYDolbyVisionFelEvidenceProvider
+import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.dolby.YDolbyVisionFelCompositionRequest
 import com.yfuse.core2.dolby.YDolbyVisionFelEvidenceProvider
-import com.yfuse.core2.dolby.verifyDolbyVisionFelComposition
 import com.yfuse.core2.dolby.dolbyVisionHevcBaseLayerSample
+import com.yfuse.core2.dolby.verifyDolbyVisionFelComposition
 import com.yfuse.core2.network.YBufferConditions
 import com.yfuse.core2.network.YBufferController
-import com.yfuse.core2.network.YBufferPlan
 import com.yfuse.core2.network.YPlaybackBufferGate
 import com.yfuse.core2.recovery.requiresPcmAudioPath
 import com.yfuse.core2.render.YFrameRateSwitchMode
@@ -78,6 +77,8 @@ internal data class YEnhancedPlaybackSnapshot(
     val spatialAudioOutput: Boolean,
     val headTrackingAvailable: Boolean,
     val audioFallbackCount: Int,
+    val audioUnderrunCount: Int,
+    val audioSinkDiagnostics: Map<String, String>,
     val droppedFrames: Int,
     val avSyncOffsetUs: Long?,
     val sourceQueueBytes: Long,
@@ -801,8 +802,10 @@ internal class AndroidEnhancedPlaybackSession(
                 gpu.currentFeatureMask,
             )
         }
-        val audioRendering = audioRendererConfigured && audioClockSnapshot() != null
         val passthrough = isAudioPassthrough()
+        val audioRendering =
+            audioRendererConfigured &&
+                if (passthrough) encodedAudioRenderer.outputAdvancing else audioRenderer.outputAdvancing
         val sourceCodec = audioTrack?.audio?.codec
         val spatialized = !passthrough && audioRenderer.spatialAudioOutput
         val atmosOutputMode =
@@ -873,6 +876,8 @@ internal class AndroidEnhancedPlaybackSession(
             spatialAudioOutput = spatialized,
             headTrackingAvailable = !passthrough && audioRenderer.headTrackingAvailable,
             audioFallbackCount = audioFallbackCount,
+            audioUnderrunCount = if (passthrough) encodedAudioRenderer.underrunCount else audioRenderer.underrunCount,
+            audioSinkDiagnostics = if (passthrough) emptyMap() else audioRenderer.outputDiagnostics(),
             droppedFrames = droppedFrames,
             avSyncOffsetUs = lastAvSyncOffsetUs,
             sourceQueueBytes = readAhead.queuedBytes,
@@ -1242,18 +1247,19 @@ internal class AndroidEnhancedPlaybackSession(
         seekPrerollVideoOutput?.let { videoDecoder.releaseOutput(it, render = false) }
         seekPrerollVideoOutput = null
 
-        // Audio is the master when present. Hold the first video buffer until AudioTrack has a real
-        // clock rather than starting video early and correcting drift after the fact.
-        if (audioTrack != null && audioClockSnapshot() == null) {
-            pendingVideoOutput = output
-            return false
-        }
+        // Never hold the interleaved demux pipeline merely because the audio sink is priming
+        // or its clock is stale. Video backpressure can prevent the next audio packet from being
+        // decoded, so waiting for audio here creates a circular wait. Pace against the media
+        // wall clock until a real audio clock is available; the audio fault detector stays active.
 
         val currentUs = currentPositionUs()
         val nowNs = System.nanoTime()
         val desiredRenderNs =
             if (audioTrack != null) {
-                audioPresentationTimeNs(output.presentationTimeUs, nowNs)
+                audioPresentationTimeNs(
+                    output.presentationTimeUs,
+                    wallClock.presentationTimeNs(output.presentationTimeUs),
+                )
             } else {
                 wallClock.presentationTimeNs(output.presentationTimeUs)
             }
@@ -1327,6 +1333,7 @@ internal class AndroidEnhancedPlaybackSession(
                         audioRenderer.configure(format)
                     }
                     audioRendererConfigured = true
+                    captureAudioRoutingGeneration()
                     audioRenderer.setSpeed(speed)
                     if (outputActive) audioRenderer.play()
                 }
@@ -1379,17 +1386,16 @@ internal class AndroidEnhancedPlaybackSession(
             return true
         }
 
-        // Audio remains the master clock for software video as well. Holding the reusable frame
-        // also naturally back-pressures FFmpeg until AudioTrack has emitted a timestamp.
-        if (audioTrack != null && audioClockSnapshot() == null) {
-            pendingSoftwareVideoOutput = output
-            return false
-        }
+        // Software video must use the same bounded fallback pacing as hardware video. Holding
+        // this reusable FFmpeg frame until audio starts can also block interleaved audio input.
         val currentUs = currentPositionUs()
         val nowNs = System.nanoTime()
         val desiredRenderNs =
             if (audioTrack != null) {
-                audioPresentationTimeNs(output.presentationTimeUs, nowNs)
+                audioPresentationTimeNs(
+                    output.presentationTimeUs,
+                    wallClock.presentationTimeNs(output.presentationTimeUs),
+                )
             } else {
                 wallClock.presentationTimeNs(output.presentationTimeUs)
             }
@@ -1501,13 +1507,15 @@ internal class AndroidEnhancedPlaybackSession(
         return true
     }
 
-    private fun currentPositionUs(): Long =
-        audioClockSnapshot()?.positionUs
-            ?: if (outputActive) {
-                wallClock.positionUs(System.nanoTime())
-            } else {
-                lastVideoUs.coerceAtLeast(0L)
-            }
+    private fun currentPositionUs(): Long {
+        val audio = audioClockSnapshot()
+        if (audio != null) {
+            // Preserve the last measured audio anchor for a smooth, paced clock fallback.
+            wallClock.seek(audio.positionUs, audio.realtimeNs)
+            return audio.positionUs
+        }
+        return if (outputActive) wallClock.positionUs(System.nanoTime()) else lastVideoUs.coerceAtLeast(0L)
+    }
 
     /**
      * Keeps media time frozen during startup/rebuffering and releases both clocks together only

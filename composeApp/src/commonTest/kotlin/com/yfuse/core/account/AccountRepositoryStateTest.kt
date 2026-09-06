@@ -28,7 +28,9 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -456,11 +458,13 @@ class AccountRepositoryStateTest {
             val secureStore = RecordingAccountSecureStore().apply { seedStoredSession() }
             val originalSecrets = secureStore.snapshot()
             val firstRefreshStarted = CompletableDeferred<Unit>()
+            val refreshRequests = MutableStateFlow(0)
             val api =
                 accountApi(
                     MockEngine { request ->
                         when (request.url.encodedPath) {
                             REFRESH_PATH -> {
+                                refreshRequests.updateAndGet { it + 1 }
                                 if (firstRefreshStarted.complete(Unit)) awaitCancellation()
                                 respondAccountJson(json.encodeToString(authResponse(refreshToken = "retried-refresh")))
                             }
@@ -482,13 +486,14 @@ class AccountRepositoryStateTest {
             assertEquals(originalSecrets, secureStore.snapshot().filterKeys { it != "pending_refresh" })
             assertEquals(0, secureStore.clearCount)
 
-            repository.retryRestore()
+            repeat(10) { repository.retryRestore() }
             val signedIn =
                 assertIs<AccountState.SignedIn>(
                     awaitAccountState(repository) { it is AccountState.SignedIn && it.syncVersion == 5L },
                 )
             assertEquals("restored-access", signedIn.session.accessToken)
             assertEquals("retried-refresh", secureStore.text(KEY_REFRESH_TOKEN))
+            assertEquals(2, refreshRequests.value)
         }
 
     @Test

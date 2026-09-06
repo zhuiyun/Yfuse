@@ -68,4 +68,17 @@ class AndroidAudioTrackRenderNodePolicyTest {
         assertEquals(AudioFormat.CHANNEL_INVALID, channelMaskForCount(10))
         assertEquals(AudioFormat.CHANNEL_INVALID, channelMaskForCount(12))
     }
+
+    @Test
+    fun `startup threshold does not require filling the two second buffer`() {
+        assertEquals(1_920, nativeDirectAudioStartThresholdFrames(48_000, 96_000))
+        assertEquals(1_764, nativeDirectAudioStartThresholdFrames(44_100, 88_200))
+    }
+
+    @Test
+    fun `startup threshold is bounded by the actual device allocation`() {
+        assertEquals(240, nativeDirectAudioStartThresholdFrames(48_000, 240))
+        assertEquals(1, nativeDirectAudioStartThresholdFrames(1, 1))
+        assertEquals(85_899_345, nativeDirectAudioStartThresholdFrames(Int.MAX_VALUE, Int.MAX_VALUE))
+    }
 }

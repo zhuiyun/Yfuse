@@ -172,9 +172,11 @@ internal class AndroidNativeEnhancedYPlayer(
                         EXTERNAL_SUBTITLE_TRACK_ID ->
                             Command.SelectSubtitleTrack(
                                 null,
-                                externalTrackId = mutableState.value.subtitleTracks.firstOrNull {
-                                    it.id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)
-                                }?.id,
+                                externalTrackId =
+                                    mutableState.value.subtitleTracks
+                                        .firstOrNull {
+                                            it.id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)
+                                        }?.id,
                             )
                         else -> {
                             if (id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)) {
@@ -381,7 +383,8 @@ internal class AndroidNativeEnhancedYPlayer(
                     )
                 }
             selectedExternalSubtitleId =
-                sidecarSources.indexOfFirst { it.forced || it.default }
+                sidecarSources
+                    .indexOfFirst { it.forced || it.default }
                     .takeIf { it >= 0 }
                     ?.let(::externalSubtitleTrackId)
                     ?: externalSubtitles.singleOrNull()?.track?.id
@@ -445,12 +448,34 @@ internal class AndroidNativeEnhancedYPlayer(
             if (requestedPlay) session.play()
         }
 
+        var lastAudioDiagnosticNs = 0L
+        var lastAudioRendering = false
+
         fun publishSnapshot(force: Boolean = false) {
             if (!prepared) return
             val now = System.nanoTime()
             if (!force && now - lastPublishNs < STATE_PUBLISH_INTERVAL_NS) return
             lastPublishNs = now
             val snapshot = session.snapshot()
+            if (snapshot.audioSinkDiagnostics.isNotEmpty() &&
+                (force || snapshot.audioRendering != lastAudioRendering || now - lastAudioDiagnosticNs >= 2_000_000_000L)
+            ) {
+                lastAudioDiagnosticNs = now
+                lastAudioRendering = snapshot.audioRendering
+                AppLog.info(
+                    category = "player.core2",
+                    event = "enhanced_audio_output",
+                    message = "YCore enhanced PCM sink progress",
+                    attributes =
+                        snapshot.audioSinkDiagnostics +
+                            mapOf(
+                                "route" to "NativeEnhanced",
+                                "audioRendering" to snapshot.audioRendering.toString(),
+                                "audioFallbacks" to snapshot.audioFallbackCount.toString(),
+                                "positionMs" to (snapshot.positionUs / MICROS_PER_MILLISECOND).toString(),
+                            ),
+                )
+            }
             proxy?.updatePlaybackFeedback(
                 YAdaptivePlaybackFeedback(
                     bufferedDurationUs = snapshot.sourceBufferedUs,
@@ -521,7 +546,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                             }
                                     }
                                 } else {
-                                    it.diagnostics.audioOutput
+                                    "等待实际音频输出"
                                 },
                             outputEvidenceGeneration = snapshot.outputEvidenceGeneration,
                             outputEvidenceResetReason = snapshot.outputEvidenceResetReason,
@@ -547,7 +572,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             dolbyAtmosOutput = snapshot.dolbyAtmosOutput,
                             spatialAudioOutput = snapshot.spatialAudioOutput,
                             headTrackingAvailable = snapshot.headTrackingAvailable,
-                            audioUnderrunCount = snapshot.audioFallbackCount,
+                            audioUnderrunCount = snapshot.audioUnderrunCount,
                             sourceQueueBytes = snapshot.sourceQueueBytes,
                             sourceBufferedMs = snapshot.sourceBufferedUs / MICROS_PER_MILLISECOND,
                             sourceStarvationCount = snapshot.sourceStarvationCount,
@@ -683,9 +708,11 @@ internal class AndroidNativeEnhancedYPlayer(
                                                 },
                                             subtitleCues =
                                                 if (selectedExternalSubtitleId != null) {
-                                                    externalSubtitles.firstOrNull {
-                                                        it.track.id == selectedExternalSubtitleId
-                                                    }?.cues.orEmpty()
+                                                    externalSubtitles
+                                                        .firstOrNull {
+                                                            it.track.id == selectedExternalSubtitleId
+                                                        }?.cues
+                                                        .orEmpty()
                                                 } else {
                                                     emptyList()
                                                 },
@@ -716,7 +743,11 @@ internal class AndroidNativeEnhancedYPlayer(
                                     "failureStage" to (typed?.stage?.name ?: "Unknown"),
                                     "failureDetail" to typed?.safeDetail.orEmpty(),
                                     "itemIndex" to currentIndex.toString(),
-                                    "sourceScheme" to request.items[currentIndex].uri.substringBefore(':').lowercase(),
+                                    "sourceScheme" to
+                                        request.items[currentIndex]
+                                            .uri
+                                            .substringBefore(':')
+                                            .lowercase(),
                                 ),
                         )
                         session.close()
