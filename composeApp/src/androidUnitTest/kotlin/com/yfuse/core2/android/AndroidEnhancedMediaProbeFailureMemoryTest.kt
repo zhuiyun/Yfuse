@@ -5,9 +5,9 @@ import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
-import com.yfuse.core2.strategy.YPlaybackRequest
 import com.yfuse.core2.network.YCacheIdentity
 import com.yfuse.core2.network.YTransportCredentials
+import com.yfuse.core2.strategy.YPlaybackRequest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -84,20 +84,24 @@ class AndroidEnhancedMediaProbeFailureMemoryTest {
     @Test
     fun refreshedUrlOrAuthorizationIsProbedImmediatelyForTheSameMediaIdentity() {
         val original = item.copy(cacheIdentity = YCacheIdentity("account", "movie"))
-        val refreshed = listOf(
-            original.copy(uri = "https://media.example.test/refreshed-stream"),
-            original.copy(headers = mapOf("Authorization" to "test-refreshed-authorization")),
-            original.copy(transportCredentials = YTransportCredentials.UsernamePassword("test-user", "new-password")),
-        )
+        val refreshed =
+            listOf(
+                original.copy(uri = "https://media.example.test/refreshed-stream"),
+                original.copy(headers = mapOf("Authorization" to "test-refreshed-authorization")),
+                original.copy(
+                    transportCredentials = YTransportCredentials.UsernamePassword("test-user", "new-password"),
+                ),
+            )
         refreshed.forEach { next ->
             var opens = 0
-            val probe = AndroidEnhancedMediaProbe(
-                clock = { 0L },
-                probeSource = {
-                    opens++
-                    if (opens == 1) YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable) else success()
-                },
-            )
+            val probe =
+                AndroidEnhancedMediaProbe(
+                    clock = { 0L },
+                    probeSource = {
+                        opens++
+                        if (opens == 1) YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable) else success()
+                    },
+                )
 
             assertIs<YCore2ProbeResult.Failure>(probe.probe(original))
             assertIs<YCore2ProbeResult.Success>(probe.probe(next))

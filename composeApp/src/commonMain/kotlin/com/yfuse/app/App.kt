@@ -1,17 +1,18 @@
 package com.yfuse.app
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -27,9 +28,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
@@ -53,7 +56,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -65,6 +67,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.yfuse.app.RootComponent.Tab
@@ -761,26 +764,50 @@ private fun BottomNavigationDock(
         horizontalArrangement = Arrangement.spacedBy(Dimens.tabBarInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AnimatedContent(
-            targetState = collapsed,
-            modifier = Modifier.weight(1f),
-            contentAlignment = Alignment.CenterStart,
-            transitionSpec = {
-                val duration = if (reduceMotion) 0 else 260
-                (fadeIn(tween(duration)) + scaleIn(tween(duration, easing = Motion.Curve), initialScale = 0.92f)) togetherWith
-                    (fadeOut(tween(if (reduceMotion) 0 else 140)) + scaleOut(tween(duration), targetScale = 0.94f))
-            },
-            label = "navigationDockScale",
-        ) { isCollapsed ->
-            // AnimatedContent forwards its weighted minimum width to its direct child.
-            // Absorb that constraint here so the collapsed key can stay square, while
-            // the expanded bar still fills the dock. Both transition states keep the
-            // same outer bounds, avoiding a size jump when the animation is interrupted.
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                if (isCollapsed) {
-                    CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
-                } else {
-                    GlassTabBar(active = active, onSelect = onSelect, backdrop = backdrop)
+        BoxWithConstraints(Modifier.weight(1f)) {
+            val expandedWidth = maxWidth
+            val dockWidth by animateDpAsState(
+                targetValue = if (collapsed) Dimens.tabBarHeight else maxWidth,
+                animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.92f, stiffness = 360f),
+                label = "navigationDockWidth",
+            )
+            // A single continuous lens changes width; content fades inside its clipped bounds.
+            // The fixed outer slot keeps search still, including when a fling is interrupted.
+            AnimatedContent(
+                targetState = collapsed,
+                modifier = Modifier.width(dockWidth).clip(CircleShape).navigationGlass(backdrop, CircleShape),
+                contentAlignment = Alignment.CenterStart,
+                transitionSpec = {
+                    val duration = if (reduceMotion) 0 else Motion.EMPHASIZED
+                    (
+                        fadeIn(
+                            tween(duration),
+                        ) + scaleIn(tween(duration, easing = Motion.Curve), initialScale = 0.96f)
+                    ) togetherWith
+                        (
+                            fadeOut(tween(if (reduceMotion) 0 else Motion.QUICK)) +
+                                scaleOut(tween(duration), targetScale = 0.98f)
+                        )
+                },
+                label = "navigationDockContent",
+            ) { isCollapsed ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                    if (isCollapsed) {
+                        CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand, drawShell = false)
+                    } else {
+                        GlassTabBar(
+                            active = active,
+                            onSelect = onSelect,
+                            backdrop = backdrop,
+                            drawShell = false,
+                            modifier =
+                                Modifier
+                                    .wrapContentWidth(
+                                        Alignment.Start,
+                                        unbounded = true,
+                                    ).requiredWidth(expandedWidth),
+                        )
+                    }
                 }
             }
         }
@@ -798,6 +825,7 @@ private fun CollapsedNavButton(
     active: Tab,
     backdrop: BackdropState,
     onClick: () -> Unit,
+    drawShell: Boolean = true,
 ) {
     val accent = LocalAccentColors.current
     val item = tabs.firstOrNull { it.tab == active } ?: tabs.first()
@@ -812,7 +840,7 @@ private fun CollapsedNavButton(
             )
             // Round, like the search key beside it and like the capsule it collapsed out of.
             // A rounded square made the pair read as two unrelated controls.
-            .navigationGlass(backdrop, CircleShape),
+            .then(if (drawShell) Modifier.navigationGlass(backdrop, CircleShape) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         LiquidGlassTabIcon(item = item, tint = accent.accent, compact = true)
@@ -904,6 +932,7 @@ private fun GlassTabBar(
     onSelect: (Tab) -> Unit,
     backdrop: BackdropState,
     modifier: Modifier = Modifier,
+    drawShell: Boolean = true,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -976,7 +1005,7 @@ private fun GlassTabBar(
             .height(Dimens.tabBarHeight)
             // A true capsule rather than a rounded rectangle, so the shell stays soft at the
             // taller bar height.
-            .navigationGlass(backdrop, CircleShape)
+            .then(if (drawShell) Modifier.navigationGlass(backdrop, CircleShape) else Modifier)
             // After the material and before the buttons: the island belongs to the glass, not
             // over the icons.
             .drawBehind {
@@ -1079,6 +1108,7 @@ private fun GlassNavigationRail(
         modifier
             .padding(start = Dimens.tabBarInset, top = 72.dp, bottom = 72.dp)
             .width(76.dp)
+            .heightIn(max = 480.dp)
             .fillMaxHeight()
             .selectableGroup()
             .navigationGlass(backdrop, GlassShapes.tabBar)
@@ -1086,7 +1116,7 @@ private fun GlassNavigationRail(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceEvenly,
     ) {
-        tabs.forEach { item ->
+        (tabs + TabItem(Tab.Search, "搜索", AppIcons.SearchTab)).forEach { item ->
             RailTabButton(
                 item = item,
                 selected = active == item.tab,

@@ -35,6 +35,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchParticipant
@@ -123,10 +124,11 @@ fun WatchRoomInfoDialog(
                     label = "进入房间",
                     tone = OverlayButtonTone.Primary,
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        onDismiss()
-                        onEnter()
-                    },
+                    onClick =
+                        overlayAction {
+                            onDismiss()
+                            onEnter()
+                        },
                 )
             }
         }

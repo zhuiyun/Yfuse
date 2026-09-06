@@ -485,59 +485,6 @@ internal class AndroidAdaptiveCore2YPlayer(
                 }
         }
 
-        fun createInconclusiveSourceRoute(
-            item: YMediaItem,
-            singleRequest: YPlayerOpenRequest,
-            decision: YCore2RouteDecision? = null,
-        ): YPlayer? {
-            val compatibility = fallbackRouteFactory
-            if (compatibility != null) {
-                return compatibility.create(
-                    item = item,
-                    request = singleRequest,
-                    plan = yCoreInconclusiveSourceCompatibilityPlan(item),
-                    startSpeed = speed,
-                )
-            }
-            if (item.drmConfiguration != null) return null
-            val preservedProbe =
-                decision?.probe
-                    ?: if (nativeOnly) {
-                        routeEvaluator.probePlatformForNativeAttempt(item)
-                    } else {
-                        null
-                    }
-            AppLog.info(
-                category = "player.core2",
-                event = "internal_route_attempt",
-                message = "YCore is attempting its platform-direct route",
-                attributes =
-                    mapOf(
-                        "route" to YPlaybackRoute.NativeDirect.name,
-                        "reason" to "inconclusive_probe",
-                    ),
-            )
-            val probeHdrType =
-                preservedProbe
-                    ?.playbackRequest
-                    ?.video
-                    ?.hdrType
-            return AndroidNativeDirectYPlayer(
-                context = context,
-                request = singleRequest,
-                decoderName = decision?.plan?.decoderName,
-                runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
-                plannedAudioOutputPath = decision?.plan?.audioPath,
-                frameRateSwitchMode = frameRateSwitchMode,
-                plannedDolbyVisionConfig = preservedProbe?.dolbyVisionConfig,
-                confirmedDolbyVisionNalIdentity =
-                    preservedProbe?.unconfiguredDolbyVisionSignal == true,
-                requireDolbyVisionIdentity =
-                    probeHdrType == YHdrType.DolbyVision ||
-                        (decision == null && item.hintedHdrType() == YHdrType.DolbyVision),
-            )
-        }
-
         fun createInternalEnhancedRoute(
             item: YMediaItem,
             singleRequest: YPlayerOpenRequest,
@@ -575,6 +522,68 @@ internal class AndroidAdaptiveCore2YPlayer(
                     ),
                 requireDolbyVisionIdentity = inputHdrType == YHdrType.DolbyVision,
                 preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
+            )
+        }
+
+        fun createInconclusiveSourceRoute(
+            item: YMediaItem,
+            singleRequest: YPlayerOpenRequest,
+            decision: YCore2RouteDecision? = null,
+        ): YPlayer? {
+            val compatibility = fallbackRouteFactory
+            if (compatibility != null) {
+                return compatibility.create(
+                    item = item,
+                    request = singleRequest,
+                    plan = yCoreInconclusiveSourceCompatibilityPlan(item),
+                    startSpeed = speed,
+                )
+            }
+            if (item.drmConfiguration != null) return null
+            val preservedProbe =
+                decision?.probe
+                    ?: if (nativeOnly) {
+                        routeEvaluator.probePlatformForNativeAttempt(item)
+                    } else {
+                        null
+                    }
+            if (preservedProbe?.requiresEnhancedAudioDemux(item.sourceHints?.audioTrackCount ?: 0) == true) {
+                AppLog.info(
+                    category = "player.core2",
+                    event = "platform_audio_demux_skipped",
+                    message = "YCore skipped platform-direct because the probe did not expose required audio",
+                    attributes = mapOf("route" to YPlaybackRoute.NativeEnhanced.name),
+                )
+                return createInternalEnhancedRoute(item, singleRequest, decision)
+            }
+            AppLog.info(
+                category = "player.core2",
+                event = "internal_route_attempt",
+                message = "YCore is attempting its platform-direct route",
+                attributes =
+                    mapOf(
+                        "route" to YPlaybackRoute.NativeDirect.name,
+                        "reason" to "inconclusive_probe",
+                    ),
+            )
+            val probeHdrType =
+                preservedProbe
+                    ?.playbackRequest
+                    ?.video
+                    ?.hdrType
+            return AndroidNativeDirectYPlayer(
+                context = context,
+                request = singleRequest,
+                decoderName = decision?.plan?.decoderName,
+                runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
+                plannedAudioOutputPath = decision?.plan?.audioPath,
+                frameRateSwitchMode = frameRateSwitchMode,
+                plannedDolbyVisionConfig = preservedProbe?.dolbyVisionConfig,
+                confirmedDolbyVisionNalIdentity =
+                    preservedProbe?.unconfiguredDolbyVisionSignal == true,
+                requireDolbyVisionIdentity =
+                    probeHdrType == YHdrType.DolbyVision ||
+                        (decision == null && item.hintedHdrType() == YHdrType.DolbyVision),
             )
         }
 

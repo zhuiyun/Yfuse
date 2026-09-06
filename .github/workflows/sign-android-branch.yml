@@ -237,6 +237,8 @@ jobs:
           [[ "$actual" == "$EXPECTED_ANDROID_CERT_SHA256" ]]
       - name: Check source hygiene
         run: git diff --check HEAD^
+      - name: Verify source formatting and design contracts
+        run: ./gradlew :composeApp:ktlintCheck :composeApp:verifyDesignSystemUsage --no-daemon
       - name: Run tests
         run: ./gradlew :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
       - name: Resolve signed build version

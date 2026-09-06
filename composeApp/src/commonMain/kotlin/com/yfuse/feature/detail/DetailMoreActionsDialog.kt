@@ -41,12 +41,12 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.resolveAccentColors
 import com.yfuse.core.designsystem.touchTarget
@@ -91,9 +91,10 @@ internal fun DetailMoreActionsDialog(
     onWatchTogether: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val candidates = remember(artworkUrls) {
-        artworkUrls.filterNotNull().filter(String::isNotBlank).distinct()
-    }
+    val candidates =
+        remember(artworkUrls) {
+            artworkUrls.filterNotNull().filter(String::isNotBlank).distinct()
+        }
     val quickActions =
         buildList {
             add(

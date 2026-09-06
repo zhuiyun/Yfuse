@@ -60,6 +60,15 @@ class AndroidCore2ProbeTruthMergeTest {
         assertTrue(shouldAttemptCronetMediaTransport(androidApi = 29))
     }
 
+    @Test
+    fun missingDeclaredAudioBypassesInconclusivePlatformRetry() {
+        val platform = probe(platformDemux = true, audioCodec = null)
+        assertTrue(platform.requiresEnhancedAudioDemux(sourceAudioTrackCount = 1))
+        assertFalse(platform.requiresEnhancedAudioDemux(sourceAudioTrackCount = 0))
+        assertFalse(probe(true, YAudioCodec.Ac3).requiresEnhancedAudioDemux(1))
+        assertTrue(probe(false, YAudioCodec.Ac3).requiresEnhancedAudioDemux(1))
+    }
+
     private fun probe(
         platformDemux: Boolean,
         audioCodec: YAudioCodec?,

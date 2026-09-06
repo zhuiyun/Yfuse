@@ -14,9 +14,10 @@ internal fun <T> deduplicatePlaybackHistory(
     serverIdOf: (T) -> String,
 ): List<T> {
     // Stable sorting retains the server's order when timestamps are missing or equal.
-    val ordered = entries.sortedByDescending { entry ->
-        itemOf(entry).lastPlayedDate?.let { runCatching { Instant.parse(it) }.getOrNull() }
-    }
+    val ordered =
+        entries.sortedByDescending { entry ->
+            itemOf(entry).lastPlayedDate?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        }
     val retained = mutableListOf<T>()
     for (entry in ordered) {
         if (retained.none { existing ->
@@ -29,7 +30,12 @@ internal fun <T> deduplicatePlaybackHistory(
     return retained
 }
 
-private fun sameHistoryWork(a: MediaItem, serverA: String, b: MediaItem, serverB: String): Boolean {
+private fun sameHistoryWork(
+    a: MediaItem,
+    serverA: String,
+    b: MediaItem,
+    serverB: String,
+): Boolean {
     if (serverA == serverB && a.id == b.id) return true
     val kindA = a.historyKind()
     if (kindA != b.historyKind()) return false
@@ -48,10 +54,11 @@ private fun sameHistoryWork(a: MediaItem, serverA: String, b: MediaItem, serverB
     return title.isNotEmpty() && title == b.title.historyTitle() && a.year != null && a.year == b.year
 }
 
-private fun MediaItem.historyKind(): String = when (type.lowercase()) {
-    "episode", "series" -> "series"
-    else -> type.lowercase()
-}
+private fun MediaItem.historyKind(): String =
+    when (type.lowercase()) {
+        "episode", "series" -> "series"
+        else -> type.lowercase()
+    }
 
 private fun MediaItem.historyWorkId(): String =
     if (type.equals("Episode", ignoreCase = true)) posterItemId.ifBlank { id } else id

@@ -31,6 +31,7 @@ internal class AndroidAudioClockProgressGuard(
         require(staleAfterNs > 0L)
     }
 
+    @Synchronized
     fun select(
         nowNs: Long,
         playing: Boolean,
@@ -57,6 +58,7 @@ internal class AndroidAudioClockProgressGuard(
 
         if (
             timestampFrames != null &&
+            timestampFrames > 0L &&
             timestampRealtimeNs != null &&
             nowNs - lastTimestampProgressNs <= staleAfterNs
         ) {
@@ -66,7 +68,9 @@ internal class AndroidAudioClockProgressGuard(
                 source = YAudioClockFrameSource.Timestamp,
             )
         }
-        if (nowNs - lastPlaybackHeadProgressNs <= staleAfterNs) {
+        // A present zero counter is not rendered audio. Granting it a warm-up window creates
+        // a false Rendering -> Waiting transition ~500 ms after each empty sink restart.
+        if (playbackHeadFrames > 0L && nowNs - lastPlaybackHeadProgressNs <= staleAfterNs) {
             return YAudioClockFrameSelection(
                 framePosition = playbackHeadFrames,
                 realtimeNs = nowNs,
@@ -76,6 +80,7 @@ internal class AndroidAudioClockProgressGuard(
         return null
     }
 
+    @Synchronized
     fun reset() {
         lastTimestampFrames = null
         lastTimestampProgressNs = 0L

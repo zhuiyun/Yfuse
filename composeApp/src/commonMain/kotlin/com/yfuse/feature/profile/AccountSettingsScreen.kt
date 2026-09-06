@@ -67,7 +67,6 @@ import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
-import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
@@ -79,6 +78,7 @@ import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.YfInlineLinkButton
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.rememberShareHandler
@@ -754,11 +754,12 @@ internal fun InviteCredentialSheet(
         alignment = Alignment.BottomCenter,
         shape = GlassShapes.sheet,
         contentPadding = 20.dp,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            securePolicy = SecureFlagPolicy.SecureOff,
-        ),
+        properties =
+            DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+                securePolicy = SecureFlagPolicy.SecureOff,
+            ),
     ) {
         Column(Modifier.fillMaxWidth()) {
             Box(

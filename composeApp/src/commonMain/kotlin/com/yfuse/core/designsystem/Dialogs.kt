@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -46,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -64,7 +66,7 @@ private val ScrimColor = Color(0xFF0A0E16)
 private val OverlayShape = GlassShapes.sheet
 private val OverlayMaxWidth = 560.dp
 private val OverlayMotionOffset = 18.dp
-internal const val OVERLAY_EXIT_DURATION_MS = 200
+internal const val OVERLAY_EXIT_DURATION_MS = 240
 
 @Stable
 class OverlayVisibility {
@@ -114,14 +116,15 @@ fun GlassDialog(
     var afterExit by remember { mutableStateOf<(() -> Unit)?>(null) }
     val canDismiss by rememberUpdatedState(dismissEnabled)
     val requestDismiss = remember { { if (canDismiss) leaving = true } }
-    val complete = remember {
-        { action: () -> Unit ->
-            if (!leaving) {
-                afterExit = action
-                leaving = true
+    val complete =
+        remember {
+            { action: () -> Unit ->
+                if (!leaving) {
+                    afterExit = action
+                    leaving = true
+                }
             }
         }
-    }
 
     Dialog(
         onDismissRequest = requestDismiss,
@@ -144,7 +147,8 @@ fun GlassDialog(
                 contentAlignment = alignment,
             ) {
                 Box(
-                    Modifier.fillMaxSize()
+                    Modifier
+                        .fillMaxSize()
                         .graphicsLayer { alpha = progress().coerceIn(0f, 1f) }
                         .background(ScrimColor.copy(alpha = if (palette.isDark) 0.28f else 0.16f)),
                 )
@@ -152,14 +156,16 @@ fun GlassDialog(
                 Column(
                     Modifier
                         .safeDrawingPadding()
+                        .imePadding()
                         .padding(windowPadding)
                         .widthIn(max = maxWidth)
                         .fillMaxWidth()
                         .graphicsLayer {
                             val entered = progress()
-                            alpha = entered.coerceIn(0f, 1f)
-                            scaleX = 0.94f + 0.06f * entered
-                            scaleY = scaleX
+                            alpha = (entered * 1.5f).coerceIn(0f, 1f)
+                            transformOrigin = TransformOrigin(0.5f, 0.65f)
+                            scaleX = 0.96f + 0.04f * entered
+                            scaleY = 0.94f + 0.06f * entered
                             translationY = modalOffset * (1f - entered)
                         }.shadow(Shadows.sheet, shape)
                         .mutedGlassPanel(shape)
@@ -180,9 +186,9 @@ fun GlassDialog(
     }
 }
 
-private val LocalOverlayDismiss = staticCompositionLocalOf<(() -> Unit)?> { null }
+internal val LocalOverlayDismiss = staticCompositionLocalOf<(() -> Unit)?> { null }
 private val LocalOverlayLiquidButtons = staticCompositionLocalOf { true }
-private val LocalOverlayComplete = staticCompositionLocalOf<((() -> Unit) -> Unit)?> { null }
+internal val LocalOverlayComplete = staticCompositionLocalOf<((() -> Unit) -> Unit)?> { null }
 
 @Composable
 fun overlayDismiss(fallback: () -> Unit): () -> Unit = LocalOverlayDismiss.current ?: fallback
@@ -213,9 +219,9 @@ internal fun rememberOverlayTransition(
             progress.animateTo(
                 target,
                 if (leaving) {
-                    tween(OVERLAY_EXIT_DURATION_MS, easing = CubicBezierEasing(0.4f, 0f, 0.8f, 1f))
+                    tween(OVERLAY_EXIT_DURATION_MS, easing = CubicBezierEasing(0.4f, 0f, 0.6f, 1f))
                 } else {
-                    spring(dampingRatio = 0.88f, stiffness = 380f, visibilityThreshold = 0.001f)
+                    spring(dampingRatio = 0.92f, stiffness = 340f, visibilityThreshold = 0.001f)
                 },
             )
         }

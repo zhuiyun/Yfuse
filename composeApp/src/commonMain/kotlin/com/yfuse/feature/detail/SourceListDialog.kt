@@ -81,7 +81,10 @@ internal fun SourceListDialog(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             available.forEach { entry ->
                 val selected = entry.serverId == selectedServerId && entry.itemId == selectedItemId
-                val select = { entry.itemId?.let { onSelect(entry.serverId, it) }; Unit }
+                val select = {
+                    entry.itemId?.let { onSelect(entry.serverId, it) }
+                    Unit
+                }
                 val animatedSelect = overlayAction(select)
                 SourceRow(
                     entry = entry,

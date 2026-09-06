@@ -36,10 +36,10 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
@@ -249,7 +249,10 @@ private fun ProgressManagerActions(
     val palette = LocalPalette.current
     val enabled = selectionCount > 0 && !saving
     Row(
-        Modifier.fillMaxWidth().background(palette.card).padding(horizontal = 14.dp, vertical = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .solidGlass(GlassShapes.card, palette.card)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

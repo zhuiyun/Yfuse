@@ -37,23 +37,38 @@ fun Modifier.mutedGlassPanel(
     val backdrop = LocalDialogBackdrop.current.takeIf { samplePage }
     val opaque = LocalAccessibilityOptions.current.reduceTransparency || backdrop?.active != true
     val tint = if (dark) Color(0xFF242831) else Color(0xFF9DA3AD)
-    val body = tint.copy(alpha = if (opaque) 1f else if (dark) 0.55f else 0.36f)
-    val rim = Brush.linearGradient(
-        0f to Color.White.copy(alpha = if (dark) 0.22f else 0.30f),
-        0.38f to Color.White.copy(alpha = 0.06f),
-        0.70f to Color.White.copy(alpha = 0.04f),
-        1f to Color.White.copy(alpha = 0.16f),
-    )
+    val body =
+        tint.copy(
+            alpha =
+                if (opaque) {
+                    1f
+                } else if (dark) {
+                    0.55f
+                } else {
+                    0.36f
+                },
+        )
+    val rim =
+        Brush.linearGradient(
+            0f to Color.White.copy(alpha = if (dark) 0.22f else 0.30f),
+            0.38f to Color.White.copy(alpha = 0.06f),
+            0.70f to Color.White.copy(alpha = 0.04f),
+            1f to Color.White.copy(alpha = 0.16f),
+        )
     return this
         .then(
             if (!opaque && backdrop != null) {
                 Modifier.backdropBlur(
-                    backdrop, shape, radius = 22.dp, saturation = 1.12f,
+                    backdrop,
+                    shape,
+                    radius = 22.dp,
+                    saturation = 1.12f,
                     refraction = BackdropRefraction(edgeX = 0.08f, edgeY = 0.10f, strength = 3.dp),
                 )
-            } else Modifier,
-        )
-        .clip(shape)
+            } else {
+                Modifier
+            },
+        ).clip(shape)
         .background(
             Brush.verticalGradient(
                 listOf(body, body.copy(alpha = (body.alpha + 0.04f).coerceAtMost(1f))),
@@ -69,7 +84,11 @@ fun Modifier.mutedGlassPanel(
 
 /** Nested controls inherit the modal's quiet material, including callers with white fills. */
 @Composable
-internal fun Modifier.mutedGlassControl(shape: Shape, fill: Color, border: Color?): Modifier {
+internal fun Modifier.mutedGlassControl(
+    shape: Shape,
+    fill: Color,
+    border: Color?,
+): Modifier {
     val palette = LocalPalette.current
     val reduceTransparency = LocalAccessibilityOptions.current.reduceTransparency
     val neutral = if (palette.isDark) Color(0xFF353B45) else Color(0xFFBEC3CB)
@@ -80,6 +99,8 @@ internal fun Modifier.mutedGlassControl(shape: Shape, fill: Color, border: Color
         .then(
             if (border != null) {
                 Modifier.border(0.5.dp, Color.White.copy(alpha = 0.10f), shape)
-            } else Modifier,
+            } else {
+                Modifier
+            },
         )
 }

@@ -31,6 +31,7 @@ import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.solidGlass
 
 /**
@@ -91,7 +92,7 @@ fun WatchInviteSheet(
             )
             OverlayButton(
                 label = "关闭",
-                onClick = onDismiss,
+                onClick = overlayDismiss(onDismiss),
                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
             )
         } else {
@@ -199,7 +200,7 @@ fun WatchInviteSheet(
                     )
                     OverlayButton(
                         label = "关闭",
-                        onClick = onDismiss,
+                        onClick = overlayDismiss(onDismiss),
                         modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                     )
                 }
@@ -257,7 +258,7 @@ fun WatchInviteShareSheet(
                 ) {
                     OverlayButton(
                         label = "关闭",
-                        onClick = onDismiss,
+                        onClick = overlayDismiss(onDismiss),
                         modifier = Modifier.weight(1f),
                     )
                     // The film is still what they came for; a dead relay shouldn't also cost

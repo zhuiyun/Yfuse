@@ -35,6 +35,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 
 /**
@@ -137,8 +138,8 @@ internal fun SettingsPanel(
                     DanmakuTab(
                         state = danmaku,
                         actions = danmakuActions,
-                        onOpenSearch = onOpenDanmakuSearch,
-                        onOpenSend = onOpenDanmakuSend,
+                        onOpenSearch = overlayAction(onOpenDanmakuSearch),
+                        onOpenSend = overlayAction(onOpenDanmakuSend),
                     )
 
                 SettingsPanelKind.Tracks -> {
@@ -716,10 +717,10 @@ internal fun SettingsPanel(
                                     )
                                 }
                             }
-                            OptionRow("锁定控制", false, onClick = onLock)
-                            OptionRow("手势说明", false, onClick = onOpenGestureHelp)
+                            OptionRow("锁定控制", false, onClick = overlayAction(onLock))
+                            OptionRow("手势说明", false, onClick = overlayAction(onOpenGestureHelp))
                             onExternalPlayer?.let { open ->
-                                OptionRow("使用外部播放器", false, onClick = open)
+                                OptionRow("使用外部播放器", false, onClick = overlayAction(open))
                             }
                             if (watch.available || watch.connected) {
                                 OptionRow(
@@ -729,7 +730,7 @@ internal fun SettingsPanel(
                                         "一起看"
                                     },
                                     watch.connected,
-                                    onClick = onOpenWatchTogether,
+                                    onClick = overlayAction(onOpenWatchTogether),
                                 )
                             }
                             if (versions.size > 1) {
@@ -738,7 +739,7 @@ internal fun SettingsPanel(
                                     OptionRow(
                                         label,
                                         id == selectedVersionId,
-                                        onClick = { onSelectVersion(id) },
+                                        onClick = overlayAction { onSelectVersion(id) },
                                     )
                                 }
                             }

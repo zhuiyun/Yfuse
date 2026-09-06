@@ -38,22 +38,22 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.data.CalendarReminderMode
+import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.FallbackImage
-import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.artworkPageSurface
 import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDominantColor
 import com.yfuse.core.designsystem.touchTarget
-import com.yfuse.core.data.CalendarReminderMode
-import com.yfuse.core.data.FollowedSeries
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
@@ -68,12 +68,12 @@ private val EpisodeRowMinimumHeight = 58.dp
 private val DialogFallbackArtwork = Color(0xFF27384B)
 
 private fun CalendarReminderMode.label(beforeMinutes: Int): String =
-        when (this) {
-            CalendarReminderMode.Off -> "提醒关闭"
-            CalendarReminderMode.BeforeAndAtBroadcast -> "提前${beforeMinutes}分钟"
-            CalendarReminderMode.AtBroadcast -> "播出时"
-            CalendarReminderMode.WhenAvailable -> "新入库时"
-        }
+    when (this) {
+        CalendarReminderMode.Off -> "提醒关闭"
+        CalendarReminderMode.BeforeAndAtBroadcast -> "提前${beforeMinutes}分钟"
+        CalendarReminderMode.AtBroadcast -> "播出时"
+        CalendarReminderMode.WhenAvailable -> "新入库时"
+    }
 
 internal data class AiringShowDay(
     val date: String,
@@ -148,9 +148,10 @@ internal fun AiringShowCalendarDialog(
     val sampledArtwork = rememberDominantColor(artworkUrl, DialogFallbackArtwork)
     // The poster decides whether this is a dark or light surface. App/system theme is not read.
     val darkArtwork = sampledArtwork.luminance() < 0.38f
-    val dialogBackground = remember(sampledArtwork, darkArtwork) {
-        artworkPageSurface(sampledArtwork, darkTheme = darkArtwork)
-    }
+    val dialogBackground =
+        remember(sampledArtwork, darkArtwork) {
+            artworkPageSurface(sampledArtwork, darkTheme = darkArtwork)
+        }
 
     ArtworkPageTheme(
         background = dialogBackground,
@@ -291,8 +292,16 @@ private fun dialogSubtitle(entries: List<CalendarEntry>): String {
     val servers = entries.flatMap(CalendarEntry::serverNames).distinct()
     return buildList {
         add("${entries.size}集")
-        weekdays.take(2).takeIf { it.isNotEmpty() }?.joinToString("/")?.let(::add)
-        servers.take(2).takeIf { it.isNotEmpty() }?.joinToString("/")?.let(::add)
+        weekdays
+            .take(2)
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString("/")
+            ?.let(::add)
+        servers
+            .take(2)
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString("/")
+            ?.let(::add)
     }.joinToString(" · ")
 }
 

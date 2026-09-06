@@ -31,6 +31,7 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 
@@ -157,6 +158,7 @@ internal fun SearchFilterDialog(
     onDismiss: () -> Unit,
 ) {
     GlassDialog(onDismiss = onDismiss) {
+        val dismiss = overlayDismiss(onDismiss)
         OverlayHeader(
             title =
                 when (sheet) {
@@ -177,7 +179,7 @@ internal fun SearchFilterDialog(
                     state.serverId.orEmpty(),
                 ) {
                     onIntent(SearchIntent.SetServer(it.ifBlank { null }))
-                    onDismiss()
+                    dismiss()
                 }
             SearchFilterSheet.Library ->
                 optionList(
@@ -185,29 +187,29 @@ internal fun SearchFilterDialog(
                     state.libraryId.orEmpty(),
                 ) {
                     onIntent(SearchIntent.SetLibrary(it.ifBlank { null }))
-                    onDismiss()
+                    dismiss()
                 }
             SearchFilterSheet.Year -> {
                 OverlayOptionRow("全部年份", state.year == null, onClick = {
                     onIntent(SearchIntent.SetYear(null))
-                    onDismiss()
+                    dismiss()
                 })
                 state.yearOptions.take(45).forEach { year ->
                     OverlayOptionRow(year.toString(), year == state.year, onClick = {
                         onIntent(SearchIntent.SetYear(year))
-                        onDismiss()
+                        dismiss()
                     })
                 }
             }
             SearchFilterSheet.Genre -> {
                 OverlayOptionRow("全部流派", state.genre == null, onClick = {
                     onIntent(SearchIntent.SetGenre(null))
-                    onDismiss()
+                    dismiss()
                 })
                 state.genreOptions.forEach { genre ->
                     OverlayOptionRow(genre, genre == state.genre, onClick = {
                         onIntent(SearchIntent.SetGenre(genre))
-                        onDismiss()
+                        dismiss()
                     })
                 }
             }
@@ -215,14 +217,14 @@ internal fun SearchFilterDialog(
                 SearchWatchStatus.entries.forEach { value ->
                     OverlayOptionRow(value.label, value == state.watchStatus, onClick = {
                         onIntent(SearchIntent.SetWatchStatus(value))
-                        onDismiss()
+                        dismiss()
                     })
                 }
             SearchFilterSheet.Sort ->
                 SearchSort.entries.forEach { value ->
                     OverlayOptionRow(value.label, value == state.sort, onClick = {
                         onIntent(SearchIntent.SetSort(value))
-                        onDismiss()
+                        dismiss()
                     })
                 }
         }

@@ -1,6 +1,7 @@
 package com.yfuse.feature.player
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -24,9 +25,11 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -34,12 +37,15 @@ import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalMutedGlass
-import com.yfuse.core.designsystem.mutedGlassPanel
-import com.yfuse.core.designsystem.rememberOverlayTransition
+import com.yfuse.core.designsystem.LocalOverlayComplete
+import com.yfuse.core.designsystem.LocalOverlayDismiss
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.mutedGlassPanel
+import com.yfuse.core.designsystem.rememberOverlayTransition
 import com.yfuse.core.designsystem.shadow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -83,6 +89,10 @@ internal fun PlayerSidePanel(
     var offsetPx by remember { mutableFloatStateOf(if (reduceMotion) 0f else initialWidthPx) }
     var directlyManipulating by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val currentDismiss by rememberUpdatedState(onDismiss)
+    var motionJob by remember { mutableStateOf<Job?>(null) }
+    var closing by remember { mutableStateOf(false) }
+    var afterExit by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     suspend fun settleDrawer(dismiss: Boolean) {
         if (reduceMotion) {
@@ -95,25 +105,36 @@ internal fun PlayerSidePanel(
                 offsetPx = value
             }
         }
-        if (dismiss) onDismiss()
+        if (dismiss) (afterExit ?: currentDismiss)()
     }
 
+    fun animateDrawer(dismiss: Boolean) {
+        if (closing) return
+        closing = dismiss
+        motionJob?.cancel()
+        motionJob = scope.launch { settleDrawer(dismiss) }
+    }
+
+    val requestDismiss = { animateDrawer(true) }
     LaunchedEffect(reduceMotion) {
-        if (!directlyManipulating) settleDrawer(dismiss = false)
+        if (!directlyManipulating && !closing) animateDrawer(false)
     }
 
     PlatformPredictiveBackHandler(
         onProgress = { progress ->
-            directlyManipulating = true
-            offsetPx = widthPx * predictiveDrawerProgress(progress)
+            if (!closing) {
+                motionJob?.cancel()
+                directlyManipulating = true
+                offsetPx = widthPx * predictiveDrawerProgress(progress)
+            }
         },
         onBack = {
             directlyManipulating = false
-            scope.launch { settleDrawer(dismiss = true) }
+            animateDrawer(true)
         },
         onCancel = {
             directlyManipulating = false
-            scope.launch { settleDrawer(dismiss = false) }
+            animateDrawer(false)
         },
     )
 
@@ -127,29 +148,34 @@ internal fun PlayerSidePanel(
                 } else {
                     Modifier
                 },
-            ).noRippleClickable { scope.launch { settleDrawer(dismiss = true) } },
+            ).noRippleClickable(requestDismiss),
     )
     Column(
         modifier
             .fillMaxHeight()
             .width(PlayerPanelWidth)
-            .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
-            .graphicsLayer {
+            .onSizeChanged {
+                val newWidth = it.width.toFloat().coerceAtLeast(1f)
+                offsetPx = offsetPx / widthPx.coerceAtLeast(1f) * newWidth
+                widthPx = newWidth
+            }.graphicsLayer {
                 translationX = offsetPx
                 alpha = openFraction
                 scaleY = if (reduceMotion) 1f else 0.98f + 0.02f * openFraction
-            }
-            .draggable(
+            }.draggable(
                 state =
                     rememberDraggableState { delta ->
-                        directlyManipulating = true
-                        offsetPx = drawerDragOffset(offsetPx, delta, widthPx)
+                        if (!closing) {
+                            motionJob?.cancel()
+                            directlyManipulating = true
+                            offsetPx = drawerDragOffset(offsetPx, delta, widthPx)
+                        }
                     },
                 orientation = Orientation.Horizontal,
                 onDragStopped = { velocity ->
                     val dismiss = drawerShouldDismiss(offsetPx, widthPx, velocity)
                     directlyManipulating = false
-                    settleDrawer(dismiss)
+                    animateDrawer(dismiss)
                 },
             ).shadow(Shadows.playerSheet, PlayerPanelShape)
             .mutedGlassPanel(PlayerPanelShape, samplePage = false, dark = true)
@@ -158,7 +184,18 @@ internal fun PlayerSidePanel(
             .imePadding()
             .padding(horizontal = 14.dp, vertical = 16.dp),
         verticalArrangement = verticalArrangement,
-        content = { CompositionLocalProvider(LocalMutedGlass provides true) { content() } },
+        content = {
+            CompositionLocalProvider(
+                LocalMutedGlass provides true,
+                LocalOverlayDismiss provides requestDismiss,
+                LocalOverlayComplete provides { action ->
+                    if (!closing) {
+                        afterExit = action
+                        animateDrawer(true)
+                    }
+                },
+            ) { content() }
+        },
     )
 }
 
@@ -211,12 +248,20 @@ internal fun PlayerPopupPanel(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var leaving by remember { mutableStateOf(false) }
-    val progress = rememberOverlayTransition(leaving, onDismiss)
+    var afterExit by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val progress = rememberOverlayTransition(leaving) { (afterExit ?: onDismiss)() }
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    var backProgress by remember { mutableFloatStateOf(0f) }
+    val backOffset by animateFloatAsState(
+        targetValue = backProgress,
+        animationSpec = Motion.settle(reduceMotion),
+        label = "popupPredictiveBack",
+    )
     val requestDismiss = remember { { leaving = true } }
     PlatformPredictiveBackHandler(
-        onProgress = { },
+        onProgress = { if (!leaving && !reduceMotion) backProgress = it.coerceIn(0f, 1f) },
         onBack = requestDismiss,
-        onCancel = { },
+        onCancel = { backProgress = 0f },
     )
     Box(
         Modifier
@@ -227,13 +272,13 @@ internal fun PlayerPopupPanel(
         modifier
             .width(PlayerPopupWidth)
             .graphicsLayer {
-                val entered = progress()
-                alpha = entered.coerceIn(0f, 1f)
-                scaleX = 0.94f + entered * 0.06f
-                scaleY = scaleX
+                val entered = progress() * (1f - backOffset * 0.25f)
+                alpha = (entered * 1.5f).coerceIn(0f, 1f)
+                transformOrigin = TransformOrigin(1f, 1f)
+                scaleX = 0.96f + entered * 0.04f
+                scaleY = 0.92f + entered * 0.08f
                 translationY = 12.dp.toPx() * (1f - entered)
-            }
-            .heightIn(
+            }.heightIn(
                 min = if (compact) PlayerPopupCompactMinHeight else PlayerPopupMinHeight,
                 max = if (compact) PlayerPopupCompactMaxHeight else PlayerPopupMaxHeight,
             ).shadow(Shadows.playerSheet, AppShapes.sheet)
@@ -243,6 +288,17 @@ internal fun PlayerPopupPanel(
             .imePadding()
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.Top,
-        content = { CompositionLocalProvider(LocalMutedGlass provides true) { content() } },
+        content = {
+            CompositionLocalProvider(
+                LocalMutedGlass provides true,
+                LocalOverlayDismiss provides requestDismiss,
+                LocalOverlayComplete provides { action ->
+                    if (!leaving) {
+                        afterExit = action
+                        leaving = true
+                    }
+                },
+            ) { content() }
+        },
     )
 }

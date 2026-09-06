@@ -96,6 +96,7 @@ import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.serverTintColor
 import com.yfuse.core.designsystem.shadow
@@ -1475,7 +1476,7 @@ private fun ServerActionsDialog(
             label = "打开媒体库",
             description = if (isCurrent) "进入当前服务器的内容" else "切换到此服务器并进入内容",
             prominent = true,
-            onClick = onOpenLibrary,
+            onClick = overlayAction(onOpenLibrary),
         )
         Spacer(Modifier.height(8.dp))
         ServerActionRow(
@@ -1502,42 +1503,42 @@ private fun ServerActionsDialog(
                     "库、搜索和播放都会切到这一台"
                 },
             enabled = !isCurrent,
-            onClick = onSetDefault,
+            onClick = overlayAction(onSetDefault),
         )
         Spacer(Modifier.height(8.dp))
         ServerActionRow(
             icon = AppIcons.Cast,
             label = "线路",
             description = routesSummary(server, health),
-            onClick = onRoutes,
+            onClick = overlayAction(onRoutes),
         )
         Spacer(Modifier.height(8.dp))
         ServerActionRow(
             icon = AppIcons.Lock,
             label = "HTTPS 诊断",
             description = "检查主线路与备用地址的传输安全",
-            onClick = onDiagnostics,
+            onClick = overlayAction(onDiagnostics),
         )
         Spacer(Modifier.height(8.dp))
         ServerActionRow(
             icon = AppIcons.Server,
             label = "服务器管理",
             description = "扫描媒体库、查看并运行服务器任务",
-            onClick = onManage,
+            onClick = overlayAction(onManage),
         )
         Spacer(Modifier.height(8.dp))
         ServerActionRow(
             icon = AppIcons.Grid,
             label = "图标与颜色",
             description = "给这台服务器一个一眼认得出的样子",
-            onClick = onIcon,
+            onClick = overlayAction(onIcon),
         )
         Spacer(Modifier.height(8.dp))
         ServerActionRow(
             icon = AppIcons.Edit,
             label = "编辑连接与名称",
             description = "改名不用重新登录，改地址或账号要",
-            onClick = onEdit,
+            onClick = overlayAction(onEdit),
         )
         Spacer(Modifier.height(8.dp))
         ServerActionRow(
@@ -1545,7 +1546,7 @@ private fun ServerActionsDialog(
             label = "移除服务器",
             description = "已下载的离线内容会保留",
             destructive = true,
-            onClick = onRemove,
+            onClick = overlayAction(onRemove),
         )
     }
 }
@@ -2125,7 +2126,7 @@ private fun ServerIconDialog(
             dismissLabel = "取消",
             confirmLabel = "保存",
             onDismiss = onDismiss,
-            onConfirm = { onSave(emoji.takeIf { it.isNotBlank() }, tint) },
+            onConfirm = overlayAction { onSave(emoji.takeIf { it.isNotBlank() }, tint) },
         )
     }
 }
