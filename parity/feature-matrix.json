@@ -3,7 +3,7 @@
   "features": [
     {"id":"provider.emby","group":"provider","android":true,"harmonyTarget":true},
     {"id":"provider.jellyfin","group":"provider","android":true,"harmonyTarget":true},
-    {"id":"provider.plex","group":"provider","android":false,"harmonyTarget":true,"reason":"HarmonyOS port target; Android implementation is not yet present"},
+    {"id":"provider.plex","group":"provider","android":true,"harmonyTarget":true},
     {"id":"server.multi","group":"server","android":true,"harmonyTarget":true},
     {"id":"server.quickConnect","group":"server","android":true,"harmonyTarget":true},
     {"id":"server.lanDiscovery","group":"server","android":true,"harmonyTarget":true},

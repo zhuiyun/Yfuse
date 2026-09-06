@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -251,7 +252,7 @@ private fun TvServerCard(
                     Text(
                         "${server.kind.name} · ${server.userName}",
                         color = if (focused) Color.White.copy(alpha = 0.68f) else TvOnSurfaceMuted,
-                        fontSize = 13.sp,
+                        fontSize = 15.sp,
                     )
                 }
             }
@@ -259,7 +260,7 @@ private fun TvServerCard(
                 Text(
                     server.baseUrl,
                     color = if (focused) Color.White.copy(alpha = 0.74f) else TvOnSurfaceMuted,
-                    fontSize = 13.sp,
+                    fontSize = 15.sp,
                     maxLines = 1,
                 )
                 Spacer(Modifier.height(12.dp))
@@ -267,13 +268,13 @@ private fun TvServerCard(
                     Text(
                         if (selected) "当前服务器" else "确定键切换并打开",
                         color = if (selected) TvAccent else Color.White.copy(alpha = 0.66f),
-                        fontSize = 13.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         "长按菜单可编辑",
-                        color = Color.White.copy(alpha = 0.38f),
-                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 14.sp,
                     )
                 }
             }
@@ -289,6 +290,11 @@ private fun TvServerDialog(
 ) {
     val hostRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { hostRequester.requestFocusWhenAttached() }
+    // Closing the dialog hands focus back to the card that opened it; without this the
+    // remote landed on whatever the system picked, usually the first tile of the row.
+    DisposableEffect(focusMemory) {
+        onDispose { focusMemory.requestLastForRoute("servers") }
+    }
     Dialog(
         onDismissRequest = { onIntent(ServersIntent.DismissDialog) },
         properties = DialogProperties(usePlatformDefaultWidth = false),

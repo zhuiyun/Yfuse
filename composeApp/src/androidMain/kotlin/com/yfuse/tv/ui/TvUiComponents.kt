@@ -395,7 +395,7 @@ internal fun TvMediaCard(
                     Text(
                         text = badge,
                         color = Color.White,
-                        fontSize = 12.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         modifier =
                             Modifier
@@ -436,7 +436,7 @@ internal fun TvMediaCard(
                     Text(
                         text = subtitle,
                         color = TvOnSurfaceMuted,
-                        fontSize = 12.sp,
+                        fontSize = 14.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

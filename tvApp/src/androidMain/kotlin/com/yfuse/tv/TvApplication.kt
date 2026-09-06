@@ -1,5 +1,6 @@
 package com.yfuse.tv
 
+import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentCallbacks2
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -159,6 +160,9 @@ class TvApplication :
         }
     }
 
+    private val lowRamDevice: Boolean
+        get() = getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
+
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader
             .Builder(context)
@@ -202,13 +206,15 @@ class TvApplication :
             }.memoryCache {
                 MemoryCache
                     .Builder()
-                    .maxSizePercent(context, percent = 0.20)
+                    .maxSizePercent(context, percent = if (lowRamDevice) 0.10 else 0.20)
                     .build()
             }.diskCache {
+                // A 1 GB set-top box has neither the flash nor the RAM for a phone-sized cache;
+                // a quarter of it still holds the rows a session scrolls through.
                 DiskCache
                     .Builder()
                     .directory(cacheDir.resolve("tv_image_cache_v1").toOkioPath())
-                    .maxSizeBytes(256L * 1024L * 1024L)
+                    .maxSizeBytes(if (lowRamDevice) 64L * 1024L * 1024L else 256L * 1024L * 1024L)
                     .build()
             }.build()
 

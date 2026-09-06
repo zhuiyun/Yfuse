@@ -12,12 +12,17 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.feature.player.PlaybackSourcePreloader
+import com.yfuse.feature.search.SearchRequests
 import org.koin.core.Koin
 
 /** TV facade over the process Koin container; only TV-safe lifecycle operations are exposed. */
 class TvApplicationGraph internal constructor(
     private val koin: Koin,
 ) {
+    /** Searches raised outside the search tab (voice input, launcher search). */
+    val searchRequests: SearchRequests
+        get() = koin.get()
+
     val serverRegistry: ServerRegistry
         get() = koin.get()
 
@@ -55,6 +60,8 @@ class TvApplicationGraph internal constructor(
                     skipSegmentPreferences = koin.get(),
                     libraryCache = koin.get(),
                     lanDiscovery = koin.get(),
+                    quickConnectGateway = koin.get(),
+                    searchRequests = koin.get(),
                     account = koin.get(),
                     serverHealthMonitor = koin.get(),
                     serverActivity = koin.get(),

@@ -315,9 +315,8 @@ kotlin {
                 implementation(libs.androidx.profileinstaller)
                 implementation(libs.bouncycastle.provider)
 
-                // TV-only surfaces and system rows; phone Compose Material remains unchanged in
-                // :composeApp.
-                implementation(libs.androidx.tv.material)
+                // TV system rows; the TV surfaces are hand-built on foundation, so tv-material
+                // is not pulled in.
                 implementation(libs.androidx.tvprovider)
 
                 // Phone-only implementation source is compiled for a single source of truth but

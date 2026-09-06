@@ -1,5 +1,6 @@
 package com.yfuse.tv
 
+import android.app.SearchManager
 import android.content.Intent
 import android.os.Bundle
 import android.os.Looper
@@ -81,7 +82,23 @@ class TvMainActivity : ComponentActivity() {
     private fun consumeIncomingIntent(intent: Intent?) {
         if (intent == null) return
         if (CastConnectReceiverBridge.onNewIntent(intent) is CastConnectIntentResult.Handled) return
+        if (consumeVoiceSearch(intent)) return
         consumePlaybackDeepLink(intent)
+    }
+
+    /** A spoken or launcher search: the same request a genre chip makes on the phone. */
+    private fun consumeVoiceSearch(intent: Intent): Boolean {
+        if (intent.action != Intent.ACTION_SEARCH) return false
+        val query =
+            intent
+                .getStringExtra(SearchManager.QUERY)
+                ?.trim()
+                .orEmpty()
+                .take(MAX_VOICE_QUERY_CHARS)
+        intent.removeExtra(SearchManager.QUERY)
+        if (query.isEmpty()) return true
+        graph.searchRequests.submit(query)
+        return true
     }
 
     private fun consumePlaybackDeepLink(intent: Intent) {
@@ -155,3 +172,5 @@ class TvMainActivity : ComponentActivity() {
         }
     }
 }
+
+private const val MAX_VOICE_QUERY_CHARS = 120

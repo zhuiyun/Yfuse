@@ -178,11 +178,44 @@
       sendSessionState(undefined);
     },
   );
+  // A black television is the worst possible error message. The overlay names the failure
+  // the way the phone does, and clears itself the moment playback recovers.
+  const showError = (detail) => {
+    const overlay = document.getElementById('yfuse-error');
+    if (!overlay) return;
+    if (detail) {
+      const text = document.getElementById('yfuse-error-detail');
+      if (text) text.textContent = detail;
+      overlay.hidden = false;
+    } else {
+      overlay.hidden = true;
+    }
+  };
   player.addEventListener(
     cast.framework.events.EventType.ERROR,
     (event) => {
       const code = event && event.detailedErrorCode;
-      sendOutputReceipt(false, 'Receiver 报告播放错误' + (code ? '（' + code + '）' : ''));
+      const label = 'Receiver 报告播放错误' + (code ? '（' + code + '）' : '');
+      showError('播放失败' + (code ? '（错误码 ' + code + '）' : '') + '，请在手机上重试或更换版本');
+      sendOutputReceipt(false, label);
+    },
+  );
+  player.addEventListener(cast.framework.events.EventType.PLAYING, () => showError(null));
+  // Only media a sender can legitimately name is loaded: an absolute http(s) address. A
+  // request with anything else is answered with a structured error instead of a stall.
+  player.setMessageInterceptor(
+    cast.framework.messages.MessageType.LOAD,
+    (request) => {
+      const media = request && request.media;
+      const contentId = media && (media.contentUrl || media.contentId);
+      if (typeof contentId !== 'string' || !/^https?:\/\//i.test(contentId)) {
+        const error = new cast.framework.messages.ErrorData(cast.framework.messages.ErrorType.LOAD_FAILED);
+        error.reason = cast.framework.messages.ErrorReason.INVALID_REQUEST;
+        showError('手机发来的播放地址无效');
+        return error;
+      }
+      showError(null);
+      return request;
     },
   );
   // Television captions: larger than the CAF default and outlined so they read on any picture.

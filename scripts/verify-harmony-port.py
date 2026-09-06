@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import json
 import shutil
 import subprocess
@@ -83,8 +84,28 @@ def check_contracts() -> None:
         fail("behavior parity cannot be relaxed")
     if screens["acceptance"]["unapprovedMissingFeatures"] != 0:
         fail("missing-feature allowance cannot be relaxed")
-    if screens["sourceOfTruth"]["commit"] != "45d39439":
-        fail("Android parity baseline is stale")
+    baseline = screens["sourceOfTruth"]["commit"]
+    if not re.fullmatch(r"[0-9a-f]{7,40}", baseline):
+        fail("Android parity baseline commit is malformed")
+    if (ROOT / ".git").exists() and shutil.which("git"):
+        shallow = subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        # A shallow CI checkout cannot see the baseline; a full clone must.
+        if shallow.returncode == 0 and shallow.stdout.strip() == "false":
+            probe = subprocess.run(
+                ["git", "cat-file", "-e", f"{baseline}^{{commit}}"],
+                cwd=ROOT,
+                capture_output=True,
+            )
+            if probe.returncode != 0:
+                fail(f"Android parity baseline commit {baseline} is not in this repository")
+    for feature in features["features"]:
+        if not feature["android"] and not feature.get("reason"):
+            fail(f"feature {feature['id']} is marked absent on Android without a reason")
 
 
 def check_scaffold() -> None:

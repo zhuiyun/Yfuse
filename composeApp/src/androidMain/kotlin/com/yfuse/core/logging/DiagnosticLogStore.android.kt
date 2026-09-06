@@ -21,6 +21,7 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -234,6 +235,7 @@ internal object DiagnosticLogStore {
 
     @Volatile
     private var crashHandlerInstalled = false
+    private val pruneExecutor = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "diag-prune") }
     private lateinit var appContext: Context
     private lateinit var directory: File
     private var sessionId = ""
@@ -244,9 +246,11 @@ internal object DiagnosticLogStore {
             appContext = context.applicationContext
             directory = File(appContext.noBackupFilesDir, "diagnostics").apply { mkdirs() }
             sessionId = UUID.randomUUID().toString().take(8)
-            pruneLocked()
             initialized = true
         }
+        // Old-session cleanup is directory work; it has no place on the main thread of a
+        // cold start. It takes the same lock, so a record arriving meanwhile simply waits.
+        pruneExecutor.execute { synchronized(lock) { pruneLocked() } }
         installCrashHandler()
         record(
             level = DiagnosticLevel.Info,

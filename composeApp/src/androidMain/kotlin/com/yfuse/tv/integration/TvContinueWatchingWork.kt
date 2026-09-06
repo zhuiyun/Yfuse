@@ -95,14 +95,6 @@ object TvContinueWatchingRuntime {
         }
     }
 
-    /** Foreground-only user action; never call this from Application or WorkManager. */
-    fun requestPreviewChannel(context: Context): Boolean =
-        if (!context.isAndroidTvDevice()) {
-            false
-        } else {
-            PreviewChannelPublisher(context).requestBrowsableFromForeground() == TvProviderWriteResult.Success
-        }
-
     internal fun recordSystemProgress(
         context: Context,
         event: SystemPlaybackProgressEvent,
