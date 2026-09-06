@@ -49,6 +49,8 @@ data class GridState(
     val resolution: LibraryResolution = LibraryResolution.All,
     /** Hand-ordered playlist endpoints do not support Emby's IsHD filter. */
     val resolutionFilterable: Boolean = true,
+    /** 只看未看: the server's IsPlayed=false filter, on plain libraries only. */
+    val unplayedOnly: Boolean = false,
     /** 稍后观看 keeps the order the user arranged, so it offers no sort. */
     val sortable: Boolean = true,
     /** Non-null only when this grid is inside a real BoxSet or Playlist. */
@@ -89,6 +91,10 @@ sealed interface GridIntent {
 
     data class SetResolution(
         val resolution: LibraryResolution,
+    ) : GridIntent
+
+    data class SetUnplayedOnly(
+        val value: Boolean,
     ) : GridIntent
 
     data object ClearFilters : GridIntent
@@ -174,6 +180,10 @@ private sealed interface GridMsg {
 
     data class Resolution(
         val value: LibraryResolution,
+    ) : GridMsg
+
+    data class UnplayedOnly(
+        val value: Boolean,
     ) : GridMsg
 
     data object FiltersCleared : GridMsg
@@ -275,6 +285,12 @@ class LibraryGridStoreFactory(
                     if (intent.sort == state().sort) return
                     sortMemory?.write(libraryId, intent.sort)
                     dispatch(GridMsg.Sort(intent.sort))
+                    loadFirstPage()
+                }
+                is GridIntent.SetUnplayedOnly -> {
+                    if (!state().resolutionFilterable || containerKind != null) return
+                    if (intent.value == state().unplayedOnly) return
+                    dispatch(GridMsg.UnplayedOnly(intent.value))
                     loadFirstPage()
                 }
                 is GridIntent.SetFavorite -> setFlag(intent.itemId, favorite = intent.value)
@@ -495,6 +511,7 @@ class LibraryGridStoreFactory(
                             startIndex = 0,
                             limit = LIBRARY_PAGE_SIZE,
                             resolution = state().resolution,
+                            unplayedOnly = state().unplayedOnly,
                         )
                     request
                         .onSuccess {
@@ -561,6 +578,7 @@ class LibraryGridStoreFactory(
                             startIndex = startIndex,
                             limit = LIBRARY_PAGE_SIZE,
                             resolution = state.resolution,
+                            unplayedOnly = state().unplayedOnly,
                         )
                     request
                         .onSuccess {
@@ -729,6 +747,7 @@ class LibraryGridStoreFactory(
                         loadMoreError = null,
                         retainingPreviousCriteria = true,
                     )
+                is GridMsg.UnplayedOnly -> copy(unplayedOnly = msg.value, error = null)
                 is GridMsg.Resolution ->
                     copy(
                         resolution = msg.value,

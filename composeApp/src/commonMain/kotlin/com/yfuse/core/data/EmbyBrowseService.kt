@@ -260,6 +260,7 @@ internal class EmbyBrowseService(
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
         resolution: LibraryResolution = LibraryResolution.All,
+        unplayedOnly: Boolean = false,
     ): Result<LibraryPage> =
         embyApiCall("library_items") {
             when (libraryId) {
@@ -293,6 +294,7 @@ internal class EmbyBrowseService(
                         parameter("SortBy", sort.sortBy)
                         parameter("SortOrder", if (sort.descending) "Descending" else "Ascending")
                         if (!genre.isNullOrBlank()) parameter("Genres", genre)
+                        if (unplayedOnly) parameter("IsPlayed", false)
                         libraryCardParameters(startIndex, limit)
                     }.body()
             LibraryPage(

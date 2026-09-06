@@ -83,11 +83,15 @@ internal class EmbySearchService(
             // The server has already applied the played/resumable filter; the local scan that
             // used to page through up to 50 000 rows only remains for the fallback below.
             val localProgressFilter = false
+            // Relevance ranks whatever is on the page, so the first page asks for enough rows
+            // that an exact title on the server's second page still comes out on top.
+            val ranksFirstPage = startIndex == 0 && filter.sortBy == null
+            val firstPageLimit = if (ranksFirstPage) maxOf(limit, RELEVANCE_FIRST_PAGE) else limit
             val exactPage =
                 request(
                     query,
                     if (localProgressFilter) 0 else startIndex,
-                    if (localProgressFilter) LOCAL_PROGRESS_SCAN_PAGE_SIZE else limit,
+                    if (localProgressFilter) LOCAL_PROGRESS_SCAN_PAGE_SIZE else firstPageLimit,
                 )
             if (exactPage.Items.isNotEmpty() || startIndex > 0) {
                 if (localProgressFilter) {
@@ -130,7 +134,7 @@ internal class EmbySearchService(
                             reportedTotal = exactPage.TotalRecordCount,
                             startIndex = startIndex,
                             itemCount = items.size,
-                            limit = limit,
+                            limit = firstPageLimit,
                         ),
                     startIndex = startIndex,
                 )
@@ -177,6 +181,7 @@ internal class EmbySearchService(
 
     private companion object {
         const val LOCAL_PROGRESS_SCAN_PAGE_SIZE = 200
+        const val RELEVANCE_FIRST_PAGE = 50
         const val MAX_LOCAL_PROGRESS_SCAN_PAGES = 250
     }
 

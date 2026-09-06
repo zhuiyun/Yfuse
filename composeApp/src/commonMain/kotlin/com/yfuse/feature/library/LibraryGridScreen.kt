@@ -223,7 +223,9 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
             if (state.resolutionFilterable) {
                 ResolutionFilterRow(
                     selected = state.resolution,
+                    unplayedOnly = state.unplayedOnly,
                     onSelect = { component.store.accept(GridIntent.SetResolution(it)) },
+                    onUnplayedOnly = { component.store.accept(GridIntent.SetUnplayedOnly(it)) },
                 )
             }
 
@@ -540,7 +542,9 @@ private fun GenreFilterRow(
 @Composable
 private fun ResolutionFilterRow(
     selected: LibraryResolution,
+    unplayedOnly: Boolean,
     onSelect: (LibraryResolution) -> Unit,
+    onUnplayedOnly: (Boolean) -> Unit,
 ) {
     LazyRow(
         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
@@ -561,6 +565,14 @@ private fun ResolutionFilterRow(
                 selected = selected == resolution,
                 modifier = motionAwareItem(),
                 onClick = { onSelect(resolution) },
+            )
+        }
+        item(key = "unplayed-only") {
+            GenreChip(
+                label = "只看未看",
+                selected = unplayedOnly,
+                modifier = motionAwareItem(),
+                onClick = { onUnplayedOnly(!unplayedOnly) },
             )
         }
     }

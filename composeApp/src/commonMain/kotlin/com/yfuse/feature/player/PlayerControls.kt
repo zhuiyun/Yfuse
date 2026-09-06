@@ -12,7 +12,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -61,6 +63,7 @@ import kotlin.math.abs
 import kotlin.time.TimeSource
 
 /** Controls fade out after this long without interaction, while playing. */
+private const val RESUME_NOTICE_MS = 6_000L
 private const val MAX_ERROR_ALTERNATIVES = 3
 private const val DOUBLE_TAP_SEEK_MS = 10_000L
 private const val DOUBLE_TAP_BURST_WINDOW_MS = 900L
@@ -128,6 +131,8 @@ internal fun PlayerControls(
     onEnterPictureInPicture: () -> Unit,
     onPlayPause: () -> Unit,
     onRetry: () -> Unit,
+    /** Where playback resumed from, when it did; shows a brief 从头开始 offer. */
+    resumedFromMs: Long? = null,
     onExternalPlayer: (() -> Unit)? = null,
     onSeek: (Long) -> Unit,
     onSelectItem: (Int) -> Unit,
@@ -804,6 +809,52 @@ internal fun PlayerControls(
                 poke()
             })
             return@Box
+        }
+
+        // Opened from a tile, a notification or a cast hand-back, the film is already running
+        // from where it was left. This is the moment to change one's mind about that.
+        var resumeNoticeDismissed by remember(resumedFromMs) { mutableStateOf(false) }
+        val resumeNoticeVisible = resumedFromMs != null && resumedFromMs > 0L && !resumeNoticeDismissed
+        LaunchedEffect(resumedFromMs) {
+            if (resumedFromMs != null && resumedFromMs > 0L) {
+                delay(RESUME_NOTICE_MS)
+                resumeNoticeDismissed = true
+            }
+        }
+        if (resumeNoticeVisible) {
+            Row(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 104.dp)
+                    .glass(
+                        shape = AppShapes.pill,
+                        fill = Color.Black.copy(alpha = 0.55f),
+                        border = Color.White.copy(alpha = 0.22f),
+                    ).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    "从 ${resumedFromMs.asClock()} 继续",
+                    style = AppTypography.caption.medium,
+                    color = Color.White.copy(alpha = 0.86f),
+                )
+                Text(
+                    "从头开始",
+                    style = AppTypography.caption.strong,
+                    color = Color(0xFF1B2436),
+                    modifier =
+                        Modifier
+                            .glass(
+                                shape = AppShapes.pill,
+                                fill = Color.White.copy(alpha = 0.78f),
+                                border = Color.White.copy(alpha = 0.9f),
+                            ).noRippleClickable {
+                                resumeNoticeDismissed = true
+                                latestOnSeek(0L)
+                            }.padding(horizontal = 12.dp, vertical = 5.dp),
+                )
+            }
         }
 
         // Top-level actions (投屏/更多) live with the title; media navigation stays below.

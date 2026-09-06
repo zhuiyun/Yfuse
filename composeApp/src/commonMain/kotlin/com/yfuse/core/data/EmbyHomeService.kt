@@ -18,7 +18,9 @@ import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -258,8 +260,29 @@ internal class EmbyHomeService(
             }
         }
 
-    /** `Limit=0` returns just the count, which is all the category chip needs. */
+    /** Library sizes move slowly; one count per library per ten minutes is plenty for a chip. */
+    private val libraryCounts = mutableMapOf<String, Pair<Int, Long>>()
+    private val libraryCountsLock = Mutex()
+
     private suspend fun fetchLibraryCount(
+        server: SavedServer,
+        viewId: String,
+    ): Int {
+        val key = "${server.id}|$viewId"
+        val now = System.currentTimeMillis()
+        libraryCountsLock.withLock { libraryCounts[key] }?.let { (count, at) ->
+            if (now - at < LIBRARY_COUNT_TTL_MS) return count
+        }
+        val count = requestLibraryCount(server, viewId)
+        libraryCountsLock.withLock {
+            if (libraryCounts.size >= MAX_CACHED_LIBRARY_COUNTS) libraryCounts.clear()
+            libraryCounts[key] = count to now
+        }
+        return count
+    }
+
+    /** `Limit=0` returns just the count, which is all the category chip needs. */
+    private suspend fun requestLibraryCount(
         server: SavedServer,
         viewId: String,
     ): Int {
@@ -333,5 +356,7 @@ internal class EmbyHomeService(
     }
 }
 
+private const val LIBRARY_COUNT_TTL_MS = 10 * 60_000L
+private const val MAX_CACHED_LIBRARY_COUNTS = 256
 private const val HOME_VIEWS_TIMEOUT_MS = 15_000L
 private const val HOME_SECTION_TIMEOUT_MS = 15_000L

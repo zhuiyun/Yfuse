@@ -133,7 +133,21 @@ if sudo test -f /var/lib/yfuse/calendar.db; then
 fi
 ```
 
-Retain at least the newest known-good snapshot off-host according to the operator's
+The same snapshot runs nightly once the timer is installed, so a deploy never starts from a
+box that has no recent backup:
+
+```bash
+sudo install -d -o yfuse -g yfuse -m 0755 /opt/yfuse-watch/deploy
+sudo install -m 0755 watchTogetherServer/deploy/yfuse-backup.sh /opt/yfuse-watch/deploy/
+sudo install -m 0644 watchTogetherServer/deploy/yfuse-backup.service /etc/systemd/system/
+sudo install -m 0644 watchTogetherServer/deploy/yfuse-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now yfuse-backup.timer
+sudo systemctl start yfuse-backup.service && ls -l /var/lib/yfuse/backups
+```
+
+Set `YFUSE_BACKUP_REMOTE=user@host:/path` in `/etc/yfuse-watch/backup.env` to rsync each
+night's verified snapshots off-host; `YFUSE_BACKUP_KEEP_DAYS` (default 14) bounds the local
+set. Retain at least the newest known-good snapshot off-host according to the operator's
 recovery policy. A binary rollback does not undo a future schema/data migration; restore
 the matching verified snapshot only during an explicit recovery window.
 

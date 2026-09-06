@@ -431,9 +431,9 @@
         <error line="454" column="70" source="standard:chain-method-continuation" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt">
-        <error line="3008" column="1" source="standard:indent" />
-        <error line="3009" column="1" source="standard:indent" />
-        <error line="3010" column="1" source="standard:indent" />
+        <error line="3012" column="1" source="standard:indent" />
+        <error line="3013" column="1" source="standard:indent" />
+        <error line="3014" column="1" source="standard:indent" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/tv/focus/FocusRepository.kt">
         <error line="46" column="17" source="standard:function-signature" />
@@ -667,22 +667,22 @@
         <error line="408" column="23" source="standard:chain-method-continuation" />
     </file>
     <file name="src/commonMain/kotlin/com/yfuse/core/data/EmbyHomeService.kt">
-        <error line="48" column="17" source="standard:blank-line-before-declaration" />
-        <error line="222" column="46" source="standard:chain-method-continuation" />
-        <error line="222" column="54" source="standard:chain-method-continuation" />
-        <error line="296" column="1" source="standard:indent" />
-        <error line="313" column="1" source="standard:indent" />
-        <error line="314" column="1" source="standard:indent" />
-        <error line="315" column="1" source="standard:indent" />
-        <error line="316" column="1" source="standard:indent" />
-        <error line="317" column="1" source="standard:indent" />
-        <error line="318" column="1" source="standard:indent" />
+        <error line="50" column="17" source="standard:blank-line-before-declaration" />
+        <error line="224" column="46" source="standard:chain-method-continuation" />
+        <error line="224" column="54" source="standard:chain-method-continuation" />
         <error line="319" column="1" source="standard:indent" />
-        <error line="320" column="1" source="standard:indent" />
-        <error line="321" column="1" source="standard:indent" />
-        <error line="322" column="1" source="standard:indent" />
-        <error line="323" column="1" source="standard:indent" />
-        <error line="324" column="1" source="standard:indent" />
+        <error line="336" column="1" source="standard:indent" />
+        <error line="337" column="1" source="standard:indent" />
+        <error line="338" column="1" source="standard:indent" />
+        <error line="339" column="1" source="standard:indent" />
+        <error line="340" column="1" source="standard:indent" />
+        <error line="341" column="1" source="standard:indent" />
+        <error line="342" column="1" source="standard:indent" />
+        <error line="343" column="1" source="standard:indent" />
+        <error line="344" column="1" source="standard:indent" />
+        <error line="345" column="1" source="standard:indent" />
+        <error line="346" column="1" source="standard:indent" />
+        <error line="347" column="1" source="standard:indent" />
     </file>
     <file name="src/commonMain/kotlin/com/yfuse/core/data/EmbySourceService.kt">
         <error line="78" column="58" source="standard:function-signature" />

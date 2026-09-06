@@ -91,6 +91,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
 
+private const val RESUME_NOTICE_MIN_MS = 30_000L
 private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 private const val MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS = 2
 private const val MAX_LONG_BUFFER_RECOVERY_ATTEMPTS = 2
@@ -244,6 +245,8 @@ internal fun PlayerRoot(
             ),
         )
     }
+    // The first item's resume point, offered once; later items and engine swaps do not re-ask.
+    val initialResumeNoticeMs = remember { startPositionMs.takeIf { it >= RESUME_NOTICE_MIN_MS } }
     var engineGeneration by remember { mutableIntStateOf(0) }
     var runtimeSessionGeneration by remember { mutableIntStateOf(0) }
     var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
@@ -2467,6 +2470,7 @@ internal fun PlayerRoot(
                 state = state,
                 episodes = activeItems.toEpisodeCards(),
                 filled = scaleMode != VideoScaleMode.Fit,
+                resumedFromMs = initialResumeNoticeMs,
                 onBack = onBack,
                 onEnterPictureInPicture = onEnterPictureInPicture,
                 onPlayPause = {

@@ -850,7 +850,9 @@ internal class DetailExecutor(
                     }
                     result
                         .onSuccess { selection ->
-                            dispatchPlaybackSelection(selection, preferredVersionId)
+                            // Switching episodes inside one series does not change which
+                            // servers hold it; the comparison from the page load still stands.
+                            dispatchPlaybackSelection(selection, preferredVersionId, compareSources = false)
                         }.onFailure {
                             clearQueuedPlay()
                             previousEpisodeId?.let { dispatch(DetailMsg.EpisodeSelected(it)) }

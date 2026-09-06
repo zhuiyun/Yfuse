@@ -726,11 +726,13 @@ class EmbyRepository(
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
         resolution: LibraryResolution = LibraryResolution.All,
+        /** Emby/Jellyfin only; Plex libraries ignore it. */
+        unplayedOnly: Boolean = false,
     ): Result<LibraryPage> =
         if (server.kind == MediaServerKind.Plex) {
             plex.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
         } else {
-            browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
+            browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly)
         }
 
     suspend fun libraryGenres(
