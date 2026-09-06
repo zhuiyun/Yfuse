@@ -770,6 +770,9 @@ class AppUpdateManager(
                                 connectTimeout = 8_000
                                 readTimeout = 8_000
                                 useCaches = false
+                                // A redirect would move the trust decision to whatever host
+                                // the response names; the manifest lives at one address.
+                                instanceFollowRedirects = false
                             }
                         try {
                             check(
@@ -1375,6 +1378,8 @@ class AppUpdateManager(
                             connectTimeout = 15_000
                             readTimeout = 30_000
                             useCaches = false
+                            // The source check validated `apkUrl`; a redirect target was never checked.
+                            instanceFollowRedirects = false
                             if (existing > 0L) {
                                 setRequestProperty("Range", "bytes=$existing-")
                                 validator?.let { setRequestProperty("If-Range", it.validatorHeaderValue()) }

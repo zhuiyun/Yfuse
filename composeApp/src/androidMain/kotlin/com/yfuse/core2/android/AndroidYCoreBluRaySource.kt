@@ -20,6 +20,7 @@ import com.yfuse.feature.player.NativeRemoteBluRaySessionRegistry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.io.File
 
 /**
@@ -215,7 +216,7 @@ internal class AndroidYCoreBluRaySource private constructor(
     fun closeNativeSource() {
         if (closed) return
         closed = true
-        mutableNavigation.value = mutableNavigation.value.copy(menuSupported = false, menuActive = false)
+        mutableNavigation.update { it.copy(menuSupported = false, menuActive = false) }
         (menuSession as YCoreHdmvDiscSession).notifyNavigationChanged()
         NativeRemoteBluRaySessionRegistry.deactivate(menuSession)
         runCatching { remoteSource?.close() }

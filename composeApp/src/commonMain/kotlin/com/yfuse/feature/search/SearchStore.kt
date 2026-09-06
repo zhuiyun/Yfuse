@@ -36,8 +36,10 @@ data class ServerSearchGroup(
     val error: String? = null,
     val loadingMore: Boolean = false,
     val loadMoreError: String? = null,
+    /** The server-side offset of the next page; the card count drifts below it after de-duplication. */
+    val nextStartIndex: Int = items.size,
 ) {
-    val canLoadMore: Boolean get() = error == null && items.size < totalCount
+    val canLoadMore: Boolean get() = error == null && nextStartIndex < totalCount
 }
 
 data class SearchOption(
@@ -456,7 +458,7 @@ class SearchStoreFactory(
                         .searchPage(
                             server = server,
                             query = query,
-                            startIndex = group.items.size,
+                            startIndex = group.nextStartIndex,
                             filter = searchFilter(snapshot),
                         ).fold(
                             onSuccess = { dispatch(SearchMsg.MoreLoaded(query, serverId, it)) },
@@ -615,6 +617,7 @@ class SearchStoreFactory(
                                                     serverName = server.serverName,
                                                     items = it.items,
                                                     totalCount = it.totalCount,
+                                                    nextStartIndex = it.nextStartIndex,
                                                 )
                                             },
                                             onFailure = {
@@ -852,6 +855,7 @@ class SearchStoreFactory(
                                             msg.page.totalCount.coerceAtLeast(
                                                 group.items.size + msg.page.items.size,
                                             ),
+                                        nextStartIndex = maxOf(msg.page.nextStartIndex, group.nextStartIndex),
                                         loadingMore = false,
                                         loadMoreError = null,
                                     )

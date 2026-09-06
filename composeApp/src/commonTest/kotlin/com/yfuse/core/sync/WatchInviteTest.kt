@@ -50,6 +50,18 @@ class WatchInviteTest {
     }
 
     @Test
+    fun parse_bounds_what_a_foreign_app_can_hand_over() {
+        val longTitle = "片".repeat(400)
+        val parsed = WatchInvite.parse("yfuse://watch/KLM789?t=$longTitle&k=tmdb:1399/s2e5")
+        assertEquals(WatchInvite.MAX_TITLE_CHARS, parsed?.title?.length)
+        assertEquals("tmdb:1399/s2e5", parsed?.mediaKey)
+
+        assertNull(WatchInvite.parse("yfuse://watch/KLM789?k=" + "x".repeat(2_000)))
+        assertNull(WatchInvite.parse("yfuse://watch/KLM789?k=" + "tmdb:" + "9".repeat(300)))
+        assertNull(WatchInvite.parse("yfuse://watch/KLM789?k=not%20a%20key%3Cscript%3E"))
+    }
+
+    @Test
     fun parse_rejects_foreign_and_malformed_links() {
         assertNull(WatchInvite.parse("https://example.com/watch/ABC234"))
         assertNull(WatchInvite.parse("yfuse://other/ABC234"))

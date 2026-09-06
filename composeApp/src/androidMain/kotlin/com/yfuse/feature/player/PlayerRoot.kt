@@ -975,14 +975,30 @@ internal fun PlayerRoot(
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
-    LaunchedEffect(backendExtensions, sleepTimerOption) {
+    // The item whose next-up card was dismissed. The card only hid itself before; the engine
+    // still advanced ten seconds later, which is the opposite of what 取消 promised.
+    var nextUpDismissedItemId by remember { mutableStateOf<String?>(null) }
+    val currentQueueItemId = activeItems.getOrNull(state.currentIndex)?.id
+    LaunchedEffect(backendExtensions, sleepTimerOption, nextUpDismissedItemId, currentQueueItemId) {
         backendExtensions.setPauseAtEndOfCurrentItem(
-            sleepTimerOption == SleepTimerOption.EndOfEpisode,
+            sleepTimerOption == SleepTimerOption.EndOfEpisode ||
+                (nextUpDismissedItemId != null && nextUpDismissedItemId == currentQueueItemId),
         )
     }
+    val sleepTimerPlaying by rememberUpdatedState(state.playing)
     LaunchedEffect(sleepTimerOption, sleepTimerRevision) {
         val durationMs = sleepTimerOption.durationMs ?: return@LaunchedEffect
-        delay(durationMs)
+        // Counts playback, not wall-clock: a pause to answer the door must not use up the timer.
+        var remainingMs = durationMs
+        while (remainingMs > 0L) {
+            if (!sleepTimerPlaying) {
+                delay(SLEEP_TIMER_PAUSED_POLL_MS)
+                continue
+            }
+            val step = minOf(SLEEP_TIMER_TICK_MS, remainingMs)
+            delay(step)
+            remainingMs -= step
+        }
         pauseForSleepTimer("睡眠定时已到，播放已暂停")
     }
     LaunchedEffect(
@@ -2516,6 +2532,7 @@ internal fun PlayerRoot(
                         playbackGate.selectPrevious()
                     }
                 },
+                onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
                 onNextItem = {
                     val next = state.currentIndex + 1
                     if (sleepTimerOption == SleepTimerOption.EndOfEpisode && next in activeItems.indices) {
@@ -3193,3 +3210,6 @@ internal fun core2NativeOnlyFailureToast(kind: PlaybackFailureKind?): String =
         PlaybackFailureKind.Authorization -> "片源授权已失效，请刷新播放地址后重试"
         else -> "YCore Native 播放失败，纯内核模式未切换兼容内核"
     }
+
+private const val SLEEP_TIMER_TICK_MS = 1_000L
+private const val SLEEP_TIMER_PAUSED_POLL_MS = 500L

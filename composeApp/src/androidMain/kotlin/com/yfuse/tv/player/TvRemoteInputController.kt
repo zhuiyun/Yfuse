@@ -186,9 +186,17 @@ internal class TvRemoteInputController(
                 consumeDown(keyCode)
             }
 
+            RemotePhysicalKey.Captions -> {
+                if (repeatCount == 0) chrome.openTracks()
+                consumeDown(keyCode)
+            }
+
+            RemotePhysicalKey.Info -> {
+                if (repeatCount == 0) chrome.openInfo()
+                consumeDown(keyCode)
+            }
+
             RemotePhysicalKey.Search,
-            RemotePhysicalKey.Info,
-            RemotePhysicalKey.Captions,
             RemotePhysicalKey.Guide,
             -> false
         }

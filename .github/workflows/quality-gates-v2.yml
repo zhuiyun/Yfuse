@@ -50,7 +50,9 @@ jobs:
           scripts/fetch-engines.sh
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
-      - name: Reject new ktlint violations
+      # Formatting is recorded here and enforced at the end of the job, so a line-wrap
+      # violation can no longer hide the compile, test, lint and release signals behind it.
+      - name: Record ktlint violations
         shell: bash
         run: |
           set +e
@@ -62,8 +64,9 @@ jobs:
               echo "===== $report ====="
               cat "$report"
             done < <(find . -path '*/build/reports/ktlint/*/*.txt' -type f | sort)
-            exit "$ktlint_status"
+            echo "::error::ktlint found new violations; the remaining gates still run, and this job fails at the end"
           fi
+          echo "KTLINT_STATUS=$ktlint_status" >> "$GITHUB_ENV"
       - name: Compile and run unit tests
         run: ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
       - name: Compile startup and frame-time Macrobenchmark APK
@@ -129,6 +132,14 @@ jobs:
           set -euo pipefail
           ./gradlew :composeApp:dependencies :macrobenchmark:dependencies :mdkAndroid:dependencies :watchTogetherProtocol:dependencies :watchTogetherServer:dependencies --no-daemon >/dev/null
           git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
+      - name: Fail on recorded ktlint violations
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${KTLINT_STATUS:-0}" != "0" ]]; then
+            echo "::error::ktlint violations were recorded earlier in this job"
+            exit 1
+          fi
       - name: Upload preview APK
         if: github.event_name == 'pull_request'
         continue-on-error: true

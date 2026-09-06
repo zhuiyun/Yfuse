@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -84,7 +85,7 @@ class PlaybackSyncManager(
                     debounceJob = null
                     urgentJob?.cancel()
                     urgentJob = null
-                    _state.value = _state.value.copy(syncing = false)
+                    _state.update { it.copy(syncing = false) }
                     return@collectLatest
                 }
                 val userId = cipher.currentUserId() ?: return@collectLatest
@@ -195,7 +196,7 @@ class PlaybackSyncManager(
     private suspend fun syncNow(pullRemote: Boolean = false) {
         syncMutex.withLock {
             if (!progressSyncEnabled.value) {
-                _state.value = _state.value.copy(syncing = false)
+                _state.update { it.copy(syncing = false) }
                 return
             }
             val userId = cipher.currentUserId() ?: return
@@ -206,7 +207,7 @@ class PlaybackSyncManager(
             val now = nowEpochMs()
             if (now < retryNotBeforeEpochMs) return
             lastCloudAttemptAtEpochMs = now
-            _state.value = _state.value.copy(syncing = true, error = null)
+            _state.update { it.copy(syncing = true, error = null) }
             try {
                 syncWithToken(accessToken, pullRemote)
                 markCloudSyncSucceeded()
@@ -219,7 +220,7 @@ class PlaybackSyncManager(
                         error = null,
                     )
             } catch (cancelled: CancellationException) {
-                _state.value = _state.value.copy(syncing = false)
+                _state.update { it.copy(syncing = false) }
                 throw cancelled
             } catch (error: AccountApiException) {
                 if (error.status == HttpStatusCode.Unauthorized) {

@@ -160,7 +160,28 @@ class ServerSyncManager(
     private val retryStateSerializer = ListSerializer(ServerRetryState.serializer())
     private val pending = MutableStateFlow(loadPending())
     private val snapshots = mutableMapOf<String, List<SyncedUserItem>>()
-    private val progressPullAttemptedServerIds = mutableSetOf<String>()
+
+    // When each server's progress was last pulled. One pull per process left a phone
+    // showing the fifth episode for the rest of the day after the television had reached
+    // the eighth; a pull is now due again after PROGRESS_PULL_INTERVAL_MS, still never as
+    // background polling — only when something else already triggers a sync.
+    private val progressPulledAtEpochMs = mutableMapOf<String, Long>()
+
+    private fun progressPullDue(serverId: String): Boolean {
+        val last = progressPulledAtEpochMs[serverId] ?: return true
+        return System.currentTimeMillis() - last !in 0 until PROGRESS_PULL_INTERVAL_MS
+    }
+
+    /** Records the attempt when one is due (or forced); returns whether progress should be pulled now. */
+    private fun markProgressPullAttempt(
+        serverId: String,
+        force: Boolean,
+    ): Boolean {
+        if (!force && !progressPullDue(serverId)) return false
+        progressPulledAtEpochMs[serverId] = System.currentTimeMillis()
+        return true
+    }
+
     private val syncMutex = Mutex()
 
     /**
@@ -218,7 +239,7 @@ class ServerSyncManager(
                                         (
                                             syncProgress.value &&
                                                 registry.data.value.servers.any {
-                                                    it.id !in progressPullAttemptedServerIds
+                                                    progressPullDue(it.id)
                                                 }
                                         )
                                 )
@@ -421,11 +442,11 @@ class ServerSyncManager(
         val hasEnabledPending =
             pending.value.any { it.serverId == server.id && kindEnabled(it.kind) }
         val progressPullPending =
-            syncProgress.value && server.id !in progressPullAttemptedServerIds
+            syncProgress.value && (force || progressPullDue(server.id))
         if (!syncFavorites.value && !progressPullPending && !hasEnabledPending) return
         val unavailableReason = server.knownUnavailableEndpointReason()
         if (unavailableReason != null) {
-            if (progressPullPending) progressPullAttemptedServerIds.add(server.id)
+            if (progressPullPending) markProgressPullAttempt(server.id, force)
             setStatus(server) {
                 it.copy(
                     syncing = false,
@@ -466,10 +487,10 @@ class ServerSyncManager(
             return
         }
         setStatus(server) { it.copy(syncing = true, error = null) }
-        // Mark before I/O: one app process makes at most one progress-pull attempt per server.
-        // A failed launch pull waits for the next process instead of turning into background polling.
+        // Marked before I/O so a failed pull waits out the interval instead of retrying on
+        // every sync trigger; a forced (user) sync always pulls.
         val includeProgress =
-            syncProgress.value && progressPullAttemptedServerIds.add(server.id)
+            syncProgress.value && markProgressPullAttempt(server.id, force)
         val includeFavorites = syncFavorites.value
         val snapshotResult =
             try {
@@ -494,7 +515,7 @@ class ServerSyncManager(
                 clearRetryState(server.id)
                 if (includeProgress) {
                     remote.forEach { item ->
-                        playbackStore?.seedServerProgressIfAbsent(
+                        playbackStore?.absorbServerProgress(
                             serverId = server.id,
                             itemId = item.id,
                             positionMs = item.positionTicks / TICKS_PER_MILLISECOND,
@@ -898,3 +919,5 @@ class ServerSyncManager(
         }.getOrDefault(emptyList())
     }
 }
+
+private const val PROGRESS_PULL_INTERVAL_MS = 10 * 60_000L

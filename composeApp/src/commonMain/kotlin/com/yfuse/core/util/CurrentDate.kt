@@ -6,6 +6,9 @@ expect fun currentIsoDate(): String
 /** Current wall-clock instant, used when an official schedule includes an exact time. */
 expect fun currentEpochMillis(): Long
 
+/** The local hour, 0 to 23, for copy that changes with the time of day. */
+expect fun currentHourOfDay(): Int
+
 /**
  * Converts a platform-published local date/time into an instant.
  *

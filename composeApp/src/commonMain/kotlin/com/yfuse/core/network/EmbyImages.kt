@@ -56,10 +56,12 @@ object EmbyImages {
     ): String? {
         if (baseUrl.isBlank() || itemId.isBlank()) return null
         tag.plexArtworkPath()?.let { path ->
+            // A 2:3 poster box. `minSize=1` fits the *smaller* edge, so a box wider than the
+            // art made Plex return it at roughly three times the requested height.
             return plexImage(
                 baseUrl,
                 path,
-                maxWidth = maxHeight * 2,
+                maxWidth = maxHeight * 2 / 3,
                 maxHeight = maxHeight,
                 accessToken = accessToken,
             )
@@ -106,7 +108,7 @@ object EmbyImages {
                 baseUrl,
                 path,
                 maxWidth = maxWidth,
-                maxHeight = maxWidth,
+                maxHeight = maxWidth * 9 / 16,
                 accessToken = accessToken,
             )
         }

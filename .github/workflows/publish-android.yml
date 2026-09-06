@@ -23,6 +23,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: android-production-publish
@@ -67,6 +68,28 @@ jobs:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
+      - name: Require green Android quality gates on this commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Editing version.properties starts this workflow and the quality gates at the same
+          # time. Production signing waits for the gates to finish and refuses a red commit.
+          for attempt in $(seq 1 90); do
+            run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow quality-gates-v2.yml --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq '.[0] // empty')"
+            status="$(jq -r '.status // "missing"' <<<"${run:-null}")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"${run:-null}")"
+            if [[ "$status" == "completed" ]]; then
+              [[ "$conclusion" == "success" ]] || { echo "::error::Android quality gates for $GITHUB_SHA concluded '$conclusion'"; exit 1; }
+              echo "Android quality gates passed for $GITHUB_SHA"
+              exit 0
+            fi
+            echo "quality gates for $GITHUB_SHA: ${status} (attempt $attempt)"
+            sleep 30
+          done
+          echo "::error::Android quality gates for $GITHUB_SHA did not finish in time"
+          exit 1
       - name: Resolve automatic release request
         if: github.event_name == 'push'
         shell: bash

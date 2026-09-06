@@ -53,6 +53,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -183,6 +184,8 @@ internal fun TvFocusableSurface(
     scrollOffset: Int = 0,
     serverId: String? = null,
     profileId: String? = null,
+    /** What a screen reader says for this surface; the stable id is an internal key, not a name. */
+    contentDescription: String? = null,
     content: @Composable (focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -253,10 +256,11 @@ internal fun TvFocusableSurface(
             .border(if (focused) 3.dp else 1.dp, border, shape)
             .background(if (focused) TvSurfaceFocused else TvSurface)
             .clickable(onClick = onClick)
+            .testTag(stableId)
             .semantics {
                 role = Role.Button
                 this.selected = selected
-                contentDescription = stableId
+                contentDescription?.let { this.contentDescription = it }
             },
     ) {
         content(focused)
@@ -285,6 +289,7 @@ internal fun TvActionButton(
         focusScope = focusScope,
         focusMemory = focusMemory,
         onClick = onClick,
+        contentDescription = label,
         modifier = modifier.height(52.dp),
         focusRequester = focusRequester,
         navigationRequester = navigationRequester,
@@ -345,6 +350,7 @@ internal fun TvMediaCard(
     val width = if (model.artworkShape == TvArtworkShape.Poster) 142.dp else 232.dp
     TvFocusableSurface(
         stableId = model.stableId,
+        contentDescription = listOfNotNull(model.title, model.subtitle).joinToString("，"),
         focusScope = focusScope,
         focusMemory = focusMemory,
         onClick = model.onClick,

@@ -106,6 +106,7 @@ import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
+import com.yfuse.core.util.currentHourOfDay
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -735,7 +736,7 @@ private fun HeroHeader(
             AppMark(Modifier.size(30.dp))
             Column {
                 Text(
-                    "下午好",
+                    homeGreeting(currentHourOfDay()),
                     style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
                     color = Color.White.copy(alpha = 0.82f),
                 )
@@ -925,6 +926,16 @@ private fun HeroCaption(
         )
     }
 }
+
+/** The prototype's literal 下午好 read wrong at breakfast; the greeting follows the clock. */
+internal fun homeGreeting(hourOfDay: Int): String =
+    when (hourOfDay.coerceIn(0, 23)) {
+        in 5..10 -> "早上好"
+        in 11..13 -> "中午好"
+        in 14..17 -> "下午好"
+        in 18..22 -> "晚上好"
+        else -> "夜深了"
+    }
 
 internal fun homeUserInitial(userName: String?): String =
     userName

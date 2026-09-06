@@ -327,13 +327,23 @@ fun main() {
             File(System.getenv("ACCOUNT_DB_PATH") ?: "/var/lib/yfuse/account.db"),
         )
     val migrationRelayBackend = MigrationRelayBackend.fromEnvironment()
-    embeddedServer(CIO, host = host, port = port) {
-        productionWatchTogetherModule(
-            accountBackend = accountBackend,
-            migrationRelayBackend = migrationRelayBackend,
-            requireWatchAuthentication = true,
-        )
-    }.start(wait = true)
+    val server =
+        embeddedServer(CIO, host = host, port = port) {
+            productionWatchTogetherModule(
+                accountBackend = accountBackend,
+                migrationRelayBackend = migrationRelayBackend,
+                requireWatchAuthentication = true,
+            )
+        }
+    // SIGTERM from systemd reaches the JVM as a shutdown hook. Without this the process
+    // simply exits: the ApplicationStopped subscribers that close the SQLite connections
+    // never run, and every open socket is cut without a close frame.
+    Runtime.getRuntime().addShutdownHook(
+        Thread {
+            server.stop(gracePeriodMillis = 3_000, timeoutMillis = 10_000)
+        },
+    )
+    server.start(wait = true)
 }
 
 internal fun resolveServerHost(raw: String?): String {

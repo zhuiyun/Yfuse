@@ -65,6 +65,13 @@ data class WatchInvite(
         const val HOST = "watch"
         const val CODE_LENGTH = 6
 
+        /** Longer than any link this app writes; a scheme handler can be sent anything. */
+        const val MAX_LINK_CHARS = 1_024
+        const val MAX_TITLE_CHARS = 120
+
+        /** `tmdb:1399/s2e5`, `tmdb-movie:603`, `emby:abc123`, `title:foo/s1e2` — and nothing wider. */
+        private val MEDIA_KEY_SHAPE = Regex("[A-Za-z0-9_-]{1,24}:[A-Za-z0-9_.-]{1,128}(?:/s\\d{1,4}e\\d{1,5})?")
+
         private const val CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
         /** Normalizes user-typed input: strips separators, upper-cases, drops characters
@@ -83,6 +90,9 @@ data class WatchInvite(
          */
         fun parse(raw: String): WatchInvite? {
             val trimmed = raw.trim()
+            // Anything on the device can send this link. Bound it the way the TV deep link is
+            // bounded, before it can reach a confirmation dialog or a server lookup.
+            if (trimmed.length > MAX_LINK_CHARS) return null
             val prefix = "$SCHEME://$HOST/"
             if (!trimmed.startsWith(prefix, ignoreCase = true)) return null
             val body = trimmed.removeRange(0, prefix.length)
@@ -100,11 +110,13 @@ data class WatchInvite(
                         if (key.isBlank()) null else key to decodeComponent(value)
                     }.toMap()
 
+            val mediaKey = params["k"]?.takeIf { it.isNotBlank() }
+            if (mediaKey != null && !MEDIA_KEY_SHAPE.matches(mediaKey)) return null
             return WatchInvite(
                 roomCode = code,
-                mediaKey = params["k"]?.takeIf { it.isNotBlank() },
-                title = params["t"]?.takeIf { it.isNotBlank() },
-                endpoint = params["e"]?.takeIf { it.isNotBlank() },
+                mediaKey = mediaKey,
+                title = params["t"]?.trim()?.takeIf { it.isNotBlank() }?.take(MAX_TITLE_CHARS),
+                endpoint = params["e"]?.takeIf { it.isNotBlank() }?.take(MAX_LINK_CHARS),
             )
         }
 

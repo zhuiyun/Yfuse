@@ -76,7 +76,18 @@ internal class PlexMediaServerAdapter(
     private val client: HttpClient,
     private val progress: PlaybackProgressProjection = PlaybackProgressProjection(),
 ) {
-    private val durationByItemMs = mutableMapOf<String, Long>()
+    // Plex rating keys are per-server integers, so the key carries the server; bounded
+    // because the adapter is a singleton and lives as long as the process.
+    private val durationByItemMs =
+        object : LinkedHashMap<String, Long>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>): Boolean =
+                size > MAX_CACHED_DURATIONS
+        }
+
+    private fun durationKey(
+        server: SavedServer,
+        itemId: String,
+    ): String = "${server.id}\u0000$itemId"
 
     suspend fun authenticate(
         baseUrl: String,
@@ -441,7 +452,7 @@ internal class PlexMediaServerAdapter(
     ): Result<MediaDetail> =
         embyApiCall("plex_item_detail") {
             val item = metadata(server, itemId, includeChildren = false)
-            item.duration?.takeIf { it > 0L }?.let { durationByItemMs[itemId] = it }
+            item.duration?.takeIf { it > 0L }?.let { durationByItemMs[durationKey(server, itemId)] = it }
             progress.project(server, item.toBaseItem(server)).toMediaDetail()
         }
 
@@ -507,7 +518,7 @@ internal class PlexMediaServerAdapter(
     ): Result<PlaybackInfoResponseDto> =
         embyApiCall("plex_playback_info") {
             val item = metadata(server, itemId, includeChildren = false)
-            item.duration?.takeIf { it > 0L }?.let { durationByItemMs[itemId] = it }
+            item.duration?.takeIf { it > 0L }?.let { durationByItemMs[durationKey(server, itemId)] = it }
             val sources =
                 item
                     .toBaseItem(server, playSessionId)
@@ -549,7 +560,7 @@ internal class PlexMediaServerAdapter(
                 parameter("key", "/library/metadata/$itemId")
                 parameter("state", state)
                 parameter("time", timeMs)
-                durationByItemMs[itemId]?.let { parameter("duration", it) }
+                durationByItemMs[durationKey(server, itemId)]?.let { parameter("duration", it) }
             }
             Unit
         }
@@ -629,14 +640,19 @@ internal class PlexMediaServerAdapter(
                     .split(',')
                     .map { it.trim() }
                     .toSet()
+            val rows = response.allMetadata()
             val items =
-                response
-                    .allMetadata()
+                rows
                     .filter { it.type?.lowercase() in setOf("movie", "show", "episode") }
                     .map { progress.project(server, it.toBaseItem(server)).toMediaItem() }
                     .filter { it.type in acceptedTypes }
                     .let { rankSearchResults(it, query) }
-            MediaSearchPage(items, response.effectiveTotal(), startIndex)
+            MediaSearchPage(
+                items = items,
+                totalCount = response.effectiveTotal(),
+                startIndex = startIndex,
+                nextStartIndex = startIndex + rows.size,
+            )
         }
 
     suspend fun searchPeople(
@@ -1514,3 +1530,5 @@ private fun Boolean.toPresenceFlag(): Int = if (this) 1 else 0
 
 private fun Long.timesSafely(multiplier: Long): Long =
     if (this > Long.MAX_VALUE / multiplier) Long.MAX_VALUE else this * multiplier
+
+private const val MAX_CACHED_DURATIONS = 256

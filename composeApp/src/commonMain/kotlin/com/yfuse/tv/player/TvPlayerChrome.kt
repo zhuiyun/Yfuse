@@ -47,6 +47,12 @@ enum class TvPlayerChromeCommandType {
     ShowControls,
     HideControls,
     CloseTop,
+
+    /** The remote's CC key: the subtitle and audio panel. */
+    OpenTracks,
+
+    /** The remote's INFO key: the media information panel. */
+    OpenInfo,
 }
 
 data class TvPlayerChromeCommand(

@@ -22,6 +22,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 sealed interface ServerManagementUiState {
@@ -192,15 +193,15 @@ class ServersTabComponent(
     }
 
     fun setSortOrder(value: ServerSortOrder) {
-        _listFilter.value = _listFilter.value.copy(sort = value)
+        _listFilter.update { it.copy(sort = value) }
     }
 
     fun setAccountFilter(value: String?) {
-        _listFilter.value = _listFilter.value.copy(account = value)
+        _listFilter.update { it.copy(account = value) }
     }
 
     fun setLatencyFilter(value: ServerLatencyFilter) {
-        _listFilter.value = _listFilter.value.copy(latency = value)
+        _listFilter.update { it.copy(latency = value) }
     }
 
     /**

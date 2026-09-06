@@ -12,6 +12,8 @@ actual fun currentIsoDate(): String = LocalDate.now().toString()
 
 actual fun currentEpochMillis(): Long = System.currentTimeMillis()
 
+actual fun currentHourOfDay(): Int = LocalTime.now().hour
+
 actual fun scheduledEpochMillis(
     date: String,
     time: String,

@@ -30,7 +30,9 @@ internal fun PlayerTrackEffects(
     onPendingSubtitleLanguageApplied: () -> Unit,
     onRequestMpv: () -> Unit,
 ) {
-    LaunchedEffect(player, requestedSpeed) {
+    // Keyed on the item too: an engine that resets speed when it loads the next file would
+    // otherwise play it at 1x, since the requested speed itself had not changed.
+    LaunchedEffect(player, requestedSpeed, currentItemId) {
         if (state.speed != requestedSpeed) player.setSpeed(requestedSpeed)
     }
     LaunchedEffect(player, currentItemId, state.audioTracks, audioRestore) {

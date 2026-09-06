@@ -129,6 +129,8 @@ internal fun PlayerControls(
     onSelectItem: (Int) -> Unit,
     onPreviousItem: () -> Boolean,
     onNextItem: () -> Boolean,
+    /** 取消 on the next-up card: the engine must not advance on its own either. */
+    onDismissNextUp: () -> Unit = {},
     onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
     audioControls: AudioControlState = AudioControlState(),
@@ -419,6 +421,8 @@ internal fun PlayerControls(
                     if (latestRemotePanel == null && !latestRemoteLocked) visible = false
                 }
                 TvPlayerChromeCommandType.CloseTop -> latestCloseTopRemoteLayer()
+                TvPlayerChromeCommandType.OpenTracks -> openSettingsPanel(SettingsPanelKind.Tracks)
+                TvPlayerChromeCommandType.OpenInfo -> openSettingsPanel(SettingsPanelKind.More)
             }
         }
     }
@@ -1322,6 +1326,7 @@ internal fun PlayerControls(
                 onDismiss = {
                     poke()
                     nextUpDismissed = true
+                    onDismissNextUp()
                 },
             )
         }

@@ -339,7 +339,7 @@
         <error line="158" column="1" source="standard:indent" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreBluRaySource.kt">
-        <error line="238" column="56" source="standard:function-signature" />
+        <error line="239" column="56" source="standard:function-signature" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core2/android/AndroidYCoreGpuEvidenceStore.kt">
         <error line="64" column="27" source="standard:chain-method-continuation" />
@@ -431,9 +431,9 @@
         <error line="441" column="70" source="standard:chain-method-continuation" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/feature/player/PlayerRoot.kt">
-        <error line="2955" column="1" source="standard:indent" />
-        <error line="2956" column="1" source="standard:indent" />
-        <error line="2957" column="1" source="standard:indent" />
+        <error line="2972" column="1" source="standard:indent" />
+        <error line="2973" column="1" source="standard:indent" />
+        <error line="2974" column="1" source="standard:indent" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/tv/focus/FocusRepository.kt">
         <error line="46" column="17" source="standard:function-signature" />
@@ -489,20 +489,20 @@
         <error line="23" column="25" source="standard:multiline-expression-wrapping" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/tv/ui/TvApp.kt">
-        <error line="229" column="45" source="standard:if-else-wrapping" />
-        <error line="229" column="57" source="standard:if-else-wrapping" />
-        <error line="229" column="78" source="standard:if-else-wrapping" />
-        <error line="229" column="78" source="standard:multiline-if-else" />
-        <error line="229" column="87" source="standard:if-else-wrapping" />
-        <error line="229" column="92" source="standard:if-else-wrapping" />
-        <error line="229" column="92" source="standard:multiline-if-else" />
-        <error line="235" column="46" source="standard:if-else-wrapping" />
-        <error line="235" column="58" source="standard:if-else-wrapping" />
-        <error line="235" column="79" source="standard:if-else-wrapping" />
-        <error line="235" column="79" source="standard:multiline-if-else" />
-        <error line="235" column="91" source="standard:if-else-wrapping" />
-        <error line="235" column="96" source="standard:if-else-wrapping" />
-        <error line="235" column="96" source="standard:multiline-if-else" />
+        <error line="236" column="45" source="standard:if-else-wrapping" />
+        <error line="236" column="57" source="standard:if-else-wrapping" />
+        <error line="236" column="78" source="standard:if-else-wrapping" />
+        <error line="236" column="78" source="standard:multiline-if-else" />
+        <error line="236" column="87" source="standard:if-else-wrapping" />
+        <error line="236" column="92" source="standard:if-else-wrapping" />
+        <error line="236" column="92" source="standard:multiline-if-else" />
+        <error line="242" column="46" source="standard:if-else-wrapping" />
+        <error line="242" column="58" source="standard:if-else-wrapping" />
+        <error line="242" column="79" source="standard:if-else-wrapping" />
+        <error line="242" column="79" source="standard:multiline-if-else" />
+        <error line="242" column="91" source="standard:if-else-wrapping" />
+        <error line="242" column="96" source="standard:if-else-wrapping" />
+        <error line="242" column="96" source="standard:multiline-if-else" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/tv/ui/TvDetailScreen.kt">
         <error line="3" column="1" source="standard:import-ordering" />
@@ -548,27 +548,27 @@
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/tv/ui/TvUiComponents.kt">
         <error line="3" column="1" source="standard:import-ordering" />
-        <error line="116" column="18" source="standard:function-signature" />
-        <error line="116" column="33" source="standard:function-signature" />
-        <error line="116" column="49" source="standard:function-signature" />
-        <error line="127" column="55" source="standard:function-signature" />
-        <error line="148" column="36" source="standard:class-signature" />
-        <error line="148" column="52" source="standard:class-signature" />
-        <error line="228" column="13" source="standard:chain-method-continuation" />
-        <error line="316" column="41" source="standard:if-else-wrapping" />
-        <error line="316" column="53" source="standard:if-else-wrapping" />
-        <error line="316" column="71" source="standard:if-else-wrapping" />
-        <error line="316" column="71" source="standard:multiline-if-else" />
-        <error line="316" column="83" source="standard:if-else-wrapping" />
-        <error line="316" column="88" source="standard:if-else-wrapping" />
-        <error line="316" column="88" source="standard:multiline-if-else" />
-        <error line="323" column="38" source="standard:if-else-wrapping" />
-        <error line="323" column="50" source="standard:if-else-wrapping" />
-        <error line="323" column="68" source="standard:if-else-wrapping" />
-        <error line="323" column="68" source="standard:multiline-if-else" />
-        <error line="323" column="80" source="standard:if-else-wrapping" />
-        <error line="323" column="85" source="standard:if-else-wrapping" />
-        <error line="323" column="85" source="standard:multiline-if-else" />
+        <error line="117" column="18" source="standard:function-signature" />
+        <error line="117" column="33" source="standard:function-signature" />
+        <error line="117" column="49" source="standard:function-signature" />
+        <error line="128" column="55" source="standard:function-signature" />
+        <error line="149" column="36" source="standard:class-signature" />
+        <error line="149" column="52" source="standard:class-signature" />
+        <error line="231" column="13" source="standard:chain-method-continuation" />
+        <error line="321" column="41" source="standard:if-else-wrapping" />
+        <error line="321" column="53" source="standard:if-else-wrapping" />
+        <error line="321" column="71" source="standard:if-else-wrapping" />
+        <error line="321" column="71" source="standard:multiline-if-else" />
+        <error line="321" column="83" source="standard:if-else-wrapping" />
+        <error line="321" column="88" source="standard:if-else-wrapping" />
+        <error line="321" column="88" source="standard:multiline-if-else" />
+        <error line="328" column="38" source="standard:if-else-wrapping" />
+        <error line="328" column="50" source="standard:if-else-wrapping" />
+        <error line="328" column="68" source="standard:if-else-wrapping" />
+        <error line="328" column="68" source="standard:multiline-if-else" />
+        <error line="328" column="80" source="standard:if-else-wrapping" />
+        <error line="328" column="85" source="standard:if-else-wrapping" />
+        <error line="328" column="85" source="standard:multiline-if-else" />
     </file>
     <file name="src/androidUnitTest/kotlin/com/yfuse/core2/android/AndroidDemuxReadAheadNodeTest.kt">
         <error line="79" column="31" source="standard:class-signature" />
@@ -719,8 +719,8 @@
         <error line="6" column="19" source="standard:property-naming" />
     </file>
     <file name="src/commonMain/kotlin/com/yfuse/core/sync/ServerSyncManager.kt">
-        <error line="215" column="60" source="standard:chain-method-continuation" />
-        <error line="769" column="13" source="standard:chain-method-continuation" />
+        <error line="236" column="60" source="standard:chain-method-continuation" />
+        <error line="790" column="13" source="standard:chain-method-continuation" />
     </file>
     <file name="src/commonMain/kotlin/com/yfuse/core/util/DateWindow.kt">
         <error line="12" column="1" source="standard:no-consecutive-comments" />
