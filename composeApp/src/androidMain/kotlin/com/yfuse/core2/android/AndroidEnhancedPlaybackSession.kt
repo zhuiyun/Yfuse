@@ -7,6 +7,7 @@ import android.media.MediaFormat
 import android.os.Build
 import android.view.Surface
 import android.view.WindowManager
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YDolbyAtmosOutputMode
 import com.yfuse.core2.api.YDualDolbyEvidenceState
 import com.yfuse.core2.api.YMediaSourceHints
@@ -230,29 +231,15 @@ internal class AndroidEnhancedPlaybackSession(
                     safeDetail = "Enhanced demux contains no video track",
                 )
         val capabilities = capabilityProvider.current()
-        val audioTrack =
-            result.tracks.firstOrNull { track ->
-                val format = track.audio ?: return@firstOrNull false
-                if (track.type != YDemuxTrackType.Audio) return@firstOrNull false
-                val devicePath =
-                    capabilities.audioOutputPath(
-                        YAudioRequirement(
-                            codec = format.codec,
-                            channelCount = format.channelCount,
-                            sampleRate = format.sampleRate,
-                        ),
-                    )
-                if (plan.audioPath == YAudioOutputPath.DecodePcm) {
-                    devicePath == YAudioOutputPath.DecodePcm
-                } else {
-                    devicePath != YAudioOutputPath.None
-                }
-            } ?: result.tracks.firstOrNull { track ->
-                track.type == YDemuxTrackType.Audio &&
-                    track.audio != null &&
-                    plan.softwareAudioDecode &&
-                    (demuxer as? AndroidFfmpegDemuxer)?.softwareDecodeAvailable == true
-            }
+        val softwareAudioAvailable = (demuxer as? AndroidFfmpegDemuxer)?.softwareDecodeAvailable == true
+        val audioSelection =
+            selectEnhancedAudioTrack(
+                tracks = result.tracks,
+                capabilities = capabilities,
+                plan = plan,
+                softwareDecodeAvailable = softwareAudioAvailable,
+            )
+        val audioTrack = audioSelection?.track
         if (expectedAudio && result.tracks.none { it.type == YDemuxTrackType.Audio && it.audio != null }) {
             throw YPlaybackException(
                 category = YPlaybackFailureCategory.Container,
@@ -270,23 +257,25 @@ internal class AndroidEnhancedPlaybackSession(
                 safeDetail = "Enhanced route has no playable audio decoder",
             )
         }
-        val selectedAudioDevicePath =
-            audioTrack?.audio?.let { format ->
-                capabilities.audioOutputPath(
-                    YAudioRequirement(
-                        codec = format.codec,
-                        channelCount = format.channelCount,
-                        sampleRate = format.sampleRate,
+        val initialAudioOutputPath = audioSelection?.outputPath ?: YAudioOutputPath.None
+        audioSelection?.let { selection ->
+            AppLog.info(
+                category = "player.core2",
+                event = "enhanced_audio_route_resolved",
+                message = "YCore resolved audio from the opened demux tracks",
+                attributes =
+                    mapOf(
+                        "codec" to requireNotNull(selection.track.audio).codec.name,
+                        "plannedAudioPath" to plan.audioPath.name,
+                        "plannedSoftwareAudio" to plan.softwareAudioDecode.toString(),
+                        "selectedAudioPath" to selection.outputPath.name,
+                        "selectedSoftwareAudio" to selection.preferSoftware.toString(),
+                        "softwareAudioAvailable" to softwareAudioAvailable.toString(),
+                        "videoDecodePath" to plan.decodePath.name,
+                        "inputHdr" to plan.inputHdrType.name,
                     ),
-                )
-            } ?: YAudioOutputPath.None
-        val initialAudioOutputPath =
-            when {
-                audioTrack == null -> YAudioOutputPath.None
-                plan.softwareAudioDecode -> YAudioOutputPath.DecodePcm
-                plan.audioPath == YAudioOutputPath.DecodePcm -> YAudioOutputPath.DecodePcm
-                else -> selectedAudioDevicePath
-            }
+            )
+        }
         val sourceVideo = requireNotNull(videoTrack.video)
         validateEnhancedDolbyVisionIdentity(
             required = requireDolbyVisionIdentity,
@@ -301,7 +290,7 @@ internal class AndroidEnhancedPlaybackSession(
                 effectiveVideoTrack(sourceVideo, plan)
             }
         softwareVideoActive = plan.decodePath == YDecodePath.Software
-        softwareAudioActive = audioTrack != null && plan.softwareAudioDecode
+        softwareAudioActive = audioSelection?.preferSoftware == true
         val softwareNode =
             if (softwareVideoActive || softwareAudioActive) {
                 val ffmpegDemuxer =
