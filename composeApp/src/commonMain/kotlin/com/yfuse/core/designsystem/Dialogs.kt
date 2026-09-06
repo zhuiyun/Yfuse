@@ -57,9 +57,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
-internal val ScrimColor = Color(0xFF0A0E16)
+private val ScrimColor = Color(0xFF0A0E16)
 private val OverlayShape = GlassShapes.card
-internal val OverlayMaxWidth = 560.dp
+private val OverlayMaxWidth = 560.dp
 private val OverlayMotionOffset = 32.dp
 internal const val OVERLAY_EXIT_DURATION_MS = 200
 

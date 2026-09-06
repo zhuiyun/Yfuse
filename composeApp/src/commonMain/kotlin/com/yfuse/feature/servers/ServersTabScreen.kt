@@ -44,8 +44,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -71,10 +69,8 @@ import com.yfuse.core.data.formatWatchedAgo
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
-import com.yfuse.core.designsystem.BackdropState
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
-import com.yfuse.core.designsystem.FrostedOverlay
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
@@ -97,12 +93,10 @@ import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
 import com.yfuse.core.designsystem.YfFormField
-import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.serverTintColor
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
@@ -198,21 +192,12 @@ fun ServersTabScreen(component: ServersTabComponent) {
             }
         }
 
-    // The actions panel blurs the grid beneath it, so the grid is the backdrop and the panel
-    // a sibling drawn after it — a separate dialog window could not see these pixels.
-    val backdrop = rememberBackdropState()
-    // Kept across the panel's exit animation, which plays after `actionsFor` is cleared.
-    var presentedActions by remember { mutableStateOf<SavedServer?>(null) }
-    LaunchedEffect(actionsFor) {
-        if (actionsFor != null) presentedActions = actionsFor
-    }
-
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = { component.refreshAll() },
             state = pullState,
-            modifier = Modifier.fillMaxSize().backdropSource(backdrop),
+            modifier = Modifier.fillMaxSize(),
         ) {
             LazyVerticalGrid(
                 // 列表 is one column of the same card, not a second card design: everything
@@ -309,59 +294,58 @@ fun ServersTabScreen(component: ServersTabComponent) {
                 }
             }
         }
-        (actionsFor ?: presentedActions)?.let { server ->
-            ServerActionsPanel(
-                open = actionsFor != null,
-                backdrop = backdrop,
-                server = server,
-                isCurrent = server.id == state.defaultServerId,
-                health = health[server.id],
-                lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
-                onOpenLibrary = {
-                    if (server.id != state.defaultServerId) {
-                        component.store.accept(ServersIntent.SelectDefault(server.id))
-                    }
-                    actionsFor = null
-                    component.onOpenLibrary()
-                },
-                onRefresh = {
-                    component.refreshHealth(server)
-                },
-                onCopyAddress = {
-                    share.copyText(server.baseUrl)
-                },
-                onSetDefault = {
+    }
+
+    actionsFor?.let { server ->
+        ServerActionsDialog(
+            server = server,
+            isCurrent = server.id == state.defaultServerId,
+            health = health[server.id],
+            lastWatchedLabel = formatWatchedAgo(lastWatched[server.id], nowEpochMs),
+            onOpenLibrary = {
+                if (server.id != state.defaultServerId) {
                     component.store.accept(ServersIntent.SelectDefault(server.id))
-                    actionsFor = null
-                },
-                onRoutes = {
-                    routesFor = server
-                    actionsFor = null
-                },
-                onDiagnostics = {
-                    diagnosticsFor = server
-                    actionsFor = null
-                },
-                onManage = {
-                    managementFor = server
-                    component.loadManagement(server)
-                    actionsFor = null
-                },
-                onIcon = {
-                    iconFor = server
-                    actionsFor = null
-                },
-                onEdit = {
-                    component.store.accept(ServersIntent.EditServer(server))
-                    actionsFor = null
-                },
-                onRemove = {
-                    confirmRemove = server
-                    actionsFor = null
-                },
-                onDismiss = { actionsFor = null },
-            )
-        }
+                }
+                actionsFor = null
+                component.onOpenLibrary()
+            },
+            onRefresh = {
+                component.refreshHealth(server)
+            },
+            onCopyAddress = {
+                share.copyText(server.baseUrl)
+            },
+            onSetDefault = {
+                component.store.accept(ServersIntent.SelectDefault(server.id))
+                actionsFor = null
+            },
+            onRoutes = {
+                routesFor = server
+                actionsFor = null
+            },
+            onDiagnostics = {
+                diagnosticsFor = server
+                actionsFor = null
+            },
+            onManage = {
+                managementFor = server
+                component.loadManagement(server)
+                actionsFor = null
+            },
+            onIcon = {
+                iconFor = server
+                actionsFor = null
+            },
+            onEdit = {
+                component.store.accept(ServersIntent.EditServer(server))
+                actionsFor = null
+            },
+            onRemove = {
+                confirmRemove = server
+                actionsFor = null
+            },
+            onDismiss = { actionsFor = null },
+        )
     }
 
     confirmRemove?.let { server ->
@@ -1348,19 +1332,16 @@ private fun ServerManagementDialog(
 }
 
 /**
- * The floating actions panel for one server.
+ * Long-press menu — the card's own identity, then the things its face cannot carry.
  *
- * It opens over the grid as a slab of frosted glass: the cards beneath it blur into colour and
- * light, and the panel carries the server's tile, name, address and the same two facts the
- * card shows — so there is never a doubt about which of a dozen servers is about to be
- * removed. The actions are one list under it: 打开媒体库 on its own tinted band at the top,
- * 移除服务器 on its own at the bottom, and everything else separated by hairlines rather than
- * boxed as cards inside a card.
+ * The first version was a title, a URL and three bare lines of text, the destructive one
+ * wearing a full-bleed pink band that ran into the panel's edges. It read as a form rather
+ * than as a menu about one particular machine. This one restates the card — same badge
+ * colour, same two facts — so there is never a doubt about which of a dozen servers is
+ * about to be removed, and gives every action a glyph, a sentence and a shape of its own.
  */
 @Composable
-private fun ServerActionsPanel(
-    open: Boolean,
-    backdrop: BackdropState,
+private fun ServerActionsDialog(
     server: SavedServer,
     isCurrent: Boolean,
     health: ServerHealth?,
@@ -1379,9 +1360,9 @@ private fun ServerActionsPanel(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    FrostedOverlay(open = open, backdrop = backdrop, onDismiss = onDismiss) {
+    GlassDialog(onDismiss = onDismiss) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+            Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1407,9 +1388,9 @@ private fun ServerActionsPanel(
                         server.serverName,
                         style = AppTypography.section.strong,
                         color = palette.text,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                     if (isCurrent) {
                         Text(
@@ -1418,8 +1399,7 @@ private fun ServerActionsPanel(
                             color = accent.accent,
                             modifier =
                                 Modifier
-                                    .clip(GlassShapes.chip)
-                                    .background(accent.accent.copy(alpha = 0.14f))
+                                    .glass(GlassShapes.chip, accent.container, accent.border)
                                     .padding(horizontal = 7.dp, vertical = 2.dp),
                         )
                     }
@@ -1433,97 +1413,16 @@ private fun ServerActionsPanel(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            ServerActionsStatus(health = health, lastWatchedLabel = lastWatchedLabel)
         }
 
-        Spacer(Modifier.height(14.dp))
-        ServerActionRow(
-            icon = AppIcons.Home,
-            label = "打开媒体库",
-            description = if (isCurrent) "进入当前服务器的内容" else "切换到此服务器并进入内容",
-            prominent = true,
-            divider = false,
-            onClick = onOpenLibrary,
-        )
-        Spacer(Modifier.height(6.dp))
-        ServerActionRow(
-            icon = AppIcons.Refresh,
-            label = "测试连接",
-            description = "重新检查在线状态与访问延迟",
-            onClick = onRefresh,
-        )
-        ServerActionRow(
-            icon = AppIcons.Cloud,
-            label = "复制服务器地址",
-            description = server.baseUrl,
-            onClick = onCopyAddress,
-        )
-        ServerActionRow(
-            icon = AppIcons.Check,
-            label = if (isCurrent) "已是当前服务器" else "设为当前服务器",
-            description =
-                if (isCurrent) {
-                    "库、搜索和播放都在读取这一台"
-                } else {
-                    "库、搜索和播放都会切到这一台"
-                },
-            enabled = !isCurrent,
-            onClick = onSetDefault,
-        )
-        ServerActionRow(
-            icon = AppIcons.Cast,
-            label = "线路",
-            description = routesSummary(server, health),
-            onClick = onRoutes,
-        )
-        ServerActionRow(
-            icon = AppIcons.Lock,
-            label = "HTTPS 诊断",
-            description = "检查主线路与备用地址的传输安全",
-            onClick = onDiagnostics,
-        )
-        ServerActionRow(
-            icon = AppIcons.Server,
-            label = "服务器管理",
-            description = "扫描媒体库、查看并运行服务器任务",
-            onClick = onManage,
-        )
-        ServerActionRow(
-            icon = AppIcons.Grid,
-            label = "图标与颜色",
-            description = "给这台服务器一个一眼认得出的样子",
-            onClick = onIcon,
-        )
-        ServerActionRow(
-            icon = AppIcons.Edit,
-            label = "编辑连接与名称",
-            description = "改名不用重新登录，改地址或账号要",
-            divider = false,
-            onClick = onEdit,
-        )
-        Spacer(Modifier.height(6.dp))
-        ServerActionRow(
-            icon = AppIcons.Close,
-            label = "移除服务器",
-            description = "已下载的离线内容会保留",
-            destructive = true,
-            divider = false,
-            onClick = onRemove,
-        )
-    }
-}
-
-/** The card's two facts and the last visit, stacked at the head of the panel. */
-@Composable
-private fun ServerActionsStatus(
-    health: ServerHealth?,
-    lastWatchedLabel: String,
-) {
-    val palette = LocalPalette.current
-    val latencyColor = latencySeverityColor(health?.latencySeverity ?: LatencySeverity.Unknown)
-    Column(horizontalAlignment = Alignment.End) {
+        Spacer(Modifier.height(12.dp))
+        // The same two facts the card carries, so the sheet is unmistakably about it.
         Row(
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            Modifier
+                .fillMaxWidth()
+                .glass(GlassShapes.chip, palette.card2, palette.border)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -1545,34 +1444,113 @@ private fun ServerActionsStatus(
                 color = palette.sub,
                 maxLines = 1,
             )
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(
+                        latencySeverityColor(
+                            health?.latencySeverity ?: LatencySeverity.Unknown,
+                        ),
+                    ),
+            )
+            Text(
+                latencyLabel(health),
+                style = AppTypography.caption.medium,
+                color = latencySeverityColor(health?.latencySeverity ?: LatencySeverity.Unknown),
+                maxLines = 1,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                lastWatchedLabel,
+                style = AppTypography.caption.regular,
+                color = palette.sub2,
+                maxLines = 1,
+            )
         }
-        Spacer(Modifier.height(3.dp))
-        Text(
-            latencyLabel(health),
-            style = AppTypography.caption.medium,
-            color = latencyColor,
-            maxLines = 1,
+
+        Spacer(Modifier.height(14.dp))
+        ServerActionRow(
+            icon = AppIcons.Home,
+            label = "打开媒体库",
+            description = if (isCurrent) "进入当前服务器的内容" else "切换到此服务器并进入内容",
+            prominent = true,
+            onClick = onOpenLibrary,
         )
-        Spacer(Modifier.height(3.dp))
-        Text(
-            lastWatchedLabel,
-            style = AppTypography.caption.regular,
-            color = palette.sub2,
-            maxLines = 1,
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Refresh,
+            label = "测试连接",
+            description = "重新检查在线状态与访问延迟",
+            onClick = onRefresh,
+        )
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Cloud,
+            label = "复制服务器地址",
+            description = server.baseUrl,
+            onClick = onCopyAddress,
+        )
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Check,
+            label = if (isCurrent) "已是当前服务器" else "设为当前服务器",
+            description =
+                if (isCurrent) {
+                    "库、搜索和播放都在读取这一台"
+                } else {
+                    "库、搜索和播放都会切到这一台"
+                },
+            enabled = !isCurrent,
+            onClick = onSetDefault,
+        )
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Cast,
+            label = "线路",
+            description = routesSummary(server, health),
+            onClick = onRoutes,
+        )
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Lock,
+            label = "HTTPS 诊断",
+            description = "检查主线路与备用地址的传输安全",
+            onClick = onDiagnostics,
+        )
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Server,
+            label = "服务器管理",
+            description = "扫描媒体库、查看并运行服务器任务",
+            onClick = onManage,
+        )
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Grid,
+            label = "图标与颜色",
+            description = "给这台服务器一个一眼认得出的样子",
+            onClick = onIcon,
+        )
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Edit,
+            label = "编辑连接与名称",
+            description = "改名不用重新登录，改地址或账号要",
+            onClick = onEdit,
+        )
+        Spacer(Modifier.height(8.dp))
+        ServerActionRow(
+            icon = AppIcons.Close,
+            label = "移除服务器",
+            description = "已下载的离线内容会保留",
+            destructive = true,
+            onClick = onRemove,
         )
     }
 }
 
-/** How much of a row's width the hairline under it spans in from each side. */
-private val ServerActionDividerInset = 14.dp
-
-/**
- * One action: a glyph, a verb, and what the verb will do.
- *
- * Plain rows sit directly on the glass, parted by hairlines. [prominent] and [destructive]
- * rows get a tinted band of their own — accent for the one thing most people came to do,
- * error for the one thing they must not do by accident.
- */
+/** One action: a glyph in its own tile, a verb, and what the verb will do. */
 @Composable
 private fun ServerActionRow(
     icon: ImageVector,
@@ -1582,7 +1560,6 @@ private fun ServerActionRow(
     enabled: Boolean = true,
     destructive: Boolean = false,
     prominent: Boolean = false,
-    divider: Boolean = true,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -1592,51 +1569,55 @@ private fun ServerActionRow(
             !enabled -> palette.sub2
             else -> palette.text
         }
-    val glyph =
-        when {
-            destructive -> palette.error
-            !enabled -> palette.sub2
-            else -> accent.accent
-        }
-    val band =
-        when {
-            destructive -> palette.error.copy(alpha = 0.10f)
-            prominent -> accent.accent.copy(alpha = 0.14f)
-            else -> null
-        }
-    val separator = if (palette.isDark) Color.White.copy(alpha = 0.08f) else palette.text.copy(alpha = 0.07f)
     Row(
         Modifier
             .fillMaxWidth()
-            .pressable(enabled = enabled, focusShape = GlassShapes.chip, onClick = onClick)
-            .then(
-                if (band != null) {
-                    Modifier.clip(GlassShapes.chip).background(band)
-                } else {
-                    Modifier
-                },
-            ).then(
-                if (divider) {
-                    Modifier.drawBehind {
-                        val inset = ServerActionDividerInset.toPx()
-                        val stroke = Dimens.hairline.toPx()
-                        val y = size.height - stroke / 2f
-                        drawLine(separator, Offset(inset, y), Offset(size.width - inset, y), stroke)
-                    }
-                } else {
-                    Modifier
-                },
-            ).heightIn(min = 54.dp)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+            .pressable(enabled = enabled, onClick = onClick)
+            .liquidGlass(
+                shape = GlassShapes.chip,
+                // The destructive fill stays inside the row's own rounded shape instead of
+                // bleeding to the panel's edges the way the old option row's band did.
+                fill =
+                    when {
+                        destructive -> palette.errorContainer
+                        prominent -> accent.container
+                        else -> palette.card2
+                    },
+                border =
+                    when {
+                        destructive -> palette.error.copy(alpha = 0.34f)
+                        prominent -> accent.border.copy(alpha = 0.38f)
+                        else -> palette.border
+                    },
+            ).padding(horizontal = 12.dp, vertical = 11.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = glyph,
-            modifier = Modifier.size(18.dp),
-        )
+        Box(
+            Modifier
+                .size(30.dp)
+                .clip(GlassShapes.thumb)
+                .background(
+                    when {
+                        destructive -> palette.error.copy(alpha = 0.12f)
+                        prominent -> accent.accent
+                        else -> accent.container
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint =
+                    when {
+                        destructive -> palette.error
+                        prominent -> accent.onAccent
+                        else -> accent.accent
+                    },
+                modifier = Modifier.size(14.dp),
+            )
+        }
         Column(Modifier.weight(1f)) {
             Text(label, style = AppTypography.body.strong, color = ink, maxLines = 1)
             Spacer(Modifier.height(2.dp))
