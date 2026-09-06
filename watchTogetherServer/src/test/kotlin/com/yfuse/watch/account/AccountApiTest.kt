@@ -178,13 +178,6 @@ class AccountApiTest {
                 client.get("/api/v1/account/profile") { secureBearer(oldAccess) }.status,
             )
             assertEquals(
-                HttpStatusCode.Unauthorized,
-                client
-                    .post("/api/v1/auth/refresh") {
-                        secureJson("""{"refreshToken":"$oldRefresh"}""")
-                    }.status,
-            )
-            assertEquals(
                 HttpStatusCode.OK,
                 client.get("/api/v1/account/profile") { secureBearer(newAccess) }.status,
             )
@@ -201,6 +194,39 @@ class AccountApiTest {
                     .post("/api/v1/auth/refresh") {
                         secureJson("""{"refreshToken":"$newRefresh"}""")
                     }.status,
+            )
+        }
+
+    @Test
+    fun replaying_a_rotated_refresh_token_signs_out_the_whole_session() =
+        testApplication {
+            application {
+                watchTogetherModule(accountBackend = AccountBackend.inMemoryForTests())
+            }
+
+            val registered = register()
+            val oldRefresh = registered.string("refreshToken")
+            val refreshed =
+                client
+                    .post("/api/v1/auth/refresh") { secureJson("""{"refreshToken":"$oldRefresh"}""") }
+                    .bodyAsText()
+                    .asObject()
+            val newAccess = refreshed.string("accessToken")
+            assertEquals(
+                HttpStatusCode.OK,
+                client.get("/api/v1/account/profile") { secureBearer(newAccess) }.status,
+            )
+
+            // The spent token turning up again means it has been copied; both holders lose.
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client
+                    .post("/api/v1/auth/refresh") { secureJson("""{"refreshToken":"$oldRefresh"}""") }
+                    .status,
+            )
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client.get("/api/v1/account/profile") { secureBearer(newAccess) }.status,
             )
         }
 

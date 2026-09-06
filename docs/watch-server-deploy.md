@@ -175,6 +175,20 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' http://47.112.219.60/watch)" = 4
 journalctl -u yfuse-update -n 50 --no-pager
 ```
 
+`/watch/version` also carries `gitSha`, stamped at build time from the checkout that produced
+the jar. Compare it with the commit you meant to deploy before calling the release done:
+
+```bash
+test "$(curl -sS https://47.112.219.60/watch/version | jq -r .gitSha)" = "$(git rev-parse HEAD)"
+```
+
+Process metrics are at `/watch/metrics` in Prometheus text format. Without configuration the
+endpoint only answers loopback (`curl http://127.0.0.1:8080/watch/metrics` on the box); set
+`WATCH_METRICS_TOKEN` (at least 16 characters) in `/etc/yfuse-watch/environment` to scrape it
+through Caddy with `Authorization: Bearer …`. Every HTTP request and socket lifetime is logged
+as one structured line on stderr (`journalctl -u yfuse-update`), with the path but never the
+query string or any token.
+
 `/watch/version` must report `protocolVersion: 6` and `minProtocolVersion: 5`. Version 6 keeps
 the authenticated v5 wire shape so the server can be deployed first while installed v5 clients
 continue to create, join, and reconnect. Both versions require a valid Yfuse account access token,
@@ -213,7 +227,6 @@ APK path. A separate deployment account with exactly two grants — ownership of
 `/opt/yfuse-watch`, and `NOPASSWD` on `systemctl restart yfuse-update` — keeps the two
 blast radiuses apart.
 
-The build itself is the easy half; the gate worth having is the one this document cannot
-provide from a runner: something that proves the new binary is the one now serving.
-Stamping the build's git SHA into `/watch/version` would give a deployment check a fact to
-assert, and is the piece to add before automating any of this.
+The build itself is the easy half; the gate worth having is the one that proves the new
+binary is the one now serving. `/watch/version` reports the build's git SHA, so a workflow
+can assert it after the restart instead of trusting that the upload landed.

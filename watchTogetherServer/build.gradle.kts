@@ -23,3 +23,20 @@ dependencies {
 application {
     mainClass.set("com.yfuse.watch.ApplicationKt")
 }
+
+// Stamps the commit into the jar so `/watch/version` can say what is actually deployed.
+val gitSha: Provider<String> =
+    providers
+        .exec {
+            workingDir = projectDir
+            commandLine("git", "rev-parse", "HEAD")
+            isIgnoreExitValue = true
+        }.standardOutput.asText
+        .map { it.trim().takeIf { sha -> sha.matches(Regex("[0-9a-f]{40}")) } ?: "unknown" }
+
+tasks.processResources {
+    inputs.property("gitSha", gitSha)
+    filesMatching("build-info.properties") {
+        expand("gitSha" to gitSha.get())
+    }
+}

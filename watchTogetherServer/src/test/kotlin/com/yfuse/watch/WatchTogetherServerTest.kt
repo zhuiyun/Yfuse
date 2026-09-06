@@ -1551,6 +1551,8 @@ class WatchTogetherServerTest {
             }
         }
 
+    private fun JsonObject.type(): String? = this["type"]?.jsonPrimitive?.content
+
     private fun presenceStatus(
         latencyMs: Long,
         syncDriftMs: Long,
@@ -1577,6 +1579,72 @@ class WatchTogetherServerTest {
                 assertEquals("error", error["type"]?.jsonPrimitive?.content)
                 assertEquals("playback_status_invalid", error["errorCode"]?.jsonPrimitive?.content)
             }
+        }
+
+    @Test
+    fun version_reports_the_build_and_metrics_stay_on_box_without_a_token() =
+        testApplication {
+            application { watchTogetherModule(metricsToken = "metrics-secret-token-1234") }
+            val version = client.get("/watch/version")
+            assertEquals(HttpStatusCode.OK, version.status)
+            assertTrue(version.bodyAsText().contains("\"gitSha\":\""))
+            assertEquals("nosniff", version.headers["X-Content-Type-Options"])
+
+            assertEquals(HttpStatusCode.Forbidden, client.get("/watch/metrics").status)
+            val metrics =
+                client.get("/watch/metrics") { header(HttpHeaders.Authorization, "Bearer metrics-secret-token-1234") }
+            assertEquals(HttpStatusCode.OK, metrics.status)
+            val body = metrics.bodyAsText()
+            assertTrue(body.contains("yfuse_watch_rooms_active 0"))
+            assertTrue(body.contains("yfuse_http_requests_total"))
+        }
+
+    @Test
+    fun repeated_unknown_room_joins_from_one_address_are_penalized() =
+        testApplication {
+            application {
+                watchTogetherModule(
+                    joinFailureLimiter =
+                        WatchJoinFailureLimiter(maxFailures = 2, windowMs = 60_000L, penaltyMs = 60_000L),
+                    clientIpResolver = { call -> call.request.queryParameters["testIp"] ?: "test-default" },
+                )
+            }
+            val socketClient = createClient { install(WebSockets) }
+
+            suspend fun joinError(ip: String): String? {
+                var code: String? = null
+                socketClient.webSocket("/watch?testIp=$ip") {
+                    send("""{"type":"hello","protocolVersion":5,"clientId":"guest","roomCode":"ZZZZZZ"}""")
+                    val error = (incoming.receive() as Frame.Text).readText().asJson()
+                    code = error["errorCode"]?.jsonPrimitive?.content
+                }
+                return code
+            }
+            assertNull(joinError("guesser"))
+            assertNull(joinError("guesser"))
+            assertEquals("join_rate_limited", joinError("guesser"))
+            assertNull(joinError("bystander"))
+        }
+
+    @Test
+    fun one_account_cannot_hold_more_than_its_room_quota() =
+        testApplication {
+            application { watchTogetherModule(maxActiveRoomsPerAccount = 1) }
+            val socketClient = createClient { install(WebSockets) }
+            val first = socketClient.webSocketSession("/watch")
+            first.send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:1"}""")
+            assertEquals("welcome", (first.incoming.receive() as Frame.Text).readText().asJson().type())
+
+            socketClient.webSocket("/watch") {
+                send("""{"type":"hello","protocolVersion":5,"clientId":"host","mediaKey":"tmdb:2"}""")
+                val error = (incoming.receive() as Frame.Text).readText().asJson()
+                assertEquals("room_account_limit", error["errorCode"]?.jsonPrimitive?.content)
+            }
+            socketClient.webSocket("/watch") {
+                send("""{"type":"hello","protocolVersion":5,"clientId":"other","mediaKey":"tmdb:3"}""")
+                assertEquals("welcome", (incoming.receive() as Frame.Text).readText().asJson().type())
+            }
+            first.close()
         }
 
     @Test

@@ -41,7 +41,54 @@ internal class Membership(
     val accountUserId: String,
     var resumeCapabilityDigest: ByteArray,
     var sessionGeneration: Long = 0L,
-)
+) {
+    /** Chat pacing lives on the membership, so a reconnect does not hand out a fresh window. */
+    val chatSentAtMs: ArrayDeque<Long> = ArrayDeque()
+    val chatRejectedAtMs: ArrayDeque<Long> = ArrayDeque()
+    var chatMutedUntilMs: Long = 0L
+}
+
+internal sealed interface ChatAdmission {
+    data object Allowed : ChatAdmission
+
+    data object RateLimited : ChatAdmission
+
+    /** Repeated pacing violations pause the member's chat for a while. */
+    data class Muted(
+        val untilMs: Long,
+    ) : ChatAdmission
+}
+
+/**
+ * Admits or refuses one chat message from this membership. Must be called under the room lock.
+ * A member who keeps hitting the pace limit is muted for [muteMs]; that decision is the
+ * server's, not the sender's client, so a modified client gains nothing by retrying.
+ */
+internal fun Membership.admitChat(
+    nowMs: Long,
+    maxPerWindow: Int,
+    windowMs: Long,
+    muteAfterRejections: Int,
+    rejectionWindowMs: Long,
+    muteMs: Long,
+): ChatAdmission {
+    if (nowMs < chatMutedUntilMs) return ChatAdmission.Muted(chatMutedUntilMs)
+    while (chatSentAtMs.isNotEmpty() && nowMs - chatSentAtMs.first() >= windowMs) chatSentAtMs.removeFirst()
+    if (chatSentAtMs.size < maxPerWindow) {
+        chatSentAtMs.addLast(nowMs)
+        return ChatAdmission.Allowed
+    }
+    while (chatRejectedAtMs.isNotEmpty() && nowMs - chatRejectedAtMs.first() >= rejectionWindowMs) {
+        chatRejectedAtMs.removeFirst()
+    }
+    chatRejectedAtMs.addLast(nowMs)
+    if (chatRejectedAtMs.size >= muteAfterRejections) {
+        chatRejectedAtMs.clear()
+        chatMutedUntilMs = nowMs + muteMs
+        return ChatAdmission.Muted(chatMutedUntilMs)
+    }
+    return ChatAdmission.RateLimited
+}
 
 internal enum class ControlMode(
     val wireValue: String,
@@ -60,6 +107,8 @@ internal enum class ControlMode(
 internal class Room(
     val code: String,
     val creatorIp: String,
+    /** Account that created the room; bounds how many live rooms one account can hold. */
+    val creatorAccountUserId: String,
     var hostId: String,
     var hostCapabilityDigest: ByteArray,
     var initialHostCapability: String? = null,

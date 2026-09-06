@@ -3,6 +3,7 @@ package com.yfuse.watch
 import com.yfuse.watch.account.isLoopbackHost
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.plugins.origin
+import java.security.MessageDigest
 
 /**
  * Resolves the quota identity.
@@ -62,3 +63,9 @@ private fun normalizeForwardedAddress(raw: String): String? {
         .lowercase()
         .takeIf { it.isNotBlank() && it.length <= 128 }
 }
+
+/** Compares two secrets without leaking where they diverge through timing. */
+internal fun constantTimeEquals(
+    presented: String,
+    expected: String,
+): Boolean = MessageDigest.isEqual(presented.encodeToByteArray(), expected.encodeToByteArray())
