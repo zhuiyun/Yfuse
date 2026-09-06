@@ -19,11 +19,14 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.concurrent.Volatile
 
 /**
  * The calendar's server publication, containing schedules collected and verified by the backend.
@@ -41,7 +44,13 @@ class OfficialAiringScheduleCatalog(
             ignoreUnknownKeys = true
             encodeDefaults = true
         }
+
+    // Written by the refresh on an IO thread and read by every calendar load; the refresh is
+    // serialised below, and the reads need to see the swap without a lock of their own.
+    @Volatile
     private var schedules: Map<Int, OfficialSeriesSchedule> = loadCachedSchedules() ?: FALLBACK_SCHEDULES
+
+    private val refreshMutex = Mutex()
 
     fun series(
         tmdbId: Int,
@@ -78,7 +87,13 @@ class OfficialAiringScheduleCatalog(
      * A failed, malformed or unsigned response never replaces the last verified payload. The
      * bundled schedule remains a complete offline fallback for the rows known at release time.
      */
-    suspend fun refreshIfDue(force: Boolean = false): Result<Boolean> {
+    suspend fun refreshIfDue(force: Boolean = false): Result<Boolean> =
+        // The interval check is read-then-write, so two callers arriving together (the
+        // identity resolver fans out four at a time) would each decide a refresh is due and
+        // race the same request; under the lock the second sees the first's attempt.
+        refreshMutex.withLock { refreshLocked(force) }
+
+    private suspend fun refreshLocked(force: Boolean): Result<Boolean> {
         val now = nowEpochMs()
         val lastAttempt = settings.getLong(KEY_LAST_ATTEMPT_EPOCH_MS, 0L)
         val lastSuccess = settings.getLong(KEY_LAST_SUCCESS_EPOCH_MS, 0L)
@@ -229,70 +244,94 @@ class OfficialAiringScheduleCatalog(
         }.getOrNull()
     }
 
-    private fun validate(
+    /**
+     * The rows of a verified publication that this build can use.
+     *
+     * Rows are judged one at a time. The publication is signed as a whole, so its integrity
+     * is settled before this runs; what is checked here is whether each row fits the shape
+     * this client understands, and a row that does not is dropped with a warning rather than
+     * taking the other rows with it. Rejecting the whole payload over one row meant every
+     * installed client froze on its previous cache until the server changed that one row.
+     */
+    internal fun validate(
         payload: OfficialSchedulePayload,
         expectedRevision: String,
     ): List<OfficialSeriesSchedule> {
         require(payload.schedules.size <= MAX_SERIES)
         require(payload.schedules.distinctBy(OfficialSeriesSchedule::tmdbId).size == payload.schedules.size)
-        payload.schedules.forEach { schedule ->
-            require(schedule.tmdbId > 0)
-            require(schedule.seasonNumber > 0)
-            require(schedule.title.isNotBlank() && schedule.title.length <= 120)
-            require(schedule.episodes.isNotEmpty() && schedule.episodes.size <= MAX_EPISODES_PER_SERIES)
-            require(schedule.sourceUrl.startsWith("https://") && schedule.sourceUrl.length <= 2_048)
-            require((schedule.airTime == null) == (schedule.timeZoneId == null))
-            schedule.airTime?.let { require(it.matches(TIME_PATTERN)) }
-            schedule.timeZoneId?.let { require(it.matches(ZONE_PATTERN)) }
-            require(schedule.platforms.isNotEmpty() && schedule.platforms.size <= 10)
-            require(schedule.platforms.all { it.isNotBlank() && it.length <= 40 })
-            require(schedule.availabilityRegion?.matches(REGION_PATTERN) != false)
-            require(schedule.releaseMode in RELEASE_MODES)
-            require(schedule.revision == expectedRevision)
-            require(schedule.updatedAt.length in 10..64)
-            require(
-                schedule.authority == AiringScheduleAuthority.Official &&
-                    schedule.confidence in 80..100 ||
-                    schedule.authority == AiringScheduleAuthority.Verified &&
-                    schedule.confidence in 80..89 ||
-                    schedule.authority == AiringScheduleAuthority.Estimated &&
-                    schedule.confidence in 60..79,
-            )
-            require(schedule.evidence.size <= 20)
-            require(schedule.evidence.isNotEmpty())
-            require(
-                schedule.evidence.all { evidence ->
-                    evidence.type in EVIDENCE_TYPES &&
-                        evidence.publisher.isNotBlank() &&
-                        evidence.publisher.length <= 80 &&
-                        evidence.sourceUrl.startsWith("https://") &&
-                        evidence.sourceUrl.length <= 2_048 &&
-                        evidence.capturedAt.length in 10..64 &&
-                        evidence.contentHash.matches(HASH_PATTERN) &&
-                        evidence.extractionMethod.isNotBlank() &&
-                        evidence.extractionMethod.length <= 80
-                },
-            )
-            require(schedule.episodes.distinctBy(OfficialEpisodeSlot::episodeNumber).size == schedule.episodes.size)
-            require(
-                schedule.episodes.all {
-                    it.airDate.matches(DATE_PATTERN) &&
-                        it.episodeNumber > 0 &&
-                        (
-                            schedule.airTime == null ||
-                                scheduledEpochMillis(
-                                    it.airDate,
-                                    schedule.airTime,
-                                    requireNotNull(schedule.timeZoneId),
-                                ) != null
-                        ) &&
-                        (it.releaseAtUtc == null) == (it.releaseAtBeijing == null) &&
-                        it.releaseAtUtc?.let(ISO_INSTANT_PATTERN::matches) != false &&
-                        it.releaseAtBeijing?.let(ISO_OFFSET_PATTERN::matches) != false
-                },
-            )
+        return payload.schedules.filter { schedule ->
+            runCatching { validateRow(schedule, expectedRevision) }
+                .onFailure { error ->
+                    AppLog.warning(
+                        category = "feature.calendar",
+                        event = "official_schedule_row_rejected",
+                        message = "A published schedule row does not fit this build and was skipped",
+                        throwable = error,
+                        attributes = mapOf("tmdbId" to schedule.tmdbId.toString(), "title" to schedule.title),
+                    )
+                }.isSuccess
         }
-        return payload.schedules
+    }
+
+    private fun validateRow(
+        schedule: OfficialSeriesSchedule,
+        expectedRevision: String,
+    ) {
+        require(schedule.tmdbId > 0)
+        require(schedule.seasonNumber > 0)
+        require(schedule.title.isNotBlank() && schedule.title.length <= 120)
+        require(schedule.episodes.isNotEmpty() && schedule.episodes.size <= MAX_EPISODES_PER_SERIES)
+        require(schedule.sourceUrl.startsWith("https://") && schedule.sourceUrl.length <= 2_048)
+        require((schedule.airTime == null) == (schedule.timeZoneId == null))
+        schedule.airTime?.let { require(it.matches(TIME_PATTERN)) }
+        schedule.timeZoneId?.let { require(it.matches(ZONE_PATTERN)) }
+        require(schedule.platforms.isNotEmpty() && schedule.platforms.size <= 10)
+        require(schedule.platforms.all { it.isNotBlank() && it.length <= 40 })
+        require(schedule.availabilityRegion?.matches(REGION_PATTERN) != false)
+        require(schedule.releaseMode in RELEASE_MODES)
+        require(schedule.revision == expectedRevision)
+        require(schedule.updatedAt.length in 10..64)
+        require(
+            schedule.authority == AiringScheduleAuthority.Official &&
+                schedule.confidence in 80..100 ||
+                schedule.authority == AiringScheduleAuthority.Verified &&
+                schedule.confidence in 80..89 ||
+                schedule.authority == AiringScheduleAuthority.Estimated &&
+                schedule.confidence in 60..79,
+        )
+        require(schedule.evidence.size <= 20)
+        require(schedule.evidence.isNotEmpty())
+        require(
+            schedule.evidence.all { evidence ->
+                evidence.type in EVIDENCE_TYPES &&
+                    evidence.publisher.isNotBlank() &&
+                    evidence.publisher.length <= 80 &&
+                    evidence.sourceUrl.startsWith("https://") &&
+                    evidence.sourceUrl.length <= 2_048 &&
+                    evidence.capturedAt.length in 10..64 &&
+                    evidence.contentHash.matches(HASH_PATTERN) &&
+                    evidence.extractionMethod.isNotBlank() &&
+                    evidence.extractionMethod.length <= 80
+            },
+        )
+        require(schedule.episodes.distinctBy(OfficialEpisodeSlot::episodeNumber).size == schedule.episodes.size)
+        require(
+            schedule.episodes.all {
+                it.airDate.matches(DATE_PATTERN) &&
+                    it.episodeNumber > 0 &&
+                    (
+                        schedule.airTime == null ||
+                            scheduledEpochMillis(
+                                it.airDate,
+                                schedule.airTime,
+                                requireNotNull(schedule.timeZoneId),
+                            ) != null
+                    ) &&
+                    (it.releaseAtUtc == null) == (it.releaseAtBeijing == null) &&
+                    it.releaseAtUtc?.let(ISO_INSTANT_PATTERN::matches) != false &&
+                    it.releaseAtBeijing?.let(ISO_OFFSET_PATTERN::matches) != false
+            },
+        )
     }
 
     @Serializable
@@ -389,7 +428,10 @@ class OfficialAiringScheduleCatalog(
         const val MAX_RECORDED_CHANGES = 50
         val DATE_PATTERN = Regex("\\d{4}-\\d{2}-\\d{2}")
         val TIME_PATTERN = Regex("(?:[01]\\d|2[0-3]):[0-5]\\d")
-        val ZONE_PATTERN = Regex("[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)+")
+
+        // Region ids and the slashless fixed zones ("UTC", "GMT") alike; the per-episode
+        // scheduledEpochMillis check below is what proves the id resolves.
+        val ZONE_PATTERN = Regex("[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)*")
         val HASH_PATTERN = Regex("[a-f0-9]{64}")
         val REGION_PATTERN = Regex("[A-Z]{2}|GLOBAL")
         val RELEASE_MODES = setOf("Scheduled", "Weekly", "Batch", "DateOnly", "Unknown")

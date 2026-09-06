@@ -14,11 +14,17 @@ import java.util.concurrent.TimeUnit
 
 private const val CALENDAR_SYNC_WORK_NAME = "yfuse.calendar.local-index.v1"
 
+/** The screen's default window (`AiringCalendarRepository.calendar`), so the rows it primes are the rows read. */
+private const val CALENDAR_SYNC_PAST_DAYS = 7
+private const val CALENDAR_SYNC_FUTURE_DAYS = 14
+
 /**
- * Refreshes followed/active titles independently from opening the calendar screen.
+ * Resolves the calendar window ahead of the screen being opened.
  *
- * The repository writes only changed event/resource rows into SQLite, so this work keeps the
- * next foreground launch instant without doing global discovery in the background.
+ * It asks for the same window the screen and the home card read, so its resolved rows are
+ * exactly the ones the next foreground launch paints from SQLite. A wider window costs a
+ * full multi-server availability pass over rows nobody reads until they scroll into the
+ * default window anyway, which the screen resolves on its own when they do.
  */
 fun scheduleCalendarSyncWork(context: Context) {
     val request =
@@ -48,8 +54,8 @@ class CalendarSyncWorker(
                 .getOrElse { return Result.retry() }
         return repository
             .homeCalendar(
-                pastDays = 7,
-                futureDays = 60,
+                pastDays = CALENDAR_SYNC_PAST_DAYS,
+                futureDays = CALENDAR_SYNC_FUTURE_DAYS,
                 forceRefresh = false,
             ).fold(
                 onSuccess = { Result.success() },

@@ -160,7 +160,7 @@
         <error line="31" column="13" source="standard:chain-method-continuation" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core/data/CalendarLocalStore.android.kt">
-        <error line="39" column="19" source="standard:chain-method-continuation" />
+        <error line="40" column="19" source="standard:chain-method-continuation" />
     </file>
     <file name="src/androidMain/kotlin/com/yfuse/core/designsystem/SplashPreview.android.kt">
         <error line="49" column="19" source="standard:property-naming" />
@@ -624,34 +624,34 @@
         <error line="3" column="1" source="standard:import-ordering" />
     </file>
     <file name="src/commonMain/kotlin/com/yfuse/core/data/AiringCalendarRepository.kt">
-        <error line="651" column="9" source="standard:blank-line-before-declaration" />
-        <error line="651" column="63" source="standard:multiline-expression-wrapping" />
-        <error line="651" column="63" source="standard:function-signature" />
-        <error line="652" column="35" source="standard:argument-list-wrapping" />
-        <error line="652" column="50" source="standard:argument-list-wrapping" />
-        <error line="652" column="70" source="standard:argument-list-wrapping" />
-        <error line="653" column="38" source="standard:argument-list-wrapping" />
-        <error line="653" column="59" source="standard:argument-list-wrapping" />
-        <error line="654" column="46" source="standard:argument-list-wrapping" />
-        <error line="688" column="28" source="standard:chain-method-continuation" />
-        <error line="689" column="56" source="standard:chain-method-continuation" />
-        <error line="787" column="21" source="standard:blank-line-before-declaration" />
-        <error line="790" column="34" source="standard:multiline-expression-wrapping" />
-        <error line="802" column="26" source="standard:multiline-expression-wrapping" />
-        <error line="805" column="38" source="standard:multiline-expression-wrapping" />
-        <error line="827" column="21" source="standard:chain-method-continuation" />
-        <error line="827" column="55" source="standard:chain-method-continuation" />
-        <error line="827" column="86" source="standard:chain-method-continuation" />
-        <error line="827" column="97" source="standard:chain-method-continuation" />
-        <error line="829" column="36" source="standard:condition-wrapping" />
-        <error line="829" column="77" source="standard:condition-wrapping" />
-        <error line="829" column="99" source="standard:condition-wrapping" />
-        <error line="837" column="31" source="standard:argument-list-wrapping" />
-        <error line="837" column="38" source="standard:argument-list-wrapping" />
-        <error line="838" column="91" source="standard:argument-list-wrapping" />
-        <error line="992" column="59" source="standard:multiline-expression-wrapping" />
-        <error line="992" column="59" source="standard:function-signature" />
-        <error line="1000" column="42" source="standard:multiline-expression-wrapping" />
+        <error line="659" column="9" source="standard:blank-line-before-declaration" />
+        <error line="659" column="63" source="standard:multiline-expression-wrapping" />
+        <error line="659" column="63" source="standard:function-signature" />
+        <error line="660" column="35" source="standard:argument-list-wrapping" />
+        <error line="660" column="50" source="standard:argument-list-wrapping" />
+        <error line="660" column="70" source="standard:argument-list-wrapping" />
+        <error line="661" column="38" source="standard:argument-list-wrapping" />
+        <error line="661" column="59" source="standard:argument-list-wrapping" />
+        <error line="662" column="46" source="standard:argument-list-wrapping" />
+        <error line="696" column="28" source="standard:chain-method-continuation" />
+        <error line="697" column="56" source="standard:chain-method-continuation" />
+        <error line="795" column="21" source="standard:blank-line-before-declaration" />
+        <error line="798" column="34" source="standard:multiline-expression-wrapping" />
+        <error line="810" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="813" column="38" source="standard:multiline-expression-wrapping" />
+        <error line="835" column="21" source="standard:chain-method-continuation" />
+        <error line="835" column="55" source="standard:chain-method-continuation" />
+        <error line="835" column="86" source="standard:chain-method-continuation" />
+        <error line="835" column="97" source="standard:chain-method-continuation" />
+        <error line="837" column="36" source="standard:condition-wrapping" />
+        <error line="837" column="77" source="standard:condition-wrapping" />
+        <error line="837" column="99" source="standard:condition-wrapping" />
+        <error line="845" column="31" source="standard:argument-list-wrapping" />
+        <error line="845" column="38" source="standard:argument-list-wrapping" />
+        <error line="846" column="91" source="standard:argument-list-wrapping" />
+        <error line="1005" column="59" source="standard:multiline-expression-wrapping" />
+        <error line="1005" column="59" source="standard:function-signature" />
+        <error line="1013" column="42" source="standard:multiline-expression-wrapping" />
     </file>
     <file name="src/commonMain/kotlin/com/yfuse/core/data/CalendarFollowStore.kt">
         <error line="66" column="45" source="standard:multiline-expression-wrapping" />
@@ -882,12 +882,6 @@
         <error line="100" column="29" source="standard:string-template-indent" />
         <error line="108" column="26" source="standard:wrapping" />
         <error line="108" column="26" source="standard:string-template-indent" />
-    </file>
-    <file name="src/commonTest/kotlin/com/yfuse/core/data/OfficialAiringScheduleCatalogTest.kt">
-        <error line="102" column="54" source="standard:chain-method-continuation" />
-        <error line="102" column="63" source="standard:chain-method-continuation" />
-        <error line="102" column="71" source="standard:chain-method-continuation" />
-        <error line="102" column="79" source="standard:chain-method-continuation" />
     </file>
     <file name="src/commonTest/kotlin/com/yfuse/core/data/PlaybackNegotiationContractTest.kt">
         <error line="81" column="23" source="standard:chain-method-continuation" />
