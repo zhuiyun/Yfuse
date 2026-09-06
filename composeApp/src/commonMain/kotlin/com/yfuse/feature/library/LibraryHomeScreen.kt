@@ -320,7 +320,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
                 else ->
                     PullToRefreshBox(
-                        isRefreshing = state.loading,
+                        isRefreshing = state.refreshing,
                         onRefresh = { store.accept(LibraryIntent.Retry) },
                         state = pullState,
                         modifier = Modifier.fillMaxSize(),

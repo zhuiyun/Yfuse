@@ -29,6 +29,8 @@ data class LibraryState(
     val servers: List<SavedServer> = emptyList(),
     val currentServer: SavedServer? = null,
     val loading: Boolean = false,
+    /** A pull-to-refresh over content already on screen; skeletons stay out of it. */
+    val refreshing: Boolean = false,
     val content: HomeContent = HomeContent(),
     val contentSource: LibraryContentSource = LibraryContentSource.None,
     /** Timestamp of the live response that produced [content]; null for pre-v2 cache entries. */
@@ -63,7 +65,9 @@ private sealed interface Msg {
         val current: SavedServer?,
     ) : Msg
 
-    data object Loading : Msg
+    data class Loading(
+        val refresh: Boolean,
+    ) : Msg
 
     data class Cached(
         val content: HomeContent,
@@ -170,7 +174,7 @@ class LibraryStoreFactory(
                 LibraryIntent.Retry ->
                     state().currentServer?.let {
                         loadedConnection = it.libraryConnection()
-                        load(it)
+                        load(it, refresh = true)
                     }
             }
         }
@@ -194,11 +198,14 @@ class LibraryStoreFactory(
             }
         }
 
-        private fun load(server: SavedServer) {
+        private fun load(
+            server: SavedServer,
+            refresh: Boolean = false,
+        ) {
             loadJob?.cancel()
             val generation = ++loadGeneration
             val connection = server.libraryConnection()
-            dispatch(Msg.Loading)
+            dispatch(Msg.Loading(refresh = refresh && !state().content.isEmpty))
             loadJob =
                 scope.launch {
                     try {
@@ -251,6 +258,7 @@ class LibraryStoreFactory(
                         servers = msg.servers,
                         currentServer = msg.current,
                         loading = if (resetTransientState) false else loading,
+                        refreshing = if (resetTransientState) false else refreshing,
                         content = if (resetTransientState) HomeContent() else content,
                         contentSource =
                             if (resetTransientState) {
@@ -262,7 +270,8 @@ class LibraryStoreFactory(
                         error = if (resetTransientState) null else error,
                     )
                 }
-                Msg.Loading -> copy(loading = true, error = null)
+                is Msg.Loading ->
+                    copy(loading = !msg.refresh, refreshing = msg.refresh, error = null)
                 is Msg.Cached ->
                     copy(
                         content = msg.content,
@@ -273,6 +282,7 @@ class LibraryStoreFactory(
                 is Msg.Loaded ->
                     copy(
                         loading = false,
+                        refreshing = false,
                         content = msg.content,
                         contentSource = LibraryContentSource.Live,
                         updatedAtEpochMs = msg.updatedAtEpochMs,
@@ -308,6 +318,7 @@ class LibraryStoreFactory(
                 is Msg.Failed ->
                     copy(
                         loading = false,
+                        refreshing = false,
                         contentSource =
                             if (content.isEmpty) {
                                 LibraryContentSource.None

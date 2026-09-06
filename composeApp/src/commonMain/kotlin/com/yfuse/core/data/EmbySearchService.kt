@@ -72,11 +72,17 @@ internal class EmbySearchService(
                         )
                         parameter("EnableImageTypes", "Primary")
                         parameter("ImageTypeLimit", 1)
+                        // Emby filters watched state itself; asking it to is the difference
+                        // between one page and a scan of the whole library per keystroke.
+                        filter.played?.let { parameter("IsPlayed", it) }
+                        if (filter.resumable) parameter("Filters", "IsResumable")
                         if (offset > 0) parameter("StartIndex", offset)
                         parameter("Limit", requestLimit)
                     }.body()
 
-            val localProgressFilter = filter.played != null || filter.resumable
+            // The server has already applied the played/resumable filter; the local scan that
+            // used to page through up to 50 000 rows only remains for the fallback below.
+            val localProgressFilter = false
             val exactPage =
                 request(
                     query,
@@ -153,7 +159,7 @@ internal class EmbySearchService(
                     .distinctBy { it.Id }
                     .filter { it.Name?.contains(normalizedQuery, ignoreCase = true) == true }
                     .map { progress.project(server, it).toMediaItem() }
-                    .filter { !localProgressFilter || it.matchesProgressFilter(filter) }
+                    .filter { it.matchesProgressFilter(filter) }
                     .take(limit)
                     .toList()
             MediaSearchPage(
