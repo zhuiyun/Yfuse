@@ -1,5 +1,6 @@
 package com.yfuse.watch
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -2099,14 +2100,19 @@ internal fun CoroutineScope.launchCalendarIngestionFromEnvironment(
             scheduleStore = scheduleStore,
             ocrCache = ocrCache,
         )
-    return launch {
+    // A collection round is minutes of blocking HTTP and polling sleeps. On the server's
+    // shared dispatcher that pinned a worker thread the watch sockets also run on.
+    return launch(Dispatchers.IO) {
         try {
             while (isActive) {
-                runCatching { runtime.runOnce() }
-                    .onFailure { failure ->
-                        CalendarIngestionHealth.failed(failure)
-                        System.err.println("calendar ingestion failed: ${failure.message}")
-                    }
+                try {
+                    runtime.runOnce()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    CalendarIngestionHealth.failed(failure)
+                    System.err.println("calendar ingestion failed: ${failure.message}")
+                }
                 val minutes = runCatching {
                     ingestionJson.decodeFromString<CalendarIngestionConfig>(File(configPath).readText()).refreshMinutes
                 }.getOrDefault(30)

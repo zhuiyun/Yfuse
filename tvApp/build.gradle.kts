@@ -59,7 +59,15 @@ val tvVersionCode =
             "yfuseVersionCode must be a positive integer"
         }
         raw.toIntOrNull() ?: error("yfuseVersionCode is outside the supported integer range")
-    } ?: storedTvVersionCode
+    } ?: tvVersionCodeFor(storedTvVersionCode)
+/**
+ * The television build shares the phone build's application id, and Play refuses two APKs of
+ * one app with the same versionCode. Derived rather than read, so the default build never
+ * collides with the phone package cut from the same version.properties; an explicit
+ * -PyfuseVersionCode still wins.
+ */
+fun tvVersionCodeFor(phoneVersionCode: Int): Int = phoneVersionCode * 10 + 1
+
 val tvVersionName =
     providers.gradleProperty("yfuseVersionName").orNull?.trim()?.let { value ->
         require(value.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+"))) {

@@ -168,8 +168,10 @@ internal fun Route.accountRoutes(
                             "播放记录同步参数无效",
                         )
                     }
+                    // Synchronous JDBC belongs on the account work executor, not on the
+                    // server's event-loop thread that runs this handler.
                     call.respondLimitedJson(
-                        PlaybackRelayStoreProvider.instance.pull(account.userId, after, limit),
+                        backend.execute { PlaybackRelayStoreProvider.instance.pull(account.userId, after, limit) },
                     )
                 }
             }
@@ -180,11 +182,13 @@ internal fun Route.accountRoutes(
                     val request = call.receiveLimitedJson<PlaybackPushRequest>()
                     val response =
                         try {
-                            PlaybackRelayStoreProvider.instance.push(
-                                userId = account.userId,
-                                request = request,
-                                nowEpochMs = System.currentTimeMillis(),
-                            )
+                            backend.execute {
+                                PlaybackRelayStoreProvider.instance.push(
+                                    userId = account.userId,
+                                    request = request,
+                                    nowEpochMs = System.currentTimeMillis(),
+                                )
+                            }
                         } catch (_: IllegalArgumentException) {
                             throw AccountServiceException(
                                 AccountProblem.InvalidRequest,

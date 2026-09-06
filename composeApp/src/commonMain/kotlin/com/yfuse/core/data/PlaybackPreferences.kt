@@ -441,11 +441,17 @@ class PlaybackPreferences(
         if (!enabled) settings.remove(PLAYBACK_QOE_OUTBOX_KEY)
     }
 
+    /**
+     * The remembered choices for a title. Episodes share one entry per series; a film has
+     * no series, so it keys its own entry by [itemId] — without that fallback every choice
+     * made in a film was silently discarded on exit.
+     */
     fun rememberedSeriesPlayback(
         serverId: String?,
         seriesId: String?,
+        itemId: String? = null,
     ): SeriesPlaybackPreference? {
-        val key = seriesPreferenceKey(serverId, seriesId) ?: return null
+        val key = seriesPreferenceKey(serverId, seriesId, itemId) ?: return null
         return synchronized(seriesLock) {
             readSeriesPreferences()
                 .lastOrNull { it.serverId == key.first && it.seriesId == key.second }
@@ -461,8 +467,15 @@ class PlaybackPreferences(
         serverId: String?,
         seriesId: String?,
         transform: (SeriesPlaybackPreference) -> SeriesPlaybackPreference,
+    ) = updateSeriesPlayback(serverId, seriesId, itemId = null, transform = transform)
+
+    fun updateSeriesPlayback(
+        serverId: String?,
+        seriesId: String?,
+        itemId: String?,
+        transform: (SeriesPlaybackPreference) -> SeriesPlaybackPreference,
     ) {
-        val key = seriesPreferenceKey(serverId, seriesId) ?: return
+        val key = seriesPreferenceKey(serverId, seriesId, itemId) ?: return
         synchronized(seriesLock) {
             val entries = readSeriesPreferences()
             val current =
@@ -495,10 +508,14 @@ class PlaybackPreferences(
     private fun seriesPreferenceKey(
         serverId: String?,
         seriesId: String?,
+        itemId: String?,
     ): Pair<String, String>? {
         val server = serverId?.trim()?.takeIf(String::isNotEmpty)?.take(MAX_SERIES_KEY_CHARS) ?: return null
-        val series = seriesId?.trim()?.takeIf(String::isNotEmpty)?.take(MAX_SERIES_KEY_CHARS) ?: return null
-        return server to series
+        val series =
+            seriesId?.trim()?.takeIf(String::isNotEmpty)
+                ?: itemId?.trim()?.takeIf(String::isNotEmpty)?.let { "item:$it" }
+                ?: return null
+        return server to series.take(MAX_SERIES_KEY_CHARS)
     }
 
     private fun SeriesPlaybackPreference.normalized(): SeriesPlaybackPreference =

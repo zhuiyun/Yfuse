@@ -1,6 +1,8 @@
 package com.yfuse.tv.ui
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,12 +23,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -37,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
@@ -59,6 +64,8 @@ internal fun TvHomeScreen(
     val heroItems = state.featuredSlides.take(8)
     var heroIndex by remember(heroItems.map(TmdbItem::id)) { mutableIntStateOf(0) }
     val hero = heroItems.getOrNull(heroIndex)
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    var heroFocused by remember { mutableStateOf(false) }
     TvRestoreRouteFocusEffect(
         route = "home",
         focusMemory = focusMemory,
@@ -66,8 +73,11 @@ internal fun TvHomeScreen(
         contentGeneration = listOf(state.loading, hero?.id, state.resume.size, state.nextUp.size),
     )
 
-    LaunchedEffect(heroItems.map(TmdbItem::id), heroIndex) {
-        if (heroItems.size > 1) {
+    // The carousel holds still while any of its own controls has focus: the reader is
+    // deciding about *this* title, and advancing under the play key would start another one.
+    // Under 减弱动态效果 it never advances on its own.
+    LaunchedEffect(heroItems.map(TmdbItem::id), heroIndex, heroFocused, reduceMotion) {
+        if (heroItems.size > 1 && !heroFocused && !reduceMotion) {
             delay(8_000L)
             heroIndex = (heroIndex + 1) % heroItems.size
         }
@@ -94,6 +104,8 @@ internal fun TvHomeScreen(
                 focusMemory = focusMemory,
                 navigationRequester = navigationRequester,
                 contentRequester = contentRequester,
+                reduceMotion = reduceMotion,
+                modifier = Modifier.onFocusChanged { heroFocused = it.hasFocus },
             )
         }
 
@@ -211,9 +223,11 @@ private fun TvHomeHero(
     focusMemory: TvUiFocusMemory,
     navigationRequester: FocusRequester,
     contentRequester: FocusRequester,
+    reduceMotion: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        Modifier
+        modifier
             .fillMaxWidth()
             .height(390.dp)
             .padding(horizontal = 8.dp)
@@ -222,6 +236,7 @@ private fun TvHomeHero(
     ) {
         Crossfade(
             targetState = item,
+            animationSpec = if (reduceMotion) snap() else tween(),
             label = "tv-living-poster",
         ) { current ->
             AsyncImage(

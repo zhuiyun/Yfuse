@@ -220,3 +220,16 @@ fun Modifier.tvRemoteKeyHandler(
 }
 
 private const val FOCUS_REQUEST_FRAME_ATTEMPTS = 3
+
+/**
+ * Requests focus once the requester's node has been placed.
+ *
+ * A bare `requestFocus()` in a `LaunchedEffect(Unit)` races the first layout pass and throws
+ * `IllegalStateException` when the node is not attached yet — most likely on a cold start
+ * or the first frame of a dialog, and more likely still on a slow television. Waiting a
+ * couple of frames covers the race; the `runCatching` covers a node that never appeared.
+ */
+suspend fun FocusRequester.requestFocusWhenAttached(frames: Int = 2) {
+    repeat(frames.coerceAtLeast(1)) { withFrameNanos { } }
+    runCatching { requestFocus() }
+}

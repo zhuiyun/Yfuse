@@ -46,6 +46,7 @@ import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.search.SearchComponent
+import com.yfuse.tv.focus.requestFocusWhenAttached
 
 private data class TvDestination(
     val tab: RootComponent.Tab,
@@ -120,7 +121,7 @@ fun TvRoot(component: RootComponent) {
     }
 
     LaunchedEffect(Unit) {
-        navRequesters.getValue(activeTab).requestFocus()
+        navRequesters.getValue(activeTab).requestFocusWhenAttached()
         component.dependencies.playbackReportingCoordinator.flushPending()
     }
 

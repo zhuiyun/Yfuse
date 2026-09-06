@@ -443,7 +443,13 @@ internal class PlaybackRelayStore private constructor(
 }
 
 internal object PlaybackRelayStoreProvider {
-    val instance: PlaybackRelayStore by lazy(PlaybackRelayStore::fromEnvironment)
+    private val lazyInstance = lazy(PlaybackRelayStore::fromEnvironment)
+    val instance: PlaybackRelayStore by lazyInstance
+
+    /** Closes the connection on shutdown without opening one that was never needed. */
+    fun closeIfStarted() {
+        if (lazyInstance.isInitialized()) lazyInstance.value.close()
+    }
 }
 
 private fun ByteArray.toBase64Url(): String = Base64.getUrlEncoder().withoutPadding().encodeToString(this)

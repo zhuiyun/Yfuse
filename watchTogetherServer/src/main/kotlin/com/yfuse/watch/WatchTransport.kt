@@ -5,8 +5,14 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.plugins.origin
 
 /**
- * Resolves the quota identity. Forwarding headers are ignored unless the deployment opts in;
- * otherwise a direct client could rotate a spoofed header to bypass the limit.
+ * Resolves the quota identity.
+ *
+ * Forwarding headers are honoured only when the deployment opts in *and* the socket peer is
+ * the local reverse proxy: a public peer's header is its own claim about itself and is
+ * ignored. Of a comma-joined chain the **last** entry is taken — that is the one the trusted
+ * proxy appended, naming the peer that actually connected to it; the entries before it were
+ * written by that peer and are worth nothing. The account routes apply the same rule in
+ * `resolveAccountClientIdentity`.
  */
 internal fun resolveClientIp(
     remoteHost: String,
@@ -15,14 +21,14 @@ internal fun resolveClientIp(
     trustProxyHeaders: Boolean,
 ): String {
     val direct = remoteHost.trim().take(128).ifBlank { "unknown" }
-    if (!trustProxyHeaders) return direct
+    if (!trustProxyHeaders || !isLoopbackHost(direct)) return direct
 
     val forwardedFor =
         xForwardedFor
-            ?.substringBefore(',')
+            ?.substringAfterLast(',')
             ?.let(::normalizeForwardedAddress)
             ?: forwarded
-                ?.substringBefore(',')
+                ?.substringAfterLast(',')
                 ?.split(';')
                 ?.firstNotNullOfOrNull { part ->
                     part

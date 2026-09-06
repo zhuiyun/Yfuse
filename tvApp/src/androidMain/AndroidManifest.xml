@@ -28,6 +28,14 @@
         android:name="android.hardware.microphone"
         android:required="false" />
 
+    <!-- Package visibility for the external-player escape hatch (Android 11+). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
+    </queries>
+
     <application
         android:name="com.yfuse.tv.TvApplication"
         android:allowBackup="false"

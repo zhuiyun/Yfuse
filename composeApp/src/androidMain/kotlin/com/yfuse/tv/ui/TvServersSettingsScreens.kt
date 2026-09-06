@@ -50,6 +50,7 @@ import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
 import com.yfuse.feature.servers.ServersTabComponent
 import com.yfuse.tv.focus.FocusCandidate
+import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
 
 @Composable
@@ -287,7 +288,7 @@ private fun TvServerDialog(
     onIntent: (ServersIntent) -> Unit,
 ) {
     val hostRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { hostRequester.requestFocus() }
+    LaunchedEffect(Unit) { hostRequester.requestFocusWhenAttached() }
     Dialog(
         onDismissRequest = { onIntent(ServersIntent.DismissDialog) },
         properties = DialogProperties(usePlatformDefaultWidth = false),

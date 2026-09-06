@@ -489,6 +489,11 @@ internal fun PlayerRoot(
             reported = reportedLocalState,
         )
     val localState = timelineResolution.state
+    // The reporting collector below reads this through snapshot state. A plain capture of
+    // `localState` would freeze at the value of the composition that launched the effect,
+    // and the flow would only re-emit when the cast state changed — which is exactly what
+    // happened once the collector stopped restarting on every position tick.
+    val latestLocalState by rememberUpdatedState(localState)
     SideEffect { timelineMemory = timelineResolution.memory }
     LaunchedEffect(
         engine,
@@ -1165,6 +1170,7 @@ internal fun PlayerRoot(
             playbackPreferences.rememberedSeriesPlayback(
                 serverId = item.serverId,
                 seriesId = item.seriesId,
+                itemId = item.id,
             )
         handoverItemId = item.id
         audioRestore = remembered?.audio?.toRestorePreference()
@@ -1212,6 +1218,7 @@ internal fun PlayerRoot(
         playbackPreferences.updateSeriesPlayback(
             serverId = currentItem?.serverId,
             seriesId = currentItem?.seriesId,
+            itemId = currentItem?.id,
             transform = transform,
         )
     }
@@ -1490,7 +1497,7 @@ internal fun PlayerRoot(
     // for every 500 ms position tick. The snapshot still follows local/cast authority changes.
     LaunchedEffect(engine, castManager, activeItems, reporter) {
         snapshotFlow {
-            val currentLocal = localState
+            val currentLocal = latestLocalState
             val currentCast = castState
             val authoritative =
                 currentCast.hasActiveSession ||
@@ -1498,7 +1505,7 @@ internal fun PlayerRoot(
                         currentCast.termination == CastTermination.Unexpected &&
                             completedCastHandoffRevision != currentCast.sessionRevision
                     )
-            val item = activeItems.getOrNull(currentLocal.currentIndex)
+            val item = latestActiveItems.getOrNull(currentLocal.currentIndex)
             val playMethod =
                 if (item?.transcodeUrl?.isNotBlank() == true) {
                     PlaybackMethod.Transcode.label
@@ -1507,9 +1514,10 @@ internal fun PlayerRoot(
                 }
             if (authoritative) currentLocal.withRemoteCast(currentCast, playMethod) else currentLocal
         }.collect { observedState ->
-            reporter?.rebind(activeItems, observedState)
+            val items = latestActiveItems
+            reporter?.rebind(items, observedState)
             reporter?.update(observedState)
-            onPlaybackState(observedState, activeItems.getOrNull(observedState.currentIndex))
+            onPlaybackState(observedState, items.getOrNull(observedState.currentIndex))
             playbackGate.onPlaybackIndexChanged(observedState.currentIndex)
         }
     }

@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -23,7 +24,12 @@ internal fun openExternalPlayer(
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             putExtra(Intent.EXTRA_TITLE, title)
         }
-    if (intent.resolveActivity(context.packageManager) == null) return false
-    context.startActivity(Intent.createChooser(intent, "选择外部播放器"))
-    return true
+    // No `resolveActivity` gate: since Android 11 it answers null for every package the
+    // manifest's <queries> does not name, and the chooser itself reports the empty case.
+    return try {
+        context.startActivity(Intent.createChooser(intent, "选择外部播放器"))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    }
 }

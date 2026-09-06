@@ -1879,20 +1879,21 @@ class WatchTogetherServerTest {
         }
 
     @Test
-    fun proxy_headers_are_only_used_after_explicit_trust() {
+    fun proxy_headers_are_only_used_after_explicit_trust_and_from_the_local_proxy() {
         assertEquals(
-            "10.0.0.4",
+            "127.0.0.1",
             resolveClientIp(
-                remoteHost = "10.0.0.4",
+                remoteHost = "127.0.0.1",
                 xForwardedFor = "203.0.113.8, 10.0.0.3",
                 forwarded = null,
                 trustProxyHeaders = false,
             ),
         )
+        // The proxy appends the peer it saw; anything before it was written by that peer.
         assertEquals(
-            "203.0.113.8",
+            "10.0.0.3",
             resolveClientIp(
-                remoteHost = "10.0.0.4",
+                remoteHost = "127.0.0.1",
                 xForwardedFor = "203.0.113.8, 10.0.0.3",
                 forwarded = null,
                 trustProxyHeaders = true,
@@ -1901,9 +1902,19 @@ class WatchTogetherServerTest {
         assertEquals(
             "2001:db8::7",
             resolveClientIp(
-                remoteHost = "10.0.0.4",
+                remoteHost = "::1",
                 xForwardedFor = null,
                 forwarded = "for=\"[2001:db8::7]:4711\";proto=https",
+                trustProxyHeaders = true,
+            ),
+        )
+        // A public peer's own forwarding header is its claim about itself, not the proxy's.
+        assertEquals(
+            "10.0.0.4",
+            resolveClientIp(
+                remoteHost = "10.0.0.4",
+                xForwardedFor = "203.0.113.8",
+                forwarded = null,
                 trustProxyHeaders = true,
             ),
         )

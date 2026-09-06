@@ -8,6 +8,7 @@ import com.yfuse.watch.account.AccountServiceException
 import com.yfuse.watch.account.AccountWorkExecutor
 import com.yfuse.watch.account.AccountWorkRejectedException
 import com.yfuse.watch.account.AuthenticatedAccount
+import com.yfuse.watch.account.PlaybackRelayStoreProvider
 import com.yfuse.watch.account.accountRoutes
 import com.yfuse.watch.migration.MigrationRelayBackend
 import com.yfuse.watch.migration.migrationRelayRoutes
@@ -29,6 +30,7 @@ import io.ktor.server.plugins.origin
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import io.ktor.server.websocket.DefaultWebSocketServerSession
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.CloseReason
@@ -39,6 +41,8 @@ import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.consumeEach
@@ -46,6 +50,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -442,6 +447,7 @@ internal fun Application.watchTogetherModule(
     // collector fails closed and keeps the current database revision on upstream/OCR failures.
     appScope.launchCalendarIngestionFromEnvironment(calendarScheduleStore)
     monitor.subscribe(ApplicationStopped) { calendarScheduleStore.close() }
+    monitor.subscribe(ApplicationStopped) { PlaybackRelayStoreProvider.closeIfStarted() }
     monitor.subscribe(ApplicationStopped) {
         try {
             accountBackend.close()
@@ -1645,41 +1651,69 @@ internal fun Application.watchTogetherModule(
                     }
                 }
             } finally {
-                authWatchdog?.cancelAndJoin()
-                val room = joinedRoom
-                val clientId = joinedClientId
-                if (room != null && clientId != null) {
-                    // Guard against a stale connection's own cleanup evicting a client that
-                    // has already reconnected on a new session: only the session currently
-                    // on record for `clientId` is allowed to remove it.
-                    var hostWentAbsent = false
-                    val removedNow =
-                        synchronized(room) {
-                            val isActiveSession = room.participants[clientId]?.session === this
-                            if (isActiveSession) {
-                                room.participants.remove(clientId)
-                                if (room.hostId == clientId) {
-                                    // The host keeps the room while it is away. Handing over the
-                                    // instant the socket dropped turned a few seconds of no
-                                    // signal into a permanent loss of control; a delayed
-                                    // handover still covers a host that genuinely doesn't return.
-                                    room.hostAbsentSinceMs = System.currentTimeMillis()
-                                    hostWentAbsent = true
-                                }
-                                if (room.participants.isEmpty()) {
-                                    room.emptySinceMs = System.currentTimeMillis()
-                                }
-                            }
-                            isActiveSession
-                        }
-                    if (hostWentAbsent) {
-                        appScope.scheduleHostHandover(room, hostGraceMs)
-                    }
-                    if (removedNow && room.participants.isNotEmpty()) broadcastRoomUpdate(room)
+                // Runs even when this handler is itself being cancelled (shutdown, upstream
+                // job cancelled): a suspending call that throws here would skip the member
+                // removal below and leave a ghost that keeps the room alive forever.
+                withContext(NonCancellable) {
+                    cleanupSocket(
+                        authWatchdog = authWatchdog,
+                        joinedRoom = joinedRoom,
+                        joinedClientId = joinedClientId,
+                        session = this@webSocket,
+                        connectionLease = connectionLease,
+                        broadcastRoomUpdate = ::broadcastRoomUpdate,
+                        scheduleHostHandover = { room -> appScope.scheduleHostHandover(room, hostGraceMs) },
+                    )
                 }
-                connectionLease.close()
             }
         }
+    }
+}
+
+private suspend fun cleanupSocket(
+    authWatchdog: Job?,
+    joinedRoom: Room?,
+    joinedClientId: String?,
+    session: DefaultWebSocketServerSession,
+    connectionLease: AutoCloseable,
+    broadcastRoomUpdate: suspend (Room) -> Unit,
+    scheduleHostHandover: (Room) -> Unit,
+) {
+    try {
+        authWatchdog?.cancelAndJoin()
+        val room = joinedRoom
+        val clientId = joinedClientId
+        if (room != null && clientId != null) {
+            // Guard against a stale connection's own cleanup evicting a client that
+            // has already reconnected on a new session: only the session currently
+            // on record for `clientId` is allowed to remove it.
+            var hostWentAbsent = false
+            val removedNow =
+                synchronized(room) {
+                    val isActiveSession = room.participants[clientId]?.session === session
+                    if (isActiveSession) {
+                        room.participants.remove(clientId)
+                        if (room.hostId == clientId) {
+                            // The host keeps the room while it is away. Handing over the
+                            // instant the socket dropped turned a few seconds of no
+                            // signal into a permanent loss of control; a delayed
+                            // handover still covers a host that genuinely doesn't return.
+                            room.hostAbsentSinceMs = System.currentTimeMillis()
+                            hostWentAbsent = true
+                        }
+                        if (room.participants.isEmpty()) {
+                            room.emptySinceMs = System.currentTimeMillis()
+                        }
+                    }
+                    isActiveSession
+                }
+            if (hostWentAbsent) {
+                scheduleHostHandover(room)
+            }
+            if (removedNow && room.participants.isNotEmpty()) broadcastRoomUpdate(room)
+        }
+    } finally {
+        connectionLease.close()
     }
 }
 
