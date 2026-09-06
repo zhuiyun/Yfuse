@@ -457,9 +457,11 @@ internal class AndroidNativeEnhancedYPlayer(
             if (!force && now - lastPublishNs < STATE_PUBLISH_INTERVAL_NS) return
             lastPublishNs = now
             val snapshot = session.snapshot()
-            if (snapshot.audioSinkDiagnostics.isNotEmpty() &&
-                (force || snapshot.audioRendering != lastAudioRendering || now - lastAudioDiagnosticNs >= 2_000_000_000L)
-            ) {
+            val audioDiagnosticsDue =
+                force ||
+                    snapshot.audioRendering != lastAudioRendering ||
+                    now - lastAudioDiagnosticNs >= 2_000_000_000L
+            if (snapshot.audioSinkDiagnostics.isNotEmpty() && audioDiagnosticsDue) {
                 lastAudioDiagnosticNs = now
                 lastAudioRendering = snapshot.audioRendering
                 AppLog.info(
