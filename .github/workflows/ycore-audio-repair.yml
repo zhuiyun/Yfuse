@@ -1,9 +1,9 @@
-name: YCore audio repair verification
+name: YCore demux audio truth repair verification
 
 on:
   push:
     branches: [fix/ycore-audio-output-20260906]
-    paths: [.github/workflows/ycore-audio-repair.yml, .github/repairs/ycore-audio.patch.gz]
+    paths: [.github/workflows/ycore-audio-repair.yml, .github/repairs/ycore-audio-truth.patch]
   workflow_dispatch:
 
 permissions:
@@ -35,12 +35,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          patch_file=.github/repairs/ycore-audio.patch.gz
+          patch_file=.github/repairs/ycore-audio-truth.patch
           if [[ -f "$patch_file" ]]; then
-            gzip -dc "$patch_file" > "$RUNNER_TEMP/repair.patch"
-            echo '3cf48153e000bb65f67af641fc207613e099e0405cd5a323d156c567c6387ec3  '"$RUNNER_TEMP/repair.patch" | sha256sum -c -
+            cp "$patch_file" "$RUNNER_TEMP/repair.patch"
+            echo 'de1cddd1f3c0773a0eb28d86720eef96679542367d6b7c00b0eb2b8ab6d3829b  '"$RUNNER_TEMP/repair.patch" | sha256sum -c -
             git apply --check "$RUNNER_TEMP/repair.patch"
             git apply "$RUNNER_TEMP/repair.patch"
+            git add -N -- composeApp/src
             mapfile -t kotlin_files < <(git diff --name-only -- '*.kt')
             curl -fsSL --retry 3 https://repo.maven.apache.org/maven2/com/pinterest/ktlint/ktlint-cli/1.3.1/ktlint-cli-1.3.1-all.jar -o "$RUNNER_TEMP/ktlint.jar"
             java -jar "$RUNNER_TEMP/ktlint.jar" --format "${kotlin_files[@]}" || echo 'Formatter left violations; the strict ktlintCheck signing gate remains required.'
@@ -49,7 +50,7 @@ jobs:
             git add -- composeApp/src .github/sign-android-request
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'fix(player): stop completed queue watchdogs without reentering disposed Main'
+            git commit -m 'fix(player): reconcile enhanced audio from actual demux tracks'
             git push origin "HEAD:$GITHUB_REF_NAME"
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -174,7 +175,7 @@ jobs:
           actual="$(keytool -list -v -keystore signing/yfuse-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
           test "$actual" = "$EXPECTED_ANDROID_CERT_SHA256"
       - name: Build production-signed release
-        run: ./gradlew :composeApp:assembleRelease -PyfuseVersionCode=191 -PyfuseVersionName=1.0.29 -PconfirmMdkDistributionRights=true --no-daemon
+        run: ./gradlew :composeApp:assembleRelease -PyfuseVersionCode=192 -PyfuseVersionName=1.0.30 -PconfirmMdkDistributionRights=true --no-daemon
       - name: Verify APK signature, version, alignment, and native contents
         run: |
           set -euo pipefail
@@ -186,7 +187,7 @@ jobs:
           grep -Fq "$EXPECTED_ANDROID_CERT_SHA256" build/signed-artifact/signature-verification.txt
           "$tools/zipalign" -c -v -P 16 4 "$apk" > build/signed-artifact/alignment-verification.txt
           "$tools/aapt" dump badging "$apk" > build/signed-artifact/apk-badging.txt
-          grep -Fq "package: name='com.yfuse' versionCode='191' versionName='1.0.29'" build/signed-artifact/apk-badging.txt
+          grep -Fq "package: name='com.yfuse' versionCode='192' versionName='1.0.30'" build/signed-artifact/apk-badging.txt
           python3 - "$apk" <<'PY'
           import hashlib, json, os, pathlib, sys, zipfile, xml.etree.ElementTree as ET
           report = json.loads(pathlib.Path('.native-build/artifacts/native-build-info.json').read_text())
@@ -202,16 +203,16 @@ jobs:
               root = ET.parse(path).getroot()
               for key in totals: totals[key] += int(root.attrib.get(key, 0))
           assert totals['tests'] > 0 and totals['failures'] == 0 and totals['errors'] == 0, totals
-          info = dict(packageName='com.yfuse', versionName='1.0.29', versionCode=191, certificateSha256=os.environ['EXPECTED_ANDROID_CERT_SHA256'], sourceCommit=os.environ['SOURCE_SHA'], nativeSourceCommit=os.environ['NATIVE_SOURCE_SHA'], nativeBuildRun=os.environ['NATIVE_RUN_ID'], runtime='full', tests=totals, physicalDeviceTested=False)
+          info = dict(packageName='com.yfuse', versionName='1.0.30', versionCode=192, certificateSha256=os.environ['EXPECTED_ANDROID_CERT_SHA256'], sourceCommit=os.environ['SOURCE_SHA'], nativeSourceCommit=os.environ['NATIVE_SOURCE_SHA'], nativeBuildRun=os.environ['NATIVE_RUN_ID'], runtime='full', tests=totals, physicalDeviceTested=False)
           pathlib.Path('build/signed-artifact/build-info.json').write_text(json.dumps(info, indent=2) + '\n')
           PY
-          cp "$apk" build/signed-artifact/Yfuse-1.0.29-191-signed.apk
+          cp "$apk" build/signed-artifact/Yfuse-1.0.30-192-signed.apk
           cp .native-build/artifacts/native-build-info.json build/signed-artifact/
           cp scripts/engine-checksums.sha256 build/signed-artifact/effective-engine-checksums.sha256
-          (cd build/signed-artifact && sha256sum Yfuse-1.0.29-191-signed.apk > SHA256SUMS)
+          (cd build/signed-artifact && sha256sum Yfuse-1.0.30-192-signed.apk > SHA256SUMS)
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: yfuse-1.0.29-191-signed-${{ needs.prepare.outputs.source_sha }}
+          name: yfuse-1.0.30-192-signed-${{ needs.prepare.outputs.source_sha }}
           path: build/signed-artifact/
           retention-days: 14
           if-no-files-found: error
