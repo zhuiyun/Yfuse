@@ -12,13 +12,14 @@ import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
+import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.loadCalendarWithDeadline
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.coroutineContext
 
 class HomeComponent(
     componentContext: ComponentContext,
@@ -159,40 +161,65 @@ class HomeComponent(
             val tmdbId = entry.episode.showTmdbId.takeIf { it > 0 }
             val mediaType = if (entry.episode.isMovie) "movie" else "tv"
             val normalizedTitle = entry.episode.showTitle.normalizeCalendarTitle()
-            registry.data.value.servers
-                .map { server ->
-                    async {
-                        val exact =
-                            tmdbId?.let { id ->
-                                emby.findByTmdbId(server, id, mediaType).getOrNull()
-                            }
-                        val matched =
-                            exact ?: emby.search(server, entry.episode.showTitle)
-                                .getOrDefault(emptyList())
-                                .firstOrNull { candidate ->
-                                    val typeMatches =
-                                        if (entry.episode.isMovie) {
-                                            candidate.type == "Movie"
-                                        } else {
-                                            candidate.type == "Series" || candidate.type == "Episode"
-                                        }
-                                    typeMatches && candidate.title.normalizeCalendarTitle() == normalizedTitle
-                                }
-                        matched?.let { item ->
-                            HomeCalendarOpenTarget(
-                                serverId = server.id,
-                                itemId =
-                                    if (item.type == "Episode") {
-                                        item.posterItemId.takeIf(String::isNotBlank) ?: item.id
-                                    } else {
-                                        item.id
-                                    },
-                            )
+            val servers = registry.data.value.servers
+            if (servers.isEmpty()) return@coroutineScope null
+            // Every server is asked at once, and the first one that has the show answers the
+            // tap. An offline server used to hold the answer hostage until its own timeout.
+            val answers = Channel<HomeCalendarOpenTarget?>(servers.size)
+            servers.forEach { server ->
+                launch {
+                    val answer =
+                        withTimeoutOrNull(CALENDAR_OPEN_SERVER_TIMEOUT_MS) {
+                            resolveCalendarOpenTargetOn(server, entry, tmdbId, mediaType, normalizedTitle)
                         }
-                    }
-                }.awaitAll()
-                .firstOrNull { it != null }
+                    answers.send(answer)
+                }
+            }
+            var found: HomeCalendarOpenTarget? = null
+            repeat(servers.size) {
+                if (found == null) found = answers.receive()
+            }
+            coroutineContext.cancelChildren()
+            found
         }
+
+    private suspend fun resolveCalendarOpenTargetOn(
+        server: SavedServer,
+        entry: CalendarEntry,
+        tmdbId: Int?,
+        mediaType: String,
+        normalizedTitle: String,
+    ): HomeCalendarOpenTarget? {
+        val exact =
+            tmdbId?.let { id ->
+                emby.findByTmdbId(server, id, mediaType).getOrNull()
+            }
+        val matched =
+            exact
+                ?: emby
+                    .search(server, entry.episode.showTitle)
+                    .getOrDefault(emptyList())
+                    .firstOrNull { candidate ->
+                        val typeMatches =
+                            if (entry.episode.isMovie) {
+                                candidate.type == "Movie"
+                            } else {
+                                candidate.type == "Series" || candidate.type == "Episode"
+                            }
+                        typeMatches && candidate.title.normalizeCalendarTitle() == normalizedTitle
+                    }
+        return matched?.let { item ->
+            HomeCalendarOpenTarget(
+                serverId = server.id,
+                itemId =
+                    if (item.type == "Episode") {
+                        item.posterItemId.takeIf(String::isNotBlank) ?: item.id
+                    } else {
+                        item.id
+                    },
+            )
+        }
+    }
 }
 
 internal data class HomeCalendarOpenTarget(
@@ -279,3 +306,6 @@ data class HomeCalendarState(
 )
 
 private const val CALENDAR_OPEN_RESOLVE_TIMEOUT_MS = 3_000L
+
+/** One server's share of the calendar tap; the others keep going when it runs out. */
+private const val CALENDAR_OPEN_SERVER_TIMEOUT_MS = 2_500L

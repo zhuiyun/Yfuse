@@ -57,6 +57,8 @@ import com.yfuse.core.network.EmbyImages
 internal fun GenreSection(
     genres: List<String>,
     modifier: Modifier = Modifier,
+    /** A chip is a query: tapping 科幻 searches the libraries for it. */
+    onGenreClick: ((String) -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     Column(modifier) {
@@ -73,7 +75,9 @@ internal fun GenreSection(
                     color = palette.body,
                     modifier =
                         Modifier
-                            .shadow(GlassLift.control, GlassShapes.chip)
+                            .let { base ->
+                                if (onGenreClick != null) base.pressable { onGenreClick(genre) } else base
+                            }.shadow(GlassLift.control, GlassShapes.chip)
                             .liquidGlass(
                                 shape = GlassShapes.chip,
                                 fill =
@@ -278,6 +282,8 @@ internal fun CastRow(
     accessToken: String,
     people: List<Person>,
     modifier: Modifier = Modifier,
+    /** Tapping a face searches for the person; the libraries are the only filmography we have. */
+    onPersonClick: ((Person) -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     Column(modifier) {
@@ -290,7 +296,14 @@ internal fun CastRow(
                 people.take(20),
                 key = { index, person -> "person-${person.id}-$index" },
             ) { _, person ->
-                Column(Modifier.width(66.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    Modifier
+                        .width(66.dp)
+                        .let { base ->
+                            if (onPersonClick != null) base.pressable { onPersonClick(person) } else base
+                        },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Poster(
                         url = EmbyImages.avatar(baseUrl, person, accessToken = accessToken),
                         shape = CircleShape,

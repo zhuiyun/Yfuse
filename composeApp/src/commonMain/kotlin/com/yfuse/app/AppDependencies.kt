@@ -25,6 +25,8 @@ import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.feature.player.PlaybackReportingCoordinator
 import com.yfuse.feature.player.PlaybackSourcePreloader
+import com.yfuse.feature.search.SearchRequests
+import com.yfuse.feature.servers.QuickConnectGateway
 import com.yfuse.feature.watch.WatchInviteResolver
 
 /** Process-scoped services resolved once at the Android composition root. */
@@ -50,6 +52,9 @@ data class AppDependencies(
     val skipSegmentPreferences: SkipSegmentPreferences,
     val libraryCache: LibraryCache,
     val lanDiscovery: LanDiscovery,
+    val quickConnectGateway: QuickConnectGateway,
+    /** Searches asked for from elsewhere in the app (a genre chip, an actor); the root routes them. */
+    val searchRequests: SearchRequests,
     val account: AccountRepository,
     val serverHealthMonitor: ServerHealthMonitor,
     val serverActivity: ServerActivityStore,

@@ -23,11 +23,11 @@ class ImageCacheKeyTest {
     }
 
     @Test
-    fun token_rotation_changes_the_account_cache_namespace() {
+    fun token_rotation_keeps_the_cache_namespace() {
         val first = imageCacheKeyForUrl("https://emby.example/image?quality=90&api_key=first")
         val second = imageCacheKeyForUrl("https://emby.example/image?quality=90&API_KEY=second")
 
-        assertFalse(first == second)
+        assertTrue(first == second)
         assertTrue(first.endsWith("https://emby.example/image?quality=90"))
         assertTrue(second.endsWith("https://emby.example/image?quality=90"))
         assertFalse("first" in first)

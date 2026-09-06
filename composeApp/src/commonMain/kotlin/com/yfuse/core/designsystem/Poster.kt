@@ -413,6 +413,7 @@ fun CaptionedPoster(
     rating: Double? = null,
     progress: Float? = null,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     sharedTransitionKey: MediaSharedElementKey? = null,
 ) {
     val palette = LocalPalette.current
@@ -431,7 +432,11 @@ fun CaptionedPoster(
         // The press lands on the whole tile, caption included — scaling only the artwork
         // and leaving the title behind reads as the image slipping out from under it.
         modifier.let { base ->
-            if (resolvedOnClick != null) base.pressable(onClick = resolvedOnClick) else base
+            if (resolvedOnClick != null || onLongClick != null) {
+                base.pressable(onLongClick = onLongClick, onClick = { resolvedOnClick?.invoke() })
+            } else {
+                base
+            }
         },
     ) {
         Poster(

@@ -636,7 +636,11 @@ fun DetailScreen(component: DetailComponent) {
 
                             if (detail.genres.isNotEmpty()) {
                                 item(key = "genres") {
-                                    GenreSection(detail.genres, Modifier.sectionPadding())
+                                    GenreSection(
+                                        detail.genres,
+                                        Modifier.sectionPadding(),
+                                        onGenreClick = component::searchFor,
+                                    )
                                 }
                             }
 
@@ -668,6 +672,7 @@ fun DetailScreen(component: DetailComponent) {
                                         accessToken = accessToken,
                                         people = detail.people,
                                         modifier = Modifier.padding(top = Dimens.sectionGap),
+                                        onPersonClick = { component.searchFor(it.name) },
                                     )
                                 }
                             }
@@ -961,6 +966,8 @@ fun DetailScreen(component: DetailComponent) {
                         seriesPosterUrl = heroUrls.getOrNull(1),
                         selectedIds = state.progressSelection,
                         saving = state.progressSaving,
+                        savingCompleted = state.progressCompleted,
+                        savingTotal = state.progressTotal,
                         accent = detailAccent,
                         onToggle = {
                             component.store.accept(DetailIntent.ToggleProgressEpisode(it))

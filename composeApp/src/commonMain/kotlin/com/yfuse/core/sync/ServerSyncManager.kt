@@ -130,7 +130,7 @@ class ServerSyncManager(
     private val settings: Settings,
     private val progressPreferences: ProgressSyncPreferences = ProgressSyncPreferences(settings),
     private val playbackStore: PlaybackSyncStore? = null,
-) {
+) : UserStateWriter {
     private companion object {
         const val PENDING_KEY = "sync.pending.v1"
         const val AUTO_KEY = "sync.auto"
@@ -301,14 +301,14 @@ class ServerSyncManager(
         }
     }
 
-    suspend fun setFavorite(
+    override suspend fun setFavorite(
         server: SavedServer,
         itemId: String,
         title: String,
         value: Boolean,
     ): Result<Unit> = mutate(server, itemId, title, SyncMutationKind.Favorite, value)
 
-    suspend fun setPlayed(
+    override suspend fun setPlayed(
         server: SavedServer,
         itemId: String,
         title: String,

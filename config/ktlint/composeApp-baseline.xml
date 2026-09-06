@@ -811,11 +811,10 @@
         <error line="227" column="13" source="standard:chain-method-continuation" />
     </file>
     <file name="src/commonMain/kotlin/com/yfuse/feature/home/HomeComponent.kt">
-        <error line="123" column="58" source="standard:chain-method-continuation" />
-        <error line="170" column="42" source="standard:chain-method-continuation" />
-        <error line="248" column="5" source="standard:blank-line-before-declaration" />
-        <error line="254" column="42" source="standard:chain-method-continuation" />
-        <error line="254" column="60" source="standard:chain-method-continuation" />
+        <error line="125" column="58" source="standard:chain-method-continuation" />
+        <error line="275" column="5" source="standard:blank-line-before-declaration" />
+        <error line="281" column="42" source="standard:chain-method-continuation" />
+        <error line="281" column="60" source="standard:chain-method-continuation" />
     </file>
     <file name="src/commonMain/kotlin/com/yfuse/feature/home/HomeTabComponent.kt">
         <error line="217" column="70" source="standard:chain-method-continuation" />

@@ -145,6 +145,8 @@ class MainActivity : ComponentActivity() {
                             skipSegmentPreferences = koin.get(),
                             libraryCache = koin.get(),
                             lanDiscovery = koin.get(),
+                            quickConnectGateway = koin.get(),
+                            searchRequests = koin.get(),
                             account = koin.get(),
                             serverHealthMonitor = koin.get(),
                             serverActivity = koin.get(),

@@ -67,6 +67,9 @@ import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.feature.player.PlaybackReportingCoordinator
+import com.yfuse.feature.search.SearchRequests
+import com.yfuse.feature.servers.EmbyQuickConnectGateway
+import com.yfuse.feature.servers.QuickConnectGateway
 import com.yfuse.feature.watch.WatchInviteResolver
 import kotlinx.coroutines.Dispatchers
 import org.koin.dsl.module
@@ -141,6 +144,8 @@ fun appModule(
     single { TgtoMediaRepository(get()) }
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }
+    single<QuickConnectGateway> { EmbyQuickConnectGateway(get()) }
+    single { SearchRequests() }
     single<CastManager> { createCastManager() }
     single {
         val userAgent = get<UserAgentPreferences>()

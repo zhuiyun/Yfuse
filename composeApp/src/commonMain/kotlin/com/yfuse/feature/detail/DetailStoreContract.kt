@@ -55,6 +55,9 @@ data class DetailState(
     val progressManagerOpen: Boolean = false,
     val progressSelection: Set<String> = emptySet(),
     val progressSaving: Boolean = false,
+    /** n/N of the running batch write, for the sheet's counter; both 0 when idle. */
+    val progressCompleted: Int = 0,
+    val progressTotal: Int = 0,
     /** 跨服务器片源对比. */
     val sources: List<ServerSource> = emptyList(),
     val related: List<MediaItem> = emptyList(),

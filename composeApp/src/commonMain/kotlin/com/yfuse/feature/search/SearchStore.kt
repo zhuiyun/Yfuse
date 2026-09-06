@@ -12,12 +12,14 @@ import com.yfuse.core.data.MediaSearchPage
 import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.SearchHistory
 import com.yfuse.core.data.ServerHealthMonitor
+import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.aggregateCrossServerMedia
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.util.currentIsoDate
+import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -601,9 +603,27 @@ class SearchStoreFactory(
                         servers
                             .map { server ->
                                 launch {
-                                    val first = repo.searchPage(server, query, filter = filter)
+                                    // A server the monitor already knows is unreachable is
+                                    // not asked twice per keystroke; and only a transient
+                                    // failure earns the one retry, never a 4xx.
+                                    val offline =
+                                        healthMonitor
+                                            ?.health
+                                            ?.value
+                                            ?.get(server.id)
+                                            ?.status == ServerHealthStatus.Offline
+                                    val first =
+                                        if (offline) {
+                                            Result.failure(IllegalStateException("服务器离线"))
+                                        } else {
+                                            repo.searchPage(server, query, filter = filter)
+                                        }
+                                    val retryable =
+                                        !offline &&
+                                            first.isFailure &&
+                                            first.exceptionOrNull().isTransientSearchFailure()
                                     val result =
-                                        if (first.isFailure) {
+                                        if (retryable) {
                                             delay(300L)
                                             repo.searchPage(server, query, filter = filter)
                                         } else {
@@ -700,10 +720,11 @@ class SearchStoreFactory(
                         aggregated = if (msg.value.trim() == query.trim()) aggregated else emptyList(),
                         type = if (msg.value.trim() == query.trim()) type else SearchType.All,
                     )
+                // The input keeps whatever the user has typed since; only the searched
+                // query and the results belong to the request that is now loading.
                 is SearchMsg.Loading ->
                     if (msg.query == searchedQuery && groups.isNotEmpty()) {
                         copy(
-                            query = msg.query,
                             loading = true,
                             error = null,
                             people = emptyList(),
@@ -711,7 +732,6 @@ class SearchStoreFactory(
                         )
                     } else {
                         copy(
-                            query = msg.query,
                             searchedQuery = msg.query,
                             loading = true,
                             items = emptyList(),
@@ -912,4 +932,10 @@ class SearchStoreFactory(
                     )
             }
     }
+}
+
+/** A 4xx is the server's considered answer; only transport trouble and 5xx earn a retry. */
+private fun Throwable?.isTransientSearchFailure(): Boolean {
+    val response = this as? ResponseException ?: return this != null
+    return response.response.status.value >= 500
 }

@@ -111,6 +111,9 @@ class ServerHealthMonitor(
 
     // Written by concurrent probes; a plain map raced its own iteration in `retainAll`.
     private val lastAutoSwitchAtMs = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /** When each server's backup addresses were last probed; they are not worth a minute cadence. */
+    private val lastBackupProbeAtMs = MutableStateFlow<Map<String, Long>>(emptyMap())
     private val probePermits = Semaphore(4)
 
     fun start(scope: CoroutineScope) {
@@ -130,6 +133,7 @@ class ServerHealthMonitor(
                     val ids = data.servers.mapTo(hashSetOf()) { it.id }
                     _health.update { current -> current.filterKeys { it in ids } }
                     lastAutoSwitchAtMs.update { current -> current.filterKeys { it in ids } }
+                    lastBackupProbeAtMs.update { current -> current.filterKeys { it in ids } }
                     if (foreground) refreshAll(data.servers)
                 }
         }
@@ -172,6 +176,29 @@ class ServerHealthMonitor(
                 .onFailure { recordFailure(server.id, it) }
             return
         }
+        // The active address answers the foreground question every minute. Backups are
+        // re-checked every few minutes, or at once when the active one stops answering,
+        // which is the only moment their freshness decides anything.
+        val now = nowEpochMs()
+        val backupsDue = now - (lastBackupProbeAtMs.value[server.id] ?: 0L) >= BACKUP_PROBE_INTERVAL_MS
+        if (!backupsDue) {
+            val active = server.activeRoute
+            val activeOnly =
+                probePermits.withPermit {
+                    repository.probeAddress(active.url, server.accessToken, server.kind)
+                }
+            val latency = activeOnly.getOrNull()
+            if (latency != null) {
+                val previousRoutes = _health.value[server.id]?.routes.orEmpty()
+                recordSuccess(
+                    serverId = server.id,
+                    latencyMs = latency,
+                    routes = previousRoutes + (active.id to RouteHealth(ServerHealthStatus.Healthy, latency)),
+                )
+                return
+            }
+        }
+        lastBackupProbeAtMs.update { current -> current + (server.id to now) }
         val probed: List<Pair<ServerRoute, Result<Long>>> =
             coroutineScope {
                 routes
@@ -340,6 +367,7 @@ private fun ServersData.probeIdentity(): List<String> =
     }
 
 private const val HEALTH_REFRESH_INTERVAL_MS = 60_000L
+private const val BACKUP_PROBE_INTERVAL_MS = 5 * 60_000L
 
 /** Shared thresholds for cards, route diagnostics, filtering and source ranking. */
 fun latencySeverity(

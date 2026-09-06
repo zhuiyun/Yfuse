@@ -20,6 +20,7 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
 import com.yfuse.core.network.toUserMessage
+import com.yfuse.core.sync.UserStateWriter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -101,6 +102,17 @@ sealed interface GridIntent {
     data object ConfirmRemove : GridIntent
 
     data object DismissMessage : GridIntent
+
+    /** Long-press quick actions; optimistic, with the write queued by the sync manager. */
+    data class SetFavorite(
+        val itemId: String,
+        val value: Boolean,
+    ) : GridIntent
+
+    data class SetPlayed(
+        val itemId: String,
+        val value: Boolean,
+    ) : GridIntent
 }
 
 private sealed interface GridAction {
@@ -109,6 +121,12 @@ private sealed interface GridAction {
 
 private sealed interface GridMsg {
     data object Loading : GridMsg
+
+    data class ItemFlagsChanged(
+        val itemId: String,
+        val favorite: Boolean? = null,
+        val played: Boolean? = null,
+    ) : GridMsg
 
     data object LoadingMore : GridMsg
 
@@ -195,12 +213,15 @@ class LibraryGridStoreFactory(
     private val containerKind: MediaContainerKind? = null,
     private val directoryKind: MediaContainerKind? = null,
     private val mainContext: CoroutineContext = Dispatchers.Main,
+    private val userStateWriter: UserStateWriter = UserStateWriter.Silent,
+    private val sortMemory: LibrarySortMemory? = null,
 ) {
     fun create(): Store<GridIntent, GridState, Nothing> =
         storeFactory.create(
             name = "LibraryGridStore",
             initialState =
                 GridState(
+                    sort = sortMemory?.read(libraryId) ?: LibrarySort.RecentlyAdded,
                     sortable =
                         libraryId != WATCH_LATER_COLLECTION_ID &&
                             containerKind != MediaContainerKind.Playlist &&
@@ -252,9 +273,12 @@ class LibraryGridStoreFactory(
                 is GridIntent.SetSort -> {
                     if (!state().sortable) return
                     if (intent.sort == state().sort) return
+                    sortMemory?.write(libraryId, intent.sort)
                     dispatch(GridMsg.Sort(intent.sort))
                     loadFirstPage()
                 }
+                is GridIntent.SetFavorite -> setFlag(intent.itemId, favorite = intent.value)
+                is GridIntent.SetPlayed -> setFlag(intent.itemId, played = intent.value)
                 is GridIntent.SetGenre -> {
                     if (containerKind == MediaContainerKind.Playlist) return
                     if (intent.genre == state().genre) return
@@ -276,6 +300,35 @@ class LibraryGridStoreFactory(
                 GridIntent.CancelRemove -> dispatch(GridMsg.RemovalCancelled)
                 GridIntent.ConfirmRemove -> confirmRemove()
                 GridIntent.DismissMessage -> dispatch(GridMsg.ActionMessage(null))
+            }
+        }
+
+        private fun setFlag(
+            itemId: String,
+            favorite: Boolean? = null,
+            played: Boolean? = null,
+        ) {
+            val server = serverId?.let(registry::serverById) ?: return
+            val item = state().items.firstOrNull { it.id == itemId } ?: return
+            dispatch(GridMsg.ItemFlagsChanged(itemId, favorite = favorite, played = played))
+            scope.launch {
+                val result =
+                    when {
+                        favorite != null -> userStateWriter.setFavorite(server, item.id, item.title, favorite)
+                        played != null -> userStateWriter.setPlayed(server, item.id, item.title, played)
+                        else -> return@launch
+                    }
+                dispatch(
+                    GridMsg.ActionMessage(
+                        when {
+                            result.isFailure -> "服务器暂不可用，已排队同步"
+                            favorite == true -> "已加入收藏"
+                            favorite == false -> "已取消收藏"
+                            played == true -> "已标记为看过"
+                            else -> "已标记为未看"
+                        },
+                    ),
+                )
             }
         }
 
@@ -541,6 +594,9 @@ class LibraryGridStoreFactory(
                     copy(
                         loading = false,
                         loadingMore = false,
+                        // A first page fresh from the server is the truth about what it
+                        // still holds; the local removals only bridge the gap until then.
+                        locallyRemovedRowIds = if (msg.page.startIndex == 0) emptySet() else locallyRemovedRowIds,
                         items =
                             msg.page.items
                                 .distinctBy { it.containerRowId }
@@ -687,6 +743,20 @@ class LibraryGridStoreFactory(
                         error = null,
                         loadMoreError = null,
                         retainingPreviousCriteria = true,
+                    )
+                is GridMsg.ItemFlagsChanged ->
+                    copy(
+                        items =
+                            items.map { item ->
+                                if (item.id != msg.itemId) {
+                                    item
+                                } else {
+                                    item.copy(
+                                        isFavorite = msg.favorite ?: item.isFavorite,
+                                        played = msg.played ?: item.played,
+                                    )
+                                }
+                            },
                     )
                 is GridMsg.RemovalRequested -> copy(pendingRemoval = msg.item, actionMessage = null)
                 GridMsg.RemovalCancelled -> copy(pendingRemoval = null)

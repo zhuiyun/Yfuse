@@ -74,6 +74,7 @@ class ServersTabComponent(
             repo = repo,
             registry = registry,
             discovery = dependencies.lanDiscovery,
+            quickConnectGateway = dependencies.quickConnectGateway,
             onAuthenticated = dependencies.playbackReportingCoordinator::resumeAfterAuthentication,
         ).create()
 

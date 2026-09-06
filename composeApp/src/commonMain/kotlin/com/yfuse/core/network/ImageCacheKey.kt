@@ -1,7 +1,5 @@
 package com.yfuse.core.network
 
-import com.yfuse.core.security.VaultCrypto
-
 /**
  * Returns a stable, account-scoped image cache key without persisting Emby's credential.
  * The original URL remains the request data and still carries the token to the server.
@@ -46,13 +44,10 @@ private fun credentialScopedCacheKeyForUrl(
         }
     if (credentials.isEmpty()) return sanitizedUrl
 
-    // Emby access tokens are high-entropy values. A SHA-256 namespace keeps accounts isolated
-    // without putting a reusable credential in Coil/Media3's on-disk cache index.
-    val credentialDigest =
-        cacheKeyCrypto
-            .sha256(credentials.joinToString("\u0000").encodeToByteArray())
-            .toHex()
-    return "yfuse-$cacheKind-v2:$credentialDigest:$sanitizedUrl"
+    // The server and item are already in the URL; that is the identity a cached poster or
+    // stream has. Namespacing by the token used to throw the whole disk cache away on every
+    // re-login, and put nothing in it that the URL did not already say.
+    return "yfuse-$cacheKind-v3:$sanitizedUrl"
 }
 
 private fun String.isServerCredentialParameter(): Boolean =
@@ -61,15 +56,3 @@ private fun String.isServerCredentialParameter(): Boolean =
             name.equals("X-Emby-Token", ignoreCase = true) ||
             name.equals("X-Plex-Token", ignoreCase = true)
     }
-
-private fun ByteArray.toHex(): String =
-    buildString(size * 2) {
-        this@toHex.forEach { byte ->
-            val unsigned = byte.toInt() and 0xFF
-            append(HEX_DIGITS[unsigned ushr 4])
-            append(HEX_DIGITS[unsigned and 0x0F])
-        }
-    }
-
-private val cacheKeyCrypto by lazy(::VaultCrypto)
-private const val HEX_DIGITS = "0123456789abcdef"

@@ -130,6 +130,12 @@ class RootComponent(
             dependencies = dependencies,
         )
 
+    init {
+        scope.launch {
+            dependencies.searchRequests.requests.collect { query -> openSearch(query) }
+        }
+    }
+
     fun selectTab(tab: Tab) {
         if (_activeTab.value != tab) {
             // Clear the previous tab's replayed event before NavDisplay composes the new
@@ -186,6 +192,12 @@ class RootComponent(
     private fun openSearch() {
         selectTab(Tab.Search)
         search.requestFocus()
+    }
+
+    /** A search asked for from another tab: switch over and run it. */
+    private fun openSearch(query: String) {
+        selectTab(Tab.Search)
+        search.search(query)
     }
 
     /** Opens the followed series named by a calendar notification without starting playback. */

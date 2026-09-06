@@ -67,6 +67,11 @@ class DetailComponent(
         runCatching { GlobalContext.get().get<PlaybackSyncManager>() }.getOrNull()
     private var explicitFromStartPending = false
 
+    /** A genre or a name on this page, handed to the search tab as a query. */
+    fun searchFor(query: String) {
+        dependencies.searchRequests.submit(query)
+    }
+
     private val delegateStore =
         DetailStoreFactory(
             storeFactory,

@@ -113,6 +113,17 @@ class SearchComponent(
         navigation.popTo(index = 0)
     }
 
+    /** Runs [query] on this tab's root page, leaving whatever detail or player was on top. */
+    fun search(query: String) {
+        popToRoot()
+        val home =
+            stack.value.items
+                .firstOrNull()
+                ?.instance as? Child.Home ?: return
+        home.component.store.accept(SearchIntent.QueryChanged(query))
+        home.component.store.accept(SearchIntent.Submit)
+    }
+
     private fun openPlayer(config: Config.Player) {
         val active = stack.value.active.configuration as? Config.Player
         if (!playerNavigation.tryBegin(config, active)) return

@@ -23,10 +23,17 @@ import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.watchKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.CoroutineContext
+
+private const val BATCH_PROGRESS_CONCURRENCY = 4
 
 internal class DetailExecutor(
     private val repo: EmbyRepository,
@@ -1155,12 +1162,15 @@ internal class DetailExecutor(
         val server = current.server ?: return
         val target = !detail.isFavorite
         val sync = syncManager
+        // Optimistic: the heart flips at once. The sync manager queues the write before it
+        // tries the server, so a failure here still ends with the shown state being the one
+        // that will reach the server; only the message differs.
+        dispatch(DetailMsg.FavoriteChanged(server.id, detail.id, target))
         scope.launch {
             sync
                 .setFavorite(server, detail.id, detail.title, target)
                 .onSuccess {
                     if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(DetailMsg.FavoriteChanged(server.id, detail.id, target))
                         dispatch(
                             DetailMsg.ActionMessage(
                                 if (target) "已加入收藏" else "已取消收藏",
@@ -1169,7 +1179,6 @@ internal class DetailExecutor(
                     }
                 }.onFailure {
                     if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(DetailMsg.FavoriteChanged(server.id, detail.id, target))
                         dispatch(DetailMsg.ActionMessage("服务器暂不可用，收藏操作已排队同步"))
                     }
                 }
@@ -1182,12 +1191,12 @@ internal class DetailExecutor(
         val server = current.server ?: return
         val target = !detail.played
         val sync = syncManager
+        dispatch(DetailMsg.PlayedChanged(server.id, detail.id, target))
         scope.launch {
             sync
                 .setPlayed(server, detail.id, detail.title, target)
                 .onSuccess {
                     if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(DetailMsg.PlayedChanged(server.id, detail.id, target))
                         dispatch(
                             DetailMsg.ActionMessage(
                                 if (target) "已标记为看过" else "已标记为未看",
@@ -1196,7 +1205,6 @@ internal class DetailExecutor(
                     }
                 }.onFailure {
                     if (isVisibleSource(server.id, detail.id)) {
-                        dispatch(DetailMsg.PlayedChanged(server.id, detail.id, target))
                         dispatch(DetailMsg.ActionMessage("服务器暂不可用，已看状态已排队同步"))
                     }
                 }
@@ -1238,13 +1246,29 @@ internal class DetailExecutor(
         val targets = current.episodes.filter { it.id in selected }
         if (targets.isEmpty()) return
         val played = action == EpisodeProgressAction.MarkWatched
-        dispatch(DetailMsg.ProgressSaving(true))
+        dispatch(DetailMsg.ProgressSaving(true, completed = 0, total = targets.size))
         scope.launch {
+            // A season is one decision, not twenty-four serial round trips: a few requests
+            // in flight at once, and the counter in the sheet moves as each one lands.
+            val permits = Semaphore(BATCH_PROGRESS_CONCURRENCY)
+            val counters = Mutex()
             var queued = 0
-            targets.forEach { episode ->
-                syncManager
-                    .setPlayed(server, episode.id, episode.name, played)
-                    .onFailure { queued++ }
+            var completed = 0
+            coroutineScope {
+                targets.forEach { episode ->
+                    launch {
+                        val failed =
+                            permits.withPermit {
+                                syncManager.setPlayed(server, episode.id, episode.name, played).isFailure
+                            }
+                        val done =
+                            counters.withLock {
+                                if (failed) queued++
+                                ++completed
+                            }
+                        dispatch(DetailMsg.ProgressSaving(true, completed = done, total = targets.size))
+                    }
+                }
             }
             val actionLabel =
                 when (action) {

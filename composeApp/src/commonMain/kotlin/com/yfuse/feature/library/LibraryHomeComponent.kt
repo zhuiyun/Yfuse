@@ -7,6 +7,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerRegistry
+import com.yfuse.core.sync.ServerSyncManager
 import org.koin.core.context.GlobalContext
 
 class LibraryHomeComponent(
@@ -27,6 +28,7 @@ class LibraryHomeComponent(
             repo = repo,
             registry = registry,
             cache = GlobalContext.get().get<LibraryCache>(),
+            favoriteWriter = GlobalContext.get().get<ServerSyncManager>()::setFavorite,
         ).create()
 
     init {

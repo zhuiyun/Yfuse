@@ -12,13 +12,11 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.network.toUserMessage
-import com.yfuse.core.sync.ServerSyncManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
-import org.koin.core.context.GlobalContext
 import kotlin.coroutines.CoroutineContext
 
 enum class LibraryContentSource {
@@ -103,6 +101,10 @@ private fun SavedServer.libraryConnection(): LibraryConnection =
         accessToken = accessToken,
     )
 
+/** Writes one favorite flag; the sync manager queues it durably before it reaches the server. */
+typealias LibraryFavoriteWriter =
+    suspend (server: SavedServer, itemId: String, title: String, value: Boolean) -> Result<Unit>
+
 class LibraryStoreFactory(
     private val storeFactory: StoreFactory,
     private val repo: EmbyRepository,
@@ -110,6 +112,11 @@ class LibraryStoreFactory(
     private val cache: LibraryCache,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
     private val mainContext: CoroutineContext = Dispatchers.Main,
+    /**
+     * Supplied by the component from the sync manager. Tests that never toggle a favorite may
+     * leave the default, which accepts and forgets; production wiring always passes the real one.
+     */
+    private val favoriteWriter: LibraryFavoriteWriter = { _, _, _, _ -> Result.success(Unit) },
 ) {
     fun create(): Store<LibraryIntent, LibraryState, Nothing> =
         storeFactory.create(
@@ -172,12 +179,18 @@ class LibraryStoreFactory(
             val server = state().currentServer ?: return
             dispatch(Msg.FavoriteChanged(intent.itemId, intent.favorite))
             scope.launch {
-                GlobalContext.get().get<ServerSyncManager>().setFavorite(
-                    server = server,
-                    itemId = intent.itemId,
-                    title = intent.title,
-                    value = intent.favorite,
-                )
+                favoriteWriter(server, intent.itemId, intent.title, intent.favorite)
+                    .onFailure { error ->
+                        // The write stays queued in the sync manager, so the optimistic
+                        // state is still the one that will reach the server; say so.
+                        AppLog.warning(
+                            category = "feature.library",
+                            event = "favorite_deferred",
+                            message = "Favorite change queued for a later sync",
+                            throwable = error,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                    }
             }
         }
 
