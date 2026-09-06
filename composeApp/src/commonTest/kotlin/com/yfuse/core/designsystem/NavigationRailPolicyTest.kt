@@ -13,11 +13,11 @@ class NavigationRailPolicyTest {
     }
 
     @Test
-    fun a_landscape_tablet_also_keeps_the_bottom_bar() {
-        // 16:10 is the common Android-tablet landscape shape. Tabs belong on the long bottom
-        // edge rather than being pinned to the short left edge.
-        assertFalse(useNavigationRail(width = 1280.dp, height = 800.dp))
-        assertFalse(useNavigationRail(width = 1440.dp, height = 900.dp))
+    fun a_landscape_tablet_gets_the_rail() {
+        // 16:10 is the common Android-tablet landscape shape: wide, short on height, and the
+        // one window where a bottom bar costs the most rows of content.
+        assertTrue(useNavigationRail(width = 1280.dp, height = 800.dp))
+        assertTrue(useNavigationRail(width = 1440.dp, height = 900.dp))
     }
 
     @Test

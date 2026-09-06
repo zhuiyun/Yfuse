@@ -59,16 +59,20 @@ internal fun shouldValidatePlaybackHandoverPosition(
 /**
  * The replacement may legitimately advance while it starts playing. Its first position must stay
  * between the captured point and wall-clock advancement, with 250 ms allowed on either edge.
+ *
+ * [elapsedSincePlaybackMs] counts from the moment the replacement actually started moving, not
+ * from its construction: an engine that spent eight seconds opening the stream has not advanced
+ * the timeline by eight seconds, and crediting it that much used to throw the viewer forward.
  */
 internal fun handoverPositionErrorMs(
     actualPositionMs: Long,
     snapshot: PlaybackHandoverSnapshot,
-    elapsedSinceEngineCreationMs: Long,
+    elapsedSincePlaybackMs: Long,
 ): Long {
     val lower = (snapshot.positionMs - PLAYBACK_HANDOVER_POSITION_TOLERANCE_MS).coerceAtLeast(0L)
     val legalAdvance =
         if (snapshot.playbackRequested) {
-            (elapsedSinceEngineCreationMs.coerceAtLeast(0L) * snapshot.speed).toLong()
+            (elapsedSincePlaybackMs.coerceAtLeast(0L) * snapshot.speed).toLong()
         } else {
             0L
         }

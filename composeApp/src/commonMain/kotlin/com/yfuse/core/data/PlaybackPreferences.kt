@@ -75,6 +75,8 @@ data class RememberedPlaybackTrack(
     val language: String? = null,
     val label: String = "",
     val codec: String? = null,
+    /** Position among same-language tracks when chosen; disambiguates identical labels. */
+    val languageOrdinal: Int? = null,
 )
 
 /** Per-series enthusiast controls, isolated by server and bounded in [PlaybackPreferences]. */

@@ -3,14 +3,18 @@ package com.yfuse.feature.player
 import android.annotation.SuppressLint
 import android.Manifest
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.app.RemoteAction
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Rect
+import android.graphics.drawable.Icon
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
@@ -340,6 +344,15 @@ class PlayerActivity : ComponentActivity() {
         // this Activity and never writes ACCELEROMETER_ROTATION or USER_ROTATION, so leaving the
         // player restores the user's unchanged system rotation preference.
         super.onCreate(savedInstanceState)
+        // A tablet is held whichever way its owner likes; forcing landscape on it only forces a
+        // rotation. Phones keep the manifest's landscape lock. FULL_USER still honours the
+        // system rotation lock, so this never fights the quick-settings toggle.
+        if (resources.configuration.smallestScreenWidthDp >= TABLET_MIN_SMALLEST_WIDTH_DP &&
+            !isTelevisionDevice(this)
+        ) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        }
+        registerPictureInPictureActions()
 
         applyScreenOnPolicy()
 
@@ -802,6 +815,7 @@ class PlayerActivity : ComponentActivity() {
                 PictureInPictureParams
                     .Builder()
                     .setAspectRatio(activePictureInPictureAspectRatio())
+                    .setActions(pictureInPictureActions())
                     .apply { videoBounds?.let(::setSourceRectHint) }
                     .build(),
             )
@@ -850,6 +864,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(pictureInPictureReceiver) }
         PlayerForegroundRegistry.setVisible(false)
         episodeRefreshJob?.cancel()
         capabilityMonitorJob?.cancel()
@@ -907,6 +922,7 @@ class PlayerActivity : ComponentActivity() {
             PictureInPictureParams
                 .Builder()
                 .setAspectRatio(activePictureInPictureAspectRatio())
+                .setActions(pictureInPictureActions())
                 .apply { videoBounds?.let(::setSourceRectHint) }
                 .build(),
         )
@@ -1309,6 +1325,7 @@ class PlayerActivity : ComponentActivity() {
             PictureInPictureParams
                 .Builder()
                 .setAspectRatio(activePictureInPictureAspectRatio())
+                .setActions(pictureInPictureActions())
                 .apply {
                     videoBounds?.let(::setSourceRectHint)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1316,6 +1333,68 @@ class PlayerActivity : ComponentActivity() {
                     }
                 }.build()
         setPictureInPictureParams(params)
+    }
+
+    /**
+     * The three controls a picture-in-picture window can carry: back ten seconds, play or
+     * pause, forward ten seconds. Each is a broadcast back to this activity, so the window's
+     * buttons drive the same code paths as the on-screen ones.
+     */
+    private fun pictureInPictureActions(): List<RemoteAction> {
+        fun action(
+            requestCode: Int,
+            command: String,
+            iconRes: Int,
+            title: String,
+        ): RemoteAction {
+            val intent = Intent(ACTION_PIP_CONTROL).setPackage(packageName)
+            intent.putExtra(EXTRA_PIP_COMMAND, command)
+            val pending =
+                PendingIntent.getBroadcast(
+                    this,
+                    requestCode,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+            return RemoteAction(Icon.createWithResource(this, iconRes), title, title, pending)
+        }
+        val playing = activeState.playing
+        return listOf(
+            action(1, PIP_COMMAND_REWIND, android.R.drawable.ic_media_rew, "快退 10 秒"),
+            if (playing) {
+                action(2, PIP_COMMAND_PAUSE, android.R.drawable.ic_media_pause, "暂停")
+            } else {
+                action(2, PIP_COMMAND_PLAY, android.R.drawable.ic_media_play, "播放")
+            },
+            action(3, PIP_COMMAND_FORWARD, android.R.drawable.ic_media_ff, "快进 10 秒"),
+        )
+    }
+
+    private val pictureInPictureReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                context: Context,
+                intent: Intent,
+            ) {
+                if (intent.action != ACTION_PIP_CONTROL) return
+                val position = activePlayer?.currentPositionMs() ?: activeState.positionMs
+                when (intent.getStringExtra(EXTRA_PIP_COMMAND)) {
+                    PIP_COMMAND_PLAY -> requestPlaybackStart()
+                    PIP_COMMAND_PAUSE -> requestPlaybackPause()
+                    PIP_COMMAND_REWIND -> seekPlaybackTo(position - PIP_SEEK_STEP_MS)
+                    PIP_COMMAND_FORWARD -> seekPlaybackTo(position + PIP_SEEK_STEP_MS)
+                }
+                updatePictureInPictureParams()
+            }
+        }
+
+    private fun registerPictureInPictureActions() {
+        ContextCompat.registerReceiver(
+            this,
+            pictureInPictureReceiver,
+            IntentFilter(ACTION_PIP_CONTROL),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     private fun updateMediaSession(state: PlaybackState) {
@@ -1582,6 +1661,14 @@ internal fun pictureInPictureAspectRatioDimensions(
 private fun Long.toEmbyTicks(): Long =
     coerceIn(0L, Long.MAX_VALUE / EMBY_TICKS_PER_MILLISECOND) * EMBY_TICKS_PER_MILLISECOND
 
+private const val TABLET_MIN_SMALLEST_WIDTH_DP = 600
+private const val ACTION_PIP_CONTROL = "com.yfuse.player.PIP_CONTROL"
+private const val EXTRA_PIP_COMMAND = "command"
+private const val PIP_COMMAND_PLAY = "play"
+private const val PIP_COMMAND_PAUSE = "pause"
+private const val PIP_COMMAND_REWIND = "rewind"
+private const val PIP_COMMAND_FORWARD = "forward"
+private const val PIP_SEEK_STEP_MS = 10_000L
 private const val EMBY_TICKS_PER_MILLISECOND = 10_000L
 private const val MIN_PICTURE_IN_PICTURE_ASPECT_RATIO = 1.0 / 2.39
 private const val MAX_PICTURE_IN_PICTURE_ASPECT_RATIO = 2.39

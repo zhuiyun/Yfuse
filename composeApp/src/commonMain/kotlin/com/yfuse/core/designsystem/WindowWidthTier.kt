@@ -23,21 +23,21 @@ fun windowWidthTier(width: Dp): WindowWidthTier =
         else -> WindowWidthTier.Expanded
     }
 
-private val NAVIGATION_RAIL_MIN_WIDTH = 1_200.dp
-private const val NAVIGATION_RAIL_MIN_ASPECT_RATIO = 1.75f
+private const val NAVIGATION_RAIL_MIN_ASPECT_RATIO = 1.2f
+private val NAVIGATION_RAIL_MIN_HEIGHT = 600.dp
 
 /**
  * Whether navigation belongs at the side rather than along the bottom.
  *
- * A normal tablet is roughly 4:3, 3:2 or 16:10. Even in landscape, putting the primary tabs on
- * its short edge makes the controls feel pinned to the wrong side and steals content width. Keep
- * those shapes on the bottom edge. A rail is reserved for genuinely desktop-like, extra-wide
- * windows where vertical room is scarce and the side edge is the more useful place for navigation.
+ * An expanded window in landscape has spare width and scarce height, which is exactly when a
+ * bottom bar costs the most and a rail costs the least. That covers a 10-inch tablet turned
+ * sideways and every desktop-class window; portrait tablets keep the bottom bar, and so does a
+ * landscape phone, whose short edge is too short to be an "expanded" window in any useful sense.
  */
 fun useNavigationRail(
     width: Dp,
     height: Dp,
 ): Boolean =
     windowWidthTier(width) == WindowWidthTier.Expanded &&
-        width >= NAVIGATION_RAIL_MIN_WIDTH &&
+        height >= NAVIGATION_RAIL_MIN_HEIGHT &&
         width > height * NAVIGATION_RAIL_MIN_ASPECT_RATIO

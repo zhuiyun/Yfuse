@@ -58,8 +58,12 @@ import com.yfuse.tv.player.TvPlayerChromePanel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlin.math.abs
+import kotlin.time.TimeSource
 
 /** Controls fade out after this long without interaction, while playing. */
+private const val MAX_ERROR_ALTERNATIVES = 3
+private const val DOUBLE_TAP_SEEK_MS = 10_000L
+private const val DOUBLE_TAP_BURST_WINDOW_MS = 900L
 private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
@@ -223,6 +227,9 @@ internal fun PlayerControls(
     // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
     // is held. [holdSeekTarget] is the newest position proposed to the playback coordinator.
     var holdSeekDirection by remember { mutableIntStateOf(0) }
+    var seekBurstDirection by remember { mutableIntStateOf(0) }
+    var seekBurstMs by remember { mutableLongStateOf(0L) }
+    var seekBurstMark by remember { mutableStateOf<TimeSource.Monotonic.ValueTimeMark?>(null) }
     var holdSeekTarget by remember { mutableLongStateOf(0L) }
     // The app's own vocabulary, not Compose's two-constant one. These two call sites were
     // the last `HapticFeedbackType.LongPress` standing in for something it is not — a
@@ -651,21 +658,28 @@ internal fun PlayerControls(
                                 gestureHud = "房主控制播放"
                                 haptics.play(HapticSignal.Reject)
                             } else {
+                                // Taps in quick succession on the same side add up, and the
+                                // HUD reports the running total rather than "10 秒" each time.
+                                fun burstSeek(direction: Int) {
+                                    val continuing =
+                                        seekBurstDirection == direction &&
+                                            seekBurstMark?.let {
+                                                it.elapsedNow().inWholeMilliseconds < DOUBLE_TAP_BURST_WINDOW_MS
+                                            } == true
+                                    seekBurstMs =
+                                        if (continuing) seekBurstMs + DOUBLE_TAP_SEEK_MS else DOUBLE_TAP_SEEK_MS
+                                    seekBurstDirection = direction
+                                    seekBurstMark = TimeSource.Monotonic.markNow()
+                                    latestOnSeek(
+                                        (latestPosition + direction * DOUBLE_TAP_SEEK_MS)
+                                            .coerceIn(0L, latestDuration),
+                                    )
+                                    val verb = if (direction < 0) "快退" else "快进"
+                                    gestureHud = "$verb ${seekBurstMs / 1_000L} 秒"
+                                }
                                 when {
-                                    offset.x < size.width / 3f -> {
-                                        latestOnSeek(
-                                            (latestPosition - 10_000L)
-                                                .coerceIn(0L, latestDuration),
-                                        )
-                                        gestureHud = "快退 10 秒"
-                                    }
-                                    offset.x > size.width * 2f / 3f -> {
-                                        latestOnSeek(
-                                            (latestPosition + 10_000L)
-                                                .coerceIn(0L, latestDuration),
-                                        )
-                                        gestureHud = "快进 10 秒"
-                                    }
+                                    offset.x < size.width / 3f -> burstSeek(-1)
+                                    offset.x > size.width * 2f / 3f -> burstSeek(1)
                                     else -> {
                                         latestOnPlayPause()
                                         gestureHud = if (state.playing) "暂停" else "播放"
@@ -744,7 +758,9 @@ internal fun PlayerControls(
                                 (
                                     latestPosition + totalX / size.width * span * 0.45f
                                 ).toLong().coerceIn(0L, span)
-                            gestureHud = "${seekTarget.asClock()} / ${span.asClock()}"
+                            val delta = seekTarget - latestPosition
+                            val sign = if (delta < 0L) "-" else "+"
+                            gestureHud = "$sign${abs(delta).asClock()} · ${seekTarget.asClock()} / ${span.asClock()}"
                         } else {
                             val delta = -totalY / size.height
                             if (startX < size.width / 2f) {
@@ -762,11 +778,22 @@ internal fun PlayerControls(
         )
 
         state.error?.let { message ->
+            val otherVersions =
+                versions
+                    .filter { (id, _) -> id != selectedVersionId }
+                    .take(MAX_ERROR_ALTERNATIVES)
+                    .map { (id, label) -> "版本 · $label" to { onSelectVersion(id) } }
+            val otherEngines =
+                engineOptions
+                    .mapIndexedNotNull { index, (label, selected) ->
+                        if (selected) null else label to { onSelectEngine(index) }
+                    }.take(MAX_ERROR_ALTERNATIVES)
             PlaybackErrorOverlay(
                 message = message,
                 onRetry = onRetry,
                 onExternalPlayer = onExternalPlayer,
                 onBack = onBack,
+                alternatives = otherVersions + otherEngines,
             )
             return@Box
         }

@@ -35,21 +35,25 @@ internal class PlayerAudioFocusController(
                     )
                 }
 
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
-                -> {
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    // A navigation prompt or a notification chime: the platform lowers our
+                    // volume for its duration and restores it, so the film keeps going.
+                    // Pausing here is what made every turn-by-turn instruction stop the movie.
+                    AppLog.info(
+                        category = "player.audio",
+                        event = "focus_ducked",
+                        message = "Playback continues at reduced volume during a transient duck",
+                    )
+                }
+
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                     resumeAfterTransientLoss = isPlaying()
                     hasFocus = false
                     onPause()
                     AppLog.info(
                         category = "player.audio",
                         event = "focus_lost_transient",
-                        message =
-                            if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-                                "Playback paused instead of leaking full-volume audio during ducking"
-                            } else {
-                                "Playback paused for a transient audio focus loss"
-                            },
+                        message = "Playback paused for a transient audio focus loss",
                     )
                 }
 
@@ -77,7 +81,8 @@ internal class PlayerAudioFocusController(
                         .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
                         .build(),
-                ).setOnAudioFocusChangeListener(listener, Handler(Looper.getMainLooper()))
+                ).setWillPauseWhenDucked(false)
+                .setOnAudioFocusChangeListener(listener, Handler(Looper.getMainLooper()))
                 .build()
                 .also { request = it }
         val result = audioManager.requestAudioFocus(focusRequest)

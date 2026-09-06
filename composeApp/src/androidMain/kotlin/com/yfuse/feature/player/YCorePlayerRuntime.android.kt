@@ -52,11 +52,15 @@ internal fun rememberPlaybackRuntimeEnvironment(): PlaybackRuntimeEnvironment {
     }
 }
 
+/** How long after playback settles the deep probe waits before touching the source again. */
+private const val DEEP_PROBE_START_DELAY_MS = 1_500L
+
 @Composable
 internal fun rememberDeepPlaybackProbe(
     item: PlayerMediaItem?,
     transcoding: Boolean,
     customUserAgent: String,
+    playbackSettled: Boolean = true,
 ): PlaybackProbeResult {
     val service =
         remember {
@@ -66,15 +70,18 @@ internal fun rememberDeepPlaybackProbe(
     var result by remember(item?.serverId, item?.id, item?.versionId, transcoding) {
         mutableStateOf(PlaybackProbeResult.metadataOnly(baseline))
     }
+    var probedKey by remember { mutableStateOf<String?>(null) }
+    val probeKey = listOf(item?.serverId, item?.id, item?.versionId, transcoding).joinToString("|")
     LaunchedEffect(
         service,
-        item?.serverId,
-        item?.id,
-        item?.versionId,
-        transcoding,
+        probeKey,
         customUserAgent,
+        playbackSettled,
     ) {
         val activeItem = item ?: return@LaunchedEffect
+        if (!playbackSettled || probedKey == probeKey) return@LaunchedEffect
+        delay(DEEP_PROBE_START_DELAY_MS)
+        probedKey = probeKey
         val uri =
             if (transcoding) {
                 activeItem.transcodeUrl.ifBlank { activeItem.fallbackTranscodeUrl }
