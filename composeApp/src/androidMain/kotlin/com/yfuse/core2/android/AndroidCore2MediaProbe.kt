@@ -455,7 +455,7 @@ internal class AndroidCore2RouteEvaluator(
     private val optimizationPreference: YOptimizationPreference = YOptimizationPreference.Balanced,
     private val capabilityProvider: YCapabilityProvider = AndroidYCapabilityProvider(context),
     private val strategy: YPlaybackStrategy = DefaultYPlaybackStrategy(),
-    private val enhancedProbe: AndroidEnhancedMediaProbe = AndroidEnhancedMediaProbe(),
+    private val enhancedProbe: AndroidEnhancedMediaProbe = AndroidEnhancedMediaProbe(context = context.applicationContext),
     private val quirkDatabase: YDeviceQuirkDatabase = androidCore2QuirkDatabase(),
     private val deviceIdentity: YDeviceIdentity = androidDeviceIdentity(),
     private val codecConfigurationProbe: AndroidCodecConfigurationProbe = AndroidCodecConfigurationProbe(),

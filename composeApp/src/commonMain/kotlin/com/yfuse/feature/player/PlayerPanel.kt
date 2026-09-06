@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -32,11 +33,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalMutedGlass
+import com.yfuse.core.designsystem.mutedGlassPanel
+import com.yfuse.core.designsystem.rememberOverlayTransition
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
-import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.Shadows
-import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.shadow
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -106,8 +108,8 @@ internal fun PlayerSidePanel(
             offsetPx = widthPx * predictiveDrawerProgress(progress)
         },
         onBack = {
-            offsetPx = widthPx
-            onDismiss()
+            directlyManipulating = false
+            scope.launch { settleDrawer(dismiss = true) }
         },
         onCancel = {
             directlyManipulating = false
@@ -132,7 +134,11 @@ internal fun PlayerSidePanel(
             .fillMaxHeight()
             .width(PlayerPanelWidth)
             .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
-            .graphicsLayer { translationX = offsetPx }
+            .graphicsLayer {
+                translationX = offsetPx
+                alpha = openFraction
+                scaleY = if (reduceMotion) 1f else 0.98f + 0.02f * openFraction
+            }
             .draggable(
                 state =
                     rememberDraggableState { delta ->
@@ -146,17 +152,13 @@ internal fun PlayerSidePanel(
                     settleDrawer(dismiss)
                 },
             ).shadow(Shadows.playerSheet, PlayerPanelShape)
-            .glass(
-                shape = PlayerPanelShape,
-                fill = PlayerTokens.drawerFillLandscape,
-                border = PlayerPanelBorder,
-            )
+            .mutedGlassPanel(PlayerPanelShape, samplePage = false, dark = true)
             // Taps inside the panel must not reach the catcher behind it.
             .noRippleClickable { }
             .imePadding()
             .padding(horizontal = 14.dp, vertical = 16.dp),
         verticalArrangement = verticalArrangement,
-        content = content,
+        content = { CompositionLocalProvider(LocalMutedGlass provides true) { content() } },
     )
 }
 
@@ -208,28 +210,39 @@ internal fun PlayerPopupPanel(
     compact: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    var leaving by remember { mutableStateOf(false) }
+    val progress = rememberOverlayTransition(leaving, onDismiss)
+    val requestDismiss = remember { { leaving = true } }
+    PlatformPredictiveBackHandler(
+        onProgress = { },
+        onBack = requestDismiss,
+        onCancel = { },
+    )
     Box(
         Modifier
             .fillMaxSize()
-            .noRippleClickable(onDismiss),
+            .noRippleClickable(requestDismiss),
     )
     Column(
         modifier
             .width(PlayerPopupWidth)
+            .graphicsLayer {
+                val entered = progress()
+                alpha = entered.coerceIn(0f, 1f)
+                scaleX = 0.94f + entered * 0.06f
+                scaleY = scaleX
+                translationY = 12.dp.toPx() * (1f - entered)
+            }
             .heightIn(
                 min = if (compact) PlayerPopupCompactMinHeight else PlayerPopupMinHeight,
                 max = if (compact) PlayerPopupCompactMaxHeight else PlayerPopupMaxHeight,
             ).shadow(Shadows.playerSheet, AppShapes.sheet)
-            .glass(
-                shape = AppShapes.sheet,
-                fill = PlayerTokens.drawerFillLandscape.copy(alpha = 0.86f),
-                border = Color.White.copy(alpha = 0.14f),
-            )
+            .mutedGlassPanel(AppShapes.sheet, samplePage = false, dark = true)
             // Taps inside the popup must not reach the dismiss catcher behind it.
             .noRippleClickable { }
             .imePadding()
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.Top,
-        content = content,
+        content = { CompositionLocalProvider(LocalMutedGlass provides true) { content() } },
     )
 }

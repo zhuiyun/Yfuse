@@ -68,6 +68,7 @@ import com.yfuse.core.designsystem.CaptionedPoster
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroActionDock
@@ -897,7 +898,7 @@ private fun ServerSheet(
                             enabled = !isCurrent,
                             role = Role.RadioButton,
                             onClickLabel = "切换到${server.serverName}",
-                            onClick = { onSelect(server.id) },
+                            onClick = overlayAction { onSelect(server.id) },
                         ).semantics { this.selected = isCurrent }
                         .glass(
                             shape = GlassShapes.chip,

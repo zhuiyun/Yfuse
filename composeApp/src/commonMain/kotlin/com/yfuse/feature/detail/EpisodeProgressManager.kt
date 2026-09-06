@@ -1,7 +1,6 @@
 package com.yfuse.feature.detail
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,14 +14,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -31,21 +27,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Poster
-import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
@@ -67,52 +61,23 @@ internal fun EpisodeProgressManager(
     onApply: (EpisodeProgressAction) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val palette = LocalPalette.current
-    Dialog(
-        onDismissRequest = { if (!saving) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        ReportOverlayVisible()
-        BoxWithConstraints(
-            Modifier
-                .fillMaxSize()
-                .background(Color(0xFF070A10).copy(alpha = 0.72f))
-                .pointerInput(saving) {
-                    if (!saving) detectTapGestures { onDismiss() }
-                }.safeDrawingPadding(),
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val compact = maxWidth < 600.dp
+        GlassDialog(
+            onDismiss = onDismiss,
+            dismissEnabled = !saving,
+            scrollable = false,
+            contentPadding = 0.dp,
+            alignment = if (compact) Alignment.BottomCenter else Alignment.Center,
+            maxWidth = 680.dp,
+            windowPadding = PaddingValues(horizontal = if (compact) 8.dp else 26.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxHeight(if (compact) 0.88f else 0.82f),
         ) {
-            val compact = maxWidth < 600.dp
-            val panelShape =
-                if (compact) {
-                    RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-                } else {
-                    RoundedCornerShape(24.dp)
-                }
-            Column(
-                Modifier
-                    .then(
-                        if (compact) {
-                            Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .fillMaxHeight(0.88f)
-                        } else {
-                            Modifier
-                                .align(Alignment.Center)
-                                .widthIn(max = 680.dp)
-                                .fillMaxWidth(0.84f)
-                                .fillMaxHeight(0.82f)
-                        },
-                    ).clip(panelShape)
-                    .background(if (palette.isDark) Color(0xFF111722) else Color(0xFFF5F6FA))
-                    .pointerInput(Unit) {
-                        detectTapGestures { }
-                    },
-            ) {
+            Column(Modifier.fillMaxSize()) {
                 ProgressManagerHeader(
                     count = selectedIds.size,
                     saving = saving,
-                    onDismiss = onDismiss,
+                    onDismiss = overlayDismiss(onDismiss),
                 )
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),

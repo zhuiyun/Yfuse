@@ -34,8 +34,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.overlayDismiss
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackFrameRateMatch
@@ -288,16 +288,16 @@ private fun TvServerDialog(
 ) {
     val hostRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { hostRequester.requestFocus() }
-    Dialog(
-        onDismissRequest = { onIntent(ServersIntent.DismissDialog) },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    GlassDialog(
+        onDismiss = { onIntent(ServersIntent.DismissDialog) },
+        maxWidth = 920.dp,
+        contentPadding = 28.dp,
     ) {
+        val dismiss = overlayDismiss { onIntent(ServersIntent.DismissDialog) }
         Column(
             Modifier
-                .width(920.dp)
-                .tvFocusScope(trapFocus = true)
-                .background(Color(0xFF111720), RoundedCornerShape(22.dp))
-                .padding(28.dp),
+                .fillMaxWidth()
+                .tvFocusScope(trapFocus = true),
             verticalArrangement = Arrangement.spacedBy(15.dp),
         ) {
             Text(
@@ -397,7 +397,7 @@ private fun TvServerDialog(
                     stableId = "server-dialog:cancel",
                     focusScope = "server-dialog:actions",
                     focusMemory = focusMemory,
-                    onClick = { onIntent(ServersIntent.DismissDialog) },
+                    onClick = dismiss,
                     modifier = Modifier.width(132.dp),
                 )
                 Spacer(Modifier.width(10.dp))

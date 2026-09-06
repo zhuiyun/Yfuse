@@ -51,6 +51,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.FallbackImage
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -162,8 +163,8 @@ internal fun SeriesAiringCalendarDialog(
                     .clip(GlassShapes.sheet)
                     .background(
                         Brush.verticalGradient(
-                            0f to palette.background,
-                            1f to lerp(palette.background, lavender.container, 0.48f),
+                            0f to palette.background.copy(alpha = 0.04f),
+                            1f to lavender.container.copy(alpha = 0.08f),
                         ),
                     ),
             ) {
@@ -303,7 +304,7 @@ private fun SeriesCalendarHero(
                 Modifier
                     .align(Alignment.TopEnd)
                     .padding(12.dp)
-                    .pressable(onClick = onDismiss)
+                    .pressable(onClick = overlayDismiss(onDismiss))
                     .touchTarget()
                     .size(36.dp)
                     .flatGlass(

@@ -28,6 +28,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayHeader
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.model.ServerSource
@@ -79,12 +80,15 @@ internal fun SourceListDialog(
         // the only one that knows how much screen there actually is.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             available.forEach { entry ->
+                val selected = entry.serverId == selectedServerId && entry.itemId == selectedItemId
+                val select = { entry.itemId?.let { onSelect(entry.serverId, it) }; Unit }
+                val animatedSelect = overlayAction(select)
                 SourceRow(
                     entry = entry,
-                    selected = entry.serverId == selectedServerId && entry.itemId == selectedItemId,
+                    selected = selected,
                     accent = accent,
                     best = entry.serverId == bestServerId,
-                    onSelect = { entry.itemId?.let { onSelect(entry.serverId, it) } },
+                    onSelect = if (selected) animatedSelect else select,
                 )
             }
             if (available.isEmpty()) {
@@ -124,7 +128,7 @@ private fun SourceRow(
                 border = null,
             ).then(
                 if (selected) {
-                    Modifier.border(1.5.dp, accent, GlassShapes.card)
+                    Modifier.border(0.75.dp, accent.copy(alpha = 0.65f), GlassShapes.card)
                 } else {
                     Modifier
                 },

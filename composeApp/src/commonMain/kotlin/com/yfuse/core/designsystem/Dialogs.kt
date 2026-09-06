@@ -1,6 +1,8 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,6 +38,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -58,9 +61,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
 private val ScrimColor = Color(0xFF0A0E16)
-private val OverlayShape = GlassShapes.card
+private val OverlayShape = GlassShapes.sheet
 private val OverlayMaxWidth = 560.dp
-private val OverlayMotionOffset = 32.dp
+private val OverlayMotionOffset = 18.dp
 internal const val OVERLAY_EXIT_DURATION_MS = 200
 
 @Stable
@@ -102,58 +105,65 @@ fun GlassDialog(
     alignment: Alignment = Alignment.Center,
     windowPadding: PaddingValues = PaddingValues(horizontal = 26.dp, vertical = 20.dp),
     shape: Shape = OverlayShape,
+    dismissEnabled: Boolean = true,
+    maxWidth: Dp = OverlayMaxWidth,
+    properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var leaving by remember { mutableStateOf(false) }
-    val requestDismiss = remember { { leaving = true } }
+    var afterExit by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val canDismiss by rememberUpdatedState(dismissEnabled)
+    val requestDismiss = remember { { if (canDismiss) leaving = true } }
+    val complete = remember {
+        { action: () -> Unit ->
+            if (!leaving) {
+                afterExit = action
+                leaving = true
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = requestDismiss,
-        properties =
-            DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-            ),
+        properties = properties,
     ) {
         ReportOverlayVisible()
         val palette = LocalPalette.current
         val modalOffset = with(LocalDensity.current) { OverlayMotionOffset.toPx() }
-        val progress = rememberOverlayTransition(leaving = leaving, onLeft = onDismiss)
+        val progress = rememberOverlayTransition(leaving = leaving) { (afterExit ?: onDismiss)() }
         CompositionLocalProvider(
             LocalOverlayDismiss provides requestDismiss,
             LocalOverlayLiquidButtons provides liquidButtons,
+            LocalMutedGlass provides true,
+            LocalOverlayComplete provides complete,
         ) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = progress() }
-                    .background(ScrimColor.copy(alpha = 0.46f))
                     .pointerInput(requestDismiss) { detectTapGestures { requestDismiss() } },
                 contentAlignment = alignment,
             ) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .graphicsLayer { alpha = progress().coerceIn(0f, 1f) }
+                        .background(ScrimColor.copy(alpha = if (palette.isDark) 0.28f else 0.16f)),
+                )
                 val panelScrollState = rememberScrollState()
                 Column(
                     Modifier
                         .safeDrawingPadding()
                         .padding(windowPadding)
-                        .widthIn(max = OverlayMaxWidth)
+                        .widthIn(max = maxWidth)
                         .fillMaxWidth()
                         .graphicsLayer {
                             val entered = progress()
-                            alpha = entered
+                            alpha = entered.coerceIn(0f, 1f)
+                            scaleX = 0.94f + 0.06f * entered
+                            scaleY = scaleX
                             translationY = modalOffset * (1f - entered)
                         }.shadow(Shadows.sheet, shape)
-                        .liquidGlass(
-                            shape = shape,
-                            fill =
-                                if (palette.isDark) {
-                                    Color(0xFF111A29).copy(alpha = 0.94f)
-                                } else {
-                                    Color.White.copy(alpha = 0.94f)
-                                },
-                            border = palette.border,
-                            over = ScrimColor,
-                        ).pointerInput(Unit) { detectTapGestures { } }
+                        .mutedGlassPanel(shape)
+                        .pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
                         .padding(contentPadding)
                         .then(
@@ -172,30 +182,46 @@ fun GlassDialog(
 
 private val LocalOverlayDismiss = staticCompositionLocalOf<(() -> Unit)?> { null }
 private val LocalOverlayLiquidButtons = staticCompositionLocalOf { true }
+private val LocalOverlayComplete = staticCompositionLocalOf<((() -> Unit) -> Unit)?> { null }
 
 @Composable
 fun overlayDismiss(fallback: () -> Unit): () -> Unit = LocalOverlayDismiss.current ?: fallback
 
+/** For actions which remove the modal: finish its exit before changing the owning state. */
 @Composable
-private fun rememberOverlayTransition(
+fun overlayAction(action: () -> Unit): () -> Unit {
+    val complete = LocalOverlayComplete.current
+    val currentAction by rememberUpdatedState(action)
+    return remember(complete) { { if (complete == null) currentAction() else complete { currentAction() } } }
+}
+
+@Composable
+internal fun rememberOverlayTransition(
     leaving: Boolean,
     onLeft: () -> Unit,
 ): () -> Float {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    var shown by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { shown = true }
-    val target = if (shown && !leaving) 1f else 0f
-    val progress by animateFloatAsState(
-        targetValue = target,
-        animationSpec =
-            tween(
-                durationMillis = overlayDurationMillis(leaving, reduceMotion),
-                easing = Motion.Curve,
-            ),
-        finishedListener = { if (leaving) onLeft() },
-        label = "overlayTransition",
-    )
-    return { progress }
+    val progress = remember { Animatable(if (reduceMotion) 1f else 0f) }
+    val finish by rememberUpdatedState(onLeft)
+    // LaunchedEffect cancels an interrupted entrance. Exit also completes when dismissed
+    // before the first frame, where animateFloatAsState's finishedListener may never run.
+    LaunchedEffect(leaving, reduceMotion) {
+        val target = if (leaving) 0f else 1f
+        if (reduceMotion) {
+            progress.snapTo(target)
+        } else {
+            progress.animateTo(
+                target,
+                if (leaving) {
+                    tween(OVERLAY_EXIT_DURATION_MS, easing = CubicBezierEasing(0.4f, 0f, 0.8f, 1f))
+                } else {
+                    spring(dampingRatio = 0.88f, stiffness = 380f, visibilityThreshold = 0.001f)
+                },
+            )
+        }
+        if (leaving) finish()
+    }
+    return { progress.value }
 }
 
 internal fun overlayDurationMillis(
@@ -375,7 +401,7 @@ fun ConfirmDialog(
             dismissLabel = dismissLabel,
             confirmLabel = confirmLabel,
             onDismiss = onDismiss,
-            onConfirm = onConfirm,
+            onConfirm = overlayAction(onConfirm),
             confirmTone =
                 if (destructive) {
                     OverlayButtonTone.Destructive

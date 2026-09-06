@@ -42,6 +42,7 @@ import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.FallbackImage
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
@@ -167,7 +168,7 @@ internal fun AiringShowCalendarDialog(
                 Modifier
                     .fillMaxWidth()
                     .clip(GlassShapes.card)
-                    .background(palette.background)
+                    .background(palette.background.copy(alpha = 0.04f))
                     .verticalScroll(rememberScrollState()),
             ) {
                 DialogHero(
@@ -251,7 +252,7 @@ private fun DialogHero(
                 Modifier
                     .align(Alignment.TopEnd)
                     .padding(15.dp)
-                    .pressable(onClick = onDismiss)
+                    .pressable(onClick = overlayDismiss(onDismiss))
                     .touchTarget()
                     .size(38.dp)
                     .flatGlass(

@@ -1,7 +1,6 @@
 package com.yfuse.feature.profile
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,21 +12,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -45,7 +40,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -57,7 +51,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import com.yfuse.app.TabBarInset
@@ -73,12 +66,13 @@ import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassDialog
+import com.yfuse.core.designsystem.GlassShapes
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
-import com.yfuse.core.designsystem.ReportOverlayVisible
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
@@ -754,140 +748,115 @@ internal fun InviteCredentialSheet(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     var keepingOpen by remember(invite.code) { mutableStateOf(false) }
-    val sheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties =
-            DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-                securePolicy = SecureFlagPolicy.SecureOff,
-            ),
+    GlassDialog(
+        onDismiss = onDismiss,
+        alignment = Alignment.BottomCenter,
+        shape = GlassShapes.sheet,
+        contentPadding = 20.dp,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+            securePolicy = SecureFlagPolicy.SecureOff,
+        ),
     ) {
-        ReportOverlayVisible()
-        Box(
-            modifier =
+        Column(Modifier.fillMaxWidth()) {
+            Box(
                 Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF0A0E16).copy(alpha = 0.46f))
-                    .pointerInput(onDismiss) { detectTapGestures { onDismiss() } }
-                    .statusBarsPadding(),
-            contentAlignment = Alignment.BottomCenter,
-        ) {
+                    .align(Alignment.CenterHorizontally)
+                    .width(38.dp)
+                    .height(4.dp)
+                    .clip(AppShapes.pill)
+                    .background(palette.sub2.copy(alpha = 0.42f)),
+            )
+            Spacer(Modifier.height(14.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .size(42.dp)
+                            .liquidGlass(
+                                shape = AppShapes.control,
+                                fill = accent.accent.copy(alpha = 0.13f),
+                                border = null,
+                                over = palette.card,
+                                sheen = 0.4f,
+                            ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = AppIcons.Lock,
+                        contentDescription = null,
+                        tint = accent.accent,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Column {
+                    Text("邀请码已生成", style = AppTypography.section.strong, color = palette.text)
+                    Spacer(Modifier.height(2.dp))
+                    Text("一次性安全凭证", style = AppTypography.caption.medium, color = palette.sub2)
+                }
+            }
+            Spacer(Modifier.height(7.dp))
+            Text(
+                "这是一次性明文。关闭后无法再次查看，请现在复制并通过可信渠道发送。",
+                style = AppTypography.body.regular,
+                color = palette.error,
+            )
+            Spacer(Modifier.height(16.dp))
             Column(
                 modifier =
                     Modifier
-                        .widthIn(max = 560.dp)
                         .fillMaxWidth()
                         .liquidGlass(
-                            shape = sheetShape,
-                            fill = palette.card,
+                            shape = AppShapes.control,
+                            fill = palette.card2,
                             border = null,
-                            over = palette.background,
-                            sheen = 0.55f,
-                        ).pointerInput(Unit) { detectTapGestures { } }
-                        .verticalScroll(rememberScrollState())
-                        .navigationBarsPadding()
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                            over = palette.card,
+                            sheen = 0.42f,
+                        ).padding(horizontal = 16.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(
-                    Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .width(38.dp)
-                        .height(4.dp)
-                        .clip(AppShapes.pill)
-                        .background(palette.sub2.copy(alpha = 0.42f)),
-                )
-                Spacer(Modifier.height(14.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .size(42.dp)
-                                .liquidGlass(
-                                    shape = AppShapes.control,
-                                    fill = accent.accent.copy(alpha = 0.13f),
-                                    border = null,
-                                    over = palette.card,
-                                    sheen = 0.4f,
-                                ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = AppIcons.Lock,
-                            contentDescription = null,
-                            tint = accent.accent,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                    Column {
-                        Text("邀请码已生成", style = AppTypography.section.strong, color = palette.text)
-                        Spacer(Modifier.height(2.dp))
-                        Text("一次性安全凭证", style = AppTypography.caption.medium, color = palette.sub2)
-                    }
-                }
-                Spacer(Modifier.height(7.dp))
+                Text("一次性邀请码", style = AppTypography.caption.medium, color = palette.sub2)
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    "这是一次性明文。关闭后无法再次查看，请现在复制并通过可信渠道发送。",
-                    style = AppTypography.body.regular,
-                    color = palette.error,
+                    formatInviteCodeForDisplay("00fkGXQc35Ma6egzQ5lcLuWlqAxAKgSGJk7lfc7qAvk"),
+                    modifier = Modifier.fillMaxWidth(),
+                    style = AppTypography.body.strong.copy(fontFamily = FontFamily.Monospace),
+                    color = accent.accent,
+                    textAlign = TextAlign.Center,
                 )
-                Spacer(Modifier.height(16.dp))
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .liquidGlass(
-                                shape = AppShapes.control,
-                                fill = palette.card2,
-                                border = null,
-                                over = palette.card,
-                                sheen = 0.42f,
-                            ).padding(horizontal = 16.dp, vertical = 18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text("一次性邀请码", style = AppTypography.caption.medium, color = palette.sub2)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        formatInviteCodeForDisplay("00fkGXQc35Ma6egzQ5lcLuWlqAxAKgSGJk7lfc7qAvk"),
-                        modifier = Modifier.fillMaxWidth(),
-                        style = AppTypography.body.strong.copy(fontFamily = FontFamily.Monospace),
-                        color = accent.accent,
-                        textAlign = TextAlign.Center,
-                    )
-                    Spacer(Modifier.height(9.dp))
-                    Text(
-                        "有效期至 ${formatInviteExpiryUtc(invite.expiresAtEpochMs)}",
-                        modifier = Modifier.fillMaxWidth(),
-                        style = AppTypography.caption.regular,
-                        color = palette.sub2,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                InvitePrimaryAction(
-                    label = "复制并关闭",
-                    onClick = onCopyAndClose,
-                )
+                Spacer(Modifier.height(9.dp))
                 Text(
-                    text = if (keepingOpen) "已保留在当前页面" else "暂不关闭",
-                    modifier =
-                        Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .pressable(
-                                haptic = HapticSignal.Select,
-                                onClickLabel = "暂不关闭",
-                                onClick = { keepingOpen = true },
-                            ).touchTarget()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                    style = AppTypography.body.strong,
-                    color = if (keepingOpen) palette.sub2 else accent.accent,
+                    "有效期至 ${formatInviteExpiryUtc(invite.expiresAtEpochMs)}",
+                    modifier = Modifier.fillMaxWidth(),
+                    style = AppTypography.caption.regular,
+                    color = palette.sub2,
+                    textAlign = TextAlign.Center,
                 )
             }
+            Spacer(Modifier.height(16.dp))
+            InvitePrimaryAction(
+                label = "复制并关闭",
+                onClick = overlayAction(onCopyAndClose),
+            )
+            Text(
+                text = if (keepingOpen) "已保留在当前页面" else "暂不关闭",
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .pressable(
+                            haptic = HapticSignal.Select,
+                            onClickLabel = "暂不关闭",
+                            onClick = { keepingOpen = true },
+                        ).touchTarget()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                style = AppTypography.body.strong,
+                color = if (keepingOpen) palette.sub2 else accent.accent,
+            )
         }
     }
 }

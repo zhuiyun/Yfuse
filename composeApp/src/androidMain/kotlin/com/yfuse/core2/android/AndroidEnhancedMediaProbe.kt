@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import android.content.Context
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YMediaSourceHints
@@ -10,11 +11,12 @@ import com.yfuse.core2.capability.YAudioRequirement
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.capability.YVideoRequirement
-import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
+import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.strategy.YPlaybackRequest
 import com.yfuse.core2.strategy.shouldRequestEnhancedProbe
+import java.util.concurrent.CancellationException
 
 /**
  * Deep metadata probe over the demux-only FFmpeg bridge.
@@ -27,6 +29,7 @@ internal class AndroidEnhancedMediaProbe(
     private val clock: () -> Long = System::nanoTime,
     /** Test seam replacing the FFmpeg open; production always demuxes the real source. */
     private val probeSource: ((YMediaItem) -> YCore2ProbeResult?)? = null,
+    private val context: Context? = null,
 ) {
     private val probeCacheLock = Any()
 
@@ -37,10 +40,10 @@ internal class AndroidEnhancedMediaProbe(
      * cannot open a source, each of those evaluations used to pay the full open (about five
      * seconds over the network) for the same answer before the actual open failed again in
      * milliseconds. Remembering the failure briefly keeps the recovery chain honest about time
-     * without pinning the route: the window is short enough that a recovered network or a
-     * refreshed URL is retried on the next evaluation after it.
+     * without pinning the route: a recovered network is retried after the window, while a
+     * refreshed URL or authorization is retried immediately.
      */
-    private val failureCache = HashMap<String, TimedProbeFailure>()
+    private val failureCache = HashMap<EnhancedProbeFailureKey, TimedProbeFailure>()
 
     /**
      * Successful deep probes for this evaluator's lifetime, newest last.
@@ -61,19 +64,22 @@ internal class AndroidEnhancedMediaProbe(
         knownDolbyEvidence: YDolbyVisionNalEvidence? = null,
     ): YCore2ProbeResult? {
         val cacheKey = item.enhancedProbeCacheKey()
+        // Media identity may survive a refreshed URL or authorization headers; failures may not.
+        val failureKey =
+            EnhancedProbeFailureKey(cacheKey, item.uri, item.headers.toMap(), item.transportCredentials)
         val now = clock()
         synchronized(probeCacheLock) {
             probeCache[cacheKey]?.let { cached -> return cached }
-            failureCache[cacheKey]?.let { failed ->
+            failureCache[failureKey]?.let { failed ->
                 if (now - failed.retryAfterNs < 0L) return failed.result
-                failureCache.remove(cacheKey)
+                failureCache.remove(failureKey)
             }
         }
         val result = probeUncached(item, knownDolbyEvidence)
         synchronized(probeCacheLock) {
             when (result) {
                 is YCore2ProbeResult.Success -> {
-                    failureCache.remove(cacheKey)
+                    failureCache.remove(failureKey)
                     probeCache.remove(cacheKey)
                     probeCache[cacheKey] = result
                     while (probeCache.size > MAX_CACHED_ENHANCED_PROBES) {
@@ -84,8 +90,8 @@ internal class AndroidEnhancedMediaProbe(
                 // failure here is often an unreachable source, and the route must become
                 // playable again as soon as the network recovers.
                 is YCore2ProbeResult.Failure -> {
-                    failureCache[cacheKey] =
-                        TimedProbeFailure(result, retryAfterNs = now + FAILED_ENHANCED_PROBE_RETRY_NS)
+                    failureCache[failureKey] =
+                        TimedProbeFailure(result, retryAfterNs = clock() + FAILED_ENHANCED_PROBE_RETRY_NS)
                     while (failureCache.size > MAX_CACHED_ENHANCED_PROBES) {
                         failureCache.remove(failureCache.keys.first())
                     }
@@ -103,17 +109,21 @@ internal class AndroidEnhancedMediaProbe(
         probeSource?.let { source -> return source(item) }
         val demuxer = createDemuxer()
         if (!demuxer.available) return null
+        var proxy: AndroidYCoreHttpProxy? = null
         return try {
+            if (context != null && shouldProxyEnhancedSourceUri(item.uri)) {
+                proxy =
+                    AndroidYCoreHttpProxy(
+                        context = context,
+                        userAgent =
+                            item.headers.entries.firstOrNull { it.key.equals("User-Agent", true) }?.value.orEmpty(),
+                        cacheMaximumBytes = item.cacheMaximumBytes,
+                    )
+            }
             val result =
                 demuxer.open(
-                    YDemuxSource(
-                        uri = item.uri,
-                        headers = item.headers,
-                        cacheIdentity = item.cacheIdentity,
-                        cacheMaximumBytes = item.cacheMaximumBytes,
-                        transportCredentials = item.transportCredentials,
-                        probeOnly = true,
-                    ),
+                    proxy?.enhancedSource(item, probeOnly = true)
+                        ?: enhancedDemuxSource(item, probeOnly = true),
                 )
             val videoTrack =
                 result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
@@ -205,6 +215,7 @@ internal class AndroidEnhancedMediaProbe(
                     video.dolbyVisionConfig == null && (rpuCount > 0 || enhancementLayerCount > 0),
             )
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             val typed = failure as? YPlaybackException
             // The deep probe is the first FFmpeg open of a source. When it fails, the bundle
             // needs the same typed detail the playback open reports, or the five seconds it
@@ -224,7 +235,11 @@ internal class AndroidEnhancedMediaProbe(
             )
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
         } finally {
-            demuxer.close()
+            try {
+                demuxer.close()
+            } finally {
+                proxy?.close()
+            }
         }
     }
 
@@ -232,6 +247,15 @@ internal class AndroidEnhancedMediaProbe(
         val result: YCore2ProbeResult.Failure,
         val retryAfterNs: Long,
     )
+}
+
+private data class EnhancedProbeFailureKey(
+    val mediaKey: String,
+    val uri: String,
+    val headers: Map<String, String>,
+    val credentials: YTransportCredentials?,
+) {
+    override fun toString(): String = "EnhancedProbeFailureKey([redacted])"
 }
 
 private val ENHANCED_AUDIO_ONLY_VIDEO_PLACEHOLDER =

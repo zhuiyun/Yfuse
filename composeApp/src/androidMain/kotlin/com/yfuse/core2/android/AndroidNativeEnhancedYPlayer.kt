@@ -16,7 +16,6 @@ import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.demux.YDemuxOpenResult
-import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.render.YFrameRateSwitchMode
@@ -331,33 +330,7 @@ internal class AndroidNativeEnhancedYPlayer(
             }
             val result =
                 session.open(
-                    source =
-                        YDemuxSource(
-                            uri =
-                                if (proxy != null && shouldProxyEnhancedSourceUri(item.uri)) {
-                                    proxy.localUrl(
-                                        upstreamUri = item.uri,
-                                        upstreamHeaders = item.headers,
-                                        credentials = item.transportCredentials,
-                                        cacheable = item.cacheIdentity != null && item.cacheMaximumBytes > 0L,
-                                        cacheIdentity = item.cacheIdentity,
-                                    )
-                                } else {
-                                    item.uri
-                                },
-                            headers =
-                                if (proxy != null && shouldProxyEnhancedSourceUri(item.uri)) {
-                                    emptyMap()
-                                } else {
-                                    item.headers
-                                },
-                            cacheIdentity = item.cacheIdentity,
-                            cacheMaximumBytes = item.cacheMaximumBytes,
-                            transportCredentials =
-                                item.transportCredentials.takeUnless {
-                                    proxy != null && shouldProxyEnhancedSourceUri(item.uri)
-                                },
-                        ),
+                    source = proxy?.enhancedSource(item) ?: enhancedDemuxSource(item),
                     plan = playbackPlan,
                     surface = output,
                     startPositionUs = positionUs.coerceAtLeast(0L),
@@ -365,6 +338,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     requireDolbyVisionIdentity = requireDolbyVisionIdentity,
                     expectedAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
                     sourceHints = item.sourceHints,
+                    allowAudioPassthrough = allowAudioPassthrough,
                 )
             prepared = true
             activePlan = playbackPlan

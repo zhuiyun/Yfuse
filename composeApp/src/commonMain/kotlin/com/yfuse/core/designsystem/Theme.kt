@@ -314,7 +314,7 @@ fun YfuseTheme(
             colorScheme = if (dark) darkScheme(accentColors) else lightScheme(accentColors),
             typography = AppTypography.material,
             shapes = AppShapes.material,
-            content = content,
+            content = { DialogBackdropHost(content) },
         )
     }
 }

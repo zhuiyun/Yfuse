@@ -256,6 +256,7 @@ private fun Modifier.glassMaterial(
 ): Modifier {
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
+    if (LocalMutedGlass.current) return mutedGlassControl(shape, fill, border)
     val materialBorder = resolveGlassMaterialBorder(border, palette)
     val frosted = frostedGlass()
     val resolvedBorder =
@@ -361,6 +362,7 @@ fun Modifier.liquidGlass(
 ): Modifier {
     val palette = LocalPalette.current
     val accessibility = LocalAccessibilityOptions.current
+    if (LocalMutedGlass.current) return mutedGlassControl(shape, fill, border)
     val materialBorder = resolveGlassMaterialBorder(border, palette)
     if (accessibility.reduceTransparency) {
         val flat = reducedTransparencyFill(fill, palette, over)

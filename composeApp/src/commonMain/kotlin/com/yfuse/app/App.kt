@@ -1,9 +1,16 @@
 package com.yfuse.app
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -13,7 +20,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -741,6 +747,7 @@ private fun BottomNavigationDock(
     backdrop: BackdropState,
     modifier: Modifier = Modifier,
 ) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     Row(
         modifier
             .widthIn(max = 520.dp)
@@ -753,16 +760,22 @@ private fun BottomNavigationDock(
         horizontalArrangement = Arrangement.spacedBy(Dimens.tabBarInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (collapsed) {
-            CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
-            Spacer(Modifier.weight(1f))
-        } else {
-            GlassTabBar(
-                active = active,
-                onSelect = onSelect,
-                backdrop = backdrop,
-                modifier = Modifier.weight(1f),
-            )
+        AnimatedContent(
+            targetState = collapsed,
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.CenterStart,
+            transitionSpec = {
+                val duration = if (reduceMotion) 0 else 260
+                (fadeIn(tween(duration)) + scaleIn(tween(duration, easing = Motion.Curve), initialScale = 0.92f)) togetherWith
+                    (fadeOut(tween(if (reduceMotion) 0 else 140)) + scaleOut(tween(duration), targetScale = 0.94f))
+            },
+            label = "navigationDockScale",
+        ) { isCollapsed ->
+            if (isCollapsed) {
+                CollapsedNavButton(active = active, backdrop = backdrop, onClick = onExpand)
+            } else {
+                GlassTabBar(active = active, onSelect = onSelect, backdrop = backdrop)
+            }
         }
         SearchButton(
             selected = active == Tab.Search,
@@ -1043,7 +1056,7 @@ private fun RowScope.TabButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        LiquidGlassTabIcon(item = item, tint = tint)
+        LiquidGlassTabIcon(item = item, tint = tint, selected = selected)
     }
 }
 
@@ -1120,7 +1133,7 @@ private fun RailTabButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        LiquidGlassTabIcon(item = item, tint = tint, compact = true)
+        LiquidGlassTabIcon(item = item, tint = tint, compact = true, selected = selected)
     }
 }
 
@@ -1128,20 +1141,30 @@ private fun RailTabButton(
  * A tab glyph in its optical box.
  *
  * The glyphs are silhouettes, so there is nothing for the material to do here beyond the
- * tint: the holes cut through them show the lens underneath. Unselected tabs used to shrink
- * to 94%, which made the four read as a row of things not quite in focus; every glyph now
- * sits at full size and only the ink changes.
+ * tint: the holes cut through them show the lens underneath. Inactive glyphs keep their
+ * full optical size; selection adds a restrained spring scale and one-dp lift.
  */
 @Composable
 private fun LiquidGlassTabIcon(
     item: TabItem,
     tint: Color,
     compact: Boolean = false,
+    selected: Boolean = false,
 ) {
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val emphasis by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.76f, stiffness = 460f),
+        label = "tabSelectionScale",
+    )
     val boxSize = if (compact) 34.dp else 38.dp
     val iconSize = if (compact) 25.dp else 28.dp
     Box(
-        Modifier.size(boxSize),
+        Modifier.size(boxSize).graphicsLayer {
+            scaleX = 1f + 0.10f * emphasis
+            scaleY = scaleX
+            translationY = if (reduceMotion) 0f else -1.dp.toPx() * emphasis
+        },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
