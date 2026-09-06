@@ -6,6 +6,13 @@ import kotlin.test.assertEquals
 
 class Core2SurfaceTest {
     @Test
+    fun dual_subtitles_use_separate_edges_even_when_both_authored_tracks_are_at_the_top() {
+        assertEquals(2, core2SubtitleAlignment(authored = 8, secondary = false, dual = true))
+        assertEquals(8, core2SubtitleAlignment(authored = 2, secondary = true, dual = true))
+        assertEquals(7, core2SubtitleAlignment(authored = 7, secondary = false, dual = false))
+    }
+
+    @Test
     fun fit_preserves_aspect_ratio_inside_the_container() {
         assertEquals(
             IntSize(width = 1920, height = 800),

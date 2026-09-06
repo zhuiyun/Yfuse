@@ -129,7 +129,11 @@ data class PlaybackOutputEvidence(
     val rendererDetail: String = "",
 )
 
-internal fun PlaybackOutputEvidence.nextSession(): PlaybackOutputEvidence = PlaybackOutputEvidence(sessionRevision = sessionRevision + 1L)
+internal fun PlaybackOutputEvidence.nextSession(): PlaybackOutputEvidence =
+    PlaybackOutputEvidence(
+        sessionRevision =
+            sessionRevision + 1L,
+    )
 
 data class PlaybackDiagnostics(
     val engine: String = "",
@@ -283,6 +287,8 @@ data class PlaybackState(
     val itemCount: Int = 1,
     val audioTracks: List<EngineTrack> = emptyList(),
     val subtitleTracks: List<EngineTrack> = emptyList(),
+    val secondarySubtitleTrackId: String? = null,
+    val secondarySubtitleOffsetMs: Long = 0L,
     /** DVD/Blu-ray title, chapter and menu state; empty for ordinary files. */
     val discNavigation: PlaybackDiscNavigationState = PlaybackDiscNavigationState(),
     val error: String? = null,
@@ -404,6 +410,10 @@ interface VideoEngine {
 
     /** [EngineTrack.OFF] disables the secondary subtitle. Returns false when unsupported. */
     fun selectSecondarySubtitleTrack(id: String): Boolean = false
+
+    val supportsSecondarySubtitleOffset: Boolean get() = false
+
+    fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean = false
 
     val supportsSubtitleOffset: Boolean get() = false
 

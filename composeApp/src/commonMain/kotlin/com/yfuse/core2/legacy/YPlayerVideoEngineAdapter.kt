@@ -9,8 +9,8 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.feature.player.EngineTrack
-import com.yfuse.feature.player.PlaybackDiagnostics
 import com.yfuse.feature.player.PlaybackAudioOutputMode
+import com.yfuse.feature.player.PlaybackDiagnostics
 import com.yfuse.feature.player.PlaybackDynamicRangeOutputMode
 import com.yfuse.feature.player.PlaybackEvidenceConfidence
 import com.yfuse.feature.player.PlaybackOutputEvidence
@@ -55,6 +55,14 @@ internal class YPlayerVideoEngineAdapter(
     override fun selectAudioTrack(id: String) = player.selectTrack(YTrackType.Audio, id)
 
     override fun selectSubtitleTrack(id: String) = player.selectTrack(YTrackType.Subtitle, id)
+
+    override val supportsSecondarySubtitleTrack: Boolean get() = player.supportsSecondarySubtitleTrack
+
+    override fun selectSecondarySubtitleTrack(id: String): Boolean = player.selectSecondarySubtitleTrack(id)
+
+    override val supportsSecondarySubtitleOffset: Boolean get() = player.supportsSecondarySubtitleOffset
+
+    override fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean = player.setSecondarySubtitleOffsetMs(offsetMs)
 
     // Core2 subtitles are presented by Core2Surface above the direct video Surface. Reporting
     // these capabilities here prevents the legacy compatibility layer from rebuilding Core2 as
@@ -143,6 +151,8 @@ private fun YPlayerState.toLegacyPlaybackState(): PlaybackState =
         itemCount = itemCount,
         audioTracks = audioTracks.map(YTrack::toEngineTrack),
         subtitleTracks = subtitleTracks.map(YTrack::toEngineTrack),
+        secondarySubtitleTrackId = secondarySubtitleTrackId,
+        secondarySubtitleOffsetMs = secondarySubtitleOffsetMs,
         discNavigation = discNavigation,
         error = error,
         errorKind = errorCategory?.toLegacyFailureKind(),
@@ -233,7 +243,12 @@ internal fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
             if (audioOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
         // The native label combines "video + audio" decoders. A single decoder on an
         // audio-only source must not become proof that the item contains video.
-        videoDecoder = decoderParts.firstOrNull().orEmpty().takeIf { videoTrackKnown }.orEmpty(),
+        videoDecoder =
+            decoderParts
+                .firstOrNull()
+                .orEmpty()
+                .takeIf { videoTrackKnown }
+                .orEmpty(),
         audioDecoder =
             when {
                 !audioTrackKnown -> ""

@@ -167,6 +167,8 @@ internal class AndroidNativeDirectYPlayer(
         mutableState.updateState {
             it.copy(
                 positionMs = bounded,
+                subtitleCues = emptyList(),
+                secondarySubtitleCues = emptyList(),
                 bufferedPositionMs = bounded,
                 buffering = it.playbackRequested,
                 phase = if (it.phase == YPlaybackPhase.Ended) YPlaybackPhase.Ready else it.phase,
@@ -216,6 +218,31 @@ internal class AndroidNativeDirectYPlayer(
                 }
             }
         }
+    }
+
+    override val supportsSecondarySubtitleOffset: Boolean = true
+
+    override fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean {
+        if (released || offsetMs !in -60_000L..60_000L) return false
+        mutableState.updateState { it.copy(secondarySubtitleOffsetMs = offsetMs) }
+        return true
+    }
+
+    override val supportsSecondarySubtitleTrack: Boolean = true
+
+    override fun selectSecondarySubtitleTrack(id: String): Boolean {
+        if (released) return false
+        val selected = mutableState.value.subtitleTracks.firstOrNull { it.id == id }
+        if (id != SUBTITLE_OFF && (selected == null || selected.selected)) return false
+        val external = id.takeIf { it.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX) }
+        val embedded =
+            if (id == SUBTITLE_OFF || external != null) {
+                null
+            } else {
+                id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull() ?: return false
+            }
+        submit(Command.SelectSubtitleTrack(embedded, externalTrackId = external, secondary = true))
+        return true
     }
 
     override fun selectItem(index: Int) {
@@ -429,6 +456,9 @@ internal class AndroidNativeDirectYPlayer(
         private var audioInputFormat: MediaFormat? = null
         private var subtitleTrackIndex: Int? = null
         private val subtitleCues = mutableListOf<YSubtitleCue>()
+        private var secondarySubtitleTrackIndex: Int? = null
+        private var secondaryExternalSubtitleId: String? = null
+        private val secondarySubtitleCues = mutableListOf<YSubtitleCue>()
         private var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
         private var selectedExternalSubtitleId: String? = null
         private var audioTrackFormat: YAudioTrackFormat? = null
@@ -573,7 +603,7 @@ internal class AndroidNativeDirectYPlayer(
                 is Command.SetVideoOutput -> setSurface(command.output)
                 is Command.SelectAudioTrack -> selectAudioTrack(command.trackIndex)
                 is Command.SelectSubtitleTrack ->
-                    selectSubtitleTrack(command.trackIndex, command.externalTrackId)
+                    selectSubtitleTrack(command.trackIndex, command.externalTrackId, command.secondary)
                 is Command.SelectItem -> {
                     currentIndex = command.index
                     prepareCurrent(0L)
@@ -829,6 +859,8 @@ internal class AndroidNativeDirectYPlayer(
                     audioTracks = tracks,
                     subtitleTracks = subtitleTracks(),
                     subtitleCues = activeSubtitleCues(),
+                    secondarySubtitleCues = activeSecondarySubtitleCues(),
+                    secondarySubtitleTrackId = secondarySubtitleId(),
                     buffering = requestedPlay,
                     playbackRequested = requestedPlay,
                     diagnostics =
@@ -1034,6 +1066,7 @@ internal class AndroidNativeDirectYPlayer(
             }
             if (audioRendererConfigured) flushAudio()
             subtitleCues.clear()
+            secondarySubtitleCues.clear()
             resetEndState()
             seekTargetVideoUs = targetUs
             seekTargetAudioUs = targetUs
@@ -1049,6 +1082,8 @@ internal class AndroidNativeDirectYPlayer(
                     buffering = requestedPlay,
                     positionMs = targetUs / MICROS_PER_MILLISECOND,
                     subtitleCues = activeSubtitleCues(),
+                    secondarySubtitleCues = activeSecondarySubtitleCues(),
+                    secondarySubtitleTrackId = secondarySubtitleId(),
                     error = null,
                     diagnostics =
                         current.diagnostics
@@ -1112,23 +1147,56 @@ internal class AndroidNativeDirectYPlayer(
         private fun selectSubtitleTrack(
             trackIndex: Int?,
             externalTrackId: String?,
+            secondary: Boolean,
         ) {
             if (!prepared) return
             if (externalTrackId != null && externalSubtitles.none { it.track.id == externalTrackId }) return
-            if (externalTrackId == selectedExternalSubtitleId && trackIndex == subtitleTrackIndex) return
             val nextFormat = trackIndex?.takeIf { it in 0 until demux.trackCount }?.let(demux::trackFormat)
-            val nextSubtitleFormat = nextFormat?.subtitleFormatOrNull()
-            if (trackIndex != null && nextSubtitleFormat?.textOverlaySupported != true) return
+            if (trackIndex != null && nextFormat?.subtitleFormatOrNull()?.textOverlaySupported != true) return
+            if (secondary) {
+                if (trackIndex != null &&
+                    trackIndex == subtitleTrackIndex ||
+                    externalTrackId != null &&
+                    externalTrackId == selectedExternalSubtitleId
+                ) {
+                    return
+                }
+                if (trackIndex == secondarySubtitleTrackIndex && externalTrackId == secondaryExternalSubtitleId) return
+            } else if (trackIndex == subtitleTrackIndex && externalTrackId == selectedExternalSubtitleId) {
+                return
+            }
+            val previousEmbedded = selectedDemuxTrackIndices()
             val positionUs = currentPositionUs()
-            subtitleTrackIndex = trackIndex
-            selectedExternalSubtitleId = externalTrackId
-            demux.selectTracks(selectedDemuxTrackIndices())
-            subtitleCues.clear()
-            seekTo(positionUs)
+            if (secondary) {
+                secondarySubtitleTrackIndex = trackIndex
+                secondaryExternalSubtitleId = externalTrackId
+                secondarySubtitleCues.clear()
+            } else {
+                subtitleTrackIndex = trackIndex
+                selectedExternalSubtitleId = externalTrackId
+                subtitleCues.clear()
+                if (trackIndex != null &&
+                    trackIndex == secondarySubtitleTrackIndex ||
+                    externalTrackId != null &&
+                    externalTrackId == secondaryExternalSubtitleId
+                ) {
+                    secondarySubtitleTrackIndex = null
+                    secondaryExternalSubtitleId = null
+                    secondarySubtitleCues.clear()
+                }
+            }
+            val selectedEmbedded = selectedDemuxTrackIndices()
+            if (selectedEmbedded != previousEmbedded) {
+                demux.selectTracks(selectedEmbedded)
+                // Track selection clears read-ahead, so re-anchor A/V as well as both subtitle streams.
+                seekTo(positionUs)
+            }
             mutableState.update { current ->
                 current.copy(
                     subtitleTracks = subtitleTracks(),
                     subtitleCues = activeSubtitleCues(),
+                    secondarySubtitleCues = activeSecondarySubtitleCues(),
+                    secondarySubtitleTrackId = secondarySubtitleId(),
                 )
             }
         }
@@ -1260,9 +1328,9 @@ internal class AndroidNativeDirectYPlayer(
                             sample.flags,
                             sample.cryptoInfo,
                         )
-                    subtitleTrackIndex -> {
+                    subtitleTrackIndex, secondarySubtitleTrackIndex -> {
                         require(sample.cryptoInfo == null) { "Encrypted subtitle samples are not executable" }
-                        queueSubtitleSample(sample.data, sample.presentationTimeUs)
+                        queueSubtitleSample(sample.trackIndex, sample.data, sample.presentationTimeUs)
                         YCodecQueueResult.Queued
                     }
                     else -> YCodecQueueResult.Queued
@@ -1601,6 +1669,8 @@ internal class AndroidNativeDirectYPlayer(
                     positionMs = positionMs,
                     bufferedPositionMs = bufferedPositionMs,
                     subtitleCues = activeSubtitleCues(),
+                    secondarySubtitleCues = activeSecondarySubtitleCues(),
+                    secondarySubtitleTrackId = secondarySubtitleId(),
                     playing = playing,
                     buffering = buffering,
                     diagnostics =
@@ -2267,6 +2337,7 @@ internal class AndroidNativeDirectYPlayer(
                 videoTrackIndex?.let { add(it) }
                 audioTrackIndex?.let { add(it) }
                 subtitleTrackIndex?.let { add(it) }
+                secondarySubtitleTrackIndex?.let { add(it) }
             }
 
         private fun audioTracks(): List<YTrack> =
@@ -2313,14 +2384,25 @@ internal class AndroidNativeDirectYPlayer(
                 ?.let { id -> externalSubtitles.firstOrNull { it.track.id == id }?.cues }
                 ?: subtitleCues.toList()
 
+        private fun secondarySubtitleId(): String? =
+            secondaryExternalSubtitleId
+                ?: secondarySubtitleTrackIndex?.let { "$SUBTITLE_TRACK_PREFIX$it" }
+
+        private fun activeSecondarySubtitleCues(): List<YSubtitleCue> =
+            secondaryExternalSubtitleId
+                ?.let { id -> externalSubtitles.firstOrNull { it.track.id == id }?.cues }
+                ?: secondarySubtitleCues.toList()
+
         private fun sourceFailureCategory(): YPlaybackFailureCategory =
             if (sourceRemote) YPlaybackFailureCategory.Network else YPlaybackFailureCategory.Container
 
         private fun queueSubtitleSample(
+            trackIndex: Int,
             data: ByteBuffer,
             presentationTimeUs: Long,
         ) {
-            val format = subtitleTrackIndex?.let(demux::trackFormat)?.subtitleFormatOrNull() ?: return
+            val format = demux.trackFormat(trackIndex).subtitleFormatOrNull() ?: return
+            val cues = if (trackIndex == secondarySubtitleTrackIndex) secondarySubtitleCues else subtitleCues
             val bytes = ByteArray(data.remaining())
             data.duplicate().get(bytes)
             YEmbeddedSubtitleDecoder
@@ -2329,10 +2411,10 @@ internal class AndroidNativeDirectYPlayer(
                     format = format,
                     startUs = presentationTimeUs,
                     durationUs = null,
-                    id = "${subtitleTrackIndex ?: -1}:$presentationTimeUs",
-                )?.let(subtitleCues::add)
+                    id = "$trackIndex:$presentationTimeUs",
+                )?.let(cues::add)
             val oldestRetainedUs = currentPositionUs() - SUBTITLE_HISTORY_US
-            subtitleCues.removeAll { cue -> cue.endUs < oldestRetainedUs }
+            cues.removeAll { cue -> cue.endUs < oldestRetainedUs }
         }
 
         fun releaseMedia() {
@@ -2358,7 +2440,10 @@ internal class AndroidNativeDirectYPlayer(
             videoTrackIndex = null
             audioTrackIndex = null
             subtitleTrackIndex = null
+            secondarySubtitleTrackIndex = null
+            secondaryExternalSubtitleId = null
             subtitleCues.clear()
+            secondarySubtitleCues.clear()
             externalSubtitles = emptyList()
             selectedExternalSubtitleId = null
             sourceRemote = false
@@ -2442,6 +2527,7 @@ internal class AndroidNativeDirectYPlayer(
         data class SelectSubtitleTrack(
             val trackIndex: Int?,
             val externalTrackId: String?,
+            val secondary: Boolean = false,
         ) : Command
 
         data class SelectItem(
@@ -2555,7 +2641,7 @@ private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNati
         is AndroidNativeDirectYPlayer.Command.SelectAudioTrack ->
             next is AndroidNativeDirectYPlayer.Command.SelectAudioTrack
         is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack ->
-            next is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack
+            next is AndroidNativeDirectYPlayer.Command.SelectSubtitleTrack && secondary == next.secondary
         is AndroidNativeDirectYPlayer.Command.SelectItem -> next is AndroidNativeDirectYPlayer.Command.SelectItem
         AndroidNativeDirectYPlayer.Command.Prepare -> next == AndroidNativeDirectYPlayer.Command.Prepare
         AndroidNativeDirectYPlayer.Command.Play -> next == AndroidNativeDirectYPlayer.Command.Play

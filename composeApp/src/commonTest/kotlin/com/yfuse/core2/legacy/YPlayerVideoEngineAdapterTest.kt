@@ -4,10 +4,10 @@ import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDiscMenuCommand
 import com.yfuse.core.playback.PlaybackDiscNavigationState
 import com.yfuse.core.playback.PlaybackFailureKind
+import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
-import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerDiagnostics
 import com.yfuse.core2.api.YPlayerState
@@ -21,6 +21,35 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class YPlayerVideoEngineAdapterTest {
+    @Test
+    fun `secondary subtitle controls reach the native product player`() {
+        var track: String? = null
+        var offset = 0L
+        val player =
+            object : YPlayer by FakeYPlayer() {
+                override val supportsSecondarySubtitleTrack: Boolean = true
+                override val supportsSecondarySubtitleOffset: Boolean = true
+
+                override fun selectSecondarySubtitleTrack(id: String): Boolean {
+                    track = id
+                    return true
+                }
+
+                override fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean {
+                    offset = offsetMs
+                    return true
+                }
+            }
+        val engine = YPlayerVideoEngineAdapter(player)
+        assertTrue(engine.supportsSecondarySubtitleTrack)
+        assertTrue(engine.supportsSecondarySubtitleOffset)
+        assertTrue(engine.selectSecondarySubtitleTrack("sub:2"))
+        assertTrue(engine.setSecondarySubtitleOffsetMs(1500L))
+        assertEquals("sub:2", track)
+        assertEquals(1500L, offset)
+        assertFalse(YPlayerVideoEngineAdapter(FakeYPlayer()).supportsSecondarySubtitleTrack)
+    }
+
     @Test
     fun `product player binding unwraps the native Core2 player`() {
         val player = FakeYPlayer()

@@ -139,6 +139,8 @@ internal class AndroidNativeEnhancedYPlayer(
         mutableState.updateState {
             it.copy(
                 positionMs = target,
+                subtitleCues = emptyList(),
+                secondarySubtitleCues = emptyList(),
                 buffering = it.playbackRequested,
                 phase = if (it.phase == YPlaybackPhase.Ended) YPlaybackPhase.Ready else it.phase,
             )
@@ -171,9 +173,11 @@ internal class AndroidNativeEnhancedYPlayer(
                         EXTERNAL_SUBTITLE_TRACK_ID ->
                             Command.SelectSubtitleTrack(
                                 null,
-                                externalTrackId = mutableState.value.subtitleTracks.firstOrNull {
-                                    it.id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)
-                                }?.id,
+                                externalTrackId =
+                                    mutableState.value.subtitleTracks
+                                        .firstOrNull {
+                                            it.id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)
+                                        }?.id,
                             )
                         else -> {
                             if (id.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX)) {
@@ -189,6 +193,31 @@ internal class AndroidNativeEnhancedYPlayer(
                 }
             }
         }
+    }
+
+    override val supportsSecondarySubtitleOffset: Boolean = true
+
+    override fun setSecondarySubtitleOffsetMs(offsetMs: Long): Boolean {
+        if (released || offsetMs !in -60_000L..60_000L) return false
+        mutableState.updateState { it.copy(secondarySubtitleOffsetMs = offsetMs) }
+        return true
+    }
+
+    override val supportsSecondarySubtitleTrack: Boolean = true
+
+    override fun selectSecondarySubtitleTrack(id: String): Boolean {
+        if (released) return false
+        val selected = mutableState.value.subtitleTracks.firstOrNull { it.id == id }
+        if (id != SUBTITLE_OFF && (selected == null || selected.selected)) return false
+        val external = id.takeIf { it.startsWith(EXTERNAL_SUBTITLE_TRACK_PREFIX) }
+        val embedded =
+            if (id == SUBTITLE_OFF || external != null) {
+                null
+            } else {
+                id.removePrefix(SUBTITLE_TRACK_PREFIX).toIntOrNull() ?: return false
+            }
+        submit(Command.SelectSubtitleTrack(embedded, externalTrackId = external, secondary = true))
+        return true
     }
 
     override fun selectItem(index: Int) {
@@ -274,6 +303,8 @@ internal class AndroidNativeEnhancedYPlayer(
         var lastPublishNs = 0L
         var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
         var selectedExternalSubtitleId: String? = null
+        var secondaryExternalSubtitleId: String? = null
+        var secondaryTrackId: String? = null
         var activePlan: YPlaybackPlan? = null
         var activeDolbyProfile: Int? = null
         var adaptiveFeedbackGeneration = 0L
@@ -341,6 +372,8 @@ internal class AndroidNativeEnhancedYPlayer(
                     allowAudioPassthrough = allowAudioPassthrough,
                 )
             prepared = true
+            secondaryExternalSubtitleId = null
+            secondaryTrackId = null
             activePlan = playbackPlan
             speed = mutableState.value.speed
             session.setSpeed(speed)
@@ -355,7 +388,8 @@ internal class AndroidNativeEnhancedYPlayer(
                     )
                 }
             selectedExternalSubtitleId =
-                sidecarSources.indexOfFirst { it.forced || it.default }
+                sidecarSources
+                    .indexOfFirst { it.forced || it.default }
                     .takeIf { it >= 0 }
                     ?.let(::externalSubtitleTrackId)
                     ?: externalSubtitles.singleOrNull()?.track?.id
@@ -378,6 +412,8 @@ internal class AndroidNativeEnhancedYPlayer(
                     itemCount = request.items.size,
                     audioTracks = tracks,
                     subtitleTracks = subtitleTracks,
+                    secondarySubtitleCues = emptyList(),
+                    secondarySubtitleTrackId = null,
                     subtitleCues =
                         selectedExternalSubtitleId
                             ?.let { id -> externalSubtitles.firstOrNull { it.track.id == id }?.cues }
@@ -449,6 +485,13 @@ internal class AndroidNativeEnhancedYPlayer(
                         } else {
                             snapshot.subtitleCues
                         },
+                    secondarySubtitleCues =
+                        if (secondaryExternalSubtitleId != null) {
+                            externalSubtitles.firstOrNull { it.track.id == secondaryExternalSubtitleId }?.cues.orEmpty()
+                        } else {
+                            snapshot.secondarySubtitleCues
+                        },
+                    secondarySubtitleTrackId = secondaryTrackId,
                     diagnostics =
                         it.diagnostics.copy(
                             decoder =
@@ -636,33 +679,41 @@ internal class AndroidNativeEnhancedYPlayer(
                             }
                             is Command.SelectSubtitleTrack -> {
                                 if (prepared) {
-                                    if (
-                                        command.externalTrackId == null ||
-                                        externalSubtitles.any { it.track.id == command.externalTrackId }
-                                    ) {
-                                        session.selectSubtitleTrack(command.trackId?.let(::YTrackId))
-                                        selectedExternalSubtitleId = command.externalTrackId
-                                    }
-                                    val selectedTrackId =
-                                        when {
-                                            selectedExternalSubtitleId != null -> selectedExternalSubtitleId
-                                            command.trackId != null -> "$SUBTITLE_TRACK_PREFIX${command.trackId}"
-                                            else -> null
+                                    val selectedId =
+                                        command.externalTrackId
+                                            ?: command.trackId?.let { "$SUBTITLE_TRACK_PREFIX$it" }
+                                    val candidate =
+                                        mutableState.value.subtitleTracks.firstOrNull {
+                                            it.id == selectedId
                                         }
+                                    if (selectedId != null && candidate == null) return@forEach
+                                    if (command.secondary && candidate?.selected == true) return@forEach
+                                    // Repeated UI restore events must not clear the active channel.
+                                    if (command.secondary && selectedId == secondaryTrackId) return@forEach
+                                    if (!command.secondary && candidate?.selected == true) return@forEach
+                                    session.selectSubtitleTrack(command.trackId?.let(::YTrackId), command.secondary)
+                                    if (command.secondary) {
+                                        secondaryExternalSubtitleId = command.externalTrackId
+                                        secondaryTrackId = selectedId
+                                    } else {
+                                        selectedExternalSubtitleId = command.externalTrackId
+                                        if (selectedId != null && selectedId == secondaryTrackId) {
+                                            session.selectSubtitleTrack(null, secondary = true)
+                                            secondaryExternalSubtitleId = null
+                                            secondaryTrackId = null
+                                        }
+                                    }
                                     mutableState.updateState { state ->
                                         state.copy(
                                             subtitleTracks =
-                                                state.subtitleTracks.map { track ->
-                                                    track.copy(selected = track.id == selectedTrackId)
-                                                },
-                                            subtitleCues =
-                                                if (selectedExternalSubtitleId != null) {
-                                                    externalSubtitles.firstOrNull {
-                                                        it.track.id == selectedExternalSubtitleId
-                                                    }?.cues.orEmpty()
+                                                if (command.secondary) {
+                                                    state.subtitleTracks
                                                 } else {
-                                                    emptyList()
+                                                    state.subtitleTracks.map { track ->
+                                                        track.copy(selected = track.id == selectedId)
+                                                    }
                                                 },
+                                            secondarySubtitleTrackId = secondaryTrackId,
                                             error = null,
                                             errorCategory = null,
                                         )
@@ -690,7 +741,11 @@ internal class AndroidNativeEnhancedYPlayer(
                                     "failureStage" to (typed?.stage?.name ?: "Unknown"),
                                     "failureDetail" to typed?.safeDetail.orEmpty(),
                                     "itemIndex" to currentIndex.toString(),
-                                    "sourceScheme" to request.items[currentIndex].uri.substringBefore(':').lowercase(),
+                                    "sourceScheme" to
+                                        request.items[currentIndex]
+                                            .uri
+                                            .substringBefore(':')
+                                            .lowercase(),
                                 ),
                         )
                         session.close()
@@ -774,6 +829,7 @@ internal class AndroidNativeEnhancedYPlayer(
         data class SelectSubtitleTrack(
             val trackId: Int?,
             val externalTrackId: String?,
+            val secondary: Boolean = false,
         ) : Command
 
         data class SelectItem(
@@ -830,7 +886,7 @@ private fun AndroidNativeEnhancedYPlayer.Command.canBeReplacedBy(next: AndroidNa
         is AndroidNativeEnhancedYPlayer.Command.SelectAudioTrack ->
             next is AndroidNativeEnhancedYPlayer.Command.SelectAudioTrack
         is AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack ->
-            next is AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack
+            next is AndroidNativeEnhancedYPlayer.Command.SelectSubtitleTrack && secondary == next.secondary
         is AndroidNativeEnhancedYPlayer.Command.SelectItem -> next is AndroidNativeEnhancedYPlayer.Command.SelectItem
         AndroidNativeEnhancedYPlayer.Command.Prepare -> next == AndroidNativeEnhancedYPlayer.Command.Prepare
         AndroidNativeEnhancedYPlayer.Command.Play -> next == AndroidNativeEnhancedYPlayer.Command.Play
