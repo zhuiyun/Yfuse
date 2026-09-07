@@ -1,7 +1,10 @@
 import org.gradle.api.GradleException
 import org.gradle.api.provider.ProviderFactory
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.security.KeyFactory
 import java.security.MessageDigest
+import java.security.spec.X509EncodedKeySpec
+import java.util.Base64
 import java.util.Properties
 import java.util.zip.ZipFile
 
@@ -430,9 +433,9 @@ val verifyTvReleaseProfile by tasks.registering {
         if (!allowDebugSigning) {
             val validUpdateKey =
                 runCatching {
-                    java.security.KeyFactory.getInstance("Ed25519").generatePublic(
-                        java.security.spec.X509EncodedKeySpec(
-                            java.util.Base64
+                    KeyFactory.getInstance("Ed25519").generatePublic(
+                        X509EncodedKeySpec(
+                            Base64
                                 .getDecoder()
                                 .decode(updateManifestPublicKey),
                         ),
