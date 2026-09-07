@@ -116,7 +116,10 @@ internal class AndroidEnhancedMediaProbe(
                     AndroidYCoreHttpProxy(
                         context = context,
                         userAgent =
-                            item.headers.entries.firstOrNull { it.key.equals("User-Agent", true) }?.value.orEmpty(),
+                            item.headers.entries
+                                .firstOrNull { it.key.equals("User-Agent", true) }
+                                ?.value
+                                .orEmpty(),
                         cacheMaximumBytes = item.cacheMaximumBytes,
                     )
             }

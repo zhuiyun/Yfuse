@@ -44,6 +44,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.WatchAvatar
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionAwareItem
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
 import com.yfuse.core.designsystem.touchTarget
@@ -181,7 +182,7 @@ internal fun WatchChatPanel(
                         .size(44.dp)
                         .pressable(
                             onClickLabel = "关闭聊天",
-                            onClick = onDismiss,
+                            onClick = overlayDismiss(onDismiss),
                         ),
                     contentAlignment = Alignment.Center,
                 ) {

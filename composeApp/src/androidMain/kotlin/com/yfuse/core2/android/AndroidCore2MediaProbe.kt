@@ -265,6 +265,7 @@ internal class AndroidCore2MediaProbe(
                         video = video,
                         audio = audio,
                         platformDemuxSupported = true,
+                        platformAudioDemuxSupported = audioIndex != null,
                         enhancedDemuxSupported = true,
                         fallbackHdrType = dolbyVisionConfig?.compatibleBaseHdr,
                         preferTunnel = true,
@@ -455,7 +456,8 @@ internal class AndroidCore2RouteEvaluator(
     private val optimizationPreference: YOptimizationPreference = YOptimizationPreference.Balanced,
     private val capabilityProvider: YCapabilityProvider = AndroidYCapabilityProvider(context),
     private val strategy: YPlaybackStrategy = DefaultYPlaybackStrategy(),
-    private val enhancedProbe: AndroidEnhancedMediaProbe = AndroidEnhancedMediaProbe(context = context.applicationContext),
+    private val enhancedProbe: AndroidEnhancedMediaProbe =
+        AndroidEnhancedMediaProbe(context = context.applicationContext),
     private val quirkDatabase: YDeviceQuirkDatabase = androidCore2QuirkDatabase(),
     private val deviceIdentity: YDeviceIdentity = androidDeviceIdentity(),
     private val codecConfigurationProbe: AndroidCodecConfigurationProbe = AndroidCodecConfigurationProbe(),
@@ -707,6 +709,11 @@ private fun androidCore2QuirkDatabase(): YDeviceQuirkDatabase =
             ),
     )
 
+/** Do not retry a demuxer already proven to omit an expected audio stream. */
+internal fun YCore2ProbeResult.Success.requiresEnhancedAudioDemux(sourceAudioTrackCount: Int): Boolean =
+    (playbackRequest.audio != null || sourceAudioTrackCount > 0) &&
+        (playbackRequest.audio == null || !playbackRequest.platformAudioDemuxSupported)
+
 internal fun YCore2RouteDecision.runtimeCapabilityKey(): YRuntimeVideoCapabilityKey? =
     runtimeVideoCapabilityKey(probe.playbackRequest, plan)
 
@@ -767,6 +774,7 @@ private fun YMediaItem.probeCacheKey(): String =
         mimeType.orEmpty(),
         (drmConfiguration != null).toString(),
         (sourceHints?.dolbyVision == true).toString(),
+        (sourceHints?.audioTrackCount ?: 0).toString(),
         (disc != null).toString(),
     ).joinToString("\u0000")
 

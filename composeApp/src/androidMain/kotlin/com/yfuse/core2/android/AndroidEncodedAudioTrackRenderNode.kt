@@ -37,6 +37,10 @@ internal class AndroidEncodedAudioTrackRenderNode(
 
     val routingChangeGeneration: Long get() = routingGeneration.get()
 
+    val outputAdvancing: Boolean get() = currentRouteOutputAdvancing()
+
+    val underrunCount: Int get() = track?.underrunCount?.coerceAtLeast(0) ?: 0
+
     private val routeEvidence: AndroidAudioRouteEvidence
         get() {
             val activeTrack = track ?: return AndroidAudioRouteEvidence()

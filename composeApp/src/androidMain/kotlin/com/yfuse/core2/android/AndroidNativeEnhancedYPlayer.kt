@@ -455,12 +455,36 @@ internal class AndroidNativeEnhancedYPlayer(
             if (requestedPlay) session.play()
         }
 
+        var lastAudioDiagnosticNs = 0L
+        var lastAudioRendering = false
+
         fun publishSnapshot(force: Boolean = false) {
             if (!prepared) return
             val now = System.nanoTime()
             if (!force && now - lastPublishNs < STATE_PUBLISH_INTERVAL_NS) return
             lastPublishNs = now
             val snapshot = session.snapshot()
+            val audioDiagnosticsDue =
+                force ||
+                    snapshot.audioRendering != lastAudioRendering ||
+                    now - lastAudioDiagnosticNs >= 2_000_000_000L
+            if (snapshot.audioSinkDiagnostics.isNotEmpty() && audioDiagnosticsDue) {
+                lastAudioDiagnosticNs = now
+                lastAudioRendering = snapshot.audioRendering
+                AppLog.info(
+                    category = "player.core2",
+                    event = "enhanced_audio_output",
+                    message = "YCore enhanced PCM sink progress",
+                    attributes =
+                        snapshot.audioSinkDiagnostics +
+                            mapOf(
+                                "route" to "NativeEnhanced",
+                                "audioRendering" to snapshot.audioRendering.toString(),
+                                "audioFallbacks" to snapshot.audioFallbackCount.toString(),
+                                "positionMs" to (snapshot.positionUs / MICROS_PER_MILLISECOND).toString(),
+                            ),
+                )
+            }
             proxy?.updatePlaybackFeedback(
                 YAdaptivePlaybackFeedback(
                     bufferedDurationUs = snapshot.sourceBufferedUs,
@@ -538,7 +562,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                             }
                                     }
                                 } else {
-                                    it.diagnostics.audioOutput
+                                    "等待实际音频输出"
                                 },
                             outputEvidenceGeneration = snapshot.outputEvidenceGeneration,
                             outputEvidenceResetReason = snapshot.outputEvidenceResetReason,
@@ -564,7 +588,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             dolbyAtmosOutput = snapshot.dolbyAtmosOutput,
                             spatialAudioOutput = snapshot.spatialAudioOutput,
                             headTrackingAvailable = snapshot.headTrackingAvailable,
-                            audioUnderrunCount = snapshot.audioFallbackCount,
+                            audioUnderrunCount = snapshot.audioUnderrunCount,
                             sourceQueueBytes = snapshot.sourceQueueBytes,
                             sourceBufferedMs = snapshot.sourceBufferedUs / MICROS_PER_MILLISECOND,
                             sourceStarvationCount = snapshot.sourceStarvationCount,

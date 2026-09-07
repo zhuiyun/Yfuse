@@ -302,6 +302,6 @@ private fun String.decodeBasicEntities(): String =
         .replace("&nbsp;", " ")
 
 private val SIMPLE_TAG = Regex("</?[A-Za-z][^>]*>")
-private val ASS_OVERRIDE = Regex("\\{[^}]*}")
+private val ASS_OVERRIDE = Regex("\\{[^}]*\\}")
 private const val ASS_PACKET_FIELD_COUNT = 9
 private const val DEFAULT_PACKET_DURATION_US = 5_000_000L

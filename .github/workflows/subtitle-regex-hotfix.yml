@@ -1,0 +1,179 @@
+name: Build signed subtitle regex hotfix
+
+on:
+  push:
+    branches: [fix/subtitle-regex-20260906]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: subtitle-regex-hotfix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sign:
+    name: Verify subtitle fix and sign 1.0.32 (194)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production
+    env:
+      NATIVE_SOURCE_SHA: bead5d85d3e46aaaefbca6c753e05889c93bfda5
+      NATIVE_RUN_ID: '34039986386'
+      EXPECTED_ANDROID_CERT_SHA256: 373e36d363965b6c1ae0a68c3db9537831d137ea6c38f094608bf243e7be3e84
+    steps:
+      - name: Check out exact hotfix source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+      - name: Verify unchanged native sources and successful upstream build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --check HEAD^
+          git diff --exit-code "$NATIVE_SOURCE_SHA" HEAD -- scripts third_party ycore-native gradle/libs.versions.toml
+          git diff --exit-code "$NATIVE_SOURCE_SHA" HEAD -- '*.cpp' '*.c' '*.h' '*.cmake' '*CMakeLists.txt'
+          upstream="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$NATIVE_RUN_ID" --jq '[.head_sha,.conclusion] | @tsv')"
+          test "$upstream" = "$(printf '%s\tsuccess' "$NATIVE_SOURCE_SHA")"
+      - name: Set up Java and dependency cache
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Install build tools
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$manager" --licenses >/dev/null 2>&1 || true
+          "$manager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+          sudo apt-get update
+          sudo apt-get install -y libicu-dev p7zip-full
+      - name: Verify both production regexes with ICU
+        run: |
+          set -euo pipefail
+          mkdir -p build/signed-artifact
+          python3 .github/repairs/verify-subtitle-regex.py | tee build/signed-artifact/icu-regex-verification.txt
+      - name: Download compatibility SDKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+      - name: Download verified native artifact from version 193
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          github-token: ${{ github.token }}
+          run-id: 34039986386
+          name: signing-native-bead5d85d3e46aaaefbca6c753e05889c93bfda5
+          path: .native-build/artifacts
+      - name: Install source-matched native runtime
+        run: |
+          set -euo pipefail
+          bash scripts/install-yfuse-mpv-bluray.sh
+          install -m 0644 .native-build/artifacts/ycore-gpu.aar composeApp/libs/ycore-gpu.aar
+          install -m 0644 .native-build/artifacts/ycore-gpu.aar.sha256 composeApp/libs/ycore-gpu.aar.sha256
+          install -m 0644 .native-build/artifacts/NATIVE-SOURCES.txt composeApp/libs/ycore-gpu.sources.txt
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re
+          root = pathlib.Path('.native-build/artifacts')
+          report = json.loads((root / 'native-build-info.json').read_text())
+          assert report['sourceCommit'] == os.environ['NATIVE_SOURCE_SHA']
+          assert report['demuxSourceSha256'] == hashlib.sha256(pathlib.Path('scripts/native/ycore_demux_jni.cpp').read_bytes()).hexdigest()
+          digest = hashlib.sha256(pathlib.Path('composeApp/libs/libmpv-release.aar').read_bytes()).hexdigest()
+          path = pathlib.Path('scripts/engine-checksums.sha256')
+          path.write_text(re.sub(r'^[0-9a-fA-F]{64}(\s+libmpv-(?:dolby-)?release\.aar)$', lambda m: digest + m.group(1), path.read_text(), flags=re.M))
+          PY
+      - name: Configure and verify original production signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            test -n "${!name:-}" || { echo "Missing signing secret: $name"; exit 1; }
+          done
+          umask 077
+          mkdir -p signing
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > signing/yfuse-release.jks
+          {
+            printf 'storeFile=signing/yfuse-release.jks\n'
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > keystore.properties
+          printf 'tmdb.token=%s\n' "$TMDB_TOKEN" > local.properties
+          actual="$(keytool -list -v -keystore signing/yfuse-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          test "$actual" = "$EXPECTED_ANDROID_CERT_SHA256"
+      - name: Run formatting gates and regression suites
+        run: ./gradlew :composeApp:ktlintCheck :composeApp:verifyDesignSystemUsage :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
+      - name: Build production signed APK
+        run: ./gradlew :composeApp:assembleRelease -PyfuseVersionCode=194 -PyfuseVersionName=1.0.32 -PconfirmMdkDistributionRights=true --no-daemon
+      - name: Verify APK and record evidence
+        run: |
+          set -euo pipefail
+          apk=composeApp/build/outputs/apk/release/composeApp-release.apk
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          tools="$sdk/build-tools/36.0.0"
+          "$tools/apksigner" verify --verbose --print-certs "$apk" | tee build/signed-artifact/signature-verification.txt
+          grep -Fq "$EXPECTED_ANDROID_CERT_SHA256" build/signed-artifact/signature-verification.txt
+          "$tools/zipalign" -c -v -P 16 4 "$apk" > build/signed-artifact/alignment-verification.txt
+          "$tools/aapt" dump badging "$apk" > build/signed-artifact/apk-badging.txt
+          grep -Fq "package: name='com.yfuse' versionCode='194' versionName='1.0.32'" build/signed-artifact/apk-badging.txt
+          python3 - "$apk" <<'PY'
+          import hashlib, json, os, pathlib, sys, zipfile, xml.etree.ElementTree as ET
+          report = json.loads(pathlib.Path('.native-build/artifacts/native-build-info.json').read_text())
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              assert z.testzip() is None, 'APK ZIP CRC failure'
+              for name in ('libavcodec.so', 'libavformat.so', 'libmpv.so', 'libmdk.so', 'libycore_demux.so', 'libycore_gpu.so'):
+                  z.getinfo('lib/arm64-v8a/' + name)
+              for name, digest in report['libraries'].items():
+                  assert hashlib.sha256(z.read('lib/arm64-v8a/' + name)).hexdigest() == digest, name
+              assert any(b'E9107559' in z.read(n) for n in z.namelist() if n.endswith('.dex')), 'Cast receiver missing'
+          totals = dict(tests=0, failures=0, errors=0, skipped=0)
+          for path in pathlib.Path('.').glob('*/build/test-results/**/TEST-*.xml'):
+              root = ET.parse(path).getroot()
+              for key in totals:
+                  totals[key] += int(root.attrib.get(key, 0))
+          assert totals['tests'] > 0 and totals['failures'] == 0 and totals['errors'] == 0, totals
+          added = list(pathlib.Path('composeApp/build/test-results').glob('**/TEST-*YSubtitleRegexRegressionTest.xml'))
+          assert added, 'New subtitle regression tests were not executed'
+          for path in added:
+              assert int(ET.parse(path).getroot().attrib['tests']) == 8
+          info = dict(packageName='com.yfuse', versionName='1.0.32', versionCode=194, certificateSha256=os.environ['EXPECTED_ANDROID_CERT_SHA256'], sourceCommit=os.environ['GITHUB_SHA'], nativeSourceCommit=os.environ['NATIVE_SOURCE_SHA'], nativeBuildRun=os.environ['NATIVE_RUN_ID'], nativeSourcesUnchanged=True, tests=totals, subtitleRegressionTests=8, icuReplacementChecks=16, physicalDeviceTested=False)
+          pathlib.Path('build/signed-artifact/build-info.json').write_text(json.dumps(info, indent=2) + '\n')
+          PY
+          cp "$apk" build/signed-artifact/Yfuse-1.0.32-194-signed.apk
+          cp .native-build/artifacts/native-build-info.json build/signed-artifact/
+          (cd build/signed-artifact && sha256sum Yfuse-1.0.32-194-signed.apk > SHA256SUMS)
+      - name: Upload signed APK and verification records
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: yfuse-1.0.32-194-signed-${{ github.sha }}
+          path: build/signed-artifact/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: subtitle-hotfix-tests-${{ github.run_id }}
+          path: |
+            composeApp/build/test-results/
+            composeApp/build/reports/ktlint/
+            watchTogetherProtocol/build/test-results/
+            watchTogetherServer/build/test-results/
+            build/signed-artifact/icu-regex-verification.txt
+          retention-days: 7
+      - name: Remove signing material
+        if: always()
+        run: rm -f signing/yfuse-release.jks keystore.properties local.properties

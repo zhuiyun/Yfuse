@@ -483,6 +483,7 @@ fun Modifier.glass(
     fill: Brush,
     border: Color? = null,
 ): Modifier {
+    if (LocalMutedGlass.current) return mutedGlassControl(shape, LocalPalette.current.card2, border)
     val materialBorder = resolveGlassMaterialBorder(border, LocalPalette.current)
     return this
         .clip(shape)

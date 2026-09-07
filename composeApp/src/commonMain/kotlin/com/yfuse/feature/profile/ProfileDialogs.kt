@@ -509,7 +509,9 @@ internal fun SkipSegmentDialog(
         )
         OverlayButton(
             label = "完成",
-            onClick = com.yfuse.core.designsystem.overlayDismiss(onDismiss),
+            onClick =
+                com.yfuse.core.designsystem
+                    .overlayDismiss(onDismiss),
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             tone = OverlayButtonTone.Primary,
         )

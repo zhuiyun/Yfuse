@@ -103,11 +103,35 @@ class AccountApi(
             message = "Account backend rejected the refresh request schema; retrying with the legacy body",
             attributes = mapOf("code" to error.code),
         )
-        return client
-            .post("$origin/api/v1/auth/refresh") {
-                contentType(ContentType.Application.Json)
-                setBody(LegacyRefreshRequest(refreshToken))
-            }.decoded()
+        return try {
+            val auth =
+                client
+                    .post("$origin/api/v1/auth/refresh") {
+                        contentType(ContentType.Application.Json)
+                        setBody(LegacyRefreshRequest(refreshToken))
+                    }.decoded<AuthResponse>()
+            AppLog.info(
+                category = "account",
+                event = "refresh_legacy_schema_result",
+                message = "Account legacy refresh completed",
+                attributes = mapOf("outcome" to "success"),
+            )
+            auth
+        } catch (failure: Throwable) {
+            // Never log the request body, rotating token, or raw HTTP exception message.
+            AppLog.warning(
+                category = "account",
+                event = "refresh_legacy_schema_result",
+                message = "Account legacy refresh did not complete",
+                attributes =
+                    mapOf(
+                        "outcome" to "failed",
+                        "exceptionType" to (failure::class.simpleName ?: "unknown"),
+                        "status" to ((failure as? AccountApiException)?.status?.value?.toString() ?: "none"),
+                    ),
+            )
+            throw failure
+        }
     }
 
     suspend fun logout(accessToken: String) {

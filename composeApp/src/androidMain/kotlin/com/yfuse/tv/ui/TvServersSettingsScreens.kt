@@ -34,13 +34,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yfuse.core.designsystem.GlassDialog
-import com.yfuse.core.designsystem.overlayDismiss
 import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.ThemeMode
+import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.model.SavedServer
 import com.yfuse.feature.profile.ProfileComponent
@@ -77,15 +77,16 @@ internal fun TvServersScreen(
                 itemStableId = "servers:add",
                 index = 1,
             ),
-        ) + state.servers.mapIndexed { index, server ->
-            val stableId = "servers:${server.kind.name.lowercase()}:${server.id}"
-            FocusCandidate(
-                targetId = focusMemory.targetId("servers:grid", stableId),
-                sectionId = "servers:grid",
-                itemStableId = stableId,
-                index = index,
-            )
-        }
+        ) +
+            state.servers.mapIndexed { index, server ->
+                val stableId = "servers:${server.kind.name.lowercase()}:${server.id}"
+                FocusCandidate(
+                    targetId = focusMemory.targetId("servers:grid", stableId),
+                    sectionId = "servers:grid",
+                    itemStableId = stableId,
+                    index = index,
+                )
+            }
     TvRestoreRouteFocusEffect(
         route = "servers",
         focusMemory = focusMemory,
@@ -475,10 +476,11 @@ internal fun TvSettingsScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            top = TvSafeVertical,
-            bottom = TvSafeVertical,
-        ),
+        contentPadding =
+            androidx.compose.foundation.layout.PaddingValues(
+                top = TvSafeVertical,
+                bottom = TvSafeVertical,
+            ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "settings-title") {

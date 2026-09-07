@@ -1311,26 +1311,29 @@ class PlayerStoreFactory(
                     )
                 }
             loadJob = job
-            scope.launch {
-                // Race queue completion against a real wall-clock deadline. A completed queue
-                // ends this watcher immediately, so no sleeping timeout coroutine can outlive the
-                // load/store and leak a late dispatch into the next test or a disposed screen.
+            scope.launch(Dispatchers.Default) {
+                // Keep the real-time watchdog on its own dispatcher. A successful/cancelled load
+                // must not resume the UI dispatcher just to discover that no timeout occurred;
+                // the store (and a host test's Main dispatcher) may already have been disposed.
                 val timedOut =
-                    withContext(Dispatchers.Default) {
-                        withTimeoutOrNull(queueLoadTimeoutMs) {
-                            job.join()
-                            false
-                        } ?: true
-                    }
-                if (!timedOut || loadAttempt != attempt || !job.isActive) return@launch
-                job.cancel()
-                AppLog.warning(
-                    category = "feature.player",
-                    event = "queue_load_timeout",
-                    message = "Playback queue preparation timed out",
-                    attributes = mapOf("timeoutMs" to queueLoadTimeoutMs.toString()),
-                )
-                dispatch(PlayerMsg.Failed("播放准备超时，请检查服务器连接后重试"))
+                    withTimeoutOrNull(queueLoadTimeoutMs) {
+                        job.join()
+                        false
+                    } ?: true
+                if (!timedOut) return@launch
+                // Only an actual timeout needs UI state, and all attempt/state checks stay on
+                // Main so a late watchdog cannot cancel a replacement queue load.
+                withContext(Dispatchers.Main) {
+                    if (loadAttempt != attempt || !job.isActive) return@withContext
+                    job.cancel()
+                    AppLog.warning(
+                        category = "feature.player",
+                        event = "queue_load_timeout",
+                        message = "Playback queue preparation timed out",
+                        attributes = mapOf("timeoutMs" to queueLoadTimeoutMs.toString()),
+                    )
+                    dispatch(PlayerMsg.Failed("播放准备超时，请检查服务器连接后重试"))
+                }
             }
         }
 

@@ -36,47 +36,73 @@ class YEnhancedAudioSelectionTest {
 
     @Test
     fun actualEac3TrackCanUseSoftwareAudioWithTheDolbyHardwareVideoPlan() {
-        val selected = assertNotNull(selectEnhancedAudio(
-            listOf(eac3), provisionalPlan, capabilities(), false, true,
-        ))
+        val selected =
+            assertNotNull(
+                selectEnhancedAudio(
+                    listOf(eac3),
+                    provisionalPlan,
+                    capabilities(),
+                    false,
+                    true,
+                ),
+            )
 
         assertEquals(eac3, selected.track)
         assertEquals(YAudioOutputPath.DecodePcm, selected.outputPath)
-        assertTrue(selected.softwareDecode)
+        assertTrue(selected.preferSoftware)
         assertEquals(YDecodePath.Hardware, provisionalPlan.decodePath)
         assertEquals(YHdrType.DolbyVision, provisionalPlan.outputHdrType)
     }
 
     @Test
     fun pcmPreferenceUsesHardwareDecoderEvenWhenDeviceAlsoAdvertisesPassthrough() {
-        val selected = assertNotNull(selectEnhancedAudio(
-            listOf(eac3), provisionalPlan.copy(audioPath = YAudioOutputPath.DecodePcm),
-            capabilities(decoders = setOf(YAudioCodec.Eac3), passthrough = setOf(YAudioCodec.Eac3)),
-            true, true,
-        ))
+        val selected =
+            assertNotNull(
+                selectEnhancedAudio(
+                    listOf(eac3),
+                    provisionalPlan.copy(audioPath = YAudioOutputPath.DecodePcm),
+                    capabilities(decoders = setOf(YAudioCodec.Eac3), passthrough = setOf(YAudioCodec.Eac3)),
+                    true,
+                    true,
+                ),
+            )
 
         assertEquals(YAudioOutputPath.DecodePcm, selected.outputPath)
-        assertFalse(selected.softwareDecode)
+        assertFalse(selected.preferSoftware)
     }
 
     @Test
     fun unknownProbeAudioDoesNotOverrideDisabledPassthrough() {
-        val selected = assertNotNull(selectEnhancedAudio(
-            listOf(eac3), provisionalPlan, capabilities(passthrough = setOf(YAudioCodec.Eac3)), false, true,
-        ))
+        val selected =
+            assertNotNull(
+                selectEnhancedAudio(
+                    listOf(eac3),
+                    provisionalPlan,
+                    capabilities(passthrough = setOf(YAudioCodec.Eac3)),
+                    false,
+                    true,
+                ),
+            )
 
         assertEquals(YAudioOutputPath.DecodePcm, selected.outputPath)
-        assertTrue(selected.softwareDecode)
+        assertTrue(selected.preferSoftware)
     }
 
     @Test
     fun enabledPassthroughIsRetainedWhenTheActualTrackSupportsIt() {
-        val selected = assertNotNull(selectEnhancedAudio(
-            listOf(eac3), provisionalPlan, capabilities(passthrough = setOf(YAudioCodec.Eac3)), true, true,
-        ))
+        val selected =
+            assertNotNull(
+                selectEnhancedAudio(
+                    listOf(eac3),
+                    provisionalPlan.copy(audioPath = YAudioOutputPath.Passthrough),
+                    capabilities(passthrough = setOf(YAudioCodec.Eac3)),
+                    true,
+                    true,
+                ),
+            )
 
         assertEquals(YAudioOutputPath.Passthrough, selected.outputPath)
-        assertFalse(selected.softwareDecode)
+        assertFalse(selected.preferSoftware)
     }
 
     @Test
@@ -92,23 +118,46 @@ class YEnhancedAudioSelectionTest {
     @Test
     fun playableNativeTrackIsPreferredBeforeSoftwareOnlyTrack() {
         val aac = track(2, YAudioCodec.Aac)
-        val selected = assertNotNull(selectEnhancedAudio(
-            listOf(eac3, aac), provisionalPlan, capabilities(decoders = setOf(YAudioCodec.Aac)), false, true,
-        ))
+        val selected =
+            assertNotNull(
+                selectEnhancedAudio(
+                    listOf(eac3, aac),
+                    provisionalPlan,
+                    capabilities(decoders = setOf(YAudioCodec.Aac)),
+                    false,
+                    true,
+                ),
+            )
 
         assertEquals(aac, selected.track)
-        assertFalse(selected.softwareDecode)
+        assertFalse(selected.preferSoftware)
     }
+
+    // Keep the original regression scenarios against the consolidated production selector.
+    private fun selectEnhancedAudio(
+        tracks: List<YDemuxTrack>,
+        plan: YPlaybackPlan,
+        capabilities: YDeviceCapabilities,
+        allowPassthrough: Boolean,
+        softwareAvailable: Boolean,
+    ) = selectEnhancedAudioTrack(
+        tracks = tracks,
+        capabilities = if (allowPassthrough) capabilities else capabilities.copy(audioPassthrough = emptySet()),
+        plan = plan,
+        softwareDecodeAvailable = softwareAvailable,
+    )
 
     private fun capabilities(
         decoders: Set<YAudioCodec> = emptySet(),
         passthrough: Set<YAudioCodec> = emptySet(),
     ) = YDeviceCapabilities(videoDecoders = emptyList(), audioDecoders = decoders, audioPassthrough = passthrough)
 
-    private fun track(id: Int, codec: YAudioCodec) =
-        YDemuxTrack(
-            id = YTrackId(id),
-            type = YDemuxTrackType.Audio,
-            audio = YAudioTrackFormat(codec, "audio/${codec.name.lowercase()}", 6, 48_000),
-        )
+    private fun track(
+        id: Int,
+        codec: YAudioCodec,
+    ) = YDemuxTrack(
+        id = YTrackId(id),
+        type = YDemuxTrackType.Audio,
+        audio = YAudioTrackFormat(codec, "audio/${codec.name.lowercase()}", 6, 48_000),
+    )
 }

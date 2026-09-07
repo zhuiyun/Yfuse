@@ -451,7 +451,7 @@ class PlayerStoreTest {
                     addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
                 }
             val repo =
-                testRepo { request ->
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
                     when {
                         request.url.encodedPath.endsWith("/PlaybackInfo") ->
                             json(

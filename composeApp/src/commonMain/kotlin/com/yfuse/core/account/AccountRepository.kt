@@ -25,6 +25,7 @@ import io.ktor.client.network.sockets.ConnectTimeoutException
 import io.ktor.client.network.sockets.SocketTimeoutException
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -72,6 +74,7 @@ class AccountRepository(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
+    private val restoreAttempts = MutableStateFlow(0L)
     private val json =
         Json {
             ignoreUnknownKeys = true
@@ -90,7 +93,7 @@ class AccountRepository(
     fun start() {
         if (started) return
         started = true
-        scope.launch { restoreSession() }
+        enqueueRestore("startup")
     }
 
     /**
@@ -104,10 +107,71 @@ class AccountRepository(
     private suspend fun <T> detached(block: suspend () -> T): T = scope.async { block() }.await()
 
     fun retryRestore() {
-        if (_state.value !is AccountState.RestoreFailed) return
-        _state.value = AccountState.Restoring
-        scope.launch { restoreSession() }
+        val previous = _state.value
+        AppLog.info(
+            category = "account",
+            event = "restore_retry_clicked",
+            message = "Account restore retry tapped",
+            attributes = mapOf("state" to restoreStateLabel(previous)),
+        )
+        // Multiple taps (or two observers) must not queue rotating-token requests behind a mutex.
+        if (previous !is AccountState.RestoreFailed || !_state.compareAndSet(previous, AccountState.Restoring)) {
+            AppLog.info(
+                category = "account",
+                event = "restore_retry_skipped",
+                message = "Account retry was not eligible or another restore already started",
+                attributes = mapOf("state" to restoreStateLabel(_state.value)),
+            )
+            return
+        }
+        enqueueRestore("manual_retry")
     }
+
+    private fun enqueueRestore(trigger: String) {
+        val attempt = restoreAttempts.updateAndGet { it + 1L }
+        AppLog.info(
+            category = "account",
+            event = "restore_scheduled",
+            message = "Account restore attempt accepted",
+            attributes = mapOf("attempt" to attempt.toString(), "trigger" to trigger),
+        )
+        scope.launch {
+            val startedAt = nowEpochMs()
+            var finished = false
+            try {
+                AppLog.info(
+                    category = "account",
+                    event = "restore_started",
+                    message = "Account restore attempt started",
+                    attributes = mapOf("attempt" to attempt.toString(), "trigger" to trigger),
+                )
+                restoreSession(attempt)
+                finished = true
+            } finally {
+                AppLog.info(
+                    category = "account",
+                    event = "restore_finished",
+                    message = "Account restore attempt finished",
+                    attributes =
+                        mapOf(
+                            "attempt" to attempt.toString(),
+                            "trigger" to trigger,
+                            "state" to restoreStateLabel(_state.value),
+                            "outcome" to if (finished) restoreStateLabel(_state.value) else "cancelled",
+                            "durationMs" to (nowEpochMs() - startedAt).coerceAtLeast(0L).toString(),
+                        ),
+                )
+            }
+        }
+    }
+
+    private fun restoreStateLabel(state: AccountState): String =
+        when (state) {
+            AccountState.Restoring -> "restoring"
+            is AccountState.SignedIn -> "signed_in"
+            is AccountState.RestoreFailed -> "retryable_failure"
+            is AccountState.SignedOut -> "signed_out"
+        }
 
     suspend fun register(
         username: String,
@@ -501,7 +565,7 @@ class AccountRepository(
             }
         }
 
-    private suspend fun restoreSession() {
+    private suspend fun restoreSession(attempt: Long) {
         mutex.withLock {
             var restoringCredentials = true
             runCatching {
@@ -557,6 +621,7 @@ class AccountRepository(
                             },
                     )
             }.onFailure { error ->
+                if (error is CancellationException && error !is TimeoutCancellationException) throw error
                 if (!restoringCredentials && _state.value is AccountState.SignedOut) return@onFailure
                 val phase = if (restoringCredentials) "refresh" else "sync"
                 if (
@@ -567,20 +632,20 @@ class AccountRepository(
                             error.status == HttpStatusCode.Unauthorized
                     )
                 ) {
-                    logRestoreFailure(error, phase = phase, outcome = "signed_out")
+                    logRestoreFailure(error, phase = phase, outcome = "signed_out", attempt = attempt)
                     runCatching { secureStore.clear() }
                     setSignedOut()
                 } else {
                     val current = _state.value as? AccountState.SignedIn
                     if (current != null) {
-                        logRestoreFailure(error, phase = phase, outcome = "signed_in_without_cloud")
+                        logRestoreFailure(error, phase = phase, outcome = "signed_in_without_cloud", attempt = attempt)
                         _state.value =
                             current.copy(
                                 syncing = false,
                                 message = "已登录，暂时无法读取云端数据",
                             )
                     } else {
-                        logRestoreFailure(error, phase = phase, outcome = "retryable")
+                        logRestoreFailure(error, phase = phase, outcome = "retryable", attempt = attempt)
                         _state.value = AccountState.RestoreFailed(restoreFailureMessage(error))
                     }
                 }
@@ -598,6 +663,7 @@ class AccountRepository(
         error: Throwable,
         phase: String,
         outcome: String,
+        attempt: Long,
     ) {
         AppLog.warning(
             category = "account",
@@ -606,6 +672,7 @@ class AccountRepository(
             throwable = error,
             attributes =
                 mapOf(
+                    "attempt" to attempt.toString(),
                     "phase" to phase,
                     "reason" to restoreFailureReason(error),
                     "outcome" to outcome,
