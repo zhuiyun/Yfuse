@@ -42,6 +42,11 @@ enum class DialogAnimation(
     Blinds("光栅百叶", "竖向光栅依次翻开，关闭时逐条闭合", 480, 320),
     Assemble("四角汇聚", "四块玻璃从四角靠拢，接缝平稳闭合", 480, 300),
     Radar("雷达扫掠", "旋转光束揭开面板，反向扫掠收起", 500, 340),
+    Ribbon("丝绸揭幕", "柔软弧线自下而上揭开，像轻轻掀起丝绸", 500, 320),
+    Iris("菱镜光圈", "六边形光圈轻旋展开，露出完整玻璃面板", 480, 300),
+    Mosaic("方格织入", "细分方格沿对角线依次显现，交织成完整面板", 520, 320),
+    Orbit("轻旋入场", "卡片沿短弧线轻旋靠近，平稳落定", 460, 280),
+    Curtain("双幕展开", "两道柔弧从中央向两侧打开，关闭时合拢", 480, 300),
 }
 
 val LocalDialogAnimation = staticCompositionLocalOf { DialogAnimation.Lift }
@@ -135,9 +140,20 @@ internal fun dialogMotionFrame(
                 offsetX = 28f * hidden * hidden - 8f * sin(PI * p).toFloat(),
                 rotationZ = -3f * hidden,
             )
+        DialogAnimation.Orbit ->
+            DialogMotionFrame(
+                scaleX = 1f - 0.08f * hidden,
+                scaleY = 1f - 0.08f * hidden,
+                offsetX = -30f * hidden * hidden,
+                offsetY = 18f * hidden,
+                rotationZ = 7f * hidden,
+                insetX = 0.12f * hidden,
+                insetY = 0.5f * hidden * hidden,
+            )
         DialogAnimation.Hologram, DialogAnimation.Fold, DialogAnimation.Energy,
         DialogAnimation.Portal, DialogAnimation.Reconstruct, DialogAnimation.Liquid,
         DialogAnimation.Blinds, DialogAnimation.Assemble, DialogAnimation.Radar,
+        DialogAnimation.Ribbon, DialogAnimation.Iris, DialogAnimation.Mosaic, DialogAnimation.Curtain,
         -> DialogMotionFrame()
     }
 }

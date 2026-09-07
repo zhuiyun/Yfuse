@@ -20,6 +20,95 @@ import kotlin.test.assertTrue
 
 class AndroidTransportMediaDataSourcePrefetchTest {
     @Test
+    fun `foreground timeout cancels blocking body read and remains a network failure`() {
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                blockSizeOverride = 8,
+                rangeReadBudgetMs = 150L,
+                createTransport = {
+                    object : YMediaTransport {
+                        private val closed = CountDownLatch(1)
+                        override val supportedProtocols = setOf(YSourceProtocol.Https)
+                        override val features = emptySet<YTransportFeature>()
+
+                        override suspend fun open(request: YMediaTransportRequest) =
+                            YMediaTransportResponse(206, 8L, YByteRange(0L, 7L))
+
+                        override suspend fun read(
+                            destination: ByteArray,
+                            offset: Int,
+                            length: Int,
+                        ): Int {
+                            check(closed.await(2, TimeUnit.SECONDS))
+                            return -1
+                        }
+
+                        override suspend fun close() {
+                            closed.countDown()
+                        }
+                    }
+                },
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            val failure =
+                kotlin.test.assertFailsWith<java.util.concurrent.ExecutionException> {
+                    worker.submit<Int> { source.readAt(0L, ByteArray(8), 0, 8) }.get(2, TimeUnit.SECONDS)
+                }
+            assertTrue(failure.cause is java.net.SocketTimeoutException, failure.cause.toString())
+            assertTrue(isRecoverableMediaReadFailure(failure.cause))
+            kotlin.test.assertFailsWith<java.net.SocketTimeoutException> { source.throwIfReadFailed() }
+        } finally {
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `short body without range end metadata cannot masquerade as EOF`() {
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                blockSizeOverride = 8,
+                createTransport = {
+                    object : YMediaTransport {
+                        override val supportedProtocols = setOf(YSourceProtocol.Https)
+                        override val features = emptySet<YTransportFeature>()
+
+                        override suspend fun open(request: YMediaTransportRequest) =
+                            YMediaTransportResponse(206, 8L, YByteRange(0L))
+
+                        override suspend fun read(
+                            destination: ByteArray,
+                            offset: Int,
+                            length: Int,
+                        ) = -1
+
+                        override suspend fun close() = Unit
+                    }
+                },
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            val failure =
+                kotlin.test.assertFailsWith<java.util.concurrent.ExecutionException> {
+                    worker.submit<Int> { source.readAt(0L, ByteArray(8), 0, 8) }.get(2, TimeUnit.SECONDS)
+                }
+            assertTrue(isRecoverableMediaReadFailure(failure.cause))
+            assertEquals("Random-access transport ended before the accepted block range", failure.cause?.message)
+            kotlin.test.assertFails { source.throwIfReadFailed() }
+        } finally {
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
     fun `moving and nearly complete ranges survive the old fixed promotion deadline`() {
         assertTrue(shouldKeepTransportPrefetch(2_000, 100, 90, 100, 0))
         assertTrue(shouldKeepTransportPrefetch(35_000, 100, 90, 100, 0))

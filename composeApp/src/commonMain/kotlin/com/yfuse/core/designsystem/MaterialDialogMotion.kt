@@ -116,7 +116,7 @@ internal fun ContentDrawScope.drawMaterialDialog(
                 drawCircle(glow, 3.dp.toPx() * sin(PI * progress).toFloat(), center)
             }
         }
-        else -> return false
+        else -> return drawExpressiveDialog(animation, progress, glow)
     }
     return true
 }

@@ -391,6 +391,9 @@ internal class AndroidNativeDirectYPlayer(
                 errorCategory = typed?.category ?: YPlaybackFailureCategory.Unknown,
                 diagnostics =
                     current.diagnostics.copy(
+                        recoverableNetworkFailure =
+                            typed?.category == YPlaybackFailureCategory.Network &&
+                                isRecoverableMediaReadFailure(typed.cause),
                         videoOutput = "停止",
                         audioOutput = "停止",
                         videoOutputVerified = false,
@@ -849,7 +852,11 @@ internal class AndroidNativeDirectYPlayer(
             demux.configureSampleCapacity(sampleCapacity)
             // Keep the owner free for track metadata and the initial resume seek. Eager filling
             // here downloads samples at 0, then makes those commands wait behind that download.
-            demux.selectTracks(selectedDemuxTrackIndices(), startReadAhead = false)
+            demux.selectTracks(
+                selectedDemuxTrackIndices(),
+                startReadAhead = false,
+                bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
+            )
 
             if (videoFormat != null) {
                 surfaceOutput?.surface?.takeIf { it.isValid }?.let { surface ->
@@ -889,6 +896,7 @@ internal class AndroidNativeDirectYPlayer(
                                 ).joinToString(" + "),
                             videoDecoderName = videoDecoder.decoderName.orEmpty(),
                             audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
+                            recoverableNetworkFailure = false,
                             renderer = if (videoTrackIndex == null) "AudioTrack" else "Surface + AudioTrack",
                             videoCodec = videoFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
                             videoWidth = videoFormat?.intOrZero(MediaFormat.KEY_WIDTH) ?: 0,
@@ -1146,7 +1154,10 @@ internal class AndroidNativeDirectYPlayer(
             val positionUs = currentPositionUs()
             audioTrackIndex = trackIndex
             audioInputFormat = format
-            demux.selectTracks(selectedDemuxTrackIndices())
+            demux.selectTracks(
+                selectedDemuxTrackIndices(),
+                bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
+            )
             releaseAudioPath()
             configureAudioPath(format)
             seekTo(positionUs)
@@ -1214,7 +1225,10 @@ internal class AndroidNativeDirectYPlayer(
             }
             val selectedEmbedded = selectedDemuxTrackIndices()
             if (selectedEmbedded != previousEmbedded) {
-                demux.selectTracks(selectedEmbedded)
+                demux.selectTracks(
+                    selectedEmbedded,
+                    bufferingTrackIndices = setOfNotNull(videoTrackIndex, audioTrackIndex),
+                )
                 // Track selection clears read-ahead, so re-anchor A/V as well as both subtitle streams.
                 seekTo(positionUs)
             }

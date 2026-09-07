@@ -44,6 +44,7 @@ internal class AndroidTransportMediaDataSource(
     private val onNetworkSample: ((bytes: Long, durationMs: Long) -> Unit)? = null,
     private val onBlockingReadStateChanged: ((Boolean) -> Unit)? = null,
     blockSizeOverride: Int? = null,
+    private val rangeReadBudgetMs: Long = 30_000L,
 ) : MediaDataSource() {
     private val transport = createTransport()
     private val cachePlan =
@@ -160,6 +161,14 @@ internal class AndroidTransportMediaDataSource(
     @Volatile
     private var foregroundReadStartedAtNs = 0L
 
+    @Volatile
+    private var foregroundFailure: Throwable? = null
+
+    /** MediaExtractor may turn a MediaDataSource IOException into EOF. Preserve the real cause. */
+    fun throwIfReadFailed() {
+        foregroundFailure?.let { throw it }
+    }
+
     @Synchronized
     override fun readAt(
         position: Long,
@@ -169,6 +178,7 @@ internal class AndroidTransportMediaDataSource(
     ): Int {
         checkWorkerThread()
         check(!closed)
+        throwIfReadFailed()
         require(position >= 0L && offset >= 0 && size >= 0 && offset <= buffer.size - size)
         if (size == 0) return 0
         if (knownSize >= 0L && position >= knownSize) return -1
@@ -274,15 +284,17 @@ internal class AndroidTransportMediaDataSource(
     private fun resolveBlock(blockIndex: Long): ByteArray {
         if (startupTailPrefetchBlockIndex == blockIndex) startupTailPrefetchBlockIndex = null
         val startedNs = System.nanoTime()
+        val budget = YRangeReadBudget(rangeReadBudgetMs)
         foregroundReadStartedAtNs = startedNs
         onBlockingReadStateChanged?.invoke(true)
         try {
-            val prefetched = takePrefetchedBlock(blockIndex)
+            val prefetched = takePrefetchedBlock(blockIndex, budget)
             val loaded =
                 if (prefetched != null) {
                     prefetchHitCount++
                     prefetched
                 } else {
+                    shedSpeculativeWorkFor(blockIndex)
                     synchronousLoadCount++
                     reportSynchronousBlockLoad(blockIndex)
                     if (prefetchSuppressed) {
@@ -292,7 +304,7 @@ internal class AndroidTransportMediaDataSource(
                         // A cache miss must not throw away already useful read-ahead work.
                         schedulePrefetch(blockIndex + 1L)
                     }
-                    loadBlockNow(blockIndex)
+                    loadBlockNow(blockIndex, budget)
                 }
             maximumResolveWaitMs =
                 maxOf(
@@ -310,6 +322,9 @@ internal class AndroidTransportMediaDataSource(
                 diskCache?.writeBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
             }
             return loaded.bytes
+        } catch (failure: Exception) {
+            if (!closed && !failure.isTransportCancellation()) foregroundFailure = failure
+            throw failure
         } finally {
             foregroundReadStartedAtNs = 0L
             onBlockingReadStateChanged?.invoke(false)
@@ -340,7 +355,10 @@ internal class AndroidTransportMediaDataSource(
         )
     }
 
-    private fun loadBlockNow(blockIndex: Long): YLoadedTransportBlock {
+    private fun loadBlockNow(
+        blockIndex: Long,
+        budget: YRangeReadBudget,
+    ): YLoadedTransportBlock {
         diskCache?.let { cache ->
             val startedNs = System.nanoTime()
             cache.readBlock(blockIndex)?.let { cached ->
@@ -355,6 +373,7 @@ internal class AndroidTransportMediaDataSource(
             blockIndex = blockIndex,
             blockTransport = transport,
             knownSizeSnapshot = knownSize,
+            budget = budget,
         )
     }
 
@@ -364,6 +383,7 @@ internal class AndroidTransportMediaDataSource(
         knownSizeSnapshot: Long,
         progress: YTransportBlockPrefetch? = null,
         isCancelled: () -> Boolean = { false },
+        budget: YRangeReadBudget = YRangeReadBudget(rangeReadBudgetMs),
     ): YLoadedTransportBlock {
         var completedRetries = 0
         while (true) {
@@ -371,7 +391,8 @@ internal class AndroidTransportMediaDataSource(
                 throw CancellationException("Media range was abandoned")
             }
             try {
-                return loadRemoteBlock(blockIndex, blockTransport, knownSizeSnapshot, progress)
+                budget.checkRemaining()
+                return loadRemoteBlock(blockIndex, blockTransport, knownSizeSnapshot, progress, budget)
             } catch (failure: Exception) {
                 if (closed || isCancelled() || progress?.isCancelled == true || failure.isTransportCancellation()) {
                     throw CancellationException("Media range was abandoned")
@@ -395,7 +416,7 @@ internal class AndroidTransportMediaDataSource(
                 // waiting to release the extractor.
                 val delayMs =
                     if (closed) null else mediaRangeRetryDelayMs(completedRetries, failureKind)
-                if (delayMs == null) {
+                if (delayMs == null || budget.remainingMs() <= delayMs) {
                     reportTransportFailure(
                         blockIndex = blockIndex,
                         completedRetries = completedRetries,
@@ -423,7 +444,8 @@ internal class AndroidTransportMediaDataSource(
         blockIndex: Long,
         blockTransport: YMediaTransport,
         knownSizeSnapshot: Long,
-        progress: YTransportBlockPrefetch? = null,
+        progress: YTransportBlockPrefetch?,
+        budget: YRangeReadBudget,
     ): YLoadedTransportBlock =
         runBlocking {
             val startedNs = System.nanoTime()
@@ -432,6 +454,10 @@ internal class AndroidTransportMediaDataSource(
             val end = position.saturatedAdd(blockSize.toLong() - 1L)
             var transferredBytes = 0L
             bandwidthMeter.onTransferStarted(startedNs)
+            val watchdog =
+                AndroidRangeReadWatchdog(blockTransport, budget, idleBudgetMs = {
+                    (playbackWindow.bufferedUs / playbackWindow.speed / 1_000L).toLong().coerceIn(4_000L, 12_000L)
+                })
             try {
                 val response =
                     blockTransport.open(
@@ -491,6 +517,7 @@ internal class AndroidTransportMediaDataSource(
                         }
                         continue
                     }
+                    watchdog.progressed()
                     emptyReads = 0
                     total += count
                     transferredBytes += count
@@ -505,6 +532,9 @@ internal class AndroidTransportMediaDataSource(
                         ?.endInclusive
                         ?.let { servedEnd -> servedEnd - position + 1L }
                         ?.coerceAtMost(blockSize.toLong())
+                        ?: effectiveKnownSize.takeIf { it >= 0L }?.let {
+                            (it - position).coerceIn(0L, blockSize.toLong())
+                        }
                 if (
                     expectedBytes != null &&
                     total.toLong() != expectedBytes &&
@@ -518,6 +548,7 @@ internal class AndroidTransportMediaDataSource(
                         acceptedRangeStart = response.acceptedRange?.startInclusive,
                     )
                 }
+                watchdog.checkFailure()
                 transferredBytes = total.toLong()
                 YLoadedTransportBlock(
                     // A full block is the common case; copyOf would duplicate the whole 2 MiB.
@@ -526,7 +557,12 @@ internal class AndroidTransportMediaDataSource(
                     remoteLoadDurationMs =
                         ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
                 )
+            } catch (failure: Exception) {
+                // A watchdog close is a retryable timeout, not a user cancellation or clean EOF.
+                watchdog.checkFailure()
+                throw failure
             } finally {
+                watchdog.close()
                 // One aggregate sample per busy period, not one per range: see
                 // YAggregateBandwidthMeter for why per-range wall clocks under-report the link.
                 bandwidthMeter
@@ -615,8 +651,14 @@ internal class AndroidTransportMediaDataSource(
                 consumption = (mediaBitRateBitsPerSecond * window.speed.toDouble()).toLong(),
                 bufferedUs = (window.bufferedUs / window.speed).toLong(),
             )
+        val activeDepth =
+            if (foregroundReadStartedAtNs != 0L && window.bufferedUs / window.speed < 2_000_000L) {
+                minOf(prefetchDepthBlocks, 2)
+            } else {
+                prefetchDepthBlocks
+            }
         val desired =
-            (0 until prefetchDepthBlocks)
+            (0 until activeDepth)
                 .map { offset -> blockIndex.saturatedAdd(offset.toLong()) }
                 .filter { candidate ->
                     shouldPrefetchTransportBlock(candidate, blockSize, knownSize) &&
@@ -672,7 +714,10 @@ internal class AndroidTransportMediaDataSource(
             }
     }
 
-    private fun takePrefetchedBlock(blockIndex: Long): YLoadedTransportBlock? {
+    private fun takePrefetchedBlock(
+        blockIndex: Long,
+        budget: YRangeReadBudget,
+    ): YLoadedTransportBlock? {
         val prefetch = prefetchedBlocks.remove(blockIndex) ?: return null
         // A foreground MediaExtractor read must never sit behind speculative ranges. If its future
         // has not started, remove it from the executor queue and load through the primary transport
@@ -683,6 +728,7 @@ internal class AndroidTransportMediaDataSource(
             prefetch.cancel()
             return null
         }
+        shedSpeculativeWorkFor(blockIndex)
         return try {
             val waitStartedNs = System.nanoTime()
             var loaded: YLoadedTransportBlock? = null
@@ -691,7 +737,8 @@ internal class AndroidTransportMediaDataSource(
                     loaded = prefetch.future.get(250L, TimeUnit.MILLISECONDS)
                 } catch (timeout: TimeoutException) {
                     val nowNs = System.nanoTime()
-                    if (!shouldKeepTransportPrefetch(
+                    if (budget.remainingMs() == 0L ||
+                        !shouldKeepTransportPrefetch(
                             waitedMs = (nowNs - waitStartedNs) / NANOS_PER_MILLISECOND,
                             idleMs = (nowNs - prefetch.lastProgressNs.get()) / NANOS_PER_MILLISECOND,
                             completedBytes = prefetch.completedBytes.get(),
@@ -717,6 +764,17 @@ internal class AndroidTransportMediaDataSource(
             Thread.currentThread().interrupt()
             null
         }
+    }
+
+    private fun shedSpeculativeWorkFor(blockIndex: Long) {
+        if (playbackWindow.bufferedUs / playbackWindow.speed >= 2_000_000L) return
+        forwardCache?.updateWindow(0L, 0L)
+        cancelPrefetchOutside(
+            prefetchedBlocks
+                .filter { (index, pending) ->
+                    pending.future.isDone || index in blockIndex..blockIndex.saturatedAdd(2L)
+                }.keys,
+        )
     }
 
     private fun cancelPrefetchOutside(retained: Set<Long>) {
@@ -1008,6 +1066,24 @@ private fun Int.toRangeFailureKind(): YTransportFailureKind =
         in 500..599 -> YTransportFailureKind.ServerBusy
         else -> YTransportFailureKind.InvalidRange
     }
+
+internal fun isRecoverableMediaReadFailure(failure: Throwable?): Boolean {
+    var current = failure
+    repeat(8) {
+        val cause = current ?: return false
+        when (cause) {
+            is YRangeReadException ->
+                return cause.failureKind in
+                    setOf(YTransportFailureKind.TransientIo, YTransportFailureKind.PrematureEof)
+            is AndroidRangeResponseException ->
+                return cause.failureKind in
+                    setOf(YTransportFailureKind.TransientIo, YTransportFailureKind.PrematureEof)
+            is IOException -> return true
+        }
+        current = cause.cause.takeUnless { it === cause }
+    }
+    return false
+}
 
 private fun checkWorkerThread() {
     val mainLooper = Looper.getMainLooper()

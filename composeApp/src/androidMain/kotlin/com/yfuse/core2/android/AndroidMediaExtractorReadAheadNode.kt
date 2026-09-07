@@ -40,6 +40,7 @@ internal class AndroidMediaExtractorReadAheadNode(
     private var opened = false
     private var readAheadEnabled = false
     private var selectedTracks = emptySet<Int>()
+    private var bufferingTracks = emptySet<Int>()
     private var endOfInput = false
     private var failure: Throwable? = null
     private var fillScheduled = false
@@ -166,6 +167,7 @@ internal class AndroidMediaExtractorReadAheadNode(
     fun selectTracks(
         trackIndices: Set<Int>,
         startReadAhead: Boolean = true,
+        bufferingTrackIndices: Set<Int> = trackIndices,
     ) {
         synchronized(monitor) {
             readAheadEnabled = false
@@ -179,6 +181,7 @@ internal class AndroidMediaExtractorReadAheadNode(
             synchronized(monitor) {
                 ownerSelectedTracks = trackIndices
                 selectedTracks = trackIndices
+                bufferingTracks = bufferingTrackIndices.intersect(trackIndices)
                 resetQueueStateLocked()
                 readAheadEnabled = startReadAhead
             }
@@ -214,7 +217,6 @@ internal class AndroidMediaExtractorReadAheadNode(
 
     fun pollSample(excludedTrackIndex: Int? = null): YQueuedExtractorResult {
         synchronized(monitor) {
-            failure?.let { return YQueuedExtractorResult.Failed(it) }
             val sample =
                 if (excludedTrackIndex == null) {
                     samples.pollFirst()
@@ -238,6 +240,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 requestFillLocked()
                 return YQueuedExtractorResult.Sample(sample)
             }
+            if (samples.isEmpty()) failure?.let { return YQueuedExtractorResult.Failed(it) }
             // End-of-input is terminal only after all samples, including samples for a temporarily
             // excluded/backpressured track, have been consumed.
             if (endOfInput && samples.isEmpty()) return YQueuedExtractorResult.EndOfInput
@@ -273,6 +276,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 throughputBitsPerSecond = latestTransportQoeSnapshot?.throughputBitsPerSecond ?: 0L,
                 endOfInput = endOfInput || failure != null,
                 atCapacity = queuedBytes >= maximumQueueBytes,
+                trackBufferedDurationUs = trackBufferedDurationsUsLocked(),
             )
         }
 
@@ -432,15 +436,19 @@ internal class AndroidMediaExtractorReadAheadNode(
         queuedBytes >= maximumQueueBytes ||
             (samples.size >= MINIMUM_SAMPLES_BEFORE_TIME_LIMIT && bufferedDurationUsLocked() >= targetAheadUs)
 
-    private fun bufferedDurationUsLocked(): Long {
-        if (samples.size < 2) return 0L
-        var minimum = Long.MAX_VALUE
-        var maximum = Long.MIN_VALUE
+    private fun bufferedDurationUsLocked(): Long = trackBufferedDurationsUsLocked().values.minOrNull() ?: 0L
+
+    private fun trackBufferedDurationsUsLocked(): Map<Int, Long> {
+        val bounds = bufferingTracks.associateWith { longArrayOf(Long.MAX_VALUE, Long.MIN_VALUE) }
         samples.forEach { sample ->
-            minimum = minOf(minimum, sample.presentationTimeUs)
-            maximum = maxOf(maximum, sample.presentationTimeUs)
+            bounds[sample.trackIndex]?.let { range ->
+                range[0] = minOf(range[0], sample.presentationTimeUs)
+                range[1] = maxOf(range[1], sample.presentationTimeUs)
+            }
         }
-        return (maximum - minimum).coerceAtLeast(0L)
+        return bounds.mapValues { (_, range) ->
+            if (range[0] == Long.MAX_VALUE) 0L else (range[1] - range[0]).coerceAtLeast(0L)
+        }
     }
 
     private fun resetQueueStateLocked() {
@@ -508,6 +516,7 @@ internal data class YExtractorReadAheadSnapshot(
     val throughputBitsPerSecond: Long = 0L,
     val endOfInput: Boolean = false,
     val atCapacity: Boolean = false,
+    val trackBufferedDurationUs: Map<Int, Long> = emptyMap(),
 )
 
 private const val EXTRACTOR_THREAD_NAME = "YCore-PlatformDemux"

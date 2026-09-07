@@ -234,37 +234,57 @@ internal class AndroidMediaExtractorDemuxNode(
      * copied only once more into MediaCodec's input buffer; decoded output remains zero-copy on the
      * configured Surface path.
      */
-    override fun readSample(target: ByteBuffer): YExtractorSample? {
-        val opened = requireExtractor()
-        val trackIndex = opened.sampleTrackIndex
-        if (trackIndex < 0) return null
-        target.clear()
-        val size = opened.readSampleData(target, 0)
-        if (size < 0) return null
-        target.position(0)
-        target.limit(size)
-        val rawPresentationTimeUs = opened.validSampleTimeUs()
-        val flags = opened.sampleFlags
-        val cryptoInfo =
-            if (flags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED != 0) {
-                MediaCodec
-                    .CryptoInfo()
-                    .also { info ->
-                        require(opened.getSampleCryptoInfo(info)) { "Encrypted sample has no CryptoInfo" }
-                    }.toExtractorCryptoInfo()
-            } else {
-                null
+    override fun readSample(target: ByteBuffer): YExtractorSample? =
+        withTransportFailure {
+            val opened = requireExtractor()
+            val trackIndex = opened.sampleTrackIndex
+            if (trackIndex < 0) {
+                (mediaDataSource as? AndroidTransportMediaDataSource)?.throwIfReadFailed()
+                return@withTransportFailure null
             }
-        return YExtractorSample(
-            trackIndex = trackIndex,
-            data = target.slice(),
-            presentationTimeUs = timeline.presentationTimeUs(rawPresentationTimeUs),
-            flags = flags,
-            cryptoInfo = cryptoInfo,
-        )
-    }
+            target.clear()
+            val size = opened.readSampleData(target, 0)
+            if (size < 0) {
+                (mediaDataSource as? AndroidTransportMediaDataSource)?.throwIfReadFailed()
+                return@withTransportFailure null
+            }
+            target.position(0)
+            target.limit(size)
+            val rawPresentationTimeUs = opened.validSampleTimeUs()
+            val flags = opened.sampleFlags
+            val cryptoInfo =
+                if (flags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED != 0) {
+                    MediaCodec
+                        .CryptoInfo()
+                        .also { info ->
+                            require(opened.getSampleCryptoInfo(info)) { "Encrypted sample has no CryptoInfo" }
+                        }.toExtractorCryptoInfo()
+                } else {
+                    null
+                }
+            YExtractorSample(
+                trackIndex = trackIndex,
+                data = target.slice(),
+                presentationTimeUs = timeline.presentationTimeUs(rawPresentationTimeUs),
+                flags = flags,
+                cryptoInfo = cryptoInfo,
+            )
+        }
 
-    override fun advance(): Boolean = requireExtractor().advance()
+    override fun advance(): Boolean =
+        withTransportFailure {
+            val advanced = requireExtractor().advance()
+            if (!advanced) (mediaDataSource as? AndroidTransportMediaDataSource)?.throwIfReadFailed()
+            advanced
+        }
+
+    private inline fun <T> withTransportFailure(read: () -> T): T =
+        try {
+            read()
+        } catch (failure: Exception) {
+            (mediaDataSource as? AndroidTransportMediaDataSource)?.throwIfReadFailed()
+            throw failure
+        }
 
     override fun seekTo(positionUs: Long) = seekTo(positionUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
 

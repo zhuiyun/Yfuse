@@ -944,6 +944,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             var learningRecorded = false
             var recoveryQueued = false
             var nextItemPreloadRequested = false
+            val networkRecoveryWindow = AndroidNetworkRecoveryWindow()
             val learningStartPositionMs = next.currentPositionMs()
             val learningStartBatteryPermille = currentBatteryPermille()
             val learningStartThermalStatus = currentThermalStatus()
@@ -1033,11 +1034,29 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 route = reportedChildState.diagnostics.route,
                                 category = YPlaybackFailureCategory.Network,
                             )
+                        if (networkRecoveryWindow.observe(
+                                nowMs = System.nanoTime() / 1_000_000L,
+                                positionMs = reportedChildState.positionMs,
+                                playing = reportedChildState.playing && !reportedChildState.buffering,
+                                speed = speed,
+                            )
+                        ) {
+                            sameRouteRecoveryAttempts.remove(prematureEndRecoveryKey)
+                        }
+                        if (reportedChildState.buffering && nextItemPreloadJob?.isActive == true) {
+                            nextItemPreloadJob?.cancel()
+                            nextItemPreloadJob = null
+                            nextItemPreloadRequested = false
+                        }
+                        val transientNetworkFailure =
+                            reportedChildState.phase == YPlaybackPhase.Failed &&
+                                reportedChildState.errorCategory == YPlaybackFailureCategory.Network &&
+                                reportedChildState.diagnostics.recoverableNetworkFailure
                         if (
-                            prematureEnd &&
+                            (prematureEnd || transientNetworkFailure) &&
                             !recoveryQueued &&
                             (sameRouteRecoveryAttempts[prematureEndRecoveryKey] ?: 0) <
-                            MAX_PREMATURE_END_RECOVERY_ATTEMPTS
+                            MAX_CONSECUTIVE_NETWORK_RECOVERY_ATTEMPTS
                         ) {
                             recoveryQueued = true
                             sameRouteRecoveryAttempts[prematureEndRecoveryKey] =
@@ -1057,7 +1076,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 )
                             AppLog.warning(
                                 category = "player.network",
-                                event = "premature_eof_recovery",
+                                event = if (prematureEnd) "premature_eof_recovery" else "transport_read_recovery",
                                 message =
                                     "YCore rejected a premature EOF " +
                                         "and reopened the active route",
@@ -1067,6 +1086,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                         "itemIndex" to childIndex.toString(),
                                         "positionMs" to reportedChildState.positionMs.toString(),
                                         "durationMs" to reportedChildState.durationMs.toString(),
+                                        "attempt" to sameRouteRecoveryAttempts[prematureEndRecoveryKey].toString(),
                                     ),
                             )
                             commands.trySend(
@@ -1130,6 +1150,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                         if (
                             !nextItemPreloadRequested &&
+                            !childState.buffering &&
+                            childState.playing &&
                             childState.phase == YPlaybackPhase.Ready
                         ) {
                             nextItemPreloadRequested = true
@@ -1450,6 +1472,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     // configured again; rebuilding here allowed the replacement
                                     // child to race the outgoing MediaCodec release on OEM devices.
                                     checkNotNull(active).retry()
+                                    // Ended/failed children may have cleared their own play intent.
+                                    // Restore the router's latest user intent after serialized prepare.
+                                    if (requestedPlay) active.play() else active.pause()
                                 } else {
                                     rebuild(pendingPositionMs)
                                 }
@@ -1702,7 +1727,7 @@ private val VERIFIED_ROUTE_NEUTRAL_FAILURES =
     )
 
 private const val MIN_LEARNING_PLAYBACK_MS = 30_000L
-private const val MAX_PREMATURE_END_RECOVERY_ATTEMPTS = 1
+private const val MAX_CONSECUTIVE_NETWORK_RECOVERY_ATTEMPTS = 2
 private const val MICROSECONDS_PER_MILLISECOND = 1_000L
 
 private fun YCore2FailureKey.toLearningKey(): YPlaybackLearningKey =

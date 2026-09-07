@@ -398,6 +398,8 @@ data class YPlayerDiagnostics(
     val reason: String? = null,
     /** Rebuffer transitions after first output; startup buffering is excluded. */
     val bufferEvents: Int = 0,
+    /** Transport-confirmed transient failure; permission/DRM failures never set this. */
+    val recoverableNetworkFailure: Boolean = false,
 ) {
     /**
      * True only when one active playback session has independently verified native Dolby Vision

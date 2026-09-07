@@ -23,6 +23,47 @@ import kotlin.test.assertTrue
  */
 class AndroidMediaExtractorReadAheadNodeTest {
     @Test
+    fun `missing audio does not count video span as playable buffer and memory cap still releases gate`() {
+        val node = AndroidMediaExtractorReadAheadNode(FakeExtractorSource(1_024, 100_000L))
+        try {
+            node.open(SOURCE)
+            node.configureBufferPlan(3_000_000L, 16L * SAMPLE_BYTES)
+            node.selectTracks(setOf(VIDEO_TRACK, AUDIO_TRACK))
+            node.awaitQueued(16)
+            val snapshot = node.snapshot()
+            assertEquals(0L, snapshot.bufferedDurationUs)
+            assertTrue(snapshot.trackBufferedDurationUs.getValue(VIDEO_TRACK) > 0L)
+            assertEquals(0L, snapshot.trackBufferedDurationUs.getValue(AUDIO_TRACK))
+            assertTrue(snapshot.atCapacity)
+            val gate =
+                com.yfuse.core2.network
+                    .YPlaybackBufferGate(true, 2_500_000L)
+            assertTrue(
+                gate.evaluate(snapshot.bufferedDurationUs, snapshot.endOfInput, snapshot.atCapacity).outputAllowed,
+            )
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
+    fun `sparse subtitle track does not prevent audio video buffer readiness`() {
+        val node = AndroidMediaExtractorReadAheadNode(FakeExtractorSource(1_024, 100_000L, true))
+        try {
+            node.open(SOURCE)
+            node.configureBufferPlan(1_000_000L, 24L * 1024L * 1024L)
+            node.selectTracks(
+                setOf(VIDEO_TRACK, AUDIO_TRACK, 2),
+                bufferingTrackIndices = setOf(VIDEO_TRACK, AUDIO_TRACK),
+            )
+            node.awaitQueued(12)
+            assertTrue(node.snapshot().bufferedDurationUs >= 1_000_000L)
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
     fun `prepared extractor is adopted without reopening and released by its new owner`() {
         val original = FakeExtractorSource(100, 100_000L)
         val prepared = FakeExtractorSource(100, 100_000L)
