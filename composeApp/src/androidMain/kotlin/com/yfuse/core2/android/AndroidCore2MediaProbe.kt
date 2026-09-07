@@ -515,7 +515,7 @@ internal class AndroidCore2RouteEvaluator(
         }
         val decision = decide(item, resolved, preferTunnel, allowAudioPassthrough, forcePowerSaver)
         // Other demuxers cannot adopt this extractor. Stop its speculative downloads immediately.
-        if (!decision.nativeDirectExecutable) closePreparedExtractor()
+        if (decision?.nativeDirectExecutable != true) closePreparedExtractor()
         return decision
     }
 
