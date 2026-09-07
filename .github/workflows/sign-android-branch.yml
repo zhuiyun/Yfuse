@@ -78,8 +78,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          native_source=9d64753cb8e8aadac78d4c0826d50032c8cf4081
-          native_run=34143240559
+          native_source=806db9befd069aa83d50090261c2387fcf7f3905
+          native_run=34166656470
           echo 'reuse=false' >> "$GITHUB_OUTPUT"
           if git cat-file -e "$native_source^{commit}" &&
              git diff --quiet "$native_source" HEAD -- scripts third_party ycore-native gradle/libs.versions.toml composeApp/src/androidMain/cpp composeApp/src/androidMain/assets '*.cpp' '*.c' '*.h' '*.cmake' '*CMakeLists.txt' 'LICENSE*'; then
