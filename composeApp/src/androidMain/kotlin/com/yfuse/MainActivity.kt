@@ -134,8 +134,6 @@ class MainActivity : ComponentActivity() {
                             calendarIdentityResolver = koin.get(),
                             calendarFollowStore = koin.get(),
                             tmdbHomeCache = koin.get(),
-                            tgtoMedia = koin.get(),
-                            tgtoMediaPreferences = koin.get(),
                             offlineMediaManager = koin.get(),
                             playbackTrackRequest = koin.get(),
                             serverSyncManager = koin.get(),

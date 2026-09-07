@@ -102,19 +102,6 @@ class AccountSessionsScreen {
     }
 }
 
-@Component
-class MediaDiscoverySettingsScreen {
-    func build() {
-        Scroll { Column {
-            Text("影视发现").fontSize(26).fontWeight(FontWeight.Bold)
-            SettingsGroup("TgtoDrive 连接", "服务器地址", "用户名与密码", "测试连接")
-            SettingsGroup("Emby 媒体库", "显示入库、连载和缺集状态", "Emby API Key", "测试连接")
-            SettingsGroup("123 资源", "公开频道", "检查授权", "选择转存目录")
-            Button("保存影视发现配置").width(100.percent)
-        }.padding(18).width(100.percent) }.height(100.percent)
-    }
-}
-
 @Builder
 func EpisodeRow(title: String, trailing: String, onOpen!: () -> Unit = { => }) {
     Row {

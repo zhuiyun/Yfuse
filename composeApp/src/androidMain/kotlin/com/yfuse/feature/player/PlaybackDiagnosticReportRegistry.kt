@@ -118,9 +118,22 @@ internal object PlaybackDiagnosticReportRegistry {
                             },
                     )
                     appendLine("fallback.reason=${diagnostics.fallbackReason.orEmpty()}")
-                    appendLine("video.decoder=${evidence.videoDecoder.ifBlank { diagnostics.decoder }}")
+                    appendLine(
+                        "video.decoder=" +
+                            evidence.videoDecoder.ifBlank {
+                                diagnostics.decoder.substringBefore(" + ").trim()
+                            },
+                    )
                     appendLine("video.codec=${diagnostics.videoCodec}")
-                    appendLine("audio.decoder=${evidence.audioDecoder.ifBlank { diagnostics.audioFormat }}")
+                    appendLine(
+                        "audio.decoder=" +
+                            evidence.audioDecoder.ifBlank {
+                                diagnostics.decoder
+                                    .substringAfter(" + ", missingDelimiterValue = "")
+                                    .trim()
+                                    .ifBlank { diagnostics.audioFormat }
+                            },
+                    )
                     appendLine("dynamicRange.input=${evidence.inputDynamicRange.ifBlank { diagnostics.dynamicRange }}")
                     appendLine("dynamicRange.output=${evidence.outputDynamicRange.ifBlank { "unknown" }}")
                     appendLine("dynamicRange.mode=${evidence.dynamicRangeOutputMode.name}")

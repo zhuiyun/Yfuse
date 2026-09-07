@@ -71,7 +71,7 @@ def main() -> int:
         "SplashScreen", "HomeScreen", "TmdbInfoScreen", "CalendarScreen", "LibraryScreen",
         "LibraryGridScreen", "DetailScreen", "SeasonEpisodesScreen", "ServersScreen",
         "ServerEditorScreen", "SearchScreen", "ProfileScreen", "DownloadsScreen",
-        "AccountSettingsScreen", "AccountSessionsScreen", "MediaDiscoverySettingsScreen", "PlayerScreen",
+        "AccountSettingsScreen", "AccountSessionsScreen", "PlayerScreen",
     }
     missing = sorted(name for name in expected if f"class {name}" not in ui)
     if missing:

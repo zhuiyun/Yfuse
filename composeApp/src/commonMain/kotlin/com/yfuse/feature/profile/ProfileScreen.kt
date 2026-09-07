@@ -61,7 +61,6 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.app.floatingNavigationContentInset
 import com.yfuse.app.systemNavigationContentInset
 import com.yfuse.core.account.AccountState
-import com.yfuse.core.account.canUseMediaDiscovery
 import com.yfuse.core.account.canUseWatchTogether
 import com.yfuse.core.data.DanmakuSource
 import com.yfuse.core.data.MediaVersionPreference
@@ -147,7 +146,6 @@ private enum class ProfilePage {
     Danmaku,
     WatchTogether,
     Appearance,
-    MediaDiscovery,
     DataAndDiagnostics,
     Downloads,
     Splash,
@@ -214,14 +212,6 @@ private val SettingsSearchDestinations =
             tint = SettingTint.downloads,
         ),
         SettingsSearchDestination(
-            "影视发现与追剧日历",
-            "榜单、日历与转存",
-            "发现 榜单 日历 追剧 123",
-            ProfilePage.MediaDiscovery,
-            icon = AppIcons.Cloud,
-            tint = SettingTint.sync,
-        ),
-        SettingsSearchDestination(
             "高级设置",
             "网络兼容、备份、缓存与诊断",
             "高级 网络 备份 缓存 诊断",
@@ -273,9 +263,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val customUserAgent by component.userAgentPreferences.customValue.collectAsState()
     val offlineItems by component.offlineMedia.items.collectAsState()
     val accountState by component.account.state.collectAsState()
-    val discoverySettingsRequest by component.tgtoMediaPreferences.openSettingsRequest.collectAsState()
     val watchAvailable = accountState.canUseWatchTogether()
-    val discoveryAvailable = accountState.canUseMediaDiscovery()
 
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var confirmClearCache by remember { mutableStateOf(false) }
@@ -309,26 +297,10 @@ fun ProfileScreen(component: ProfileComponent) {
         }
     }
 
-    LaunchedEffect(discoveryAvailable, accountState) {
-        if (
-            accountState !is AccountState.Restoring &&
-            !discoveryAvailable &&
-            pageStack.lastOrNull() == ProfilePage.MediaDiscovery.name
-        ) {
-            closePage()
-        }
-    }
-
-    LaunchedEffect(discoverySettingsRequest, discoveryAvailable) {
-        if (discoverySettingsRequest > 0L) {
-            if (
-                discoveryAvailable &&
-                pageStack.lastOrNull() != ProfilePage.MediaDiscovery.name
-            ) {
-                openPage(ProfilePage.MediaDiscovery)
-            }
-            component.tgtoMediaPreferences.consumeOpenSettingsRequest()
-        }
+    LaunchedEffect(pageStack) {
+        // Drop routes persisted by older versions after their settings page is removed.
+        val valid = pageStack.filter { saved -> ProfilePage.entries.any { it.name == saved } }
+        if (valid != pageStack) pageStack = valid
     }
 
     LaunchedEffect(pageStack.lastOrNull(), videoCacheSize) {
@@ -339,7 +311,11 @@ fun ProfileScreen(component: ProfileComponent) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        val navigationBackStack = remember(pageStack) { listOf(ProfilePage.Root) + pageStack.map(ProfilePage::valueOf) }
+        val navigationBackStack =
+            remember(pageStack) {
+                listOf(ProfilePage.Root) +
+                    pageStack.mapNotNull { saved -> ProfilePage.entries.firstOrNull { it.name == saved } }
+            }
         OfficialNavDisplay(
             backStack = navigationBackStack,
             onBack = ::closePage,
@@ -468,21 +444,6 @@ fun ProfileScreen(component: ProfileComponent) {
                         onReduceMotion = prefs::setReduceMotion,
                     )
 
-                ProfilePage.MediaDiscovery ->
-                    if (discoveryAvailable) {
-                        MediaDiscoverySettingsScreen(
-                            repository = component.tgtoMedia,
-                            preferences = component.tgtoMediaPreferences,
-                            onBack = ::closePage,
-                        )
-                    } else {
-                        AccountSettingsScreen(
-                            account = component.account,
-                            onBack = ::closePage,
-                            onOpenSessions = { openPage(ProfilePage.AccountSessions) },
-                        )
-                    }
-
                 ProfilePage.DataAndDiagnostics ->
                     DataAndDiagnosticsScreen(
                         onBack = ::closePage,
@@ -539,7 +500,6 @@ fun ProfileScreen(component: ProfileComponent) {
                             item(key = "settings-search-results") {
                                 SettingsSearchResults(
                                     query = settingsQuery,
-                                    includeMediaDiscovery = discoveryAvailable,
                                     onOpen = ::openPage,
                                     onOpenServers = component.onOpenServers,
                                 )
@@ -685,17 +645,6 @@ fun ProfileScreen(component: ProfileComponent) {
                         item {
                             Section(title = "同步与数据") {
                                 SettingsCard {
-                                    if (discoveryAvailable) {
-                                        SettingRow(
-                                            "影视发现",
-                                            "榜单 · 追剧日历 · 123 转存 ›",
-                                            embedded = true,
-                                            onClick = { openPage(ProfilePage.MediaDiscovery) },
-                                            icon = AppIcons.Cloud,
-                                            iconTint = SettingTint.sync,
-                                        )
-                                        SettingsDivider()
-                                    }
                                     SettingRow(
                                         "高级设置",
                                         "网络兼容 · 备份 · 缓存 · 诊断 ›",
@@ -1117,7 +1066,6 @@ internal fun Section(
 @Composable
 private fun SettingsSearchResults(
     query: String,
-    includeMediaDiscovery: Boolean,
     onOpen: (ProfilePage) -> Unit,
     onOpenServers: () -> Unit,
 ) {
@@ -1125,7 +1073,6 @@ private fun SettingsSearchResults(
     val needle = query.trim().lowercase()
     val results =
         SettingsSearchDestinations
-            .filter { includeMediaDiscovery || it.page != ProfilePage.MediaDiscovery }
             .filter { destination ->
                 listOf(destination.title, destination.summary, destination.keywords)
                     .any { needle in it.lowercase() }

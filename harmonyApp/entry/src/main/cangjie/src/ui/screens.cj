@@ -125,7 +125,6 @@ class ProfileScreen {
     var onOpenDownloads: () -> Unit = { => }
     var onOpenAccount: () -> Unit = { => }
     var onOpenSessions: () -> Unit = { => }
-    var onOpenDiscovery: () -> Unit = { => }
 
     func build() {
         Scroll { Column {
@@ -133,14 +132,13 @@ class ProfileScreen {
             SettingsGroup("账户与同步", "登录账户", "设备会话", "导入与导出")
             SettingsGroup("离线", "下载管理", "缓存与空间", "仅 Wi-Fi 下载")
             SettingsGroup("播放", "播放器与解码", "字幕与弹幕", "片头片尾", "一起看")
-            SettingsGroup("视觉与系统", "外观", "应用图标", "影视发现", "投屏与发现")
+            SettingsGroup("视觉与系统", "外观", "应用图标", "投屏与发现")
             SettingsGroup("支持", "诊断与日志", "检查更新", "关于 Yfuse")
             Text("快捷入口").fontSize(18).fontWeight(FontWeight.Bold)
             Row {
                 Button("账户").onClick(() => { onOpenAccount() })
                 Button("会话").onClick(() => { onOpenSessions() })
                 Button("下载").onClick(() => { onOpenDownloads() })
-                Button("影视发现").onClick(() => { onOpenDiscovery() })
             }.width(100.percent)
             Blank().height(122)
         }.padding(18).width(100.percent) }.layoutWeight(1)

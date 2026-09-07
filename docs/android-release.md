@@ -88,19 +88,19 @@ reuse a personal SSH key.
 
 ## One-time update-manifest signing key
 
-`update-v2.json` is signed with Ed25519. The app pins the public key at build time
-(`yfuse.updateManifestPublicKey` in `gradle.properties`) and a release build refuses any
-manifest that is unsigned, signed by another key, or served to a build with no key pinned.
-The workflow refuses to publish unless the `UPDATE_MANIFEST_SIGNING_KEY` secret matches the
-pinned key, so a misconfiguration fails in CI instead of on devices.
+`update-v2.json` is signed with Ed25519. The app pins the public key at build time and a release
+build refuses any manifest that is unsigned, signed by another key, or served to a build with no
+key pinned. CI derives the embedded public key from `UPDATE_MANIFEST_SIGNING_KEY`; when the optional
+`yfuse.updateManifestPublicKey` property is set, the workflow also verifies that the two match.
 
 ```bash
 openssl genpkey -algorithm ed25519 -out update-manifest.pem
-openssl pkey -in update-manifest.pem -pubout -outform DER | base64 -w0   # -> gradle.properties
+openssl pkey -in update-manifest.pem -pubout -outform DER | base64 -w0   # optional local pin
 ```
 
-Store the PEM as the repository secret `UPDATE_MANIFEST_SIGNING_KEY`, commit the derived
-public key as `yfuse.updateManifestPublicKey`, and keep the PEM somewhere the keystore also
+Store the PEM as the repository secret `UPDATE_MANIFEST_SIGNING_KEY`; the release workflow derives
+and embeds its public key automatically. You may also commit the derived public key as
+`yfuse.updateManifestPublicKey` for an additional consistency check. Keep the PEM somewhere the keystore also
 lives: losing it means every installed build stops accepting updates until a new key is
 shipped through the old, unsigned path. Rotation is the same two steps plus one release.
 

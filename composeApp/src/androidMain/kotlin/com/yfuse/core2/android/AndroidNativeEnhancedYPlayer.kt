@@ -565,6 +565,11 @@ internal class AndroidNativeEnhancedYPlayer(
                                 } else {
                                     "等待实际音频输出"
                                 },
+                            outputEvidence =
+                                it.diagnostics.outputEvidence.copy(
+                                    videoDecoder = snapshot.videoDecoderName.orEmpty(),
+                                    audioDecoder = snapshot.audioDecoderName.orEmpty(),
+                                ),
                             outputEvidenceGeneration = snapshot.outputEvidenceGeneration,
                             outputEvidenceResetReason = snapshot.outputEvidenceResetReason,
                             videoOutputVerified = snapshot.firstVideoFrameRendered,

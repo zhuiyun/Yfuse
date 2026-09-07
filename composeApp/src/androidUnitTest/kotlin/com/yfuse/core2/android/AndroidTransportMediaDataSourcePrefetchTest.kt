@@ -96,6 +96,33 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     }
 
     @Test
+    fun `size probe overlaps the final container index range`() {
+        val media = ByteArray(TEST_BLOCK_BYTES * 6) { index -> index.toByte() }
+        val tailStart = TEST_BLOCK_BYTES.toLong() * 5L
+        val tailOpened = CountDownLatch(1)
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = {
+                    MemoryRangeTransport(media) { start, completed ->
+                        if (!completed && start == tailStart) tailOpened.countDown()
+                    }
+                },
+                blockSizeOverride = TEST_BLOCK_BYTES,
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            assertEquals(media.size.toLong(), worker.submit<Long> { source.getSize() }.get(2, TimeUnit.SECONDS))
+            assertTrue(tailOpened.await(2, TimeUnit.SECONDS))
+        } finally {
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
     fun `prefetch stops at the known end of the source`() {
         assertTrue(shouldPrefetchTransportBlock(blockIndex = 1L, blockSize = 64, knownSize = -1L))
         assertTrue(shouldPrefetchTransportBlock(blockIndex = 3L, blockSize = 64, knownSize = 256L))
@@ -150,23 +177,23 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     }
 
     @Test
-    fun `remote media keeps a bounded ten second prefetch window`() {
+    fun `remote media keeps a bounded twenty second prefetch window`() {
         assertEquals(
-            12,
+            24,
             transportPrefetchDepthBlocks(
                 blockSize = 2 * 1024 * 1024,
                 mediaBitRateBitsPerSecond = 37_932_765L,
             ),
         )
         assertEquals(
-            11,
+            20,
             transportPrefetchDepthBlocks(
                 blockSize = 2 * 1024 * 1024,
                 mediaBitRateBitsPerSecond = 15_221_411L,
             ),
         )
         assertEquals(
-            7,
+            12,
             transportPrefetchDepthBlocks(
                 blockSize = 2 * 1024 * 1024,
                 mediaBitRateBitsPerSecond = 9_045_792L,
@@ -194,9 +221,9 @@ class AndroidTransportMediaDataSourcePrefetchTest {
                 blockSizeOverride = 2 * 1024 * 1024,
             )
         try {
-            assertEquals(12, source.qoeSnapshot().depthBlocks)
+            assertEquals(24, source.qoeSnapshot().depthBlocks)
             source.setMediaBitRateBitsPerSecond(0L)
-            assertEquals(12, source.qoeSnapshot().depthBlocks)
+            assertEquals(24, source.qoeSnapshot().depthBlocks)
         } finally {
             source.close()
         }

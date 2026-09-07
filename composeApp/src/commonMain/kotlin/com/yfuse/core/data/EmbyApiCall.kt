@@ -30,6 +30,10 @@ internal suspend fun <T> embyApiCall(
                 "operation" to operation,
                 "error" to mapped.toString(),
             )
+        // Ktor's ResponseException message may contain the complete HTML response body. Keep the
+        // mapped status/domain error in diagnostics, never an intermediary page with host/IP data.
+        val diagnosticThrowable =
+            if (error is ResponseException) EmbyErrorException(mapped) else error
         // A missing item is an answer, not a malfunction: lookups that probe for an item the
         // server may not hold are expected to miss, and logging those at error level buries the
         // failures that do need attention.
@@ -38,7 +42,7 @@ internal suspend fun <T> embyApiCall(
                 category = "emby",
                 event = "request_not_found",
                 message = "Emby operation addressed an item the server does not have",
-                throwable = error,
+                throwable = diagnosticThrowable,
                 attributes = attributes,
             )
         } else {
@@ -46,7 +50,7 @@ internal suspend fun <T> embyApiCall(
                 category = "emby",
                 event = "request_failed",
                 message = "Emby operation failed",
-                throwable = error,
+                throwable = diagnosticThrowable,
                 attributes = attributes,
             )
         }

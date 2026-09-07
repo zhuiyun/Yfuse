@@ -34,6 +34,8 @@ class YBufferControllerTest {
             )
 
         assertTrue(pressured.targetAheadUs > healthy.targetAheadUs)
+        assertEquals(20_000_000L, pressured.targetAheadUs)
+        assertEquals(10_000_000L, pressured.resumePlaybackUs)
     }
 
     @Test

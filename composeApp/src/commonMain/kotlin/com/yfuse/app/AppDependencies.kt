@@ -14,8 +14,6 @@ import com.yfuse.core.data.ServerHealthMonitor
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.SkipSegmentPreferences
-import com.yfuse.core.data.TgtoMediaPreferences
-import com.yfuse.core.data.TgtoMediaRepository
 import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.data.WatchTogetherPreferences
@@ -35,8 +33,6 @@ data class AppDependencies(
     val calendarIdentityResolver: CalendarIdentityResolver,
     val calendarFollowStore: CalendarFollowStore,
     val tmdbHomeCache: TmdbHomeCache,
-    val tgtoMedia: TgtoMediaRepository,
-    val tgtoMediaPreferences: TgtoMediaPreferences,
     val offlineMediaManager: OfflineMediaManager,
     val playbackTrackRequest: PlaybackTrackRequest,
     val serverSyncManager: ServerSyncManager,

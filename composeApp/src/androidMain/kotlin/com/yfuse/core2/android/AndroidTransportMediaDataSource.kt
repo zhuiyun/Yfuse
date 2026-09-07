@@ -101,6 +101,8 @@ internal class AndroidTransportMediaDataSource(
             blockSize = blockSize,
             mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
         )
+    /** Container indexes often live in the final block; overlap that probe with header parsing. */
+    private var startupTailPrefetchBlockIndex: Long? = null
     private var prefetchHitCount = 0L
     private var synchronousLoadCount = 0L
     private var maximumResolveWaitMs = 0L
@@ -213,6 +215,7 @@ internal class AndroidTransportMediaDataSource(
     }
 
     private fun resolveBlock(blockIndex: Long): ByteArray {
+        if (startupTailPrefetchBlockIndex == blockIndex) startupTailPrefetchBlockIndex = null
         val startedNs = System.nanoTime()
         foregroundReadStartedAtNs = startedNs
         onBlockingReadStateChanged?.invoke(true)
@@ -533,7 +536,12 @@ internal class AndroidTransportMediaDataSource(
                 .filter { candidate ->
                     shouldPrefetchTransportBlock(candidate, blockSize, knownSize) &&
                         !blocks.containsKey(candidate)
-                }.toSet()
+                }.toMutableSet()
+        startupTailPrefetchBlockIndex
+            ?.takeIf { tail ->
+                shouldPrefetchTransportBlock(tail, blockSize, knownSize) &&
+                    !blocks.containsKey(tail)
+            }?.let(desired::add)
         cancelPrefetchOutside(desired)
         desired.sorted().forEach(::schedulePrefetchBlock)
     }
@@ -670,6 +678,13 @@ internal class AndroidTransportMediaDataSource(
             readAt(0L, probe, 0, 1)
         } finally {
             prefetchSuppressed = false
+        }
+        if (knownSize > blockSize) {
+            val tailBlock = (knownSize - 1L) / blockSize
+            if (tailBlock > 1L) {
+                startupTailPrefetchBlockIndex = tailBlock
+                schedulePrefetchBlock(tailBlock)
+            }
         }
         return knownSize
     }
@@ -893,12 +908,13 @@ private const val MEMORY_CACHE_BLOCKS = 8L
 private const val MAX_EMPTY_TRANSPORT_READS = 64
 private const val TRANSPORT_PREFETCH_THREAD_NAME = "YCore-TransportPrefetch"
 private const val DEFAULT_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 2
-private const val MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 12
+private const val MAX_TRANSPORT_PREFETCH_DEPTH_BLOCKS = 24
 
-// Four ordered ranges keep HTTP/1.1 origins busy without letting speculative traffic crowd out
+// Six ordered ranges hide the long-tail range latency observed on remote high-bitrate remuxes
+// without allowing the full twenty-second window to open one socket per block.
 // playback. Foreground reads separately promote any queued block they need immediately.
-private const val MAX_TRANSPORT_PREFETCH_CONCURRENCY = 4
-private const val TARGET_TRANSPORT_PREFETCH_WINDOW_MS = 10_000L
+private const val MAX_TRANSPORT_PREFETCH_CONCURRENCY = 6
+private const val TARGET_TRANSPORT_PREFETCH_WINDOW_MS = 20_000L
 private const val TRANSPORT_PREFETCH_SAFETY_BLOCKS = 1L
 private const val TRANSPORT_BUFFER_PROGRESS_EXTRA_BLOCKS = 2
 private const val BITS_PER_BYTE = 8L

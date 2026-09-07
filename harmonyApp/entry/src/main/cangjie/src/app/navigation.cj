@@ -13,7 +13,6 @@ public enum AppRoute {
     | Downloads
     | AccountSettings
     | AccountSessions
-    | MediaDiscoverySettings
     | Player(String, String)
 }
 

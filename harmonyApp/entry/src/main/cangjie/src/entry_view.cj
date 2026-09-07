@@ -62,8 +62,7 @@ class EntryView {
             ProfileScreen(
                 onOpenDownloads: () => { profileRoute = 1 },
                 onOpenAccount: () => { profileRoute = 2 },
-                onOpenSessions: () => { profileRoute = 3 },
-                onOpenDiscovery: () => { profileRoute = 4 }
+                onOpenSessions: () => { profileRoute = 3 }
             )
         }
     }
@@ -124,8 +123,6 @@ class EntryView {
                     AccountSettingsScreen(onOpenSessions: () => { profileRoute = 3 })
                 } else if (profileRoute == 3) {
                     AccountSessionsScreen()
-                } else {
-                    MediaDiscoverySettingsScreen()
                 }
             }
         }.width(100.percent).height(100.percent)

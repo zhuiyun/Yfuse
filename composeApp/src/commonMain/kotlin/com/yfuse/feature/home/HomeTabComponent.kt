@@ -11,32 +11,19 @@ import com.arkivanov.decompose.router.stack.push
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
-import com.yfuse.core.account.AccountRepository
-import com.yfuse.core.account.AccountState
-import com.yfuse.core.account.canUseMediaDiscovery
 import com.yfuse.core.data.AiringCalendarRepository
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
-import com.yfuse.core.data.TgtoMediaItem
-import com.yfuse.core.data.TgtoMediaPreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.navigation.SingleFlightNavigationGuard
-import com.yfuse.core.util.componentScope
 import com.yfuse.feature.calendar.CalendarComponent
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
-/** 首页 tab: 原 Yfuse 首页，以及配置后可切换的影视发现。 */
+/** 首页 tab。 */
 @OptIn(DelicateDecomposeApi::class)
 class HomeTabComponent(
     componentContext: ComponentContext,
@@ -53,7 +40,6 @@ class HomeTabComponent(
 ) : ComponentContext by componentContext {
     private val navigation = StackNavigation<Config>()
     private val playerNavigation = SingleFlightNavigationGuard<Config.Player>()
-    private val scope = componentScope(lifecycle)
 
     val stack: Value<ChildStack<Config, Child>> =
         childStack(
@@ -64,20 +50,6 @@ class HomeTabComponent(
             handleBackButton = false,
             childFactory = ::child,
         )
-
-    init {
-        scope.launch {
-            dependencies.account.state.collectLatest { accountState ->
-                if (
-                    accountState !is AccountState.Restoring &&
-                    !accountState.canUseMediaDiscovery() &&
-                    stack.value.active.configuration is Config.MediaDetail
-                ) {
-                    navigation.popTo(index = 0)
-                }
-            }
-        }
-    }
 
     @Serializable
     sealed interface Config {
@@ -104,16 +76,12 @@ class HomeTabComponent(
             val embyItemId: String?,
         ) : Config
 
-        @Serializable data class MediaDetail(
-            val item: TgtoMediaItem,
-        ) : Config
-
         @Serializable data object Calendar : Config
     }
 
     sealed interface Child {
         class Home(
-            val component: HomeRootComponent,
+            val component: HomeComponent,
         ) : Child
 
         class Detail(
@@ -126,10 +94,6 @@ class HomeTabComponent(
 
         class Info(
             val component: TmdbInfoComponent,
-        ) : Child
-
-        class MediaDetail(
-            val component: MediaItemDetailComponent,
         ) : Child
 
         class Calendar(
@@ -199,49 +163,29 @@ class HomeTabComponent(
         when (config) {
             Config.Home ->
                 Child.Home(
-                    HomeRootComponent(
+                    HomeComponent(
                         componentContext = context,
-                        preferences = dependencies.tgtoMediaPreferences,
-                        account = dependencies.account,
-                        classic =
-                            HomeComponent(
-                                componentContext = context,
-                                storeFactory = storeFactory,
-                                tmdb = tmdb,
-                                emby = repo,
-                                registry = registry,
-                                cache = dependencies.tmdbHomeCache,
-                                syncManager = dependencies.serverSyncManager,
-                                calendarRepository = calendarRepository,
-                                initialCalendarLoad =
-                                    !dependencies.account.state.value
-                                        .canUseMediaDiscovery() ||
-                                        !dependencies.tgtoMediaPreferences.connection.value.hasPassword,
-                                onOpenEmbyItem = { serverId, itemId ->
-                                    navigation.push(Config.Detail(serverId, itemId))
-                                },
-                                onPlayEmbyItem = { serverId, itemId ->
-                                    openPlayer(Config.Player(serverId, itemId, 0L))
-                                },
-                                onOpenTmdbItem = { item, embyItemId ->
-                                    navigation.push(Config.Info(item, embyItemId))
-                                },
-                                onOpenSearch = onOpenSearch,
-                                onOpenLibrary = onOpenLibrary,
-                                onOpenProfile = onOpenProfile,
-                                onOpenCalendar = { navigation.push(Config.Calendar) },
-                            ),
-                        discovery =
-                            MediaHubComponent(
-                                componentContext = context,
-                                media = dependencies.tgtoMedia,
-                                preferences = dependencies.tgtoMediaPreferences,
-                                onOpenItem = { item -> navigation.push(Config.MediaDetail(item)) },
-                                onOpenSettings = {
-                                    dependencies.tgtoMediaPreferences.requestOpenSettings()
-                                    onOpenProfile()
-                                },
-                            ),
+                        storeFactory = storeFactory,
+                        tmdb = tmdb,
+                        emby = repo,
+                        registry = registry,
+                        cache = dependencies.tmdbHomeCache,
+                        syncManager = dependencies.serverSyncManager,
+                        calendarRepository = calendarRepository,
+                        initialCalendarLoad = true,
+                        onOpenEmbyItem = { serverId, itemId ->
+                            navigation.push(Config.Detail(serverId, itemId))
+                        },
+                        onPlayEmbyItem = { serverId, itemId ->
+                            openPlayer(Config.Player(serverId, itemId, 0L))
+                        },
+                        onOpenTmdbItem = { item, embyItemId ->
+                            navigation.push(Config.Info(item, embyItemId))
+                        },
+                        onOpenSearch = onOpenSearch,
+                        onOpenLibrary = onOpenLibrary,
+                        onOpenProfile = onOpenProfile,
+                        onOpenCalendar = { navigation.push(Config.Calendar) },
                     ),
                 )
             is Config.Detail ->
@@ -313,108 +257,9 @@ class HomeTabComponent(
                         },
                     ),
                 )
-            is Config.MediaDetail ->
-                Child.MediaDetail(
-                    MediaItemDetailComponent(
-                        componentContext = context,
-                        item = config.item,
-                        media = dependencies.tgtoMedia,
-                        emby = repo,
-                        registry = registry,
-                        onBack = { navigation.pop() },
-                        onOpenEmbyItem = { serverId, itemId ->
-                            navigation.push(Config.Detail(serverId, itemId))
-                        },
-                        onPlayEmbyItem = { serverId, itemId ->
-                            openPlayer(Config.Player(serverId, itemId, 0L))
-                        },
-                        onOpenTmdbItem = { item, embyItemId ->
-                            navigation.push(Config.Info(item, embyItemId))
-                        },
-                    ),
-                )
         }
 }
 
 internal fun Long.toEmbyTicks(): Long =
     coerceAtLeast(0L)
         .coerceAtMost(Long.MAX_VALUE / 10_000L) * 10_000L
-
-enum class HomeRootMode {
-    Classic,
-    Discovery,
-}
-
-data class HomeRootState(
-    val configured: Boolean,
-    val mode: HomeRootMode,
-)
-
-class HomeRootComponent(
-    componentContext: ComponentContext,
-    val classic: HomeComponent,
-    val discovery: MediaHubComponent,
-    private val preferences: TgtoMediaPreferences,
-    account: AccountRepository,
-) : ComponentContext by componentContext {
-    private val scope = componentScope(lifecycle)
-    private val _state =
-        MutableStateFlow(
-            HomeRootState(
-                configured =
-                    account.state.value.canUseMediaDiscovery() &&
-                        preferences.connection.value.hasPassword,
-                mode =
-                    if (
-                        account.state.value.canUseMediaDiscovery() &&
-                        preferences.connection.value.hasPassword &&
-                        preferences.discoveryHomeEnabled.value
-                    ) {
-                        HomeRootMode.Discovery
-                    } else {
-                        HomeRootMode.Classic
-                    },
-            ),
-        )
-    val state: StateFlow<HomeRootState> = _state.asStateFlow()
-
-    init {
-        scope.launch {
-            combine(
-                preferences.connection,
-                account.state,
-                preferences.discoveryHomeEnabled,
-            ) { connection, accountState, enabled ->
-                (connection.hasPassword && accountState.canUseMediaDiscovery()) to enabled
-            }.collectLatest { (configured, enabled) ->
-                _state.update { current ->
-                    if (current.configured && !configured) {
-                        classic.refreshCalendar()
-                    }
-                    current.copy(
-                        configured = configured,
-                        mode =
-                            when {
-                                !configured -> HomeRootMode.Classic
-                                enabled -> HomeRootMode.Discovery
-                                else -> HomeRootMode.Classic
-                            },
-                    )
-                }
-            }
-        }
-    }
-
-    fun showClassic() {
-        if (_state.value.mode != HomeRootMode.Classic) classic.refreshCalendar()
-        preferences.setDiscoveryHomeEnabled(false)
-        _state.update { it.copy(mode = HomeRootMode.Classic) }
-    }
-
-    fun showDiscovery() {
-        if (_state.value.configured) {
-            preferences.setDiscoveryHomeEnabled(true)
-            _state.update { it.copy(mode = HomeRootMode.Discovery) }
-        }
-    }
-}

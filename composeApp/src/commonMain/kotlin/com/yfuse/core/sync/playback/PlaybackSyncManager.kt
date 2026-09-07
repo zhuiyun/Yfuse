@@ -374,16 +374,16 @@ class PlaybackSyncManager(
                 }
 
                 PlaybackServerApplyFailurePolicy.CooldownServer -> {
-                    // Cloudflare/WAF blocks are server-wide, not item-specific. Repeating the same
-                    // request every sync only creates log noise and can extend a WAF ban. Drop this
-                    // target, cool the server, and allow other servers in the same task to proceed.
+                    // Authentication and WAF failures are server-wide, not item-specific. Repeating
+                    // the same request every sync creates noise and can extend a WAF ban. Drop this
+                    // target, cool the server, and allow other servers in the task to proceed.
                     val until = nowEpochMs() + PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS
                     serverApplier.coolDownServer(serverId, until)
                     store.markServerApplySucceeded(task.id, serverId)
                     AppLog.warning(
                         category = "playback.sync",
-                        event = "server_apply_access_denied_cooldown",
-                        message = "Playback sync paused for a media server after access was denied",
+                        event = "server_apply_access_rejected_cooldown",
+                        message = "Playback sync paused for a media server after access was rejected",
                         throwable = failure,
                         attributes =
                             mapOf(
@@ -569,7 +569,9 @@ internal enum class PlaybackServerApplyFailurePolicy {
 
 internal fun playbackServerApplyFailurePolicy(error: Throwable?): PlaybackServerApplyFailurePolicy =
     when ((error as? EmbyErrorException)?.error) {
-        is EmbyError.AccessDenied -> PlaybackServerApplyFailurePolicy.CooldownServer
+        is EmbyError.AccessDenied,
+        EmbyError.Unauthorized,
+        -> PlaybackServerApplyFailurePolicy.CooldownServer
         // The item is gone from this server. Retrying cannot make it reappear, and the task stays
         // queued forever while every sync re-sends it and logs another deferral.
         EmbyError.NotFound -> PlaybackServerApplyFailurePolicy.DropTarget
@@ -642,10 +644,26 @@ private class EmbyCompatiblePlaybackStateApplier(
         runCatching {
             val state = document.state
             val server = registry.serverById(serverId) ?: return@runCatching
+            val lookupKeys =
+                playbackLookupKeys(
+                    mediaKey = state.mediaKey,
+                    aliases = state.aliases,
+                    originServerId = state.serverId,
+                    targetServerId = serverId,
+                )
             val item =
-                (listOf(state.mediaKey) + state.aliases)
-                    .firstNotNullOfOrNull { key -> repo.findByMediaKey(server, key).getOrThrow() }
-                    ?: return@runCatching
+                lookupKeys.firstNotNullOfOrNull { key ->
+                    repo.findByMediaKey(server, key).fold(
+                        onSuccess = { it },
+                        onFailure = { failure ->
+                            if ((failure as? EmbyErrorException)?.error == EmbyError.NotFound) {
+                                null
+                            } else {
+                                throw failure
+                            }
+                        },
+                    )
+                } ?: return@runCatching
             val isOrigin = server.id == state.serverId && item.id == state.serverItemId
             if (isOrigin && state.mutationKind != PlaybackMutationKind.ManualUnwatched) {
                 return@runCatching
@@ -695,4 +713,21 @@ private class EmbyCompatiblePlaybackStateApplier(
             },
             onFailure = { Result.failure(it) },
         )
+}
+
+/**
+ * An Emby item id is scoped to one server. Sending `emby:<id>` to another server previously
+ * produced repeated 500 responses before a portable TMDB/IMDb identity could be attempted.
+ */
+internal fun playbackLookupKeys(
+    mediaKey: String,
+    aliases: List<String>,
+    originServerId: String?,
+    targetServerId: String,
+): List<String> {
+    val keys = (listOf(mediaKey) + aliases).filter(String::isNotBlank).distinct()
+    val isOrigin = originServerId == targetServerId
+    return keys
+        .filter { isOrigin || !it.startsWith("emby:", ignoreCase = true) }
+        .sortedBy { key -> if (isOrigin && key.startsWith("emby:", ignoreCase = true)) 0 else 1 }
 }

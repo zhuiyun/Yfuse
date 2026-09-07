@@ -47,8 +47,7 @@ jobs:
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
-      # Ed25519 private key (PEM) that signs update manifests; the matching public key is
-      # pinned in gradle.properties as yfuse.updateManifestPublicKey.
+      # Ed25519 private key (PEM) that signs update manifests and derives the key embedded in APKs.
       UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
       # Public certificate fingerprint pinned from the currently published APK.
       # Changing this requires an explicit signing-key migration.
@@ -380,7 +379,7 @@ jobs:
             --no-daemon >/dev/null
           git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
 
-      - name: Verify update-manifest signing key matches the pinned public key
+      - name: Derive and verify the embedded update-manifest public key
         shell: bash
         run: |
           set -euo pipefail
@@ -389,19 +388,19 @@ jobs:
             exit 1
           fi
           pinned="$(sed -n 's/^yfuse\.updateManifestPublicKey=//p' gradle.properties | tr -d '[:space:]')"
-          if [[ -z "$pinned" ]]; then
-            echo "::error::gradle.properties has no yfuse.updateManifestPublicKey; pin the public key before publishing"
-            exit 1
-          fi
           umask 077
           key_file="$(mktemp)"
           printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" > "$key_file"
           derived="$(openssl pkey -in "$key_file" -pubout -outform DER | base64 -w0)"
           rm -f "$key_file"
-          if [[ "$derived" != "$pinned" ]]; then
+          if [[ -n "$pinned" && "$derived" != "$pinned" ]]; then
             echo "::error::UPDATE_MANIFEST_SIGNING_KEY does not correspond to the public key pinned in gradle.properties"
             exit 1
           fi
+          # Gradle embeds this exact public half into BuildConfig. Deriving it from the same
+          # release secret prevents a successfully signed build from shipping with an empty or
+          # stale update trust anchor.
+          echo "YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=$derived" >> "$GITHUB_ENV"
 
       - name: Build signed release APK
         shell: bash

@@ -354,8 +354,6 @@ private fun TvSecondaryContent(
                 is HomeTabComponent.Child.Player -> PlayerScreen(homeChild.component)
                 is HomeTabComponent.Child.Info ->
                     TvTmdbInfoScreen(homeChild.component, focusMemory)
-                is HomeTabComponent.Child.MediaDetail ->
-                    TvMediaDiscoveryDetailScreen(homeChild.component, focusMemory)
                 is HomeTabComponent.Child.Calendar ->
                     TvCalendarScreen(homeChild.component, focusMemory)
                 is HomeTabComponent.Child.Home -> Unit
