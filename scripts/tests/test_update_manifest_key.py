@@ -58,9 +58,16 @@ class UpdateManifestKeyTest(unittest.TestCase):
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertIn(self.public, output)
 
-    def test_missing_key_and_mismatched_pin_fail_without_exporting(self):
+    def test_artifact_packaging_does_not_require_an_update_manifest_key(self):
+        for workflow in WORKFLOWS[1:]:
+            with self.subTest(workflow=workflow):
+                result, output = self.run_step(workflow)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual("YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=\n", output)
+
+    def test_invalid_configured_key_and_mismatched_pin_fail_without_exporting(self):
         for workflow in WORKFLOWS:
-            for values in ({}, {"private": self.private.decode(), "pinned": "wrong-key"},
+            for values in ({"configured": "invalid-key"}, {"private": self.private.decode(), "pinned": "wrong-key"},
                            {"configured": self.public, "pinned": "different-key"}):
                 with self.subTest(workflow=workflow, case=tuple(values)):
                     result, output = self.run_step(workflow, **values)
@@ -68,9 +75,11 @@ class UpdateManifestKeyTest(unittest.TestCase):
                     self.assertEqual("", output)
 
     def test_publishing_still_requires_the_private_signing_key(self):
-        result, output = self.run_step(WORKFLOWS[0], configured=self.public)
-        self.assertNotEqual(0, result.returncode)
-        self.assertEqual("", output)
+        for values in ({}, {"configured": self.public}):
+            with self.subTest(case=tuple(values)):
+                result, output = self.run_step(WORKFLOWS[0], **values)
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual("", output)
 
 
 if __name__ == "__main__":

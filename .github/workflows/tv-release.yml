@@ -286,8 +286,13 @@ jobs:
             fi
             public_key="$derived"
           fi
+          if [[ -z "$public_key" ]]; then
+            echo 'No update-manifest key configured; continuing APK packaging.'
+            printf 'YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=\n' >> "$GITHUB_ENV"
+            exit 0
+          fi
           if [[ ! "$public_key" =~ ^MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=$ ]]; then
-            echo '::error::A valid Ed25519 update-manifest public key is required for signed artifacts'
+            echo '::error::Configured update-manifest public key must be valid Ed25519'
             exit 1
           fi
           printf '%s' "$public_key" | base64 --decode | openssl pkey -pubin -inform DER -noout >/dev/null
