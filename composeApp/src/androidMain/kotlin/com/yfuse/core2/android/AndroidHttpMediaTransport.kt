@@ -9,8 +9,13 @@ import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.network.YTransportFeature
 import com.yfuse.core2.network.YTransportMethod
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.Credentials
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
@@ -39,6 +44,10 @@ internal class AndroidHttpMediaTransport(
             YTransportFeature.RandomAccess,
         )
 
+    private val exchangeLock = Any()
+    private var exchangeGeneration = 0L
+    private var activeCall: Call? = null
+    private var activeReads = 0
     private var response: Response? = null
     private var input: InputStream? = null
     private val activeClient =
@@ -51,8 +60,9 @@ internal class AndroidHttpMediaTransport(
 
     override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse =
         withContext(Dispatchers.IO) {
+            val openingContext = currentCoroutineContext()
             require(request.protocol in supportedProtocols) { "Unsupported HTTP transport protocol" }
-            closeCurrent()
+            val generation = closeCurrent()
             val originalUri = request.uri
             val originalHeaders = request.headers.withHttpBasicCredentials(request.credentials)
             val cachedRoute = redirectState?.resolve(originalUri)
@@ -81,7 +91,15 @@ internal class AndroidHttpMediaTransport(
                     builder.header(name, value)
                 }
                 request.range?.let { range -> builder.header("Range", range.toHttpRange()) }
-                val candidate = activeClient.newCall(builder.build()).execute()
+                val call = activeClient.newCall(builder.build())
+                synchronized(exchangeLock) {
+                    openingContext.ensureActive()
+                    requireCurrentExchange(generation)
+                    activeCall = call
+                }
+                // Retain the Call before execute(): close() must also cancel connect/header
+                // waits, not only a response body that has already reached the player.
+                val candidate = call.execute()
                 if (usingCachedRoute && candidate.code in STALE_MEDIA_ROUTE_STATUS_CODES) {
                     candidate.close()
                     if (candidate.code == 403) {
@@ -140,8 +158,20 @@ internal class AndroidHttpMediaTransport(
                     stripCredentials = strippedCredentials,
                 )
             }
-            response = finalResponse
-            input = finalResponse.body?.byteStream()
+            val accepted =
+                synchronized(exchangeLock) {
+                    if (generation != exchangeGeneration) {
+                        false
+                    } else {
+                        response = finalResponse
+                        input = finalResponse.body?.byteStream()
+                        true
+                    }
+                }
+            if (!accepted) {
+                finalResponse.close()
+                throw CancellationException("Media transport closed during open")
+            }
             val acceptedRange =
                 parseContentRange(finalResponse.header("Content-Range"))?.let {
                     YByteRange(it.start, it.end)
@@ -186,18 +216,48 @@ internal class AndroidHttpMediaTransport(
         withContext(Dispatchers.IO) {
             require(offset >= 0 && length >= 0 && offset + length <= destination.size)
             if (length == 0) return@withContext 0
-            input?.read(destination, offset, length) ?: -1
+            val (generation, stream) =
+                synchronized(exchangeLock) {
+                    val stream = input ?: return@withContext -1
+                    activeReads++
+                    exchangeGeneration to stream
+                }
+            try {
+                stream.read(destination, offset, length)
+            } finally {
+                synchronized(exchangeLock) {
+                    if (generation == exchangeGeneration) activeReads--
+                }
+            }
         }
 
     override suspend fun close() {
-        withContext(Dispatchers.IO) { closeCurrent() }
+        withContext(NonCancellable + Dispatchers.IO) { closeCurrent() }
     }
 
-    private fun closeCurrent() {
-        runCatching { input?.close() }
-        runCatching { response?.close() }
-        input = null
-        response = null
+    private fun closeCurrent(): Long {
+        val generation: Long
+        val previous: Pair<Call?, Response?>
+        synchronized(exchangeLock) {
+            generation = ++exchangeGeneration
+            val blockingCall = activeCall.takeIf { response == null || activeReads > 0 }
+            previous = blockingCall to response
+            activeCall = null
+            activeReads = 0
+            response = null
+            input = null
+        }
+        // Cancel a blocked exchange first. A completed range closes normally so OkHttp can drain
+        // the chunk terminator and reuse its HTTP/1.1 connection for the next range.
+        previous.first?.cancel()
+        runCatching { previous.second?.close() }
+        return generation
+    }
+
+    private fun requireCurrentExchange(generation: Long) {
+        if (generation != exchangeGeneration) {
+            throw CancellationException("Media transport closed during open")
+        }
     }
 }
 

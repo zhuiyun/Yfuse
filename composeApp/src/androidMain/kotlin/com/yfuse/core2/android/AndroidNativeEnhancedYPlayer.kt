@@ -287,6 +287,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             ?.value
                             .orEmpty(),
                     cacheMaximumBytes = request.items.maxOfOrNull { it.cacheMaximumBytes } ?: 0L,
+                    forwardCacheTargetUs = preferredRemoteBufferTargetUs ?: 60_000_000L,
                 )
             }.getOrNull()
         val session =
@@ -303,6 +304,12 @@ internal class AndroidNativeEnhancedYPlayer(
         var prepared = false
         var lastPublishNs = 0L
         var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
+        val externalSubtitleSession =
+            AndroidExternalSubtitleSession(
+                scope = scope,
+                load = { source, headers, id -> externalSubtitleLoader.load(source, headers, id) },
+                completed = { submit(Command.ExternalSubtitleReady(it)) },
+            )
         var selectedExternalSubtitleId: String? = null
         var secondaryExternalSubtitleId: String? = null
         var secondaryTrackId: String? = null
@@ -311,6 +318,7 @@ internal class AndroidNativeEnhancedYPlayer(
         var adaptiveFeedbackGeneration = 0L
 
         suspend fun prepareCurrent(positionUs: Long) {
+            externalSubtitleSession.close()
             adaptiveFeedbackGeneration++
             proxy?.updatePlaybackFeedback(
                 YAdaptivePlaybackFeedback(
@@ -379,21 +387,9 @@ internal class AndroidNativeEnhancedYPlayer(
             speed = mutableState.value.speed
             session.setSpeed(speed)
             val tracks = result.toAudioTracks(session.selectedAudioTrackId())
-            val sidecarSources = item.allExternalSubtitles
-            externalSubtitles =
-                sidecarSources.mapIndexed { index, source ->
-                    externalSubtitleLoader.load(
-                        source = source,
-                        headers = item.headers,
-                        trackId = externalSubtitleTrackId(index),
-                    )
-                }
-            selectedExternalSubtitleId =
-                sidecarSources
-                    .indexOfFirst { it.forced || it.default }
-                    .takeIf { it >= 0 }
-                    ?.let(::externalSubtitleTrackId)
-                    ?: externalSubtitles.singleOrNull()?.track?.id
+            externalSubtitleSession.reset(item.allExternalSubtitles, item.headers)
+            externalSubtitles = externalSubtitleSession.tracks
+            selectedExternalSubtitleId = externalSubtitleSession.defaultId
             if (selectedExternalSubtitleId != null) session.selectSubtitleTrack(null)
             val subtitleTracks =
                 result.toSubtitleTracks() +
@@ -486,6 +482,10 @@ internal class AndroidNativeEnhancedYPlayer(
                             ),
                 )
             }
+            if (snapshot.firstVideoFrameRendered) {
+                externalSubtitleSession.request(selectedExternalSubtitleId)
+                externalSubtitleSession.request(secondaryExternalSubtitleId)
+            }
             proxy?.updatePlaybackFeedback(
                 YAdaptivePlaybackFeedback(
                     bufferedDurationUs = snapshot.sourceBufferedUs,
@@ -565,11 +565,8 @@ internal class AndroidNativeEnhancedYPlayer(
                                 } else {
                                     "等待实际音频输出"
                                 },
-                            outputEvidence =
-                                it.diagnostics.outputEvidence.copy(
-                                    videoDecoder = snapshot.videoDecoderName.orEmpty(),
-                                    audioDecoder = snapshot.audioDecoderName.orEmpty(),
-                                ),
+                            videoDecoderName = snapshot.videoDecoderName.orEmpty(),
+                            audioDecoderName = snapshot.audioDecoderName.orEmpty(),
                             outputEvidenceGeneration = snapshot.outputEvidenceGeneration,
                             outputEvidenceResetReason = snapshot.outputEvidenceResetReason,
                             videoOutputVerified = snapshot.firstVideoFrameRendered,
@@ -655,6 +652,11 @@ internal class AndroidNativeEnhancedYPlayer(
                                 speed = command.speed
                                 if (prepared) session.setSpeed(speed)
                             }
+                            is Command.ExternalSubtitleReady -> {
+                                if (externalSubtitleSession.accept(command.result)) {
+                                    externalSubtitles = externalSubtitleSession.tracks
+                                }
+                            }
                             is Command.SetVideoOutput -> {
                                 val previous = surfaceOutput
                                 surfaceOutput = command.output
@@ -708,6 +710,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 }
                             }
                             is Command.SelectSubtitleTrack -> {
+                                externalSubtitleSession.retry(command.externalTrackId)
                                 if (prepared) {
                                     val selectedId =
                                         command.externalTrackId
@@ -829,12 +832,17 @@ internal class AndroidNativeEnhancedYPlayer(
                 }
             }
         } finally {
+            externalSubtitleSession.close()
             session.release()
             proxy?.close()
         }
     }
 
     internal sealed interface Command {
+        data class ExternalSubtitleReady(
+            val result: AndroidExternalSubtitleSession.Completion,
+        ) : Command
+
         data object Prepare : Command
 
         data object Play : Command
@@ -910,6 +918,7 @@ internal fun coalesceNativeEnhancedCommands(
 
 private fun AndroidNativeEnhancedYPlayer.Command.canBeReplacedBy(next: AndroidNativeEnhancedYPlayer.Command): Boolean =
     when (this) {
+        is AndroidNativeEnhancedYPlayer.Command.ExternalSubtitleReady -> false
         is AndroidNativeEnhancedYPlayer.Command.Seek -> next is AndroidNativeEnhancedYPlayer.Command.Seek
         is AndroidNativeEnhancedYPlayer.Command.SetSpeed -> next is AndroidNativeEnhancedYPlayer.Command.SetSpeed
         is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput ->

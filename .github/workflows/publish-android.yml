@@ -379,28 +379,38 @@ jobs:
             --no-daemon >/dev/null
           git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
 
-      - name: Derive and verify the embedded update-manifest public key
+      - name: Configure verified update-manifest public key
         shell: bash
+        env:
+          UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
+          YFUSE_UPDATE_MANIFEST_PUBLIC_KEY: ${{ vars.YFUSE_UPDATE_MANIFEST_PUBLIC_KEY }}
         run: |
-          set -euo pipefail
           if [[ -z "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
-            echo "::error::UPDATE_MANIFEST_SIGNING_KEY secret is not set; release builds refuse unsigned manifests, so nothing can be published"
+            echo '::error::Publishing requires UPDATE_MANIFEST_SIGNING_KEY'
             exit 1
           fi
+          set -euo pipefail
           pinned="$(sed -n 's/^yfuse\.updateManifestPublicKey=//p' gradle.properties | tr -d '[:space:]')"
-          umask 077
-          key_file="$(mktemp)"
-          printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" > "$key_file"
-          derived="$(openssl pkey -in "$key_file" -pubout -outform DER | base64 -w0)"
-          rm -f "$key_file"
-          if [[ -n "$pinned" && "$derived" != "$pinned" ]]; then
-            echo "::error::UPDATE_MANIFEST_SIGNING_KEY does not correspond to the public key pinned in gradle.properties"
+          configured="${YFUSE_UPDATE_MANIFEST_PUBLIC_KEY:-}"
+          if [[ -n "$pinned" && -n "$configured" && "$pinned" != "$configured" ]]; then
+            echo '::error::Configured update public key does not match the pinned key'
             exit 1
           fi
-          # Gradle embeds this exact public half into BuildConfig. Deriving it from the same
-          # release secret prevents a successfully signed build from shipping with an empty or
-          # stale update trust anchor.
-          echo "YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=$derived" >> "$GITHUB_ENV"
+          public_key="${pinned:-$configured}"
+          if [[ -n "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+            derived="$(printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" | openssl pkey -pubout -outform DER | base64 -w0)"
+            if [[ -n "$public_key" && "$public_key" != "$derived" ]]; then
+              echo '::error::Update signing key does not match the configured public key'
+              exit 1
+            fi
+            public_key="$derived"
+          fi
+          if [[ ! "$public_key" =~ ^MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=$ ]]; then
+            echo '::error::A valid Ed25519 update-manifest public key is required for signed artifacts'
+            exit 1
+          fi
+          printf '%s' "$public_key" | base64 --decode | openssl pkey -pubin -inform DER -noout >/dev/null
+          printf 'YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=%s\n' "$public_key" >> "$GITHUB_ENV"
 
       - name: Build signed release APK
         shell: bash

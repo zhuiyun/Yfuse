@@ -58,6 +58,8 @@ internal interface YPlatformExtractorSource : YDemuxNode {
 
     fun setMediaBitRateBitsPerSecond(value: Long)
 
+    fun updatePlaybackWindow(window: YTransportPlaybackWindow) = Unit
+
     fun transportQoeSnapshot(): YTransportPrefetchQoeSnapshot?
 
     fun blockedForegroundReadMs(): Long
@@ -93,6 +95,8 @@ internal class AndroidMediaExtractorDemuxNode(
     private val appContext = context.applicationContext
     private val timeline = YMediaTimestampTimeline()
     private var extractor: MediaExtractor? = null
+
+    @Volatile
     private var mediaDataSource: MediaDataSource? = null
     private var currentSource: YAndroidMediaSource? = null
     private var selectedTracks = emptySet<Int>()
@@ -115,6 +119,15 @@ internal class AndroidMediaExtractorDemuxNode(
     }
 
     override val trackCount: Int get() = extractor?.trackCount ?: 0
+
+    /** NAL truth probes can select/advance a track. Restore a clean start before transferring ownership. */
+    fun resetAfterProbe() {
+        if (selectedTracks.isNotEmpty()) {
+            requireExtractor().seekTo(0L, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            selectedTracks.toList().forEach(::unselectTrack)
+        }
+        timeline.reset()
+    }
 
     override fun trackFormat(index: Int): MediaFormat = requireExtractor().getTrackFormat(index)
 
@@ -183,6 +196,10 @@ internal class AndroidMediaExtractorDemuxNode(
     override fun setMediaBitRateBitsPerSecond(value: Long) {
         (mediaDataSource as? AndroidTransportMediaDataSource)
             ?.setMediaBitRateBitsPerSecond(value)
+    }
+
+    override fun updatePlaybackWindow(window: YTransportPlaybackWindow) {
+        (mediaDataSource as? AndroidTransportMediaDataSource)?.updatePlaybackWindow(window)
     }
 
     override fun transportQoeSnapshot(): YTransportPrefetchQoeSnapshot? =

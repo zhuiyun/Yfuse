@@ -38,6 +38,9 @@ class YAggregateBandwidthMeter(
     private var activeTransfers = 0
     private var busyPeriodStartedAtNs = 0L
     private var busyPeriodBytes = 0L
+    private var rollingStartedAtNs = 0L
+    private var rollingBytes = 0L
+    private var hasProgressSamples = false
 
     /** Call when a range transfer begins, before any byte of it is read. */
     fun onTransferStarted(nowNs: Long) {
@@ -45,10 +48,29 @@ class YAggregateBandwidthMeter(
             if (activeTransfers == 0) {
                 busyPeriodStartedAtNs = nowNs
                 busyPeriodBytes = 0L
+                rollingStartedAtNs = nowNs
+                rollingBytes = 0L
+                hasProgressSamples = false
             }
             activeTransfers++
         }
     }
+
+    /** Aggregate byte deltas from every concurrent request; never count a request total here. */
+    fun onBytesTransferred(
+        bytes: Long,
+        nowNs: Long,
+    ): YBandwidthSample? =
+        synchronized(lock) {
+            if (activeTransfers == 0 || bytes <= 0L) return@synchronized null
+            hasProgressSamples = true
+            rollingBytes += bytes
+            val elapsedNs = (nowNs - rollingStartedAtNs).coerceAtLeast(0L)
+            if (elapsedNs < ROLLING_SAMPLE_NANOS || rollingBytes < minimumSampleBytes) {
+                return@synchronized null
+            }
+            recordRolling(nowNs)
+        }
 
     /**
      * Call exactly once per [onTransferStarted], with the bytes that transfer actually delivered.
@@ -67,6 +89,13 @@ class YAggregateBandwidthMeter(
             val elapsedNs = (nowNs - busyPeriodStartedAtNs).coerceAtLeast(0L)
             val periodBytes = busyPeriodBytes
             busyPeriodBytes = 0L
+            if (hasProgressSamples) {
+                return@synchronized if (rollingBytes > 0L && nowNs - rollingStartedAtNs >= minimumSampleNanos) {
+                    recordRolling(nowNs)
+                } else {
+                    null
+                }
+            }
             if (periodBytes < minimumSampleBytes || elapsedNs < minimumSampleNanos) {
                 return@synchronized null
             }
@@ -83,8 +112,15 @@ class YAggregateBandwidthMeter(
         }
 
     /** Weighted median of the retained window, or 0 when nothing has been measured yet. */
-    fun bitsPerSecond(): Long =
+    fun bitsPerSecond(nowNs: Long? = null): Long =
         synchronized(lock) {
+            if (nowNs != null &&
+                activeTransfers > 0 &&
+                hasProgressSamples &&
+                nowNs - rollingStartedAtNs >= STALLED_SAMPLE_NANOS
+            ) {
+                recordRolling(nowNs)
+            }
             if (samples.isEmpty()) return@synchronized 0L
             val target = totalWeight / 2.0
             var accumulated = 0.0
@@ -101,7 +137,19 @@ class YAggregateBandwidthMeter(
             totalWeight = 0.0
             activeTransfers = 0
             busyPeriodBytes = 0L
+            rollingBytes = 0L
+            hasProgressSamples = false
         }
+    }
+
+    private fun recordRolling(nowNs: Long): YBandwidthSample {
+        val elapsedNs = (nowNs - rollingStartedAtNs).coerceAtLeast(1L)
+        val bytes = rollingBytes
+        val rate = bytes.saturatedMultiply(BITS_PER_BYTE * NANOS_PER_SECOND) / elapsedNs
+        record(rate, bytes.coerceAtLeast(minimumSampleBytes))
+        rollingStartedAtNs = nowNs
+        rollingBytes = 0L
+        return YBandwidthSample(bytes, (elapsedNs / NANOS_PER_MILLISECOND).coerceAtLeast(1L), rate)
     }
 
     private fun record(
@@ -141,3 +189,5 @@ private const val DEFAULT_MINIMUM_SAMPLE_NANOS = 20L * 1_000_000L
 
 /** With `sqrt(bytes)` weights this keeps roughly the last twenty busy periods of a few MiB each. */
 private const val DEFAULT_MAXIMUM_WEIGHT = 32.0 * 1024.0
+private const val ROLLING_SAMPLE_NANOS = 500_000_000L
+private const val STALLED_SAMPLE_NANOS = 2_000_000_000L

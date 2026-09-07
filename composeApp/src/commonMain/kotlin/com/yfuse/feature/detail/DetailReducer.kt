@@ -7,6 +7,24 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
     override fun DetailState.reduce(msg: DetailMsg): DetailState =
         when (msg) {
             DetailMsg.Loading -> copy(loading = true, error = null)
+            is DetailMsg.PeopleLoaded ->
+                if (server?.id == msg.serverId && detail?.id == msg.itemId) {
+                    copy(
+                        detail = detail.copy(people = msg.people),
+                        playSourceDetail =
+                            playSourceDetail?.let {
+                                if (playServer?.id == msg.serverId &&
+                                    it.id == msg.itemId
+                                ) {
+                                    it.copy(people = msg.people)
+                                } else {
+                                    it
+                                }
+                            },
+                    )
+                } else {
+                    this
+                }
             is DetailMsg.Loaded ->
                 copy(
                     loading = false,

@@ -31,6 +31,54 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlayerStoreTest {
+    @Test
+    fun episode_metadata_starts_before_playback_negotiation_completes() =
+        runTest {
+            val seriesRequested = CompletableDeferred<Unit>()
+            val episodesRequested = CompletableDeferred<Unit>()
+            var negotiationCompleted = false
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                }
+            val repo =
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") -> {
+                            seriesRequested.await()
+                            episodesRequested.await()
+                            negotiationCompleted = true
+                            json("""{"MediaSources":[],"PlaySessionId":"session"}""")
+                        }
+                        request.url.encodedPath.contains("/Shows/s1/Episodes") -> {
+                            episodesRequested.complete(Unit)
+                            json("""{"Items":[{"Id":"e1","Name":"第1集","Type":"Episode","IndexNumber":1}]}""")
+                        }
+                        request.url.encodedPath.endsWith("/Items/s1") -> {
+                            seriesRequested.complete(Unit)
+                            json("""{"Id":"s1","Name":"剧集","Type":"Series"}""")
+                        }
+                        else -> json("""{"Id":"e1","Name":"第1集","Type":"Episode","SeriesId":"s1"}""")
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    itemId = "e1",
+                    startPositionTicks = 0L,
+                ).create()
+            try {
+                val state = store.states.first { !it.loading }
+                assertNull(state.error)
+                assertTrue(negotiationCompleted)
+                assertEquals("e1", state.items.first().id)
+            } finally {
+                store.dispose()
+            }
+        }
+
     @BeforeTest
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 

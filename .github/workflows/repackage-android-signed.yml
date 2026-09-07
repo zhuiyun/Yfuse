@@ -154,6 +154,35 @@ jobs:
           test -n "$configured_cert"
           test "$configured_cert" = "$expected_cert"
 
+      - name: Configure verified update-manifest public key
+        shell: bash
+        env:
+          UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
+          YFUSE_UPDATE_MANIFEST_PUBLIC_KEY: ${{ vars.YFUSE_UPDATE_MANIFEST_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          pinned="$(sed -n 's/^yfuse\.updateManifestPublicKey=//p' gradle.properties | tr -d '[:space:]')"
+          configured="${YFUSE_UPDATE_MANIFEST_PUBLIC_KEY:-}"
+          if [[ -n "$pinned" && -n "$configured" && "$pinned" != "$configured" ]]; then
+            echo '::error::Configured update public key does not match the pinned key'
+            exit 1
+          fi
+          public_key="${pinned:-$configured}"
+          if [[ -n "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+            derived="$(printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" | openssl pkey -pubout -outform DER | base64 -w0)"
+            if [[ -n "$public_key" && "$public_key" != "$derived" ]]; then
+              echo '::error::Update signing key does not match the configured public key'
+              exit 1
+            fi
+            public_key="$derived"
+          fi
+          if [[ ! "$public_key" =~ ^MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=$ ]]; then
+            echo '::error::A valid Ed25519 update-manifest public key is required for signed artifacts'
+            exit 1
+          fi
+          printf '%s' "$public_key" | base64 --decode | openssl pkey -pubin -inform DER -noout >/dev/null
+          printf 'YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=%s\n' "$public_key" >> "$GITHUB_ENV"
+
       - name: Build production signed release APK
         shell: bash
         run: |

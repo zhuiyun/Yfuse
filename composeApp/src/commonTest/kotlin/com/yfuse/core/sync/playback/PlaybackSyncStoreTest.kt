@@ -8,6 +8,100 @@ import kotlin.test.assertTrue
 
 class PlaybackSyncStoreTest {
     @Test
+    fun serverCooldownCoversEveryQueuedTitleAndSurvivesRestart() {
+        val settings = MapSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        repeat(40) { index ->
+            store.enqueueServerApply(
+                PlaybackSyncDocument(state = PlaybackStateRecord(mediaKey = "tmdb:$index", deviceId = "remote")),
+                listOf("blocked", "healthy"),
+            )
+        }
+
+        store.deferServerAppliesForServer("blocked", 31_000L)
+
+        val restored = PlaybackSyncStore(settings) { 2_000L }
+        repeat(40) {
+            val task = restored.pendingServerApplies(2_000L, limit = 1).single()
+            assertEquals(listOf("healthy"), task.readyServerIds(2_000L))
+            restored.markServerApplySucceeded(task.id, "healthy")
+        }
+        assertEquals(40, restored.serverApplyCount())
+        assertTrue(restored.pendingServerApplies(30_999L).isEmpty())
+        assertEquals(31_000L, restored.nextServerApplyAtEpochMs())
+        assertEquals(
+            listOf("blocked"),
+            restored.pendingServerApplies(31_000L, limit = 1).single().readyServerIds(31_000L),
+        )
+    }
+
+    @Test
+    fun replacingProgressAfterRestartKeepsTheNewPositionAndTheServerCooldown() {
+        val settings = MapSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        val original =
+            PlaybackSyncDocument(
+                state = PlaybackStateRecord(mediaKey = "tmdb:1", deviceId = "remote", positionMs = 10_000L),
+            )
+        store.enqueueServerApply(original, listOf("blocked", "healthy"))
+        store.deferServerAppliesForServer("blocked", 31_000L)
+        val restored = PlaybackSyncStore(settings) { 2_000L }
+
+        restored.enqueueServerApply(
+            original.copy(state = original.state.copy(positionMs = 20_000L)),
+            listOf("blocked", "healthy"),
+        )
+
+        assertEquals(1, restored.serverApplyCount())
+        val task = restored.pendingServerApplies(2_000L).single()
+        assertEquals(20_000L, task.document.state.positionMs)
+        assertEquals(listOf("healthy"), task.readyServerIds(2_000L))
+        restored.markServerApplySucceeded(task.id, "healthy")
+        assertTrue(restored.pendingServerApplies(30_999L).isEmpty())
+        assertEquals(31_000L, restored.nextServerApplyAtEpochMs())
+    }
+
+    @Test
+    fun aDifferentTitleInheritsThePersistedServerCooldownWithoutDelayingHealthyServers() {
+        val settings = MapSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        store.enqueueServerApply(
+            PlaybackSyncDocument(state = PlaybackStateRecord(mediaKey = "tmdb:1", deviceId = "remote")),
+            listOf("blocked"),
+        )
+        store.deferServerAppliesForServer("blocked", 31_000L)
+        val restored = PlaybackSyncStore(settings) { 2_000L }
+
+        restored.enqueueServerApply(
+            PlaybackSyncDocument(state = PlaybackStateRecord(mediaKey = "tmdb:2", deviceId = "remote")),
+            listOf("blocked", "healthy"),
+        )
+
+        val task = restored.pendingServerApplies(2_000L).single()
+        assertEquals("tmdb:2", task.document.state.mediaKey)
+        assertEquals(listOf("healthy"), task.readyServerIds(2_000L))
+        assertEquals(31_000L, task.deferredUntilByServerId["blocked"])
+    }
+
+    @Test
+    fun cooledServerStaysDurableWhileHealthyTargetsAdvance() {
+        val settings = MapSettings()
+        val store = PlaybackSyncStore(settings) { 1_000L }
+        val document = PlaybackSyncDocument(state = PlaybackStateRecord(mediaKey = "tmdb:1", deviceId = "remote"))
+        store.enqueueServerApply(document, listOf("blocked", "healthy"))
+        val task = store.pendingServerApplies(1_000L).single()
+        store.deferServerApplyTarget(task.id, "blocked", 31_000L)
+        assertEquals(listOf("healthy"), store.pendingServerApplies(1_000L).single().readyServerIds(1_000L))
+        store.markServerApplySucceeded(task.id, "healthy")
+        assertTrue(store.pendingServerApplies(1_000L).isEmpty())
+        assertEquals(1, store.serverApplyCount())
+        assertEquals(31_000L, store.nextServerApplyAtEpochMs())
+        val restored = PlaybackSyncStore(settings) { 2_000L }
+        assertTrue(restored.pendingServerApplies(30_999L).isEmpty())
+        assertEquals(listOf("blocked"), restored.pendingServerApplies(31_000L).single().readyServerIds(31_000L))
+    }
+
+    @Test
     fun startupServerProgressSeedsOnlyMissingItemsWithoutCreatingUpload() {
         val store = PlaybackSyncStore(MapSettings()) { 1_000L }
 

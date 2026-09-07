@@ -285,7 +285,7 @@ private fun TvRootTabContent(
             val child = stack.active.instance as? HomeTabComponent.Child.Home
             child?.let {
                 TvHomeScreen(
-                    component = it.component.classic,
+                    component = it.component,
                     focusMemory = focusMemory,
                     navigationRequester = navigationRequester,
                     contentRequester = contentRequester,

@@ -67,6 +67,17 @@ class PlaybackSyncStore(
     ) = synchronized(lock) {
         val targets = serverIds.filter(String::isNotBlank).distinct()
         if (targets.isEmpty()) return@synchronized
+        // Replacing progress, or enqueuing a different title after a process restart, must
+        // not forget a server-wide rejection already recorded in the durable queue.
+        val now = nowEpochMs()
+        val deferredUntilByServerId =
+            targets
+                .mapNotNull { serverId ->
+                    serverApplies
+                        .maxOfOrNull { it.deferredUntilByServerId[serverId] ?: 0L }
+                        ?.takeIf { it > now }
+                        ?.let { serverId to it }
+                }.toMap()
         val keys = (document.state.aliases + document.state.mediaKey).filter(String::isNotBlank).toSet()
         val portableIdentity = keys.any { !it.startsWith("emby:", ignoreCase = true) }
         val retained =
@@ -85,6 +96,7 @@ class PlaybackSyncStore(
                         id = newId("server-apply"),
                         document = document,
                         remainingServerIds = targets,
+                        deferredUntilByServerId = deferredUntilByServerId,
                     )
             ).takeLast(MAX_SERVER_APPLIES).toMutableList()
         persistServerAppliesLocked()
@@ -96,11 +108,21 @@ class PlaybackSyncStore(
     ): List<PendingPlaybackServerApply> =
         synchronized(lock) {
             serverApplies
-                .filter { it.remainingServerIds.isNotEmpty() && it.nextAttemptAtEpochMs <= nowEpochMs }
+                .filter { it.nextAttemptAtEpochMs <= nowEpochMs && it.readyServerIds(nowEpochMs).isNotEmpty() }
                 .take(limit.coerceIn(1, MAX_SERVER_APPLY_BATCH))
         }
 
     fun serverApplyCount(): Int = synchronized(lock) { serverApplies.size }
+
+    fun nextServerApplyAtEpochMs(): Long? =
+        synchronized(lock) {
+            serverApplies
+                .mapNotNull { task ->
+                    task.remainingServerIds
+                        .minOfOrNull { task.deferredUntilByServerId[it] ?: 0L }
+                        ?.let { targetReadyAt -> maxOf(task.nextAttemptAtEpochMs, targetReadyAt) }
+                }.minOrNull()
+        }
 
     fun markServerApplySucceeded(
         taskId: String,
@@ -115,10 +137,28 @@ class PlaybackSyncStore(
             serverApplies[index] =
                 existing.copy(
                     remainingServerIds = remaining,
+                    deferredUntilByServerId = existing.deferredUntilByServerId - serverId,
                     attemptCount = 0,
                     nextAttemptAtEpochMs = 0L,
                 )
         }
+        persistServerAppliesLocked()
+    }
+
+    /** Keep rejected targets durable without holding healthy servers behind them. */
+    fun deferServerApplyTarget(
+        taskId: String,
+        serverId: String,
+        untilEpochMs: Long,
+    ) = synchronized(lock) {
+        val index = serverApplies.indexOfFirst { it.id == taskId }
+        val existing = serverApplies.getOrNull(index) ?: return@synchronized
+        if (serverId !in existing.remainingServerIds) return@synchronized
+        serverApplies[index] =
+            existing.copy(
+                deferredUntilByServerId =
+                    existing.deferredUntilByServerId + (serverId to untilEpochMs.coerceAtLeast(0L)),
+            )
         persistServerAppliesLocked()
     }
 
@@ -134,6 +174,29 @@ class PlaybackSyncStore(
                 nextAttemptAtEpochMs = nextAttemptAtEpochMs.coerceAtLeast(0L),
             )
         persistServerAppliesLocked()
+    }
+
+    /** Persist a server-wide denial in one write, including tasks beyond the current drain batch. */
+    fun deferServerAppliesForServer(
+        serverId: String,
+        untilEpochMs: Long,
+    ) = synchronized(lock) {
+        val until = untilEpochMs.coerceAtLeast(0L)
+        var changed = false
+        serverApplies.indices.forEach { index ->
+            val existing = serverApplies[index]
+            if (
+                serverId in existing.remainingServerIds &&
+                (existing.deferredUntilByServerId[serverId] ?: 0L) < until
+            ) {
+                serverApplies[index] =
+                    existing.copy(
+                        deferredUntilByServerId = existing.deferredUntilByServerId + (serverId to until),
+                    )
+                changed = true
+            }
+        }
+        if (changed) persistServerAppliesLocked()
     }
 
     fun find(

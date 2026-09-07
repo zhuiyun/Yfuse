@@ -174,6 +174,35 @@ jobs:
           printf 'tmdb.token=%s\n' "$TMDB_TOKEN" > local.properties
           actual="$(keytool -list -v -keystore signing/yfuse-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
           test "$actual" = "$EXPECTED_ANDROID_CERT_SHA256"
+      - name: Configure verified update-manifest public key
+        shell: bash
+        env:
+          UPDATE_MANIFEST_SIGNING_KEY: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
+          YFUSE_UPDATE_MANIFEST_PUBLIC_KEY: ${{ vars.YFUSE_UPDATE_MANIFEST_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          pinned="$(sed -n 's/^yfuse\.updateManifestPublicKey=//p' gradle.properties | tr -d '[:space:]')"
+          configured="${YFUSE_UPDATE_MANIFEST_PUBLIC_KEY:-}"
+          if [[ -n "$pinned" && -n "$configured" && "$pinned" != "$configured" ]]; then
+            echo '::error::Configured update public key does not match the pinned key'
+            exit 1
+          fi
+          public_key="${pinned:-$configured}"
+          if [[ -n "${UPDATE_MANIFEST_SIGNING_KEY:-}" ]]; then
+            derived="$(printf '%s\n' "$UPDATE_MANIFEST_SIGNING_KEY" | openssl pkey -pubout -outform DER | base64 -w0)"
+            if [[ -n "$public_key" && "$public_key" != "$derived" ]]; then
+              echo '::error::Update signing key does not match the configured public key'
+              exit 1
+            fi
+            public_key="$derived"
+          fi
+          if [[ ! "$public_key" =~ ^MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=$ ]]; then
+            echo '::error::A valid Ed25519 update-manifest public key is required for signed artifacts'
+            exit 1
+          fi
+          printf '%s' "$public_key" | base64 --decode | openssl pkey -pubin -inform DER -noout >/dev/null
+          printf 'YFUSE_UPDATE_MANIFEST_PUBLIC_KEY=%s\n' "$public_key" >> "$GITHUB_ENV"
+
       - name: Build production-signed release
         run: ./gradlew :composeApp:assembleRelease -PyfuseVersionCode=192 -PyfuseVersionName=1.0.30 -PconfirmMdkDistributionRights=true --no-daemon
       - name: Verify APK signature, version, alignment, and native contents

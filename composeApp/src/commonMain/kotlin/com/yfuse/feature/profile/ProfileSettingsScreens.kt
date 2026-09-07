@@ -335,7 +335,7 @@ internal fun AdvancedPlaybackSettingsScreen(
                     )
                     SettingsDivider()
                     SettingRow(
-                        "YCore 缓冲时长",
+                        "YCore 前向缓存时长",
                         "${yCoreBufferDuration.label} ›",
                         true,
                         onYCoreBufferDuration,

@@ -5,6 +5,7 @@ import com.yfuse.core.sync.playback.PlaybackPushRequest
 import com.yfuse.core.sync.playback.PlaybackPushResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -30,6 +31,10 @@ class PlaybackCloudApi(
     ): PlaybackDeltaResponse =
         client
             .get("$origin/api/v1/account/playback") {
+                timeout {
+                    requestTimeoutMillis = PLAYBACK_CLOUD_TIMEOUT_MS
+                    socketTimeoutMillis = PLAYBACK_CLOUD_TIMEOUT_MS
+                }
                 bearerAuth(accessToken)
                 url {
                     parameters.append("after", afterCursor.coerceAtLeast(0L).toString())
@@ -43,11 +48,17 @@ class PlaybackCloudApi(
     ): PlaybackPushResponse =
         client
             .post("$origin/api/v1/account/playback") {
+                timeout {
+                    requestTimeoutMillis = PLAYBACK_CLOUD_TIMEOUT_MS
+                    socketTimeoutMillis = PLAYBACK_CLOUD_TIMEOUT_MS
+                }
                 bearerAuth(accessToken)
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }.decodedPlayback()
 }
+
+private const val PLAYBACK_CLOUD_TIMEOUT_MS = 30_000L
 
 private suspend inline fun <reified T> HttpResponse.decodedPlayback(): T {
     if (status.isSuccess()) return body()

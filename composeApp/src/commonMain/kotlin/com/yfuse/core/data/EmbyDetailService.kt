@@ -9,11 +9,11 @@ import com.yfuse.core.data.dto.toMediaDetail
 import com.yfuse.core.data.dto.toMediaItem
 import com.yfuse.core.data.dto.toPerson
 import com.yfuse.core.data.dto.toSeason
-import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.Episode
 import com.yfuse.core.model.MediaDetail
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.MediaServerKind
+import com.yfuse.core.model.Person
 import com.yfuse.core.model.PlayTarget
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.Season
@@ -255,6 +255,7 @@ internal class EmbyDetailService(
     suspend fun itemDetail(
         server: SavedServer,
         itemId: String,
+        includeInheritedPeople: Boolean = true,
     ): Result<MediaDetail> =
         embyApiCall("item_detail") {
             val dto: BaseItemDto =
@@ -275,28 +276,33 @@ internal class EmbyDetailService(
             val detail = progress.project(server, dto).toMediaDetail()
 
             // Emby returns no cast on episodes; borrow the series' cast instead.
-            if (detail.type == "Episode" && detail.people.isEmpty() && detail.seriesId != null) {
-                val seriesResult =
-                    runCatching {
-                        client
-                            .get("${server.baseUrl}/Users/${server.userId}/Items/${detail.seriesId}") {
-                                header("X-Emby-Token", server.accessToken)
-                                parameter("Fields", "People")
-                            }.body<BaseItemDto>()
-                    }.onFailure {
-                        AppLog.warning(
-                            category = "emby",
-                            event = "episode_cast_degraded",
-                            message = "Episode detail loaded but series cast lookup failed",
-                            throwable = it,
-                            attributes = mapOf("serverId" to server.id),
-                        )
-                    }
-                val series = seriesResult.getOrNull()
-                detail.copy(people = series?.People?.map { it.toPerson() } ?: emptyList())
+            if (includeInheritedPeople &&
+                detail.type == "Episode" &&
+                detail.people.isEmpty() &&
+                detail.seriesId != null
+            ) {
+                detail.copy(people = inheritedEpisodePeople(server, detail).getOrDefault(emptyList()))
             } else {
                 detail
             }
+        }
+
+    /** Optional enrichment, requested separately by the detail screen after its first content. */
+    suspend fun inheritedEpisodePeople(
+        server: SavedServer,
+        detail: MediaDetail,
+    ): Result<List<Person>> =
+        embyApiCall("episode_cast") {
+            if (detail.type != "Episode" || detail.people.isNotEmpty() || detail.seriesId == null) {
+                return@embyApiCall detail.people
+            }
+            val series: BaseItemDto =
+                client
+                    .get("${server.baseUrl}/Users/${server.userId}/Items/${detail.seriesId}") {
+                        header("X-Emby-Token", server.accessToken)
+                        parameter("Fields", "People")
+                    }.body()
+            series.People.orEmpty().map { it.toPerson() }
         }
 
     /** Seasons of a series. */

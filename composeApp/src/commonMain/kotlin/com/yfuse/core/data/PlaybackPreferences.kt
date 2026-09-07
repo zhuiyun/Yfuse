@@ -27,7 +27,7 @@ enum class VideoCacheSize(
     ExtraLarge("2 GB", 2L * 1024L * 1024L * 1024L),
 }
 
-/** User-selected compressed-input buffer target for the YCore enhanced playback path. */
+/** Forward cache target, independent of startup/rebuffer gates and bounded by disk capacity. */
 enum class YCoreBufferDuration(
     val label: String,
     val targetDurationUs: Long?,
@@ -38,6 +38,9 @@ enum class YCoreBufferDuration(
     Seconds10("10 秒", 10_000_000L),
     Seconds15("15 秒", 15_000_000L),
     Seconds30("30 秒", 30_000_000L),
+    Minutes1("1 分钟", 60_000_000L),
+    Minutes2("2 分钟", 120_000_000L),
+    Minutes5("5 分钟", 300_000_000L),
 }
 
 /** Persisted display refresh-rate intent; backend support is resolved by the player feature. */

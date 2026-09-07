@@ -7,12 +7,14 @@ data class YBufferConditions(
     val memoryBudgetBytes: Long = DEFAULT_BUFFER_MEMORY_BYTES,
     val live: Boolean = false,
     val preferredTargetAheadUs: Long? = null,
+    val speed: Float = 1f,
 ) {
     init {
         require(mediaBitRateBitsPerSecond >= 0L)
         require(measuredNetworkBitsPerSecond == null || measuredNetworkBitsPerSecond >= 0L)
         require(memoryBudgetBytes > 0L)
         require(preferredTargetAheadUs == null || preferredTargetAheadUs > 0L)
+        require(speed.isFinite() && speed > 0f)
     }
 }
 
@@ -20,6 +22,9 @@ data class YBufferPlan(
     val targetAheadUs: Long,
     val resumePlaybackUs: Long,
     val maximumBytes: Long,
+    val startupPlaybackUs: Long = 500_000L,
+    /** Media time to retain on disk; independent of the compressed heap queue and output gate. */
+    val forwardCacheTargetUs: Long = targetAheadUs,
 )
 
 enum class YPlaybackBufferPhase {
@@ -45,11 +50,14 @@ data class YPlaybackBufferDecision(
 class YPlaybackBufferGate(
     private val remote: Boolean,
     resumePlaybackUs: Long,
+    startupPlaybackUs: Long = 500_000L,
 ) {
     private var resumePlaybackUs = resumePlaybackUs
+    private var startupPlaybackUs = startupPlaybackUs
 
     init {
         require(resumePlaybackUs >= 0L)
+        require(startupPlaybackUs >= 0L)
     }
 
     var phase: YPlaybackBufferPhase = initialPhase()
@@ -68,14 +76,21 @@ class YPlaybackBufferGate(
         resumePlaybackUs = value
     }
 
+    fun updateThresholds(plan: YBufferPlan) {
+        resumePlaybackUs = plan.resumePlaybackUs
+        startupPlaybackUs = plan.startupPlaybackUs
+    }
+
     fun evaluate(
         bufferedDurationUs: Long,
         endOfInput: Boolean,
+        bufferFull: Boolean = false,
     ): YPlaybackBufferDecision {
         if (!remote) phase = YPlaybackBufferPhase.Ready
+        val thresholdUs = if (phase == YPlaybackBufferPhase.Startup) startupPlaybackUs else resumePlaybackUs
         if (
             phase != YPlaybackBufferPhase.Ready &&
-            (bufferedDurationUs.coerceAtLeast(0L) >= resumePlaybackUs || endOfInput)
+            (bufferedDurationUs.coerceAtLeast(0L) >= thresholdUs || endOfInput || bufferFull)
         ) {
             phase = YPlaybackBufferPhase.Ready
         }
@@ -100,33 +115,47 @@ object YBufferController {
             )
         }
 
-        val requestedTargetUs =
+        val consumptionBitsPerSecond =
+            (conditions.mediaBitRateBitsPerSecond.toDouble() * conditions.speed).toLong().coerceAtLeast(0L)
+        val underPressure =
+            conditions.measuredNetworkBitsPerSecond?.let { it < consumptionBitsPerSecond } == true
+        val requestedWallTimeUs =
             when {
                 conditions.preferredTargetAheadUs != null -> conditions.preferredTargetAheadUs
                 conditions.live -> LIVE_TARGET_US
                 conditions.mediaBitRateBitsPerSecond <= 0L -> REMOTE_UNKNOWN_BITRATE_TARGET_US
                 conditions.measuredNetworkBitsPerSecond == null -> REMOTE_INITIAL_TARGET_US
-                conditions.measuredNetworkBitsPerSecond <
-                    conditions.mediaBitRateBitsPerSecond -> REMOTE_PRESSURE_TARGET_US
+                underPressure -> REMOTE_PRESSURE_TARGET_US
                 conditions.measuredNetworkBitsPerSecond.toDouble() /
-                    conditions.mediaBitRateBitsPerSecond.toDouble() < MIN_HEALTHY_THROUGHPUT_RATIO ->
+                    consumptionBitsPerSecond.coerceAtLeast(1L).toDouble() < MIN_HEALTHY_THROUGHPUT_RATIO ->
                     REMOTE_NARROW_MARGIN_TARGET_US
                 else -> REMOTE_HEALTHY_TARGET_US
             }
+        val requestedTargetUs =
+            (minOf(requestedWallTimeUs, REMOTE_PRESSURE_TARGET_US).toDouble() * conditions.speed).toLong()
         val memoryLimitedUs =
             if (conditions.mediaBitRateBitsPerSecond > 0L) {
                 conditions.memoryBudgetBytes
                     .saturatedMultiply(BITS_PER_BYTE * MICROS_PER_SECOND)
                     .div(conditions.mediaBitRateBitsPerSecond)
-                    .coerceAtLeast(MIN_TARGET_US)
+                    .coerceAtLeast(1L)
             } else {
                 requestedTargetUs
             }
-        val targetUs = minOf(requestedTargetUs, memoryLimitedUs).coerceAtLeast(MIN_TARGET_US)
+        val targetUs = minOf(requestedTargetUs, memoryLimitedUs).coerceAtLeast(1L)
+        val startupUs = minOf((500_000L * conditions.speed.toDouble()).toLong(), targetUs).coerceAtLeast(1L)
+        val resumeUs =
+            minOf(
+                ((if (underPressure) 5_000_000L else 2_500_000L) * conditions.speed.toDouble()).toLong(),
+                targetUs / 2L,
+            ).coerceAtLeast(startupUs)
         return YBufferPlan(
             targetAheadUs = targetUs,
-            resumePlaybackUs = (targetUs / 2L).coerceAtLeast(MIN_RESUME_US),
+            resumePlaybackUs = resumeUs,
             maximumBytes = conditions.memoryBudgetBytes,
+            startupPlaybackUs = startupUs,
+            forwardCacheTargetUs =
+                ((conditions.preferredTargetAheadUs ?: 60_000_000L).toDouble() * conditions.speed).toLong(),
         )
     }
 }
@@ -137,8 +166,6 @@ private fun Long.saturatedMultiply(other: Long): Long =
 private const val BITS_PER_BYTE = 8L
 private const val MICROS_PER_SECOND = 1_000_000L
 private const val DEFAULT_BUFFER_MEMORY_BYTES = 64L * 1024L * 1024L
-private const val MIN_TARGET_US = 1_500_000L
-private const val MIN_RESUME_US = 500_000L
 private const val LOCAL_TARGET_US = 1_500_000L
 private const val LOCAL_RESUME_US = 500_000L
 private const val LIVE_TARGET_US = 3_000_000L

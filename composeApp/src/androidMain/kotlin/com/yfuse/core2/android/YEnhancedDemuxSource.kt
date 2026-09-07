@@ -33,5 +33,6 @@ internal fun AndroidYCoreHttpProxy.enhancedSource(
             credentials = upstream.transportCredentials,
             cacheable = upstream.cacheIdentity != null && upstream.cacheMaximumBytes > 0L,
             cacheIdentity = upstream.cacheIdentity,
+            mediaBitRateBitsPerSecond = upstream.sourceHints?.bitrateBitsPerSecond ?: 0L,
         )
     }

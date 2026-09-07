@@ -5,8 +5,8 @@ import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
-import com.yfuse.core2.network.YTransportFeature
 import com.yfuse.core2.network.YTransportCredentials
+import com.yfuse.core2.network.YTransportFeature
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -19,6 +19,58 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AndroidTransportMediaDataSourcePrefetchTest {
+    @Test
+    fun `moving and nearly complete ranges survive the old fixed promotion deadline`() {
+        assertTrue(shouldKeepTransportPrefetch(2_000, 100, 90, 100, 0))
+        assertTrue(shouldKeepTransportPrefetch(35_000, 100, 90, 100, 0))
+        assertFalse(shouldKeepTransportPrefetch(35_000, 100, 10, 100, 0))
+        assertFalse(shouldKeepTransportPrefetch(5_000, 5_000, 90, 100, 0))
+        assertFalse(shouldKeepTransportPrefetch(45_000, 100, 90, 100, 0))
+    }
+
+    @Test
+    fun `prefetch concurrency follows link capacity and remaining playback time`() {
+        assertEquals(3, transportPrefetchConcurrency(0, 10, 0))
+        assertEquals(6, transportPrefetchConcurrency(20, 10, 0))
+        assertEquals(2, transportPrefetchConcurrency(20, 10, 9_000_000))
+        assertEquals(4, transportPrefetchConcurrency(8, 10, 0))
+    }
+
+    @Test
+    fun `a previously known size also starts the container tail probe`() {
+        val media = ByteArray(TEST_BLOCK_BYTES * 8) { it.toByte() }
+        val tailOpened = CountDownLatch(1)
+        val tailLoads = AtomicInteger()
+        val source =
+            AndroidTransportMediaDataSource(
+                uri = "https://example.invalid/video.mkv",
+                protocol = YSourceProtocol.Https,
+                headers = emptyMap(),
+                createTransport = {
+                    MemoryRangeTransport(media) { start, completed ->
+                        if (!completed && start == TEST_BLOCK_BYTES.toLong() * 7L) {
+                            tailLoads.incrementAndGet()
+                            tailOpened.countDown()
+                        }
+                    }
+                },
+                blockSizeOverride = TEST_BLOCK_BYTES,
+            )
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            worker.submit<Int> { source.readAt(0L, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS)
+            // The default forward window cannot reach this block; only getSize can start it.
+            assertEquals(0, tailLoads.get())
+            assertEquals(media.size.toLong(), worker.submit<Long> { source.getSize() }.get(2, TimeUnit.SECONDS))
+            assertTrue(tailOpened.await(2, TimeUnit.SECONDS))
+            worker.submit<Long> { source.getSize() }.get(2, TimeUnit.SECONDS)
+            assertEquals(1, tailLoads.get())
+        } finally {
+            source.close()
+            worker.shutdownNow()
+        }
+    }
+
     @Test
     fun `random access forwards credentials to every transport request`() {
         val media = ByteArray(128) { it.toByte() }
@@ -140,7 +192,7 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     fun `queued foreground promotion is included in qoe diagnostics`() {
         val media = ByteArray(TEST_BLOCK_BYTES * 16) { it.toByte() }
         val created = AtomicInteger()
-        val activePrefetches = CountDownLatch(4)
+        val activePrefetches = CountDownLatch(transportPrefetchConcurrency(0L, 40_000_000L, 0L))
         val releasePrefetches = CountDownLatch(1)
         val source =
             AndroidTransportMediaDataSource(
@@ -165,7 +217,8 @@ class AndroidTransportMediaDataSourcePrefetchTest {
                 1,
                 worker
                     .submit<Int> {
-                        source.readAt(TEST_BLOCK_BYTES.toLong() * 8L, ByteArray(1), 0, 1)
+                        val queuedBlock = MAX_TRANSPORT_PREFETCH_CONCURRENCY.toLong() + 2L
+                        source.readAt(TEST_BLOCK_BYTES.toLong() * queuedBlock, ByteArray(1), 0, 1)
                     }.get(2, TimeUnit.SECONDS),
             )
             assertEquals(1L, source.qoeSnapshot().promotedPrefetchCount)
@@ -361,7 +414,11 @@ private class BlockingPrefetchTransport(
         )
     }
 
-    override suspend fun read(destination: ByteArray, offset: Int, length: Int): Int {
+    override suspend fun read(
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int {
         closed.await(5, TimeUnit.SECONDS)
         return -1
     }
@@ -431,7 +488,11 @@ private class CapturingRangeTransport(
         )
     }
 
-    override suspend fun read(destination: ByteArray, offset: Int, length: Int): Int {
+    override suspend fun read(
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int {
         if (position >= endExclusive) return -1
         val count = minOf(length, endExclusive - position)
         media.copyInto(destination, offset, position, position + count)

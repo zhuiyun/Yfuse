@@ -75,6 +75,63 @@ class DetailStoreTest {
     }
 
     @Test
+    fun episode_content_and_play_button_do_not_wait_for_inherited_cast() =
+        runTest {
+            val castRequest = CompletableDeferred<Unit>()
+            val finishCast = CompletableDeferred<Unit>()
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("one", "http://one", "主库", "u", "user", "tok1"))
+                }
+            val repo =
+                testRepo(dispatcher = Dispatchers.Unconfined) { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/Items/e1") -> json(EPISODE_ONE)
+                        request.url.encodedPath.endsWith("/Items/s1") -> {
+                            castRequest.complete(Unit)
+                            finishCast.await()
+                            json("""{"Id":"s1","Name":"剧集","People":[{"Id":"p1","Name":"演员"}]}""")
+                        }
+                        else -> json("""{"Items":[]}""")
+                    }
+                }
+            val store =
+                DetailStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    "e1",
+                    "one",
+                    mainContext = Dispatchers.Unconfined,
+                    playbackTrackRequest = testPlaybackTrackRequest,
+                    syncManager = testSyncManager,
+                ).create()
+            try {
+                castRequest.await()
+                assertEquals("e1", store.state.detail?.id)
+                assertEquals("e1", store.state.playTarget?.id)
+                assertEquals(false, store.state.loading)
+                assertEquals(false, store.state.selectionLoading)
+                assertTrue(
+                    store.state.detail
+                        ?.people
+                        .isNullOrEmpty(),
+                )
+                finishCast.complete(Unit)
+                store.states.first { it.detail?.people?.isNotEmpty() == true }
+                assertEquals(
+                    "演员",
+                    store.state.detail
+                        ?.people
+                        ?.single()
+                        ?.name,
+                )
+            } finally {
+                store.dispose()
+            }
+        }
+
+    @Test
     fun version_selects_first_and_selected_version_plays() {
         runTest {
             val store = movieStore()

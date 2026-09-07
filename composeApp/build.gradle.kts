@@ -46,7 +46,11 @@ val releasePackageProfile =
     }
 
 val confirmNativeOnlyRelease =
-    providers.gradleProperty("confirmNativeOnlyRelease").orNull?.trim()?.equals("true", ignoreCase = true) == true
+    providers
+        .gradleProperty("confirmNativeOnlyRelease")
+        .orNull
+        ?.trim()
+        ?.equals("true", ignoreCase = true) == true
 
 val includeYCoreGpuCompanion =
     !nativeOnlyRuntime &&
@@ -59,7 +63,9 @@ val includeYCoreGpuCompanion =
 // isolated GPU companion because libmpv already supplies the demux/FFmpeg dependency closure.
 val packagedYCoreGpu =
     if (nativeOnlyRuntime) {
-        layout.projectDirectory.file("libs/ycore-native.aar").asFile.isFile
+        layout.projectDirectory
+            .file("libs/ycore-native.aar")
+            .asFile.isFile
     } else {
         includeYCoreGpuCompanion
     }
@@ -1001,6 +1007,19 @@ val verifyReleaseSigning by tasks.registering {
     group = "verification"
     description = "Rejects release packaging without production signing or explicit local opt-in."
     doLast {
+        if (!allowDebugSigning) {
+            val validUpdateKey =
+                runCatching {
+                    java.security.KeyFactory.getInstance("Ed25519").generatePublic(
+                        java.security.spec.X509EncodedKeySpec(
+                            java.util.Base64
+                                .getDecoder()
+                                .decode(updateManifestPublicKey),
+                        ),
+                    )
+                }.isSuccess
+            check(validUpdateKey) { "Signed releases require a valid Ed25519 update-manifest public key." }
+        }
         if (!releaseSigningReady && !allowDebugSigning) {
             throw GradleException(
                 "Release signing is not fully configured. Provide keystore.properties or " +

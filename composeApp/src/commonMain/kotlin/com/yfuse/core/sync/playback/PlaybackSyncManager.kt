@@ -49,18 +49,21 @@ class PlaybackSyncManager(
     registry: ServerRegistry,
     private val progressSyncEnabled: StateFlow<Boolean> = MutableStateFlow(true),
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val syncMutex = Mutex()
     private val serverApplier = EmbyCompatiblePlaybackStateApplier(repo, registry, nowEpochMs)
     private var started = false
     private var debounceJob: Job? = null
     private var urgentJob: Job? = null
+    private var retryJob: Job? = null
+    private var serverRetryJob: Job? = null
     private var lastCloudAttemptAtEpochMs = Long.MIN_VALUE
     private var cloudFailureStreak = 0
     private var retryNotBeforeEpochMs = Long.MIN_VALUE
     private var cloudPlaybackEndpointUnavailable = false
     private val startupPullAttemptedUserIds = mutableSetOf<String>()
+    private val startupPullPendingUserIds = mutableSetOf<String>()
     private val _state =
         MutableStateFlow(
             PlaybackCloudSyncState(
@@ -85,12 +88,17 @@ class PlaybackSyncManager(
                     debounceJob = null
                     urgentJob?.cancel()
                     urgentJob = null
+                    retryJob?.cancel()
+                    retryJob = null
+                    serverRetryJob?.cancel()
+                    serverRetryJob = null
                     _state.update { it.copy(syncing = false) }
                     return@collectLatest
                 }
                 val userId = cipher.currentUserId() ?: return@collectLatest
                 if (store.bindAccount(userId)) updatePendingState()
-                syncNow(pullRemote = startupPullAttemptedUserIds.add(userId))
+                if (startupPullAttemptedUserIds.add(userId)) startupPullPendingUserIds.add(userId)
+                syncNow()
             }
         }
     }
@@ -195,21 +203,35 @@ class PlaybackSyncManager(
 
     private suspend fun syncNow(pullRemote: Boolean = false) {
         syncMutex.withLock {
-            if (!progressSyncEnabled.value) {
+            if (!progressSyncEnabled.value || !accessTokens.sessionAvailable.value) {
                 _state.update { it.copy(syncing = false) }
                 return
             }
             val userId = cipher.currentUserId() ?: return
             if (store.bindAccount(userId)) updatePendingState()
+            val shouldPull = pullRemote || userId in startupPullPendingUserIds
             drainServerApplyQueue()
             if (cloudPlaybackEndpointUnavailable) return
-            val accessToken = accessTokens.validAccessTokenFor(cloud.origin) ?: return
+            // Token acquisition can itself refresh over the network. Respect the cloud
+            // backoff before touching it, not only before the playback endpoint request.
             val now = nowEpochMs()
-            if (now < retryNotBeforeEpochMs) return
+            if (now < retryNotBeforeEpochMs) {
+                scheduleCloudRetry(retryNotBeforeEpochMs - now)
+                return
+            }
             lastCloudAttemptAtEpochMs = now
             _state.update { it.copy(syncing = true, error = null) }
             try {
-                syncWithToken(accessToken, pullRemote)
+                val accessToken = accountTokenForSync(refresh = false) ?: return
+                try {
+                    syncWithToken(accessToken, shouldPull)
+                } catch (error: AccountApiException) {
+                    if (error.status != HttpStatusCode.Unauthorized) throw error
+                    val refreshed = accountTokenForSync(refresh = true) ?: return
+                    // Retry exactly once. A second rejection reaches the outer failure
+                    // boundary instead of refreshing forever or escaping a catch block.
+                    syncWithToken(refreshed, shouldPull)
+                }
                 markCloudSyncSucceeded()
                 _state.value =
                     _state.value.copy(
@@ -220,34 +242,30 @@ class PlaybackSyncManager(
                         error = null,
                     )
             } catch (cancelled: CancellationException) {
-                _state.update { it.copy(syncing = false) }
                 throw cancelled
-            } catch (error: AccountApiException) {
-                if (error.status == HttpStatusCode.Unauthorized) {
-                    val refreshed = accessTokens.refreshAccessTokenFor(cloud.origin)
-                    if (refreshed != null) {
-                        runCatching { syncWithToken(refreshed, pullRemote) }
-                            .onSuccess {
-                                markCloudSyncSucceeded()
-                                _state.value =
-                                    _state.value.copy(
-                                        syncing = false,
-                                        pendingCount = store.pending(128).size,
-                                        cursor = store.cursor(),
-                                        lastSyncedAtEpochMs = nowEpochMs(),
-                                        error = null,
-                                    )
-                            }.onFailure(::handleCloudFailure)
-                        return
-                    }
-                }
-                handleCloudFailure(error)
             } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                recordFailure(error)
+                handleCloudFailure(error)
+            } finally {
+                _state.update { it.copy(syncing = false) }
             }
         }
     }
+
+    private suspend fun accountTokenForSync(refresh: Boolean): String? =
+        try {
+            if (refresh) {
+                accessTokens.refreshAccessTokenFor(cloud.origin)
+            } else {
+                accessTokens.validAccessTokenFor(cloud.origin)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            // /auth/refresh failures are retryable account failures, not proof that
+            // /account/playback is absent. Keep the local outbox and session intact.
+            recordFailure(error)
+            null
+        }
 
     private suspend fun syncWithToken(
         accessToken: String,
@@ -255,7 +273,9 @@ class PlaybackSyncManager(
     ) {
         if (pullRemote) {
             if (!progressSyncEnabled.value) return
+            val userId = cipher.currentUserId()
             pullAll(accessToken)
+            userId?.let(startupPullPendingUserIds::remove)
         }
         if (!progressSyncEnabled.value) return
         pushPending(accessToken)
@@ -340,83 +360,108 @@ class PlaybackSyncManager(
     }
 
     private suspend fun drainServerApplyQueue() {
-        repeat(MAX_SERVER_APPLIES_PER_SYNC) {
-            val task = store.pendingServerApplies(nowEpochMs(), limit = 1).firstOrNull() ?: return
-            val serverId = task.remainingServerIds.firstOrNull()
-            if (serverId == null || registryServerMissing(serverId)) {
-                serverId?.let { store.markServerApplySucceeded(task.id, it) }
-                return@repeat
-            }
-            val result = serverApplier.apply(task.document, serverId)
-            if (result.isSuccess) {
-                store.markServerApplySucceeded(task.id, serverId)
-                return@repeat
-            }
-
-            val failure = result.exceptionOrNull()
-            when (playbackServerApplyFailurePolicy(failure)) {
-                PlaybackServerApplyFailurePolicy.DropTarget -> {
-                    // A missing item is permanent for this server/media mapping. Treat the target
-                    // as consumed so it cannot sit at the head of the fan-out queue forever.
+        serverRetryJob?.cancel()
+        serverRetryJob = null
+        try {
+            repeat(MAX_SERVER_APPLIES_PER_SYNC) {
+                if (!progressSyncEnabled.value) return
+                val task = store.pendingServerApplies(nowEpochMs(), limit = 1).firstOrNull() ?: return
+                val serverId = task.readyServerIds(nowEpochMs()).firstOrNull()
+                if (serverId == null || registryServerMissing(serverId)) {
+                    serverId?.let { store.markServerApplySucceeded(task.id, it) }
+                    return@repeat
+                }
+                serverApplier.cooldownUntil(serverId)?.let { until ->
+                    store.deferServerApplyTarget(task.id, serverId, until)
+                    return@repeat
+                }
+                val result = serverApplier.apply(task.document, serverId)
+                if (result.isSuccess) {
                     store.markServerApplySucceeded(task.id, serverId)
-                    AppLog.warning(
-                        category = "playback.sync",
-                        event = "server_apply_target_dropped",
-                        message = "Playback state target no longer exists on this media server",
-                        throwable = failure,
-                        attributes =
-                            mapOf(
-                                "serverId" to serverId,
-                                "reason" to "not_found",
-                                "pendingCount" to store.serverApplyCount().toString(),
-                            ),
-                    )
+                    return@repeat
                 }
 
-                PlaybackServerApplyFailurePolicy.CooldownServer -> {
-                    // Authentication and WAF failures are server-wide, not item-specific. Repeating
-                    // the same request every sync creates noise and can extend a WAF ban. Drop this
-                    // target, cool the server, and allow other servers in the task to proceed.
-                    val until = nowEpochMs() + PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS
-                    serverApplier.coolDownServer(serverId, until)
-                    store.markServerApplySucceeded(task.id, serverId)
-                    AppLog.warning(
-                        category = "playback.sync",
-                        event = "server_apply_access_rejected_cooldown",
-                        message = "Playback sync paused for a media server after access was rejected",
-                        throwable = failure,
-                        attributes =
-                            mapOf(
-                                "serverId" to serverId,
-                                "cooldownMs" to PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS.toString(),
-                                "pendingCount" to store.serverApplyCount().toString(),
-                            ),
-                    )
-                }
+                val failure = result.exceptionOrNull()
+                if (failure is CancellationException) throw failure
+                when (playbackServerApplyFailurePolicy(failure)) {
+                    PlaybackServerApplyFailurePolicy.DropTarget -> {
+                        // A missing item is permanent for this server/media mapping. Treat the target
+                        // as consumed so it cannot sit at the head of the fan-out queue forever.
+                        store.markServerApplySucceeded(task.id, serverId)
+                        AppLog.warning(
+                            category = "playback.sync",
+                            event = "server_apply_target_dropped",
+                            message = "Playback state target no longer exists on this media server",
+                            throwable = failure,
+                            attributes =
+                                mapOf(
+                                    "serverId" to serverId,
+                                    "reason" to "not_found",
+                                    "pendingCount" to store.serverApplyCount().toString(),
+                                ),
+                        )
+                    }
 
-                PlaybackServerApplyFailurePolicy.Retry -> {
-                    val nextAttempt =
-                        nowEpochMs() + playbackServerApplyBackoffMs(task.attemptCount + 1)
-                    store.deferServerApply(task.id, nextAttempt)
-                    AppLog.warning(
-                        category = "playback.sync",
-                        event = "server_apply_deferred",
-                        message = "Cloud playback state remains queued for a media server",
-                        throwable = failure,
-                        attributes =
-                            mapOf(
-                                "serverId" to serverId,
-                                "attempt" to (task.attemptCount + 1).toString(),
-                                "pendingCount" to store.serverApplyCount().toString(),
-                            ),
-                    )
-                    return
+                    PlaybackServerApplyFailurePolicy.CooldownServer -> {
+                        // Authentication and WAF failures are server-wide, not item-specific. Repeating
+                        // the same request every sync creates noise and can extend a WAF ban. Defer
+                        // this target durably while allowing healthy targets to proceed.
+                        val until = nowEpochMs() + PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS
+                        serverApplier.coolDownServer(serverId, until)
+                        store.deferServerAppliesForServer(serverId, until)
+                        AppLog.warning(
+                            category = "playback.sync",
+                            event = "server_apply_access_rejected_cooldown",
+                            message = "Playback sync paused for a media server after access was rejected",
+                            throwable = failure,
+                            attributes =
+                                mapOf(
+                                    "serverId" to serverId,
+                                    "cooldownMs" to PLAYBACK_SERVER_ACCESS_DENIED_COOLDOWN_MS.toString(),
+                                    "pendingCount" to store.serverApplyCount().toString(),
+                                ),
+                        )
+                    }
+
+                    PlaybackServerApplyFailurePolicy.Retry -> {
+                        val nextAttempt =
+                            nowEpochMs() + playbackServerApplyBackoffMs(task.attemptCount + 1)
+                        store.deferServerApply(task.id, nextAttempt)
+                        AppLog.warning(
+                            category = "playback.sync",
+                            event = "server_apply_deferred",
+                            message = "Cloud playback state remains queued for a media server",
+                            throwable = failure,
+                            attributes =
+                                mapOf(
+                                    "serverId" to serverId,
+                                    "attempt" to (task.attemptCount + 1).toString(),
+                                    "pendingCount" to store.serverApplyCount().toString(),
+                                ),
+                        )
+                        return
+                    }
                 }
             }
+        } finally {
+            scheduleServerApplyRetry()
         }
     }
 
     private fun registryServerMissing(serverId: String): Boolean = serverApplier.serverMissing(serverId)
+
+    private fun scheduleServerApplyRetry() {
+        if (!progressSyncEnabled.value || !accessTokens.sessionAvailable.value) return
+        val nextAttempt = store.nextServerApplyAtEpochMs() ?: return
+        serverRetryJob =
+            scope.launch {
+                delay((nextAttempt - nowEpochMs()).coerceAtLeast(1_000L))
+                serverRetryJob = null
+                syncMutex.withLock {
+                    if (progressSyncEnabled.value && accessTokens.sessionAvailable.value) drainServerApplyQueue()
+                }
+            }
+    }
 
     private fun scheduleCloudSync(immediate: Boolean) {
         if (!progressSyncEnabled.value) return
@@ -468,6 +513,8 @@ class PlaybackSyncManager(
 
     private fun markCloudPlaybackEndpointUnavailable(error: AccountApiException) {
         if (cloudPlaybackEndpointUnavailable) return
+        retryJob?.cancel()
+        retryJob = null
         cloudPlaybackEndpointUnavailable = true
         cloudFailureStreak = 0
         retryNotBeforeEpochMs = Long.MAX_VALUE
@@ -505,6 +552,7 @@ class PlaybackSyncManager(
     }
 
     private fun recordFailure(error: Throwable) {
+        if (error is CancellationException) throw error
         cloudFailureStreak = (cloudFailureStreak + 1).coerceAtMost(MAX_CLOUD_FAILURE_STREAK)
         val backoffMs = playbackCloudRetryBackoffMs(cloudFailureStreak)
         retryNotBeforeEpochMs = nowEpochMs() + backoffMs
@@ -531,9 +579,26 @@ class PlaybackSyncManager(
                 cursor = store.cursor(),
                 error = error.message ?: "播放记录同步暂不可用",
             )
+        // Previously a timeout only wrote a deadline. No job retried it unless another
+        // playback event happened, so the final Stop could remain unsynced indefinitely.
+        retryJob?.cancel()
+        retryJob = null
+        scheduleCloudRetry(backoffMs)
+    }
+
+    private fun scheduleCloudRetry(delayMs: Long) {
+        if (retryJob?.isActive == true || !progressSyncEnabled.value) return
+        retryJob =
+            scope.launch {
+                delay(delayMs.coerceAtLeast(0L))
+                retryJob = null
+                if (progressSyncEnabled.value && accessTokens.sessionAvailable.value) syncNow()
+            }
     }
 
     private fun markCloudSyncSucceeded() {
+        retryJob?.cancel()
+        retryJob = null
         cloudFailureStreak = 0
         retryNotBeforeEpochMs = Long.MIN_VALUE
     }
@@ -627,14 +692,15 @@ private class EmbyCompatiblePlaybackStateApplier(
             } else {
                 listOfNotNull(state.serverId?.takeIf { registry.serverById(it) != null })
             }
-        return candidates.filterNot(::isCoolingDown)
+        // Keep the target queued even during cooldown; otherwise new progress is lost.
+        return candidates
     }
 
-    private fun isCoolingDown(serverId: String): Boolean {
-        val until = unavailableUntilByServerId[serverId] ?: return false
-        if (nowEpochMs() < until) return true
+    fun cooldownUntil(serverId: String): Long? {
+        val until = unavailableUntilByServerId[serverId] ?: return null
+        if (nowEpochMs() < until) return until
         unavailableUntilByServerId.remove(serverId)
-        return false
+        return null
     }
 
     suspend fun apply(

@@ -808,8 +808,8 @@ fun ProfileScreen(component: ProfileComponent) {
 
             Sheet.YCoreBufferDuration ->
                 OptionSheet(
-                    title = "YCore 缓冲时长",
-                    subtitle = "自动会按码率和网络动态调整；更长缓冲更抗抖动，但启动和拖动后等待可能增加",
+                    title = "YCore 前向缓存时长",
+                    subtitle = "边播放边缓存，长时缓存受视频缓存容量限制；无需缓存满才起播。关闭视频缓存时仅保留内存缓冲",
                     options =
                         YCoreBufferDuration.entries.map {
                             it.label to (it == yCoreBufferDuration)

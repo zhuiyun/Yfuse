@@ -7,6 +7,51 @@ import kotlin.test.assertTrue
 
 class YBufferControllerTest {
     @Test
+    fun `five minutes stays on disk and does not delay the first frame`() {
+        val plan =
+            YBufferController.plan(
+                YBufferConditions(
+                    remote = true,
+                    mediaBitRateBitsPerSecond = 20_000_000L,
+                    memoryBudgetBytes = 24L * 1024 * 1024,
+                    preferredTargetAheadUs = 300_000_000L,
+                ),
+            )
+        assertEquals(300_000_000L, plan.forwardCacheTargetUs)
+        assertEquals(500_000L, plan.startupPlaybackUs)
+        assertEquals(24L * 1024 * 1024, plan.maximumBytes)
+        assertTrue(plan.targetAheadUs <= plan.maximumBytes * 8 * 1_000_000 / 20_000_000)
+        assertTrue(plan.resumePlaybackUs > plan.startupPlaybackUs)
+    }
+
+    @Test
+    fun `double speed accounts for network consumption and media time`() {
+        val plan =
+            YBufferController.plan(
+                YBufferConditions(
+                    remote = true,
+                    mediaBitRateBitsPerSecond = 8_000_000L,
+                    measuredNetworkBitsPerSecond = 12_000_000L,
+                    preferredTargetAheadUs = 60_000_000L,
+                    speed = 2f,
+                ),
+            )
+        assertEquals(120_000_000L, plan.forwardCacheTargetUs)
+        assertEquals(1_000_000L, plan.startupPlaybackUs)
+        assertEquals(10_000_000L, plan.resumePlaybackUs)
+    }
+
+    @Test
+    fun `a full variable bitrate queue cannot deadlock rebuffer recovery`() {
+        val gate = YPlaybackBufferGate(remote = true, resumePlaybackUs = 5_000_000L)
+        gate.markStarved()
+        assertTrue(gate.evaluate(800_000L, endOfInput = false, bufferFull = true).outputAllowed)
+        gate.reset()
+        assertFalse(gate.evaluate(100_000L, endOfInput = false).outputAllowed)
+        assertEquals(YPlaybackBufferPhase.Startup, gate.phase)
+    }
+
+    @Test
     fun `keeps local playback latency low`() {
         val plan = YBufferController.plan(YBufferConditions(remote = false))
 
@@ -35,7 +80,7 @@ class YBufferControllerTest {
 
         assertTrue(pressured.targetAheadUs > healthy.targetAheadUs)
         assertEquals(20_000_000L, pressured.targetAheadUs)
-        assertEquals(10_000_000L, pressured.resumePlaybackUs)
+        assertEquals(5_000_000L, pressured.resumePlaybackUs)
     }
 
     @Test
@@ -64,8 +109,9 @@ class YBufferControllerTest {
                 ),
             )
 
-        assertEquals(30_000_000L, plan.targetAheadUs)
-        assertEquals(15_000_000L, plan.resumePlaybackUs)
+        assertEquals(20_000_000L, plan.targetAheadUs)
+        assertEquals(30_000_000L, plan.forwardCacheTargetUs)
+        assertEquals(2_500_000L, plan.resumePlaybackUs)
     }
 
     @Test
@@ -84,11 +130,11 @@ class YBufferControllerTest {
     }
 
     @Test
-    fun `remote startup waits for resume watermark`() {
+    fun `remote startup opens before the rebuffer watermark`() {
         val gate = YPlaybackBufferGate(remote = true, resumePlaybackUs = 2_000_000L)
 
-        assertFalse(gate.evaluate(bufferedDurationUs = 1_999_999L, endOfInput = false).outputAllowed)
-        assertTrue(gate.evaluate(bufferedDurationUs = 2_000_000L, endOfInput = false).outputAllowed)
+        assertFalse(gate.evaluate(bufferedDurationUs = 499_999L, endOfInput = false).outputAllowed)
+        assertTrue(gate.evaluate(bufferedDurationUs = 500_000L, endOfInput = false).outputAllowed)
         assertEquals(YPlaybackBufferPhase.Ready, gate.phase)
     }
 

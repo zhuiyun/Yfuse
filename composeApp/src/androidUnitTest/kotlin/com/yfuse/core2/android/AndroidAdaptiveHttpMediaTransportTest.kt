@@ -7,10 +7,14 @@ import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.YTransportFeature
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import java.util.ArrayDeque
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -19,6 +23,93 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class AndroidAdaptiveHttpMediaTransportTest {
+    @Test
+    fun close_reaches_an_okhttp_transport_before_its_open_returns() =
+        runBlocking {
+            val pending = ClosingTransport()
+            val worker = Executors.newSingleThreadExecutor()
+            val transport =
+                AndroidAdaptiveHttpMediaTransport(
+                    createCronet = { error("Cronet unavailable") },
+                    createOkHttp = { pending },
+                )
+            try {
+                val opening =
+                    worker.submit<Throwable?> {
+                        runBlocking { runCatching { transport.open(CLOSE_TEST_REQUEST) }.exceptionOrNull() }
+                    }
+                assertTrue(pending.entered.await(2, TimeUnit.SECONDS))
+                transport.close()
+
+                assertTrue(opening.get(2, TimeUnit.SECONDS) is CancellationException)
+                assertTrue(pending.closeCalls.get() > 0)
+            } finally {
+                pending.close()
+                transport.close()
+                worker.shutdownNow()
+            }
+        }
+
+    @Test
+    fun closing_a_pending_cronet_open_never_starts_an_okhttp_fallback() =
+        runBlocking {
+            val pending = ClosingTransport()
+            val fallback = FakeTransport()
+            val routeState = AndroidAdaptiveHttpRouteState()
+            val worker = Executors.newSingleThreadExecutor()
+            val transport =
+                AndroidAdaptiveHttpMediaTransport(
+                    routeState = routeState,
+                    createCronet = { pending },
+                    createOkHttp = { fallback },
+                )
+            try {
+                val opening =
+                    worker.submit<Throwable?> {
+                        runBlocking { runCatching { transport.open(CLOSE_TEST_REQUEST) }.exceptionOrNull() }
+                    }
+                assertTrue(pending.entered.await(2, TimeUnit.SECONDS))
+                transport.close()
+
+                assertTrue(opening.get(2, TimeUnit.SECONDS) is CancellationException)
+                assertEquals(0, fallback.openCalls)
+                assertTrue(routeState.cronetAvailable)
+            } finally {
+                pending.close()
+                transport.close()
+                worker.shutdownNow()
+            }
+        }
+
+    @Test
+    fun closing_a_stalled_cronet_read_does_not_reopen_the_abandoned_range() =
+        runBlocking {
+            val pending = ClosingTransport(blockOpen = false)
+            val fallback = FakeTransport()
+            val worker = Executors.newSingleThreadExecutor()
+            val transport =
+                AndroidAdaptiveHttpMediaTransport(
+                    createCronet = { pending },
+                    createOkHttp = { fallback },
+                )
+            try {
+                transport.open(CLOSE_TEST_REQUEST)
+                val reading =
+                    worker.submit<Throwable?> {
+                        runBlocking { runCatching { transport.read(ByteArray(4), 0, 4) }.exceptionOrNull() }
+                    }
+                assertTrue(pending.entered.await(2, TimeUnit.SECONDS))
+                transport.close()
+
+                assertTrue(reading.get(2, TimeUnit.SECONDS) is CancellationException)
+                assertEquals(0, fallback.openCalls)
+            } finally {
+                pending.close()
+                transport.close()
+                worker.shutdownNow()
+            }
+        }
+
     @Test
     fun native_direct_okhttp_fallback_follows_same_origin_authenticated_redirects() =
         runBlocking {
@@ -348,6 +439,49 @@ private sealed interface FakeRead {
     ) : FakeRead
 
     data object End : FakeRead
+}
+
+private val CLOSE_TEST_REQUEST =
+    YMediaTransportRequest(
+        uri = "https://media.example.test/movie.mkv",
+        protocol = YSourceProtocol.Https,
+        range = YByteRange(0L, 3L),
+    )
+
+/** Models a blocking native/HTTP call that can only unwind once close reaches its transport. */
+private class ClosingTransport(
+    private val blockOpen: Boolean = true,
+) : YMediaTransport {
+    override val supportedProtocols = setOf(YSourceProtocol.Https)
+    override val features = setOf(YTransportFeature.ByteRange)
+    val entered = CountDownLatch(1)
+    val closeCalls = AtomicInteger()
+    private val closed = CountDownLatch(1)
+
+    override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
+        if (blockOpen) awaitClose()
+        // A late success must not rebind an operation that the owner has already cancelled.
+        return YMediaTransportResponse(statusCode = 206, acceptedRange = request.range, negotiatedProtocol = "h2")
+    }
+
+    override suspend fun read(
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int {
+        awaitClose()
+        throw java.io.IOException("read closed")
+    }
+
+    override suspend fun close() {
+        closeCalls.incrementAndGet()
+        closed.countDown()
+    }
+
+    private fun awaitClose() {
+        entered.countDown()
+        check(closed.await(5, TimeUnit.SECONDS)) { "close did not reach the pending transport" }
+    }
 }
 
 private class FakeTransport(

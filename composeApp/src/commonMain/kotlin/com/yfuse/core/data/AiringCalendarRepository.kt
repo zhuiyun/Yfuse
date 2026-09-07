@@ -269,8 +269,11 @@ class AiringCalendarRepository(
         today: String = currentIsoDate(),
         forceRefresh: Boolean = false,
         onPreview: (List<CalendarDay>) -> Unit = {},
-    ): Result<List<CalendarDay>> =
-        calendarLoadMutex.withLock {
+    ): Result<List<CalendarDay>> {
+        // Give another screen a verified schedule even while the shared inventory refresh owns the lock.
+        val immediate = officialSchedules.between(shiftIsoDate(today, -pastDays), shiftIsoDate(today, futureDays))
+        if (immediate.isNotEmpty()) onPreview(unresolvedCalendarDays(immediate, today))
+        return calendarLoadMutex.withLock {
             val serverFingerprint =
                 registry.data.value.servers
                     .joinToString(",") { it.id }
@@ -316,6 +319,7 @@ class AiringCalendarRepository(
             lastCalendarLoadDurationMs = currentEpochMillis() - startedAt
             result
         }
+    }
 
     private suspend fun loadCalendar(
         pastDays: Int,
@@ -343,26 +347,30 @@ class AiringCalendarRepository(
         if (localDays.isNotEmpty()) onPreview(localDays)
         val cached = officialSchedules.between(from, to)
         if (localDays.isEmpty() && cached.isNotEmpty()) onPreview(unresolvedCalendarDays(cached, today))
-        val refresh = officialSchedules.refreshIfDue(force = forceRefresh)
-        val episodes = officialSchedules.between(from, to)
-        if (episodes.isEmpty() && refresh.isFailure) {
-            return if (localDays.isNotEmpty()) {
-                Result.success(
-                    localDays,
-                )
-            } else {
-                Result.failure(refresh.exceptionOrNull()!!)
+
+        suspend fun resolve(rows: List<AiringEpisode>) =
+            calendarDays(
+                episodes = rows,
+                today = today,
+                forceRefresh = forceRefresh,
+                persistFrom = from,
+                persistTo = to,
+                persistScope = cacheScope,
+                onPreview = onPreview,
+            )
+        // A slow publication refresh must not postpone availability for an already verified schedule.
+        return coroutineScope {
+            val availability = async { if (cached.isEmpty()) null else resolve(cached) }
+            val refresh = officialSchedules.refreshIfDue(force = forceRefresh)
+            val episodes = officialSchedules.between(from, to)
+            val initial = availability.await()
+            when {
+                episodes == cached && initial != null -> initial
+                episodes.isEmpty() && localDays.isNotEmpty() && refresh.isFailure -> Result.success(localDays)
+                episodes.isEmpty() && refresh.isFailure -> Result.failure(refresh.exceptionOrNull()!!)
+                else -> resolve(episodes)
             }
         }
-        return calendarDays(
-            episodes = episodes,
-            today = today,
-            forceRefresh = forceRefresh,
-            persistFrom = from,
-            persistTo = to,
-            persistScope = cacheScope,
-            onPreview = onPreview,
-        )
     }
 
     /**

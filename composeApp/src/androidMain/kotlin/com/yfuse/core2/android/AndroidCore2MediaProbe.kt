@@ -146,6 +146,11 @@ internal class AndroidCore2MediaProbe(
 ) {
     private val appContext = context.applicationContext
     private val probeCacheLock = Any()
+    private val preparedExtractor = AndroidPreparedExtractorSlot()
+
+    fun takePreparedExtractor(item: YMediaItem): YPlatformExtractorSource? = preparedExtractor.take(item)
+
+    fun closePreparedExtractor() = preparedExtractor.close()
 
     /**
      * Successful probes for this evaluator's lifetime, newest last.
@@ -182,11 +187,21 @@ internal class AndroidCore2MediaProbe(
 
     private fun probeUncached(item: YMediaItem): YCore2ProbeResult {
         val demux = AndroidMediaExtractorDemuxNode(appContext)
+        var retained = false
+
+        fun retain(result: YCore2ProbeResult): YCore2ProbeResult {
+            if (result is YCore2ProbeResult.Success) {
+                demux.resetAfterProbe()
+                preparedExtractor.offer(item, demux)
+                retained = true
+            }
+            return result
+        }
         return try {
             demux.open(item.toProbeSource())
             val videoIndex =
                 demux.findFirstTrack("video/")
-                    ?: return demux.probeAudioOnly(item)
+                    ?: return retain(demux.probeAudioOnly(item))
             val videoFormat = demux.trackFormat(videoIndex)
             val videoMime =
                 videoFormat.getString(MediaFormat.KEY_MIME)?.lowercase()
@@ -259,33 +274,34 @@ internal class AndroidCore2MediaProbe(
                     .mapNotNull(MediaFormat::durationUsOrNullForProbe)
                     .maxOrNull()
                     ?: 0L
-            YCore2ProbeResult.Success(
-                playbackRequest =
-                    YPlaybackRequest(
-                        container = container,
-                        video = video,
-                        audio = audio,
-                        platformDemuxSupported = true,
-                        platformAudioDemuxSupported = audioIndex != null,
-                        enhancedDemuxSupported = true,
-                        fallbackHdrType = dolbyVisionConfig?.compatibleBaseHdr,
-                        preferTunnel = true,
-                    ),
-                videoMime = effectiveVideoMime,
-                audioMime = audioMime,
-                durationMs = durationUs / 1_000L,
-                dolbyVisionConfig = dolbyVisionConfig,
-                dolbyVisionStreamEvidence =
-                    dolbyVisionConfig?.let { config ->
-                        YDolbyVisionStreamEvidence(config, observedDolbyVisionNals)
-                    },
-                unconfiguredDolbyVisionSignal = unconfiguredDolbyVisionSignal,
-            )
+            YCore2ProbeResult
+                .Success(
+                    playbackRequest =
+                        YPlaybackRequest(
+                            container = container,
+                            video = video,
+                            audio = audio,
+                            platformDemuxSupported = true,
+                            platformAudioDemuxSupported = audioIndex != null,
+                            enhancedDemuxSupported = true,
+                            fallbackHdrType = dolbyVisionConfig?.compatibleBaseHdr,
+                            preferTunnel = true,
+                        ),
+                    videoMime = effectiveVideoMime,
+                    audioMime = audioMime,
+                    durationMs = durationUs / 1_000L,
+                    dolbyVisionConfig = dolbyVisionConfig,
+                    dolbyVisionStreamEvidence =
+                        dolbyVisionConfig?.let { config ->
+                            YDolbyVisionStreamEvidence(config, observedDolbyVisionNals)
+                        },
+                    unconfiguredDolbyVisionSignal = unconfiguredDolbyVisionSignal,
+                ).let(::retain)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
         } finally {
-            demux.release()
+            if (!retained) demux.release()
         }
     }
 
@@ -467,6 +483,11 @@ internal class AndroidCore2RouteEvaluator(
     private val nativeGpuRuntimeProbe: YNativeGpuRuntimeProbe = AndroidYCoreGpuRuntime.probe(context),
 ) {
     private val platformProbe = AndroidCore2MediaProbe(context)
+
+    fun takePreparedExtractor(item: YMediaItem): YPlatformExtractorSource? = platformProbe.takePreparedExtractor(item)
+
+    fun closePreparedExtractor() = platformProbe.closePreparedExtractor()
+
     private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
 
     /** Preserves exact platform/container evidence when capability routing cannot advertise a plan. */
@@ -787,6 +808,7 @@ private fun YMediaItem.toProbeSource(): YAndroidMediaSource =
         uri = uri,
         headers = headers,
         credentials = transportCredentials,
+        bitrateBitsPerSecond = sourceHints?.bitrateBitsPerSecond ?: 0L,
         cacheIdentity = cacheIdentity,
         cacheMaximumBytes = cacheMaximumBytes,
     )

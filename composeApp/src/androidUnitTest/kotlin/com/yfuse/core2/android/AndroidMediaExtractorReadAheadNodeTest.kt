@@ -1,6 +1,7 @@
 package com.yfuse.core2.android
 
 import android.media.MediaFormat
+import com.yfuse.core2.api.YMediaItem
 import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -8,6 +9,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -18,6 +22,87 @@ import kotlin.test.assertTrue
  * backpressure, seek invalidation, end-of-input ordering, and reuse of the staging buffer.
  */
 class AndroidMediaExtractorReadAheadNodeTest {
+    @Test
+    fun `prepared extractor is adopted without reopening and released by its new owner`() {
+        val original = FakeExtractorSource(100, 100_000L)
+        val prepared = FakeExtractorSource(100, 100_000L)
+        prepared.open(SOURCE)
+        prepared.seekTo(2_000_000L)
+        val node = AndroidMediaExtractorReadAheadNode(original)
+        try {
+            node.open(SOURCE, prepared)
+            assertTrue(original.released)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            node.awaitQueued(minimumSamples = 1)
+            assertEquals(2_000_000L, prepared.firstReadUs)
+        } finally {
+            node.release()
+        }
+        assertTrue(prepared.released)
+    }
+
+    @Test
+    fun `prepared extractor handoff rejects changed authorization and can only be consumed once`() {
+        val slot = AndroidPreparedExtractorSlot()
+        val prepared = FakeExtractorSource(100, 100_000L)
+        val item = YMediaItem("one", "https://example.invalid/video", headers = mapOf("Authorization" to "old"))
+        try {
+            slot.offer(item, prepared)
+            assertNull(slot.take(item.copy(headers = mapOf("Authorization" to "new"))))
+            assertSame(prepared, slot.take(item))
+            assertNull(slot.take(item))
+            slot.close()
+            assertFalse(prepared.released)
+        } finally {
+            slot.close()
+            prepared.release()
+        }
+    }
+
+    @Test
+    fun `resume startup waits for metadata and seek before reading any samples`() {
+        val extractor = FakeExtractorSource(sampleCount = 1_024, sampleDurationUs = 100_000L)
+        val node = AndroidMediaExtractorReadAheadNode(extractor)
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK), startReadAhead = false)
+            node.configureBufferPlan(targetAheadUs = 8_000_000L, maximumBytes = 24L * 1024L * 1024L)
+            assertEquals(YQueuedExtractorResult.Empty, node.pollSample())
+            // Owner-thread barriers: metadata must not accidentally activate a deferred fill.
+            assertEquals(1, node.trackCount)
+            assertEquals(0, extractor.readCount.get())
+
+            node.seekTo(60_000_000L)
+            assertEquals(1, node.trackCount)
+            assertEquals(0, extractor.readCount.get())
+            node.startReadAhead()
+            node.awaitQueued(minimumSamples = 1)
+
+            assertEquals(60_000_000L, extractor.firstReadUs)
+            val sample = node.pollSample() as YQueuedExtractorResult.Sample
+            assertTrue(sample.value.presentationTimeUs >= 60_000_000L)
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
+    fun `deferred startup at zero starts filling without requiring a seek`() {
+        val extractor = FakeExtractorSource(sampleCount = 64, sampleDurationUs = 100_000L)
+        val node = AndroidMediaExtractorReadAheadNode(extractor)
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK), startReadAhead = false)
+            node.startReadAhead()
+            node.awaitQueued(minimumSamples = 1)
+
+            assertEquals(0L, extractor.firstReadUs)
+            assertTrue(node.pollSample() is YQueuedExtractorResult.Sample)
+        } finally {
+            node.close()
+        }
+    }
+
     @Test
     fun `fills up to the configured watermark and stops`() {
         val extractor = FakeExtractorSource(sampleCount = 512, sampleDurationUs = 100_000L)
@@ -222,6 +307,9 @@ private class FakeExtractorSource(
     @Volatile
     var lastSeekUs = 0L
 
+    @Volatile
+    var firstReadUs: Long? = null
+
     private val opened = CountDownLatch(1)
     private var index = 0
     private var selected = emptySet<Int>()
@@ -262,7 +350,7 @@ private class FakeExtractorSource(
 
     override fun readSample(target: ByteBuffer): YExtractorSample? {
         if (index >= sampleCount) return null
-        readCount.incrementAndGet()
+        if (readCount.getAndIncrement() == 0) firstReadUs = index * sampleDurationUs
         synchronized(distinctTargets) { distinctTargets.add(target) }
         target.clear()
         repeat(SAMPLE_BYTES) { target.put(0) }

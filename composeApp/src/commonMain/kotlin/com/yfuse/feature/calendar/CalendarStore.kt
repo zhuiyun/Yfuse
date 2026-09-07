@@ -110,34 +110,34 @@ data class CalendarState(
     val error: String? = null,
 ) {
     /** The days the current filter leaves, with days it empties dropped entirely. */
-    val visibleDays: List<CalendarDay>
-        get() =
-            days.mapNotNull { day ->
-                val dateAccepted =
-                    when (filter) {
-                        CalendarFilter.Today -> day.date == today
-                        CalendarFilter.Upcoming -> day.date >= today
-                        else -> true
-                    }
-                if (!dateAccepted) return@mapNotNull null
-                day.entries
-                    .asSequence()
-                    .filter(filter::accepts)
-                    .filter { entry ->
-                        platform == null ||
-                            entry.episode.platforms.any {
-                                it.equals(platform, ignoreCase = true)
-                            }
-                    }.filter { entry ->
-                        when (contentFilter) {
-                            CalendarContentFilter.All -> true
-                            CalendarContentFilter.Series -> !entry.episode.isMovie
-                            CalendarContentFilter.Movies -> entry.episode.isMovie
+    val visibleDays: List<CalendarDay> by lazy {
+        days.mapNotNull { day ->
+            val dateAccepted =
+                when (filter) {
+                    CalendarFilter.Today -> day.date == today
+                    CalendarFilter.Upcoming -> day.date >= today
+                    else -> true
+                }
+            if (!dateAccepted) return@mapNotNull null
+            day.entries
+                .asSequence()
+                .filter(filter::accepts)
+                .filter { entry ->
+                    platform == null ||
+                        entry.episode.platforms.any {
+                            it.equals(platform, ignoreCase = true)
                         }
-                    }.toList()
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { day.copy(entries = it) }
-            }
+                }.filter { entry ->
+                    when (contentFilter) {
+                        CalendarContentFilter.All -> true
+                        CalendarContentFilter.Series -> !entry.episode.isMovie
+                        CalendarContentFilter.Movies -> entry.episode.isMovie
+                    }
+                }.toList()
+                .takeIf { it.isNotEmpty() }
+                ?.let { day.copy(entries = it) }
+        }
+    }
 
     /**
      * Where today sits in [visibleDays], or the first day after it when today has no
@@ -147,14 +147,14 @@ data class CalendarState(
      * Tuesday. Landing on today and letting the reader scroll *up* into the past keeps
      * "what have I missed" one gesture away while answering "what's on now" immediately.
      */
-    val availablePlatforms: List<String>
-        get() =
-            days
-                .flatMap { day -> day.entries.flatMap { it.episode.platforms } }
-                .map { it.trim() }
-                .filter(String::isNotBlank)
-                .distinct()
-                .sorted()
+    val availablePlatforms: List<String> by lazy {
+        days
+            .flatMap { day -> day.entries.flatMap { it.episode.platforms } }
+            .map { it.trim() }
+            .filter(String::isNotBlank)
+            .distinct()
+            .sorted()
+    }
 
     val todayIndex: Int
         get() =

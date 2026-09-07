@@ -22,6 +22,45 @@ import kotlin.test.assertTrue
 
 class YPlayerVideoEngineAdapterTest {
     @Test
+    fun `an audio decoder before Surface attachment is never video evidence`() {
+        val evidence =
+            YPlayerDiagnostics(
+                decoder = "c2.android.aac.decoder",
+                videoCodec = "video/dolby-vision",
+                audioCodec = "audio/mp4a-latm",
+                audioDecoderName = "c2.android.aac.decoder",
+            ).toPlaybackOutputEvidence(YPlaybackPhase.Ready)
+        assertEquals("", evidence.videoDecoder)
+        assertEquals("c2.android.aac.decoder", evidence.audioDecoder)
+    }
+
+    @Test
+    fun `typed decoder identities replace an obsolete combined label`() {
+        val evidence =
+            YPlayerDiagnostics(
+                decoder = "c2.android.aac.decoder",
+                videoCodec = "video/dolby-vision",
+                audioCodec = "audio/mp4a-latm",
+                videoDecoderName = "c2.qti.dv.decoder",
+                audioDecoderName = "c2.android.aac.decoder",
+            ).toPlaybackOutputEvidence(YPlaybackPhase.Ready)
+        assertEquals("c2.qti.dv.decoder", evidence.videoDecoder)
+        assertEquals("c2.android.aac.decoder", evidence.audioDecoder)
+    }
+
+    @Test
+    fun `a single untyped decoder with both tracks is ambiguous`() {
+        val evidence =
+            YPlayerDiagnostics(
+                decoder = "c2.android.aac.decoder",
+                videoCodec = "video/dolby-vision",
+                audioCodec = "audio/mp4a-latm",
+            ).toPlaybackOutputEvidence(YPlaybackPhase.Ready)
+        assertEquals("", evidence.videoDecoder)
+        assertEquals("", evidence.audioDecoder)
+    }
+
+    @Test
     fun `secondary subtitle controls reach the native product player`() {
         var track: String? = null
         var offset = 0L

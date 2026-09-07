@@ -93,6 +93,14 @@ build refuses any manifest that is unsigned, signed by another key, or served to
 key pinned. CI derives the embedded public key from `UPDATE_MANIFEST_SIGNING_KEY`; when the optional
 `yfuse.updateManifestPublicKey` property is set, the workflow also verifies that the two match.
 
+All signed APK/AAB workflows (including branch, repair, repackage, and TV builds) now inject
+this key. Artifact-only jobs may use the repository variable `YFUSE_UPDATE_MANIFEST_PUBLIC_KEY`
+without access to the private signing key. Publishing an update manifest still requires
+`UPDATE_MANIFEST_SIGNING_KEY`. Conflicting pins and missing/invalid Ed25519 public keys fail
+before packaging; production Gradle release tasks enforce the same requirement for local builds.
+This does not repair the trust anchor inside an already installed APK: a build that shipped
+without a public key needs a one-time manual installation of a correctly signed replacement.
+
 ```bash
 openssl genpkey -algorithm ed25519 -out update-manifest.pem
 openssl pkey -in update-manifest.pem -pubout -outform DER | base64 -w0   # optional local pin

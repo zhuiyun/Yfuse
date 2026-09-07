@@ -45,23 +45,18 @@ import com.yfuse.core2.sync.YClockSnapshot
 import com.yfuse.core2.sync.YMediaClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
@@ -83,6 +78,8 @@ internal class AndroidNativeDirectYPlayer(
     private val plannedDolbyVisionConfig: YDolbyVisionConfig? = null,
     private val confirmedDolbyVisionNalIdentity: Boolean = false,
     private val requireDolbyVisionIdentity: Boolean = false,
+    private val preferredRemoteBufferTargetUs: Long? = null,
+    private val preparedExtractor: ((YMediaItem) -> YPlatformExtractorSource?)? = null,
 ) : YPlayer {
     private val appContext = context.applicationContext
     private val mutableState =
@@ -439,6 +436,12 @@ internal class AndroidNativeDirectYPlayer(
         private val capabilityProvider = AndroidYCapabilityProvider(context)
         private val runtimeCapabilities = AndroidRuntimeCapabilityRegistry(context)
         private val externalSubtitleLoader = AndroidExternalSubtitleLoader(context)
+        private val externalSubtitleSession =
+            AndroidExternalSubtitleSession(
+                scope = scope,
+                load = { source, headers, id -> externalSubtitleLoader.load(source, headers, id) },
+                completed = { submit(Command.ExternalSubtitleReady(it)) },
+            )
         private val wallClock = YMediaClock(positionUs = request.startPositionMs * MICROS_PER_MILLISECOND)
         private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
         private var monotonicPositionFloorUs = request.startPositionMs * MICROS_PER_MILLISECOND
@@ -447,6 +450,9 @@ internal class AndroidNativeDirectYPlayer(
         private var sourceRemote = false
         private var sourceBitRateBitsPerSecond = 0L
         private var bufferPlan = YBufferController.plan(YBufferConditions(remote = false))
+        private var bufferGate =
+            com.yfuse.core2.network
+                .YPlaybackBufferGate(remote = false, resumePlaybackUs = 0L)
         private var lastBufferReplanNs = 0L
         private var surfaceOutput: AndroidSurfaceVideoOutput? = null
         private var videoTrackIndex: Int? = null
@@ -604,6 +610,18 @@ internal class AndroidNativeDirectYPlayer(
                 is Command.SelectAudioTrack -> selectAudioTrack(command.trackIndex)
                 is Command.SelectSubtitleTrack ->
                     selectSubtitleTrack(command.trackIndex, command.externalTrackId, command.secondary)
+                is Command.ExternalSubtitleReady -> {
+                    if (externalSubtitleSession.accept(command.result)) {
+                        externalSubtitles = externalSubtitleSession.tracks
+                        mutableState.update {
+                            it.copy(
+                                subtitleTracks = subtitleTracks(),
+                                subtitleCues = activeSubtitleCues(),
+                                secondarySubtitleCues = activeSecondarySubtitleCues(),
+                            )
+                        }
+                    }
+                }
                 is Command.SelectItem -> {
                     currentIndex = command.index
                     prepareCurrent(0L)
@@ -615,6 +633,10 @@ internal class AndroidNativeDirectYPlayer(
             val pumpStartedNs = System.nanoTime()
             var didWork = false
             try {
+                if (!refreshOutputGate()) {
+                    publishClockPosition()
+                    return false
+                }
                 drmSession?.let { session ->
                     yPlaybackStage(
                         category = YPlaybackFailureCategory.Drm,
@@ -642,6 +664,10 @@ internal class AndroidNativeDirectYPlayer(
                 didWork = drainAudio() || didWork
                 didWork = drainVideo() || didWork
                 didWork = feedInput() || didWork
+                if (firstVideoFrameRendered || !hasVideoTrack && mutableState.value.diagnostics.audioOutputVerified) {
+                    externalSubtitleSession.request(selectedExternalSubtitleId)
+                    externalSubtitleSession.request(secondaryExternalSubtitleId)
+                }
                 recoverVideoIfNoSyncSampleArrives()
                 publishClockPosition()
                 finishIfEnded()
@@ -678,32 +704,12 @@ internal class AndroidNativeDirectYPlayer(
                 stage = YPlaybackFailureStage.SourceOpen,
                 safeDetail = "NativeDirect source open",
             ) {
-                demux.open(item.toAndroidSource())
+                demux.open(item.toAndroidSource(), preparedExtractor?.invoke(item))
             }
             abortIfReleased()
-            val sidecarSources = item.allExternalSubtitles
-            // Sidecar downloads are independent round trips. Loading them in parallel keeps the
-            // startup path at one network latency instead of one per subtitle.
-            externalSubtitles =
-                runBlocking {
-                    sidecarSources
-                        .mapIndexed { index, source ->
-                            async(Dispatchers.IO) {
-                                externalSubtitleLoader.load(
-                                    source = source,
-                                    headers = item.headers,
-                                    trackId = externalSubtitleTrackId(index),
-                                )
-                            }
-                        }.awaitAll()
-                }
-            abortIfReleased()
-            selectedExternalSubtitleId =
-                sidecarSources
-                    .indexOfFirst { it.forced || it.default }
-                    .takeIf { it >= 0 }
-                    ?.let(::externalSubtitleTrackId)
-                    ?: externalSubtitles.singleOrNull()?.track?.id
+            externalSubtitleSession.reset(item.allExternalSubtitles, item.headers)
+            externalSubtitles = externalSubtitleSession.tracks
+            selectedExternalSubtitleId = externalSubtitleSession.defaultId
             // Audio-only media is a first-class source here: music, audiobooks and audio-only
             // versions have no video track and must not be rejected at the container stage.
             videoTrackIndex = demux.findFirstTrack(VIDEO_MIME_PREFIX)
@@ -803,6 +809,12 @@ internal class AndroidNativeDirectYPlayer(
             this.sourceBitRateBitsPerSecond = sourceBitRateBitsPerSecond
             demux.setMediaBitRateBitsPerSecond(sourceBitRateBitsPerSecond)
             applyBufferPlan(measuredThroughputBitsPerSecond = null, force = true)
+            bufferGate =
+                com.yfuse.core2.network.YPlaybackBufferGate(
+                    remote = sourceRemote,
+                    resumePlaybackUs = bufferPlan.resumePlaybackUs,
+                    startupPlaybackUs = bufferPlan.startupPlaybackUs,
+                )
             item.drmConfiguration?.let { configuration ->
                 val initializationData =
                     checkNotNull(demux.drmInitializationData(configuration.scheme.yCorePlatformUuid())) {
@@ -835,7 +847,9 @@ internal class AndroidNativeDirectYPlayer(
                     ?.coerceIn(MIN_SAMPLE_BUFFER_BYTES, MAX_SAMPLE_BUFFER_BYTES)
                     ?: DEFAULT_SAMPLE_BUFFER_BYTES
             demux.configureSampleCapacity(sampleCapacity)
-            demux.selectTracks(selectedDemuxTrackIndices())
+            // Keep the owner free for track metadata and the initial resume seek. Eager filling
+            // here downloads samples at 0, then makes those commands wait behind that download.
+            demux.selectTracks(selectedDemuxTrackIndices(), startReadAhead = false)
 
             if (videoFormat != null) {
                 surfaceOutput?.surface?.takeIf { it.isValid }?.let { surface ->
@@ -873,6 +887,8 @@ internal class AndroidNativeDirectYPlayer(
                                     videoDecoder.decoderName,
                                     audioDecoderDiagnosticName(),
                                 ).joinToString(" + "),
+                            videoDecoderName = videoDecoder.decoderName.orEmpty(),
+                            audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
                             renderer = if (videoTrackIndex == null) "AudioTrack" else "Surface + AudioTrack",
                             videoCodec = videoFormat?.getString(MediaFormat.KEY_MIME).orEmpty(),
                             videoWidth = videoFormat?.intOrZero(MediaFormat.KEY_WIDTH) ?: 0,
@@ -911,6 +927,7 @@ internal class AndroidNativeDirectYPlayer(
 
             val targetUs = positionUs.coerceAtLeast(0L)
             if (targetUs > 0L) seekTo(targetUs) else wallClock.seek(0L, System.nanoTime())
+            demux.startReadAhead()
             if (requestedPlay) startPlayback()
         }
 
@@ -1008,6 +1025,7 @@ internal class AndroidNativeDirectYPlayer(
                 }
                 return
             }
+            if (!refreshOutputGate()) return
             val now = System.nanoTime()
             wallClock.start(currentPositionUs(), now)
             if (audioRendererConfigured) {
@@ -1026,6 +1044,7 @@ internal class AndroidNativeDirectYPlayer(
         private fun pausePlayback() {
             requestedPlay = false
             pausePlaybackInternal(keepRequested = false)
+            demux.updatePlaybackWindow(YTransportPlaybackWindow(playing = false))
         }
 
         private fun pausePlaybackInternal(keepRequested: Boolean) {
@@ -1069,6 +1088,7 @@ internal class AndroidNativeDirectYPlayer(
             secondarySubtitleCues.clear()
             resetEndState()
             seekTargetVideoUs = targetUs
+            bufferGate.reset()
             seekTargetAudioUs = targetUs
             lastVideoPresentationUs = targetUs
             lastQueuedPresentationUs = targetUs
@@ -1102,6 +1122,7 @@ internal class AndroidNativeDirectYPlayer(
             if (!value.isFinite() || value <= 0f) return
             val positionUs = currentPositionUs()
             speed = value
+            applyBufferPlan(measuredThroughputBitsPerSecond = demux.snapshot().throughputBitsPerSecond, force = true)
             wallClock.setSpeed(value, positionUs, System.nanoTime())
             if (isAudioPassthrough() && value != 1f) {
                 switchPassthroughToPcm(countFailure = false)
@@ -1150,6 +1171,7 @@ internal class AndroidNativeDirectYPlayer(
             secondary: Boolean,
         ) {
             if (!prepared) return
+            externalSubtitleSession.retry(externalTrackId)
             if (externalTrackId != null && externalSubtitles.none { it.track.id == externalTrackId }) return
             val nextFormat = trackIndex?.takeIf { it in 0 until demux.trackCount }?.let(demux::trackFormat)
             if (trackIndex != null && nextFormat?.subtitleFormatOrNull()?.textOverlaySupported != true) return
@@ -1281,7 +1303,6 @@ internal class AndroidNativeDirectYPlayer(
                         cause = queued.cause,
                     )
                 YQueuedExtractorResult.Empty -> {
-                    exposeTransportBufferingIfStarved()
                     null
                 }
                 YQueuedExtractorResult.EndOfInput -> {
@@ -1618,14 +1639,46 @@ internal class AndroidNativeDirectYPlayer(
                         remote = sourceRemote,
                         mediaBitRateBitsPerSecond = sourceBitRateBitsPerSecond,
                         measuredNetworkBitsPerSecond = measuredThroughputBitsPerSecond,
+                        memoryBudgetBytes = MAX_DEMUX_QUEUE_BYTES,
+                        preferredTargetAheadUs = preferredRemoteBufferTargetUs,
+                        speed = speed,
                     ),
                 )
             if (!force && next == bufferPlan) return
             bufferPlan = next
+            bufferGate.updateThresholds(next)
             demux.configureBufferPlan(
                 targetAheadUs = next.targetAheadUs,
                 maximumBytes = next.maximumBytes.coerceAtMost(MAX_DEMUX_QUEUE_BYTES),
             )
+        }
+
+        /** Only the codec owner changes playback clocks; network completion is not permission to resume. */
+        private fun refreshOutputGate(): Boolean {
+            val ahead = demux.snapshot()
+            refreshAdaptiveBufferPlan(ahead)
+            if (bufferGate.phase == com.yfuse.core2.network.YPlaybackBufferPhase.Ready &&
+                ahead.starved &&
+                !ahead.endOfInput &&
+                lastQueuedPresentationUs - currentPositionUs() <= 150_000L
+            ) {
+                bufferGate.markStarved()
+            }
+            val decision = bufferGate.evaluate(ahead.bufferedDurationUs, ahead.endOfInput, ahead.atCapacity)
+            if (!decision.outputAllowed && !transportBufferingVisible) {
+                val position = currentPositionUs()
+                monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, position)
+                wallClock.pause(position, System.nanoTime())
+                pauseAudio()
+                transportBufferingVisible = true
+            } else if (decision.outputAllowed && transportBufferingVisible) {
+                transportBufferingVisible = false
+                if (requestedPlay) {
+                    wallClock.start(monotonicPositionFloorUs, System.nanoTime())
+                    if (audioRendererConfigured) playAudio()
+                }
+            }
+            return decision.outputAllowed
         }
 
         private fun publishClockPosition() {
@@ -1638,6 +1691,15 @@ internal class AndroidNativeDirectYPlayer(
             val transportQoe = demux.transportQoeSnapshot()
             val readAhead = demux.snapshot()
             refreshAdaptiveBufferPlan(readAhead)
+            demux.updatePlaybackWindow(
+                YTransportPlaybackWindow(
+                    targetAheadUs = bufferPlan.forwardCacheTargetUs,
+                    speed = speed,
+                    bufferedUs = readAhead.bufferedDurationUs,
+                    minimumWarmBufferUs = minOf(bufferPlan.targetAheadUs / 2L, 8_000_000L),
+                    playing = requestedPlay && !transportBufferingVisible,
+                ),
+            )
             val sourceBufferedMs =
                 (transportQoe?.bufferedAheadDurationMs(currentState.durationMs) ?: 0L) +
                     readAhead.bufferedDurationUs / MICROS_PER_MILLISECOND
@@ -1679,6 +1741,8 @@ internal class AndroidNativeDirectYPlayer(
                                 current.diagnostics.bufferEvents +
                                     if (enteredRebuffer) 1 else 0,
                             droppedFrames = droppedFrames,
+                            videoDecoderName = videoDecoder.decoderName.orEmpty(),
+                            audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
                             droppedFramesMeasured = true,
                             sourceQueueBytes =
                                 (transportQoe?.bufferedAheadBytes ?: 0L) + readAhead.queuedBytes,
@@ -2159,6 +2223,20 @@ internal class AndroidNativeDirectYPlayer(
                     }
             }
             videoConfigured = true
+            // A Surface can arrive after prepare(), when only the audio decoder was known.
+            // Refresh the typed identities here instead of leaving AAC in the video slot.
+            mutableState.update { current ->
+                current.copy(
+                    diagnostics =
+                        current.diagnostics.copy(
+                            decoder =
+                                listOfNotNull(videoDecoder.decoderName, audioDecoderDiagnosticName())
+                                    .joinToString(" + "),
+                            videoDecoderName = videoDecoder.decoderName.orEmpty(),
+                            audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
+                        ),
+                )
+            }
         }
 
         private fun markFirstVideoFrameRendered() {
@@ -2194,78 +2272,9 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         private fun onTransportBlockingReadStateChanged(blocked: Boolean) {
-            if (transportReadBlocked == blocked || released) return
-            val nowNs = System.nanoTime()
-            if (blocked) {
-                transportReadBlocked = true
-                val generation = ++transportBlockGeneration
-                // The platform demux owner may block while the codec/render pump still has useful
-                // compressed or decoded output. Do not freeze playback merely because a range is
-                // in flight; expose buffering only when the read-ahead queue actually starves.
-                scope.launch(Dispatchers.Default) {
-                    delay(TRANSPORT_BUFFERING_DEBOUNCE_MS)
-                    if (
-                        !released &&
-                        transportReadBlocked &&
-                        transportBlockGeneration == generation &&
-                        demux.snapshot().starved
-                    ) {
-                        exposeTransportBufferingIfStarved()
-                    }
-                }
-                return
-            }
-
-            transportReadBlocked = false
+            if (released) return
+            transportReadBlocked = blocked
             ++transportBlockGeneration
-            val wasVisible = transportBufferingVisible
-            transportBufferingVisible = false
-            if (requestedPlay && wasVisible) {
-                val resumePositionUs = audioClockSnapshot()?.positionUs ?: wallClock.positionUs(nowNs)
-                monotonicPositionFloorUs = maxOf(monotonicPositionFloorUs, resumePositionUs)
-                wallClock.start(monotonicPositionFloorUs, nowNs)
-            }
-            mutableState.updateState { current ->
-                if (released || current.phase == YPlaybackPhase.Failed || current.phase == YPlaybackPhase.Ended) {
-                    current
-                } else {
-                    current.copy(
-                        playing = requestedPlay && firstVideoFrameRendered,
-                        buffering = requestedPlay && !firstVideoFrameRendered,
-                    )
-                }
-            }
-        }
-
-        private fun exposeTransportBufferingIfStarved() {
-            if (
-                released ||
-                !requestedPlay ||
-                !transportReadBlocked ||
-                transportBufferingVisible ||
-                !demux.snapshot().starved
-            ) {
-                return
-            }
-            val nowNs = System.nanoTime()
-            val frozenPositionUs = currentPositionUs()
-            monotonicPositionFloorUs = frozenPositionUs
-            wallClock.pause(frozenPositionUs, nowNs)
-            transportBufferingVisible = true
-            mutableState.updateState { current ->
-                if (released || current.phase == YPlaybackPhase.Failed || current.phase == YPlaybackPhase.Ended) {
-                    current
-                } else {
-                    current.copy(
-                        playing = false,
-                        buffering = true,
-                        diagnostics =
-                            current.diagnostics.copy(
-                                sourceStarvationCount = demux.snapshot().starvationCount,
-                            ),
-                    )
-                }
-            }
         }
 
         private fun abortIfReleased() {
@@ -2419,6 +2428,7 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         fun releaseMedia() {
+            externalSubtitleSession.close()
             renderCallbackGeneration++
             pendingVideoOutput?.let { output ->
                 runCatching { videoDecoder.releaseOutput(output, render = false) }
@@ -2503,6 +2513,10 @@ internal class AndroidNativeDirectYPlayer(
     }
 
     internal sealed interface Command {
+        data class ExternalSubtitleReady(
+            val result: AndroidExternalSubtitleSession.Completion,
+        ) : Command
+
         data object Prepare : Command
 
         data object Play : Command
@@ -2635,6 +2649,7 @@ internal fun coalesceNativeDirectCommands(
 
 private fun AndroidNativeDirectYPlayer.Command.canBeReplacedBy(next: AndroidNativeDirectYPlayer.Command): Boolean =
     when (this) {
+        is AndroidNativeDirectYPlayer.Command.ExternalSubtitleReady -> false
         is AndroidNativeDirectYPlayer.Command.Seek -> next is AndroidNativeDirectYPlayer.Command.Seek
         is AndroidNativeDirectYPlayer.Command.SetSpeed -> next is AndroidNativeDirectYPlayer.Command.SetSpeed
         is AndroidNativeDirectYPlayer.Command.SetVideoOutput ->

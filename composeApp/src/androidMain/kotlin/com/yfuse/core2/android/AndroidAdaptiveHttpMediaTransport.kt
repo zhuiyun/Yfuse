@@ -8,6 +8,11 @@ import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportFailureKind
 import com.yfuse.core2.network.YTransportFeature
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -37,6 +42,10 @@ internal class AndroidAdaptiveHttpMediaTransport(
             YTransportFeature.RandomAccess,
         )
 
+    private val transportLock = Any()
+    private var transportGeneration = 0L
+    private var opening: YMediaTransport? = null
+    private var openingJob: Job? = null
     private var active: YMediaTransport? = null
     private var preferred: YMediaTransport? = null
     private var activeRequest: YMediaTransportRequest? = null
@@ -46,13 +55,13 @@ internal class AndroidAdaptiveHttpMediaTransport(
 
     override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
         require(request.protocol in supportedProtocols)
-        closeActive(propagateCancellation = true)
+        val generation = closeActive(propagateCancellation = true)
         if (routeState.cronetAvailable) {
             val cronet = preferred ?: runCatching(createCronet).getOrNull()
             if (cronet != null) {
                 preferred = cronet
                 try {
-                    val response = cronet.open(request)
+                    val response = openTransport(cronet, request, generation)
                     response.requireAcceptedRange(
                         request = request,
                         previouslyAcceptedRange = routeState.hasAcceptedRange,
@@ -70,13 +79,16 @@ internal class AndroidAdaptiveHttpMediaTransport(
                         request = request,
                         response = response,
                         cronet = true,
+                        generation = generation,
                     )
                     return response
                 } catch (cancelled: CancellationException) {
+                    closeOpeningTransport(cronet)
                     throw cancelled
                 } catch (failure: Throwable) {
+                    closeOpeningTransport(cronet)
+                    synchronized(transportLock) { requireCurrentGeneration(generation) }
                     routeState.rejectStaleAuthorizationRoute(request, failure)
-                    closeTransport(cronet, propagateCancellation = false)
                     preferred = null
                     routeState.disableCronet(request.uri)
                 }
@@ -84,7 +96,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
                 routeState.disableCronet()
             }
         }
-        return openOkHttp(request)
+        return openOkHttp(request, generation)
     }
 
     override suspend fun read(
@@ -94,29 +106,42 @@ internal class AndroidAdaptiveHttpMediaTransport(
     ): Int {
         require(offset >= 0 && length >= 0 && offset <= destination.size - length)
         if (length == 0) return 0
-        val transport = checkNotNull(active) { "HTTP transport is not open" }
-        return try {
-            val count = transport.read(destination, offset, length)
-            if (count > 0) activeBytesRead += count
-            if (
-                count < 0 &&
-                activeIsCronet &&
-                activeExpectedBytes?.let { expected -> activeBytesRead < expected } == true
-            ) {
-                resumeWithOkHttp(
-                    destination = destination,
-                    offset = offset,
-                    length = length,
-                    cronetFailure = IllegalStateException("Cronet ended before the requested byte range"),
-                )
-            } else {
-                count
+        val (generation, transport) =
+            synchronized(transportLock) {
+                transportGeneration to checkNotNull(active) { "HTTP transport is not open" }
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Throwable) {
-            if (!activeIsCronet) throw failure
-            resumeWithOkHttp(destination, offset, length, failure)
+        val count =
+            try {
+                transport.read(destination, offset, length)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                val canResume =
+                    synchronized(transportLock) {
+                        requireCurrentGeneration(generation)
+                        activeIsCronet
+                    }
+                if (!canResume) throw failure
+                return resumeWithOkHttp(destination, offset, length, failure, generation)
+            }
+        val prematureEnd =
+            synchronized(transportLock) {
+                requireCurrentGeneration(generation)
+                if (count > 0) activeBytesRead += count
+                count < 0 &&
+                    activeIsCronet &&
+                    activeExpectedBytes?.let { expected -> activeBytesRead < expected } == true
+            }
+        return if (prematureEnd) {
+            resumeWithOkHttp(
+                destination = destination,
+                offset = offset,
+                length = length,
+                cronetFailure = IllegalStateException("Cronet ended before the requested byte range"),
+                generation = generation,
+            )
+        } else {
+            count
         }
     }
 
@@ -129,29 +154,35 @@ internal class AndroidAdaptiveHttpMediaTransport(
         offset: Int,
         length: Int,
         cronetFailure: Throwable,
+        generation: Long,
     ): Int {
-        val request = checkNotNull(activeRequest) { "Cronet request metadata is unavailable" }
-        val resumedRequest = request.resumeAfter(activeBytesRead) ?: return -1
-        routeState.disableCronet(request.uri)
+        val resumedRequest =
+            synchronized(transportLock) {
+                requireCurrentGeneration(generation)
+                val request = checkNotNull(activeRequest) { "Cronet request metadata is unavailable" }
+                request.resumeAfter(activeBytesRead)
+            } ?: return -1
+        routeState.disableCronet(resumedRequest.uri)
         preferred = null
-        closeActive(propagateCancellation = true)
+        val fallbackGeneration = closeActive(propagateCancellation = true, expectedGeneration = generation)
         try {
-            openOkHttp(resumedRequest)
+            openOkHttp(resumedRequest, fallbackGeneration)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (fallbackFailure: Throwable) {
             fallbackFailure.addSuppressed(cronetFailure)
             throw fallbackFailure
         }
-        return checkNotNull(active) { "Fallback transport is not open" }
-            .read(destination, offset, length)
-            .also { count -> if (count > 0) activeBytesRead += count }
+        return read(destination, offset, length)
     }
 
-    private suspend fun openOkHttp(request: YMediaTransportRequest): YMediaTransportResponse {
+    private suspend fun openOkHttp(
+        request: YMediaTransportRequest,
+        generation: Long,
+    ): YMediaTransportResponse {
         val transport = createOkHttp()
         return try {
-            val response = transport.open(request)
+            val response = openTransport(transport, request, generation)
             response.requireAcceptedRange(
                 request = request,
                 previouslyAcceptedRange = routeState.hasAcceptedRange,
@@ -162,16 +193,43 @@ internal class AndroidAdaptiveHttpMediaTransport(
                 request = request,
                 response = response,
                 cronet = false,
+                generation = generation,
             )
             response
         } catch (cancelled: CancellationException) {
-            closeTransport(transport, propagateCancellation = false)
+            closeOpeningTransport(transport)
             throw cancelled
         } catch (failure: Throwable) {
+            closeOpeningTransport(transport)
+            synchronized(transportLock) { requireCurrentGeneration(generation) }
             routeState.rejectStaleAuthorizationRoute(request, failure)
-            closeTransport(transport, propagateCancellation = false)
             throw failure
         }
+    }
+
+    private suspend fun openTransport(
+        transport: YMediaTransport,
+        request: YMediaTransportRequest,
+        generation: Long,
+    ): YMediaTransportResponse =
+        coroutineScope {
+            val job = currentCoroutineContext()[Job]
+            synchronized(transportLock) {
+                requireCurrentGeneration(generation)
+                opening = transport
+                openingJob = job
+            }
+            transport.open(request)
+        }
+
+    private suspend fun closeOpeningTransport(transport: YMediaTransport) {
+        synchronized(transportLock) {
+            if (opening === transport) {
+                opening = null
+                openingJob = null
+            }
+        }
+        closeTransport(transport, propagateCancellation = false)
     }
 
     private fun bind(
@@ -179,18 +237,48 @@ internal class AndroidAdaptiveHttpMediaTransport(
         request: YMediaTransportRequest,
         response: YMediaTransportResponse,
         cronet: Boolean,
+        generation: Long,
     ) {
-        active = transport
-        activeRequest = request
-        activeExpectedBytes = response.expectedBodyBytes(request)
-        activeBytesRead = 0L
-        activeIsCronet = cronet
+        synchronized(transportLock) {
+            requireCurrentGeneration(generation)
+            opening = null
+            openingJob = null
+            active = transport
+            activeRequest = request
+            activeExpectedBytes = response.expectedBodyBytes(request)
+            activeBytesRead = 0L
+            activeIsCronet = cronet
+        }
     }
 
-    private suspend fun closeActive(propagateCancellation: Boolean) {
-        val transport = active
-        clearActive()
-        transport?.let { closeTransport(it, propagateCancellation) }
+    private suspend fun closeActive(
+        propagateCancellation: Boolean,
+        expectedGeneration: Long? = null,
+    ): Long {
+        val (generation, transports, pendingJob) =
+            synchronized(transportLock) {
+                expectedGeneration?.let(::requireCurrentGeneration)
+                val generation = ++transportGeneration
+                // A range promotion may happen before any response exists. Include the opening
+                // transport so it actually releases its socket instead of competing with playback.
+                val transports = listOfNotNull(active, opening).distinct()
+                val pendingJob = openingJob
+                opening = null
+                openingJob = null
+                clearActive()
+                Triple(generation, transports, pendingJob)
+            }
+        // Also cover the hand-off before transport.open enters its IO dispatcher. This cancels
+        // only the scoped open, never the player's parent job or an already completed range.
+        pendingJob?.cancel()
+        transports.forEach { closeTransport(it, propagateCancellation) }
+        return generation
+    }
+
+    private fun requireCurrentGeneration(generation: Long) {
+        if (generation != transportGeneration) {
+            throw CancellationException("HTTP media operation was closed")
+        }
     }
 
     private fun clearActive() {
@@ -206,7 +294,7 @@ internal class AndroidAdaptiveHttpMediaTransport(
         propagateCancellation: Boolean,
     ) {
         try {
-            transport.close()
+            withContext(NonCancellable) { transport.close() }
         } catch (cancelled: CancellationException) {
             if (propagateCancellation) throw cancelled
         } catch (_: Throwable) {

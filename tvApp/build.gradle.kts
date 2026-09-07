@@ -427,6 +427,19 @@ val verifyTvReleaseProfile by tasks.registering {
     group = "verification"
     description = "Rejects unsigned Android TV release artifacts."
     doLast {
+        if (!allowDebugSigning) {
+            val validUpdateKey =
+                runCatching {
+                    java.security.KeyFactory.getInstance("Ed25519").generatePublic(
+                        java.security.spec.X509EncodedKeySpec(
+                            java.util.Base64
+                                .getDecoder()
+                                .decode(updateManifestPublicKey),
+                        ),
+                    )
+                }.isSuccess
+            check(validUpdateKey) { "Signed TV releases require a valid Ed25519 update-manifest public key." }
+        }
         if (!releaseSigningReady && !allowDebugSigning) {
             throw GradleException(
                 "TV release signing is not configured. Provide keystore.properties or use " +

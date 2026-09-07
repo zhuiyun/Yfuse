@@ -61,6 +61,7 @@ internal class AndroidDemuxReadAheadNode(
     fun configure(
         targetAheadUs: Long,
         mediaBitRateBitsPerSecond: Long?,
+        memoryBudgetBytes: Long = MAXIMUM_QUEUE_BYTES,
     ) {
         val high = targetAheadUs.coerceIn(MINIMUM_HIGH_WATERMARK_US, MAXIMUM_HIGH_WATERMARK_US)
         val estimatedBytes =
@@ -79,6 +80,7 @@ internal class AndroidDemuxReadAheadNode(
                     ?.div(QUEUE_HEADROOM_DENOMINATOR)
                     ?.coerceIn(MINIMUM_QUEUE_BYTES, MAXIMUM_QUEUE_BYTES)
                     ?: DEFAULT_MAXIMUM_QUEUE_BYTES
+            maximumQueueBytes = maximumQueueBytes.coerceAtMost(memoryBudgetBytes.coerceAtLeast(1L))
         }
         requestFill()
     }
@@ -157,6 +159,7 @@ internal class AndroidDemuxReadAheadNode(
                 starvationCount = starvationCount,
                 throughputBitsPerSecond = throughputBitsPerSecond,
                 endOfInput = endOfInput,
+                atCapacity = queuedBytes >= maximumQueueBytes,
             )
         }
 
@@ -358,6 +361,7 @@ internal data class YDemuxReadAheadSnapshot(
     val starvationCount: Long,
     val throughputBitsPerSecond: Long,
     val endOfInput: Boolean,
+    val atCapacity: Boolean = false,
 )
 
 private const val DEMUX_THREAD_NAME = "YCore-Demux"

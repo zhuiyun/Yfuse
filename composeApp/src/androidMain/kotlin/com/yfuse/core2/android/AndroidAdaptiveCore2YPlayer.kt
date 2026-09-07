@@ -48,7 +48,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -161,25 +163,6 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     @Volatile
     private var activeChild: YPlayer? = null
-
-    /**
-     * Waits until the current item has played for a while with a healthy forward buffer, so the
-     * next-item probe never shares the link with a starving startup. Returns false only when the
-     * current item ended or failed meanwhile; a missing child keeps the previous eager behaviour.
-     */
-    private suspend fun awaitNextItemPreloadWindow(): Boolean {
-        delay(NEXT_ITEM_PRELOAD_DELAY_MS)
-        var waitedMs = NEXT_ITEM_PRELOAD_DELAY_MS
-        while (waitedMs < NEXT_ITEM_PRELOAD_MAX_WAIT_MS) {
-            val state = activeChild?.state?.value ?: return true
-            if (state.phase == YPlaybackPhase.Ended || state.phase == YPlaybackPhase.Failed) return false
-            val bufferedAheadMs = state.bufferedPositionMs - state.positionMs
-            if (!state.buffering && bufferedAheadMs >= NEXT_ITEM_PRELOAD_MIN_BUFFER_AHEAD_MS) return true
-            delay(NEXT_ITEM_PRELOAD_POLL_MS)
-            waitedMs += NEXT_ITEM_PRELOAD_POLL_MS
-        }
-        return true
-    }
 
     init {
         // registerAudioDeviceCallback immediately invokes onAudioDevicesAdded with every output
@@ -394,6 +377,8 @@ internal class AndroidAdaptiveCore2YPlayer(
         val codecResetCounts = mutableMapOf<Int, Int>()
 
         fun stopChild() {
+            nextItemPreloadJob?.cancel()
+            nextItemPreloadJob = null
             finalizeChildLearning?.invoke()
             finalizeChildLearning = null
             childCollector?.cancel()
@@ -451,6 +436,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         fun scheduleNextItemPreload(fromIndex: Int) {
             if (!request.autoNext || fromIndex != currentIndex) return
+            val preloadChild = child ?: return
             val nextIndex = fromIndex + 1
             val item = queueItems.getOrNull(nextIndex) ?: return
             if (item.disc != null || item.drmConfiguration != null) return
@@ -474,7 +460,11 @@ internal class AndroidAdaptiveCore2YPlayer(
                 scope.launch(Dispatchers.IO) {
                     // Probing the next episode right after the first frame competes with the
                     // current item's read-ahead for the same link; wait for steady playback first.
-                    if (!awaitNextItemPreloadWindow()) return@launch
+                    val ready =
+                        awaitCore2NextItemPreloadWindow {
+                            activeChild?.takeIf { it === preloadChild }?.state?.value
+                        }
+                    if (!ready) return@launch
                     runCatching {
                         routeEvaluator.evaluate(
                             item = item,
@@ -483,22 +473,27 @@ internal class AndroidAdaptiveCore2YPlayer(
                             forcePowerSaver = forcePowerSaver,
                         )
                     }.onSuccess { decision ->
+                        currentCoroutineContext().ensureActive()
+                        if (activeChild !== preloadChild) return@launch
                         if (decision != null) {
                             commands.trySend(
                                 Command.NextItemPreloaded(
-                                    PreloadedNextRoute(
-                                        index = nextIndex,
-                                        itemId = item.id,
-                                        itemUri = item.uri,
-                                        preferTunnel = preferTunnel,
-                                        allowAudioPassthrough = allowAudioPassthrough,
-                                        forcePowerSaver = forcePowerSaver,
-                                        decision = decision,
-                                    ),
+                                    fromChild = preloadChild,
+                                    route =
+                                        PreloadedNextRoute(
+                                            index = nextIndex,
+                                            itemId = item.id,
+                                            itemUri = item.uri,
+                                            preferTunnel = preferTunnel,
+                                            allowAudioPassthrough = allowAudioPassthrough,
+                                            forcePowerSaver = forcePowerSaver,
+                                            decision = decision,
+                                        ),
                                 ),
                             )
                         }
                     }.onFailure { error ->
+                        if (error is CancellationException) throw error
                         AppLog.warning(
                             category = "player.core2",
                             event = "next_item_preload_failed",
@@ -602,6 +597,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                 decoderName = decision?.plan?.decoderName,
                 runtimeCapabilityKey = decision?.runtimeCapabilityKey(),
                 plannedAudioOutputPath = decision?.plan?.audioPath,
+                preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
+                preparedExtractor = routeEvaluator::takePreparedExtractor,
                 frameRateSwitchMode = frameRateSwitchMode,
                 plannedDolbyVisionConfig = preservedProbe?.dolbyVisionConfig,
                 confirmedDolbyVisionNalIdentity =
@@ -834,6 +831,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                         decoderName = decision.plan.decoderName,
                         runtimeCapabilityKey = decision.runtimeCapabilityKey(),
                         plannedAudioOutputPath = decision.plan.audioPath,
+                        preparedExtractor = routeEvaluator::takePreparedExtractor,
+                        preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
                         frameRateSwitchMode = frameRateSwitchMode,
                         plannedDolbyVisionConfig = decision.probe.dolbyVisionConfig,
                         confirmedDolbyVisionNalIdentity =
@@ -1362,6 +1361,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             }
                         }
                         is Command.NextItemPreloaded -> {
+                            if (child !== command.fromChild) continue
                             nextItemPreloadJob = null
                             val item = queueItems.getOrNull(command.route.index)
                             if (
@@ -1535,6 +1535,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         } finally {
             nextItemPreloadJob?.cancel()
             stopChild()
+            routeEvaluator.closePreparedExtractor()
         }
     }
 
@@ -1554,6 +1555,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         data object ThermalPressure : Command
 
         data class NextItemPreloaded(
+            val fromChild: YPlayer,
             val route: PreloadedNextRoute,
         ) : Command
 
@@ -1661,11 +1663,6 @@ internal class AndroidCore2PlayerFactory(
 private inline fun MutableStateFlow<YPlayerState>.updateState(transform: (YPlayerState) -> YPlayerState) {
     update(transform)
 }
-
-private const val NEXT_ITEM_PRELOAD_DELAY_MS = 15_000L
-private const val NEXT_ITEM_PRELOAD_POLL_MS = 1_000L
-private const val NEXT_ITEM_PRELOAD_MAX_WAIT_MS = 120_000L
-private const val NEXT_ITEM_PRELOAD_MIN_BUFFER_AHEAD_MS = 8_000L
 
 private const val TUNNEL_SPEED_EPSILON = 0.001f
 private const val NO_PENDING_SEEK_MS = -1L

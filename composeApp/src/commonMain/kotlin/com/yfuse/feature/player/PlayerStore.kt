@@ -1053,6 +1053,20 @@ class PlayerStoreFactory(
                     }
                     val detail = detailResult.getOrNull()
                     val seriesId = detail?.seriesId
+                    // These reads do not depend on PlaybackInfo. Overlap them with negotiation
+                    // instead of adding the series and full episode-list latency to first play.
+                    val seriesDetailDeferred =
+                        if (detail?.type == "Episode" && seriesId != null) {
+                            async { repo.itemDetail(server, seriesId) }
+                        } else {
+                            null
+                        }
+                    val episodeQueueDeferred =
+                        if (detail?.type == "Episode" && seriesId != null) {
+                            async { repo.episodes(server, seriesId, null, includeMediaSources = true) }
+                        } else {
+                            null
+                        }
                     val requestedSessionId = EmbyStream.newPlaySessionId()
                     var selectedSourceMismatch: PlaybackSourceMismatch? = null
                     val playbackInfoResult =
@@ -1195,7 +1209,7 @@ class PlayerStoreFactory(
                         // episode recognisable on someone else's server (see episodeWatchKey).
                         // One extra request per queue, and a miss only costs the cross-server
                         // half of watch-together.
-                        val seriesDetail = repo.itemDetail(server, seriesId).getOrNull()
+                        val seriesDetail = seriesDetailDeferred?.await()?.getOrNull()
                         val seriesProviderIds = seriesDetail?.providerIds.orEmpty()
                         resolvedSeriesProviderIds = seriesProviderIds
                         val seriesPosterUrl =
@@ -1206,13 +1220,7 @@ class PlayerStoreFactory(
                                 maxHeight = 360,
                                 accessToken = server.accessToken,
                             )
-                        val episodesResult =
-                            repo.episodes(
-                                server,
-                                seriesId,
-                                null,
-                                includeMediaSources = true,
-                            )
+                        val episodesResult = checkNotNull(episodeQueueDeferred).await()
                         episodesResult.onFailure {
                             AppLog.warning(
                                 category = "feature.player",

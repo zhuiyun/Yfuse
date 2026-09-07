@@ -5,8 +5,14 @@ import com.yfuse.core.model.TmdbItem
 import com.yfuse.feature.json
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockEngineConfig
+import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.HttpRequestData
+import io.ktor.client.request.HttpResponseData
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -20,7 +26,7 @@ class TmdbRepositoryTest {
         runTest {
             val client =
                 HttpClient(
-                    MockEngine { request ->
+                    mockEngine { request ->
                         val path = request.url.encodedPath
                         val originCountries = request.url.parameters["with_origin_country"]
                         val domestic = originCountries?.split('|')?.contains("CN") == true
@@ -98,7 +104,7 @@ class TmdbRepositoryTest {
         runTest {
             val client =
                 HttpClient(
-                    MockEngine { request ->
+                    mockEngine { request ->
                         val domestic =
                             request.url.parameters["with_origin_country"]
                                 ?.split('|')
@@ -184,7 +190,7 @@ class TmdbRepositoryTest {
         runTest {
             val client =
                 HttpClient(
-                    MockEngine { request ->
+                    mockEngine { request ->
                         assertTrue(request.url.encodedPath.endsWith("/movie/42"))
                         assertEquals("credits", request.url.parameters["append_to_response"])
                         json(
@@ -230,12 +236,12 @@ class TmdbRepositoryTest {
             var previewEpisodeNumbers = emptyList<Int>()
             val client =
                 HttpClient(
-                    MockEngine { request ->
+                    mockEngine { request ->
                         val path = request.url.encodedPath
                         when {
                             path.endsWith("/discover/tv") -> {
                                 val domestic = request.url.parameters["with_origin_country"] == "CN"
-                                if (!domestic) return@MockEngine json("""{"results":[]}""")
+                                if (!domestic) return@mockEngine json("""{"results":[]}""")
                                 json(
                                     // Brand-new TMDB entries often receive episode dates before artwork.
                                     // Calendar discovery must not discard the schedule for that reason.
@@ -294,7 +300,7 @@ class TmdbRepositoryTest {
         runTest {
             val client =
                 HttpClient(
-                    MockEngine { request ->
+                    mockEngine { request ->
                         val path = request.url.encodedPath
                         when {
                             path.endsWith("/discover/movie") -> {
@@ -340,7 +346,7 @@ class TmdbRepositoryTest {
             val paths = mutableListOf<String>()
             val client =
                 HttpClient(
-                    MockEngine { request ->
+                    mockEngine { request ->
                         val path = request.url.encodedPath
                         paths += path
                         when {
@@ -379,4 +385,13 @@ class TmdbRepositoryTest {
             assertTrue(episodes.all { it.origin == ShowOrigin.Domestic })
             assertEquals(listOf("/3/tv/88", "/3/tv/88/season/2"), paths)
         }
+
+    private fun TestScope.mockEngine(handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData) =
+        MockEngine(
+            MockEngineConfig().apply {
+                // Keep responses and repository deadlines on the same virtual clock.
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler(handler)
+            },
+        )
 }

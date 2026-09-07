@@ -468,6 +468,8 @@ internal class AndroidEnhancedPlaybackSession(
                         remote = remote,
                         mediaBitRateBitsPerSecond = result.bitRateBitsPerSecond,
                         preferredTargetAheadUs = preferredRemoteBufferTargetUs,
+                        speed = speed,
+                        memoryBudgetBytes = 24L * 1024L * 1024L,
                     ),
                 )
         lastBufferReplanNs = 0L
@@ -476,10 +478,12 @@ internal class AndroidEnhancedPlaybackSession(
             YPlaybackBufferGate(
                 remote = remote,
                 resumePlaybackUs = bufferPlan.resumePlaybackUs,
+                startupPlaybackUs = bufferPlan.startupPlaybackUs,
             )
         demuxReadAhead.configure(
             targetAheadUs = maxInputAheadUs,
             mediaBitRateBitsPerSecond = result.bitRateBitsPerSecond,
+            memoryBudgetBytes = bufferPlan.maximumBytes,
         )
         audioRendererConfigured = audioTrack != null && audioOutputPath == YAudioOutputPath.Passthrough
         captureAudioRoutingGeneration()
@@ -517,6 +521,7 @@ internal class AndroidEnhancedPlaybackSession(
         require(value.isFinite() && value > 0f) { "Playback speed must be finite and positive" }
         val position = currentPositionUs()
         speed = value
+        refreshAdaptiveBufferPlan(demuxReadAhead.snapshot(), force = true)
         wallClock.setSpeed(value, position, System.nanoTime())
         if (isAudioPassthrough() && requiresPcmAudioPath(false, false, value)) {
             switchPassthroughToPcm(position, countFailure = false)
@@ -1548,6 +1553,7 @@ internal class AndroidEnhancedPlaybackSession(
             bufferGate.evaluate(
                 bufferedDurationUs = readAhead.bufferedDurationUs,
                 endOfInput = readAhead.endOfInput,
+                bufferFull = readAhead.atCapacity,
             )
         if (decision.outputAllowed && !outputActive) {
             val position = currentPositionUs()
@@ -1560,27 +1566,33 @@ internal class AndroidEnhancedPlaybackSession(
         return decision.outputAllowed
     }
 
-    private fun refreshAdaptiveBufferPlan(readAhead: YDemuxReadAheadSnapshot) {
-        if (!sourceRemote || readAhead.throughputBitsPerSecond <= 0L) return
+    private fun refreshAdaptiveBufferPlan(
+        readAhead: YDemuxReadAheadSnapshot,
+        force: Boolean = false,
+    ) {
+        if (!sourceRemote || !force && readAhead.throughputBitsPerSecond <= 0L) return
         val nowNs = System.nanoTime()
-        if (nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
+        if (!force && nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
         lastBufferReplanNs = nowNs
         val next =
             YBufferController.plan(
                 YBufferConditions(
                     remote = true,
                     mediaBitRateBitsPerSecond = openResult?.bitRateBitsPerSecond ?: 0L,
-                    measuredNetworkBitsPerSecond = readAhead.throughputBitsPerSecond,
+                    measuredNetworkBitsPerSecond = readAhead.throughputBitsPerSecond.takeIf { it > 0L },
                     preferredTargetAheadUs = preferredRemoteBufferTargetUs,
+                    speed = speed,
+                    memoryBudgetBytes = 24L * 1024L * 1024L,
                 ),
             )
         if (next == bufferPlan) return
         bufferPlan = next
         maxInputAheadUs = next.targetAheadUs
-        bufferGate.updateResumePlaybackUs(next.resumePlaybackUs)
+        bufferGate.updateThresholds(next)
         demuxReadAhead.configure(
             targetAheadUs = next.targetAheadUs,
             mediaBitRateBitsPerSecond = openResult?.bitRateBitsPerSecond,
+            memoryBudgetBytes = next.maximumBytes,
         )
     }
 

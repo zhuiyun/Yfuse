@@ -91,7 +91,7 @@ internal class AndroidExternalSubtitleLoader(
                 } else {
                     YSourceProtocol.Http
                 }
-            val transport = AndroidHttpMediaTransport(followSafeRedirects = true)
+            val transport = AndroidHttpMediaTransport(followSafeRedirects = true, callTimeoutSeconds = 12L)
             try {
                 val response =
                     transport.open(

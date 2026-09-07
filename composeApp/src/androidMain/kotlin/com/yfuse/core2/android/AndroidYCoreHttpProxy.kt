@@ -44,6 +44,7 @@ import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -157,6 +158,7 @@ internal class AndroidYCoreHttpProxy(
     private val isMeteredNetwork: () -> Boolean = {
         currentPlaybackNetworkClass() == PlaybackNetworkClass.Metered
     },
+    private val forwardCacheTargetUs: Long = 60_000_000L,
 ) : Closeable {
     private data class Route(
         val upstreamUri: String,
@@ -174,6 +176,7 @@ internal class AndroidYCoreHttpProxy(
         val dashTemplate: DashTemplateRoute? = null,
         val dashAbrResource: DashAbrResourceRoute? = null,
         val hlsAbrResource: HlsAbrResourceRoute? = null,
+        val mediaBitRateBitsPerSecond: Long = 0L,
     )
 
     private data class DashTemplateRoute(
@@ -337,6 +340,7 @@ internal class AndroidYCoreHttpProxy(
     private val routes = LinkedHashMap<String, Route>()
     private val routeIds = HashMap<Route, String>()
     private val closed = AtomicBoolean(false)
+    private val activeRangeSources = ConcurrentHashMap.newKeySet<AndroidTransportMediaDataSource>()
 
     @Volatile
     private var adaptivePlaybackFeedback: TimedAdaptivePlaybackFeedback? = null
@@ -364,6 +368,7 @@ internal class AndroidYCoreHttpProxy(
         drmProtected: Boolean = false,
         allowDolbyVisionHls: Boolean = false,
         allowDolbyAtmosHls: Boolean = false,
+        mediaBitRateBitsPerSecond: Long = 0L,
     ): String {
         if (closed.get() || upstreamUri.sourceProtocolOrNull() == null) return upstreamUri
         val route =
@@ -380,6 +385,7 @@ internal class AndroidYCoreHttpProxy(
                 drmProtected = drmProtected,
                 allowDolbyVisionHls = allowDolbyVisionHls,
                 allowDolbyAtmosHls = allowDolbyAtmosHls,
+                mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
             )
         val syntheticPath =
             when {
@@ -397,12 +403,28 @@ internal class AndroidYCoreHttpProxy(
                 value = feedback,
                 recordedAtNs = System.nanoTime(),
             )
+        activeRangeSources.forEach(::updateRangePlaybackWindow)
+    }
+
+    private fun updateRangePlaybackWindow(source: AndroidTransportMediaDataSource) {
+        val feedback = adaptivePlaybackFeedback?.value ?: return
+        source.updatePlaybackWindow(
+            YTransportPlaybackWindow(
+                targetAheadUs = (forwardCacheTargetUs * feedback.speed.toDouble()).toLong(),
+                speed = feedback.speed,
+                bufferedUs = feedback.bufferedDurationUs,
+                minimumWarmBufferUs = 2_000_000L,
+                playing = feedback.playing,
+            ),
+        )
     }
 
     private fun latestPlaybackFeedback(): TimedAdaptivePlaybackFeedback? = adaptivePlaybackFeedback
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        activeRangeSources.forEach { runCatching { it.close() } }
+        activeRangeSources.clear()
         runCatching { server.close() }
         workers.shutdownNow()
         runCatching { workers.awaitTermination(WORKER_SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
@@ -1034,6 +1056,7 @@ internal class AndroidYCoreHttpProxy(
                 headers = route.upstreamHeadersWithUserAgent(),
                 credentials = route.credentials,
                 createTransport = createTransport,
+                initialMediaBitRateBitsPerSecond = route.mediaBitRateBitsPerSecond,
                 cacheDirectory = cacheDirectory.takeIf { route.cacheable },
                 cacheIdentity = route.cacheIdentity.takeIf { route.cacheable },
                 cacheMaximumBytes = cacheMaximumBytes.takeIf { route.cacheable } ?: 0L,
@@ -1050,6 +1073,8 @@ internal class AndroidYCoreHttpProxy(
                         else -> null
                     },
             )
+        activeRangeSources.add(source)
+        updateRangePlaybackWindow(source)
         try {
             val totalLength = source.getSize()
             require(totalLength >= 0L) { "Upstream media length is unknown" }
@@ -1086,6 +1111,7 @@ internal class AndroidYCoreHttpProxy(
                 abr.session.complete(abr.sequence, abr.durationUs)
             }
         } finally {
+            activeRangeSources.remove(source)
             source.close()
         }
     }

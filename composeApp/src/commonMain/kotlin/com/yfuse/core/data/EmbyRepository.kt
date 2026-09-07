@@ -921,11 +921,22 @@ class EmbyRepository(
     suspend fun itemDetail(
         server: SavedServer,
         itemId: String,
+        includeInheritedPeople: Boolean = true,
     ): Result<MediaDetail> =
         if (server.kind == MediaServerKind.Plex) {
             plex.itemDetail(server, itemId)
         } else {
-            detailService.itemDetail(server, itemId)
+            detailService.itemDetail(server, itemId, includeInheritedPeople)
+        }
+
+    suspend fun inheritedEpisodePeople(
+        server: SavedServer,
+        detail: MediaDetail,
+    ): Result<List<com.yfuse.core.model.Person>> =
+        if (server.kind == MediaServerKind.Plex) {
+            Result.success(detail.people)
+        } else {
+            detailService.inheritedEpisodePeople(server, detail)
         }
 
     suspend fun compareSources(

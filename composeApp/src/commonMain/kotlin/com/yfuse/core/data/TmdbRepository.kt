@@ -26,6 +26,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -442,7 +443,10 @@ class TmdbRepository(
                 // The pool 今日精选 rotates through, not a shortlist anyone sees all of. Only
                 // one is shown per day, so a handful would come back round inside a fortnight.
                 val featured = popular.filter { it.backdropPath != null }.take(FEATURED_POOL)
-                val enrichedFeatured = enrichFeaturedRuntimes(featured, today, language)
+                val enrichedFeatured =
+                    withTimeoutOrNull(FEATURED_ENRICHMENT_BUDGET_MS) {
+                        enrichFeaturedRuntimes(featured, today, language)
+                    } ?: featured
                 val rows =
                     listOf(
                         TmdbRow("热门", popular),
@@ -1079,14 +1083,19 @@ class TmdbRepository(
         requireArtwork: Boolean = true,
     ): List<TmdbItem> =
         try {
-            feedRequests
-                .withPermit {
-                    client
-                        .get("$TMDB_BASE$path") {
-                            parameter("language", language)
-                            parameters.forEach { (name, value) -> parameter(name, value) }
-                        }.body<TmdbListDto>()
-                }.results
+            // Include permit wait in the deadline so an unreachable host cannot turn
+            // sixteen feeds into three consecutive full-length timeout waves.
+            val response =
+                withTimeoutOrNull(FEED_TOTAL_BUDGET_MS) {
+                    feedRequests.withPermit {
+                        client
+                            .get("$TMDB_BASE$path") {
+                                parameter("language", language)
+                                parameters.forEach { (name, value) -> parameter(name, value) }
+                            }.body<TmdbListDto>()
+                    }
+                } ?: throw EmbyErrorException(EmbyError.Network)
+            response.results
                 .map { it.toItem(fallbackType) }
                 .filter { it.title.isNotBlank() }
                 .filter { !requireArtwork || it.posterPath != null || it.backdropPath != null }
@@ -1207,6 +1216,8 @@ class TmdbRepository(
          */
         const val CALENDAR_REQUEST_CONCURRENCY = 6
         const val FEED_REQUEST_CONCURRENCY = 6
+        const val FEED_TOTAL_BUDGET_MS = 20_000L
+        const val FEATURED_ENRICHMENT_BUDGET_MS = 2_000L
 
         /**
          * Fewer than the shows, because a film is one row and a 日更 drama is fourteen.

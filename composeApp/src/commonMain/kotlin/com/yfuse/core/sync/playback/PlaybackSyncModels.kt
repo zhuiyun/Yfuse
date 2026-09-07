@@ -101,7 +101,11 @@ data class PendingPlaybackServerApply(
     val remainingServerIds: List<String>,
     val attemptCount: Int = 0,
     val nextAttemptAtEpochMs: Long = 0L,
-)
+    val deferredUntilByServerId: Map<String, Long> = emptyMap(),
+) {
+    fun readyServerIds(nowEpochMs: Long): List<String> =
+        remainingServerIds.filter { (deferredUntilByServerId[it] ?: 0L) <= nowEpochMs }
+}
 
 @Serializable
 data class EncryptedPlaybackEntity(

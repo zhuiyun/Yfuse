@@ -78,6 +78,19 @@ internal class AndroidYCoreBlockCache(
             block
         }
 
+    /** Metadata-only lookup for forward-cache scheduling; readBlock still validates the CRC before serving bytes. */
+    fun cachedBlockLength(index: Long): Int? =
+        synchronized(CACHE_LOCK) {
+            val file = blockFile(index)
+            runCatching {
+                DataInputStream(file.inputStream()).use { input ->
+                    if (input.readInt() != BLOCK_MAGIC || input.readInt() != blockSizeBytes) return@use null
+                    val size = input.readInt()
+                    size.takeIf { it in 1..blockSizeBytes && file.length() == BLOCK_HEADER_BYTES + it.toLong() }
+                }
+            }.getOrNull()
+        }
+
     fun writeBlock(
         index: Long,
         bytes: ByteArray,

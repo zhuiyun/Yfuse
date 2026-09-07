@@ -8,6 +8,30 @@ import kotlin.test.assertTrue
 
 class YAggregateBandwidthMeterTest {
     @Test
+    fun `continuous concurrent transfers publish before the group ends without counting bytes twice`() {
+        val meter = YAggregateBandwidthMeter()
+        repeat(2) { meter.onTransferStarted(0L) }
+        assertNull(meter.onBytesTransferred(TWO_MIB, ONE_SECOND_NS / 4))
+        val first = assertNotNull(meter.onBytesTransferred(TWO_MIB, ONE_SECOND_NS / 2))
+        assertEquals(2 * TWO_MIB, first.bytes)
+        assertEquals(32 * TWO_MIB, first.bitsPerSecond)
+        assertTrue(meter.bitsPerSecond() > 0L)
+        assertNull(meter.onTransferFinished(TWO_MIB, ONE_SECOND_NS / 2))
+        val second = assertNotNull(meter.onBytesTransferred(TWO_MIB, ONE_SECOND_NS))
+        assertEquals(TWO_MIB, second.bytes)
+        assertNull(meter.onTransferFinished(2 * TWO_MIB, ONE_SECOND_NS))
+    }
+
+    @Test
+    fun `a stalled active transfer eventually lowers the rolling estimate`() {
+        val meter = YAggregateBandwidthMeter(maximumWeight = 1_000.0)
+        meter.onTransferStarted(0L)
+        meter.onBytesTransferred(TWO_MIB, ONE_SECOND_NS / 2)
+        repeat(4) { meter.bitsPerSecond((it + 1L) * 2 * ONE_SECOND_NS + ONE_SECOND_NS / 2) }
+        assertEquals(0L, meter.bitsPerSecond())
+    }
+
+    @Test
     fun `overlapping transfers are measured as one link, not four`() {
         val meter = YAggregateBandwidthMeter()
         // Four 2 MiB ranges, all in flight over the same one second of wall clock.

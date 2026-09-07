@@ -67,6 +67,9 @@ internal class DetailExecutor(
     private var playFromStartWhenSelectionReady = false
     private var sourceLoadGeneration = 0L
     private var relatedLoadGeneration = 0L
+    private var detailLoadGeneration = 0L
+    private var detailLoadJob: Job? = null
+    private var peopleLoadJob: Job? = null
     private var watchLaterLoadGeneration = 0L
     private var organizationLoadGeneration = 0L
     private val sourceCoordinator = SourceSelectionCoordinator(repo)
@@ -230,38 +233,64 @@ internal class DetailExecutor(
         }
 
     private fun load() {
+        val generation = ++detailLoadGeneration
+        detailLoadJob?.cancel()
+        peopleLoadJob?.cancel()
         val server = serverId?.let(registry::serverById) ?: registry.defaultServer
         dispatch(DetailMsg.Loading)
-        scope.launch {
-            if (server == null) {
-                AppLog.warning(
-                    category = "feature.detail",
-                    event = "server_missing",
-                    message = "Detail screen could not load because no server is available",
-                )
-                dispatch(DetailMsg.Failed("没有可用的服务器"))
-                return@launch
-            }
-            repo
-                .itemDetail(server, itemId)
-                .onSuccess { detail ->
-                    dispatch(DetailMsg.Loaded(detail, server))
-                    loadWatchLater(server, detail.id)
-                    loadPlaybackSelection(server, detail)
-                    loadRelated(server, detail)
-                }.onFailure {
-                    clearQueuedPlay()
-                    dispatch(DetailMsg.SelectionLoading(false))
+        detailLoadJob =
+            scope.launch {
+                if (server == null) {
                     AppLog.warning(
                         category = "feature.detail",
-                        event = "load_failed",
-                        message = "Detail screen failed to load",
-                        throwable = it,
-                        attributes = mapOf("serverId" to server.id),
+                        event = "server_missing",
+                        message = "Detail screen could not load because no server is available",
                     )
-                    dispatch(DetailMsg.Failed(it.toUserMessage("加载失败")))
+                    dispatch(DetailMsg.Failed("没有可用的服务器"))
+                    return@launch
                 }
-        }
+                repo
+                    .itemDetail(server, itemId, includeInheritedPeople = false)
+                    .onSuccess { detail ->
+                        if (generation != detailLoadGeneration) return@onSuccess
+                        dispatch(DetailMsg.Loaded(detail, server))
+                        loadWatchLater(server, detail.id)
+                        loadPlaybackSelection(server, detail)
+                        loadRelated(server, detail)
+                        loadPeople(server, detail)
+                    }.onFailure {
+                        if (generation != detailLoadGeneration) return@onFailure
+                        clearQueuedPlay()
+                        dispatch(DetailMsg.SelectionLoading(false))
+                        AppLog.warning(
+                            category = "feature.detail",
+                            event = "load_failed",
+                            message = "Detail screen failed to load",
+                            throwable = it,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                        dispatch(DetailMsg.Failed(it.toUserMessage("加载失败")))
+                    }
+            }
+    }
+
+    private fun loadPeople(
+        server: SavedServer,
+        detail: MediaDetail,
+    ) {
+        peopleLoadJob?.cancel()
+        if (detail.type != "Episode" || detail.people.isNotEmpty() || detail.seriesId == null) return
+        val generation = detailLoadGeneration
+        peopleLoadJob =
+            scope.launch {
+                withTimeoutOrNull(5_000L) {
+                    repo.inheritedEpisodePeople(server, detail).onSuccess { people ->
+                        if (generation == detailLoadGeneration) {
+                            dispatch(DetailMsg.PeopleLoaded(server.id, detail.id, people))
+                        }
+                    }
+                }
+            }
     }
 
     /**
@@ -340,7 +369,13 @@ internal class DetailExecutor(
             }
 
             val resolution = repo.resolvePlayTargetWithEpisodes(server, sourceDetail).getOrThrow()
-            val targetDetail = repo.itemDetail(server, resolution.target.itemId).getOrThrow()
+            val targetDetail =
+                repo
+                    .itemDetail(
+                        server,
+                        resolution.target.itemId,
+                        includeInheritedPeople = false,
+                    ).getOrThrow()
             ResolvedPlaybackSelection(
                 server = server,
                 sourceDetail = sourceDetail,
@@ -519,7 +554,13 @@ internal class DetailExecutor(
             }
 
             if (preferredPlaybackItemId != null) {
-                val targetDetail = repo.itemDetail(server, preferredPlaybackItemId).getOrThrow()
+                val targetDetail =
+                    repo
+                        .itemDetail(
+                            server,
+                            preferredPlaybackItemId,
+                            includeInheritedPeople = false,
+                        ).getOrThrow()
                 if (targetDetail.type != "Episode" || targetDetail.seriesId != sourceDetail.id) {
                     throw EpisodeUnavailableException(
                         seasonNumber = targetDetail.seasonNumber,
@@ -575,7 +616,13 @@ internal class DetailExecutor(
                     allEpisodes = resolution.episodes
                     resolution.target
                 }
-            val targetDetail = repo.itemDetail(server, resolvedTarget.itemId).getOrThrow()
+            val targetDetail =
+                repo
+                    .itemDetail(
+                        server,
+                        resolvedTarget.itemId,
+                        includeInheritedPeople = false,
+                    ).getOrThrow()
             val catalog =
                 loadSeriesCatalog(
                     server = server,
@@ -648,6 +695,7 @@ internal class DetailExecutor(
         }
         if (sourceChanged) {
             loadWatchLater(selection.server, selection.sourceDetail.id)
+            loadPeople(selection.server, selection.sourceDetail)
         }
         playQueuedSelectionIfReady()
     }
@@ -798,7 +846,7 @@ internal class DetailExecutor(
                                         state().playSourceDetail?.id == playSourceItemId
                                 },
                             ) {
-                                repo.itemDetail(server, episodeId).fold(
+                                repo.itemDetail(server, episodeId, includeInheritedPeople = false).fold(
                                     onSuccess = { target ->
                                         cancellableResult {
                                             val currentSeasonNumber =

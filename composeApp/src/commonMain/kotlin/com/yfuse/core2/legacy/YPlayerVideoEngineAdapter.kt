@@ -241,20 +241,24 @@ internal fun com.yfuse.core2.api.YPlayerDiagnostics.toPlaybackOutputEvidence(
             if (videoOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
         audioConfidence =
             if (audioOutputVerified) PlaybackEvidenceConfidence.Confirmed else PlaybackEvidenceConfidence.Requested,
-        // The native label combines "video + audio" decoders. A single decoder on an
-        // audio-only source must not become proof that the item contains video.
+        // Prefer typed identities. A single legacy label with both tracks present is
+        // ambiguous: audio may have started before the video Surface was attached.
         videoDecoder =
-            decoderParts
-                .firstOrNull()
-                .orEmpty()
-                .takeIf { videoTrackKnown }
-                .orEmpty(),
+            videoDecoderName.ifBlank {
+                when {
+                    !videoTrackKnown -> ""
+                    decoderParts.size > 1 || !audioTrackKnown -> decoderParts.firstOrNull().orEmpty()
+                    else -> ""
+                }
+            },
         audioDecoder =
-            when {
-                !audioTrackKnown -> ""
-                decoderParts.size > 1 -> decoderParts[1]
-                !videoTrackKnown -> decoderParts.firstOrNull().orEmpty()
-                else -> ""
+            audioDecoderName.ifBlank {
+                when {
+                    !audioTrackKnown -> ""
+                    decoderParts.size > 1 -> decoderParts[1]
+                    !videoTrackKnown -> decoderParts.firstOrNull().orEmpty()
+                    else -> ""
+                }
             },
         inputDynamicRange = dynamicRange,
         outputDynamicRange = dynamicRange.takeIf { videoOutputVerified }.orEmpty(),

@@ -52,6 +52,12 @@ internal class PlaybackResolutionTimeoutException : Exception("playback resoluti
 internal sealed interface DetailMsg {
     data object Loading : DetailMsg
 
+    data class PeopleLoaded(
+        val serverId: String,
+        val itemId: String,
+        val people: List<com.yfuse.core.model.Person>,
+    ) : DetailMsg
+
     data class Loaded(
         val detail: MediaDetail,
         val server: SavedServer,

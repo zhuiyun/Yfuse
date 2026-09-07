@@ -336,6 +336,9 @@ data class YPlayerDiagnostics(
     val container: String = "",
     val demuxer: String = "",
     val decoder: String = "",
+    /** Typed decoder identities; the combined display label is not output evidence. */
+    val videoDecoderName: String = "",
+    val audioDecoderName: String = "",
     val renderer: String = "",
     val videoCodec: String = "",
     val videoWidth: Int = 0,

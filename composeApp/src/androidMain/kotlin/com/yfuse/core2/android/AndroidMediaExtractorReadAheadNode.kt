@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * the same owner because MediaExtractor is not thread-safe.
  */
 internal class AndroidMediaExtractorReadAheadNode(
-    private val delegate: YPlatformExtractorSource,
+    @Volatile private var delegate: YPlatformExtractorSource,
 ) {
     constructor(
         context: Context,
@@ -38,6 +38,7 @@ internal class AndroidMediaExtractorReadAheadNode(
     private val samples = ArrayDeque<YExtractorSample>()
     private var executor: ExecutorService? = null
     private var opened = false
+    private var readAheadEnabled = false
     private var selectedTracks = emptySet<Int>()
     private var endOfInput = false
     private var failure: Throwable? = null
@@ -57,16 +58,25 @@ internal class AndroidMediaExtractorReadAheadNode(
 
     val name: String get() = delegate.name
 
-    fun open(source: YAndroidMediaSource) {
+    fun open(
+        source: YAndroidMediaSource,
+        preparedSource: YPlatformExtractorSource? = null,
+    ) {
         synchronized(monitor) {
             opened = false
+            readAheadEnabled = false
             selectedTracks = emptySet()
             clearQueueLocked()
             latestTransportQoeSnapshot = null
             transportQoeRefreshScheduled.set(false)
         }
         runOnOwner {
-            delegate.open(source)
+            if (preparedSource == null) {
+                delegate.open(source)
+            } else {
+                delegate.release()
+                delegate = preparedSource
+            }
             synchronized(monitor) {
                 opened = true
                 ownerSelectedTracks = emptySet()
@@ -117,6 +127,8 @@ internal class AndroidMediaExtractorReadAheadNode(
      */
     fun blockedForegroundReadMs(): Long = delegate.blockedForegroundReadMs()
 
+    fun updatePlaybackWindow(window: YTransportPlaybackWindow) = delegate.updatePlaybackWindow(window)
+
     fun configureSampleCapacity(bytes: Int) {
         require(bytes > 0)
         synchronized(monitor) { sampleCapacity = bytes }
@@ -146,8 +158,17 @@ internal class AndroidMediaExtractorReadAheadNode(
         if (fill) requestFill()
     }
 
-    fun selectTracks(trackIndices: Set<Int>) {
+    /**
+     * Startup can select tracks without filling from the container's initial position. Metadata
+     * reads and a resume seek must finish before [startReadAhead] queues any sample I/O; otherwise
+     * those owner-thread commands wait behind a whole forward buffer that the seek discards.
+     */
+    fun selectTracks(
+        trackIndices: Set<Int>,
+        startReadAhead: Boolean = true,
+    ) {
         synchronized(monitor) {
+            readAheadEnabled = false
             selectedTracks = emptySet()
             clearQueueLocked()
         }
@@ -159,9 +180,18 @@ internal class AndroidMediaExtractorReadAheadNode(
                 ownerSelectedTracks = trackIndices
                 selectedTracks = trackIndices
                 resetQueueStateLocked()
+                readAheadEnabled = startReadAhead
             }
         }
         requestFill()
+    }
+
+    fun startReadAhead() {
+        synchronized(monitor) {
+            if (!opened) return
+            readAheadEnabled = true
+            requestFillLocked()
+        }
     }
 
     fun seekTo(positionUs: Long) {
@@ -241,6 +271,8 @@ internal class AndroidMediaExtractorReadAheadNode(
                 starved = starved && samples.isEmpty() && !endOfInput,
                 targetAheadUs = targetAheadUs,
                 throughputBitsPerSecond = latestTransportQoeSnapshot?.throughputBitsPerSecond ?: 0L,
+                endOfInput = endOfInput || failure != null,
+                atCapacity = queuedBytes >= maximumQueueBytes,
             )
         }
 
@@ -248,6 +280,7 @@ internal class AndroidMediaExtractorReadAheadNode(
         val owner =
             synchronized(monitor) {
                 opened = false
+                readAheadEnabled = false
                 selectedTracks = emptySet()
                 clearQueueLocked()
                 latestTransportQoeSnapshot = null
@@ -286,6 +319,7 @@ internal class AndroidMediaExtractorReadAheadNode(
     private fun requestFillLocked() {
         if (
             !opened ||
+            !readAheadEnabled ||
             selectedTracks.isEmpty() ||
             endOfInput ||
             failure != null ||
@@ -352,6 +386,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 synchronized(monitor) {
                     if (
                         !opened ||
+                        !readAheadEnabled ||
                         selectedTracks.isEmpty() ||
                         endOfInput ||
                         failure != null ||
@@ -369,7 +404,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                     }
                 if (copied != null) delegate.advance()
                 synchronized(monitor) {
-                    if (!opened || selectedTracks.isEmpty()) return
+                    if (!opened || !readAheadEnabled || selectedTracks.isEmpty()) return
                     if (copied == null) {
                         endOfInput = true
                         return
@@ -471,6 +506,8 @@ internal data class YExtractorReadAheadSnapshot(
     val targetAheadUs: Long = DEFAULT_HIGH_WATERMARK_US,
     /** Aggregate transport throughput, or 0 before the first measured busy period. */
     val throughputBitsPerSecond: Long = 0L,
+    val endOfInput: Boolean = false,
+    val atCapacity: Boolean = false,
 )
 
 private const val EXTRACTOR_THREAD_NAME = "YCore-PlatformDemux"

@@ -1,9 +1,11 @@
 package com.yfuse.core.network
 
 import io.ktor.client.HttpClient
+import io.ktor.client.call.HttpClientCall
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.ResponseException
 import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -11,6 +13,7 @@ import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.plugin
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -53,6 +56,18 @@ private val embyRequestOriginKey = AttributeKey<EmbyRequestOrigin>("EmbyRequestO
 private val suppressEmbyIdentityKey = AttributeKey<Unit>("SuppressEmbyIdentity")
 
 private const val EMBY_CLIENT_HEADER = "X-Emby-Client"
+private const val EMBY_ACCESS_COOLDOWN_MS = 5 * 60_000L
+
+private fun HttpResponse.isCloudflareChallenge(): Boolean =
+    status.value == 403 &&
+        (
+            headers["cf-mitigated"].equals("challenge", ignoreCase = true) ||
+                (
+                    headers[HttpHeaders.Server].orEmpty().contains("cloudflare", ignoreCase = true) &&
+                        headers[HttpHeaders.ContentType].orEmpty().contains("text/html", ignoreCase = true)
+                )
+        )
+
 private const val EMBY_CLIENT_VERSION_HEADER = "X-Emby-Client-Version"
 private const val EMBY_DEVICE_ID_HEADER = "X-Emby-Device-Id"
 private const val EMBY_DEVICE_NAME_HEADER = "X-Emby-Device-Name"
@@ -139,6 +154,7 @@ fun createEmbyClient(
      * lands a continuation on `Dispatchers.Main` moments after `resetMain()` has removed it.
      */
     timeouts: EmbyTimeouts? = EmbyTimeouts(),
+    nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ): HttpClient =
     HttpClient(engine) {
         expectSuccess = true
@@ -171,6 +187,8 @@ fun createEmbyClient(
         // only after the library discovery endpoint rejects the current one with 403.
         val preferredClientBySession =
             MutableStateFlow<Map<EmbyIdentityPreferenceKey, String>>(emptyMap())
+        val accessCooldowns =
+            MutableStateFlow<Map<EmbyIdentityPreferenceKey, Pair<Long, EmbyError>>>(emptyMap())
         client.plugin(HttpSend).intercept { request ->
             if (request.attributes.getOrNull(suppressEmbyIdentityKey) != null) {
                 request.headers.remove("X-Emby-Authorization")
@@ -195,6 +213,32 @@ fun createEmbyClient(
             if (accessToken == null) return@intercept execute(request)
 
             val preferenceKey = EmbyIdentityPreferenceKey(currentOrigin, accessToken)
+            accessCooldowns.value[preferenceKey]?.let { (until, error) ->
+                if (nowEpochMs() < until) throw EmbyErrorException(error)
+            }
+
+            fun rememberAccessFailure(response: HttpResponse) {
+                val failure =
+                    when {
+                        response.status.value == 401 -> EmbyError.Unauthorized
+                        response.isCloudflareChallenge() -> EmbyError.AccessDenied("Cloudflare")
+                        else -> return
+                    }
+                val now = nowEpochMs()
+                accessCooldowns.update { current ->
+                    current.filterValues { it.first > now } +
+                        (preferenceKey to (now + EMBY_ACCESS_COOLDOWN_MS to failure))
+                }
+            }
+
+            suspend fun executeWithAccessTracking(): HttpClientCall =
+                try {
+                    execute(request).also { rememberAccessFailure(it.response) }
+                } catch (error: ResponseException) {
+                    rememberAccessFailure(error.response)
+                    throw error
+                }
+
             val preferredClient =
                 preferredClientBySession.value[preferenceKey] ?: DEFAULT_EMBY_CLIENT_NAME
             request.applyEmbyIdentity(appVersion, preferredClient)
@@ -205,10 +249,13 @@ fun createEmbyClient(
                         .encodedPath
                         .trimEnd('/')
                         .endsWith("/Views")
-            if (!canProbeLegacyIdentity) return@intercept execute(request)
+            if (!canProbeLegacyIdentity) return@intercept executeWithAccessTracking()
 
-            val firstCall = execute(request)
+            val firstCall = executeWithAccessTracking()
             if (firstCall.response.status.value != 403) return@intercept firstCall
+            // A WAF challenge is not an Emby identity mismatch. Do not probe alternate
+            // identities or keep other background modules hammering the same endpoint.
+            if (firstCall.response.isCloudflareChallenge()) return@intercept firstCall
 
             val fallbackClient =
                 if (preferredClient == LEGACY_EMBY_CLIENT_NAME) {
@@ -218,7 +265,7 @@ fun createEmbyClient(
                 }
             firstCall.response.bodyAsChannel().cancel(CancellationException("Retrying with alternate Emby identity"))
             request.applyEmbyIdentity(appVersion, fallbackClient)
-            val fallbackCall = execute(request)
+            val fallbackCall = executeWithAccessTracking()
             if (fallbackCall.response.status.value in 200..299) {
                 preferredClientBySession.update { it + (preferenceKey to fallbackClient) }
             }

@@ -89,7 +89,7 @@ internal class SourceSelectionCoordinator(
         var attempt = 1
         while (true) {
             val result =
-                repo.itemDetail(server, sourceItemId).fold(
+                repo.itemDetail(server, sourceItemId, includeInheritedPeople = false).fold(
                     onSuccess = { resolveDetail(it) },
                     onFailure = { Result.failure(it) },
                 )

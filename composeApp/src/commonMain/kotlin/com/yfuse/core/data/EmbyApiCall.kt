@@ -59,6 +59,7 @@ internal suspend fun <T> embyApiCall(
 
 private suspend fun Throwable.toEmbyError(): EmbyError =
     when (this) {
+        is EmbyErrorException -> error
         is ResponseException ->
             when (response.status.value) {
                 401 -> EmbyError.Unauthorized

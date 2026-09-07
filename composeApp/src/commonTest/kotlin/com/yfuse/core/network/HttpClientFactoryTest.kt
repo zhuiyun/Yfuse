@@ -23,6 +23,45 @@ import kotlin.test.assertTrue
 
 class HttpClientFactoryTest {
     @Test
+    fun cloudflareRejectionCoolsOtherModulesButNotOtherSessions() =
+        runTest {
+            var calls = 0
+            var now = 1_000L
+            val client =
+                createEmbyClient(
+                    appVersion = "1.0.0",
+                    timeouts = null,
+                    nowEpochMs = { now },
+                    engine =
+                        MockEngine {
+                            calls++
+                            respond(
+                                "<html>blocked</html>",
+                                HttpStatusCode.Forbidden,
+                                headersOf("Content-Type" to listOf("text/html"), "Server" to listOf("cloudflare")),
+                            )
+                        },
+                )
+            try {
+                runCatching { client.get("https://media.example.com/Users/u/Views") { header("X-Emby-Token", "old") } }
+                assertEquals(1, calls)
+                val failure =
+                    runCatching {
+                        client.get("https://media.example.com/System/Info") { header("X-Emby-Token", "old") }
+                    }.exceptionOrNull()
+                assertTrue(failure is EmbyErrorException)
+                assertEquals(1, calls)
+                runCatching { client.get("https://media.example.com/System/Info") { header("X-Emby-Token", "new") } }
+                assertEquals(2, calls)
+                now += 5 * 60_000L
+                runCatching { client.get("https://media.example.com/System/Info") { header("X-Emby-Token", "old") } }
+                assertEquals(3, calls)
+            } finally {
+                client.close()
+            }
+        }
+
+    @Test
     fun danmakuClientInstallsTimeoutProtection() {
         val client = createDanmakuClient(MockEngine { respond("{}", HttpStatusCode.OK) })
 
