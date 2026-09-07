@@ -727,7 +727,6 @@ kotlin {
     }
 }
 
-// TMDB token comes from local.properties (gitignored) so it never lands in git.
 /**
  * Ed25519 public key (base64 SubjectPublicKeyInfo) that update manifests must be signed with.
  * Empty means no signing is configured: debug builds then accept unsigned manifests with a
@@ -740,6 +739,7 @@ val updateManifestPublicKey: String =
         .getOrElse("")
         .trim()
 
+// TMDB token comes from local.properties (gitignored) so it never lands in git.
 val tmdbToken: String =
     Properties()
         .apply {

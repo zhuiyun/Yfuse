@@ -11,6 +11,7 @@ import com.yfuse.core.security.TestSecureStore
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -222,7 +223,7 @@ class ServerRegistryTest {
     }
 
     @Test
-    fun routeMutationsAllowPublicAndLocalHttpWithoutConfirmation() {
+    fun routeMutationsRequireConfirmationForPublicAndLocalHttp() {
         val registry = registry()
         val original =
             SavedServer(
@@ -235,7 +236,7 @@ class ServerRegistryTest {
             )
         registry.addOrUpdate(original)
 
-        assertTrue(
+        assertFalse(
             registry.setRoutes(
                 original.id,
                 listOf(
@@ -244,13 +245,20 @@ class ServerRegistryTest {
                 ),
             ),
         )
-        assertTrue(
+        assertFalse(
             registry.setRoutes(
                 original.id,
                 listOf(
                     ServerRoute(ServerRoute.PRIMARY_ID, "主线路", original.baseUrl),
                     ServerRoute("r2", "家庭 HTTP", "http://192.168.1.8:8096"),
                 ),
+            ),
+        )
+        assertTrue(
+            registry.setRoutes(
+                original.id,
+                listOf(ServerRoute("r2", "家庭 HTTP", "http://192.168.1.8:8096")),
+                localCleartextConfirmed = true,
             ),
         )
     }
@@ -363,7 +371,7 @@ class ServerRegistryTest {
     }
 
     @Test
-    fun publicHttpCanBeSavedWithoutConfirmation() {
+    fun publicHttpCanBeSavedOnlyAfterConfirmation() {
         val cleartext =
             SavedServer(
                 id = SavedServer.idOf("http://media.example.com", "u"),
@@ -374,13 +382,18 @@ class ServerRegistryTest {
                 accessToken = "token",
             )
         val registry = registry()
-        registry.addOrUpdate(cleartext)
+        assertFailsWith<IllegalArgumentException> { registry.addOrUpdate(cleartext) }
+        assertTrue(
+            registry.data.value.servers
+                .isEmpty(),
+        )
+        registry.addOrUpdate(cleartext.copy(localCleartextConfirmed = true))
 
         assertEquals("http://media.example.com", registry.defaultServer?.baseUrl)
     }
 
     @Test
-    fun protectedBackupCanRestoreHttpServerWithoutConsent() {
+    fun protectedBackupRequiresDeviceConsentAndPreservesExistingConsent() {
         val http =
             SavedServer(
                 id = SavedServer.idOf("http://192.168.1.8:8096", "u"),
@@ -389,13 +402,22 @@ class ServerRegistryTest {
                 userId = "u",
                 userName = "User",
                 accessToken = "token",
+                localCleartextConfirmed = true,
             )
         val source = registry().apply { addOrUpdate(http) }
         val passphrase = "correct horse battery staple".toCharArray()
         val now = 2_000_000_000L
         val payload = source.exportProtectedBackup(passphrase, now).getOrThrow()
 
-        assertEquals(1, registry().importProtectedBackup(payload, passphrase, now + 1).getOrThrow())
+        val freshDevice = registry()
+        assertTrue(freshDevice.importProtectedBackup(payload, passphrase, now + 1).isFailure)
+        assertTrue(
+            freshDevice.data.value.servers
+                .isEmpty(),
+        )
+        val confirmedDevice = registry().apply { addOrUpdate(http) }
+        assertEquals(1, confirmedDevice.importProtectedBackup(payload, passphrase, now + 1).getOrThrow())
+        assertTrue(confirmedDevice.defaultServer?.localCleartextConfirmed == true)
         passphrase.fill('\u0000')
     }
 }

@@ -679,6 +679,8 @@ class ServerRegistry(
                             ?.previousIds
                             .orEmpty(),
                     invalidMessagePrefix = "迁移包中的",
+                    localCleartextConfirmed =
+                        current.servers.firstOrNull { it.id == id }?.localCleartextConfirmed == true,
                     routes = portable.routes,
                     iconEmoji = portable.iconEmoji,
                     iconTint = portable.iconTint,

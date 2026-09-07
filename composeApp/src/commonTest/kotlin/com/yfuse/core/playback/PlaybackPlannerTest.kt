@@ -9,9 +9,27 @@ import kotlin.test.assertTrue
 
 class PlaybackPlannerTest {
     @Test
+    fun compact_package_never_selects_an_unbundled_locked_engine() {
+        val plan =
+            planPlayback(
+                probe = probe(container = "mp4"),
+                capabilities = capabilities(),
+                preferredEngine = PlayerEngine.Mdk,
+                preferredDecoderMode = DecoderMode.Auto,
+                engineSelection = PlaybackEngineSelection.LockMdk,
+                availableEngines = setOf(PlayerEngine.Exo, PlayerEngine.Mpv),
+            )
+
+        assertTrue(plan.engineOrder.isNotEmpty())
+        assertFalse(PlayerEngine.Mdk in plan.engineOrder)
+        assertTrue(plan.primaryEngine in setOf(PlayerEngine.Exo, PlayerEngine.Mpv))
+    }
+
+    @Test
     fun ordinary_supported_video_preserves_the_efficient_platform_path() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "mkv"),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -27,6 +45,7 @@ class PlaybackPlannerTest {
     fun known_exotic_container_uses_native_demux_before_platform_failure() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "avi"),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -42,6 +61,7 @@ class PlaybackPlannerTest {
     fun disc_source_with_server_fallback_uses_server_parse_and_platform_decode() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "iso", disc = true, transcode = true),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Mpv,
@@ -58,6 +78,7 @@ class PlaybackPlannerTest {
     fun power_saver_overrides_a_native_preference_for_supported_content() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "mp4"),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Mdk,
@@ -96,6 +117,7 @@ class PlaybackPlannerTest {
 
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = hdrProbe,
                 capabilities = decoderOnlyCapabilities,
                 preferredEngine = PlayerEngine.Exo,
@@ -112,6 +134,7 @@ class PlaybackPlannerTest {
     fun compatibility_mode_prefers_mpv_but_keeps_platform_as_a_fallback() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "mkv"),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -127,6 +150,7 @@ class PlaybackPlannerTest {
     fun repeated_device_failure_removes_the_bad_engine_from_the_plan() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "mkv"),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -142,6 +166,7 @@ class PlaybackPlannerTest {
     fun balanced_mode_uses_device_performance_history_for_equivalent_engines() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "mkv"),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -157,6 +182,7 @@ class PlaybackPlannerTest {
     fun drm_remains_on_the_platform_path_even_when_history_prefers_native() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "mp4").copy(drmProtected = true),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Mpv,
@@ -172,6 +198,7 @@ class PlaybackPlannerTest {
     fun locked_backend_disables_automatic_reranking_and_fallback() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "avi"),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -190,6 +217,7 @@ class PlaybackPlannerTest {
     fun protected_content_safely_overrides_a_native_backend_lock() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "mp4").copy(drmProtected = true),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Mpv,
@@ -214,6 +242,7 @@ class PlaybackPlannerTest {
             )
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe =
                     PlaybackMediaProbe(
                         container = "mp4",
@@ -238,6 +267,7 @@ class PlaybackPlannerTest {
     fun unsupported_hardware_uses_local_software_when_server_cannot_transcode() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "mkv", transcode = false),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -254,6 +284,7 @@ class PlaybackPlannerTest {
     fun unsupported_hardware_prefers_an_available_server_transcode() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "mkv", transcode = true),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -285,6 +316,7 @@ class PlaybackPlannerTest {
 
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = dolbyProbe,
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -322,6 +354,7 @@ class PlaybackPlannerTest {
             )
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = proResProbe,
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -342,6 +375,7 @@ class PlaybackPlannerTest {
     fun unsupported_platform_audio_keeps_native_demux_ahead_of_performance_ranking() {
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = probe(container = "mkv").copy(audioCodec = PlaybackAudioCodec.TrueHd),
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -363,6 +397,7 @@ class PlaybackPlannerTest {
 
         val pcmPlan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = source,
                 capabilities = trueHdRoute,
                 preferredEngine = PlayerEngine.Exo,
@@ -371,6 +406,7 @@ class PlaybackPlannerTest {
             )
         val passthroughPlan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = source,
                 capabilities = trueHdRoute,
                 preferredEngine = PlayerEngine.Exo,
@@ -393,6 +429,7 @@ class PlaybackPlannerTest {
             )
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe =
                     PlaybackMediaProbe(
                         container = "mp4",
@@ -419,6 +456,7 @@ class PlaybackPlannerTest {
 
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = source,
                 capabilities = capabilities(),
                 preferredEngine = PlayerEngine.Exo,
@@ -453,6 +491,7 @@ class PlaybackPlannerTest {
         // and show a green/magenta picture without ever failing.
         val plan =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = dolbyProbe,
                 capabilities = capabilities(dolby = false),
                 preferredEngine = PlayerEngine.Mdk,
@@ -464,6 +503,7 @@ class PlaybackPlannerTest {
 
         val locked =
             planPlayback(
+                availableEngines = PlayerEngine.entries.toSet(),
                 probe = dolbyProbe,
                 capabilities = capabilities(dolby = false),
                 preferredEngine = PlayerEngine.Mdk,

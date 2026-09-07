@@ -11,6 +11,8 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
+import com.yfuse.core.util.currentIsoDate
+import com.yfuse.core.util.isoDateDaysBefore
 import com.yfuse.feature.homeRoutes
 import com.yfuse.feature.json
 import com.yfuse.feature.testRegistry
@@ -94,7 +96,9 @@ class HomeStoreTest {
     @Test
     fun cached_recommendations_remain_visible_when_live_refresh_fails() =
         runTest(scheduler) {
-            val cache = TmdbHomeCache(MapSettings()).apply { write(CACHED_HOME) }
+            val settings = MapSettings()
+            TmdbHomeCache(settings) { isoDateDaysBefore(currentIsoDate(), 1) }.write(CACHED_HOME)
+            val cache = TmdbHomeCache(settings)
             val store = homeStore(cache, UnconfinedTestDispatcher(testScheduler))
 
             val state = store.states.first { !it.loading }

@@ -36,7 +36,7 @@ import kotlin.random.Random
 import kotlin.time.TimeSource
 
 /** Owns one watch-together room session and coordinates reconnect, timeline, chat and reactions. */
-class WatchTogetherClient(
+class WatchTogetherClient internal constructor(
     private val preferences: WatchTogetherPreferences,
     private val accountTokens: AccountAccessTokenSource,
     private val resumeStore: WatchRoomResumeStore = WatchRoomResumeStore(null),

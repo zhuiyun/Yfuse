@@ -88,7 +88,7 @@ class OfflineMediaSecurityTest {
     }
 
     @Test
-    fun rawOfflineTransferAllowsHttpAndHttpsWithoutConfirmation() {
+    fun rawOfflineTransferRequiresConfirmationForHttp() {
         assertEquals(
             "https",
             requireAllowedOfflineTransferUrl(
@@ -100,16 +100,21 @@ class OfflineMediaSecurityTest {
             "http",
             requireAllowedOfflineTransferUrl(
                 "http://media.example/Videos/episode/stream?api_key=secret",
-                localCleartextConfirmed = false,
+                localCleartextConfirmed = true,
             ).protocol,
         )
         assertEquals(
             "http",
             requireAllowedOfflineTransferUrl(
                 "http://192.168.1.20:8096/Videos/episode/stream?api_key=secret",
-                localCleartextConfirmed = false,
+                localCleartextConfirmed = true,
             ).protocol,
         )
+        listOf("http://media.example/video", "http://192.168.1.20:8096/video").forEach { url ->
+            assertFailsWith<IllegalArgumentException> {
+                requireAllowedOfflineTransferUrl(url, localCleartextConfirmed = false)
+            }
+        }
     }
 
     @Test

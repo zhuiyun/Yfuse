@@ -1,6 +1,7 @@
 package com.yfuse.feature.library
 
 import com.russhwolf.settings.Settings
+import com.yfuse.core.model.LibrarySort
 
 /** Remembers the sort chosen for each library, so a grid opens the way it was left. */
 class LibrarySortMemory(

@@ -35,7 +35,7 @@ class ServerSyncManagerTest {
         }
 
     @Test
-    fun progressSnapshotIsPulledOnlyOncePerServerAndSeedsLocalStore() =
+    fun progressSnapshotIsThrottledUnlessForcedAndSeedsLocalStore() =
         runTest {
             val settings = MapSettings()
             val savedServer = server("https://emby.test")
@@ -68,9 +68,11 @@ class ServerSyncManagerTest {
                 )
 
             manager.syncAll(force = true)
-            manager.syncAll(force = true)
+            manager.syncAll()
 
             assertEquals(2, progressQueries.size)
+            manager.syncAll(force = true)
+            assertEquals(4, progressQueries.size)
             assertEquals(
                 25_000L,
                 store.stateForServerItem(savedServer.id, "movie-1")?.positionMs,

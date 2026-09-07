@@ -17,8 +17,15 @@ class ServerEndpointPolicyTest {
 
     @Test
     fun embyHttpNeedsAnAcknowledgementThatNamesTheNetwork() {
-        val local = listOf("http://192.168.1.8:8096", "http://10.0.0.8", "http://media.local:8096", "http://emby:8096")
-        val public = listOf("http://100.64.0.10:8096", "http://8.8.8.8:8096", "http://media.example.com:8096")
+        val local =
+            listOf(
+                "http://100.64.0.10:8096",
+                "http://192.168.1.8:8096",
+                "http://10.0.0.8",
+                "http://media.local:8096",
+                "http://emby:8096",
+            )
+        val public = listOf("http://8.8.8.8:8096", "http://media.example.com:8096")
         local.forEach { endpoint ->
             val pending = validateEmbyServerEndpoint(endpoint)
             assertTrue(!pending.allowed && pending.requiresCleartextConfirmation, endpoint)

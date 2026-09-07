@@ -2,9 +2,24 @@ package com.yfuse.core.network
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EmbyStreamTest {
+    @Test
+    fun unconfirmedHttpCdnUrlsAreRejected() {
+        listOf("http://media.example/video", "http://192.168.1.20/video").forEach { url ->
+            assertNull(
+                EmbyStream.negotiatedUrl(
+                    baseUrl = "https://emby.example",
+                    rawUrl = url,
+                    token = "secret-token",
+                    playSessionId = "session",
+                ),
+            )
+        }
+    }
+
     @Test
     fun sameOriginNegotiatedHlsIsForcedToH264AacCompatibility() {
         val compatible =
@@ -34,12 +49,13 @@ class EmbyStreamTest {
     }
 
     @Test
-    fun negotiatedPublicHttpCdnUrlIsUsableWithoutLeakingServerCredentials() {
+    fun confirmedPublicHttpCdnUrlIsUsableWithoutLeakingServerCredentials() {
         val raw = "http://media.example/video?signature=abc%2B123"
         val negotiated =
             EmbyStream.negotiatedUrl(
                 baseUrl = "https://emby.example",
                 rawUrl = raw,
+                localCleartextConfirmed = true,
                 token = "secret-token",
                 playSessionId = "session",
             )
@@ -51,12 +67,13 @@ class EmbyStreamTest {
     }
 
     @Test
-    fun negotiatedLocalHttpCdnUrlIsAlsoKeptCredentialFree() {
+    fun confirmedLocalHttpCdnUrlIsAlsoKeptCredentialFree() {
         val raw = "http://192.168.1.20/video"
         val negotiated =
             EmbyStream.negotiatedUrl(
                 baseUrl = "https://emby.example",
                 rawUrl = raw,
+                localCleartextConfirmed = true,
                 token = "secret-token",
                 playSessionId = "session",
             )

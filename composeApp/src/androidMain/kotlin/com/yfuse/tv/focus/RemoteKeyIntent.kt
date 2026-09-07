@@ -1,5 +1,12 @@
 package com.yfuse.tv.focus
 
+enum class TvFocusDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
 enum class RemotePhysicalKey {
     DirectionUp,
     DirectionDown,

@@ -169,8 +169,9 @@ fun planPlayback(
     videoSupport: PlaybackVideoSupport = capabilities.videoSupport(probe.source.videoRequirements),
     dolbyVisionRuntime: PlaybackDolbyVisionRuntimeCapabilities =
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
+    availableEngines: Set<PlayerEngine> = PlayerEngine.selectable.toSet(),
 ): PlaybackPlan {
-    val lockedEngine = engineSelection.lockedEngine?.takeIf(PlayerEngine.selectable::contains)
+    val lockedEngine = engineSelection.lockedEngine?.takeIf(availableEngines::contains)
     val discDecision = planDiscPlayback(probe)
     val directlyPlayableAudio =
         if (allowAudioPassthrough) {
@@ -266,7 +267,7 @@ fun planPlayback(
                 listOf(contentEngine, PlayerEngine.Mpv, PlayerEngine.Mdk, PlayerEngine.Exo)
             else ->
                 listOf(contentEngine, preferredEngine, PlayerEngine.Exo, PlayerEngine.Mpv, PlayerEngine.Mdk)
-        }.filter(PlayerEngine.selectable::contains)
+        }.filter(availableEngines::contains)
             .filterNot { dolbyVisionSource && it == PlayerEngine.Mdk && lockedEngine != PlayerEngine.Mdk }
             .distinct()
 

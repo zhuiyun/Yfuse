@@ -178,6 +178,10 @@ private fun HomeContent(
 ) {
     val state by component.store.states.collectAsState(component.store.state)
     val calendarState by component.calendar.collectAsState()
+    val calendarItems =
+        remember(calendarState.days, state) {
+            homeCalendarPreviews(calendarState.days, state)
+        }
     val palette = LocalPalette.current
     val themeAccent = LocalAccentColors.current.accent
     val listState = component.listState
@@ -329,10 +333,6 @@ private fun HomeContent(
                     }
                 }
 
-                val calendarItems =
-                    remember(calendarState.days, state) {
-                        homeCalendarPreviews(calendarState.days, state)
-                    }
                 when {
                     calendarItems.isNotEmpty() -> {
                         item(key = "airing-calendar-preview") {
