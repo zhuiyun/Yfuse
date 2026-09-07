@@ -169,6 +169,9 @@ class TmdbRepository(
      */
     private val calendarRequests = Semaphore(CALENDAR_REQUEST_CONCURRENCY)
 
+    /** Home fans out sixteen feed requests at once on a cold start; six in flight is plenty. */
+    private val feedRequests = Semaphore(FEED_REQUEST_CONCURRENCY)
+
     suspend fun home(language: String = "zh-CN"): Result<TmdbHome> =
         try {
             coroutineScope {
@@ -1076,12 +1079,14 @@ class TmdbRepository(
         requireArtwork: Boolean = true,
     ): List<TmdbItem> =
         try {
-            client
-                .get("$TMDB_BASE$path") {
-                    parameter("language", language)
-                    parameters.forEach { (name, value) -> parameter(name, value) }
-                }.body<TmdbListDto>()
-                .results
+            feedRequests
+                .withPermit {
+                    client
+                        .get("$TMDB_BASE$path") {
+                            parameter("language", language)
+                            parameters.forEach { (name, value) -> parameter(name, value) }
+                        }.body<TmdbListDto>()
+                }.results
                 .map { it.toItem(fallbackType) }
                 .filter { it.title.isNotBlank() }
                 .filter { !requireArtwork || it.posterPath != null || it.backdropPath != null }
@@ -1201,6 +1206,7 @@ class TmdbRepository(
          * in a couple of rounds rather than one at a time.
          */
         const val CALENDAR_REQUEST_CONCURRENCY = 6
+        const val FEED_REQUEST_CONCURRENCY = 6
 
         /**
          * Fewer than the shows, because a film is one row and a 日更 drama is fourteen.

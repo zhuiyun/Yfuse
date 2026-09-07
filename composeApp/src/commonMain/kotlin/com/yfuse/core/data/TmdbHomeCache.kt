@@ -40,7 +40,18 @@ class TmdbHomeCache(
             encodeDefaults = false
         }
 
-    fun read(): TmdbHome? {
+    /** Cached content plus the local date it was fetched on. */
+    data class Cached(
+        val content: TmdbHome,
+        val savedOn: String,
+    ) {
+        /** TMDB feeds move on a daily cadence; today's fetch is as good as another one. */
+        fun isFresh(today: String): Boolean = savedOn == today
+    }
+
+    fun read(): TmdbHome? = readCached()?.content
+
+    fun readCached(): Cached? {
         val raw = settings.getStringOrNull(KEY) ?: return null
         if (raw.length > MAX_SERIALIZED_CHARS) {
             settings.remove(KEY)
@@ -57,7 +68,7 @@ class TmdbHomeCache(
             val oldestAcceptedDate = isoDateDaysBefore(currentDate, MAX_CACHE_AGE_DAYS)
             check(entry.savedOn.matches(Regex("\\d{4}-\\d{2}-\\d{2}")))
             check(entry.savedOn >= oldestAcceptedDate && entry.savedOn <= currentDate)
-            entry.content
+            Cached(entry.content, entry.savedOn)
         }.onFailure {
             settings.remove(KEY)
             AppLog.warning(
@@ -67,7 +78,7 @@ class TmdbHomeCache(
                 throwable = it,
             )
         }.getOrNull()
-            ?.takeIf { !it.isEmpty }
+            ?.takeIf { !it.content.isEmpty }
     }
 
     fun write(content: TmdbHome) {

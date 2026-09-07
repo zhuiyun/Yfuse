@@ -12,7 +12,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -58,8 +60,13 @@ import com.yfuse.tv.player.TvPlayerChromePanel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlin.math.abs
+import kotlin.time.TimeSource
 
 /** Controls fade out after this long without interaction, while playing. */
+private const val RESUME_NOTICE_MS = 6_000L
+private const val MAX_ERROR_ALTERNATIVES = 3
+private const val DOUBLE_TAP_SEEK_MS = 10_000L
+private const val DOUBLE_TAP_BURST_WINDOW_MS = 900L
 private const val AUTO_HIDE_MS = 5_000L
 private const val CHAT_PREVIEW_MS = 4_000L
 private const val GESTURE_HUD_MS = 1_600L
@@ -124,11 +131,15 @@ internal fun PlayerControls(
     onEnterPictureInPicture: () -> Unit,
     onPlayPause: () -> Unit,
     onRetry: () -> Unit,
+    /** Where playback resumed from, when it did; shows a brief 从头开始 offer. */
+    resumedFromMs: Long? = null,
     onExternalPlayer: (() -> Unit)? = null,
     onSeek: (Long) -> Unit,
     onSelectItem: (Int) -> Unit,
     onPreviousItem: () -> Boolean,
     onNextItem: () -> Boolean,
+    /** 取消 on the next-up card: the engine must not advance on its own either. */
+    onDismissNextUp: () -> Unit = {},
     onRefreshEpisodes: () -> Unit,
     onSelectAudio: (String) -> Unit,
     audioControls: AudioControlState = AudioControlState(),
@@ -221,6 +232,9 @@ internal fun PlayerControls(
     // -1 while a held press is rewinding, +1 while it is fast-forwarding, 0 when no press
     // is held. [holdSeekTarget] is the newest position proposed to the playback coordinator.
     var holdSeekDirection by remember { mutableIntStateOf(0) }
+    var seekBurstDirection by remember { mutableIntStateOf(0) }
+    var seekBurstMs by remember { mutableLongStateOf(0L) }
+    var seekBurstMark by remember { mutableStateOf<TimeSource.Monotonic.ValueTimeMark?>(null) }
     var holdSeekTarget by remember { mutableLongStateOf(0L) }
     // The app's own vocabulary, not Compose's two-constant one. These two call sites were
     // the last `HapticFeedbackType.LongPress` standing in for something it is not — a
@@ -419,6 +433,8 @@ internal fun PlayerControls(
                     if (latestRemotePanel == null && !latestRemoteLocked) visible = false
                 }
                 TvPlayerChromeCommandType.CloseTop -> latestCloseTopRemoteLayer()
+                TvPlayerChromeCommandType.OpenTracks -> openSettingsPanel(SettingsPanelKind.Tracks)
+                TvPlayerChromeCommandType.OpenInfo -> openSettingsPanel(SettingsPanelKind.More)
             }
         }
     }
@@ -647,21 +663,28 @@ internal fun PlayerControls(
                                 gestureHud = "房主控制播放"
                                 haptics.play(HapticSignal.Reject)
                             } else {
+                                // Taps in quick succession on the same side add up, and the
+                                // HUD reports the running total rather than "10 秒" each time.
+                                fun burstSeek(direction: Int) {
+                                    val continuing =
+                                        seekBurstDirection == direction &&
+                                            seekBurstMark?.let {
+                                                it.elapsedNow().inWholeMilliseconds < DOUBLE_TAP_BURST_WINDOW_MS
+                                            } == true
+                                    seekBurstMs =
+                                        if (continuing) seekBurstMs + DOUBLE_TAP_SEEK_MS else DOUBLE_TAP_SEEK_MS
+                                    seekBurstDirection = direction
+                                    seekBurstMark = TimeSource.Monotonic.markNow()
+                                    latestOnSeek(
+                                        (latestPosition + direction * DOUBLE_TAP_SEEK_MS)
+                                            .coerceIn(0L, latestDuration),
+                                    )
+                                    val verb = if (direction < 0) "快退" else "快进"
+                                    gestureHud = "$verb ${seekBurstMs / 1_000L} 秒"
+                                }
                                 when {
-                                    offset.x < size.width / 3f -> {
-                                        latestOnSeek(
-                                            (latestPosition - 10_000L)
-                                                .coerceIn(0L, latestDuration),
-                                        )
-                                        gestureHud = "快退 10 秒"
-                                    }
-                                    offset.x > size.width * 2f / 3f -> {
-                                        latestOnSeek(
-                                            (latestPosition + 10_000L)
-                                                .coerceIn(0L, latestDuration),
-                                        )
-                                        gestureHud = "快进 10 秒"
-                                    }
+                                    offset.x < size.width / 3f -> burstSeek(-1)
+                                    offset.x > size.width * 2f / 3f -> burstSeek(1)
                                     else -> {
                                         latestOnPlayPause()
                                         gestureHud = if (state.playing) "暂停" else "播放"
@@ -740,7 +763,9 @@ internal fun PlayerControls(
                                 (
                                     latestPosition + totalX / size.width * span * 0.45f
                                 ).toLong().coerceIn(0L, span)
-                            gestureHud = "${seekTarget.asClock()} / ${span.asClock()}"
+                            val delta = seekTarget - latestPosition
+                            val sign = if (delta < 0L) "-" else "+"
+                            gestureHud = "$sign${abs(delta).asClock()} · ${seekTarget.asClock()} / ${span.asClock()}"
                         } else {
                             val delta = -totalY / size.height
                             if (startX < size.width / 2f) {
@@ -758,11 +783,22 @@ internal fun PlayerControls(
         )
 
         state.error?.let { message ->
+            val otherVersions =
+                versions
+                    .filter { (id, _) -> id != selectedVersionId }
+                    .take(MAX_ERROR_ALTERNATIVES)
+                    .map { (id, label) -> "版本 · $label" to { onSelectVersion(id) } }
+            val otherEngines =
+                engineOptions
+                    .mapIndexedNotNull { index, (label, selected) ->
+                        if (selected) null else label to { onSelectEngine(index) }
+                    }.take(MAX_ERROR_ALTERNATIVES)
             PlaybackErrorOverlay(
                 message = message,
                 onRetry = onRetry,
                 onExternalPlayer = onExternalPlayer,
                 onBack = onBack,
+                alternatives = otherVersions + otherEngines,
             )
             return@Box
         }
@@ -773,6 +809,52 @@ internal fun PlayerControls(
                 poke()
             })
             return@Box
+        }
+
+        // Opened from a tile, a notification or a cast hand-back, the film is already running
+        // from where it was left. This is the moment to change one's mind about that.
+        var resumeNoticeDismissed by remember(resumedFromMs) { mutableStateOf(false) }
+        val resumeNoticeVisible = resumedFromMs != null && resumedFromMs > 0L && !resumeNoticeDismissed
+        LaunchedEffect(resumedFromMs) {
+            if (resumedFromMs != null && resumedFromMs > 0L) {
+                delay(RESUME_NOTICE_MS)
+                resumeNoticeDismissed = true
+            }
+        }
+        if (resumeNoticeVisible) {
+            Row(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 104.dp)
+                    .glass(
+                        shape = AppShapes.pill,
+                        fill = Color.Black.copy(alpha = 0.55f),
+                        border = Color.White.copy(alpha = 0.22f),
+                    ).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    "从 ${resumedFromMs.asClock()} 继续",
+                    style = AppTypography.caption.medium,
+                    color = Color.White.copy(alpha = 0.86f),
+                )
+                Text(
+                    "从头开始",
+                    style = AppTypography.caption.strong,
+                    color = Color(0xFF1B2436),
+                    modifier =
+                        Modifier
+                            .glass(
+                                shape = AppShapes.pill,
+                                fill = Color.White.copy(alpha = 0.78f),
+                                border = Color.White.copy(alpha = 0.9f),
+                            ).noRippleClickable {
+                                resumeNoticeDismissed = true
+                                latestOnSeek(0L)
+                            }.padding(horizontal = 12.dp, vertical = 5.dp),
+                )
+            }
         }
 
         // Top-level actions (投屏/更多) live with the title; media navigation stays below.
@@ -1322,6 +1404,7 @@ internal fun PlayerControls(
                 onDismiss = {
                     poke()
                     nextUpDismissed = true
+                    onDismissNextUp()
                 },
             )
         }

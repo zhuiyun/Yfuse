@@ -320,10 +320,10 @@ class CalendarStoreFactory(
             when (intent) {
                 CalendarIntent.Refresh -> load(forceRefresh = true)
                 CalendarIntent.Reload -> load(forceRefresh = false)
-                is CalendarIntent.ApplySeriesRefresh -> {
-                    loadJob?.cancel()
+                // Merged into whatever is on screen; a full load still in flight keeps
+                // running and lands over it, since both read the same publication.
+                is CalendarIntent.ApplySeriesRefresh ->
                     dispatch(Msg.SeriesRefreshed(intent.tmdbId, intent.days))
-                }
                 is CalendarIntent.SelectSection -> dispatch(Msg.SectionChanged(intent.section))
                 is CalendarIntent.SelectPlatform -> {
                     preferences?.savePlatformFilter(intent.platform)
@@ -383,8 +383,9 @@ class CalendarStoreFactory(
                 is Msg.ContentChanged -> copy(contentFilter = msg.content)
                 is Msg.SeriesRefreshed -> {
                     val merged = mergeTrackedSeriesCalendar(days, msg.days, msg.tmdbId)
+                    // `loading` is left alone: it belongs to the full load, which is either
+                    // already finished or still running and will clear it itself.
                     copy(
-                        loading = false,
                         days = merged,
                         confirmedDays = mergeTrackedSeriesCalendar(confirmedDays, msg.days, msg.tmdbId),
                         error = null,

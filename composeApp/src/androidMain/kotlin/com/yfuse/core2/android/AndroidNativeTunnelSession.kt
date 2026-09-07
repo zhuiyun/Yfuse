@@ -11,6 +11,7 @@ import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.render.YFrameRateSwitchMode
 import com.yfuse.core2.render.videoFrameRateHint
 import com.yfuse.core2.sync.YMediaClock
+import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 
 internal data class YTunnelPlaybackSnapshot(
@@ -152,6 +153,7 @@ internal class AndroidNativeTunnelSession(
             }
             demuxer.selectTracks(setOf(videoIndex, audioIndex))
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             if (!videoConfiguredForProbe) {
                 runtimeCapabilityKey?.let(runtimeCapabilities::recordRejected)
             }

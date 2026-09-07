@@ -48,6 +48,16 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
         emit(TvPlayerChromeCommandType.CloseTop)
     }
 
+    fun openTracks() {
+        mutableState.update { it.copy(interactionRevision = it.interactionRevision + 1) }
+        emit(TvPlayerChromeCommandType.OpenTracks)
+    }
+
+    fun openInfo() {
+        mutableState.update { it.copy(interactionRevision = it.interactionRevision + 1) }
+        emit(TvPlayerChromeCommandType.OpenInfo)
+    }
+
     fun updateSeekPreview(positionMs: Long) {
         mutableState.update {
             it.copy(

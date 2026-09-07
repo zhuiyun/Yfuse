@@ -49,4 +49,25 @@ class PlaybackTrackRestoreTest {
             remembered.toRestorePreference(),
         )
     }
+
+    @Test
+    fun same_language_tracks_with_engine_labels_restore_by_ordinal_then_first() {
+        val original =
+            listOf(
+                EngineTrack("a-1", "Audio 1", "zho", false, "aac"),
+                EngineTrack("a-2", "Audio 2", "zho", true, "aac"),
+                EngineTrack("a-3", "English", "eng", false, "aac"),
+            )
+        val preference = original.restorePreferenceFor(original[1])
+        assertEquals(1, preference.languageOrdinal)
+
+        val rebuilt =
+            listOf(
+                EngineTrack("b-7", "Track 1", "zho", false, "eac3"),
+                EngineTrack("b-8", "Track 2", "zho", false, "eac3"),
+            )
+        assertEquals("b-8", rebuilt.bestRestoreMatch(preference)?.id)
+        assertEquals("b-7", rebuilt.bestRestoreMatch(preference.copy(languageOrdinal = 5))?.id)
+        assertEquals("b-7", rebuilt.bestRestoreMatch(preference.copy(languageOrdinal = null))?.id)
+    }
 }

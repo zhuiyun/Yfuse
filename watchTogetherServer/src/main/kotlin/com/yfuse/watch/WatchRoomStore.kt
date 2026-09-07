@@ -12,6 +12,8 @@ internal sealed interface RoomCreationResult {
 
     data object IpLimitReached : RoomCreationResult
 
+    data object AccountLimitReached : RoomCreationResult
+
     data object ServiceFull : RoomCreationResult
 }
 
@@ -19,8 +21,17 @@ internal sealed interface RoomCreationResult {
 internal class RoomStore(
     private val roomGraceMs: Long,
     private val maxActiveRoomsPerIp: Int,
+    private val maxActiveRoomsPerAccount: Int = DEFAULT_MAX_ACTIVE_ROOMS_PER_ACCOUNT,
     private val roomCodeRandom: SecureRandom = SecureRandom(),
 ) {
+    init {
+        require(maxActiveRoomsPerAccount in 1..MAX_ROOMS)
+    }
+
+    fun activeRoomCount(): Int = rooms.size
+
+    fun activeParticipantCount(): Int = rooms.values.sumOf { room -> synchronized(room) { room.participants.size } }
+
     private val rooms = ConcurrentHashMap<String, Room>()
     private val creationLock = Any()
 
@@ -40,6 +51,7 @@ internal class RoomStore(
         mediaKey: String,
         hostId: String,
         creatorIp: String,
+        creatorAccountUserId: String,
         initialPlaylist: List<WatchWirePlaylistEntry>,
     ): RoomCreationResult =
         synchronized(creationLock) {
@@ -47,6 +59,9 @@ internal class RoomStore(
             if (rooms.size >= MAX_ROOMS) return@synchronized RoomCreationResult.ServiceFull
             if (rooms.values.count { it.creatorIp == creatorIp } >= maxActiveRoomsPerIp) {
                 return@synchronized RoomCreationResult.IpLimitReached
+            }
+            if (rooms.values.count { it.creatorAccountUserId == creatorAccountUserId } >= maxActiveRoomsPerAccount) {
+                return@synchronized RoomCreationResult.AccountLimitReached
             }
             while (true) {
                 val code =
@@ -64,6 +79,7 @@ internal class RoomStore(
                     Room(
                         code = code,
                         creatorIp = creatorIp,
+                        creatorAccountUserId = creatorAccountUserId,
                         hostId = hostId,
                         hostCapabilityDigest =
                             capabilityDigest(code, hostId, CapabilityKind.Host, hostCredential),
@@ -101,3 +117,5 @@ internal class RoomStore(
         }
     }
 }
+
+internal const val DEFAULT_MAX_ACTIVE_ROOMS_PER_ACCOUNT = 4

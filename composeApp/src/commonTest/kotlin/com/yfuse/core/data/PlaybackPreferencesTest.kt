@@ -246,6 +246,20 @@ class PlaybackPreferencesTest {
     }
 
     @Test
+    fun a_film_keeps_its_choices_under_its_own_id_and_never_leaks_into_a_series() {
+        val settings = MapSettings()
+        val preferences = PlaybackPreferences(settings)
+
+        preferences.updateSeriesPlayback("server-a", seriesId = null, itemId = "film-7") { current ->
+            current.copy(audioDelayMs = 250L)
+        }
+
+        assertEquals(250L, preferences.rememberedSeriesPlayback("server-a", null, "film-7")?.audioDelayMs)
+        assertNull(preferences.rememberedSeriesPlayback("server-a", "film-7"))
+        assertNull(preferences.rememberedSeriesPlayback("server-a", null, null))
+    }
+
+    @Test
     fun series_playback_memory_is_bounded_and_evicts_the_oldest_choice() {
         val preferences = PlaybackPreferences(MapSettings())
         repeat(MAX_SERIES_PLAYBACK_PREFERENCES + 1) { index ->

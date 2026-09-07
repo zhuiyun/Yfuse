@@ -7,6 +7,7 @@ import android.os.ParcelFileDescriptor
 import android.os.StatFs
 import android.os.storage.StorageManager
 import android.provider.DocumentsContract
+import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.AtomicMoveNotSupportedException
@@ -147,6 +148,7 @@ private class SafOfflineVideoTarget(
                 output.channel.position(0L)
             }
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             output.close()
             throw OfflineStorageException("所选目录不支持断点写入", error)
         }

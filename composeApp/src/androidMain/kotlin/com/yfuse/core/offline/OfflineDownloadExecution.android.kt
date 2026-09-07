@@ -212,6 +212,19 @@ class OfflineDownloadService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Android 15 caps a dataSync service at six hours a day. Stopping cleanly here lets the
+     * WorkManager wake-up reschedule the rest instead of the system killing the process.
+     */
+    override fun onTimeout(
+        startId: Int,
+        fgsType: Int,
+    ) {
+        work?.cancel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()

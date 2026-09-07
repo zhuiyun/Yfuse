@@ -100,6 +100,9 @@ jobs:
           version_name="$(awk -F= '$1 == "VERSION_NAME" { print $2 }' version.properties)"
           [[ "$version_code" =~ ^[1-9][0-9]*$ ]]
           [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          # Same derivation as tvApp/build.gradle.kts: the TV APK must never carry the
+          # phone APK's versionCode under the shared application id.
+          version_code="$(( version_code * 10 + 1 ))"
           {
             printf 'VERSION_CODE=%s\n' "$version_code"
             printf 'VERSION_NAME=%s\n' "$version_name"
@@ -118,6 +121,11 @@ jobs:
           set -euo pipefail
           [[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || {
             echo "::error::version_code must be a positive integer"
+            exit 1
+          }
+          phone_version_code="$(awk -F= '$1 == "VERSION_CODE" { print $2 }' version.properties)"
+          [[ "$VERSION_CODE" != "$phone_version_code" ]] || {
+            echo "::error::version_code $VERSION_CODE equals the phone build's versionCode; both APKs share one application id"
             exit 1
           }
           [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {

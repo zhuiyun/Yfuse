@@ -33,6 +33,8 @@ import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.designsystem.resolveDark
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.offline.DownloadStatus
+import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.performance.AppJankMonitor
 import com.yfuse.core.performance.preferHighRefreshRateForUi
 import com.yfuse.core.sync.ServerSyncManager
@@ -58,6 +60,7 @@ class MainActivity : ComponentActivity() {
     private var rootComponent: RootComponent? = null
     private var jankMonitor: AppJankMonitor? = null
     private var calendarNotificationPermissionRequested = false
+    private var downloadNotificationPermissionRequested = false
     private var lastExitBackPressMs = 0L
     private var exitConfirmationToast: Toast? = null
 
@@ -145,6 +148,8 @@ class MainActivity : ComponentActivity() {
                             skipSegmentPreferences = koin.get(),
                             libraryCache = koin.get(),
                             lanDiscovery = koin.get(),
+                            quickConnectGateway = koin.get(),
+                            searchRequests = koin.get(),
                             account = koin.get(),
                             serverHealthMonitor = koin.get(),
                             serverActivity = koin.get(),
@@ -156,6 +161,7 @@ class MainActivity : ComponentActivity() {
 
         rootComponent = root
         observeCalendarNotificationPermission(koin.get())
+        observeDownloadNotificationPermission(koin.get())
 
         // Application-scoped: a download started here has to survive this activity, so the
         // update check that starts one is triggered from the UI (see AppUpdateOverlay) rather
@@ -182,6 +188,33 @@ class MainActivity : ComponentActivity() {
         // A cold start from a shared link arrives here rather than in onNewIntent.
         consumeInviteIntent(intent)
         consumeCalendarIntent(intent)
+    }
+
+    /**
+     * The first download this process starts asks for the notification permission it needs to
+     * show progress. Downloads used to run silently on Android 13+ because only the calendar and
+     * the player paths ever asked.
+     */
+    private fun observeDownloadNotificationPermission(offline: OfflineMediaManager) {
+        if (Build.VERSION.SDK_INT < 33) return
+        lifecycleScope.launch {
+            offline.items
+                .map { items -> items.any { it.status in ACTIVE_DOWNLOAD_STATUSES } }
+                .distinctUntilChanged()
+                .collect { downloading ->
+                    if (
+                        downloading &&
+                        !downloadNotificationPermissionRequested &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        downloadNotificationPermissionRequested = true
+                        requestPermissions(
+                            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                            DOWNLOAD_NOTIFICATION_PERMISSION_REQUEST,
+                        )
+                    }
+                }
+        }
     }
 
     private fun observeCalendarNotificationPermission(follows: CalendarFollowStore) {
@@ -227,6 +260,9 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_CALENDAR_SERVER_ID = "calendar_server_id"
         const val EXTRA_CALENDAR_SERIES_ITEM_ID = "calendar_series_item_id"
         const val CALENDAR_NOTIFICATION_PERMISSION_REQUEST = 4103
+        const val DOWNLOAD_NOTIFICATION_PERMISSION_REQUEST = 4104
+        val ACTIVE_DOWNLOAD_STATUSES =
+            setOf(DownloadStatus.Queued, DownloadStatus.WaitingForWifi, DownloadStatus.Downloading)
     }
 
     private fun consumeCalendarIntent(intent: Intent?) {

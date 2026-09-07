@@ -15,6 +15,7 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.Serializable
 
@@ -131,6 +132,7 @@ class LibraryComponent(
         try {
             navigation.pushToFront(config)
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             playerRouteLaunchGate.release()
             throw failure
         }

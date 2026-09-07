@@ -7,6 +7,7 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlayerEngine
+import kotlinx.coroutines.CancellationException
 import java.util.UUID
 
 /**
@@ -274,6 +275,7 @@ internal class PlayerLaunchRegistryController(
             // It never extends the lifetime of the potentially large playback request itself.
             scheduleDiscard(token, ttlMs, store::discard)
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             store.discard(token)
             throw error
         }

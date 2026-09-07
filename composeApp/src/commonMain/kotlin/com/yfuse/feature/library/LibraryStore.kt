@@ -13,13 +13,11 @@ import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.network.toUserMessage
-import com.yfuse.core.sync.ServerSyncManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
-import org.koin.core.context.GlobalContext
 import kotlin.coroutines.CoroutineContext
 
 enum class LibraryContentSource {
@@ -32,6 +30,8 @@ data class LibraryState(
     val servers: List<SavedServer> = emptyList(),
     val currentServer: SavedServer? = null,
     val loading: Boolean = false,
+    /** A pull-to-refresh over content already on screen; skeletons stay out of it. */
+    val refreshing: Boolean = false,
     val content: HomeContent = HomeContent(),
     val contentSource: LibraryContentSource = LibraryContentSource.None,
     /** Timestamp of the live response that produced [content]; null for pre-v2 cache entries. */
@@ -66,7 +66,9 @@ private sealed interface Msg {
         val current: SavedServer?,
     ) : Msg
 
-    data object Loading : Msg
+    data class Loading(
+        val refresh: Boolean,
+    ) : Msg
 
     data class Cached(
         val content: HomeContent,
@@ -104,6 +106,10 @@ private fun SavedServer.libraryConnection(): LibraryConnection =
         accessToken = accessToken,
     )
 
+/** Writes one favorite flag; the sync manager queues it durably before it reaches the server. */
+typealias LibraryFavoriteWriter =
+    suspend (server: SavedServer, itemId: String, title: String, value: Boolean) -> Result<Unit>
+
 class LibraryStoreFactory(
     private val storeFactory: StoreFactory,
     private val repo: EmbyRepository,
@@ -111,6 +117,11 @@ class LibraryStoreFactory(
     private val cache: LibraryCache,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
     private val mainContext: CoroutineContext = Dispatchers.Main,
+    /**
+     * Supplied by the component from the sync manager. Tests that never toggle a favorite may
+     * leave the default, which accepts and forgets; production wiring always passes the real one.
+     */
+    private val favoriteWriter: LibraryFavoriteWriter = { _, _, _, _ -> Result.success(Unit) },
 ) {
     fun create(): Store<LibraryIntent, LibraryState, Nothing> =
         storeFactory.create(
@@ -164,7 +175,7 @@ class LibraryStoreFactory(
                 LibraryIntent.Retry ->
                     state().currentServer?.let {
                         loadedConnection = it.libraryConnection()
-                        load(it)
+                        load(it, refresh = true)
                     }
             }
         }
@@ -173,20 +184,29 @@ class LibraryStoreFactory(
             val server = state().currentServer ?: return
             dispatch(Msg.FavoriteChanged(intent.itemId, intent.favorite))
             scope.launch {
-                GlobalContext.get().get<ServerSyncManager>().setFavorite(
-                    server = server,
-                    itemId = intent.itemId,
-                    title = intent.title,
-                    value = intent.favorite,
-                )
+                favoriteWriter(server, intent.itemId, intent.title, intent.favorite)
+                    .onFailure { error ->
+                        // The write stays queued in the sync manager, so the optimistic
+                        // state is still the one that will reach the server; say so.
+                        AppLog.warning(
+                            category = "feature.library",
+                            event = "favorite_deferred",
+                            message = "Favorite change queued for a later sync",
+                            throwable = error,
+                            attributes = mapOf("serverId" to server.id),
+                        )
+                    }
             }
         }
 
-        private fun load(server: SavedServer) {
+        private fun load(
+            server: SavedServer,
+            refresh: Boolean = false,
+        ) {
             loadJob?.cancel()
             val generation = ++loadGeneration
             val connection = server.libraryConnection()
-            dispatch(Msg.Loading)
+            dispatch(Msg.Loading(refresh = refresh && !state().content.isEmpty))
             loadJob =
                 scope.launch {
                     try {
@@ -239,6 +259,7 @@ class LibraryStoreFactory(
                         servers = msg.servers,
                         currentServer = msg.current,
                         loading = if (resetTransientState) false else loading,
+                        refreshing = if (resetTransientState) false else refreshing,
                         content = if (resetTransientState) HomeContent() else content,
                         contentSource =
                             if (resetTransientState) {
@@ -250,7 +271,8 @@ class LibraryStoreFactory(
                         error = if (resetTransientState) null else error,
                     )
                 }
-                Msg.Loading -> copy(loading = true, error = null)
+                is Msg.Loading ->
+                    copy(loading = !msg.refresh, refreshing = msg.refresh, error = null)
                 is Msg.Cached ->
                     copy(
                         content = msg.content.copy(resume = deduplicatePlaybackHistory(msg.content.resume)),
@@ -261,6 +283,7 @@ class LibraryStoreFactory(
                 is Msg.Loaded ->
                     copy(
                         loading = false,
+                        refreshing = false,
                         content = msg.content.copy(resume = deduplicatePlaybackHistory(msg.content.resume)),
                         contentSource = LibraryContentSource.Live,
                         updatedAtEpochMs = msg.updatedAtEpochMs,
@@ -296,6 +319,7 @@ class LibraryStoreFactory(
                 is Msg.Failed ->
                     copy(
                         loading = false,
+                        refreshing = false,
                         contentSource =
                             if (content.isEmpty) {
                                 LibraryContentSource.None

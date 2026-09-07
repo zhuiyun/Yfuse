@@ -11,7 +11,6 @@ import com.yfuse.core.data.TmdbHomeCache
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
-import com.yfuse.core.model.MediaContainer
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbHome
@@ -105,13 +104,6 @@ data class HomeState(
                 }.distinctBy { it.server.id to it.item.id }
                 .take(16)
 
-    val highRated: List<HomeResumeEntry>
-        get() =
-            recentAdded
-                .filter { it.item.communityRating != null }
-                .sortedByDescending { it.item.communityRating ?: Double.NEGATIVE_INFINITY }
-                .take(16)
-
     val favorites: List<HomeResumeEntry>
         get() =
             libraryContent
@@ -121,13 +113,6 @@ data class HomeState(
                         .flatMap { row -> row.items.map { HomeResumeEntry(it, source.server) } }
                 }.distinctBy { it.server.id to it.item.id }
                 .take(16)
-
-    val collections: List<HomeContainerEntry>
-        get() =
-            libraryContent
-                .flatMap { source ->
-                    source.content.collections.map { HomeContainerEntry(it, source.server) }
-                }.distinctBy { it.server.id to it.container.id }
 }
 
 data class HomeResumeEntry(
@@ -137,11 +122,6 @@ data class HomeResumeEntry(
 
 data class HomeLibraryContent(
     val content: HomeContent,
-    val server: SavedServer,
-)
-
-data class HomeContainerEntry(
-    val container: MediaContainer,
     val server: SavedServer,
 )
 
@@ -319,6 +299,7 @@ class HomeStoreFactory(
                 persist = { cache.write(it) },
             )
         private var resumeGeneration = 0L
+        private var nextUpGeneration = 0L
         private var resumeConnection: List<HomeServerConnection> = emptyList()
         private var resumeJob: Job? = null
         private var nextUpJob: Job? = null
@@ -373,9 +354,18 @@ class HomeStoreFactory(
                 scope.launch {
                     try {
                         if (shouldReadCache) {
-                            val cached = withContext(cacheDispatcher) { cache.read() }
+                            val cached = withContext(cacheDispatcher) { cache.readCached() }
                             if (generation != recommendationGeneration) return@launch
-                            cached?.let { dispatch(Msg.Cached(it)) }
+                            if (cached != null) {
+                                // Fetched today already: that is the page, not a stand-in
+                                // for it. The sixteen feed requests wait for a pull or a
+                                // new day; a stale entry still shows first and refreshes.
+                                if (!refresh && cached.isFresh(currentIsoDate())) {
+                                    dispatch(Msg.Loaded(cached.content))
+                                    return@launch
+                                }
+                                dispatch(Msg.Cached(cached.content))
+                            }
                         }
 
                         val result = tmdb.home()
@@ -461,6 +451,7 @@ class HomeStoreFactory(
 
         private fun loadNextUp(servers: List<SavedServer>) {
             nextUpJob?.cancel()
+            val generation = ++nextUpGeneration
             val available = servers.filter { it.knownUnavailableEndpointReason() == null }
             if (available.isEmpty()) {
                 dispatch(Msg.NextUpLoaded(emptyList()))
@@ -481,7 +472,11 @@ class HomeStoreFactory(
                                 }.awaitAll()
                                 .flatten()
                         }
-                    dispatch(Msg.NextUpLoaded(entries.distinctBy { it.server.id to it.item.id }))
+                    // A newer load may have started while this one was in flight; its
+                    // answer wins, exactly as loadResume already guarantees for its row.
+                    if (generation == nextUpGeneration) {
+                        dispatch(Msg.NextUpLoaded(entries.distinctBy { it.server.id to it.item.id }))
+                    }
                 }
         }
 

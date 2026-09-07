@@ -5,6 +5,7 @@ import android.media.ImageReader
 import android.media.MediaCodec
 import android.media.MediaFormat
 import com.yfuse.core2.capability.YVideoRequirement
+import kotlinx.coroutines.CancellationException
 import java.io.IOException
 
 internal enum class YCodecConfigurationProbeResult {
@@ -48,7 +49,8 @@ internal class AndroidCodecConfigurationProbe {
             }
         } catch (_: IOException) {
             YCodecConfigurationProbeResult.Rejected
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             // Surface allocation and vendor framework failures do not prove decoder rejection.
             YCodecConfigurationProbeResult.Inconclusive
         } finally {

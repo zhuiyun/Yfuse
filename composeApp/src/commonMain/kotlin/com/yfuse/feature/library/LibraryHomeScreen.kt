@@ -321,7 +321,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
                 else ->
                     PullToRefreshBox(
-                        isRefreshing = state.loading,
+                        isRefreshing = state.refreshing,
                         onRefresh = { store.accept(LibraryIntent.Retry) },
                         state = pullState,
                         modifier = Modifier.fillMaxSize(),
@@ -1348,9 +1348,11 @@ internal fun PosterCard(
     showProgress: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
 ) {
     CaptionedPoster(
         url = EmbyImages.poster(baseUrl, item, accessToken = accessToken),
+        onLongClick = onLongClick,
         title = item.title,
         rating = item.communityRating,
         year = item.year?.toString(),

@@ -6,6 +6,7 @@ import android.media.MediaFormat
 import android.net.Uri
 import android.os.Build
 import com.yfuse.core2.sync.YMediaTimestampTimeline
+import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 
 internal data class AndroidTunnelEncodedSample(
@@ -51,6 +52,7 @@ internal class AndroidTunnelPlatformDemuxer(
         try {
             next.setDataSource(appContext, Uri.parse(source.uri), source.headers)
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             next.release()
             throw failure
         }

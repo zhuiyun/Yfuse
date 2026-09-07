@@ -99,12 +99,19 @@ private val LiquidProgressBlue = Color(0xFF4F8DFF)
 
 private val LiquidProgressViolet = Color(0xFF7D5FF6)
 
+/**
+ * [alternatives] are the other ways this title can be played, offered right where playback
+ * failed: another file the server holds, another engine. The label says what changes; the
+ * action performs it. Server transcoding is deliberately not among them: it would hide the
+ * client's failure behind the server's CPU.
+ */
 @Composable
 internal fun PlaybackErrorOverlay(
     message: String,
     onRetry: () -> Unit,
     onExternalPlayer: (() -> Unit)?,
     onBack: () -> Unit,
+    alternatives: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
     Box(
         Modifier
@@ -165,6 +172,33 @@ internal fun PlaybackErrorOverlay(
                                 ).noRippleClickable(open)
                                 .padding(horizontal = 18.dp, vertical = 9.dp),
                     )
+                }
+            }
+            if (alternatives.isNotEmpty()) {
+                Text(
+                    "换一种方式播放",
+                    style = AppTypography.caption.regular,
+                    color = Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    alternatives.forEach { (label, action) ->
+                        Text(
+                            label,
+                            style = AppTypography.caption.strong,
+                            color = Color.White.copy(alpha = 0.9f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier =
+                                Modifier
+                                    .glass(
+                                        shape = AppShapes.pill,
+                                        fill = Color.White.copy(alpha = 0.10f),
+                                        border = Color.White.copy(alpha = 0.28f),
+                                    ).noRippleClickable(action)
+                                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                        )
+                    }
                 }
             }
         }

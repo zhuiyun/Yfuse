@@ -86,11 +86,14 @@ internal fun rememberPlayerSkipController(
     val timesBySeries by preferences.bySeries.collectAsState()
     val mode by preferences.skipMode.collectAsState()
     val legacySeriesId = currentItem?.seriesId?.takeIf(::skipSegmentsAvailableFor)
+    // A film has no series, so it keeps its own key: the server's credits marker and a
+    // remembered 片尾 still apply, they just never spill over to another title.
+    val standaloneKey = currentItem?.takeIf { legacySeriesId == null }?.id?.let { "item:$it" }
     val skipSeriesKey =
         currentItem?.seriesKey
             ?: skipSeriesStorageKey(
                 serverId = currentItem?.serverId,
-                seriesId = legacySeriesId,
+                seriesId = legacySeriesId ?: standaloneKey,
                 providerSeriesKey = null,
             )
     val storedTimes = skipSeriesKey?.let(timesBySeries::get)

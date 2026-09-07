@@ -120,6 +120,9 @@ internal sealed interface DetailMsg {
 
     data class ProgressSaving(
         val value: Boolean,
+        /** Episodes already written in the running batch; 0/0 outside a batch. */
+        val completed: Int = 0,
+        val total: Int = 0,
     ) : DetailMsg
 
     data class EpisodesProgressChanged(

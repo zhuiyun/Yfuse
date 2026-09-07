@@ -1,5 +1,6 @@
 package com.yfuse.watch
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1172,7 +1173,7 @@ private class CalendarIngestionRuntime(
             runCatching { writeAtomically(publication) }
                 .onFailure { failure ->
                     if (scheduleStore === NoOpCalendarScheduleStore) throw failure
-                    System.err.println("calendar JSON snapshot failed: ${failure.message}")
+                    ServerLog.warn("calendar_json_snapshot_failed", throwable = failure)
                 }
             CalendarIngestionHealth.succeeded(changed = true, publishedShows = schedules.size)
             true
@@ -1601,7 +1602,7 @@ private class CalendarIngestionRuntime(
     ) {
         CalendarIngestionHealth.rejected(show, stage)
         val safeTitle = show.title.replace(Regex("[\\r\\n\\t]"), " ").take(120)
-        System.err.println("calendar ingestion rejected title=$safeTitle stage=$stage")
+        ServerLog.warn("calendar_ingestion_rejected", "title" to safeTitle, "stage" to stage)
     }
 
     private suspend fun ocr(
@@ -1808,11 +1809,15 @@ private class CalendarIngestionRuntime(
                 response.body().length <= MAX_OCR_RESULT_CHARS
             ) {
                 OcrSpaceResponseParser.extractText(response.body())?.let { return it }
-                System.err.println("calendar ingestion OCR.space empty ${OcrSpaceResponseParser.failureSummary(response.body())}")
+                ServerLog.warn(
+                    "calendar_ocr_empty",
+                    "summary" to OcrSpaceResponseParser.failureSummary(response.body()),
+                )
             } else {
-                System.err.println(
-                    "calendar ingestion OCR.space request-failed status=${response?.statusCode() ?: -1} " +
-                        "bytes=${response?.body()?.length ?: 0}",
+                ServerLog.warn(
+                    "calendar_ocr_request_failed",
+                    "status" to (response?.statusCode() ?: -1),
+                    "bytes" to (response?.body()?.length ?: 0),
                 )
             }
             val retryable =
@@ -2088,7 +2093,7 @@ internal fun CoroutineScope.launchCalendarIngestionFromEnvironment(
         ?: outputFile?.resolveSibling("calendar-ocr-cache.db")
         ?: File("/var/lib/yfuse/calendar-ocr-cache.db")
     val ocrCache = runCatching { CalendarOcrCache.sqlite(cacheFile) }.getOrElse { failure ->
-        System.err.println("calendar OCR cache disabled: ${failure.message}")
+        ServerLog.warn("calendar_ocr_cache_disabled", throwable = failure)
         NoOpCalendarOcrCache
     }
     val runtime =
@@ -2099,14 +2104,19 @@ internal fun CoroutineScope.launchCalendarIngestionFromEnvironment(
             scheduleStore = scheduleStore,
             ocrCache = ocrCache,
         )
-    return launch {
+    // A collection round is minutes of blocking HTTP and polling sleeps. On the server's
+    // shared dispatcher that pinned a worker thread the watch sockets also run on.
+    return launch(Dispatchers.IO) {
         try {
             while (isActive) {
-                runCatching { runtime.runOnce() }
-                    .onFailure { failure ->
-                        CalendarIngestionHealth.failed(failure)
-                        System.err.println("calendar ingestion failed: ${failure.message}")
-                    }
+                try {
+                    runtime.runOnce()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    CalendarIngestionHealth.failed(failure)
+                    ServerLog.error("calendar_ingestion_failed", throwable = failure)
+                }
                 val minutes = runCatching {
                     ingestionJson.decodeFromString<CalendarIngestionConfig>(File(configPath).readText()).refreshMinutes
                 }.getOrDefault(30)

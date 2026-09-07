@@ -327,6 +327,7 @@ class DanmakuRepository(
                 ),
             )
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             // Ktor exception messages include the full request URL. A user template may
             // carry a token, so never surface the raw exception in the player UI.
             AppLog.error(

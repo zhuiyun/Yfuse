@@ -12,6 +12,7 @@ import android.media.tv.TvContract
 import android.net.Uri
 import android.os.Build
 import com.yfuse.core.logging.AppLog
+import kotlinx.coroutines.CancellationException
 
 internal data class TvProgramRecord(
     val internalProviderId: String,
@@ -380,6 +381,7 @@ private inline fun providerCall(block: () -> Unit): TvProviderWriteResult =
         )
         TvProviderWriteResult.Failure("tv_provider_unavailable", retryable = false)
     } catch (error: Throwable) {
+        if (error is CancellationException) throw error
         AppLog.warning(
             category = "tv.provider",
             event = "write_failed",

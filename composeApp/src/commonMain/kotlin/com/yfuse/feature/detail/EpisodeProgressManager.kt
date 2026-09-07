@@ -56,6 +56,9 @@ internal fun EpisodeProgressManager(
     selectedIds: Set<String>,
     saving: Boolean,
     accent: Color,
+    /** n/N of the running batch; both 0 when nothing is saving. */
+    savingCompleted: Int = 0,
+    savingTotal: Int = 0,
     onToggle: (String) -> Unit,
     onPreset: (EpisodeSelectionPreset) -> Unit,
     onApply: (EpisodeProgressAction) -> Unit,
@@ -110,6 +113,8 @@ internal fun EpisodeProgressManager(
                 ProgressManagerActions(
                     selectionCount = selectedIds.size,
                     saving = saving,
+                    savingLabel =
+                        if (savingTotal > 0) "正在同步 $savingCompleted / $savingTotal…" else "正在同步…",
                     accent = accent,
                     onApply = onApply,
                 )
@@ -243,6 +248,7 @@ private fun ProgressEpisodeRow(
 private fun ProgressManagerActions(
     selectionCount: Int,
     saving: Boolean,
+    savingLabel: String,
     accent: Color,
     onApply: (EpisodeProgressAction) -> Unit,
 ) {
@@ -259,7 +265,7 @@ private fun ProgressManagerActions(
         if (saving) {
             CircularProgressIndicator(Modifier.size(20.dp), color = accent, strokeWidth = 2.dp)
             Text(
-                "正在同步…",
+                savingLabel,
                 style = AppTypography.body.strong,
                 color = palette.text,
                 modifier = Modifier.weight(1f),

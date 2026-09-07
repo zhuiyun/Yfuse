@@ -91,6 +91,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.context.GlobalContext
 import kotlin.math.roundToInt
 
+private const val RESUME_NOTICE_MIN_MS = 30_000L
 private const val END_OF_EPISODE_ARM_WINDOW_MS = 2_000L
 private const val MAX_NATIVE_ONLY_RECOVERY_ATTEMPTS = 2
 private const val MAX_LONG_BUFFER_RECOVERY_ATTEMPTS = 2
@@ -244,6 +245,8 @@ internal fun PlayerRoot(
             ),
         )
     }
+    // The first item's resume point, offered once; later items and engine swaps do not re-ask.
+    val initialResumeNoticeMs = remember { startPositionMs.takeIf { it >= RESUME_NOTICE_MIN_MS } }
     var engineGeneration by remember { mutableIntStateOf(0) }
     var runtimeSessionGeneration by remember { mutableIntStateOf(0) }
     var requestedPlaybackSpeed by remember { mutableFloatStateOf(1f) }
@@ -401,9 +404,12 @@ internal fun PlayerRoot(
             )
         }
     val player = remember(engine) { engine.asYPlayer() }
-    val engineCreatedAtElapsedMs = remember(engine) { SystemClock.elapsedRealtime() }
     val engineHandoverSnapshot = remember(engine) { resume }
     var handoverPositionValidated by remember(engine) { mutableStateOf(false) }
+    // When the replacement engine first reported motion; null until it does. Opening a stream
+    // takes wall-clock time in which the timeline does not move, so the handover budget only
+    // starts here rather than at engine construction.
+    var enginePlaybackStartedAtElapsedMs by remember(engine) { mutableStateOf<Long?>(null) }
     val backendExtensions = remember(engine) { PlayerBackendExtensions(engine) }
     val presentationState = remember(player) { player.asPlaybackStateFlow() }
     val latestQueueAppender =
@@ -489,6 +495,11 @@ internal fun PlayerRoot(
             reported = reportedLocalState,
         )
     val localState = timelineResolution.state
+    // The reporting collector below reads this through snapshot state. A plain capture of
+    // `localState` would freeze at the value of the composition that launched the effect,
+    // and the flow would only re-emit when the cast state changed — which is exactly what
+    // happened once the collector stopped restarting on every position tick.
+    val latestLocalState by rememberUpdatedState(localState)
     SideEffect { timelineMemory = timelineResolution.memory }
     LaunchedEffect(
         engine,
@@ -762,6 +773,9 @@ internal fun PlayerRoot(
             item = localCastItem,
             transcoding = localState.transcoding,
             customUserAgent = customUserAgent,
+            // The engine's own opening requests come first; the probe reads the same source
+            // and used to race them for the server's bandwidth on the first seconds.
+            playbackSettled = !localState.buffering || localState.error != null,
         )
     val activeProbe = activeProbeResult.probe
     val activePlan =
@@ -970,14 +984,30 @@ internal fun PlayerRoot(
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
-    LaunchedEffect(backendExtensions, sleepTimerOption) {
+    // The item whose next-up card was dismissed. The card only hid itself before; the engine
+    // still advanced ten seconds later, which is the opposite of what 取消 promised.
+    var nextUpDismissedItemId by remember { mutableStateOf<String?>(null) }
+    val currentQueueItemId = activeItems.getOrNull(state.currentIndex)?.id
+    LaunchedEffect(backendExtensions, sleepTimerOption, nextUpDismissedItemId, currentQueueItemId) {
         backendExtensions.setPauseAtEndOfCurrentItem(
-            sleepTimerOption == SleepTimerOption.EndOfEpisode,
+            sleepTimerOption == SleepTimerOption.EndOfEpisode ||
+                (nextUpDismissedItemId != null && nextUpDismissedItemId == currentQueueItemId),
         )
     }
+    val sleepTimerPlaying by rememberUpdatedState(state.playing)
     LaunchedEffect(sleepTimerOption, sleepTimerRevision) {
         val durationMs = sleepTimerOption.durationMs ?: return@LaunchedEffect
-        delay(durationMs)
+        // Counts playback, not wall-clock: a pause to answer the door must not use up the timer.
+        var remainingMs = durationMs
+        while (remainingMs > 0L) {
+            if (!sleepTimerPlaying) {
+                delay(SLEEP_TIMER_PAUSED_POLL_MS)
+                continue
+            }
+            val step = minOf(SLEEP_TIMER_TICK_MS, remainingMs)
+            delay(step)
+            remainingMs -= step
+        }
         pauseForSleepTimer("睡眠定时已到，播放已暂停")
     }
     LaunchedEffect(
@@ -1167,6 +1197,7 @@ internal fun PlayerRoot(
             playbackPreferences.rememberedSeriesPlayback(
                 serverId = item.serverId,
                 seriesId = item.seriesId,
+                itemId = item.id,
             )
         handoverItemId = item.id
         audioRestore = remembered?.audio?.toRestorePreference()
@@ -1214,6 +1245,7 @@ internal fun PlayerRoot(
         playbackPreferences.updateSeriesPlayback(
             serverId = currentItem?.serverId,
             seriesId = currentItem?.seriesId,
+            itemId = currentItem?.id,
             transform = transform,
         )
     }
@@ -1398,7 +1430,7 @@ internal fun PlayerRoot(
             state.audioTracks.matchingLanguage(language)?.let { trackId ->
                 state.audioTracks.firstOrNull { it.id == trackId }?.let { track ->
                     handoverItemId = currentItem?.id
-                    audioRestore = track.toRestorePreference()
+                    audioRestore = state.audioTracks.restorePreferenceFor(track)
                 }
                 player.selectTrack(YTrackType.Audio, trackId)
             }
@@ -1417,7 +1449,7 @@ internal fun PlayerRoot(
                     ?.let { trackId ->
                         state.subtitleTracks.firstOrNull { it.id == trackId }?.let { track ->
                             handoverItemId = currentItem?.id
-                            subtitleRestore = track.toRestorePreference()
+                            subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
                             restoreSubtitlesOff = false
                         }
                         player.selectTrack(YTrackType.Subtitle, trackId)
@@ -1454,13 +1486,16 @@ internal fun PlayerRoot(
         val sameItem = handoverItemId == itemId
         handoverItemId = itemId
         if (snapshot.audioTracks.isNotEmpty()) {
-            audioRestore = snapshot.audioTracks.firstOrNull { it.selected }?.toRestorePreference()
+            audioRestore =
+                snapshot.audioTracks
+                    .firstOrNull { it.selected }
+                    ?.let(snapshot.audioTracks::restorePreferenceFor)
         } else if (!sameItem) {
             audioRestore = null
         }
         if (snapshot.subtitleTracks.isNotEmpty()) {
             val selectedSubtitle = snapshot.subtitleTracks.firstOrNull { it.selected }
-            subtitleRestore = selectedSubtitle?.toRestorePreference()
+            subtitleRestore = selectedSubtitle?.let(snapshot.subtitleTracks::restorePreferenceFor)
             restoreSubtitlesOff = selectedSubtitle == null
         } else if (!sameItem) {
             subtitleRestore = null
@@ -1492,7 +1527,7 @@ internal fun PlayerRoot(
     // for every 500 ms position tick. The snapshot still follows local/cast authority changes.
     LaunchedEffect(engine, castManager, activeItems, reporter) {
         snapshotFlow {
-            val currentLocal = localState
+            val currentLocal = latestLocalState
             val currentCast = castState
             val authoritative =
                 currentCast.hasActiveSession ||
@@ -1500,7 +1535,7 @@ internal fun PlayerRoot(
                         currentCast.termination == CastTermination.Unexpected &&
                             completedCastHandoffRevision != currentCast.sessionRevision
                     )
-            val item = activeItems.getOrNull(currentLocal.currentIndex)
+            val item = latestActiveItems.getOrNull(currentLocal.currentIndex)
             val playMethod =
                 if (item?.transcodeUrl?.isNotBlank() == true) {
                     PlaybackMethod.Transcode.label
@@ -1509,9 +1544,10 @@ internal fun PlayerRoot(
                 }
             if (authoritative) currentLocal.withRemoteCast(currentCast, playMethod) else currentLocal
         }.collect { observedState ->
-            reporter?.rebind(activeItems, observedState)
+            val items = latestActiveItems
+            reporter?.rebind(items, observedState)
             reporter?.update(observedState)
-            onPlaybackState(observedState, activeItems.getOrNull(observedState.currentIndex))
+            onPlaybackState(observedState, items.getOrNull(observedState.currentIndex))
             playbackGate.onPlaybackIndexChanged(observedState.currentIndex)
         }
     }
@@ -2038,6 +2074,12 @@ internal fun PlayerRoot(
         },
     )
 
+    LaunchedEffect(engine, state.playing, state.buffering) {
+        if (enginePlaybackStartedAtElapsedMs == null && state.playing && !state.buffering) {
+            enginePlaybackStartedAtElapsedMs = SystemClock.elapsedRealtime()
+        }
+    }
+
     // Validate one replacement clock sample. A correction is issued only outside the allowed
     // 250 ms window, so this cannot become a recurring seek loop on imprecise TS keyframes.
     LaunchedEffect(engine, state.diagnostics.effectiveVideoReadiness, state.currentIndex) {
@@ -2068,7 +2110,8 @@ internal fun PlayerRoot(
         }
         // Mark first so a renderer readiness bounce cannot schedule the same correction again.
         handoverPositionValidated = true
-        val elapsed = SystemClock.elapsedRealtime() - engineCreatedAtElapsedMs
+        val elapsed =
+            enginePlaybackStartedAtElapsedMs?.let { SystemClock.elapsedRealtime() - it } ?: 0L
         val actual = player.currentPositionMs().coerceAtLeast(0L)
         val error = handoverPositionErrorMs(actual, engineHandoverSnapshot, elapsed)
         if (error > 0L) {
@@ -2429,6 +2472,7 @@ internal fun PlayerRoot(
                 state = state,
                 episodes = activeItems.toEpisodeCards(),
                 filled = scaleMode != VideoScaleMode.Fit,
+                resumedFromMs = initialResumeNoticeMs,
                 onBack = onBack,
                 onEnterPictureInPicture = onEnterPictureInPicture,
                 onPlayPause = {
@@ -2468,7 +2512,16 @@ internal fun PlayerRoot(
                                 } else {
                                     item.url
                                 }
-                            if (!openExternalPlayer(context, mediaUrl, item.title)) {
+                            val handoverHeaders =
+                                customUserAgent.takeIf { it.isNotBlank() }?.let { mapOf("User-Agent" to it) }.orEmpty()
+                            if (!openExternalPlayer(
+                                    context = context,
+                                    mediaUrl = mediaUrl,
+                                    title = item.title,
+                                    positionMs = state.positionMs,
+                                    headers = handoverHeaders,
+                                )
+                            ) {
                                 Toast
                                     .makeText(context, "未找到可处理此视频的外部播放器", Toast.LENGTH_SHORT)
                                     .show()
@@ -2510,6 +2563,7 @@ internal fun PlayerRoot(
                         playbackGate.selectPrevious()
                     }
                 },
+                onDismissNextUp = { nextUpDismissedItemId = activeItems.getOrNull(state.currentIndex)?.id },
                 onNextItem = {
                     val next = state.currentIndex + 1
                     if (sleepTimerOption == SleepTimerOption.EndOfEpisode && next in activeItems.indices) {
@@ -2533,7 +2587,7 @@ internal fun PlayerRoot(
                     val selectedTrack = state.audioTracks.firstOrNull { it.id == id }
                     selectedTrack?.let { track ->
                         handoverItemId = currentItem?.id
-                        audioRestore = track.toRestorePreference()
+                        audioRestore = state.audioTracks.restorePreferenceFor(track)
                         rememberSeriesPlayback { remembered ->
                             remembered.copy(audio = track.toRememberedPlaybackTrack())
                         }
@@ -2604,6 +2658,17 @@ internal fun PlayerRoot(
                 onSelectSubtitle = { id ->
                     val track = state.subtitleTracks.firstOrNull { it.id == id }
                     if (castState.hasActiveSession) {
+                        // The receiver applies it; the memory and the restore state are ours,
+                        // so a hand-back to the phone lands on the same subtitle.
+                        handoverItemId = currentItem?.id
+                        subtitleRestore = track?.let { state.subtitleTracks.restorePreferenceFor(it) }
+                        restoreSubtitlesOff = id == EngineTrack.OFF
+                        rememberSeriesPlayback { remembered ->
+                            remembered.copy(
+                                primarySubtitlesOff = id == EngineTrack.OFF,
+                                primarySubtitle = track?.toRememberedPlaybackTrack(),
+                            )
+                        }
                         scope.launch {
                             castManager.selectTrack(
                                 kind = CastTrackKind.Subtitle,
@@ -2633,7 +2698,7 @@ internal fun PlayerRoot(
                         pendingSubtitleLanguage = track.language ?: track.label
                         switchEngine(PlayerEngine.Mpv)
                         handoverItemId = currentItem?.id
-                        subtitleRestore = track.toRestorePreference()
+                        subtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
                         restoreSubtitlesOff = false
                         if (secondarySubtitleTrackId == id) {
                             secondarySubtitleTrackId = null
@@ -2652,7 +2717,7 @@ internal fun PlayerRoot(
                     } else {
                         track?.let {
                             handoverItemId = currentItem?.id
-                            subtitleRestore = it.toRestorePreference()
+                            subtitleRestore = state.subtitleTracks.restorePreferenceFor(it)
                             restoreSubtitlesOff = false
                             if (secondarySubtitleTrackId == id) {
                                 backendExtensions.selectSecondarySubtitleTrack(EngineTrack.OFF)
@@ -2883,7 +2948,7 @@ internal fun PlayerRoot(
                             }
                             handoverItemId = currentItem?.id
                             secondarySubtitleTrackId = id
-                            secondarySubtitleRestore = track.toRestorePreference()
+                            secondarySubtitleRestore = state.subtitleTracks.restorePreferenceFor(track)
                             rememberSeriesPlayback { remembered ->
                                 remembered.copy(secondarySubtitle = track.toRememberedPlaybackTrack())
                             }
@@ -3193,3 +3258,6 @@ internal fun core2NativeOnlyFailureToast(kind: PlaybackFailureKind?): String =
         PlaybackFailureKind.Authorization -> "片源授权已失效，请刷新播放地址后重试"
         else -> "YCore Native 播放失败，纯内核模式未切换兼容内核"
     }
+
+private const val SLEEP_TIMER_TICK_MS = 1_000L
+private const val SLEEP_TIMER_PAUSED_POLL_MS = 500L

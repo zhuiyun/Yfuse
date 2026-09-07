@@ -5,6 +5,7 @@ import android.media.MediaCrypto
 import android.media.MediaFormat
 import com.yfuse.core2.demux.YAudioTrackFormat
 import com.yfuse.core2.graph.YAudioDecodeNode
+import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 
 internal sealed interface YAudioCodecOutputResult {
@@ -74,6 +75,7 @@ internal class AndroidMediaCodecAudioNode(
             codec = decoder
             started = true
         } catch (throwable: Throwable) {
+            if (throwable is CancellationException) throw throwable
             runCatching { decoder.release() }
             throw throwable
         }

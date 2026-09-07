@@ -49,6 +49,20 @@ class AccountRefreshRecoveryTest {
     }
 
     @Test
+    fun replaying_a_spent_token_revokes_the_successor_too() {
+        Fixture().use { fixture ->
+            val request = fixture.request()
+            val rotated = fixture.service().refresh(request)
+            // A stolen copy of the original token shows up with its own request id.
+            assertUnauthorized { fixture.service().refresh(request.copy(requestId = requestId())) }
+            // The legitimate holder of the successor is signed out as well: the family is burnt.
+            assertUnauthorized {
+                fixture.service().refresh(RefreshRequest(rotated.refreshToken, requestId = requestId()))
+            }
+        }
+    }
+
+    @Test
     fun recovery_cannot_revive_a_revoked_session() {
         Fixture().use { fixture ->
             val request = fixture.request()

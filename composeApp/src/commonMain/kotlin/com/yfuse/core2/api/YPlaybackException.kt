@@ -1,5 +1,7 @@
 package com.yfuse.core2.api
 
+import kotlinx.coroutines.CancellationException
+
 /** Stable media-pipeline stage used by diagnostics and Core2's own failure ledger. */
 enum class YPlaybackFailureStage {
     SourceOpen,
@@ -50,6 +52,7 @@ inline fun <T> yPlaybackStage(
     } catch (failure: YPlaybackException) {
         throw failure
     } catch (failure: Throwable) {
+        if (failure is CancellationException) throw failure
         throw YPlaybackException(
             category = category,
             stage = stage,

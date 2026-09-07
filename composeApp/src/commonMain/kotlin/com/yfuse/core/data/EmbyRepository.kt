@@ -81,6 +81,12 @@ data class MediaSearchPage(
     val items: List<MediaItem>,
     val totalCount: Int,
     val startIndex: Int,
+    /**
+     * Where the next page starts on the server. It advances by the rows the server returned,
+     * not by the cards kept after type filtering and de-duplication — those can be fewer, and
+     * asking from the card count re-reads rows already seen.
+     */
+    val nextStartIndex: Int = startIndex + items.size,
 )
 
 /** Virtual library ids routed to user-specific Emby collections. */
@@ -720,11 +726,13 @@ class EmbyRepository(
         startIndex: Int = 0,
         limit: Int = LIBRARY_PAGE_SIZE,
         resolution: LibraryResolution = LibraryResolution.All,
+        /** Emby/Jellyfin only; Plex libraries ignore it. */
+        unplayedOnly: Boolean = false,
     ): Result<LibraryPage> =
         if (server.kind == MediaServerKind.Plex) {
             plex.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
         } else {
-            browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution)
+            browseService.libraryItems(server, libraryId, sort, genre, startIndex, limit, resolution, unplayedOnly)
         }
 
     suspend fun libraryGenres(

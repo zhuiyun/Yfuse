@@ -16,26 +16,30 @@
     };
   }
 
+  // Every profile is checked against the device, not only the Dolby ones: an unconditional
+  // "supported" for plain HEVC/AV1/4K60 sent older Chromecasts into a black screen.
   function supportsProfile(profile) {
     if (!profile || typeof profile !== 'object') return null;
+    const hasVideoCodec = typeof profile.videoCodec === 'string' && profile.videoCodec.length > 0;
+    const hasAudioCodec = typeof profile.audioCodec === 'string' && profile.audioCodec.length > 0;
     let videoSupported = true;
     let audioSupported = true;
-    if (profile.dolbyVision === true) {
-      videoSupported =
-        typeof profile.videoCodec === 'string' &&
-        profile.videoCodec.length > 0 &&
-        context.canDisplayType(
-          'video/mp4',
-          profile.videoCodec,
-          profile.width,
-          profile.height,
-          profile.frameRate,
-        );
+    if (hasVideoCodec) {
+      videoSupported = context.canDisplayType(
+        'video/mp4',
+        profile.videoCodec,
+        profile.width,
+        profile.height,
+        profile.frameRate,
+      );
+    } else if (profile.dolbyVision === true) {
+      videoSupported = false;
+    }
+    if (hasAudioCodec) {
+      audioSupported = context.canDisplayType('audio/mp4', profile.audioCodec);
     }
     if (profile.dolbyAtmos === true) {
-      audioSupported =
-        profile.audioCodec === 'ec-3' &&
-        context.canDisplayType('audio/mp4', 'ec-3');
+      audioSupported = audioSupported && profile.audioCodec === 'ec-3';
     }
     return videoSupported && audioSupported;
   }
@@ -89,7 +93,8 @@
   }
 
   function activeAtmosTrackConfirmed() {
-    const active = player.getAudioTracksManager().getActiveTrack();
+    const audioManager = player.getAudioTracksManager && player.getAudioTracksManager();
+    const active = audioManager && audioManager.getActiveTrack && audioManager.getActiveTrack();
     if (!active) return false;
     const contentType = String(active.trackContentType || '');
     const customData = active.customData || {};
@@ -164,14 +169,74 @@
       const playing =
         latestMediaStatus &&
         latestMediaStatus.playerState === cast.framework.messages.PlayerState.PLAYING;
-      sendOutputReceipt(Boolean(playing), 'Receiver MediaStatus 实际 HDR/音轨回执');
+      // A receipt probe that throws must not take the session-state message with it.
+      try {
+        sendOutputReceipt(Boolean(playing), 'Receiver MediaStatus 实际 HDR/音轨回执');
+      } catch (_) {
+        // Reported on the next status; the state below still goes out.
+      }
       sendSessionState(undefined);
     },
   );
+  // A black television is the worst possible error message. The overlay names the failure
+  // the way the phone does, and clears itself the moment playback recovers.
+  const showError = (detail) => {
+    const overlay = document.getElementById('yfuse-error');
+    if (!overlay) return;
+    if (detail) {
+      const text = document.getElementById('yfuse-error-detail');
+      if (text) text.textContent = detail;
+      overlay.hidden = false;
+    } else {
+      overlay.hidden = true;
+    }
+  };
   player.addEventListener(
     cast.framework.events.EventType.ERROR,
-    () => sendOutputReceipt(false, 'Receiver 报告播放错误'),
+    (event) => {
+      const code = event && event.detailedErrorCode;
+      const label = 'Receiver 报告播放错误' + (code ? '（' + code + '）' : '');
+      showError('播放失败' + (code ? '（错误码 ' + code + '）' : '') + '，请在手机上重试或更换版本');
+      sendOutputReceipt(false, label);
+    },
+  );
+  player.addEventListener(cast.framework.events.EventType.PLAYING, () => showError(null));
+  // Only media a sender can legitimately name is loaded: an absolute http(s) address. A
+  // request with anything else is answered with a structured error instead of a stall.
+  player.setMessageInterceptor(
+    cast.framework.messages.MessageType.LOAD,
+    (request) => {
+      const media = request && request.media;
+      const contentId = media && (media.contentUrl || media.contentId);
+      if (typeof contentId !== 'string' || !/^https?:\/\//i.test(contentId)) {
+        const error = new cast.framework.messages.ErrorData(cast.framework.messages.ErrorType.LOAD_FAILED);
+        error.reason = cast.framework.messages.ErrorReason.INVALID_REQUEST;
+        showError('手机发来的播放地址无效');
+        return error;
+      }
+      showError(null);
+      return request;
+    },
+  );
+  // Television captions: larger than the CAF default and outlined so they read on any picture.
+  player.addEventListener(
+    cast.framework.events.EventType.PLAYER_LOAD_COMPLETE,
+    () => {
+      try {
+        const style = new cast.framework.messages.TextTrackStyle();
+        style.fontScale = 1.2;
+        style.edgeType = cast.framework.messages.TextTrackEdgeType.OUTLINE;
+        style.edgeColor = '#000000FF';
+        style.backgroundColor = '#00000066';
+        player.getTextTracksManager().setTextTrackStyle(style);
+      } catch (_) {
+        // Older receivers without a text track manager keep the default style.
+      }
+    },
   );
 
-  context.start();
+  const options = new cast.framework.CastReceiverOptions();
+  // A paused film is not an idle session; the CAF default closes it after a few minutes.
+  options.maxInactivity = 3600;
+  context.start(options);
 })();

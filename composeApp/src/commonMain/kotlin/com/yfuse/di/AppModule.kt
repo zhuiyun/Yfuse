@@ -12,7 +12,6 @@ import com.yfuse.core.account.createAccountClient
 import com.yfuse.core.cast.CastManager
 import com.yfuse.core.cast.createCastManager
 import com.yfuse.core.data.AiringCalendarRepository
-import com.yfuse.core.data.AiringScheduleCache
 import com.yfuse.core.data.CalendarFollowStore
 import com.yfuse.core.data.CalendarIdentityResolver
 import com.yfuse.core.data.CalendarLocalStore
@@ -63,10 +62,14 @@ import com.yfuse.core.security.VaultCrypto
 import com.yfuse.core.security.createSecureStore
 import com.yfuse.core.sync.ProgressSyncPreferences
 import com.yfuse.core.sync.ServerSyncManager
+import com.yfuse.core.sync.WatchRoomResumeStore
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.sync.playback.PlaybackSyncStore
 import com.yfuse.feature.player.PlaybackReportingCoordinator
+import com.yfuse.feature.search.SearchRequests
+import com.yfuse.feature.servers.EmbyQuickConnectGateway
+import com.yfuse.feature.servers.QuickConnectGateway
 import com.yfuse.feature.watch.WatchInviteResolver
 import kotlinx.coroutines.Dispatchers
 import org.koin.dsl.module
@@ -141,6 +144,8 @@ fun appModule(
     single { TgtoMediaRepository(get()) }
     single { SearchHistory(get()) }
     single<LanDiscovery> { createLanDiscovery() }
+    single<QuickConnectGateway> { EmbyQuickConnectGateway(get()) }
+    single { SearchRequests() }
     single<CastManager> { createCastManager() }
     single {
         val userAgent = get<UserAgentPreferences>()
@@ -172,7 +177,6 @@ fun appModule(
         )
     }
     single { ServerHealthMonitor(get(), get()) }
-    single { AiringScheduleCache(get()) }
     single { CalendarFollowStore(get()) }
     single { OfficialAiringScheduleCatalog(createAccountClient(), get()) }
     single {
@@ -188,7 +192,7 @@ fun appModule(
     single { DanmakuRepository(createDanmakuClient()) }
     single { ServerSyncManager(get(), get(), get(), get(), get()) }
     single { AccountAccessTokenSource() }
-    single { WatchTogetherClient(get(), get()) }
+    single { WatchTogetherClient(get(), get(), WatchRoomResumeStore(get())) }
     single { WatchInviteResolver(get(), get()) }
     single<SecureStore> { createSecureStore(get(), namespace = "account") }
     single { AccountApi(createAccountClient()) }

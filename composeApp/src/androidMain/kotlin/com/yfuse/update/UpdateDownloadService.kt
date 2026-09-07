@@ -77,6 +77,17 @@ class UpdateDownloadService : Service() {
         return START_NOT_STICKY
     }
 
+    /** The dataSync budget ran out: the partial file resumes on the next start. */
+    override fun onTimeout(
+        startId: Int,
+        fgsType: Int,
+    ) {
+        scope.coroutineContext[Job]?.children?.forEach { it.cancel() }
+        progress?.cancel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     private fun startProgressUpdates() {
         if (progress?.isActive == true) return
         progress =

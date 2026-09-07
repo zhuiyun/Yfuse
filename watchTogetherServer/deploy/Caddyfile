@@ -16,6 +16,9 @@ https://47.112.219.60 {
 	header @account Cache-Control "no-store"
 
 	reverse_proxy 127.0.0.1:8080 {
+		# Overwrite, never append: the backend trusts this header from the local proxy,
+		# and Caddy's default appends the peer to whatever the peer sent.
+		header_up X-Forwarded-For {remote_host}
 		# Avoid dropping every active watch room immediately on a config reload.
 		stream_close_delay 5m
 	}
@@ -30,6 +33,9 @@ yfuse.zhuiyun.site {
 	header @account Cache-Control "no-store"
 
 	reverse_proxy 127.0.0.1:8080 {
+		# Overwrite, never append: the backend trusts this header from the local proxy,
+		# and Caddy's default appends the peer to whatever the peer sent.
+		header_up X-Forwarded-For {remote_host}
 		# Avoid dropping every active watch room immediately on a config reload.
 		stream_close_delay 5m
 	}
@@ -52,6 +58,7 @@ http://47.112.219.60 {
 	respond @watch `{"error":{"code":"https_required","message":"一起看仅接受 WSS 连接"}}` 426
 
 	reverse_proxy 127.0.0.1:8080 {
+		header_up X-Forwarded-For {remote_host}
 		stream_close_delay 5m
 	}
 }

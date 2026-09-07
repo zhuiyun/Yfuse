@@ -7,6 +7,7 @@ import android.media.MediaCodec
 import android.os.Handler
 import android.os.HandlerThread
 import com.yfuse.core2.api.YMediaItem
+import kotlinx.coroutines.CancellationException
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
@@ -100,7 +101,8 @@ internal class AndroidCodecSampleProbe(
         } catch (_: IOException) {
             // Source/demux I/O says nothing about decoder support; never poison runtime evidence.
             YCodecConfigurationProbeResult.Inconclusive
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             YCodecConfigurationProbeResult.Inconclusive
         } finally {
             runCatching { codec?.stop() }

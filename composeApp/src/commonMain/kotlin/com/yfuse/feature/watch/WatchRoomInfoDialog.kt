@@ -40,6 +40,7 @@ import com.yfuse.core.sync.WatchControlMode
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.core.sync.WatchParticipant
 import com.yfuse.core.sync.WatchTogetherState
+import com.yfuse.core.sync.durationMismatchWarning
 import com.yfuse.core.sync.parseEpisodeWatchKey
 
 /**
@@ -105,6 +106,7 @@ fun WatchRoomInfoDialog(
                     },
                 )
                 state.syncWarning?.let { InfoRow("提示", it) }
+                state.durationMismatchWarning()?.let { InfoRow("版本", it) }
             }
 
             // The roster arrives with the room from protocol v3 on. The count is stated in the

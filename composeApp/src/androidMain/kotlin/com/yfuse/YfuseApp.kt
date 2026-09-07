@@ -3,6 +3,7 @@ package com.yfuse
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.SharedPreferences
+import android.os.StrictMode
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -54,6 +55,7 @@ class YfuseApp :
     SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
+        installStrictModeForDebugBuilds()
         val startupTrace = AppStartupTrace()
         imageCacheContext = this
         androidAppContext = this
@@ -114,6 +116,34 @@ class YfuseApp :
             scheduleCalendarReminderWork(this)
             scheduleCalendarSyncWork(this)
         }.register()
+    }
+
+    /**
+     * Debug builds log main-thread disk and network access and leaked closeables. Nothing here
+     * runs in a release; the point is that a regression shows up in logcat during development
+     * instead of as a cold-start stall in the field.
+     */
+    private fun installStrictModeForDebugBuilds() {
+        if (!BuildConfig.DEBUG) return
+        StrictMode.setThreadPolicy(
+            StrictMode.ThreadPolicy
+                .Builder()
+                .detectDiskReads()
+                .detectDiskWrites()
+                .detectNetwork()
+                .detectCustomSlowCalls()
+                .penaltyLog()
+                .build(),
+        )
+        StrictMode.setVmPolicy(
+            StrictMode.VmPolicy
+                .Builder()
+                .detectLeakedClosableObjects()
+                .detectLeakedSqlLiteObjects()
+                .detectActivityLeaks()
+                .penaltyLog()
+                .build(),
+        )
     }
 
     /** Persist the newest sampled position before Android backgrounds the whole UI. */

@@ -94,7 +94,12 @@ internal object DetailReducer : Reducer<DetailState, DetailMsg> {
             DetailMsg.ProgressManagerClosed ->
                 if (progressSaving) this else copy(progressManagerOpen = false, progressSelection = emptySet())
             is DetailMsg.ProgressSelectionChanged -> copy(progressSelection = msg.episodeIds)
-            is DetailMsg.ProgressSaving -> copy(progressSaving = msg.value)
+            is DetailMsg.ProgressSaving ->
+                copy(
+                    progressSaving = msg.value,
+                    progressCompleted = if (msg.value) msg.completed else 0,
+                    progressTotal = if (msg.value) msg.total else 0,
+                )
             is DetailMsg.EpisodesProgressChanged ->
                 copy(
                     episodes =

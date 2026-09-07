@@ -1,6 +1,7 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
+import com.yfuse.core.model.AiringAccessTier
 import com.yfuse.core.model.AiringEpisode
 import com.yfuse.core.model.AiringScheduleAuthority
 import com.yfuse.core.model.CalendarDay
@@ -99,7 +100,14 @@ class OfficialAiringScheduleCatalogTest {
             )
 
         assertEquals(listOf("师兄太稳健", "花开锦绣"), merged.single().entries.map { it.episode.showTitle })
-        assertEquals(LibraryStatus.InProgress, merged.single().entries.first().status)
+        assertEquals(
+            LibraryStatus.InProgress,
+            merged
+                .single()
+                .entries
+                .first()
+                .status,
+        )
     }
 
     @Test
@@ -152,5 +160,61 @@ class OfficialAiringScheduleCatalogTest {
         assertTrue(calendarRevisionIsAtLeast("2026-08-23-r10", "2026-08-23-r2"))
         assertTrue(calendarRevisionIsAtLeast("2026-08-24-r1", "2026-08-23-r99"))
         assertFalse(calendarRevisionIsAtLeast("2026-08-23-r1", "2026-08-23-r2"))
+    }
+
+    @Test
+    fun a_row_this_build_cannot_read_is_skipped_without_rejecting_the_publication() {
+        val readable = publishedSchedule(tmdbId = 1)
+        val unreadable = publishedSchedule(tmdbId = 2, releaseMode = "Surprise")
+
+        val kept = catalog.validate(OfficialSchedulePayload(listOf(readable, unreadable)), PUBLISHED_REVISION)
+
+        assertEquals(listOf(1), kept.map { it.tmdbId })
+    }
+
+    @Test
+    fun a_slashless_fixed_zone_is_a_valid_broadcast_zone() {
+        val utc = publishedSchedule(tmdbId = 3, timeZoneId = "UTC")
+
+        val kept = catalog.validate(OfficialSchedulePayload(listOf(utc)), PUBLISHED_REVISION)
+
+        assertEquals(listOf(3), kept.map { it.tmdbId })
+    }
+
+    private fun publishedSchedule(
+        tmdbId: Int,
+        timeZoneId: String? = "Asia/Shanghai",
+        releaseMode: String = "Scheduled",
+    ) = OfficialAiringScheduleCatalog.OfficialSeriesSchedule(
+        tmdbId = tmdbId,
+        title = "剧集$tmdbId",
+        seasonNumber = 1,
+        posterPath = null,
+        airTime = timeZoneId?.let { "20:00" },
+        timeZoneId = timeZoneId,
+        platforms = listOf("优酷"),
+        accessTier = AiringAccessTier.Free,
+        releaseMode = releaseMode,
+        sourceUrl = "https://example.com/$tmdbId",
+        revision = PUBLISHED_REVISION,
+        updatedAt = "2026-09-06T12:00:00+08:00",
+        authority = AiringScheduleAuthority.Official,
+        confidence = 100,
+        evidence =
+            listOf(
+                OfficialAiringScheduleCatalog.OfficialScheduleEvidence(
+                    type = "PlatformPage",
+                    publisher = "优酷",
+                    sourceUrl = "https://example.com/$tmdbId",
+                    capturedAt = "2026-09-06T12:00:00+08:00",
+                    contentHash = "0".repeat(64),
+                    extractionMethod = "structured-provider-json",
+                ),
+            ),
+        episodes = listOf(OfficialAiringScheduleCatalog.OfficialEpisodeSlot(1, "2026-09-07")),
+    )
+
+    private companion object {
+        const val PUBLISHED_REVISION = "2026-09-06-r1"
     }
 }

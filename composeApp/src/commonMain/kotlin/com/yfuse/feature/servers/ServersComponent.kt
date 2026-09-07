@@ -32,6 +32,7 @@ class ServersComponent(
             repo = repo,
             registry = registry,
             discovery = discovery,
+            quickConnectGateway = GlobalContext.get().get<QuickConnectGateway>(),
             onAuthenticated = { serverId ->
                 playbackReportingCoordinator?.resumeAfterAuthentication(serverId)
             },

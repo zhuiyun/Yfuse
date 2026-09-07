@@ -8,6 +8,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import com.yfuse.core.model.CalendarDay
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.CalendarSource
+import com.yfuse.core.util.shiftIsoDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -155,8 +156,31 @@ class AndroidCalendarLocalStore(
                         lastAttemptAtEpochMs = resourcesCheckedAtEpochMs,
                     ),
                 )
+                pruneExpired(fromDate, resourcesCheckedAtEpochMs)
             }
         }
+    }
+
+    /**
+     * Rows nothing reads any more.
+     *
+     * Every write replaces one date window and leaves the rest alone, so without this the
+     * table only ever grows: broadcasts scroll out of the past edge of the window and stay,
+     * and the sync-state row is keyed by a scope that carries the day and the follow
+     * fingerprint, so a new one lands most days. Resources go with their events via the
+     * foreign key.
+     */
+    private fun SQLiteDatabase.pruneExpired(
+        fromDate: String,
+        nowEpochMs: Long,
+    ) {
+        val oldestRetainedDate = shiftIsoDate(fromDate, -EVENT_RETENTION_DAYS)
+        delete(TABLE_EVENTS, "$COL_AIR_DATE < ?", arrayOf(oldestRetainedDate))
+        delete(
+            TABLE_SYNC_STATE,
+            "$COL_LAST_ATTEMPT_AT < ?",
+            arrayOf((nowEpochMs - SYNC_STATE_RETENTION_MS).toString()),
+        )
     }
 
     override suspend fun readBindings(
@@ -372,6 +396,10 @@ class AndroidCalendarLocalStore(
         const val DATABASE_NAME = "airing-calendar.db"
         const val DATABASE_VERSION = 2
         const val MAX_ERROR_CHARS = 500
+
+        /** Wider than any window a caller reads back (7 days), so a prune never empties a preview. */
+        const val EVENT_RETENTION_DAYS = 45
+        const val SYNC_STATE_RETENTION_MS = 45L * 24 * 60 * 60_000L
 
         const val TABLE_EVENTS = "calendar_events"
         const val TABLE_BINDINGS = "series_bindings"

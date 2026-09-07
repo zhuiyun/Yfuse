@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -50,6 +51,7 @@ import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
 import com.yfuse.feature.servers.ServersTabComponent
 import com.yfuse.tv.focus.FocusCandidate
+import com.yfuse.tv.focus.requestFocusWhenAttached
 import com.yfuse.tv.focus.tvFocusScope
 
 @Composable
@@ -251,7 +253,7 @@ private fun TvServerCard(
                     Text(
                         "${server.kind.name} · ${server.userName}",
                         color = if (focused) Color.White.copy(alpha = 0.68f) else TvOnSurfaceMuted,
-                        fontSize = 13.sp,
+                        fontSize = 15.sp,
                     )
                 }
             }
@@ -259,7 +261,7 @@ private fun TvServerCard(
                 Text(
                     server.baseUrl,
                     color = if (focused) Color.White.copy(alpha = 0.74f) else TvOnSurfaceMuted,
-                    fontSize = 13.sp,
+                    fontSize = 15.sp,
                     maxLines = 1,
                 )
                 Spacer(Modifier.height(12.dp))
@@ -267,13 +269,13 @@ private fun TvServerCard(
                     Text(
                         if (selected) "当前服务器" else "确定键切换并打开",
                         color = if (selected) TvAccent else Color.White.copy(alpha = 0.66f),
-                        fontSize = 13.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         "长按菜单可编辑",
-                        color = Color.White.copy(alpha = 0.38f),
-                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 14.sp,
                     )
                 }
             }
@@ -288,7 +290,10 @@ private fun TvServerDialog(
     onIntent: (ServersIntent) -> Unit,
 ) {
     val hostRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { hostRequester.requestFocus() }
+    LaunchedEffect(Unit) { hostRequester.requestFocusWhenAttached() }
+    DisposableEffect(focusMemory) {
+        onDispose { focusMemory.requestLastForRoute("servers") }
+    }
     GlassDialog(
         onDismiss = { onIntent(ServersIntent.DismissDialog) },
         maxWidth = 920.dp,

@@ -23,6 +23,11 @@ private const val GUEST_BUFFER_RECOVERY_MS = 15_000L
 /** Loading completion realigns more aggressively than ordinary in-play drift. */
 private const val POST_BUFFER_SEEK_THRESHOLD_MS = 300L
 
+/** A guest never seeks closer to the end of its own file than this: a shorter cut stops here. */
+private const val END_OF_MEDIA_GUARD_MS = 1_000L
+
+private const val SHORTER_CUT_WARNING = "你的影片比房间版本短，已停在片尾"
+
 /**
  * Keeps a watch-together member aligned with the room and reports its local readiness.
  *
@@ -76,6 +81,7 @@ internal fun PlayerWatchSyncEffects(
         var awaitingSince = TimeSource.Monotonic.markNow()
         var bufferingSince = TimeSource.Monotonic.markNow()
         var wasBuffering = true
+        var shorterCutWarned = false
 
         fun awaitCorrection(
             positionMs: Long?,
@@ -134,18 +140,44 @@ internal fun PlayerWatchSyncEffects(
                             delay(GUEST_RECONCILE_TICK_MS)
                             continue
                         }
-                        val expected = timeline.expectedPositionMs(watchTogether.estimatedServerNow())
+                        // Until the first pong the only clock is the device's, and a wrong one
+                        // would seek every guest to a position the room never had.
+                        val serverNow = watchTogether.estimatedServerNowOrNull()
+                        if (serverNow == null) {
+                            if (timeline.paused && latestPlaybackState.playing) latestPlayer.pause()
+                            delay(GUEST_RECONCILE_TICK_MS)
+                            continue
+                        }
+                        val expected = timeline.expectedPositionMs(serverNow)
+                        val duration = latestPlaybackState.durationMs
+                        val reachable =
+                            if (duration > END_OF_MEDIA_GUARD_MS) {
+                                expected.coerceIn(0L, duration - END_OF_MEDIA_GUARD_MS)
+                            } else {
+                                expected
+                            }
                         val diff = expected - position
                         watchTogether.updateSyncDrift(diff)
+                        // A shorter local cut: the room is past this file's end. Stay at the end
+                        // instead of re-seeking there every tick, and say why once.
+                        val atShorterEnd = reachable < expected && abs(reachable - position) < HARD_SEEK_THRESHOLD_MS
+                        if (atShorterEnd && !shorterCutWarned) {
+                            shorterCutWarned = true
+                            watchTogether.setSyncWarning(SHORTER_CUT_WARNING, mediaAvailable = true)
+                        } else if (!atShorterEnd && shorterCutWarned) {
+                            shorterCutWarned = false
+                            watchTogether.setSyncWarning(null, mediaAvailable = true)
+                        }
                         val desiredRate =
                             when {
+                                atShorterEnd -> timeline.rate
                                 abs(diff) >= HARD_SEEK_THRESHOLD_MS ||
                                     (
                                         recoveredFromBuffer &&
                                             abs(diff) >= POST_BUFFER_SEEK_THRESHOLD_MS
                                     ) -> {
-                                    latestPlayer.seekTo(expected)
-                                    awaitCorrection(positionMs = expected, index = null)
+                                    latestPlayer.seekTo(reachable)
+                                    awaitCorrection(positionMs = reachable, index = null)
                                     timeline.rate
                                 }
                                 abs(diff) >= NUDGE_THRESHOLD_MS ->
@@ -170,6 +202,7 @@ internal fun PlayerWatchSyncEffects(
             }
         } finally {
             mediaMatcher.reset()
+            if (shorterCutWarned) watchTogether.setSyncWarning(null, mediaAvailable = true)
             lastNominalRate?.let(latestPlayer::setSpeed)
         }
     }
@@ -182,6 +215,7 @@ internal fun PlayerWatchSyncEffects(
         playbackState.buffering,
         playbackState.error,
         playbackState.currentIndex,
+        playbackState.durationMs,
     ) {
         if (watchState.connected && !watchState.reconnecting) {
             watchTogether.updatePlaybackStatus(
@@ -192,6 +226,7 @@ internal fun PlayerWatchSyncEffects(
                 buffering = playbackState.buffering,
                 mediaAvailable = watchState.localMediaAvailable,
                 syncDriftMs = if (watchState.isHost) 0L else null,
+                durationMs = playbackState.durationMs,
             )
         }
     }

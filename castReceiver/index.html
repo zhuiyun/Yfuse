@@ -7,7 +7,21 @@
     <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   </head>
   <body>
+    <style>
+      #yfuse-error {
+        position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 12px; background: rgba(8, 10, 14, 0.88); color: #fff;
+        font-family: system-ui, sans-serif; z-index: 10;
+      }
+      #yfuse-error[hidden] { display: none; }
+      #yfuse-error .title { font-size: 40px; font-weight: 600; }
+      #yfuse-error .detail { font-size: 24px; opacity: 0.78; max-width: 70vw; text-align: center; }
+    </style>
     <cast-media-player></cast-media-player>
+    <div id="yfuse-error" hidden>
+      <div class="title">播放遇到问题</div>
+      <div class="detail" id="yfuse-error-detail"></div>
+    </div>
     <script src="receiver.js"></script>
   </body>
 </html>

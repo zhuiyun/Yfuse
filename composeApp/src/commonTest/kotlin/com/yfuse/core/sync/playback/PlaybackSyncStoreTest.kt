@@ -56,6 +56,36 @@ class PlaybackSyncStoreTest {
     }
 
     @Test
+    fun serverProgressReplacesACleanLocalRecordButNeverAnUnsentOne() {
+        val store = PlaybackSyncStore(MapSettings()) { 1_000L }
+        store.seedServerProgressIfAbsent("server-a", "movie-1", positionMs = 25_000L, played = false)
+
+        // Watched further on another device: the clean record follows the server.
+        assertTrue(store.absorbServerProgress("server-a", "movie-1", positionMs = 80_000L, played = false))
+        assertEquals(80_000L, store.stateForServerItem("server-a", "movie-1")?.positionMs)
+        assertTrue(store.pending().isEmpty())
+
+        // Same answer again: nothing to do.
+        assertFalse(store.absorbServerProgress("server-a", "movie-1", positionMs = 80_000L, played = false))
+
+        // A local playback the server has not received yet keeps its position.
+        store.updatePlayback(
+            mediaKey = "emby:movie-1",
+            aliases = emptyList(),
+            positionMs = 95_000L,
+            durationMs = 100_000L,
+            played = false,
+            sessionId = "local",
+            serverId = "server-a",
+            serverItemId = "movie-1",
+            mutationKind = PlaybackMutationKind.AutoProgress,
+            trigger = PlaybackSyncTrigger.Periodic,
+        )
+        assertFalse(store.absorbServerProgress("server-a", "movie-1", positionMs = 10_000L, played = true))
+        assertEquals(95_000L, store.stateForServerItem("server-a", "movie-1")?.positionMs)
+    }
+
+    @Test
     fun serverLocalEmbyIdsNeverMergeAcrossServers() {
         val store = PlaybackSyncStore(MapSettings()) { 1_000L }
 

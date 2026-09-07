@@ -29,6 +29,7 @@ import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import com.yfuse.core2.sync.YMediaTimestampTimeline
+import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -81,6 +82,7 @@ internal class AndroidFfmpegDemuxer :
                 FfmpegNativeBridge.selectTracks(handle, intArrayOf())
             }
         } catch (throwable: Throwable) {
+            if (throwable is CancellationException) throw throwable
             if (openedHandle != 0L) FfmpegNativeBridge.close(openedHandle)
             handle = 0L
             openResult = null

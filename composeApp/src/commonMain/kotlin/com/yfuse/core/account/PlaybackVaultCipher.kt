@@ -7,6 +7,7 @@ import com.yfuse.core.security.base64UrlToBytes
 import com.yfuse.core.security.toBase64Url
 import com.yfuse.core.sync.playback.EncryptedPlaybackEntity
 import com.yfuse.core.sync.playback.PlaybackSyncDocument
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -79,7 +80,8 @@ class PlaybackVaultCipher(
             } finally {
                 plaintext.fill(0)
             }
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             null
         } finally {
             key.fill(0)

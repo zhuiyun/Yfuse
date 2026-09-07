@@ -46,6 +46,7 @@ import com.yfuse.feature.library.LibraryComponent
 import com.yfuse.feature.player.PlayerScreen
 import com.yfuse.feature.profile.ProfileTabComponent
 import com.yfuse.feature.search.SearchComponent
+import com.yfuse.tv.focus.requestFocusWhenAttached
 
 private data class TvDestination(
     val tab: RootComponent.Tab,
@@ -109,7 +110,14 @@ fun TvRoot(component: RootComponent) {
             RootComponent.Tab.Profile -> profileStack.active.instance is ProfileTabComponent.Child.Home
         }
 
-    BackHandler(enabled = !atRoot) {
+    // Back walks the hierarchy: out of a sub-screen, then to Home, and only from Home's root
+    // out of the app — the television quality checklist's expectation, and every other TV
+    // client's behaviour.
+    BackHandler(enabled = !atRoot || activeTab != RootComponent.Tab.Home) {
+        if (atRoot) {
+            component.selectTab(RootComponent.Tab.Home)
+            return@BackHandler
+        }
         when (activeTab) {
             RootComponent.Tab.Home -> component.home.navigateBack()
             RootComponent.Tab.Browse -> component.browse.navigateBack()
@@ -120,7 +128,7 @@ fun TvRoot(component: RootComponent) {
     }
 
     LaunchedEffect(Unit) {
-        navRequesters.getValue(activeTab).requestFocus()
+        navRequesters.getValue(activeTab).requestFocusWhenAttached()
         component.dependencies.playbackReportingCoordinator.flushPending()
     }
 

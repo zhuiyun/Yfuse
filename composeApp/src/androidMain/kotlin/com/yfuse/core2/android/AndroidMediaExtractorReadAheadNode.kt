@@ -2,6 +2,7 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import android.media.MediaFormat
+import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
 import java.util.concurrent.Callable
@@ -379,6 +380,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 }
             }
         } catch (throwable: Throwable) {
+            if (throwable is CancellationException) throw throwable
             synchronized(monitor) {
                 failure = throwable
                 endOfInput = true

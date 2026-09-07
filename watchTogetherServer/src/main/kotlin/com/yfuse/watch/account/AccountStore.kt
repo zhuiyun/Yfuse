@@ -1,5 +1,6 @@
 package com.yfuse.watch.account
 
+import com.yfuse.watch.ServerLog
 import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
@@ -283,6 +284,7 @@ internal class SqliteAccountStore private constructor(
             )
             ensureColumnLocked("sessions", "device_name", "TEXT NOT NULL DEFAULT '未知设备'")
             ensureColumnLocked("sessions", "last_seen_at_ms", "INTEGER NOT NULL DEFAULT 0")
+            ensureColumnLocked("sessions", "previous_refresh_token_hash", "BLOB")
             ensureColumnLocked(
                 "account_permissions",
                 "managed_by_config",
@@ -664,37 +666,43 @@ internal class SqliteAccountStore private constructor(
                                     )
                                 }
                             }
-                        } ?: return@transaction if (recoverReplacement) {
-                        // A replay only recovers the still-current successor. It neither
-                        // extends expiry nor revives revoked or subsequently rotated sessions.
-                        connection
-                            .prepareStatement(
-                                """
-                                SELECT s.access_expires_at_ms, s.refresh_expires_at_ms, $USER_COLUMNS
-                                FROM sessions s JOIN users u ON u.id = s.user_id
-                                WHERE s.refresh_token_hash = ? AND s.access_token_hash = ?
-                                  AND s.revoked_at_ms IS NULL AND s.refresh_expires_at_ms > ?
-                                LIMIT 1
-                                """.trimIndent(),
-                            ).use { statement ->
-                                statement.setBytes(1, replacement.refreshTokenHash)
-                                statement.setBytes(2, replacement.accessTokenHash)
-                                statement.setLong(3, nowEpochMs)
-                                statement.executeQuery().use { result ->
-                                    if (result.next()) {
-                                        RefreshedSession(
-                                            result.readUser(),
-                                            result.getLong("access_expires_at_ms"),
-                                            result.getLong("refresh_expires_at_ms"),
-                                        )
-                                    } else {
-                                        null
+                        }
+                if (current == null) {
+                    val recovered =
+                        if (recoverReplacement) {
+                            // A replay only recovers the still-current successor. It neither
+                            // extends expiry nor revives revoked or subsequently rotated sessions.
+                            connection
+                                .prepareStatement(
+                                    """
+                                    SELECT s.access_expires_at_ms, s.refresh_expires_at_ms, $USER_COLUMNS
+                                    FROM sessions s JOIN users u ON u.id = s.user_id
+                                    WHERE s.refresh_token_hash = ? AND s.access_token_hash = ?
+                                      AND s.revoked_at_ms IS NULL AND s.refresh_expires_at_ms > ?
+                                    LIMIT 1
+                                    """.trimIndent(),
+                                ).use { statement ->
+                                    statement.setBytes(1, replacement.refreshTokenHash)
+                                    statement.setBytes(2, replacement.accessTokenHash)
+                                    statement.setLong(3, nowEpochMs)
+                                    statement.executeQuery().use { result ->
+                                        if (result.next()) {
+                                            RefreshedSession(
+                                                result.readUser(),
+                                                result.getLong("access_expires_at_ms"),
+                                                result.getLong("refresh_expires_at_ms"),
+                                            )
+                                        } else {
+                                            null
+                                        }
                                     }
                                 }
-                            }
-                    } else {
-                        null
-                    }
+                        } else {
+                            null
+                        }
+                    if (recovered == null) revokeSessionSpentByLocked(currentRefreshHash, nowEpochMs)
+                    return@transaction recovered
+                }
 
                 val changed =
                     connection
@@ -703,7 +711,8 @@ internal class SqliteAccountStore private constructor(
                             UPDATE sessions
                             SET id = ?, access_token_hash = ?, refresh_token_hash = ?,
                                 access_expires_at_ms = ?, refresh_expires_at_ms = ?, created_at_ms = ?,
-                                device_name = COALESCE(?, device_name), last_seen_at_ms = ?
+                                device_name = COALESCE(?, device_name), last_seen_at_ms = ?,
+                                previous_refresh_token_hash = ?
                             WHERE id = ? AND refresh_token_hash = ? AND revoked_at_ms IS NULL
                             """.trimIndent(),
                         ).use { statement ->
@@ -715,8 +724,9 @@ internal class SqliteAccountStore private constructor(
                             statement.setLong(6, replacement.createdAtEpochMs)
                             statement.setString(7, replacement.deviceName)
                             statement.setLong(8, nowEpochMs)
-                            statement.setString(9, current.sessionId)
-                            statement.setBytes(10, currentRefreshHash)
+                            statement.setBytes(9, currentRefreshHash)
+                            statement.setString(10, current.sessionId)
+                            statement.setBytes(11, currentRefreshHash)
                             statement.executeUpdate()
                         }
                 if (changed != 1) {
@@ -730,6 +740,32 @@ internal class SqliteAccountStore private constructor(
                 }
             }
         }
+
+    /**
+     * A refresh token that was already rotated and is presented again, outside the lost-response
+     * recovery window, means two parties hold the same family: the legitimate client and whoever
+     * copied its token. Neither can be told apart, so the whole session is revoked and both must
+     * sign in again.
+     */
+    private fun revokeSessionSpentByLocked(
+        spentRefreshHash: ByteArray,
+        nowEpochMs: Long,
+    ) {
+        val revoked =
+            connection
+                .prepareStatement(
+                    """
+                    UPDATE sessions
+                    SET revoked_at_ms = ?
+                    WHERE previous_refresh_token_hash = ? AND revoked_at_ms IS NULL
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setLong(1, nowEpochMs)
+                    statement.setBytes(2, spentRefreshHash)
+                    statement.executeUpdate()
+                }
+        if (revoked > 0) ServerLog.warn("refresh_token_replayed", "sessionsRevoked" to revoked)
+    }
 
     override fun revokeSessionByAccessHash(
         tokenHash: ByteArray,

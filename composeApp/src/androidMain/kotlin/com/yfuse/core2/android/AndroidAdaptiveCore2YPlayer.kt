@@ -41,6 +41,7 @@ import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1527,6 +1528,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                     }
                 } catch (failure: Throwable) {
+                    if (failure is CancellationException) throw failure
                     publishUnavailable(core2RouterFailureReason(failure))
                 }
             }

@@ -16,7 +16,7 @@ import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
 import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.strategy.YPlaybackRequest
 import com.yfuse.core2.strategy.shouldRequestEnhancedProbe
-import java.util.concurrent.CancellationException
+import kotlinx.coroutines.CancellationException
 
 /**
  * Deep metadata probe over the demux-only FFmpeg bridge.

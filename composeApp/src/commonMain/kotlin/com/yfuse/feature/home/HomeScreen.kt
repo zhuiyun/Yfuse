@@ -106,6 +106,7 @@ import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.TmdbImages
+import com.yfuse.core.util.currentHourOfDay
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -328,7 +329,10 @@ private fun HomeContent(
                     }
                 }
 
-                val calendarItems = homeCalendarPreviews(calendarState.days, state)
+                val calendarItems =
+                    remember(calendarState.days, state) {
+                        homeCalendarPreviews(calendarState.days, state)
+                    }
                 when {
                     calendarItems.isNotEmpty() -> {
                         item(key = "airing-calendar-preview") {
@@ -735,7 +739,7 @@ private fun HeroHeader(
             AppMark(Modifier.size(30.dp))
             Column {
                 Text(
-                    "下午好",
+                    homeGreeting(currentHourOfDay()),
                     style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
                     color = Color.White.copy(alpha = 0.82f),
                 )
@@ -926,6 +930,16 @@ private fun HeroCaption(
     }
 }
 
+/** The prototype's literal 下午好 read wrong at breakfast; the greeting follows the clock. */
+internal fun homeGreeting(hourOfDay: Int): String =
+    when (hourOfDay.coerceIn(0, 23)) {
+        in 5..10 -> "早上好"
+        in 11..13 -> "中午好"
+        in 14..17 -> "下午好"
+        in 18..22 -> "晚上好"
+        else -> "夜深了"
+    }
+
 internal fun homeUserInitial(userName: String?): String =
     userName
         ?.trim()
@@ -1110,42 +1124,6 @@ private fun LibraryMediaShelf(
                             entry.server.serverName.takeIf(String::isNotBlank),
                         ).joinToString(" · "),
                     onClick = { onClick(entry) },
-                    modifier = Modifier.width(MediaSizing.posterRailWidth),
-                    posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CollectionShelf(
-    items: List<HomeContainerEntry>,
-    onSeeAll: () -> Unit,
-) {
-    Column {
-        HomeShelfHeader(title = "合集", source = "媒体库", onSeeAll = onSeeAll)
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            items(items.take(12), key = { "collection-${it.server.id}-${it.container.id}" }) { entry ->
-                CaptionedPoster(
-                    url =
-                        EmbyImages.primary(
-                            baseUrl = entry.server.baseUrl,
-                            itemId = entry.container.id,
-                            tag = entry.container.posterTag,
-                            maxHeight = 450,
-                            accessToken = entry.server.accessToken,
-                        ),
-                    title = entry.container.title,
-                    year =
-                        listOfNotNull(
-                            entry.container.itemCount?.let { "$it 项" },
-                            entry.server.serverName.takeIf(String::isNotBlank),
-                        ).joinToString(" · "),
-                    onClick = onSeeAll,
                     modifier = Modifier.width(MediaSizing.posterRailWidth),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )
@@ -1426,58 +1404,6 @@ private fun Recommended(
                     modifier = Modifier.width(MediaSizing.posterRailWidth),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )
-            }
-        }
-    }
-}
-
-/** 最近添加 — three-column poster wall matching the bottom shelf in the prototype. */
-@Composable
-private fun RecentAdded(
-    items: List<TmdbItem>,
-    onSeeAll: () -> Unit,
-    onClick: (TmdbItem) -> Unit,
-) {
-    val palette = LocalPalette.current
-    Column(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
-        Row(
-            Modifier.fillMaxWidth().padding(bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("最近添加", style = AppTypography.section.strong, color = palette.text)
-            Text(
-                "全部 ›",
-                style = AppTypography.caption.medium,
-                color = palette.sub2,
-                modifier =
-                    Modifier
-                        .pressable(onClick = onSeeAll)
-                        .touchTarget()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-            )
-        }
-        items.chunked(3).forEach { row ->
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                row.forEach { item ->
-                    Poster(
-                        url = TmdbImages.poster(item.posterPath),
-                        fallbackUrls =
-                            listOfNotNull(
-                                TmdbImages.media(item.posterPath),
-                                TmdbImages.backdrop(item.backdropPath, "w780"),
-                                TmdbImages.media(item.backdropPath, "w780"),
-                            ),
-                        title = item.title,
-                        rating = item.rating,
-                        onClick = { onClick(item) },
-                        modifier = Modifier.weight(1f).aspectRatio(2f / 3f),
-                    )
-                }
-                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }

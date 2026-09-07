@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.data.DanmakuComment
 import com.yfuse.core.data.DanmakuDisplayArea
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlin.math.max
 
+private const val MAX_CACHED_DANMAKU_ENTRIES = 2_048
 private const val FIXED_DURATION_MS = 4_000L
 private const val POSITION_RESET_THRESHOLD_MS = 1_000L
 private const val WINDOW_BUCKET_MS = 1_000L
@@ -344,6 +346,11 @@ fun DanmakuOverlay(
                             (bucketStart - maxDuration).coerceAtLeast(0L),
                         )
                     val until = lowerBoundDanmaku(comments, bucketStart + WINDOW_BUCKET_MS)
+                    // Both caches are keyed by comment index and would otherwise grow with
+                    // every comment a long episode scrolls past; a full reset is cheap next
+                    // to measuring text, and only the current window is ever needed.
+                    if (widthCache.size > MAX_CACHED_DANMAKU_ENTRIES) widthCache.clear()
+                    if (laneCache.size > MAX_CACHED_DANMAKU_ENTRIES) laneCache.clear()
                     val inputs =
                         (from until until).map { index ->
                             val comment = comments[index]
@@ -402,7 +409,9 @@ fun DanmakuOverlay(
                             Color(0xFF000000 or comment.color)
                                 .copy(alpha = opacity.alpha),
                         style = textStyle,
-                        modifier = Modifier.offset(x = x, y = y),
+                        // Offsetting in the layout phase keeps each frame's move from
+                        // re-measuring the text; only placement changes.
+                        modifier = Modifier.offset { IntOffset(x.roundToPx(), y.roundToPx()) },
                     )
                 }
             }

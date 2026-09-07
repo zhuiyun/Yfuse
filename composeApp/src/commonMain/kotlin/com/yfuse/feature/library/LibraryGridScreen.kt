@@ -63,6 +63,7 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
 import com.yfuse.core.model.MediaContainerKind
+import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 
 /**
@@ -97,6 +98,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
     val palette = LocalPalette.current
     StatusBarIconStyle(darkIcons = !palette.isDark)
     var sortOpen by remember { mutableStateOf(false) }
+    var quickActionsItem by remember { mutableStateOf<MediaItem?>(null) }
     val gridState = component.gridState
     val bottomContentInset = systemNavigationContentInset()
 
@@ -221,7 +223,9 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
             if (state.resolutionFilterable) {
                 ResolutionFilterRow(
                     selected = state.resolution,
+                    unplayedOnly = state.unplayedOnly,
                     onSelect = { component.store.accept(GridIntent.SetResolution(it)) },
+                    onUnplayedOnly = { component.store.accept(GridIntent.SetUnplayedOnly(it)) },
                 )
             }
 
@@ -298,6 +302,7 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
                                             item = item,
                                             showProgress = false,
                                             onClick = { component.onOpenItem(item.id) },
+                                            onLongClick = { quickActionsItem = item },
                                         )
                                         if (state.containerKind != null) {
                                             Box(
@@ -365,6 +370,51 @@ fun LibraryGridScreen(component: LibraryGridComponent) {
         // 排序 was a Material [DropdownMenu] hung off the chip — the last anchored menu in the
         // app, and the one shape the overlay system exists to replace. Centred like every
         // other overlay outside the player now; see [com.yfuse.core.designsystem.GlassDialog].
+        // A long press on a poster: the handful of things people do to a title without opening
+        // it. Every action is optimistic; the sync manager owns the write from here.
+        quickActionsItem?.let { item ->
+            GlassDialog(onDismiss = { quickActionsItem = null }) {
+                OverlayHeader(title = item.title, onClose = { quickActionsItem = null })
+                Column(verticalArrangement = Arrangement.spacedBy(OverlayOptionSpacing)) {
+                    OverlayOptionRow(
+                        label = "查看详情",
+                        selected = false,
+                        onClick = {
+                            quickActionsItem = null
+                            component.onOpenItem(item.id)
+                        },
+                    )
+                    OverlayOptionRow(
+                        label = if (item.isFavorite) "取消收藏" else "收藏",
+                        selected = item.isFavorite,
+                        onClick = {
+                            quickActionsItem = null
+                            component.store.accept(GridIntent.SetFavorite(item.id, !item.isFavorite))
+                        },
+                    )
+                    OverlayOptionRow(
+                        label = if (item.played) "标记为未看" else "标记为已看",
+                        selected = item.played,
+                        onClick = {
+                            quickActionsItem = null
+                            component.store.accept(GridIntent.SetPlayed(item.id, !item.played))
+                        },
+                    )
+                    if (state.containerKind != null) {
+                        OverlayOptionRow(
+                            label =
+                                if (state.containerKind == MediaContainerKind.Playlist) "从播放列表移除" else "从合集移除",
+                            selected = false,
+                            onClick = {
+                                quickActionsItem = null
+                                component.store.accept(GridIntent.RequestRemove(item.id))
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
         if (sortOpen) {
             GlassDialog(onDismiss = { sortOpen = false }) {
                 OverlayHeader(title = "排序", onClose = { sortOpen = false })
@@ -492,7 +542,9 @@ private fun GenreFilterRow(
 @Composable
 private fun ResolutionFilterRow(
     selected: LibraryResolution,
+    unplayedOnly: Boolean,
     onSelect: (LibraryResolution) -> Unit,
+    onUnplayedOnly: (Boolean) -> Unit,
 ) {
     LazyRow(
         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
@@ -513,6 +565,14 @@ private fun ResolutionFilterRow(
                 selected = selected == resolution,
                 modifier = motionAwareItem(),
                 onClick = { onSelect(resolution) },
+            )
+        }
+        item(key = "unplayed-only") {
+            GenreChip(
+                label = "只看未看",
+                selected = unplayedOnly,
+                modifier = motionAwareItem(),
+                onClick = { onUnplayedOnly(!unplayedOnly) },
             )
         }
     }

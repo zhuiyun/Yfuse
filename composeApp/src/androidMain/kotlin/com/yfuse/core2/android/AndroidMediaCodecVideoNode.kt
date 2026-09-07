@@ -12,6 +12,7 @@ import android.view.Surface
 import androidx.annotation.RequiresApi
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.graph.YVideoDecodeNode
+import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 
 /** Result of a non-blocking compressed-sample enqueue. */
@@ -149,6 +150,7 @@ internal class AndroidMediaCodecVideoNode(
             codec = candidate
             started = true
         } catch (throwable: Throwable) {
+            if (throwable is CancellationException) throw throwable
             val attemptedDecoderName =
                 decoder
                     ?.let { candidate -> runCatching { candidate.name }.getOrNull() }
@@ -259,6 +261,7 @@ internal class AndroidMediaCodecVideoNode(
                     )
                     return
                 } catch (failure: Throwable) {
+                    if (failure is CancellationException) throw failure
                     failures +=
                         failure.toVideoDecoderAttemptFailure(
                             "$candidateName[${variant.diagnosticLabel}]",

@@ -50,7 +50,9 @@ jobs:
           scripts/fetch-engines.sh
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
-      - name: Reject new ktlint violations
+      # Formatting is recorded here and enforced at the end of the job, so a line-wrap
+      # violation can no longer hide the compile, test, lint and release signals behind it.
+      - name: Record ktlint violations
         shell: bash
         run: |
           set +e
@@ -62,10 +64,11 @@ jobs:
               echo "===== $report ====="
               cat "$report"
             done < <(find . -path '*/build/reports/ktlint/*/*.txt' -type f | sort)
-            exit "$ktlint_status"
+            echo "::error::ktlint found new violations; the remaining gates still run, and this job fails at the end"
           fi
+          echo "KTLINT_STATUS=$ktlint_status" >> "$GITHUB_ENV"
       - name: Compile and run unit tests
-        run: ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
+        run: ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest :tvApp:testDebugUnitTest :watchTogetherProtocol:jvmTest :watchTogetherServer:test --no-daemon
       - name: Compile startup and frame-time Macrobenchmark APK
         run: ./gradlew :macrobenchmark:assembleBenchmark --no-daemon
       - name: Verify design-system usage
@@ -107,6 +110,9 @@ jobs:
           version_code="$(sed -n 's/^VERSION_CODE=//p' version.properties | tail -n 1 | tr -d '\r')"
           version_name="$(sed -n 's/^VERSION_NAME=//p' version.properties | tail -n 1 | tr -d '\r')"
           grep -Fq "package: name='com.yfuse'" <<<"$badging"
+          # Backups would carry Emby tokens; the manifest must keep them off for good.
+          manifest_tree="$("$build_tools/aapt" dump xmltree "$apk" AndroidManifest.xml)"
+          grep -Eq 'android:allowBackup\(0x0101002a\)=\(type 0x12\)0x0' <<<"$manifest_tree"
           grep -Fq "versionCode='$version_code'" <<<"$badging"
           grep -Fq "versionName='$version_name'" <<<"$badging"
           unzip -Z1 "$apk" > build/apk-entries.txt
@@ -129,6 +135,14 @@ jobs:
           set -euo pipefail
           ./gradlew :composeApp:dependencies :macrobenchmark:dependencies :mdkAndroid:dependencies :watchTogetherProtocol:dependencies :watchTogetherServer:dependencies --no-daemon >/dev/null
           git diff --exit-code -- '**/gradle.lockfile' settings-gradle.lockfile
+      - name: Fail on recorded ktlint violations
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${KTLINT_STATUS:-0}" != "0" ]]; then
+            echo "::error::ktlint violations were recorded earlier in this job"
+            exit 1
+          fi
       - name: Upload preview APK
         if: github.event_name == 'pull_request'
         continue-on-error: true

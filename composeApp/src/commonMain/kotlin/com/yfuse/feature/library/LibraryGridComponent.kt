@@ -4,9 +4,12 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.mvikotlin.core.store.StoreFactory
+import com.russhwolf.settings.Settings
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.model.MediaContainer
+import com.yfuse.core.sync.ServerSyncManager
+import org.koin.core.context.GlobalContext
 
 class LibraryGridComponent(
     componentContext: ComponentContext,
@@ -48,6 +51,8 @@ class LibraryGridComponent(
             serverId = serverId,
             containerKind = containerKind,
             directoryKind = directoryKind,
+            userStateWriter = GlobalContext.get().get<ServerSyncManager>(),
+            sortMemory = LibrarySortMemory(GlobalContext.get().get<Settings>()),
         ).create()
 
     init {

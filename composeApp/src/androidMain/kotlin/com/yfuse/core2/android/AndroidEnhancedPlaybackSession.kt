@@ -55,6 +55,7 @@ import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.sync.YAvSync
 import com.yfuse.core2.sync.YClockSnapshot
 import com.yfuse.core2.sync.YMediaClock
+import kotlinx.coroutines.CancellationException
 
 internal data class YEnhancedPlaybackSnapshot(
     val positionUs: Long,
@@ -433,6 +434,7 @@ internal class AndroidEnhancedPlaybackSession(
                 },
             )
         } catch (throwable: Throwable) {
+            if (throwable is CancellationException) throw throwable
             if (!softwareVideoActive && !videoConfiguredForProbe) {
                 runtimeCapabilityKey?.let { runtimeCapabilities?.recordRejected(it) }
             }

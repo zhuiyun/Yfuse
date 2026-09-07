@@ -331,7 +331,15 @@ class AiringCalendarRepository(
             runCatching { localStore.readCalendar(from, to, cacheScope) }
                 .getOrNull()
                 ?.let { restoreLocalDays(it, today) }
-                .orEmpty()
+                // A detail page writes its series' library-dated rows into the same table.
+                // They belong to that page only: shown here they would flash in the preview
+                // and vanish once the published schedule replaces them.
+                ?.mapNotNull { day ->
+                    day.entries
+                        .filterNot { it.episode.scheduleAuthority == AiringScheduleAuthority.Library }
+                        .takeIf(List<CalendarEntry>::isNotEmpty)
+                        ?.let { day.copy(entries = it) }
+                }.orEmpty()
         if (localDays.isNotEmpty()) onPreview(localDays)
         val cached = officialSchedules.between(from, to)
         if (localDays.isEmpty() && cached.isNotEmpty()) onPreview(unresolvedCalendarDays(cached, today))
@@ -877,6 +885,11 @@ class AiringCalendarRepository(
             }
         }
         val catalog = catalogResult.getOrDefault(emptyList())
+        // Remembered identities are only checked against a catalog that actually arrived.
+        // When the rich catalog fails and the provider-only index carries the round, the
+        // catalog is empty, and judging every mapping against an empty set would erase
+        // the user's own "选择正确剧集" choices over one transient library error.
+        val catalogVerified = catalogResult.isSuccess
         val index =
             buildMap {
                 catalog.forEach { series ->
@@ -920,13 +933,13 @@ class AiringCalendarRepository(
                     ?.itemId
             val persistedMappedId =
                 persistedBindings[episode.showTmdbId]
-                    ?.takeIf { it in catalogItemIds }
+                    ?.takeIf { !catalogVerified || it in catalogItemIds }
             val mappedId =
                 identityResolver
                     .mappedSeriesItemId(server.id, episode.showTmdbId)
                     ?.takeIf { libraryHint == null }
-            val validMappedId = mappedId?.takeIf { it in catalogItemIds }
-            if (mappedId != null && validMappedId == null) {
+            val validMappedId = mappedId?.takeIf { !catalogVerified || it in catalogItemIds }
+            if (catalogVerified && mappedId != null && validMappedId == null) {
                 identityResolver.forget(server.id, mappedId, episode.showTmdbId)
             }
             return libraryHint

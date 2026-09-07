@@ -223,6 +223,60 @@ class PlaybackSyncStore(
             true
         }
 
+    /**
+     * Takes the media server's progress for an item as the truth wherever this device has
+     * nothing unsent of its own.
+     *
+     * A local record that is not dirty was either pulled from the server or already pushed
+     * to it, so the server's newer value — an episode watched on the television — is the one
+     * to show. A dirty record is a local playback the server has not received yet; it stays,
+     * and the outbox delivers it. Imported values are clean, so a pull is never echoed back to
+     * the cloud as a fresh local mutation. Returns true when anything changed.
+     */
+    fun absorbServerProgress(
+        serverId: String,
+        itemId: String,
+        positionMs: Long,
+        played: Boolean,
+    ): Boolean =
+        synchronized(lock) {
+            if (serverId.isBlank() || itemId.isBlank()) return@synchronized false
+            val index =
+                documents.indexOfLast {
+                    it.document.state.serverId == serverId &&
+                        it.document.state.serverItemId == itemId
+                }
+            if (index < 0) return@synchronized seedServerProgressIfAbsent(serverId, itemId, positionMs, played)
+            val stored = documents[index]
+            if (stored.dirty) return@synchronized false
+            val normalizedPosition = positionMs.coerceAtLeast(0L)
+            val current = stored.document.state
+            if (current.positionMs == normalizedPosition && current.played == played) return@synchronized false
+            val state =
+                current.copy(
+                    positionMs = normalizedPosition,
+                    played = played,
+                    lastPlayedAtEpochMs = nowEpochMs(),
+                    revision = current.revision + 1L,
+                    mutationKind =
+                        if (played) {
+                            PlaybackMutationKind.AutoFinished
+                        } else {
+                            PlaybackMutationKind.AutoProgress
+                        },
+                )
+            replaceLocked(
+                index = index,
+                value =
+                    stored.copy(
+                        document = stored.document.copy(state = state),
+                        dirty = false,
+                        mutationId = newId("server-absorb"),
+                    ),
+            )
+            true
+        }
+
     fun pending(limit: Int = 64): List<StoredPlaybackDocument> =
         synchronized(lock) {
             documents.filter(StoredPlaybackDocument::dirty).take(limit.coerceIn(1, 128))

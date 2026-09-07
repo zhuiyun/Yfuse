@@ -74,6 +74,8 @@ data class WatchParticipant(
     val mediaAvailable: Boolean = true,
     val latencyMs: Long? = null,
     val syncDriftMs: Long? = null,
+    /** The member's local media length, when reported; lets the host spot a different cut. */
+    val durationMs: Long? = null,
     val canControl: Boolean = false,
     val isModerator: Boolean = false,
 ) {
@@ -161,6 +163,26 @@ data class WatchTogetherState(
 )
 
 internal const val WATCH_CAPABILITY_REACTIONS = WatchProtocol.CAPABILITY_REACTIONS
+
+/** Members whose file differs from this device's by more than this are flagged as a different cut. */
+internal const val WATCH_DURATION_MISMATCH_MS = 60_000L
+
+/**
+ * Names members whose reported media length differs materially from this device's, so the
+ * host can explain a guest that keeps landing at the end of a shorter file.
+ */
+fun WatchTogetherState.durationMismatchWarning(): String? {
+    val self = participants.firstOrNull { it.isSelf }?.durationMs ?: return null
+    val mismatched =
+        participants.filter { member ->
+            !member.isSelf &&
+                member.durationMs?.let { abs(it - self) >= WATCH_DURATION_MISMATCH_MS } == true
+        }
+    if (mismatched.isEmpty()) return null
+    val names = mismatched.take(3).joinToString("、") { it.name }
+    val suffix = if (mismatched.size > 3) "等 ${mismatched.size} 人" else ""
+    return "$names$suffix 的影片时长与你不同，可能是不同版本，同步位置会有偏差"
+}
 
 internal fun supportsWatchReactions(capabilities: List<String>?): Boolean =
     WATCH_CAPABILITY_REACTIONS in capabilities.orEmpty()

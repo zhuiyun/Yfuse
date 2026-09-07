@@ -12,6 +12,7 @@ import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportMethod
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
@@ -133,6 +134,7 @@ internal class AndroidYCoreDrmSession(
                 requiresSecureVideoDecoder = crypto.requiresSecureDecoderComponent(videoMimeType),
             ).also { binding = it }
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             close()
             throw failure
         }
@@ -161,6 +163,7 @@ internal class AndroidYCoreDrmSession(
             try {
                 if (refreshKeysIfNeeded()) renewedSinceLastPoll.set(true)
             } catch (failure: Throwable) {
+                if (failure is CancellationException) throw failure
                 if (!closed) renewalFailure.set(failure)
             } finally {
                 renewalInFlight.set(false)
@@ -199,6 +202,7 @@ internal class AndroidYCoreDrmSession(
             }
             return true
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             if (eventRequested) keyRenewalRequired.set(true)
             throw failure
         }

@@ -5,6 +5,8 @@ import androidx.compose.animation.core.snap
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -50,15 +52,22 @@ import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.model.Person
 import com.yfuse.core.network.EmbyImages
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun GenreSection(
     genres: List<String>,
     modifier: Modifier = Modifier,
+    /** A chip is a query: tapping 科幻 searches the libraries for it. */
+    onGenreClick: ((String) -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     Column(modifier) {
         SectionHeader("分类")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Wraps: six Chinese genre names do not fit one 360dp row, and a Row clipped the rest.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             genres.take(6).forEach { genre ->
                 Text(
                     genreDisplayLabel(genre),
@@ -66,7 +75,9 @@ internal fun GenreSection(
                     color = palette.body,
                     modifier =
                         Modifier
-                            .shadow(GlassLift.control, GlassShapes.chip)
+                            .let { base ->
+                                if (onGenreClick != null) base.pressable { onGenreClick(genre) } else base
+                            }.shadow(GlassLift.control, GlassShapes.chip)
                             .liquidGlass(
                                 shape = GlassShapes.chip,
                                 fill =
@@ -271,6 +282,8 @@ internal fun CastRow(
     accessToken: String,
     people: List<Person>,
     modifier: Modifier = Modifier,
+    /** Tapping a face searches for the person; the libraries are the only filmography we have. */
+    onPersonClick: ((Person) -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     Column(modifier) {
@@ -283,7 +296,14 @@ internal fun CastRow(
                 people.take(20),
                 key = { index, person -> "person-${person.id}-$index" },
             ) { _, person ->
-                Column(Modifier.width(66.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    Modifier
+                        .width(66.dp)
+                        .let { base ->
+                            if (onPersonClick != null) base.pressable { onPersonClick(person) } else base
+                        },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Poster(
                         url = EmbyImages.avatar(baseUrl, person, accessToken = accessToken),
                         shape = CircleShape,

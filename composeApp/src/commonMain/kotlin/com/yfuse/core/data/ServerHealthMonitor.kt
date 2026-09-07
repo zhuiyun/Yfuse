@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -107,7 +108,12 @@ class ServerHealthMonitor(
     val health: StateFlow<Map<String, ServerHealth>> = _health.asStateFlow()
     private val appForeground = MutableStateFlow(false)
     private var started = false
-    private val lastAutoSwitchAtMs = mutableMapOf<String, Long>()
+
+    // Written by concurrent probes; a plain map raced its own iteration in `retainAll`.
+    private val lastAutoSwitchAtMs = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /** When each server's backup addresses were last probed; they are not worth a minute cadence. */
+    private val lastBackupProbeAtMs = MutableStateFlow<Map<String, Long>>(emptyMap())
     private val probePermits = Semaphore(4)
 
     fun start(scope: CoroutineScope) {
@@ -125,8 +131,9 @@ class ServerHealthMonitor(
             ) { (data, _), foreground -> data to foreground }
                 .collectLatest { (data, foreground) ->
                     val ids = data.servers.mapTo(hashSetOf()) { it.id }
-                    _health.value = _health.value.filterKeys { it in ids }
-                    lastAutoSwitchAtMs.keys.retainAll(ids)
+                    _health.update { current -> current.filterKeys { it in ids } }
+                    lastAutoSwitchAtMs.update { current -> current.filterKeys { it in ids } }
+                    lastBackupProbeAtMs.update { current -> current.filterKeys { it in ids } }
                     if (foreground) refreshAll(data.servers)
                 }
         }
@@ -169,6 +176,29 @@ class ServerHealthMonitor(
                 .onFailure { recordFailure(server.id, it) }
             return
         }
+        // The active address answers the foreground question every minute. Backups are
+        // re-checked every few minutes, or at once when the active one stops answering,
+        // which is the only moment their freshness decides anything.
+        val now = nowEpochMs()
+        val backupsDue = now - (lastBackupProbeAtMs.value[server.id] ?: 0L) >= BACKUP_PROBE_INTERVAL_MS
+        if (!backupsDue) {
+            val active = server.activeRoute
+            val activeOnly =
+                probePermits.withPermit {
+                    repository.probeAddress(active.url, server.accessToken, server.kind)
+                }
+            val latency = activeOnly.getOrNull()
+            if (latency != null) {
+                val previousRoutes = _health.value[server.id]?.routes.orEmpty()
+                recordSuccess(
+                    serverId = server.id,
+                    latencyMs = latency,
+                    routes = previousRoutes + (active.id to RouteHealth(ServerHealthStatus.Healthy, latency)),
+                )
+                return
+            }
+        }
+        lastBackupProbeAtMs.update { current -> current + (server.id to now) }
         val probed: List<Pair<ServerRoute, Result<Long>>> =
             coroutineScope {
                 routes
@@ -225,7 +255,7 @@ class ServerHealthMonitor(
         probed: List<Pair<ServerRoute, Result<Long>>>,
     ) {
         val now = nowEpochMs()
-        val last = lastAutoSwitchAtMs[server.id]
+        val last = lastAutoSwitchAtMs.value[server.id]
         if (last != null && now - last < MIN_AUTO_SWITCH_INTERVAL_MS) return
         val fallback =
             probed
@@ -233,7 +263,7 @@ class ServerHealthMonitor(
                 .mapNotNull { (route, result) -> result.getOrNull()?.let { route to it } }
                 .minByOrNull { it.second }
                 ?: return
-        lastAutoSwitchAtMs[server.id] = now
+        lastAutoSwitchAtMs.update { current -> current + (server.id to now) }
         if (!registry.activateRoute(server.id, fallback.first.id)) return
         AppLog.info(
             category = "server.health",
@@ -312,10 +342,11 @@ class ServerHealthMonitor(
         serverId: String,
         block: (ServerHealth?) -> ServerHealth,
     ) {
-        _health.value =
-            _health.value.toMutableMap().apply {
+        _health.update { current ->
+            current.toMutableMap().apply {
                 this[serverId] = block(this[serverId])
             }
+        }
     }
 }
 
@@ -336,6 +367,7 @@ private fun ServersData.probeIdentity(): List<String> =
     }
 
 private const val HEALTH_REFRESH_INTERVAL_MS = 60_000L
+private const val BACKUP_PROBE_INTERVAL_MS = 5 * 60_000L
 
 /** Shared thresholds for cards, route diagnostics, filtering and source ranking. */
 fun latencySeverity(

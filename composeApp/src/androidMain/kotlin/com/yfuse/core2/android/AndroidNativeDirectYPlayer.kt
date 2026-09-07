@@ -2126,6 +2126,7 @@ internal class AndroidNativeDirectYPlayer(
                 }
                 runtimeCapabilityKey?.let(runtimeCapabilities::recordConfigured)
             } catch (failure: Throwable) {
+                if (failure is CancellationException) throw failure
                 runtimeCapabilityKey?.let(runtimeCapabilities::recordRejected)
                 throw failure
             }

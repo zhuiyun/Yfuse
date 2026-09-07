@@ -30,12 +30,16 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlin.concurrent.Volatile
+import kotlin.math.abs
 import kotlin.random.Random
+import kotlin.time.TimeSource
 
 /** Owns one watch-together room session and coordinates reconnect, timeline, chat and reactions. */
 class WatchTogetherClient(
     private val preferences: WatchTogetherPreferences,
     private val accountTokens: AccountAccessTokenSource,
+    private val resumeStore: WatchRoomResumeStore = WatchRoomResumeStore(null),
 ) {
     private val json =
         Json {
@@ -52,26 +56,51 @@ class WatchTogetherClient(
     private var connectionJob: Job? = null
     private var currentSession: DefaultClientWebSocketSession? = null
 
-    private var pendingUrl: String? = null
-    private var pendingRoomCode: String? = null
-    private var pendingMediaKey: String? = null
-    private var pendingName: String = ""
-    private var pendingAvatarId: Int = 0
-    private var pendingResumeCapability: String? = null
-    private var pendingHostCapability: String? = null
-    private var localPlaybackStatus = LocalPlaybackStatus()
-    private var lastSentPlaybackStatus: WatchWireMessage? = null
-    private var nextLocalChatId = -1L
+    // Session parameters are written by UI callers and read on the connection coroutine;
+    // each is a single reference or primitive, so volatile publication is what they need.
+    // Status reports additionally compose several fields and go through [statusLock].
+    @Volatile private var pendingUrl: String? = null
 
-    private var everWelcomed = false
-    private var reconnectAttempt = 0
-    private var authenticationRetryUsed = false
-    private var reconnectingSinceEpochMs: Long? = null
+    @Volatile private var pendingRoomCode: String? = null
+
+    @Volatile private var pendingMediaKey: String? = null
+
+    @Volatile private var pendingName: String = ""
+
+    @Volatile private var pendingAvatarId: Int = 0
+
+    @Volatile private var pendingResumeCapability: String? = null
+
+    @Volatile private var pendingHostCapability: String? = null
+    private val statusLock = Any()
+
+    @Volatile private var localPlaybackStatus = LocalPlaybackStatus()
+
+    @Volatile private var lastSentPlaybackStatus: WatchWireMessage? = null
+
+    @Volatile private var lastDriftReportAt: TimeSource.Monotonic.ValueTimeMark? = null
+
+    @Volatile private var nextLocalChatId = -1L
+
+    @Volatile private var everWelcomed = false
+
+    @Volatile private var reconnectAttempt = 0
+
+    @Volatile private var authenticationRetryUsed = false
+
+    @Volatile private var reconnectingSinceEpochMs: Long? = null
 
     private val _state = MutableStateFlow(WatchTogetherState())
     val state: StateFlow<WatchTogetherState> = _state.asStateFlow()
     private val _timeline = MutableStateFlow<WatchTimeline?>(null)
     val timeline: StateFlow<WatchTimeline?> = _timeline.asStateFlow()
+
+    /**
+     * The room this device was last welcomed into and has not left, surviving process death.
+     * Null once the member leaves, is removed, the room ends, or the account signs out.
+     */
+    private val _resumableRoom = MutableStateFlow(resumeStore.load())
+    val resumableRoom: StateFlow<PersistedRoomResume?> = _resumableRoom.asStateFlow()
     val roomPlaylist = WatchRoomPlaylistController(::send)
 
     private val outgoingMessages =
@@ -122,6 +151,30 @@ class WatchTogetherClient(
     }
 
     fun estimatedServerNow(): Long = clock.serverNow()
+
+    /**
+     * The server clock estimate, or null until the first pong. Anything that would seek the
+     * player on server time must wait for this rather than trust the device wall clock.
+     */
+    fun estimatedServerNowOrNull(): Long? = clock.serverNowOrNull()
+
+    /** Re-enters the room persisted by [resumableRoom] with the capabilities it was granted. */
+    fun rejoinPersistedRoom(endpoint: String) {
+        val resume = _resumableRoom.value ?: return
+        start(
+            endpoint = endpoint,
+            roomCode = resume.roomCode,
+            mediaKey = resume.mediaKey,
+            name = null,
+            resumeCapability = resume.resumeCapability,
+            hostCapability = resume.hostCapability,
+        )
+    }
+
+    /** Forgets the persisted room without contacting the server. */
+    fun discardPersistedRoom() {
+        clearPersistedRoom()
+    }
 
     fun createRoom(
         endpoint: String,
@@ -317,12 +370,18 @@ class WatchTogetherClient(
         _state.update { if (it.chatError == null) it else it.copy(chatError = null) }
     }
 
-    fun setSyncWarning(message: String?) {
+    /** A warning about this device's media; by default it also marks the media unavailable. */
+    fun setSyncWarning(message: String?) = setSyncWarning(message, mediaAvailable = message == null)
+
+    fun setSyncWarning(
+        message: String?,
+        mediaAvailable: Boolean,
+    ) {
         _state.update {
-            if (it.syncWarning == message && it.localMediaAvailable == (message == null)) {
+            if (it.syncWarning == message && it.localMediaAvailable == mediaAvailable) {
                 it
             } else {
-                it.copy(syncWarning = message, localMediaAvailable = message == null)
+                it.copy(syncWarning = message, localMediaAvailable = mediaAvailable)
             }
         }
     }
@@ -332,22 +391,48 @@ class WatchTogetherClient(
         buffering: Boolean,
         mediaAvailable: Boolean,
         syncDriftMs: Long? = localPlaybackStatus.syncDriftMs,
+        durationMs: Long? = localPlaybackStatus.durationMs,
     ) {
-        localPlaybackStatus =
-            LocalPlaybackStatus(
-                ready = ready && mediaAvailable && !buffering,
-                buffering = buffering && mediaAvailable,
-                mediaAvailable = mediaAvailable,
-                syncDriftMs = syncDriftMs?.coerceIn(-30_000L, 30_000L),
-            )
+        synchronized(statusLock) {
+            localPlaybackStatus =
+                LocalPlaybackStatus(
+                    ready = ready && mediaAvailable && !buffering,
+                    buffering = buffering && mediaAvailable,
+                    mediaAvailable = mediaAvailable,
+                    syncDriftMs = syncDriftMs?.coerceIn(-30_000L, 30_000L),
+                    durationMs = durationMs?.takeIf { it > 0L },
+                )
+        }
         sendPlaybackStatus()
     }
 
+    /**
+     * Drift is measured every guest tick, but it is informational: it goes out at most once per
+     * [DRIFT_REPORT_INTERVAL_MS] unless it crosses the hard-seek band, which the host should
+     * see at once.
+     */
     fun updateSyncDrift(syncDriftMs: Long?) {
         val rounded = syncDriftMs?.let { (it / DRIFT_REPORT_BUCKET_MS) * DRIFT_REPORT_BUCKET_MS }
-        if (localPlaybackStatus.syncDriftMs == rounded) return
-        localPlaybackStatus = localPlaybackStatus.copy(syncDriftMs = rounded)
-        sendPlaybackStatus()
+        val send =
+            synchronized(statusLock) {
+                val previous = localPlaybackStatus.syncDriftMs
+                if (previous == rounded) return
+                val crossedBand =
+                    (previous == null) != (rounded == null) ||
+                        (abs(previous ?: 0L) >= DRIFT_URGENT_MS) != (abs(rounded ?: 0L) >= DRIFT_URGENT_MS)
+                val due =
+                    lastDriftReportAt?.let {
+                        it.elapsedNow().inWholeMilliseconds >= DRIFT_REPORT_INTERVAL_MS
+                    } ?: true
+                localPlaybackStatus = localPlaybackStatus.copy(syncDriftMs = rounded)
+                if (crossedBand || due) {
+                    lastDriftReportAt = TimeSource.Monotonic.markNow()
+                    true
+                } else {
+                    false
+                }
+            }
+        if (send) sendPlaybackStatus()
     }
 
     fun publishTimeline(
@@ -394,9 +479,28 @@ class WatchTogetherClient(
             )
         }
         leaveInternal()
+        clearPersistedRoom()
         _state.value = WatchTogetherState()
         _timeline.value = null
         roomPlaylist.reset()
+    }
+
+    private fun clearPersistedRoom() {
+        resumeStore.clear()
+        _resumableRoom.value = null
+    }
+
+    private fun persistRoom() {
+        val roomCode = pendingRoomCode ?: return
+        val resume =
+            PersistedRoomResume(
+                roomCode = roomCode,
+                mediaKey = pendingMediaKey.orEmpty(),
+                resumeCapability = pendingResumeCapability,
+                hostCapability = pendingHostCapability,
+            )
+        resumeStore.save(resume)
+        _resumableRoom.value = resume.takeIf { it.isWellFormed }
     }
 
     private fun leaveInternal() {
@@ -430,6 +534,8 @@ class WatchTogetherClient(
         roomCode: String?,
         mediaKey: String,
         name: String?,
+        resumeCapability: String? = null,
+        hostCapability: String? = null,
     ) {
         if (!WatchTogetherPreferences.isOfficialEndpoint(endpoint) || !accountTokens.trusts(endpoint)) {
             _state.value =
@@ -455,14 +561,18 @@ class WatchTogetherClient(
         reconnectAttempt = 0
         authenticationRetryUsed = false
         reconnectingSinceEpochMs = null
-        localPlaybackStatus = LocalPlaybackStatus()
-        lastSentPlaybackStatus = null
+        synchronized(statusLock) {
+            localPlaybackStatus = LocalPlaybackStatus()
+            lastSentPlaybackStatus = null
+            lastDriftReportAt = null
+        }
         nextLocalChatId = -1L
         pendingUrl = url
         pendingRoomCode = roomCode
         pendingMediaKey = mediaKey
-        pendingResumeCapability = null
-        pendingHostCapability = null
+        pendingResumeCapability = resumeCapability
+        pendingHostCapability = hostCapability
+        if (resumeCapability == null && hostCapability == null) clearPersistedRoom()
         pendingName = name ?: preferences.nickname.value
         pendingAvatarId = preferences.avatarId.value
         _state.value = WatchTogetherState(connecting = true)
@@ -510,6 +620,7 @@ class WatchTogetherClient(
                     throwable = failure,
                     attributes = mapOf("roomGone" to roomGone.toString()),
                 )
+                clearPersistedRoom()
                 _state.value =
                     WatchTogetherState(
                         error = failure?.message?.takeIf(String::isNotBlank) ?: "一起看连接失败",
@@ -534,6 +645,8 @@ class WatchTogetherClient(
                             "offlineMs" to offlineMs.toString(),
                         ),
                 )
+                // The membership is still valid server-side; the persisted capabilities let
+                // 「回到房间」 rejoin without a new invite.
                 _state.value = WatchTogetherState(error = "一起看连接已断开，请重新加入房间")
                 _timeline.value = null
                 return
@@ -658,6 +771,12 @@ class WatchTogetherClient(
                                         ?.let { pendingRoomCode = it }
                                     wire.resumeCapability?.let { pendingResumeCapability = it }
                                     wire.hostCapability?.let { pendingHostCapability = it }
+                                    wire.mediaKey
+                                        ?.takeIf {
+                                            pendingMediaKey.isNullOrEmpty() &&
+                                                WatchProtocol.isValidMediaKey(it)
+                                        }?.let { pendingMediaKey = it }
+                                    persistRoom()
                                     welcomedThisAttempt = true
                                     everWelcomed = true
                                     authenticationRetryUsed = false
@@ -677,7 +796,7 @@ class WatchTogetherClient(
                                 }
                                 applyRoomSnapshot(wire)
                                 if (wire.type == "welcome") {
-                                    lastSentPlaybackStatus = null
+                                    synchronized(statusLock) { lastSentPlaybackStatus = null }
                                     sendPlaybackStatus()
                                 }
                             }
@@ -713,6 +832,7 @@ class WatchTogetherClient(
                                     throw RoomUnavailableException("服务器下发的主持凭据无效")
                                 }
                                 pendingHostCapability = capability
+                                persistRoom()
                             }
 
                             "kicked" -> {
@@ -725,7 +845,7 @@ class WatchTogetherClient(
                                 val chat =
                                     wire.chat?.toDomain(
                                         selfClientId = preferences.clientId,
-                                        serverNowMs = estimatedServerNow(),
+                                        serverNowMs = wire.serverAtMs ?: estimatedServerNow(),
                                     ) ?: continue
                                 if (chat.isMine) {
                                     chat.clientMessageId?.let(chatAckTimeouts::complete)
@@ -849,6 +969,7 @@ class WatchTogetherClient(
         pendingHostCapability = null
         everWelcomed = false
         authenticationRetryUsed = false
+        clearPersistedRoom()
         _state.value = WatchTogetherState(error = "登录已失效，请重新登录后使用一起看")
         _timeline.value = null
         roomPlaylist.reset()
@@ -932,7 +1053,9 @@ class WatchTogetherClient(
         if (!WatchProtocol.isValidMediaKey(mediaKey) ||
             !WatchProtocol.isValidTimeline(positionMs, paused, rate) ||
             !WatchProtocol.isValidSequence(seq) ||
-            !WatchProtocol.isReasonableServerTime(anchorAtMs, estimatedServerNow())
+            // The message's own stamp is the reference: before the first pong the device clock
+            // is all the clock sync has, and a wrong one must not reject a valid timeline.
+            !WatchProtocol.isReasonableServerTime(anchorAtMs, wire.serverAtMs ?: estimatedServerNow())
         ) {
             AppLog.warning(
                 category = "watch_together",
@@ -1000,18 +1123,29 @@ class WatchTogetherClient(
     private fun sendPlaybackStatus() {
         val state = _state.value
         if (!state.connected || state.reconnecting) return
-        val status = localPlaybackStatus
         val message =
-            WatchWireMessage(
-                type = "playbackStatus",
-                ready = status.ready,
-                buffering = status.buffering,
-                mediaAvailable = status.mediaAvailable,
-                latencyMs = clock.latencyMs()?.let { (it / LATENCY_REPORT_BUCKET_MS) * LATENCY_REPORT_BUCKET_MS },
-                syncDriftMs = status.syncDriftMs,
-            )
-        if (message == lastSentPlaybackStatus) return
-        if (send(message)) lastSentPlaybackStatus = message
+            synchronized(statusLock) {
+                val status = localPlaybackStatus
+                val candidate =
+                    WatchWireMessage(
+                        type = "playbackStatus",
+                        ready = status.ready,
+                        buffering = status.buffering,
+                        mediaAvailable = status.mediaAvailable,
+                        latencyMs =
+                            clock.latencyMs()?.let { (it / LATENCY_REPORT_BUCKET_MS) * LATENCY_REPORT_BUCKET_MS },
+                        syncDriftMs = status.syncDriftMs,
+                        durationMs = status.durationMs,
+                    )
+                if (candidate == lastSentPlaybackStatus) return
+                lastSentPlaybackStatus = candidate
+                candidate
+            }
+        if (!send(message)) {
+            synchronized(statusLock) {
+                if (lastSentPlaybackStatus == message) lastSentPlaybackStatus = null
+            }
+        }
     }
 
     private fun send(message: WatchWireMessage): Boolean {

@@ -104,10 +104,14 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
+            :tvApp:ktlintCheck \
             :tvApp:testDebugUnitTest \
             :tvApp:assembleDebug \
+            :tvApp:assembleRelease -PallowDebugSigning=true \
             --stacktrace \
             --no-daemon
+          # The R8 build is what ships; a debug APK proves nothing about shrinking.
+          test -s tvApp/build/outputs/apk/release/tvApp-release.apk
 
       - name: Verify packaged TV contract
         id: artifact

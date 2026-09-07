@@ -86,6 +86,31 @@ account must own the update directory, must not have sudo access, and its
 authorized key should disable forwarding and interactive terminals. Do not
 reuse a personal SSH key.
 
+## One-time update-manifest signing key
+
+`update-v2.json` is signed with Ed25519. The app pins the public key at build time
+(`yfuse.updateManifestPublicKey` in `gradle.properties`) and a release build refuses any
+manifest that is unsigned, signed by another key, or served to a build with no key pinned.
+The workflow refuses to publish unless the `UPDATE_MANIFEST_SIGNING_KEY` secret matches the
+pinned key, so a misconfiguration fails in CI instead of on devices.
+
+```bash
+openssl genpkey -algorithm ed25519 -out update-manifest.pem
+openssl pkey -in update-manifest.pem -pubout -outform DER | base64 -w0   # -> gradle.properties
+```
+
+Store the PEM as the repository secret `UPDATE_MANIFEST_SIGNING_KEY`, commit the derived
+public key as `yfuse.updateManifestPublicKey`, and keep the PEM somewhere the keystore also
+lives: losing it means every installed build stops accepting updates until a new key is
+shipped through the old, unsigned path. Rotation is the same two steps plus one release.
+
+The signed payload is the manifest's `versionCode`, `versionName`, `apkUrl`, `sha256`, `size`
+and `notes` joined by newlines, in that order. `UpdateManifest.signedPayload()` in the app and
+`sign_manifest` in the workflow both build it; change both or neither.
+
+Independently of the manifest, the app compares the downloaded package's signing
+certificates with its own before handing it to the installer, and discards a mismatch.
+
 ## One-time HTTPS deployment
 
 The production templates are:

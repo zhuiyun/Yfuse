@@ -20,6 +20,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.navigation.SingleFlightNavigationGuard
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.player.PlayerComponent
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
 /** Search tab navigation: query/results -> detail -> player. */
@@ -112,12 +113,24 @@ class SearchComponent(
         navigation.popTo(index = 0)
     }
 
+    /** Runs [query] on this tab's root page, leaving whatever detail or player was on top. */
+    fun search(query: String) {
+        popToRoot()
+        val home =
+            stack.value.items
+                .firstOrNull()
+                ?.instance as? Child.Home ?: return
+        home.component.store.accept(SearchIntent.QueryChanged(query))
+        home.component.store.accept(SearchIntent.Submit)
+    }
+
     private fun openPlayer(config: Config.Player) {
         val active = stack.value.active.configuration as? Config.Player
         if (!playerNavigation.tryBegin(config, active)) return
         try {
             navigation.push(config)
         } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
             playerNavigation.complete(config)
             throw failure
         }

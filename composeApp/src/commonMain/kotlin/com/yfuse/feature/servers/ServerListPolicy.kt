@@ -128,6 +128,8 @@ fun diagnoseServerTransport(server: SavedServer): List<TransportDiagnostic> =
                 EndpointTransportDecision.Cleartext,
                 EndpointTransportDecision.LocalCleartextConfirmed,
                 EndpointTransportDecision.LocalCleartextConfirmationRequired,
+                EndpointTransportDecision.PublicCleartextConfirmed,
+                EndpointTransportDecision.PublicCleartextConfirmationRequired,
                 -> TransportDiagnosticSeverity.LocalCleartext
                 else -> TransportDiagnosticSeverity.Blocked
             }
