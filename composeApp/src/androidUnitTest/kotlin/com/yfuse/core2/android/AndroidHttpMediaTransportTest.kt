@@ -12,14 +12,16 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
-import okhttp3.Call
-import okhttp3.EventListener
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody.Companion.asResponseBody
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import okhttp3.tls.HandshakeCertificates
 import okhttp3.tls.HeldCertificate
+import okio.Buffer
+import okio.ForwardingSource
+import okio.buffer
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -131,20 +133,35 @@ class AndroidHttpMediaTransportTest {
                 AndroidHttpMediaTransport(
                     OkHttpClient
                         .Builder()
-                        .eventListener(
-                            object : EventListener() {
-                                override fun responseBodyStart(call: Call) {
-                                    reading.countDown()
-                                }
-                            },
-                        ).build(),
+                        .addNetworkInterceptor { chain ->
+                            val response = chain.proceed(chain.request())
+                            val body = requireNotNull(response.body)
+                            val observed =
+                                object : ForwardingSource(body.source()) {
+                                    override fun read(
+                                        sink: Buffer,
+                                        byteCount: Long,
+                                    ): Long {
+                                        // Observe entry into the actual body read. OkHttp's body-start
+                                        // event may arrive only after bytes are received or the read fails.
+                                        reading.countDown()
+                                        return super.read(sink, byteCount)
+                                    }
+                                }.buffer()
+                            response
+                                .newBuilder()
+                                .body(observed.asResponseBody(body.contentType(), body.contentLength()))
+                                .build()
+                        }.build(),
                 )
             server.enqueue(
                 MockResponse()
                     .setResponseCode(206)
                     .setHeader("Content-Range", "bytes 0-3/4")
-                    .setBody("data")
-                    .setBodyDelay(10, TimeUnit.SECONDS),
+                    // Send headers but never deliver the declared body. A timed body delay
+                    // outlives MockWebServer's shutdown deadline and hides the read assertion.
+                    .setBody("")
+                    .setHeader("Content-Length", "4"),
             )
             server.start()
             try {

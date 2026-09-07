@@ -736,6 +736,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         rememberedProbe = rememberedProbe,
                     )
             if (forceSoftwareFallback) {
+                routeEvaluator.closePreparedExtractor()
                 return createInternalSoftwareRoute(item, singleRequest, decision)
                     ?: fallbackRouteFactory?.create(
                         item,
@@ -745,6 +746,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                     )
             }
             if (forceEnhancedFallback) {
+                routeEvaluator.closePreparedExtractor()
                 return createInternalEnhancedRoute(item, singleRequest, decision)
                     ?: createInternalSoftwareRoute(item, singleRequest, decision)
             }
@@ -786,6 +788,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
             if (!bypassLearnedRouteMemory && failureLedger.isBlocked(decision.toFailureKey())) return null
             val plan = decision.plan
+            if (!decision.nativeDirectExecutable) routeEvaluator.closePreparedExtractor()
             AppLog.info(
                 category = "player.core2",
                 event = "route_selected",

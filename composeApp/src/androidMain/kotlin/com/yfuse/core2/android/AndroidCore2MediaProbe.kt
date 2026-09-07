@@ -508,8 +508,15 @@ internal class AndroidCore2RouteEvaluator(
         forcePowerSaver: Boolean = false,
         rememberedProbe: YCore2ProbeResult.Success? = null,
     ): YCore2RouteDecision? {
-        val resolved = rememberedProbe ?: resolveProbe(item) ?: return null
-        return decide(item, resolved, preferTunnel, allowAudioPassthrough, forcePowerSaver)
+        val resolved = rememberedProbe ?: resolveProbe(item)
+        if (resolved == null) {
+            closePreparedExtractor()
+            return null
+        }
+        val decision = decide(item, resolved, preferTunnel, allowAudioPassthrough, forcePowerSaver)
+        // Other demuxers cannot adopt this extractor. Stop its speculative downloads immediately.
+        if (!decision.nativeDirectExecutable) closePreparedExtractor()
+        return decision
     }
 
     /** The platform probe, refined by the FFmpeg truth probe where the policy asks for it. */
