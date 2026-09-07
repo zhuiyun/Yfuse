@@ -1,6 +1,5 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -8,7 +7,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +39,7 @@ fun HeroPageIndicator(
     pageCount: Int,
     selectedPage: Int,
     onPageSelected: (Int) -> Unit,
+    pageOffset: Float = 0f,
     modifier: Modifier = Modifier,
     onArtwork: Boolean = false,
 ) {
@@ -52,16 +51,10 @@ fun HeroPageIndicator(
     ) {
         repeat(pageCount.coerceAtLeast(0)) { index ->
             val active = index == selectedPage
-            val width by animateDpAsState(
-                targetValue =
-                    if (active) {
-                        HeroPageIndicatorDefaults.activeWidth
-                    } else {
-                        HeroPageIndicatorDefaults.inactiveWidth
-                    },
-                animationSpec = Motion.settle(reduceMotion),
-                label = "hero-page-indicator",
-            )
+            val weight = carouselIndicatorWeight(index, selectedPage, if (reduceMotion) 0f else pageOffset, pageCount)
+            val width =
+                HeroPageIndicatorDefaults.inactiveWidth +
+                    (HeroPageIndicatorDefaults.activeWidth - HeroPageIndicatorDefaults.inactiveWidth) * weight
             Box(
                 Modifier
                     .pressable(
@@ -77,9 +70,9 @@ fun HeroPageIndicator(
                     .clip(AppShapes.track)
                     .background(
                         if (onArtwork) {
-                            Color.White.copy(alpha = if (active) 0.94f else 0.34f)
+                            Color.White.copy(alpha = 0.34f + 0.60f * weight)
                         } else {
-                            palette.text.copy(alpha = if (active) 0.82f else 0.28f)
+                            palette.text.copy(alpha = 0.28f + 0.54f * weight)
                         },
                     ),
             )

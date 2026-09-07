@@ -15,6 +15,7 @@ import com.yfuse.core.account.AccountRepository
 import com.yfuse.core.cast.initializeCastApplicationContext
 import com.yfuse.core.data.AndroidCalendarLocalStore
 import com.yfuse.core.data.DiagnosticPreferences
+import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.DiagnosticLogStore
@@ -22,6 +23,7 @@ import com.yfuse.core.logging.SafeLogcatOutputGate
 import com.yfuse.core.network.imageCacheKeyForUrl
 import com.yfuse.core.offline.offlineApplicationContext
 import com.yfuse.core.security.CredentialPersistingSettings
+import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
@@ -104,18 +106,23 @@ class YfuseApp :
                 )
             }
         startupTrace.mark("dependency_graph")
-        koinApplication.koin.get<AccountRepository>().start()
-        // Local playback state is always available; cloud work begins automatically once the
-        // account repository restores an authenticated session.
-        koinApplication.koin.get<PlaybackSyncManager>().start()
-        startupTrace.mark("session_restore")
-        DeferredAppStartup(this) {
-            // These jobs survive process death through WorkManager and do not contribute to the
-            // first screen, so scheduling them before first draw only makes cold start noisier.
-            koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
-            scheduleCalendarReminderWork(this)
-            scheduleCalendarSyncWork(this)
-        }.register()
+        ServerSessionRecovery.initialize(
+            restore = { koinApplication.koin.get<ServerRegistry>() },
+            startServices = {
+                koinApplication.koin.get<AccountRepository>().start()
+                // Local playback state is always available; cloud work begins automatically once the
+                // account repository restores an authenticated session.
+                koinApplication.koin.get<PlaybackSyncManager>().start()
+                startupTrace.mark("session_restore")
+                DeferredAppStartup(this) {
+                    // These jobs survive process death through WorkManager and do not contribute to the
+                    // first screen, so scheduling them before first draw only makes cold start noisier.
+                    koinApplication.koin.get<PlaybackReportingCoordinator>().flushPending()
+                    scheduleCalendarReminderWork(this)
+                    scheduleCalendarSyncWork(this)
+                }.register()
+            },
+        )
     }
 
     /**

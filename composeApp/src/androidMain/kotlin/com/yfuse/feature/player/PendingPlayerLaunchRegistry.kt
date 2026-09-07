@@ -30,17 +30,18 @@ internal object PendingPlayerLaunchRegistry {
             id
         }
 
-    fun consume(id: String?): PendingPlayerLaunch? =
-        synchronized(entries) { id?.let(entries::remove) }
+    fun consume(id: String?): PendingPlayerLaunch? = synchronized(entries) { id?.let(entries::remove) }
 
     fun discard(id: String?) {
         synchronized(entries) { id?.let(entries::remove) }?.store?.dispose()
     }
 
-    fun writeTo(intent: Intent, id: String) {
+    fun writeTo(
+        intent: Intent,
+        id: String,
+    ) {
         intent.putExtra(EXTRA_ID, id)
     }
 
-    fun readFrom(intent: Intent): String? =
-        intent.getStringExtra(EXTRA_ID)?.takeIf { it.length == 36 }
+    fun readFrom(intent: Intent): String? = intent.getStringExtra(EXTRA_ID)?.takeIf { it.length == 36 }
 }

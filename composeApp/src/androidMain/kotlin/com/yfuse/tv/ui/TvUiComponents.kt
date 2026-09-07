@@ -18,8 +18,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -65,8 +65,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.yfuse.tv.focus.FocusAnchor
-import com.yfuse.tv.focus.FocusContext
 import com.yfuse.tv.focus.FocusCandidate
+import com.yfuse.tv.focus.FocusContext
 import com.yfuse.tv.focus.FocusRepository
 import com.yfuse.tv.focus.FocusRestoreRequest
 import com.yfuse.tv.focus.FocusTargetId
@@ -114,7 +114,10 @@ internal class TvUiFocusMemory {
 
     fun anchor(scope: String): String? = anchors[scope]
 
-    fun targetId(scope: String, stableId: String): FocusTargetId = FocusTargetId(scope, stableId)
+    fun targetId(
+        scope: String,
+        stableId: String,
+    ): FocusTargetId = FocusTargetId(scope, stableId)
 
     fun context(scope: String): FocusContext =
         routeContexts[scope.substringBefore(':')]
@@ -125,8 +128,7 @@ internal class TvUiFocusMemory {
         return context
     }
 
-    fun contextForRoute(route: String): FocusContext =
-        routeContexts[route] ?: FocusContext(route = route)
+    fun contextForRoute(route: String): FocusContext = routeContexts[route] ?: FocusContext(route = route)
 
     fun lastForRoute(
         route: String,
@@ -146,7 +148,9 @@ internal class TvUiFocusMemory {
     fun gridState(route: String): LazyGridState = gridStates.getOrPut(route) { LazyGridState() }
 }
 
-internal enum class TvArtworkShape(val ratio: Float) {
+internal enum class TvArtworkShape(
+    val ratio: Float,
+) {
     Poster(2f / 3f),
     Landscape(16f / 9f),
 }
@@ -227,8 +231,7 @@ internal fun TvFocusableSurface(
                 repository = focusMemory.repository,
                 requesterRegistry = focusMemory.requesterRegistry,
                 makeFocusable = false,
-            )
-            .onFocusChanged { state ->
+            ).onFocusChanged { state ->
                 focused = state.isFocused
                 if (state.isFocused) {
                     focusMemory.remember(focusScope, stableId, serverId, profileId)
@@ -318,14 +321,28 @@ internal fun TvActionButton(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (focused) Color.Black else if (primary) Color.Black else TvOnSurface,
+                    tint =
+                        if (focused) {
+                            Color.Black
+                        } else if (primary) {
+                            Color.Black
+                        } else {
+                            TvOnSurface
+                        },
                     modifier = Modifier.size(22.dp),
                 )
                 Spacer(Modifier.width(10.dp))
             }
             Text(
                 text = label,
-                color = if (focused) Color.Black else if (primary) Color.Black else TvOnSurface,
+                color =
+                    if (focused) {
+                        Color.Black
+                    } else if (primary) {
+                        Color.Black
+                    } else {
+                        TvOnSurface
+                    },
                 fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,

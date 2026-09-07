@@ -10,6 +10,7 @@ import com.yfuse.core.model.normalizedRoutes
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import com.yfuse.core.security.RelayMigrationPackage
 import com.yfuse.core.security.SecureStore
+import com.yfuse.core.security.SecureStoreCorruptedException
 import com.yfuse.core.security.ServerMigrationCrypto
 import com.yfuse.core.security.ServerMigrationRelayCrypto
 import com.yfuse.core.security.VaultCrypto
@@ -901,6 +902,7 @@ class ServerRegistry(
         val refs = linkedMapOf<String, String>()
         val seenIds = hashSetOf<String>()
         val seenRefs = hashSetOf<String>()
+        val invalidRefs = linkedSetOf<String>()
         var changed = false
 
         persisted.servers.forEach { stored ->
@@ -911,7 +913,7 @@ class ServerRegistry(
                         "Invalid or duplicate secret reference"
                     }
                     val tokenBytes =
-                        secureStore.get(secretKey(stored.secretRef))
+                        readSessionSecret(secretKey(stored.secretRef))
                             ?: error("Saved session secret is missing")
                     val token =
                         try {
@@ -920,7 +922,7 @@ class ServerRegistry(
                             tokenBytes.fill(0)
                         }
                     requireValidToken(token)
-                    val cloudTokenBytes = secureStore.get(cloudSecretKey(stored.secretRef))
+                    val cloudTokenBytes = readSessionSecret(cloudSecretKey(stored.secretRef))
                     val cloudToken =
                         cloudTokenBytes?.let { bytes ->
                             try {
@@ -997,16 +999,18 @@ class ServerRegistry(
                         changed = true
                     }
                 }.onFailure { error ->
+                    // No cleanup may happen until every session has been read successfully.
+                    // A temporary keystore outage must never look like an empty registry.
+                    if (error is ServerSessionRestoreException) throw error
                     changed = true
-                    if (stored.secretRef !in refs.values && VALID_SECRET_REF.matches(stored.secretRef)) {
-                        removeSecretBestEffort(stored.secretRef)
+                    if (VALID_SECRET_REF.matches(stored.secretRef)) {
+                        invalidRefs += stored.secretRef
                     }
                     AppLog.warning(
                         category = "server.registry",
-                        event = "saved_session_unavailable",
+                        event = "saved_session_invalid",
                         message =
-                            "A saved session was removed because its secure secret is unavailable; " +
-                                "login is required",
+                            "A saved session failed validation; cleanup waits until every session can be read",
                         throwable = error,
                         attributes = mapOf("serverId" to stored.id),
                     )
@@ -1019,6 +1023,7 @@ class ServerRegistry(
                 ?: servers.firstOrNull()?.id
         if (defaultId != requestedDefault) changed = true
         val data = ServersData(servers, defaultId)
+        (invalidRefs - refs.values.toSet()).forEach(::removeSecretBestEffort)
         if (changed) {
             runCatching { persistMetadata(data, refs) }.onFailure { error ->
                 AppLog.warning(
@@ -1138,13 +1143,22 @@ class ServerRegistry(
     }
 
     private fun readOptionalSecret(key: String): String? {
-        val bytes = secureStore.get(key) ?: return null
+        val bytes = readSessionSecret(key) ?: return null
         return try {
             bytes.decodeToString().also(::requireValidToken)
         } finally {
             bytes.fill(0)
         }
     }
+
+    private fun readSessionSecret(key: String): ByteArray? =
+        try {
+            secureStore.get(key)
+        } catch (corrupted: SecureStoreCorruptedException) {
+            throw corrupted
+        } catch (error: Exception) {
+            throw ServerSessionRestoreException(error)
+        }
 
     private fun rollbackSecretWrites(writes: List<SecretWrite>) {
         writes.asReversed().forEach { write ->

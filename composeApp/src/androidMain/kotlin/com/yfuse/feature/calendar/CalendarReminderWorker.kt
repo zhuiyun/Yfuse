@@ -126,7 +126,9 @@ class CalendarReminderWorker(
 ) : CoroutineWorker(appContext, parameters) {
     override suspend fun doWork(): Result {
         val koin = runCatching { GlobalContext.get() }.getOrElse { return Result.retry() }
-        val repository = koin.get<AiringCalendarRepository>()
+        val repository =
+            runCatching { koin.get<AiringCalendarRepository>() }
+                .getOrElse { return Result.retry() }
         val followStore = koin.get<CalendarFollowStore>()
         val automaticRefreshCompleted =
             if (

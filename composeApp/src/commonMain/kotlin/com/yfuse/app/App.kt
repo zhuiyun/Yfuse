@@ -183,6 +183,7 @@ fun App(root: RootComponent) {
     val reduceTransparency by root.themePreferences.reduceTransparency.collectAsState()
     val largeText by root.themePreferences.largeText.collectAsState()
     val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
+    val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by root.themePreferences.glassStyle.collectAsState()
     val backgroundImage by root.themePreferences.backgroundImage.collectAsState()
     val backgroundDim by root.themePreferences.backgroundDim.collectAsState()
@@ -201,6 +202,7 @@ fun App(root: RootComponent) {
         // legible, so a decorative material choice must not be able to reinstate the effect
         // it turns off.
         glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
+        dialogAnimation = dialogAnimation,
     ) {
         val active by root.activeTab.subscribeAsState()
         val homeStack by root.home.stack.subscribeAsState()

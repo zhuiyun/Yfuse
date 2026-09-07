@@ -26,7 +26,12 @@ internal fun hiddenServerAudioTrackDetail(
     prefix: String,
     hints: YMediaSourceHints?,
 ): String {
-    val declared = hints?.audioCodecs.orEmpty().map(String::lowercase).distinct()
+    val declared =
+        hints
+            ?.audioCodecs
+            .orEmpty()
+            .map(String::lowercase)
+            .distinct()
     return if (declared.isEmpty()) {
         "$prefix (server audio tracks: ${hints?.audioTrackCount ?: 0})"
     } else {

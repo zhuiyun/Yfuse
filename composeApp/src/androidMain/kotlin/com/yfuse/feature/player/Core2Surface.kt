@@ -165,9 +165,13 @@ private fun Core2SubtitleChannel(
     dual: Boolean,
     modifier: Modifier,
 ) {
-    val timeline = remember(cues) { YSubtitleTimeline(cues) }
+    val timeline: YSubtitleTimeline =
+        remember(cues) {
+            val index: YSubtitleTimeline = YSubtitleTimeline(cues)
+            index
+        }
     val activeCues =
-        remember(timeline, positionMs, offsetMs) {
+        remember<List<YSubtitleCue>>(timeline, positionMs, offsetMs) {
             timeline.activeAt(positionMs * MICROS_PER_MILLISECOND, offsetMs * MICROS_PER_MILLISECOND)
         }
     if (activeCues.isEmpty()) return

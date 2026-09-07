@@ -14,9 +14,8 @@ import com.yfuse.core.model.ShowOrigin
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.util.currentIsoDate
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val CALENDAR_LOAD_TIMEOUT_MS = 45_000L
 
@@ -32,11 +31,8 @@ internal suspend fun loadCalendarWithDeadline(
     timeoutMillis: Long = CALENDAR_LOAD_TIMEOUT_MS,
     loader: suspend () -> Result<List<CalendarDay>>,
 ): Result<List<CalendarDay>> =
-    try {
-        withTimeout(timeoutMillis) { loader() }
-    } catch (_: TimeoutCancellationException) {
-        Result.failure(CalendarLoadTimeoutException())
-    }
+    withTimeoutOrNull(timeoutMillis) { loader() }
+        ?: Result.failure(CalendarLoadTimeoutException())
 
 /**
  * Which slice of the calendar is on screen.

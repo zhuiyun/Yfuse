@@ -14,10 +14,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -74,9 +74,10 @@ internal fun TvSearchHomeScreen(
     val state by component.store.states.collectAsState(component.store.state)
     val store = component.store
     val results =
-        state.visibleGroups.flatMap { group ->
-            group.items.map { TvSearchResult(group.serverId, group.serverName, it) }
-        }.distinctBy { it.serverId to it.item.id }
+        state.visibleGroups
+            .flatMap { group ->
+                group.items.map { TvSearchResult(group.serverId, group.serverName, it) }
+            }.distinctBy { it.serverId to it.item.id }
     val resultScope = "search:results:${state.searchedQuery}"
     val resultCandidates =
         results.mapIndexed { index, hit ->

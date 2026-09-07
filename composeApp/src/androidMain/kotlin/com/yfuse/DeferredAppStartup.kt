@@ -45,7 +45,10 @@ internal class DeferredAppStartup(
         }
     }
 
-    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+    override fun onActivityCreated(
+        activity: Activity,
+        savedInstanceState: Bundle?,
+    ) = Unit
 
     override fun onActivityStarted(activity: Activity) = Unit
 
@@ -53,7 +56,10 @@ internal class DeferredAppStartup(
 
     override fun onActivityStopped(activity: Activity) = Unit
 
-    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+    override fun onActivitySaveInstanceState(
+        activity: Activity,
+        outState: Bundle,
+    ) = Unit
 
     override fun onActivityDestroyed(activity: Activity) = Unit
 }

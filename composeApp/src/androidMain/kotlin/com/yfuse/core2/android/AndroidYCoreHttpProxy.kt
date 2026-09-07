@@ -337,6 +337,7 @@ internal class AndroidYCoreHttpProxy(
     private val routes = LinkedHashMap<String, Route>()
     private val routeIds = HashMap<Route, String>()
     private val closed = AtomicBoolean(false)
+
     @Volatile
     private var adaptivePlaybackFeedback: TimedAdaptivePlaybackFeedback? = null
     private val workers: ExecutorService =
@@ -667,7 +668,9 @@ internal class AndroidYCoreHttpProxy(
                             when {
                                 mediaSegment != null ->
                                     route.cacheIdentity?.forAdaptiveResourceKey(
-                                        "hls-segment:${mediaSegment.sequence}:${stableAdaptiveResourceKey(upstreamUri)}",
+                                        "hls-segment:${mediaSegment.sequence}:${stableAdaptiveResourceKey(
+                                            upstreamUri,
+                                        )}",
                                     )
                                 kind == YHlsResourceKind.InitializationSegment ->
                                     route.cacheIdentity?.forAdaptiveResourceKey(
@@ -912,7 +915,8 @@ internal class AndroidYCoreHttpProxy(
                             representation = representation,
                             upstreamTemplate = template,
                             switchingRepresentations =
-                                switchingRepresentations.takeIf { representation.id == selection.video.id }
+                                switchingRepresentations
+                                    .takeIf { representation.id == selection.video.id }
                                     .orEmpty(),
                             abrSession = dashAbrSession.takeIf { representation.id == selection.video.id },
                         )

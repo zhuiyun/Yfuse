@@ -16,7 +16,6 @@ import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.util.clearImageCache
 import com.yfuse.core.util.clearVideoCache
-import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.core.util.imageCacheUsageBytes as currentImageCacheUsageBytes
 import com.yfuse.core.util.videoCacheUsageBytes as currentVideoCacheUsageBytes
 

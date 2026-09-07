@@ -203,7 +203,10 @@ data class YMediaTestSuite(
             if (cases.none { it.bitrateBitsPerSecond >= 150_000_000L }) add("missing bitrate: 150Mbps+")
         }
 
-    private fun videoVariants(): Set<String> = cases.mapTo(mutableSetOf()) { "${it.videoCodec.normalized()}:${it.bitDepth}" }
+    private fun videoVariants(): Set<String> =
+        cases.mapTo(mutableSetOf()) {
+            "${it.videoCodec.normalized()}:${it.bitDepth}"
+        }
 
     private fun <T> List<YMediaTestCase>.valuesOf(selector: (YMediaTestCase) -> T?): Set<String> =
         mapNotNull(selector).mapTo(mutableSetOf()) { it.toString().normalized() }

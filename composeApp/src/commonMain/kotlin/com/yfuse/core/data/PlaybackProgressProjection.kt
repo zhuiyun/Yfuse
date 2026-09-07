@@ -62,8 +62,7 @@ class PlaybackProgressProjection(
         return store.stateForServerItem(server.id, item.Id)
     }
 
-    fun localStates(server: SavedServer): List<PlaybackStateRecord> =
-        localStore?.statesForServer(server.id).orEmpty()
+    fun localStates(server: SavedServer): List<PlaybackStateRecord> = localStore?.statesForServer(server.id).orEmpty()
 
     private fun millisecondsToTicks(value: Long): Long =
         if (value > Long.MAX_VALUE / TICKS_PER_MILLISECOND) Long.MAX_VALUE else value * TICKS_PER_MILLISECOND

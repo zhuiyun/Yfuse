@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -81,7 +81,10 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.carouselArtworkMotion
+import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.carouselPageVisual
+import com.yfuse.core.designsystem.carouselTouchPause
 import com.yfuse.core.designsystem.fadeIntoPage
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.heroDurationLabel
@@ -90,13 +93,14 @@ import com.yfuse.core.designsystem.heroTopScrim
 import com.yfuse.core.designsystem.livingPosterFrame
 import com.yfuse.core.designsystem.livingPosterHeroHeight
 import com.yfuse.core.designsystem.loopingCarouselItemIndex
-import com.yfuse.core.designsystem.loopingCarouselPageCount
 import com.yfuse.core.designsystem.loopingCarouselSemantics
-import com.yfuse.core.designsystem.loopingCarouselStartPage
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
 import com.yfuse.core.designsystem.rememberArtworkPageColor
+import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
+import com.yfuse.core.designsystem.rememberCarouselPageColor
+import com.yfuse.core.designsystem.rememberLoopingCarouselState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.touchTarget
@@ -152,14 +156,15 @@ fun HomeScreen(
     val navigationState by component.store.states.collectAsState(component.store.state)
     val retainedPageColor =
         rememberRetainedArtworkPageColor("home:${navigationState.server?.id.orEmpty()}")
+    val pageColor = rememberCarouselPageColor(retainedPageColor.value)
     var heroAccent by remember { mutableStateOf<Color?>(null) }
     ArtworkPageTheme(
-        background = retainedPageColor.value,
+        background = pageColor,
         artworkAccent = heroAccent,
     ) {
         HomeContent(
             component = component,
-            heroPageColor = retainedPageColor.value,
+            heroPageColor = pageColor,
             onHeroAccent = { heroAccent = it },
             onHeroPageColor = retainedPageColor::update,
             onOpenDiscovery = onOpenDiscovery,
@@ -213,6 +218,7 @@ private fun HomeContent(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = livingPosterHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
+        val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
         val pageColor = heroPageColor ?: palette.background
         // The artwork alpha dissolves directly into this one opaque, poster-derived colour.
         // No seam overlay or local colour band exists between the hero and the page.
@@ -248,7 +254,8 @@ private fun HomeContent(
                         items = state.featuredSlides.take(8),
                         userName = state.server?.userName,
                         height = heroHeight,
-                        visible = heroVisible,
+                        showSidePreview = showSidePreview,
+                        visible = heroVisible && !listState.isScrollInProgress,
                         onOpenProfile = component.onOpenProfile,
                         onOpenCalendar = component.onOpenCalendar,
                         onOpenDiscovery = onOpenDiscovery,
@@ -421,6 +428,7 @@ private fun HomeHeroCarousel(
     items: List<TmdbItem>,
     userName: String?,
     height: androidx.compose.ui.unit.Dp,
+    showSidePreview: Boolean,
     visible: Boolean,
     onOpenProfile: () -> Unit,
     onOpenCalendar: () -> Unit,
@@ -431,10 +439,8 @@ private fun HomeHeroCarousel(
     onAccent: (Color) -> Unit,
     onPageColor: (Color) -> Unit,
 ) {
-    val pagerState =
-        rememberPagerState(
-            pageCount = { loopingCarouselPageCount(items.size) },
-        )
+    val pagerState = rememberLoopingCarouselState(items.map { it.id.toString() })
+    val carouselTouched = remember { mutableStateOf(false) }
     val carouselDragging by pagerState.interactionSource.collectIsDraggedAsState()
     val carouselScope = rememberCoroutineScope()
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -443,21 +449,27 @@ private fun HomeHeroCarousel(
     // control this replaces could only be undone by finding it again, so a single swipe
     // left the hero permanently still with a play glyph as the only clue why.
     var interaction by remember { mutableStateOf(0) }
-    val ambientItem = items.getOrNull(loopingCarouselItemIndex(pagerState.currentPage, items.size))
+    val ambientItem = items.getOrNull(loopingCarouselItemIndex(pagerState.settledPage, items.size))
     val ambientUrls = remember(ambientItem) { tmdbHeroArtworkUrls(ambientItem) }
 
-    LaunchedEffect(items.map { it.id }) {
-        pagerState.scrollToPage(loopingCarouselStartPage(items.size))
-    }
-    LaunchedEffect(items.size, carouselDragging, reduceMotion, routeVisible, visible, interaction) {
+    LaunchedEffect(
+        items.size,
+        carouselDragging,
+        reduceMotion,
+        routeVisible,
+        visible,
+        interaction,
+        carouselTouched.value,
+    ) {
         // 390dp of artwork moving on its own is the largest single piece of motion in the
         // app, and it was the one thing 减弱动态效果 did not switch off — the setting was
         // honoured in fifteen places and not in the most conspicuous one.
-        if (!routeVisible || !visible || items.size <= 1 || carouselDragging || reduceMotion) {
+        if (!routeVisible || !visible || items.size <= 1 || carouselDragging || carouselTouched.value || reduceMotion) {
             return@LaunchedEffect
         }
         while (true) {
             delay(6_000)
+            if (pagerState.isScrollInProgress) continue
             pagerState.animateScrollToPage(
                 page = pagerState.currentPage + 1,
                 animationSpec = tween(Motion.CAROUSEL, easing = Motion.Curve),
@@ -465,8 +477,7 @@ private fun HomeHeroCarousel(
         }
     }
 
-    BoxWithConstraints(Modifier.fillMaxWidth().height(height)) {
-        val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
+    BoxWithConstraints(Modifier.fillMaxWidth().height(height).carouselTouchPause(carouselTouched)) {
         val indicatorStart =
             if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp
         val indicatorEnd =
@@ -524,13 +535,14 @@ private fun HomeHeroCarousel(
                 key = { page -> page },
             ) { page ->
                 val item = items[loopingCarouselItemIndex(page, items.size)]
-                val settled = page == pagerState.currentPage
+                val settled = page == pagerState.settledPage
                 HeroSlide(
                     item = item,
                     onPlay = { onPlay(item) },
                     onDetails = { onDetails(item) },
                     onFavorite = { onFavorite(item) },
                     settled = settled,
+                    pageOffset = { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction },
                     onAccent = onAccent,
                     onPageColor = onPageColor,
                     artworkAspectRatio = artworkAspectRatio,
@@ -546,6 +558,7 @@ private fun HomeHeroCarousel(
                                             (pagerState.currentPage - page) +
                                                 pagerState.currentPageOffsetFraction,
                                         reduceMotion = reduceMotion,
+                                        preservePreviewEdge = showSidePreview,
                                     )
                                 scaleX = visual.scale
                                 scaleY = visual.scale
@@ -586,6 +599,7 @@ private fun HomeHeroCarousel(
                 HeroPageIndicator(
                     pageCount = items.size,
                     selectedPage = loopingCarouselItemIndex(pagerState.currentPage, items.size),
+                    pageOffset = pagerState.currentPageOffsetFraction,
                     onPageSelected = { targetIndex ->
                         interaction++
                         carouselScope.launch {
@@ -632,6 +646,7 @@ private fun HeroSlide(
     onDetails: () -> Unit,
     onFavorite: () -> Unit,
     settled: Boolean = false,
+    pageOffset: () -> Float = { 0f },
     onAccent: (Color) -> Unit = {},
     onPageColor: (Color) -> Unit = {},
     artworkAspectRatio: Float,
@@ -685,15 +700,17 @@ private fun HeroSlide(
             ),
     ) {
         if (item != null) {
-            FallbackImage(
-                urls = artworkUrls,
-                contentDescription = item.title,
-                onResolvedUrl = { resolvedArtworkUrl = it },
-                // Remove the artwork itself at the lower edge. The real app backdrop then
-                // shows through continuously instead of being replaced by a rectangular
-                // page-tint layer beneath the carousel.
-                modifier = Modifier.fillMaxSize().fadeIntoPage(),
-            )
+            Box(Modifier.fillMaxSize().fadeIntoPage().clipToBounds()) {
+                FallbackImage(
+                    urls = artworkUrls,
+                    contentDescription = item.title,
+                    onResolvedUrl = { resolvedArtworkUrl = it },
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .carouselArtworkMotion(pageOffset, LocalAccessibilityOptions.current.reduceMotion),
+                )
+            }
         }
         // Contrast only. The image itself owns the lower transition through fadeIntoPage().
         Box(Modifier.fillMaxSize().background(heroTopScrim()))
@@ -701,6 +718,7 @@ private fun HeroSlide(
         if (item != null) {
             HeroCaption(
                 item = item,
+                selected = settled,
                 onPlay = onPlay,
                 onDetails = onDetails,
                 onFavorite = onFavorite,
@@ -834,11 +852,13 @@ private fun HeroHeader(
 @Composable
 private fun HeroCaption(
     item: TmdbItem,
+    selected: Boolean,
     onPlay: () -> Unit,
     onDetails: () -> Unit,
     onFavorite: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val captionProgress = rememberCarouselCaptionProgress(selected)
     Column(
         modifier
             .fillMaxWidth()
@@ -854,6 +874,7 @@ private fun HeroCaption(
             color = Color.White,
             modifier =
                 Modifier
+                    .carouselCaptionEntry(captionProgress, stage = 0)
                     .glass(
                         shape = GlassShapes.chip,
                         fill = Color.White.copy(alpha = 0.14f),
@@ -863,6 +884,7 @@ private fun HeroCaption(
         Spacer(Modifier.height(10.dp))
         Text(
             item.title,
+            modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 0),
             style = AppTypography.display.strong.copy(shadow = HeroTextShadow),
             color = Color.White,
             maxLines = 1,
@@ -873,6 +895,7 @@ private fun HeroCaption(
         // year · type · duration. Runtime is detail-backed and disappears only when TMDB
         // did not provide one.
         Row(
+            modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 1),
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -916,6 +939,7 @@ private fun HeroCaption(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = overview,
+                    modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 1),
                     style = AppTypography.caption.regular.copy(shadow = HeroTextShadow),
                     color = Color.White.copy(alpha = 0.80f),
                     maxLines = 2,
@@ -924,6 +948,7 @@ private fun HeroCaption(
             }
         Spacer(Modifier.height(14.dp))
         HeroActionDock(
+            modifier = Modifier.carouselCaptionEntry(captionProgress, stage = 2),
             onPlay = onPlay,
             onFavorite = onFavorite,
         )

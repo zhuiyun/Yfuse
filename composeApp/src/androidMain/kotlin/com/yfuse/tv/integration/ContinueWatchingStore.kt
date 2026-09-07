@@ -163,8 +163,7 @@ internal class SharedPreferencesContinueWatchingStore(
         check(saved) { "Could not persist TV continuation snapshot" }
     }
 
-    private fun nextRevision(current: Long): Long =
-        if (current == Long.MAX_VALUE) 1L else current + 1L
+    private fun nextRevision(current: Long): Long = if (current == Long.MAX_VALUE) 1L else current + 1L
 
     private companion object {
         const val PREFERENCES_NAME = "yfuse.tv.continue_watching.v1"

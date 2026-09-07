@@ -15,6 +15,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.yfuse.MainActivity
+import com.yfuse.core.data.isServerSessionRestoreFailure
 import com.yfuse.core.logging.AppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -101,7 +102,11 @@ class OfflineDownloadWorker(
                     message = "Offline worker could not resolve the shared download manager",
                     throwable = error,
                 )
-                return if (runAttemptCount < 3) Result.retry() else Result.failure()
+                return if (error.isServerSessionRestoreFailure() || runAttemptCount < 3) {
+                    Result.retry()
+                } else {
+                    Result.failure()
+                }
             }
         return try {
             setForeground(offlineForegroundInfo(applicationContext))

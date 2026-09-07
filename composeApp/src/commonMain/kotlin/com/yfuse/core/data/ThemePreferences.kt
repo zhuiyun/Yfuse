@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import com.russhwolf.settings.Settings
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.DEFAULT_BACKGROUND_DIM
+import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassStyle
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.ThemeMode
@@ -30,6 +31,7 @@ class ThemePreferences(
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
         const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v2"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
+        const val KEY_DIALOG_ANIMATION = "appearance.dialogAnimation"
         const val KEY_GLASS_STYLE = "appearance.glassStyle"
         const val KEY_SERVER_LAYOUT = "appearance.serverLayout"
         const val KEY_BACKGROUND_IMAGE = "appearance.backgroundImage"
@@ -70,6 +72,15 @@ class ThemePreferences(
 
     private val _startupTab = MutableStateFlow(load(KEY_STARTUP_TAB, StartupTab.entries, StartupTab.Automatic))
     val startupTab: StateFlow<StartupTab> = _startupTab.asStateFlow()
+
+    private val _dialogAnimation =
+        MutableStateFlow(load(KEY_DIALOG_ANIMATION, DialogAnimation.entries, DialogAnimation.Lift))
+    val dialogAnimation: StateFlow<DialogAnimation> = _dialogAnimation.asStateFlow()
+
+    fun setDialogAnimation(animation: DialogAnimation) {
+        _dialogAnimation.value = animation
+        settings.putString(KEY_DIALOG_ANIMATION, animation.name)
+    }
 
     private val _glassStyle = MutableStateFlow(load(KEY_GLASS_STYLE, GlassStyle.entries, GlassStyle.Liquid))
     val glassStyle: StateFlow<GlassStyle> = _glassStyle.asStateFlow()

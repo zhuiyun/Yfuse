@@ -126,8 +126,16 @@ internal object CastConnectLoadMapper {
         return CastConnectPlaybackRequest(
             senderId = envelope.senderId?.take(MAX_SENDER_ID_CHARS),
             source = source,
-            contentType = envelope.contentType?.trim()?.take(MAX_CONTENT_TYPE_CHARS)?.takeIf(String::isNotBlank),
-            title = envelope.title?.trim()?.take(MAX_TITLE_CHARS)?.takeIf(String::isNotBlank),
+            contentType =
+                envelope.contentType
+                    ?.trim()
+                    ?.take(MAX_CONTENT_TYPE_CHARS)
+                    ?.takeIf(String::isNotBlank),
+            title =
+                envelope.title
+                    ?.trim()
+                    ?.take(MAX_TITLE_CHARS)
+                    ?.takeIf(String::isNotBlank),
             autoplay = envelope.autoplay,
             positionMs = effectivePosition,
             credentialsSupplied = envelope.credentialsSupplied,

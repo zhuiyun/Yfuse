@@ -233,7 +233,8 @@ class ServerSyncManager(
                         if (!foreground) return@collectLatest
                         while (true) {
                             if (
-                                registry.data.value.servers.isNotEmpty() &&
+                                registry.data.value.servers
+                                    .isNotEmpty() &&
                                 (
                                     autoSync.value ||
                                         (
@@ -786,8 +787,7 @@ class ServerSyncManager(
                         SyncMutationKind.Favorite -> includeFavorites
                         SyncMutationKind.Played -> includeProgress
                     }
-            }
-            .mapNotNull { mutation ->
+            }.mapNotNull { mutation ->
                 val item = remoteById[mutation.itemId]
                 val remoteValue =
                     when (mutation.kind) {

@@ -60,6 +60,7 @@ val tvVersionCode =
         }
         raw.toIntOrNull() ?: error("yfuseVersionCode is outside the supported integer range")
     } ?: tvVersionCodeFor(storedTvVersionCode)
+
 /**
  * The television build shares the phone build's application id, and Play refuses two APKs of
  * one app with the same versionCode. Derived rather than read, so the default build never
@@ -83,6 +84,14 @@ val tmdbToken =
             if (file.isFile) file.inputStream().use { load(it) }
         }.getProperty("tmdb.token")
         .orEmpty()
+val updateManifestPublicKey =
+    providers
+        .gradleProperty("yfuse.updateManifestPublicKey")
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .orElse(providers.environmentVariable("YFUSE_UPDATE_MANIFEST_PUBLIC_KEY"))
+        .getOrElse("")
+        .trim()
 val castReceiverApplicationId =
     providers
         .gradleProperty("yfuseCastReceiverApplicationId")
@@ -148,6 +157,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "TMDB_TOKEN", "\"$tmdbToken\"")
+        buildConfigField("String", "UPDATE_MANIFEST_PUBLIC_KEY", "\"$updateManifestPublicKey\"")
         buildConfigField("boolean", "YFUSE_MDK_INCLUDED", "false")
         buildConfigField("boolean", "YFUSE_NATIVE_ONLY_RUNTIME", "true")
         buildConfigField("boolean", "YFUSE_YCORE_GPU_INCLUDED", fullNativeRuntime.toString())
@@ -372,7 +382,12 @@ val verifyTvFullNativeRuntime by tasks.registering {
         require(aarFile.isFile && checksumFile.isFile && sourcesFile.isFile) {
             "Missing verified full-native YCore TV runtime"
         }
-        val expected = checksumFile.readText().trim().substringBefore(' ').lowercase()
+        val expected =
+            checksumFile
+                .readText()
+                .trim()
+                .substringBefore(' ')
+                .lowercase()
         require(expected.matches(Regex("[0-9a-f]{64}"))) { "Invalid YCore SHA-256 sidecar" }
         val digest = MessageDigest.getInstance("SHA-256")
         aarFile.inputStream().use { input ->

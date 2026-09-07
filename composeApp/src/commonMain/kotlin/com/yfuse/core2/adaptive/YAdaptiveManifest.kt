@@ -64,13 +64,14 @@ data class YAdaptiveVariant(
             val brands = dolbyVisionCompatibilityBrands
             if (brands.isEmpty()) return true
             val expectedRanges =
-                brands.mapNotNull { brand ->
-                    when (brand) {
-                        "db1p" -> YHlsVideoRange.Pq
-                        "db4h" -> YHlsVideoRange.Hlg
-                        else -> null
-                    }
-                }.toSet()
+                brands
+                    .mapNotNull { brand ->
+                        when (brand) {
+                            "db1p" -> YHlsVideoRange.Pq
+                            "db4h" -> YHlsVideoRange.Hlg
+                            else -> null
+                        }
+                    }.toSet()
             return expectedRanges.size == 1 && videoRange == expectedRanges.single()
         }
 }

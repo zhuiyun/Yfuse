@@ -163,6 +163,7 @@ internal fun externalSubtitleTrackId(index: Int): String {
     require(index >= 0)
     return "$EXTERNAL_SUBTITLE_TRACK_PREFIX$index"
 }
+
 private const val FORMAT_SNIFF_CHARACTERS = 4_096
 private const val MAX_EXTERNAL_SUBTITLE_BYTES = 8 * 1024 * 1024
 private const val READ_BUFFER_BYTES = 16 * 1024

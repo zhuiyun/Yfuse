@@ -37,24 +37,25 @@ class AndroidCalendarLocalStore(
         withContext(Dispatchers.IO) {
             val db = helper.readableDatabase
             val entries =
-                db.query(
-                    TABLE_EVENTS,
-                    arrayOf(COL_ENTRY_JSON),
-                    "$COL_AIR_DATE BETWEEN ? AND ?",
-                    arrayOf(fromDate, toDate),
-                    null,
-                    null,
-                    "$COL_AIR_DATE ASC, $COL_TMDB_ID ASC",
-                ).use { cursor ->
-                    buildList {
-                        while (cursor.moveToNext()) {
-                            val raw = cursor.getString(cursor.getColumnIndexOrThrow(COL_ENTRY_JSON))
-                            runCatching {
-                                json.decodeFromString(CalendarEntry.serializer(), raw)
-                            }.getOrNull()?.let(::add)
+                db
+                    .query(
+                        TABLE_EVENTS,
+                        arrayOf(COL_ENTRY_JSON),
+                        "$COL_AIR_DATE BETWEEN ? AND ?",
+                        arrayOf(fromDate, toDate),
+                        null,
+                        null,
+                        "$COL_AIR_DATE ASC, $COL_TMDB_ID ASC",
+                    ).use { cursor ->
+                        buildList {
+                            while (cursor.moveToNext()) {
+                                val raw = cursor.getString(cursor.getColumnIndexOrThrow(COL_ENTRY_JSON))
+                                runCatching {
+                                    json.decodeFromString(CalendarEntry.serializer(), raw)
+                                }.getOrNull()?.let(::add)
+                            }
                         }
                     }
-                }
             val syncState = db.readSyncState(scope)
             if (entries.isEmpty() && syncState == null) return@withContext null
             CalendarLocalSnapshot(

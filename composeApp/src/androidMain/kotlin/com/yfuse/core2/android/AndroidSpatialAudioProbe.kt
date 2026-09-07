@@ -77,8 +77,7 @@ private fun spatialAudioFingerprintApi32(manager: AudioManager): String {
 }
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-private fun headTrackerAvailableApi33(spatializer: Spatializer): Boolean =
-    spatializer.isHeadTrackerAvailable
+private fun headTrackerAvailableApi33(spatializer: Spatializer): Boolean = spatializer.isHeadTrackerAvailable
 
 internal fun createAndroidSpatialAudioStateMonitor(
     context: Context,

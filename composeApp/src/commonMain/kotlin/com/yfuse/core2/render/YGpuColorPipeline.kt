@@ -5,8 +5,8 @@ import com.yfuse.core2.demux.YChromaLocation
 import com.yfuse.core2.demux.YColorMatrix
 import com.yfuse.core2.demux.YColorRange
 import com.yfuse.core2.demux.YVideoGeometry
-import com.yfuse.core2.hdr.YHdrStaticMetadata
 import com.yfuse.core2.hdr.YHdr10PlusSceneMetadata
+import com.yfuse.core2.hdr.YHdrStaticMetadata
 
 enum class YGpuColorTransfer {
     Sdr,

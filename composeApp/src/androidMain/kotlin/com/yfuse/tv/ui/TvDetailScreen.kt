@@ -39,8 +39,8 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
 import com.yfuse.feature.detail.DetailComponent
 import com.yfuse.feature.detail.DetailIntent
-import com.yfuse.tv.focus.FocusContext
 import com.yfuse.tv.focus.FocusCandidate
+import com.yfuse.tv.focus.FocusContext
 
 @Composable
 internal fun TvDetailScreen(
@@ -321,7 +321,10 @@ private fun TvDetailHero(
                     detail.runtimeMinutes?.let { "$it 分钟" },
                     detail.communityRating?.let { "%.1f 分".format(it) },
                     detail.officialRating,
-                    detail.genres.take(3).joinToString(" / ").takeIf(String::isNotBlank),
+                    detail.genres
+                        .take(3)
+                        .joinToString(" / ")
+                        .takeIf(String::isNotBlank),
                 ).joinToString("  ·  "),
                 color = Color.White.copy(alpha = 0.8f),
                 fontSize = 16.sp,

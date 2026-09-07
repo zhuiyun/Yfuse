@@ -75,8 +75,7 @@ private suspend fun <T> discoverSourceWithRetry(block: suspend () -> T): Result<
  */
 private val ORIGIN_UNREACHABLE_STATUS_CODES = setOf(520, 521, 522, 523, 524, 525, 526, 527, 530)
 
-private fun isRetryableServerStatus(code: Int): Boolean =
-    code in 500..599 && code !in ORIGIN_UNREACHABLE_STATUS_CODES
+private fun isRetryableServerStatus(code: Int): Boolean = code in 500..599 && code !in ORIGIN_UNREACHABLE_STATUS_CODES
 
 private fun Throwable.isTransientSourceDiscoveryFailure(): Boolean {
     var current: Throwable? = this

@@ -31,7 +31,13 @@ fun selectYHlsPlaybackSet(
             dolbyVisionCandidates
                 .filter(YAdaptiveVariant::hasUsableDolbyVisionSignaling)
                 .ifEmpty {
-                    if (dolbyVisionCandidates.isEmpty()) candidates else candidates.filterNot(YAdaptiveVariant::isDolbyVision)
+                    if (dolbyVisionCandidates.isEmpty()) {
+                        candidates
+                    } else {
+                        candidates.filterNot(
+                            YAdaptiveVariant::isDolbyVision,
+                        )
+                    }
                 }
         } else {
             candidates.filterNot(YAdaptiveVariant::isDolbyVision)

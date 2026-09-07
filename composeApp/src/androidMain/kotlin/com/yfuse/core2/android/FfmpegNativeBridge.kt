@@ -20,7 +20,8 @@ internal object FfmpegNativeBridge {
     }
 
     val softwareDecodeAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        available && runCatching { nativeSoftwareDecoderApiVersion() >= SOFTWARE_DECODER_API_VERSION }.getOrDefault(false)
+        available &&
+            runCatching { nativeSoftwareDecoderApiVersion() >= SOFTWARE_DECODER_API_VERSION }.getOrDefault(false)
     }
 
     val assRendererAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {

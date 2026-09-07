@@ -2,6 +2,7 @@ package com.yfuse.core2.legacy
 
 import android.content.Context
 import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core2.android.AndroidCore2DiscRouteFactory
 import com.yfuse.core2.android.AndroidCore2FallbackRouteFactory
 import com.yfuse.core2.android.AndroidExternalSubtitleLoader
@@ -19,7 +20,6 @@ import com.yfuse.core2.strategy.YDecodePath
 import com.yfuse.core2.strategy.YDemuxPath
 import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
-import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.MpvVideoEngine
 import com.yfuse.feature.player.PlayerMediaItem

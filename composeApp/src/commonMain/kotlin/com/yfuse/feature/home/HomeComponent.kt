@@ -122,7 +122,9 @@ class HomeComponent(
     }
 
     fun openCalendarEntry(entry: CalendarEntry) {
-        val activeServerIds = registry.data.value.servers.mapTo(mutableSetOf()) { it.id }
+        val activeServerIds =
+            registry.data.value.servers
+                .mapTo(mutableSetOf()) { it.id }
         entry.directCalendarOpenTarget(activeServerIds)?.let { target ->
             onOpenEmbyItem(target.serverId, target.itemId)
             return
@@ -272,13 +274,17 @@ internal fun HomeState.calendarOpenTarget(entry: CalendarEntry): HomeCalendarOpe
                     }
                 }
         ).distinctBy { it.server.id to it.item.id }
+
     fun HomeResumeEntry.matchesType(): Boolean =
         if (expectedType == "Movie") {
             item.type == "Movie"
         } else {
             item.type == "Series" || item.type == "Episode"
         }
-    val tmdbId = entry.episode.showTmdbId.takeIf { it > 0 }?.toString()
+    val tmdbId =
+        entry.episode.showTmdbId
+            .takeIf { it > 0 }
+            ?.toString()
     val exact =
         tmdbId?.let { id ->
             candidates.firstOrNull { candidate ->

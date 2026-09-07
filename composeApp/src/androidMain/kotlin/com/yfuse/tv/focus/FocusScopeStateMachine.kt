@@ -48,16 +48,17 @@ data class FocusReturnTarget(
 class FocusScopeStateMachine(
     rootScopeId: String = DEFAULT_ROOT_SCOPE,
 ) {
-    private val scopes = mutableListOf(
-        ActiveFocusScope(
-            id = rootScopeId,
-            parentId = null,
-            kind = FocusScopeKind.Root,
-            trapFocus = false,
-            openerTargetId = null,
-            initialTargetId = null,
-        ),
-    )
+    private val scopes =
+        mutableListOf(
+            ActiveFocusScope(
+                id = rootScopeId,
+                parentId = null,
+                kind = FocusScopeKind.Root,
+                trapFocus = false,
+                openerTargetId = null,
+                initialTargetId = null,
+            ),
+        )
     private val lastFocusedByScope = mutableMapOf<String, FocusTargetId>()
 
     val activeScope: ActiveFocusScope

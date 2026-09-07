@@ -133,7 +133,10 @@ internal fun TvTmdbInfoScreen(
                             state.detail.runtimeMinutes?.let { "$it 分钟" },
                             item.rating?.let { "%.1f 分".format(it) },
                             state.detail.numberOfSeasons?.let { "$it 季" },
-                            state.detail.genres.take(3).joinToString(" / ").takeIf(String::isNotBlank),
+                            state.detail.genres
+                                .take(3)
+                                .joinToString(" / ")
+                                .takeIf(String::isNotBlank),
                         ).joinToString("  ·  "),
                         color = Color.White.copy(alpha = 0.82f),
                         fontSize = 16.sp,
@@ -306,7 +309,10 @@ internal fun TvMediaDiscoveryDetailScreen(
                             item.year.takeIf(String::isNotBlank),
                             item.runtime?.let { "$it 分钟" },
                             item.score?.let { "%.1f 分".format(it) },
-                            item.genres.take(3).joinToString(" / ").takeIf(String::isNotBlank),
+                            item.genres
+                                .take(3)
+                                .joinToString(" / ")
+                                .takeIf(String::isNotBlank),
                             item.providerLabel.takeIf(String::isNotBlank),
                         ).joinToString("  ·  "),
                         color = Color.White.copy(alpha = 0.82f),
@@ -386,7 +392,12 @@ private fun TvResourceRow(
             resources.isEmpty() -> Text(error ?: "暂时没有匹配的资源", color = TvOnSurfaceMuted)
             else ->
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    itemsIndexed(resources, key = { _, resource -> "resource:${resource.provider}:${resource.itemKey}" }) {
+                    itemsIndexed(resources, key = {
+                            _,
+                            resource,
+                        ->
+                        "resource:${resource.provider}:${resource.itemKey}"
+                    }) {
                             index,
                             resource,
                         ->
@@ -464,7 +475,10 @@ internal fun TvCalendarScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         TvActionButton(
                             label = "返回",
                             stableId = "calendar:back",

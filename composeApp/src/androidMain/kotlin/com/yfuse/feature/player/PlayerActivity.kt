@@ -1,7 +1,7 @@
 package com.yfuse.feature.player
 
-import android.annotation.SuppressLint
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
@@ -51,6 +51,8 @@ import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.data.preferredVersion
 import com.yfuse.core.designsystem.AccentColor
+import com.yfuse.core.designsystem.AccessibilityOptions
+import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
@@ -59,6 +61,7 @@ import com.yfuse.core.network.EmbyImages
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.playback.PlaybackDeviceCapabilitiesProvider
+import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.core.sync.WatchTogetherClient
 import com.yfuse.core.sync.episodeWatchKey
 import com.yfuse.core.sync.watchKey
@@ -202,6 +205,7 @@ class PlayerActivity : ComponentActivity() {
     private val queueRevision = MutableStateFlow(0L)
     private lateinit var embyRepository: EmbyRepository
     private lateinit var serverRegistry: ServerRegistry
+    private var waitingForSessions = false
     private lateinit var playbackPreferences: PlaybackPreferences
     private lateinit var capabilityProvider: PlaybackDeviceCapabilitiesProvider
     private var episodeRefreshJob: Job? = null
@@ -273,38 +277,42 @@ class PlayerActivity : ComponentActivity() {
         keyCode: Int,
         event: KeyEvent?,
     ): Boolean =
-        when (keyCode) {
-            KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                val castManager = remoteCastManager
-                val cast = castManager?.state?.value
-                if (castManager != null && cast?.hasActiveSession == true) {
-                    val currentVolume = cast.volume
-                    if (
-                        currentVolume != null &&
-                        cast.capabilities.volume != CastCapability.Unsupported
-                    ) {
-                        val delta = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 0.05f else -0.05f
-                        lifecycleScope.launch {
-                            castManager.setVolume((currentVolume + delta).coerceIn(0f, 1f))
+        if (waitingForSessions) {
+            super.onKeyDown(keyCode, event)
+        } else {
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    val castManager = remoteCastManager
+                    val cast = castManager?.state?.value
+                    if (castManager != null && cast?.hasActiveSession == true) {
+                        val currentVolume = cast.volume
+                        if (
+                            currentVolume != null &&
+                            cast.capabilities.volume != CastCapability.Unsupported
+                        ) {
+                            val delta = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 0.05f else -0.05f
+                            lifecycleScope.launch {
+                                castManager.setVolume((currentVolume + delta).coerceIn(0f, 1f))
+                            }
                         }
+                    } else {
+                        audioManager.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                                AudioManager.ADJUST_RAISE
+                            } else {
+                                AudioManager.ADJUST_LOWER
+                            },
+                            // No flags: the adjustment happens, the system panel does not.
+                            0,
+                        )
                     }
-                } else {
-                    audioManager.adjustStreamVolume(
-                        AudioManager.STREAM_MUSIC,
-                        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-                            AudioManager.ADJUST_RAISE
-                        } else {
-                            AudioManager.ADJUST_LOWER
-                        },
-                        // No flags: the adjustment happens, the system panel does not.
-                        0,
-                    )
+                    volumeKeyPresses.value++
+                    true
                 }
-                volumeKeyPresses.value++
-                true
-            }
 
-            else -> super.onKeyDown(keyCode, event)
+                else -> super.onKeyDown(keyCode, event)
+            }
         }
 
     /** Consumed alongside the down event, or the system panel appears on release. */
@@ -344,6 +352,8 @@ class PlayerActivity : ComponentActivity() {
         // this Activity and never writes ACCELEROMETER_ROTATION or USER_ROTATION, so leaving the
         // player restores the user's unchanged system rotation preference.
         super.onCreate(savedInstanceState)
+        waitingForSessions = ServerSessionRecovery.showIfNeeded(this)
+        if (waitingForSessions) return
         // A tablet is held whichever way its owner likes; forcing landscape on it only forces a
         // rotation. Phones keep the manifest's landscape lock. FULL_USER still honours the
         // system rotation lock, so this never fights the quick-settings toggle.
@@ -450,12 +460,18 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun showPendingPlayer(pending: PendingPlayerLaunch) {
-        val accent =
-            runCatching { GlobalContext.get().get<ThemePreferences>().accent.value }
-                .getOrDefault(AccentColor.Blue)
+        val preferences = runCatching { GlobalContext.get().get<ThemePreferences>() }.getOrNull()
+        val accent = preferences?.accent?.value ?: AccentColor.Blue
         setContent {
             val state by pending.store.states.collectAsState(pending.store.state)
-            YfuseTheme(dark = true, accent = accent) {
+            val dialogAnimation = preferences?.dialogAnimation?.collectAsState()?.value ?: DialogAnimation.Lift
+            val reduceMotion = preferences?.reduceMotion?.collectAsState()?.value ?: false
+            YfuseTheme(
+                dark = true,
+                accent = accent,
+                dialogAnimation = dialogAnimation,
+                accessibility = AccessibilityOptions(reduceMotion = reduceMotion),
+            ) {
                 PlayerPreparationContent(
                     state = state,
                     onRetry = { pending.store.accept(PlayerIntent.Retry) },
@@ -631,7 +647,14 @@ class PlayerActivity : ComponentActivity() {
             val refreshedResume by queueResume.collectAsState()
             val refreshedRevision by queueRevision.collectAsState()
             // Always the dark palette: the controls float over the picture.
-            YfuseTheme(dark = true, accent = accent) {
+            val dialogAnimation = preferences?.dialogAnimation?.collectAsState()?.value ?: DialogAnimation.Lift
+            val reduceMotion = preferences?.reduceMotion?.collectAsState()?.value ?: false
+            YfuseTheme(
+                dark = true,
+                accent = accent,
+                dialogAnimation = dialogAnimation,
+                accessibility = AccessibilityOptions(reduceMotion = reduceMotion),
+            ) {
                 PlayerRoot(
                     items = liveItems,
                     startIndex = initialStartIndex,
@@ -730,6 +753,10 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (waitingForSessions) {
+            setIntent(intent)
+            return
+        }
         if (televisionDevice) CastConnectReceiverBridge.onNewIntent(intent)
         // Notification taps only bring this live instance forward. They deliberately carry no
         // launch token and must never restart playback or consume registry state.
@@ -795,6 +822,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (waitingForSessions) return
         activityStarted = true
         activityHasStarted = true
         PlayerForegroundRegistry.setVisible(true)
@@ -839,6 +867,10 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        if (waitingForSessions) {
+            super.onStop()
+            return
+        }
         activityStarted = false
         // A picture-in-picture player is still on screen and still streaming, whether or not this
         // callback ran for it. Keeping the flag set is what stops MainActivity - restarted
@@ -864,6 +896,10 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (waitingForSessions) {
+            super.onDestroy()
+            return
+        }
         runCatching { unregisterReceiver(pictureInPictureReceiver) }
         PlayerForegroundRegistry.setVisible(false)
         episodeRefreshJob?.cancel()

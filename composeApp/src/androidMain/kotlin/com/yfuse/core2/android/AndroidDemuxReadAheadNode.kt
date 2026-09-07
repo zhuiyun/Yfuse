@@ -141,8 +141,9 @@ internal class AndroidDemuxReadAheadNode(
 
     override fun decodeSubtitle(sample: YCompressedSample): List<YSubtitleCue> =
         runOnOwner {
-            val decoder = delegate as? YSubtitlePacketDecoder
-                ?: error("The active demuxer has no native subtitle decoder")
+            val decoder =
+                delegate as? YSubtitlePacketDecoder
+                    ?: error("The active demuxer has no native subtitle decoder")
             decoder.decodeSubtitle(sample)
         }
 
@@ -311,17 +312,16 @@ internal class AndroidDemuxReadAheadNode(
 
     private fun owner(): ExecutorService =
         synchronized(monitor) {
-            executor ?: Executors.newSingleThreadExecutor { runnable ->
-                Thread(runnable, "$DEMUX_THREAD_NAME-${threadIndex.incrementAndGet()}").apply {
-                    priority = Thread.NORM_PRIORITY + 1
-                    isDaemon = true
-                }
-            }.also { executor = it }
+            executor ?: Executors
+                .newSingleThreadExecutor { runnable ->
+                    Thread(runnable, "$DEMUX_THREAD_NAME-${threadIndex.incrementAndGet()}").apply {
+                        priority = Thread.NORM_PRIORITY + 1
+                        isDaemon = true
+                    }
+                }.also { executor = it }
         }
 
-    private fun <T> runOnOwner(block: () -> T): T {
-        return await(owner().submit(Callable(block)))
-    }
+    private fun <T> runOnOwner(block: () -> T): T = await(owner().submit(Callable(block)))
 
     private fun <T> await(future: Future<T>): T {
         try {

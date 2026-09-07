@@ -291,6 +291,7 @@ fun YfuseTheme(
     accent: Color = Brand.Primary, // design-system: brand-identity
     accessibility: AccessibilityOptions = AccessibilityOptions(),
     glassStyle: GlassStyle = GlassStyle.Liquid,
+    dialogAnimation: DialogAnimation = DialogAnimation.Lift,
     content: @Composable () -> Unit,
 ) {
     val palette = if (dark) DarkPalette else LightPalette
@@ -307,6 +308,7 @@ fun YfuseTheme(
         LocalAccentColors provides accentColors,
         LocalAccessibilityOptions provides accessibility,
         LocalGlassStyle provides glassStyle,
+        LocalDialogAnimation provides dialogAnimation,
         LocalDensity provides adjustedDensity,
         LocalHaptics provides rememberHaptics(),
     ) {

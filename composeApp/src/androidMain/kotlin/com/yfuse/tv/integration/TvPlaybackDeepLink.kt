@@ -54,12 +54,17 @@ object TvPlaybackDeepLinkCodec {
         if (!uri.scheme.equals(SCHEME, ignoreCase = true)) return null
         if (!uri.host.equals(HOST, ignoreCase = true)) return null
         if (uri.userInfo != null || uri.port != -1 || uri.rawFragment != null) return null
-        val segments = uri.rawPath.orEmpty().split('/').filter(String::isNotEmpty)
+        val segments =
+            uri.rawPath
+                .orEmpty()
+                .split('/')
+                .filter(String::isNotEmpty)
         if (segments.size != 5 || segments[0] != "play" || segments[1] != "v1") return null
         val provider = TvMediaProvider.entries.firstOrNull { it.uriSlug == segments[2].lowercase() } ?: return null
         val lane = segments[3]
         if (!OPAQUE_LANE.matches(lane)) return null
-        val itemId = percentDecode(segments[4])?.takeIf { it.isNotBlank() && it.length <= MAX_ITEM_ID_CHARS } ?: return null
+        val itemId =
+            percentDecode(segments[4])?.takeIf { it.isNotBlank() && it.length <= MAX_ITEM_ID_CHARS } ?: return null
         val query = parseStrictQuery(uri.rawQuery) ?: return null
         val position = query[POSITION_PARAMETER]?.toLongOrNull()?.takeIf { it >= 0L } ?: return null
         return EncodedTvPlaybackRoute(provider, lane, itemId, position)
@@ -91,8 +96,7 @@ object TvPlaybackDeepLinkCodec {
 class TvPlaybackDeepLinkResolver(
     private val servers: () -> Collection<SavedServer>,
 ) {
-    fun resolve(value: String): ResolvedTvPlaybackTarget? =
-        TvPlaybackDeepLinkCodec.decode(value)?.let(::resolve)
+    fun resolve(value: String): ResolvedTvPlaybackTarget? = TvPlaybackDeepLinkCodec.decode(value)?.let(::resolve)
 
     fun resolve(route: EncodedTvPlaybackRoute): ResolvedTvPlaybackTarget? {
         val candidates =

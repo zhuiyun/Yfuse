@@ -128,7 +128,9 @@ internal object AndroidNativeCrashMonitor {
         prefs().all.forEach { (key, value) ->
             if (!key.startsWith("count.") || value !is Int) return@forEach
             val component =
-                key.substringAfter("count.").substringBefore('.')
+                key
+                    .substringAfter("count.")
+                    .substringBefore('.')
                     .enumOrNull<NativePlaybackComponent>() ?: return@forEach
             totals[component] = (totals[component] ?: 0) + value
         }

@@ -13,6 +13,7 @@ import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlayerEngine
 import com.yfuse.core.performance.preferHighRefreshRateForUi
+import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.feature.player.PlayerActivity
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.tv.integration.CastConnectHostAction
@@ -51,10 +52,12 @@ class TvMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         preferHighRefreshRateForUi()
+        if (ServerSessionRecovery.showIfNeeded(this)) return
         graph = (application as TvApplication).graph
-        rootComponent = retainedComponent { componentContext ->
-            graph.createRootComponent(componentContext)
-        }
+        rootComponent =
+            retainedComponent { componentContext ->
+                graph.createRootComponent(componentContext)
+            }
         castActionResolver =
             CastConnectHostActionResolver {
                 graph.serverRegistry.data.value.servers
@@ -80,6 +83,7 @@ class TvMainActivity : ComponentActivity() {
     }
 
     private fun consumeIncomingIntent(intent: Intent?) {
+        if (!::rootComponent.isInitialized) return
         if (intent == null) return
         if (CastConnectReceiverBridge.onNewIntent(intent) is CastConnectIntentResult.Handled) return
         if (consumeVoiceSearch(intent)) return

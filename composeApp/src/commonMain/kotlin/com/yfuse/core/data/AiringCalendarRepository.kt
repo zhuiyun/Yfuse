@@ -656,11 +656,19 @@ class AiringCalendarRepository(
                 .filter { it.airDate in localFrom..localTo || it.scheduleAuthority == AiringScheduleAuthority.Library }
         val initial = mergedSchedule()
         if (initial.isNotEmpty()) onPreview(calendarPreviewDays(initial, today, hint))
-        suspend fun resolve(scheduled: List<AiringEpisode>) = calendarDays(
-            episodes = scheduled, today = today, libraryHint = hint, forceRefresh = forceRefresh,
-            persistFrom = localFrom, persistTo = localTo, persistScope = cacheScope,
-            seriesScope = setOf(showTmdbId), onPreview = onPreview,
-        )
+
+        suspend fun resolve(scheduled: List<AiringEpisode>) =
+            calendarDays(
+                episodes = scheduled,
+                today = today,
+                libraryHint = hint,
+                forceRefresh = forceRefresh,
+                persistFrom = localFrom,
+                persistTo = localTo,
+                persistScope = cacheScope,
+                seriesScope = setOf(showTmdbId),
+                onPreview = onPreview,
+            )
         return coroutineScope {
             // Cached broadcast dates are enough to check files. Refreshing the server's
             // publication must not sit in front of the availability lookup.
@@ -693,8 +701,10 @@ class AiringCalendarRepository(
         val entries =
             resolveStatus(episodes, today, libraryHint, forceRefresh) { partial ->
                 onPreview(
-                    partial.map { it.copy(followed = followStore.isFollowing(it.episode.showTmdbId)) }
-                        .groupBy { it.episode.airDate }.toSortedMap()
+                    partial
+                        .map { it.copy(followed = followStore.isFollowing(it.episode.showTmdbId)) }
+                        .groupBy { it.episode.airDate }
+                        .toSortedMap()
                         .map { (date, entries) -> CalendarDay(date, entries) },
                 )
             }.map { entry ->
@@ -792,14 +802,16 @@ class AiringCalendarRepository(
             servers.forEach { server ->
                 launch {
                     val hint = libraryHint?.takeIf { it.server.id == server.id }
+
                     suspend fun lookup() = resolveServerStatus(episodes, today, server, hint, forceRefresh)
                     // Include queue time in the deadline. A known detail-page identity does
                     // not have to wait for the background calendar's full-library scans.
-                    val result = withTimeoutOrNull(SERIES_LOOKUP_TIMEOUT_MS) {
-                        if (hint != null) lookup() else libraryServerRequests.withPermit { lookup() }
-                    } ?: episodes.map {
-                        CalendarEntry(it, LibraryStatus.Unknown, dataIssue = CalendarDataIssue.LibraryLookupFailed)
-                    }
+                    val result =
+                        withTimeoutOrNull(SERIES_LOOKUP_TIMEOUT_MS) {
+                            if (hint != null) lookup() else libraryServerRequests.withPermit { lookup() }
+                        } ?: episodes.map {
+                            CalendarEntry(it, LibraryStatus.Unknown, dataIssue = CalendarDataIssue.LibraryLookupFailed)
+                        }
                     completed.send(result)
                 }
             }
@@ -807,14 +819,16 @@ class AiringCalendarRepository(
             var merged = pending
             repeat(servers.size) {
                 received += completed.receive()
-                merged = episodes.indices.map { index ->
-                    mergeCalendarEntries(
-                        episode = episodes[index],
-                        candidates = received.map { it[index] } +
-                            if (received.size < servers.size) listOf(pending[index]) else emptyList(),
-                        today = today,
-                    )
-                }
+                merged =
+                    episodes.indices.map { index ->
+                        mergeCalendarEntries(
+                            episode = episodes[index],
+                            candidates =
+                                received.map { it[index] } +
+                                    if (received.size < servers.size) listOf(pending[index]) else emptyList(),
+                            today = today,
+                        )
+                    }
                 onResolved(merged)
             }
             completed.close()
@@ -832,9 +846,16 @@ class AiringCalendarRepository(
         fun unresolved(status: (AiringEpisode) -> LibraryStatus) = episodes.map { CalendarEntry(it, status(it)) }
 
         val singleShow =
-            episodes.filterNot(AiringEpisode::isMovie).map(AiringEpisode::showTmdbId).distinct().singleOrNull()
+            episodes
+                .filterNot(AiringEpisode::isMovie)
+                .map(AiringEpisode::showTmdbId)
+                .distinct()
+                .singleOrNull()
         if (
-            libraryHint == null && episodes.none(AiringEpisode::isMovie) && singleShow != null && singleShow > 0 &&
+            libraryHint == null &&
+            episodes.none(AiringEpisode::isMovie) &&
+            singleShow != null &&
+            singleShow > 0 &&
             server.kind != MediaServerKind.Plex
         ) {
             // Emby/Jellyfin can query one provider id directly. Keep the catalog fallback
@@ -842,8 +863,11 @@ class AiringCalendarRepository(
             val match = emby.findByTmdbId(server, singleShow, "tv").getOrNull()
             if (match != null) {
                 return resolveServerStatus(
-                    episodes, today, server,
-                    SeriesCalendarLibraryHint(singleShow, server, match.id, emptyList()), forceRefresh,
+                    episodes,
+                    today,
+                    server,
+                    SeriesCalendarLibraryHint(singleShow, server, match.id, emptyList()),
+                    forceRefresh,
                 )
             }
         }
@@ -1002,27 +1026,29 @@ class AiringCalendarRepository(
                     .distinct()
                     .map { seriesId ->
                         async {
-                            suspend fun fetchEpisodes() = emby.episodes(
-                                server = server,
-                                seriesId = seriesId,
-                                seasonId = null,
-                                includeMediaSources = false,
-                                seasonNumber = seasonNumbersBySeriesId[seriesId]?.singleOrNull(),
-                            )
-                            val known = libraryHint?.takeIf { it.seriesItemId == seriesId }
-                            val result = when {
-                                known?.episodesComplete == true -> Result.success(known.episodes)
-                                known != null -> fetchEpisodes()
-                                else -> libraryEpisodeRequests.withPermit { fetchEpisodes() }
-                            }.onFailure { error ->
-                                AppLog.warning(
-                                    category = "feature.calendar",
-                                    event = "series_episodes_failed",
-                                    message = "Episode list failed for a series on the calendar",
-                                    throwable = error,
-                                    attributes = mapOf("seriesId" to seriesId),
+                            suspend fun fetchEpisodes() =
+                                emby.episodes(
+                                    server = server,
+                                    seriesId = seriesId,
+                                    seasonId = null,
+                                    includeMediaSources = false,
+                                    seasonNumber = seasonNumbersBySeriesId[seriesId]?.singleOrNull(),
                                 )
-                            }
+                            val known = libraryHint?.takeIf { it.seriesItemId == seriesId }
+                            val result =
+                                when {
+                                    known?.episodesComplete == true -> Result.success(known.episodes)
+                                    known != null -> fetchEpisodes()
+                                    else -> libraryEpisodeRequests.withPermit { fetchEpisodes() }
+                                }.onFailure { error ->
+                                    AppLog.warning(
+                                        category = "feature.calendar",
+                                        event = "series_episodes_failed",
+                                        message = "Episode list failed for a series on the calendar",
+                                        throwable = error,
+                                        attributes = mapOf("seriesId" to seriesId),
+                                    )
+                                }
                             seriesId to result
                         }
                     }.awaitAll()

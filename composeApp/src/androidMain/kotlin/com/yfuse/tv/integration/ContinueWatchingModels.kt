@@ -120,7 +120,8 @@ class ContinueWatchingPolicy(
             }
         val completed =
             observation.explicitlyCompleted ||
-                duration > 0L && position >= (duration * COMPLETED_RATIO).toLong()
+                duration > 0L &&
+                position >= (duration * COMPLETED_RATIO).toLong()
         if (completed) return ContinueWatchingDecision.Delete(entry.identity)
 
         val threshold = eligibilityThresholdMs(entry.mediaType, duration)

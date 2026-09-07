@@ -20,6 +20,7 @@ fun splitDolbyVisionLayers(
 ): YDolbyVisionLayerAccessUnit {
     val units = YBitstream.scan(data, YNalCodec.H265, packing)
     require(units.isNotEmpty()) { "Dolby Vision HEVC access unit contains no NAL units" }
+
     fun encoded(types: Set<Int>): List<ByteArray> =
         units.filter { it.type in types }.map { span ->
             ANNEX_B_START + data.copyOfRange(span.offset, span.offset + span.length)

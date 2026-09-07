@@ -150,15 +150,16 @@ internal class AndroidSoftwareVideoRenderNode {
 
     private fun owner(): ExecutorService =
         synchronized(lifecycleLock) {
-            executor ?: Executors.newSingleThreadExecutor { runnable ->
-                Thread(
-                    {
-                        Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
-                        runnable.run()
-                    },
-                    SOFTWARE_RENDER_THREAD_NAME,
-                ).apply { isDaemon = true }
-            }.also { executor = it }
+            executor ?: Executors
+                .newSingleThreadExecutor { runnable ->
+                    Thread(
+                        {
+                            Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
+                            runnable.run()
+                        },
+                        SOFTWARE_RENDER_THREAD_NAME,
+                    ).apply { isDaemon = true }
+                }.also { executor = it }
         }
 
     private fun renderCopiedFrame(

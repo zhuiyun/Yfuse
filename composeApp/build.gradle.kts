@@ -735,6 +735,8 @@ kotlin {
 val updateManifestPublicKey: String =
     providers
         .gradleProperty("yfuse.updateManifestPublicKey")
+        .map(String::trim)
+        .filter(String::isNotEmpty)
         .orElse(providers.environmentVariable("YFUSE_UPDATE_MANIFEST_PUBLIC_KEY"))
         .getOrElse("")
         .trim()

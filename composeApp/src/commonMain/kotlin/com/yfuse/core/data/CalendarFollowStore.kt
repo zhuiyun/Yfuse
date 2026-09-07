@@ -63,17 +63,19 @@ class CalendarFollowStore(
         settings.putString(KEY_CONTENT_FILTER, value)
     }
 
-    fun isFollowing(tmdbId: Int): Boolean = synchronized(stateLock) {
-        _followed.value.any { it.tmdbId == tmdbId }
-    }
+    fun isFollowing(tmdbId: Int): Boolean =
+        synchronized(stateLock) {
+            _followed.value.any { it.tmdbId == tmdbId }
+        }
 
     internal fun automaticFollowRefreshDue(
         nowEpochMs: Long,
         maxAgeMs: Long,
-    ): Boolean = synchronized(stateLock) {
-        val previous = settings.getLongOrNull(KEY_AUTO_REFRESH_EPOCH_MS) ?: return@synchronized true
-        nowEpochMs - previous !in 0 until maxAgeMs
-    }
+    ): Boolean =
+        synchronized(stateLock) {
+            val previous = settings.getLongOrNull(KEY_AUTO_REFRESH_EPOCH_MS) ?: return@synchronized true
+            nowEpochMs - previous !in 0 until maxAgeMs
+        }
 
     internal fun markAutomaticFollowRefresh(epochMs: Long) {
         synchronized(stateLock) {
@@ -86,9 +88,10 @@ class CalendarFollowStore(
         synchronized(stateLock) {
             writeAutoDismissalsLocked(readAutoDismissalsLocked() - series.tmdbId)
             updateLocked(
-                (_followed.value.filterNot { it.tmdbId == series.tmdbId } +
-                    series.copy(trackingOrigin = CalendarTrackingOrigin.Manual))
-                    .sortedBy(FollowedSeries::title),
+                (
+                    _followed.value.filterNot { it.tmdbId == series.tmdbId } +
+                        series.copy(trackingOrigin = CalendarTrackingOrigin.Manual)
+                ).sortedBy(FollowedSeries::title),
             )
         }
     }
@@ -105,64 +108,65 @@ class CalendarFollowStore(
     internal fun reconcileAutoFollowLibrarySeries(
         series: List<FollowedSeries>,
         authoritativeServerIds: Set<String>,
-    ): CalendarAutoFollowReconcileResult = synchronized(stateLock) {
-        val candidates =
-            series
-                .asSequence()
-                .filter { it.tmdbId > 0 && it.title.isNotBlank() }
-                .distinctBy(FollowedSeries::tmdbId)
-                .associateBy(FollowedSeries::tmdbId)
-        val dismissed = readAutoDismissalsLocked()
-        var updated = 0
-        val retained =
-            _followed.value.mapNotNull { existing ->
-                val candidate = candidates[existing.tmdbId]
-                when {
-                    existing.trackingOrigin == CalendarTrackingOrigin.Manual -> existing
-                    candidate != null -> {
-                        val refreshed =
-                            existing.copy(
-                                title = candidate.title,
-                                year = candidate.year ?: existing.year,
-                                posterPath = candidate.posterPath ?: existing.posterPath,
-                                serverId = candidate.serverId ?: existing.serverId,
-                                seriesItemId = candidate.seriesItemId ?: existing.seriesItemId,
-                            )
-                        if (refreshed != existing) updated += 1
-                        refreshed
+    ): CalendarAutoFollowReconcileResult =
+        synchronized(stateLock) {
+            val candidates =
+                series
+                    .asSequence()
+                    .filter { it.tmdbId > 0 && it.title.isNotBlank() }
+                    .distinctBy(FollowedSeries::tmdbId)
+                    .associateBy(FollowedSeries::tmdbId)
+            val dismissed = readAutoDismissalsLocked()
+            var updated = 0
+            val retained =
+                _followed.value.mapNotNull { existing ->
+                    val candidate = candidates[existing.tmdbId]
+                    when {
+                        existing.trackingOrigin == CalendarTrackingOrigin.Manual -> existing
+                        candidate != null -> {
+                            val refreshed =
+                                existing.copy(
+                                    title = candidate.title,
+                                    year = candidate.year ?: existing.year,
+                                    posterPath = candidate.posterPath ?: existing.posterPath,
+                                    serverId = candidate.serverId ?: existing.serverId,
+                                    seriesItemId = candidate.seriesItemId ?: existing.seriesItemId,
+                                )
+                            if (refreshed != existing) updated += 1
+                            refreshed
+                        }
+                        existing.serverId != null && existing.serverId in authoritativeServerIds -> null
+                        else -> existing
                     }
-                    existing.serverId != null && existing.serverId in authoritativeServerIds -> null
-                    else -> existing
                 }
-            }
-        val retainedIds = retained.map(FollowedSeries::tmdbId).toSet()
-        val additions =
-            candidates.values
-                .asSequence()
-                .filterNot { it.tmdbId in dismissed || it.tmdbId in retainedIds }
-                .take((MAX_FOLLOWED_SERIES - retainedIds.size).coerceAtLeast(0))
-                .map {
-                    it.copy(
-                        reminderMode = CalendarReminderMode.WhenAvailable,
-                        trackingOrigin = CalendarTrackingOrigin.LibraryAuto,
-                    )
-                }.toList()
-        val removedIds =
-            _followed.value
-                .asSequence()
-                .filter { it.trackingOrigin == CalendarTrackingOrigin.LibraryAuto }
-                .map(FollowedSeries::tmdbId)
-                .filterNot(retainedIds::contains)
-                .toList()
-        removedIds.forEach(::clearReminderStateLocked)
-        val next = (retained + additions).sortedBy(FollowedSeries::title)
-        if (next != _followed.value) updateLocked(next)
-        CalendarAutoFollowReconcileResult(
-            added = additions.size,
-            removed = removedIds.size,
-            updated = updated,
-        )
-    }
+            val retainedIds = retained.map(FollowedSeries::tmdbId).toSet()
+            val additions =
+                candidates.values
+                    .asSequence()
+                    .filterNot { it.tmdbId in dismissed || it.tmdbId in retainedIds }
+                    .take((MAX_FOLLOWED_SERIES - retainedIds.size).coerceAtLeast(0))
+                    .map {
+                        it.copy(
+                            reminderMode = CalendarReminderMode.WhenAvailable,
+                            trackingOrigin = CalendarTrackingOrigin.LibraryAuto,
+                        )
+                    }.toList()
+            val removedIds =
+                _followed.value
+                    .asSequence()
+                    .filter { it.trackingOrigin == CalendarTrackingOrigin.LibraryAuto }
+                    .map(FollowedSeries::tmdbId)
+                    .filterNot(retainedIds::contains)
+                    .toList()
+            removedIds.forEach(::clearReminderStateLocked)
+            val next = (retained + additions).sortedBy(FollowedSeries::title)
+            if (next != _followed.value) updateLocked(next)
+            CalendarAutoFollowReconcileResult(
+                added = additions.size,
+                removed = removedIds.size,
+                updated = updated,
+            )
+        }
 
     fun unfollow(tmdbId: Int) {
         synchronized(stateLock) {

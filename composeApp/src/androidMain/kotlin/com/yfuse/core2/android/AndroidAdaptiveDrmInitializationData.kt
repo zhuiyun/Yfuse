@@ -44,10 +44,17 @@ private fun enqueueHlsChildren(
     baseUri: String,
     pending: ArrayDeque<String>,
 ) {
-    val master = runCatching { parseYHlsPlaylist(manifest, baseUri) }.getOrNull() as? YHlsPlaylist.Master
-        ?: return
-    master.variants.asSequence().map { it.uri }.forEach(pending::addLast)
-    master.renditions.asSequence().mapNotNull { it.uri }.forEach(pending::addLast)
+    val master =
+        runCatching { parseYHlsPlaylist(manifest, baseUri) }.getOrNull() as? YHlsPlaylist.Master
+            ?: return
+    master.variants
+        .asSequence()
+        .map { it.uri }
+        .forEach(pending::addLast)
+    master.renditions
+        .asSequence()
+        .mapNotNull { it.uri }
+        .forEach(pending::addLast)
 }
 
 private const val MAX_DRM_CHILD_MANIFESTS = 16

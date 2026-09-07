@@ -56,9 +56,11 @@ internal class AndroidFfmpegSoftwareDecoderNode(
         audioTrackId = trackId
     }
 
-    fun queueVideo(sample: YCompressedSample?): Boolean = demuxer.sendSoftwarePacket(requireNotNull(videoTrackId), sample)
+    fun queueVideo(sample: YCompressedSample?): Boolean =
+        demuxer.sendSoftwarePacket(requireNotNull(videoTrackId), sample)
 
-    fun queueAudio(sample: YCompressedSample?): Boolean = demuxer.sendSoftwarePacket(requireNotNull(audioTrackId), sample)
+    fun queueAudio(sample: YCompressedSample?): Boolean =
+        demuxer.sendSoftwarePacket(requireNotNull(audioTrackId), sample)
 
     fun receiveVideo(): YSoftwareVideoDecodeResult {
         val trackId = requireNotNull(videoTrackId)

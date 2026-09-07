@@ -6,16 +6,16 @@ import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YMediaTransportResponse
 import com.yfuse.core2.network.YSourceProtocol
-import com.yfuse.core2.network.YTransportFeature
 import com.yfuse.core2.network.YTransportCredentials
+import com.yfuse.core2.network.YTransportFeature
 import com.yfuse.core2.network.YTransportMethod
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Credentials
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
-import okhttp3.Credentials
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.InputStream
@@ -130,7 +130,10 @@ internal class AndroidHttpMediaTransport(
                 candidate.close()
             }
             val finalResponse = checkNotNull(opened)
-            if (followSafeRedirects && finalResponse.isSuccessful && finalResponse.request.url.toString() != originalUri) {
+            if (followSafeRedirects &&
+                finalResponse.isSuccessful &&
+                finalResponse.request.url.toString() != originalUri
+            ) {
                 redirectState?.remember(
                     sourceUri = originalUri,
                     targetUri = finalResponse.request.url.toString(),
@@ -272,9 +275,7 @@ internal fun String.isCredentialHeader(): Boolean {
         normalized.contains("apikey")
 }
 
-internal fun Map<String, String>.withHttpBasicCredentials(
-    credentials: YTransportCredentials?,
-): Map<String, String> {
+internal fun Map<String, String>.withHttpBasicCredentials(credentials: YTransportCredentials?): Map<String, String> {
     if (keys.any { it.equals("Authorization", ignoreCase = true) }) return this
     val usernamePassword = credentials as? YTransportCredentials.UsernamePassword ?: return this
     return this +

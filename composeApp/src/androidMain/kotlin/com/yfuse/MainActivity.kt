@@ -37,6 +37,7 @@ import com.yfuse.core.offline.DownloadStatus
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.performance.AppJankMonitor
 import com.yfuse.core.performance.preferHighRefreshRateForUi
+import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.sync.WatchInvite
 import com.yfuse.feature.calendar.scheduleCalendarReminderWork
@@ -85,16 +86,18 @@ class MainActivity : ComponentActivity() {
                     lastExitBackPressMs = now
                     exitConfirmationToast?.cancel()
                     exitConfirmationToast =
-                        Toast.makeText(
-                            this@MainActivity,
-                            "再按一次返回键退出 Yfuse",
-                            Toast.LENGTH_SHORT,
-                        ).also(Toast::show)
+                        Toast
+                            .makeText(
+                                this@MainActivity,
+                                "再按一次返回键退出 Yfuse",
+                                Toast.LENGTH_SHORT,
+                            ).also(Toast::show)
                 }
             },
         )
         preferHighRefreshRateForUi()
         enableEdgeToEdge()
+        if (ServerSessionRecovery.showIfNeeded(this)) return
 
         // Keep the window on exactly the colour the first Compose frame will draw. With the
         // animated splash enabled that frame deliberately starts from the system resource theme
@@ -251,6 +254,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (rootComponent == null) return
         consumeInviteIntent(intent)
         consumeCalendarIntent(intent)
     }
@@ -296,6 +300,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (!::serverHealthMonitor.isInitialized || !::serverSyncManager.isInitialized) return
         jankMonitor?.start()
         // Background work follows the player as well as this activity. Entering picture-in-picture
         // restarts MainActivity underneath the PiP window, and claiming foreground there resumed
@@ -328,8 +333,8 @@ class MainActivity : ComponentActivity() {
         jankMonitor?.stop()
         playerVisibilityJob?.cancel()
         playerVisibilityJob = null
-        serverHealthMonitor.setAppForeground(false)
-        serverSyncManager.setAppForeground(false)
+        if (::serverHealthMonitor.isInitialized) serverHealthMonitor.setAppForeground(false)
+        if (::serverSyncManager.isInitialized) serverSyncManager.setAppForeground(false)
         super.onStop()
         applyPendingAppIconVariant()
     }

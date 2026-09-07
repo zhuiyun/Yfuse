@@ -27,8 +27,7 @@ class YfuseCastOptionsProvider : OptionsProvider {
                     .Builder()
                     .setAndroidReceiverCompatible(true)
                     .build(),
-            )
-            .build()
+            ).build()
 
     override fun getAdditionalSessionProviders(context: Context): List<SessionProvider>? = null
 }

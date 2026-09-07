@@ -39,6 +39,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.data.PlaybackAudioPassthrough
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.ThemeMode
 import com.yfuse.core.designsystem.overlayDismiss
@@ -469,6 +470,7 @@ internal fun TvSettingsScreen(
     val mode by component.themePreferences.mode.collectAsState()
     val largeText by component.themePreferences.largeText.collectAsState()
     val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
+    val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
     val autoNext by component.themePreferences.autoNext.collectAsState()
     val frameRateMatch by component.playbackPreferences.frameRateMatch.collectAsState()
     val passthrough by component.playbackPreferences.audioPassthrough.collectAsState()
@@ -523,6 +525,25 @@ internal fun TvSettingsScreen(
                     component.themePreferences.setMode(next)
                 },
                 icon = AppIcons.Grid,
+                navigationRequester = navigationRequester,
+            )
+        }
+        item(key = "settings-dialog-animation") {
+            TvSettingRow(
+                title = "弹窗动画",
+                value = dialogAnimation.label,
+                stableId = "settings:dialog-animation",
+                focusMemory = focusMemory,
+                onClick = {
+                    val choices = DialogAnimation.entries
+                    component.themePreferences.setDialogAnimation(
+                        choices[
+                            (choices.indexOf(dialogAnimation) + 1) %
+                                choices.size,
+                        ],
+                    )
+                },
+                icon = AppIcons.Refresh,
                 navigationRequester = navigationRequester,
             )
         }

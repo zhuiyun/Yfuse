@@ -25,7 +25,10 @@ internal object PlaybackRemotePolicyRegistry {
     private lateinit var appContext: Context
 
     @Synchronized
-    fun initialize(context: Context, nowEpochMs: Long = System.currentTimeMillis()) {
+    fun initialize(
+        context: Context,
+        nowEpochMs: Long = System.currentTimeMillis(),
+    ) {
         appContext = context.applicationContext
         val preferences = prefs()
         val revision = preferences.getLong("revision", 0L)
@@ -45,7 +48,10 @@ internal object PlaybackRemotePolicyRegistry {
         )
     }
 
-    fun isDisabled(path: PlaybackRemotePath, nowEpochMs: Long = System.currentTimeMillis()): Boolean {
+    fun isDisabled(
+        path: PlaybackRemotePath,
+        nowEpochMs: Long = System.currentTimeMillis(),
+    ): Boolean {
         val state = active.get()
         return state.expiresAtEpochMs > nowEpochMs && path in state.disabledPaths
     }

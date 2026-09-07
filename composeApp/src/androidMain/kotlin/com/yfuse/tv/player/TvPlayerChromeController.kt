@@ -20,11 +20,12 @@ internal class TvPlayerChromeController : TvPlayerChromeBridge {
     fun showControls() {
         mutableState.update {
             it.copy(
-                layer = if (it.layer == TvPlayerChromeLayer.Hidden) {
-                    TvPlayerChromeLayer.Controls
-                } else {
-                    it.layer
-                },
+                layer =
+                    if (it.layer == TvPlayerChromeLayer.Hidden) {
+                        TvPlayerChromeLayer.Controls
+                    } else {
+                        it.layer
+                    },
                 interactionRevision = it.interactionRevision + 1,
             )
         }

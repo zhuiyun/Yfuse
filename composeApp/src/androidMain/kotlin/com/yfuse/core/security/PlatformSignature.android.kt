@@ -1,12 +1,12 @@
 package com.yfuse.core.security
 
 import android.util.Base64
-import java.security.KeyFactory
-import java.security.Signature
-import java.security.spec.X509EncodedKeySpec
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.bouncycastle.crypto.util.PublicKeyFactory
+import java.security.KeyFactory
+import java.security.Signature
+import java.security.spec.X509EncodedKeySpec
 
 actual fun verifyEd25519Signature(
     publicKeyBase64: String,

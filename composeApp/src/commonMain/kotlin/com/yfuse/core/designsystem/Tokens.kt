@@ -536,7 +536,11 @@ object Motion {
     const val ACCENT = AMBIENT
 
     /** A full-width artwork change deserves more time than local component movement. */
-    const val CAROUSEL = AMBIENT
+    const val CAROUSEL = 650
+    const val CAROUSEL_CAPTION = 440
+    const val CAROUSEL_CAPTION_STAGE = 360
+    const val CAROUSEL_CAPTION_STAGGER = 40
+    const val CAROUSEL_COLOR = 600
 
     /**
      * One turn of an indeterminate spinner.

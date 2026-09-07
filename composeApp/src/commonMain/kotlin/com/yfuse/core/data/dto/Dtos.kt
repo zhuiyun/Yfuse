@@ -667,8 +667,7 @@ fun BaseItemDto.bestTrickplay(mediaSourceId: String? = null): TrickplayInfo? =
             ?.let { Trickplay.orEmpty()[it] }
             ?.let(::listOf)
             ?: Trickplay.orEmpty().values.filterNotNull()
-    )
-        .flatMap { it.values }
+    ).flatMap { it.values }
         .filter { it.Width > 0 && it.Height > 0 && it.TileWidth > 0 && it.TileHeight > 0 && it.Interval > 0L }
         .minWithOrNull(compareBy<TrickplayInfoDto> { kotlin.math.abs(it.Width - 320) }.thenBy { it.Width })
         ?.let {

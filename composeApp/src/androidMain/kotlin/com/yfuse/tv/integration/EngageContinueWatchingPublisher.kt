@@ -53,8 +53,8 @@ class EngageContinueWatchingPublisher(
         }
     }
 
-    override suspend fun replace(entries: List<ContinueWatchingEntry>): ContinueWatchingPublishResult {
-        return when (integrationState()) {
+    override suspend fun replace(entries: List<ContinueWatchingEntry>): ContinueWatchingPublishResult =
+        when (integrationState()) {
             EngageIntegrationState.MissingSdk ->
                 ContinueWatchingPublishResult.Unavailable(
                     backend = ContinueWatchingBackend.Engage,
@@ -92,7 +92,6 @@ class EngageContinueWatchingPublisher(
                 }
             }
         }
-    }
 }
 
 /** Uses the legacy on-device provider only when Engage is genuinely unavailable. */
@@ -100,11 +99,10 @@ internal class EngageThenWatchNextPublisher(
     private val engage: ContinueWatchingPublisher,
     private val watchNext: ContinueWatchingPublisher,
 ) : ContinueWatchingPublisher {
-    override suspend fun replace(entries: List<ContinueWatchingEntry>): ContinueWatchingPublishResult {
-        return when (val primary = engage.replace(entries)) {
+    override suspend fun replace(entries: List<ContinueWatchingEntry>): ContinueWatchingPublishResult =
+        when (val primary = engage.replace(entries)) {
             is ContinueWatchingPublishResult.Published -> primary
             is ContinueWatchingPublishResult.Failed -> primary
             is ContinueWatchingPublishResult.Unavailable -> watchNext.replace(entries)
         }
-    }
 }

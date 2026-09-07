@@ -118,6 +118,7 @@ import com.yfuse.core.designsystem.flatGlass as glass
 /** Which option sheet is open. Theme and glass style are answered in place on the root page. */
 private enum class Sheet {
     StartupTab,
+    DialogAnimation,
     Background,
     PlaybackMode,
     MediaVersionPreference,
@@ -183,7 +184,7 @@ private val SettingsSearchDestinations =
         SettingsSearchDestination(
             "外观与主题",
             "主题、背景、动效与辅助功能",
-            "外观 主题 背景 玻璃 字体 动效",
+            "外观 主题 背景 玻璃 字体 动效 弹窗 动画 浮起 展开 回弹 透视 全息 扫描 空间 折叠 能量 边框 分层 悬浮 光圈 数字 重构 科幻",
             ProfilePage.Appearance,
             icon = AppIcons.Grid,
             tint = SettingTint.appearance,
@@ -244,6 +245,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val splashVariant by prefs.splashVariant.collectAsState()
     val startupTab by prefs.startupTab.collectAsState()
     val glassStyle by prefs.glassStyle.collectAsState()
+    val dialogAnimation by prefs.dialogAnimation.collectAsState()
     val backgroundImage by prefs.backgroundImage.collectAsState()
     val backgroundDim by prefs.backgroundDim.collectAsState()
     var appIcon by remember { mutableStateOf(currentAppIconVariant()) }
@@ -254,7 +256,8 @@ fun ProfileScreen(component: ProfileComponent) {
     val engineSelection by component.playbackPreferences.engineSelection.collectAsState()
     val smartCrossServerSource by component.playbackPreferences.smartCrossServerSource.collectAsState()
     val anonymousQoeSharing by component.playbackPreferences.anonymousQoeSharing.collectAsState()
-    val progressSyncEnabled by component.dependencies.serverSyncManager.syncProgress.collectAsState()
+    val progressSyncEnabled by component.dependencies.serverSyncManager.syncProgress
+        .collectAsState()
     val watchTogether = component.watchTogether
     val watchState by watchTogether.state.collectAsState()
     val watchEndpoint by component.watchTogetherPreferences.endpoint.collectAsState()
@@ -452,6 +455,8 @@ fun ProfileScreen(component: ProfileComponent) {
                                 "已设置 · ${(backgroundDim * 100).toInt()}% 遮罩 ›"
                             },
                         startupSummary = "${startupTab.label} ›",
+                        dialogAnimationSummary = "${dialogAnimation.label} ›",
+                        onDialogAnimation = { sheet = Sheet.DialogAnimation },
                         reduceTransparency = reduceTransparency,
                         largeText = largeText,
                         reduceMotion = reduceMotion,
@@ -489,8 +494,8 @@ fun ProfileScreen(component: ProfileComponent) {
                         onInspectRelay = component::inspectRelayServers,
                         onIsRelay = component::isRelayServers,
                         onImportRelay = component::importRelayServers,
-                            imageCacheUsageBytes = imageCacheUsageBytes,
-                            videoCacheUsageBytes = videoCacheUsageBytes,
+                        imageCacheUsageBytes = imageCacheUsageBytes,
+                        videoCacheUsageBytes = videoCacheUsageBytes,
                         videoCacheSize = videoCacheSize,
                         onUserAgent = { sheet = Sheet.UserAgent },
                         onClearCache = { confirmClearCache = true },
@@ -599,7 +604,7 @@ fun ProfileScreen(component: ProfileComponent) {
                                     SettingsDivider()
                                     SettingRow(
                                         "更多外观与辅助",
-                                        "背景 · 启动 · 辅助功能 ›",
+                                        "弹窗动画 · 背景 · 辅助功能 ›",
                                         embedded = true,
                                         onClick = { openPage(ProfilePage.Appearance) },
                                         icon = AppIcons.Info,
@@ -735,6 +740,13 @@ fun ProfileScreen(component: ProfileComponent) {
         }
 
         when (sheet) {
+            Sheet.DialogAnimation ->
+                DialogAnimationSheet(
+                    selected = dialogAnimation,
+                    onSelect = prefs::setDialogAnimation,
+                    onDismiss = { sheet = null },
+                )
+
             Sheet.Background ->
                 BackgroundImageSheet(
                     current = backgroundImage,
@@ -1187,8 +1199,7 @@ internal fun SettingRow(
                 } else {
                     it
                 }
-            }
-            .heightIn(min = MinTouchTarget)
+            }.heightIn(min = MinTouchTarget)
             .padding(horizontal = 16.dp, vertical = 13.dp)
     BoxWithConstraints(rowModifier) {
         val stacked = largeText || windowWidthTier(maxWidth) == WindowWidthTier.Compact

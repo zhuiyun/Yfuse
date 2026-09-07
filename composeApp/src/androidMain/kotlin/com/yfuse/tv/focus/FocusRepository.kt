@@ -42,9 +42,8 @@ class InMemoryFocusRepository(
 
     private val contexts =
         object : LinkedHashMap<FocusContext, ContextState>(16, 0.75f, true) {
-            override fun removeEldestEntry(
-                eldest: MutableMap.MutableEntry<FocusContext, ContextState>?,
-            ): Boolean = size > maxContexts
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<FocusContext, ContextState>?): Boolean =
+                size > maxContexts
         }
 
     @Synchronized

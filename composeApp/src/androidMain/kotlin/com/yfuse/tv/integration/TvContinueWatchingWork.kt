@@ -185,7 +185,10 @@ class TvContinueWatchingSyncWorker(
                 return Result.retry()
             }
         val store = SharedPreferencesContinueWatchingStore(applicationContext)
-        store.retainScopes(registry.data.value.servers.mapTo(linkedSetOf()) { it.continueWatchingScope() })
+        store.retainScopes(
+            registry.data.value.servers
+                .mapTo(linkedSetOf()) { it.continueWatchingScope() },
+        )
         val pending = store.pendingPublication() ?: return Result.success()
         return when (val result = TvContinueWatchingRuntime.publisher(applicationContext).replace(pending.entries)) {
             is ContinueWatchingPublishResult.Published -> {

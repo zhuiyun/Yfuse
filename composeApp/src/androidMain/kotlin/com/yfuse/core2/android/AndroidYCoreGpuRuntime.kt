@@ -1,14 +1,14 @@
 package com.yfuse.core2.android
 
 import android.content.Context
-import android.os.Build
 import android.hardware.HardwareBuffer
+import android.os.Build
 import android.view.Surface
 import com.yfuse.BuildConfig
-import com.yfuse.core2.render.YGpuColorPipelineConfig
-import com.yfuse.core2.render.YGpuColorTransfer
 import com.yfuse.core2.render.MIN_ANDROID_HARDWARE_BUFFER_API
 import com.yfuse.core2.render.NATIVE_GPU_API_VERSION
+import com.yfuse.core2.render.YGpuColorPipelineConfig
+import com.yfuse.core2.render.YGpuColorTransfer
 import com.yfuse.core2.render.YNativeGpuRuntimeProbe
 
 /**
@@ -66,7 +66,14 @@ internal object AndroidYCoreGpuNativeBridge {
     fun createRenderer(
         surface: Surface,
         outputTransfer: YGpuColorTransfer,
-    ): Long = if (libraryLoaded) runCatching { nativeCreateRenderer(surface, outputTransfer.ordinal) }.getOrDefault(0L) else 0L
+    ): Long =
+        if (libraryLoaded) {
+            runCatching {
+                nativeCreateRenderer(surface, outputTransfer.ordinal)
+            }.getOrDefault(0L)
+        } else {
+            0L
+        }
 
     fun renderHardwareBuffer(
         renderer: Long,
@@ -98,7 +105,9 @@ internal object AndroidYCoreGpuNativeBridge {
                     rotationDegrees = config.geometry.normalizedRotationDegrees,
                     pixelAspectRatio =
                         config.geometry.pixelAspectRatioNumerator.toFloat() /
-                            config.geometry.pixelAspectRatioDenominator.coerceAtLeast(1).toFloat(),
+                            config.geometry.pixelAspectRatioDenominator
+                                .coerceAtLeast(1)
+                                .toFloat(),
                     cropLeft = config.geometry.cropLeft.toFloat(),
                     cropTop = config.geometry.cropTop.toFloat(),
                     cropRight = config.geometry.cropRight.toFloat(),
@@ -110,7 +119,11 @@ internal object AndroidYCoreGpuNativeBridge {
                     dynamicAverageNits = config.hdr10PlusSceneMetadata?.averageMaxRgbNits ?: 0f,
                     dynamicKneeX = config.hdr10PlusSceneMetadata?.kneePointX ?: 0f,
                     dynamicKneeY = config.hdr10PlusSceneMetadata?.kneePointY ?: 0f,
-                    dynamicAnchorMean = config.hdr10PlusSceneMetadata?.bezierAnchors?.average()?.toFloat() ?: 0f,
+                    dynamicAnchorMean =
+                        config.hdr10PlusSceneMetadata
+                            ?.bezierAnchors
+                            ?.average()
+                            ?.toFloat() ?: 0f,
                     hdrMetadata = config.nativeHdrMetadata(),
                 )
             }.getOrDefault(0L)
@@ -119,7 +132,13 @@ internal object AndroidYCoreGpuNativeBridge {
         }
 
     fun rendererFeatureMask(renderer: Long): Long =
-        if (libraryLoaded && renderer != 0L) runCatching { nativeRendererFeatureMask(renderer) }.getOrDefault(0L) else 0L
+        if (libraryLoaded &&
+            renderer != 0L
+        ) {
+            runCatching { nativeRendererFeatureMask(renderer) }.getOrDefault(0L)
+        } else {
+            0L
+        }
 
     fun lastGpuDurationNs(renderer: Long): Long =
         if (libraryLoaded && renderer != 0L) runCatching { nativeLastGpuDurationNs(renderer) }.getOrDefault(0L) else 0L

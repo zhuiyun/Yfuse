@@ -3,9 +3,9 @@ package com.yfuse.core2.android
 import android.content.Context
 import com.yfuse.core.data.PlaybackFrameRateMatch
 import com.yfuse.core.model.DecoderMode
-import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.PlaybackDiscKind
 import com.yfuse.core.playback.PlaybackDrmScheme
+import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core2.api.YDiscKind
 import com.yfuse.core2.api.YDiscMedia
@@ -27,8 +27,8 @@ import com.yfuse.feature.player.AndroidPlaybackHttpProxy
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.VideoEngine
 import com.yfuse.feature.player.externalSubtitleFormatHint
-import com.yfuse.feature.player.playbackExternalSubtitles
 import com.yfuse.feature.player.persistentPlaybackCacheUrl
+import com.yfuse.feature.player.playbackExternalSubtitles
 import com.yfuse.feature.player.startsWithServerTranscode
 import kotlinx.coroutines.CancellationException
 
@@ -438,21 +438,21 @@ private fun PlayerMediaItem.toCore2MediaItem(
         transportCredentials = transportCredentials,
         externalSubtitles =
             playbackExternalSubtitles().map { subtitle ->
-                    YExternalSubtitleSource(
-                        uri = subtitle.uri,
-                        language = subtitle.language,
-                        format =
-                            when ((subtitle.codec ?: externalSubtitleFormatHint(subtitle.uri))?.lowercase()) {
-                                "srt", "subrip" -> YSubtitleFormat.Srt
-                                "vtt", "webvtt" -> YSubtitleFormat.WebVtt
-                                "ass" -> YSubtitleFormat.Ass
-                                "ssa" -> YSubtitleFormat.Ssa
-                                else -> null
-                            },
-                        default = subtitle.default,
-                        forced = subtitle.forced,
-                    )
-                },
+                YExternalSubtitleSource(
+                    uri = subtitle.uri,
+                    language = subtitle.language,
+                    format =
+                        when ((subtitle.codec ?: externalSubtitleFormatHint(subtitle.uri))?.lowercase()) {
+                            "srt", "subrip" -> YSubtitleFormat.Srt
+                            "vtt", "webvtt" -> YSubtitleFormat.WebVtt
+                            "ass" -> YSubtitleFormat.Ass
+                            "ssa" -> YSubtitleFormat.Ssa
+                            else -> null
+                        },
+                    default = subtitle.default,
+                    forced = subtitle.forced,
+                )
+            },
         disc =
             if (!usingServerTranscode && version?.discSource == true) {
                 YDiscMedia(

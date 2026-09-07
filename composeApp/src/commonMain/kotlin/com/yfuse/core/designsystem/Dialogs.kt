@@ -2,7 +2,6 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,14 +44,10 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -67,7 +62,6 @@ import androidx.compose.ui.window.DialogProperties
 private val ScrimColor = Color(0xFF0A0E16)
 private val OverlayShape = GlassShapes.sheet
 private val OverlayMaxWidth = 560.dp
-private val OverlayMotionOffset = 18.dp
 internal const val OVERLAY_EXIT_DURATION_MS = 240
 
 @Stable
@@ -134,17 +128,21 @@ fun GlassDialog(
     ) {
         ReportOverlayVisible()
         val palette = LocalPalette.current
-        val modalOffset = with(LocalDensity.current) { OverlayMotionOffset.toPx() }
-        val progress = rememberOverlayTransition(leaving = leaving) { (afterExit ?: onDismiss)() }
+        val selectedAnimation = LocalDialogAnimation.current
+        val animation = remember { selectedAnimation }
+        val progress =
+            rememberOverlayTransition(leaving = leaving, animation = animation) { (afterExit ?: onDismiss)() }
         CompositionLocalProvider(
             LocalOverlayDismiss provides requestDismiss,
             LocalOverlayLiquidButtons provides liquidButtons,
             LocalMutedGlass provides true,
             LocalOverlayComplete provides complete,
+            LocalDialogContentMotion provides DialogContentMotion(animation, progress),
         ) {
             Box(
                 Modifier
                     .fillMaxSize()
+                    .trackDialogOrigin(LocalDialogMotionHost.current)
                     .pointerInput(requestDismiss) { detectTapGestures { requestDismiss() } },
                 contentAlignment = alignment,
             ) {
@@ -161,22 +159,10 @@ fun GlassDialog(
                         .padding(windowPadding)
                         .widthIn(max = maxWidth)
                         .fillMaxWidth()
-                        .graphicsLayer {
-                            val entered = progress()
-                            transformOrigin = TransformOrigin(0.5f, 0.65f)
-                            scaleX = 0.96f + 0.04f * entered
-                            scaleY = 0.94f + 0.06f * entered
-                            translationY = modalOffset * (1f - entered)
-                        }.drawWithContent {
-                            // Reveal the material geometrically; the panel and its text stay
-                            // fully opaque throughout both entrance and exit.
-                            val hidden = 1f - progress().coerceIn(0f, 1f)
-                            val insetY = size.height * 0.5f * hidden
-                            clipRect(top = insetY, bottom = size.height - insetY) {
-                                this@drawWithContent.drawContent()
-                            }
-                        }.shadow(Shadows.sheet, shape)
+                        .dialogMotion(animation, progress)
+                        .shadow(Shadows.sheet, shape)
                         .mutedGlassPanel(shape)
+                        .dialogInteriorMotion(animation, progress)
                         .pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
                         .padding(contentPadding)
@@ -212,6 +198,7 @@ fun overlayAction(action: () -> Unit): () -> Unit {
 @Composable
 internal fun rememberOverlayTransition(
     leaving: Boolean,
+    animation: DialogAnimation = LocalDialogAnimation.current,
     onLeft: () -> Unit,
 ): () -> Float {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -227,9 +214,9 @@ internal fun rememberOverlayTransition(
             progress.animateTo(
                 target,
                 if (leaving) {
-                    tween(OVERLAY_EXIT_DURATION_MS, easing = CubicBezierEasing(0.4f, 0f, 0.6f, 1f))
+                    tween(animation.exitMillis, easing = CubicBezierEasing(0.4f, 0f, 0.6f, 1f))
                 } else {
-                    spring(dampingRatio = 0.92f, stiffness = 340f, visibilityThreshold = 0.001f)
+                    tween(animation.enterMillis, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f))
                 },
             )
         }
@@ -241,11 +228,12 @@ internal fun rememberOverlayTransition(
 internal fun overlayDurationMillis(
     leaving: Boolean,
     reduceMotion: Boolean,
+    animation: DialogAnimation = DialogAnimation.Lift,
 ): Int =
     when {
         reduceMotion -> 0
-        leaving -> OVERLAY_EXIT_DURATION_MS
-        else -> Motion.MODAL
+        leaving -> animation.exitMillis
+        else -> animation.enterMillis
     }
 
 @Composable
@@ -256,7 +244,7 @@ fun OverlayHeader(
 ) {
     val palette = LocalPalette.current
     Row(
-        Modifier.fillMaxWidth().padding(bottom = 14.dp),
+        Modifier.fillMaxWidth().dialogHeaderMotion().padding(bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

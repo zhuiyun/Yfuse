@@ -405,7 +405,8 @@ internal class EmbyDetailService(
                     }.toList()
             if (frames.isEmpty()) return@embyApiCall null
             val intervalMs =
-                frames.zipWithNext { first, second -> second.positionMs - first.positionMs }
+                frames
+                    .zipWithNext { first, second -> second.positionMs - first.positionMs }
                     .firstOrNull { it > 0L }
                     ?: DEFAULT_EMBY_THUMBNAIL_INTERVAL_MS
             TrickplayInfo(

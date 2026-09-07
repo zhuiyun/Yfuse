@@ -174,7 +174,9 @@ internal class AndroidTransportDiscBlockSource(
 }
 
 private sealed interface DiscWindowResult {
-    data class Loaded(val bytes: ByteArray) : DiscWindowResult
+    data class Loaded(
+        val bytes: ByteArray,
+    ) : DiscWindowResult
 
     data object EndOfFile : DiscWindowResult
 

@@ -47,7 +47,6 @@ internal fun PlayerPreparationContent(
     onRetry: () -> Unit,
     onBack: () -> Unit,
 ) {
-
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when {
             state.loading ->

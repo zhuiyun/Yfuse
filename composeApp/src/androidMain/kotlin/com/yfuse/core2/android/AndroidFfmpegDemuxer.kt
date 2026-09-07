@@ -6,7 +6,11 @@ import com.yfuse.core2.capability.YContainer
 import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.demux.YAudioTrackFormat
+import com.yfuse.core2.demux.YChromaLocation
 import com.yfuse.core2.demux.YCodecPrivateData
+import com.yfuse.core2.demux.YColorMatrix
+import com.yfuse.core2.demux.YColorPrimaries
+import com.yfuse.core2.demux.YColorRange
 import com.yfuse.core2.demux.YCompressedSample
 import com.yfuse.core2.demux.YDemuxOpenResult
 import com.yfuse.core2.demux.YDemuxSource
@@ -17,12 +21,8 @@ import com.yfuse.core2.demux.YSampleFlag
 import com.yfuse.core2.demux.YSubtitlePacketDecoder
 import com.yfuse.core2.demux.YSubtitleTrackFormat
 import com.yfuse.core2.demux.YTrackId
-import com.yfuse.core2.demux.YVideoTrackFormat
-import com.yfuse.core2.demux.YColorRange
-import com.yfuse.core2.demux.YColorMatrix
-import com.yfuse.core2.demux.YColorPrimaries
-import com.yfuse.core2.demux.YChromaLocation
 import com.yfuse.core2.demux.YVideoGeometry
+import com.yfuse.core2.demux.YVideoTrackFormat
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.hdr.YHdrStaticMetadata
 import com.yfuse.core2.subtitle.YSubtitleCue
@@ -334,13 +334,31 @@ internal class AndroidFfmpegDemuxer :
                             chromaLocation = ffmpegChromaLocation(info.getOrElse(VIDEO_CHROMA_LOCATION_INDEX) { 0L }),
                             geometry =
                                 YVideoGeometry(
-                                    pixelAspectRatioNumerator = info.getOrElse(VIDEO_SAR_NUM_INDEX) { 1L }.toInt().coerceAtLeast(1),
-                                    pixelAspectRatioDenominator = info.getOrElse(VIDEO_SAR_DEN_INDEX) { 1L }.toInt().coerceAtLeast(1),
+                                    pixelAspectRatioNumerator =
+                                        info
+                                            .getOrElse(
+                                                VIDEO_SAR_NUM_INDEX,
+                                            ) { 1L }
+                                            .toInt()
+                                            .coerceAtLeast(1),
+                                    pixelAspectRatioDenominator =
+                                        info
+                                            .getOrElse(
+                                                VIDEO_SAR_DEN_INDEX,
+                                            ) { 1L }
+                                            .toInt()
+                                            .coerceAtLeast(1),
                                     rotationDegrees = info.getOrElse(VIDEO_ROTATION_INDEX) { 0L }.toInt(),
                                     cropLeft = info.getOrElse(VIDEO_CROP_LEFT_INDEX) { 0L }.toInt().coerceAtLeast(0),
                                     cropTop = info.getOrElse(VIDEO_CROP_TOP_INDEX) { 0L }.toInt().coerceAtLeast(0),
                                     cropRight = info.getOrElse(VIDEO_CROP_RIGHT_INDEX) { 0L }.toInt().coerceAtLeast(0),
-                                    cropBottom = info.getOrElse(VIDEO_CROP_BOTTOM_INDEX) { 0L }.toInt().coerceAtLeast(0),
+                                    cropBottom =
+                                        info
+                                            .getOrElse(
+                                                VIDEO_CROP_BOTTOM_INDEX,
+                                            ) { 0L }
+                                            .toInt()
+                                            .coerceAtLeast(0),
                                 ),
                         ),
                 )
@@ -391,7 +409,10 @@ internal class AndroidFfmpegDemuxer :
 
     private fun requireHandle(): Long = handle.takeIf { it != 0L } ?: error("FFmpeg demux session has not been opened")
 
-    private fun requireOpenResult(): YDemuxOpenResult = checkNotNull(openResult) { "FFmpeg demux session has not been opened" }
+    private fun requireOpenResult(): YDemuxOpenResult =
+        checkNotNull(openResult) {
+            "FFmpeg demux session has not been opened"
+        }
 }
 
 internal data class YFfmpegSourceRequest(

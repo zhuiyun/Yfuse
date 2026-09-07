@@ -143,11 +143,12 @@ internal fun PlaybackStatusChip(
         modifier = modifier,
     ) {
         Row(
-            Modifier.glass(
-                shape = AppShapes.pill,
-                fill = Color.Black.copy(alpha = 0.64f),
-                border = Color.White.copy(alpha = 0.20f),
-            ).padding(horizontal = 13.dp, vertical = 8.dp),
+            Modifier
+                .glass(
+                    shape = AppShapes.pill,
+                    fill = Color.Black.copy(alpha = 0.64f),
+                    border = Color.White.copy(alpha = 0.20f),
+                ).padding(horizontal = 13.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

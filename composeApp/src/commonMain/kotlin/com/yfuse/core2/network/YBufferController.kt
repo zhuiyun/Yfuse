@@ -47,6 +47,7 @@ class YPlaybackBufferGate(
     resumePlaybackUs: Long,
 ) {
     private var resumePlaybackUs = resumePlaybackUs
+
     init {
         require(resumePlaybackUs >= 0L)
     }

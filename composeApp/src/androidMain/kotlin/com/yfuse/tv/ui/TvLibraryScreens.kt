@@ -46,8 +46,8 @@ import com.yfuse.feature.library.GridIntent
 import com.yfuse.feature.library.LibraryGridComponent
 import com.yfuse.feature.library.LibraryHomeComponent
 import com.yfuse.feature.library.LibraryIntent
-import com.yfuse.tv.focus.FocusContext
 import com.yfuse.tv.focus.FocusCandidate
+import com.yfuse.tv.focus.FocusContext
 
 @Composable
 internal fun TvLibraryHomeScreen(
@@ -63,7 +63,14 @@ internal fun TvLibraryHomeScreen(
         route = "library",
         focusMemory = focusMemory,
         fallback = contentRequester,
-        contentGeneration = listOf(state.loading, server?.id, state.content.featured.firstOrNull()?.id),
+        contentGeneration =
+            listOf(
+                state.loading,
+                server?.id,
+                state.content.featured
+                    .firstOrNull()
+                    ?.id,
+            ),
         context = server?.let { FocusContext("library", it.id, it.userId) },
     )
 
@@ -568,7 +575,7 @@ private fun MediaContainer.toTvCard(
     onOpen: (MediaContainer) -> Unit,
 ): TvMediaCardModel =
     TvMediaCardModel(
-        stableId = "server:${serverId}:container:$id",
+        stableId = "server:$serverId:container:$id",
         title = title,
         subtitle = itemCount?.let { "$it 项" },
         imageUrl =

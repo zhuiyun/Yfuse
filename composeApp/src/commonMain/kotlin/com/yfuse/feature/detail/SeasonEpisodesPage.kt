@@ -216,15 +216,13 @@ private fun EpisodeRow(
                 } else {
                     Color.Transparent
                 },
-            )
-            .then(
+            ).then(
                 if (current) {
                     Modifier.border(3.dp, selectedHighlight, GlassShapes.card)
                 } else {
                     Modifier
                 },
-            )
-            .padding(7.dp),
+            ).padding(7.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(Modifier.width(148.dp).height(84.dp)) {

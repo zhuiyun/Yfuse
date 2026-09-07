@@ -2,11 +2,11 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackException
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
-import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerDiagnostics
 import com.yfuse.core2.api.YPlayerOpenRequest
@@ -223,12 +223,12 @@ internal class AndroidNativeTunnelYPlayer(
                         it.diagnostics
                             .invalidateOutputEvidence(YOutputEvidenceResetReason.DecoderReconfigured)
                             .copy(
-                            videoOutput = "停止",
-                            audioOutput = "停止",
-                            reason =
-                                typed?.stage?.let { stage -> "NativeTunnel failed at ${stage.name}" }
-                                    ?: "NativeTunnel failed before typed-stage classification",
-                        ),
+                                videoOutput = "停止",
+                                audioOutput = "停止",
+                                reason =
+                                    typed?.stage?.let { stage -> "NativeTunnel failed at ${stage.name}" }
+                                        ?: "NativeTunnel failed before typed-stage classification",
+                            ),
                 )
             }
         }

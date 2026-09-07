@@ -198,7 +198,14 @@ internal class AndroidMediaCodecAudioNode(
 private fun MediaFormat.positiveInteger(key: String): Int? =
     runCatching { getInteger(key) }.getOrNull()?.takeIf { it > 0 }
 
-private fun Int.toAudioCodecInputFlags(): Int = if (this and EXTRACTOR_SAMPLE_SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+private fun Int.toAudioCodecInputFlags(): Int =
+    if (this and EXTRACTOR_SAMPLE_SYNC !=
+        0
+    ) {
+        MediaCodec.BUFFER_FLAG_KEY_FRAME
+    } else {
+        0
+    }
 
 private const val EXTRACTOR_SAMPLE_SYNC = 1
 private const val EXTRACTOR_SAMPLE_ENCRYPTED = 2

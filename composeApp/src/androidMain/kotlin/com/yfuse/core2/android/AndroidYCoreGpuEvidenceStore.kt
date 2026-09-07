@@ -61,7 +61,9 @@ internal class AndroidYCoreGpuEvidenceStore(
 
     private fun records(): List<Record> {
         val oldest = (nowEpochMs() - EVIDENCE_TTL_MS).coerceAtLeast(0L)
-        return preferences.getStringSet(KEY_RECORDS, emptySet()).orEmpty()
+        return preferences
+            .getStringSet(KEY_RECORDS, emptySet())
+            .orEmpty()
             .mapNotNull(::decode)
             .filter { it.updatedAtEpochMs >= oldest }
             .sortedByDescending(Record::updatedAtEpochMs)
@@ -77,7 +79,9 @@ internal class AndroidYCoreGpuEvidenceStore(
             record.key.bitDepth,
             record.key.inputHdrType.name,
             record.key.outputHdrType.name,
-            record.key.dolbyVisionProfile?.toString().orEmpty(),
+            record.key.dolbyVisionProfile
+                ?.toString()
+                .orEmpty(),
             record.featureMask,
             record.updatedAtEpochMs,
         ).joinToString(SEPARATOR)

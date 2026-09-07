@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,8 +22,9 @@ internal val LocalMutedGlass = staticCompositionLocalOf { false }
 @Composable
 internal fun DialogBackdropHost(content: @Composable () -> Unit) {
     val backdrop = rememberBackdropState()
-    CompositionLocalProvider(LocalDialogBackdrop provides backdrop) {
-        Box(Modifier.fillMaxSize().backdropSource(backdrop)) { content() }
+    val motionHost = remember { DialogMotionHost() }
+    CompositionLocalProvider(LocalDialogBackdrop provides backdrop, LocalDialogMotionHost provides motionHost) {
+        Box(Modifier.fillMaxSize().trackDialogOrigin(motionHost).backdropSource(backdrop)) { content() }
     }
 }
 

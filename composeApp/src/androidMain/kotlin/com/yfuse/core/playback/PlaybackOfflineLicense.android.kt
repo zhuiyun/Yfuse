@@ -416,7 +416,12 @@ internal fun extractWidevinePsshFromHls(manifest: String): ByteArray? =
             line.startsWith("#EXT-X-SESSION-KEY:", ignoreCase = true) ||
                 line.startsWith("#EXT-X-KEY:", ignoreCase = true)
         }.mapNotNull { line ->
-            val keyFormat = HLS_KEY_FORMAT.find(line)?.groupValues?.get(1).orEmpty()
+            val keyFormat =
+                HLS_KEY_FORMAT
+                    .find(line)
+                    ?.groupValues
+                    ?.get(1)
+                    .orEmpty()
             if (
                 !keyFormat.contains(WIDEVINE_UUID.toString(), ignoreCase = true) &&
                 !keyFormat.contains("widevine", ignoreCase = true)
@@ -445,8 +450,7 @@ internal fun Map<String, String>.toOfflineLicense(
     )
 }
 
-private fun String?.toRemainingSeconds(): Long? =
-    this?.trim()?.toLongOrNull()?.takeIf { it >= 0L }
+private fun String?.toRemainingSeconds(): Long? = this?.trim()?.toLongOrNull()?.takeIf { it >= 0L }
 
 private fun Long?.toExpiryEpochMs(nowEpochMs: Long): Long? {
     val seconds = this ?: return null

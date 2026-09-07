@@ -54,8 +54,7 @@ class TvFocusRequesterRegistry {
 }
 
 @Composable
-fun rememberTvFocusRequesterRegistry(): TvFocusRequesterRegistry =
-    remember { TvFocusRequesterRegistry() }
+fun rememberTvFocusRequesterRegistry(): TvFocusRequesterRegistry = remember { TvFocusRequesterRegistry() }
 
 /**
  * Registers a stable target, records its anchor when focused, and optionally joins a scope model.
@@ -194,9 +193,7 @@ fun TvFocusScopeEffect(
  * underlying clickable from firing a second activation.
  */
 @Composable
-fun Modifier.tvRemoteKeyHandler(
-    onIntent: (RemoteIntent) -> Boolean,
-): Modifier {
+fun Modifier.tvRemoteKeyHandler(onIntent: (RemoteIntent) -> Boolean): Modifier {
     val latestHandler = rememberUpdatedState(onIntent)
     val consumedDownKeys = remember { mutableSetOf<Int>() }
     return onPreviewKeyEvent { composeEvent ->

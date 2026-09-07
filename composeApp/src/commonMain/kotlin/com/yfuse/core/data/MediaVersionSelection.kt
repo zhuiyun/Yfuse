@@ -41,7 +41,10 @@ fun List<MediaVersion>.preferredVersion(
         compareValues(preference.rangeRank(left), preference.rangeRank(right)).nonZero()
             ?: compareDirectPlayback(left, right).nonZero()
             ?: compareMediaVersionsBestFirst(left, right).nonZero()
-            ?: left.name.lowercase().compareTo(right.name.lowercase()).nonZero()
+            ?: left.name
+                .lowercase()
+                .compareTo(right.name.lowercase())
+                .nonZero()
             ?: left.id.compareTo(right.id)
     }
 }

@@ -179,9 +179,10 @@ internal class PreviewChannelPublisher(
                 put(COLUMN_APP_LINK_INTENT_URI, appLink)
                 put(COLUMN_INTERNAL_PROVIDER_ID, CHANNEL_INTERNAL_PROVIDER_ID)
             }
-        val uri = requireNotNull(resolver.insert(TvContract.Channels.CONTENT_URI, values)) {
-            "TvProvider rejected Preview Channel insert"
-        }
+        val uri =
+            requireNotNull(resolver.insert(TvContract.Channels.CONTENT_URI, values)) {
+                "TvProvider rejected Preview Channel insert"
+            }
         val channelId = ContentUris.parseId(uri)
         writeApplicationLogo(channelId)
         return channelId

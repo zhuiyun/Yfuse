@@ -29,19 +29,23 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.DialogContentMotion
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalDialogAnimation
+import com.yfuse.core.designsystem.LocalDialogContentMotion
 import com.yfuse.core.designsystem.LocalMutedGlass
 import com.yfuse.core.designsystem.LocalOverlayComplete
 import com.yfuse.core.designsystem.LocalOverlayDismiss
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlatformPredictiveBackHandler
 import com.yfuse.core.designsystem.Shadows
+import com.yfuse.core.designsystem.dialogInteriorMotion
+import com.yfuse.core.designsystem.dialogMotion
 import com.yfuse.core.designsystem.mutedGlassPanel
 import com.yfuse.core.designsystem.rememberOverlayTransition
 import com.yfuse.core.designsystem.shadow
@@ -249,7 +253,9 @@ internal fun PlayerPopupPanel(
 ) {
     var leaving by remember { mutableStateOf(false) }
     var afterExit by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val progress = rememberOverlayTransition(leaving) { (afterExit ?: onDismiss)() }
+    val selectedAnimation = LocalDialogAnimation.current
+    val animation = remember { selectedAnimation }
+    val progress = rememberOverlayTransition(leaving, animation) { (afterExit ?: onDismiss)() }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     var backProgress by remember { mutableFloatStateOf(0f) }
     val backOffset by animateFloatAsState(
@@ -271,18 +277,13 @@ internal fun PlayerPopupPanel(
     Column(
         modifier
             .width(PlayerPopupWidth)
-            .graphicsLayer {
-                val entered = progress() * (1f - backOffset * 0.25f)
-                alpha = (entered * 1.5f).coerceIn(0f, 1f)
-                transformOrigin = TransformOrigin(1f, 1f)
-                scaleX = 0.96f + entered * 0.04f
-                scaleY = 0.92f + entered * 0.08f
-                translationY = 12.dp.toPx() * (1f - entered)
-            }.heightIn(
+            .dialogMotion(animation) { progress() * (1f - backOffset * 0.25f) }
+            .heightIn(
                 min = if (compact) PlayerPopupCompactMinHeight else PlayerPopupMinHeight,
                 max = if (compact) PlayerPopupCompactMaxHeight else PlayerPopupMaxHeight,
             ).shadow(Shadows.playerSheet, AppShapes.sheet)
             .mutedGlassPanel(AppShapes.sheet, samplePage = false, dark = true)
+            .dialogInteriorMotion(animation, progress)
             // Taps inside the popup must not reach the dismiss catcher behind it.
             .noRippleClickable { }
             .imePadding()
@@ -291,6 +292,7 @@ internal fun PlayerPopupPanel(
         content = {
             CompositionLocalProvider(
                 LocalMutedGlass provides true,
+                LocalDialogContentMotion provides DialogContentMotion(animation, progress),
                 LocalOverlayDismiss provides requestDismiss,
                 LocalOverlayComplete provides { action ->
                     if (!leaving) {

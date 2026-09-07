@@ -71,6 +71,7 @@ fun TvApp(component: RootComponent) {
     val reduceTransparency by component.themePreferences.reduceTransparency.collectAsState()
     val largeText by component.themePreferences.largeText.collectAsState()
     val reduceMotion by component.themePreferences.reduceMotion.collectAsState()
+    val dialogAnimation by component.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by component.themePreferences.glassStyle.collectAsState()
     val dark = mode.resolveDark(isSystemInDarkTheme())
 
@@ -84,6 +85,7 @@ fun TvApp(component: RootComponent) {
                 reduceMotion = reduceMotion,
             ),
         glassStyle = if (reduceTransparency) GlassStyle.Frosted else glassStyle,
+        dialogAnimation = dialogAnimation,
     ) {
         TvRoot(component)
     }
@@ -233,13 +235,23 @@ private fun TvNavigationRail(
                     Icon(
                         imageVector = destination.icon,
                         contentDescription = null,
-                        tint = if (focused) Color.Black else if (isSelected) TvAccent else TvOnSurfaceMuted,
+                        tint =
+                            when {
+                                focused -> Color.Black
+                                isSelected -> TvAccent
+                                else -> TvOnSurfaceMuted
+                            },
                         modifier = Modifier.size(24.dp),
                     )
                     Spacer(Modifier.width(13.dp))
                     Text(
                         text = destination.label,
-                        color = if (focused) Color.Black else if (isSelected) TvOnSurface else TvOnSurfaceMuted,
+                        color =
+                            when {
+                                focused -> Color.Black
+                                isSelected -> TvOnSurface
+                                else -> TvOnSurfaceMuted
+                            },
                         fontSize = 16.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     )

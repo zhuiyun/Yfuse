@@ -214,7 +214,8 @@ class HomeTabComponent(
                                 syncManager = dependencies.serverSyncManager,
                                 calendarRepository = calendarRepository,
                                 initialCalendarLoad =
-                                    !dependencies.account.state.value.canUseMediaDiscovery() ||
+                                    !dependencies.account.state.value
+                                        .canUseMediaDiscovery() ||
                                         !dependencies.tgtoMediaPreferences.connection.value.hasPassword,
                                 onOpenEmbyItem = { serverId, itemId ->
                                     navigation.push(Config.Detail(serverId, itemId))

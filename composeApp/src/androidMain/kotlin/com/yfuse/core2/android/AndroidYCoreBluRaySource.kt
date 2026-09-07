@@ -236,8 +236,7 @@ internal class AndroidYCoreBluRaySource private constructor(
 
         override fun selectChapter(index: Int): Boolean = false
 
-        override fun selectAngle(index: Int): Boolean =
-            !closed && FfmpegNativeBridge.selectDiscAngle(nativeId, index)
+        override fun selectAngle(index: Int): Boolean = !closed && FfmpegNativeBridge.selectDiscAngle(nativeId, index)
 
         override fun sendMenuCommand(command: PlaybackDiscMenuCommand): Boolean =
             !closed &&

@@ -450,12 +450,14 @@ internal fun AppearanceSettingsScreen(
     brandSummary: String,
     backgroundSummary: String,
     startupSummary: String,
+    dialogAnimationSummary: String,
     reduceTransparency: Boolean,
     largeText: Boolean,
     reduceMotion: Boolean,
     onBackground: () -> Unit,
     onBrand: () -> Unit,
     onStartupTab: () -> Unit,
+    onDialogAnimation: () -> Unit,
     onReduceTransparency: (Boolean) -> Unit,
     onLargeText: (Boolean) -> Unit,
     onReduceMotion: (Boolean) -> Unit,
@@ -468,6 +470,15 @@ internal fun AppearanceSettingsScreen(
         item {
             Section(title = "外观") {
                 SettingsCard {
+                    SettingRow(
+                        "弹窗动画",
+                        dialogAnimationSummary,
+                        true,
+                        onDialogAnimation,
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.components,
+                    )
+                    SettingsDivider()
                     SettingRow(
                         "Logo 与开屏动画",
                         brandSummary,
