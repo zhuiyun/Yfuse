@@ -23,21 +23,15 @@ fun windowWidthTier(width: Dp): WindowWidthTier =
         else -> WindowWidthTier.Expanded
     }
 
-private const val NAVIGATION_RAIL_MIN_ASPECT_RATIO = 1.2f
-private val NAVIGATION_RAIL_MIN_HEIGHT = 600.dp
-
 /**
  * Whether navigation belongs at the side rather than along the bottom.
  *
- * An expanded window in landscape has spare width and scarce height, which is exactly when a
- * bottom bar costs the most and a rail costs the least. That covers a 10-inch tablet turned
- * sideways and every desktop-class window; portrait tablets keep the bottom bar, and so does a
- * landscape phone, whose short edge is too short to be an "expanded" window in any useful sense.
+ * Root navigation deliberately keeps the same floating bottom dock in portrait and landscape.
+ * Retaining this policy seam makes that product rule explicit and prevents expanded tablets or
+ * desktop-sized windows from silently switching the dock to a left-side rail again.
  */
+@Suppress("UNUSED_PARAMETER")
 fun useNavigationRail(
     width: Dp,
     height: Dp,
-): Boolean =
-    windowWidthTier(width) == WindowWidthTier.Expanded &&
-        height >= NAVIGATION_RAIL_MIN_HEIGHT &&
-        width > height * NAVIGATION_RAIL_MIN_ASPECT_RATIO
+): Boolean = false
