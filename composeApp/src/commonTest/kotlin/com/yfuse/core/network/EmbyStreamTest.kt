@@ -2,14 +2,14 @@ package com.yfuse.core.network
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EmbyStreamTest {
     @Test
-    fun unconfirmedHttpCdnUrlsAreRejected() {
+    fun unconfirmedHttpCdnUrlsAreAllowedWithoutServerCredentials() {
         listOf("http://media.example/video", "http://192.168.1.20/video").forEach { url ->
-            assertNull(
+            assertEquals(
+                url,
                 EmbyStream.negotiatedUrl(
                     baseUrl = "https://emby.example",
                     rawUrl = url,

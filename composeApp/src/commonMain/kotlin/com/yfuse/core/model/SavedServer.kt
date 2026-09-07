@@ -42,11 +42,8 @@ data class SavedServer(
     /** ARGB tint for the icon and the card wash; null derives one from [serverName]. */
     val iconTint: Long? = null,
     /**
-     * Device-local acknowledgement for sending credentials over a trusted LAN HTTP route.
-     *
-     * This must never travel in [ServersData]: a different device has a different network
-     * boundary and must make its own decision. [ServerRegistry] persists it separately in the
-     * local, token-free metadata document.
+     * Legacy device-local flag retained for compatibility with existing stored servers.
+     * Media server HTTP connections no longer require this acknowledgement.
      */
     @Transient
     val localCleartextConfirmed: Boolean = false,

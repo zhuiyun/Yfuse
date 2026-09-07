@@ -56,9 +56,9 @@ class ServersStoreTest {
         ).create()
 
     @Test
-    fun submit_adds_server_and_emits_label() =
+    fun submit_adds_http_server_without_confirmation_and_emits_label() =
         runTest {
-            val registry = testRegistry()
+            val registry = ServerRegistry(MapSettings(), TestSecureStore())
             val authenticated = mutableListOf<String>()
             val store =
                 store(
@@ -70,7 +70,6 @@ class ServersStoreTest {
             store.accept(ServersIntent.PortChanged("8096"))
             store.accept(ServersIntent.UsernameChanged("zhuiyun"))
             store.accept(ServersIntent.PasswordChanged("123456"))
-            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
 
             store.labels.test {
                 store.accept(ServersIntent.Submit)
@@ -363,28 +362,24 @@ class ServersStoreTest {
         }
 
     @Test
-    fun httpCanSubmitOnlyAfterRiskConfirmation() =
+    fun httpCanSubmitWithoutRiskConfirmation() =
         runTest {
             val store = store(testRegistry()) { authRoutes(it) }
             store.accept(ServersIntent.HostChanged("http://192.168.1.8:8096/emby"))
             store.accept(ServersIntent.UsernameChanged("user"))
 
-            assertFalse(store.state.form.canSubmit)
-            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
             assertTrue(store.state.form.canSubmit)
             store.dispose()
         }
 
     @Test
-    fun publicHttpCanSubmitOnlyAfterRiskConfirmation() =
+    fun publicHttpCanSubmitWithoutRiskConfirmation() =
         runTest {
             val registry = testRegistry()
             val store = store(registry) { req -> authRoutes(req) }
             store.accept(ServersIntent.HostChanged("http://media.example.com:8096"))
             store.accept(ServersIntent.UsernameChanged("user"))
 
-            assertFalse(store.state.form.canSubmit)
-            store.accept(ServersIntent.HttpRiskAcceptedChanged(true))
             assertTrue(store.state.form.canSubmit)
             store.dispose()
         }

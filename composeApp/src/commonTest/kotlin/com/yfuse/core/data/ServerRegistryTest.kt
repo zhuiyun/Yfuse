@@ -11,13 +11,37 @@ import com.yfuse.core.security.TestSecureStore
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ServerRegistryTest {
+    @Test
+    fun httpServersSyncAndReloadWithoutConfirmation() {
+        val settings = MapSettings()
+        val secrets = TestSecureStore()
+        val endpoints = listOf("http://media.example.com:8096", "http://192.168.1.8:8096")
+        val servers =
+            endpoints.map { endpoint ->
+                SavedServer(
+                    id = SavedServer.idOf(endpoint, "user"),
+                    baseUrl = endpoint,
+                    serverName = "HTTP server",
+                    userId = "user",
+                    userName = "User",
+                    accessToken = "token",
+                    localCleartextConfirmed = false,
+                )
+            }
+        val registry = registry(settings, secrets)
+        assertEquals(2, registry.replaceFromSync(ServersData(servers, servers.first().id)).getOrThrow())
+
+        val restored = registry(settings, secrets).data.value.servers
+        assertEquals(endpoints, restored.map { it.baseUrl })
+        assertTrue(restored.all { !it.localCleartextConfirmed && it.accessToken == "token" })
+    }
+
     private fun server(
         id: String,
         token: String = "tok-$id",
@@ -223,7 +247,7 @@ class ServerRegistryTest {
     }
 
     @Test
-    fun routeMutationsRequireConfirmationForPublicAndLocalHttp() {
+    fun routeMutationsAllowPublicAndLocalHttpWithoutConfirmation() {
         val registry = registry()
         val original =
             SavedServer(
@@ -236,7 +260,7 @@ class ServerRegistryTest {
             )
         registry.addOrUpdate(original)
 
-        assertFalse(
+        assertTrue(
             registry.setRoutes(
                 original.id,
                 listOf(
@@ -245,7 +269,7 @@ class ServerRegistryTest {
                 ),
             ),
         )
-        assertFalse(
+        assertTrue(
             registry.setRoutes(
                 original.id,
                 listOf(
@@ -371,7 +395,7 @@ class ServerRegistryTest {
     }
 
     @Test
-    fun publicHttpCanBeSavedOnlyAfterConfirmation() {
+    fun publicHttpCanBeSavedWithoutConfirmation() {
         val cleartext =
             SavedServer(
                 id = SavedServer.idOf("http://media.example.com", "u"),
@@ -382,18 +406,13 @@ class ServerRegistryTest {
                 accessToken = "token",
             )
         val registry = registry()
-        assertFailsWith<IllegalArgumentException> { registry.addOrUpdate(cleartext) }
-        assertTrue(
-            registry.data.value.servers
-                .isEmpty(),
-        )
-        registry.addOrUpdate(cleartext.copy(localCleartextConfirmed = true))
+        registry.addOrUpdate(cleartext)
 
         assertEquals("http://media.example.com", registry.defaultServer?.baseUrl)
     }
 
     @Test
-    fun protectedBackupRequiresDeviceConsentAndPreservesExistingConsent() {
+    fun protectedBackupRestoresHttpServersWithoutConfirmation() {
         val http =
             SavedServer(
                 id = SavedServer.idOf("http://192.168.1.8:8096", "u"),
@@ -402,7 +421,7 @@ class ServerRegistryTest {
                 userId = "u",
                 userName = "User",
                 accessToken = "token",
-                localCleartextConfirmed = true,
+                localCleartextConfirmed = false,
             )
         val source = registry().apply { addOrUpdate(http) }
         val passphrase = "correct horse battery staple".toCharArray()
@@ -410,12 +429,12 @@ class ServerRegistryTest {
         val payload = source.exportProtectedBackup(passphrase, now).getOrThrow()
 
         val freshDevice = registry()
-        assertTrue(freshDevice.importProtectedBackup(payload, passphrase, now + 1).isFailure)
+        assertEquals(1, freshDevice.importProtectedBackup(payload, passphrase, now + 1).getOrThrow())
         assertTrue(
             freshDevice.data.value.servers
-                .isEmpty(),
+                .isNotEmpty(),
         )
-        val confirmedDevice = registry().apply { addOrUpdate(http) }
+        val confirmedDevice = registry().apply { addOrUpdate(http.copy(localCleartextConfirmed = true)) }
         assertEquals(1, confirmedDevice.importProtectedBackup(payload, passphrase, now + 1).getOrThrow())
         assertTrue(confirmedDevice.defaultServer?.localCleartextConfirmed == true)
         passphrase.fill('\u0000')

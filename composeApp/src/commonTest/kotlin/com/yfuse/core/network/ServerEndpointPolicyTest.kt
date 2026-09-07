@@ -16,34 +16,24 @@ class ServerEndpointPolicyTest {
     }
 
     @Test
-    fun embyHttpNeedsAnAcknowledgementThatNamesTheNetwork() {
-        val local =
-            listOf(
-                "http://100.64.0.10:8096",
-                "http://192.168.1.8:8096",
-                "http://10.0.0.8",
-                "http://media.local:8096",
-                "http://emby:8096",
-            )
-        val public = listOf("http://8.8.8.8:8096", "http://media.example.com:8096")
-        local.forEach { endpoint ->
-            val pending = validateEmbyServerEndpoint(endpoint)
-            assertTrue(!pending.allowed && pending.requiresCleartextConfirmation, endpoint)
-            assertEquals(EndpointTransportDecision.LocalCleartextConfirmationRequired, pending.decision, endpoint)
-            assertEquals(LOCAL_CLEARTEXT_WARNING, pending.cleartextWarning, endpoint)
-            val confirmed = validateEmbyServerEndpoint(endpoint, localCleartextConfirmed = true)
-            assertTrue(confirmed.allowed && confirmed.cleartextConfirmed, endpoint)
-            assertEquals(EndpointTransportDecision.LocalCleartextConfirmed, confirmed.decision, endpoint)
-        }
-        public.forEach { endpoint ->
-            val pending = validateEmbyServerEndpoint(endpoint)
-            assertTrue(!pending.allowed && pending.requiresCleartextConfirmation, endpoint)
-            assertEquals(EndpointTransportDecision.PublicCleartextConfirmationRequired, pending.decision, endpoint)
-            assertEquals(PUBLIC_CLEARTEXT_WARNING, pending.cleartextWarning, endpoint)
-            val confirmed = validateEmbyServerEndpoint(endpoint, localCleartextConfirmed = true)
-            assertEquals(EndpointTransportDecision.PublicCleartextConfirmed, confirmed.decision, endpoint)
-            assertTrue(confirmed.allowed, endpoint)
-            assertNull(confirmed.message, endpoint)
+    fun httpIsAllowedOnEveryHostWithoutConfirmation() {
+        listOf(
+            "http://192.168.1.8:8096",
+            "http://10.0.0.8",
+            "http://media.local:8096",
+            "http://emby:8096",
+            "http://100.64.0.10:8096",
+            "http://8.8.8.8:8096",
+            "http://media.example.com:8096",
+        ).forEach { endpoint ->
+            listOf(false, true).forEach { legacyConfirmation ->
+                val result = validateEmbyServerEndpoint(endpoint, legacyConfirmation)
+                assertTrue(result.allowed, endpoint)
+                assertEquals(EndpointTransportDecision.Cleartext, result.decision, endpoint)
+                assertTrue(!result.requiresCleartextConfirmation, endpoint)
+                assertNull(result.cleartextWarning, endpoint)
+                assertNull(result.message, endpoint)
+            }
         }
     }
 

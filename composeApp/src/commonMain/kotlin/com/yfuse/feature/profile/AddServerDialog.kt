@@ -49,7 +49,6 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
-import com.yfuse.feature.servers.CleartextRiskRow
 import com.yfuse.feature.servers.PlexAccountUiState
 import com.yfuse.feature.servers.ServersIntent
 import com.yfuse.feature.servers.ServersState
@@ -251,13 +250,6 @@ fun AddServerDialog(
                     divider = false,
                 ) { onIntent(ServersIntent.PortChanged(it)) }
             }
-            CleartextRiskRow(
-                validation = endpointValidation,
-                accepted = form.httpRiskAccepted,
-                onAcceptedChange = { onIntent(ServersIntent.HttpRiskAcceptedChanged(it)) },
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-
             Spacer(Modifier.height(4.dp))
             FieldLabel("账号")
             Column(

@@ -15,10 +15,9 @@ class PlexLoginFormTest {
                 host = "192.168.1.2",
                 port = "32400",
             )
-        val ready = withoutToken.copy(password = "plex-token", httpRiskAccepted = true)
+        val ready = withoutToken.copy(password = "plex-token")
 
         assertFalse(withoutToken.canSubmit)
-        assertFalse(withoutToken.copy(password = "plex-token").canSubmit)
         assertTrue(ready.canSubmit)
         assertFalse(ready.canStartQuickConnect)
     }
