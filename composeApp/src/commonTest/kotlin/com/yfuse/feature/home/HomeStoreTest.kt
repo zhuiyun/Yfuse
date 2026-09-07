@@ -19,6 +19,7 @@ import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CoroutineDispatcher
@@ -290,7 +291,14 @@ class HomeStoreTest {
     private fun unavailableTmdb(): TmdbRepository =
         TmdbRepository(
             HttpClient(
-                MockEngine { throw IOException("TMDB unavailable") },
+                MockEngine(
+                    MockEngineConfig().apply {
+                        // Cancellation must finish on the same clock before resetMain().
+                        // Real IO work can otherwise report failures into the next test.
+                        dispatcher = UnconfinedTestDispatcher(scheduler)
+                        addHandler { throw IOException("TMDB unavailable") }
+                    },
+                ),
             ) {
                 install(ContentNegotiation) {
                     json(Json { ignoreUnknownKeys = true })
