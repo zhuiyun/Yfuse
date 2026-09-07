@@ -50,6 +50,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.artworkPageSurface
 import com.yfuse.core.designsystem.flatGlass
+import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDominantColor
@@ -576,7 +577,7 @@ private fun DialogEpisodePanel(
         }
         selectedDay.entries.forEachIndexed { index, entry ->
             if (index > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
-            DialogEpisodeRow(entry = entry, onOpen = { onOpen(entry) })
+            DialogEpisodeRow(entry = entry, onOpen = overlayAction { onOpen(entry) })
         }
         if (selectedDay.date != firstDay.date) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))

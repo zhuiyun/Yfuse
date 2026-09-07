@@ -17,9 +17,11 @@ import com.yfuse.feature.testRegistry
 import com.yfuse.feature.testRepo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.IOException
 import kotlin.test.Test
@@ -27,6 +29,50 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class LibraryStoreTest {
+    @Test
+    fun slow_counts_do_not_hide_previews_and_switching_server_replaces_progress() =
+        runTest {
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("old", "http://old:8096", "旧服务器", "u1", "user", "one"))
+                    addOrUpdate(SavedServer("new", "http://new:8096", "新服务器", "u1", "user", "two"))
+                }
+            val store =
+                LibraryStoreFactory(
+                    DefaultStoreFactory(),
+                    testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                        if (request.url.host == "old" &&
+                            request.url.encodedPath.endsWith("/Counts")
+                        ) {
+                            awaitCancellation()
+                        }
+                        homeRoutes(request, movieCount = if (request.url.host == "old") 1 else 99)
+                    },
+                    registry,
+                    LibraryCache(MapSettings()),
+                    mainContext = UnconfinedTestDispatcher(testScheduler),
+                ).create()
+            try {
+                runCurrent()
+                assertTrue(store.state.loading)
+                assertTrue(
+                    store.state.content.rows
+                        .any { it.libraryId == "lib1" && it.items.isNotEmpty() },
+                )
+                registry.setDefault("new")
+                advanceUntilIdle()
+                assertEquals("new", store.state.currentServer?.id)
+                assertEquals(
+                    99,
+                    store.state.content.counts
+                        ?.movieCount,
+                )
+                assertTrue(!store.state.loading)
+            } finally {
+                store.dispose()
+            }
+        }
+
     @Test
     fun loads_home_content_for_default_server() =
         runTest {

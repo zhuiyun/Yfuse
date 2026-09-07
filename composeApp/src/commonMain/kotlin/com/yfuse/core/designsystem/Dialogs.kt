@@ -45,9 +45,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -149,7 +151,6 @@ fun GlassDialog(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = progress().coerceIn(0f, 1f) }
                         .background(ScrimColor.copy(alpha = if (palette.isDark) 0.28f else 0.16f)),
                 )
                 val panelScrollState = rememberScrollState()
@@ -162,11 +163,18 @@ fun GlassDialog(
                         .fillMaxWidth()
                         .graphicsLayer {
                             val entered = progress()
-                            alpha = (entered * 1.5f).coerceIn(0f, 1f)
                             transformOrigin = TransformOrigin(0.5f, 0.65f)
                             scaleX = 0.96f + 0.04f * entered
                             scaleY = 0.94f + 0.06f * entered
                             translationY = modalOffset * (1f - entered)
+                        }.drawWithContent {
+                            // Reveal the material geometrically; the panel and its text stay
+                            // fully opaque throughout both entrance and exit.
+                            val hidden = 1f - progress().coerceIn(0f, 1f)
+                            val insetY = size.height * 0.5f * hidden
+                            clipRect(top = insetY, bottom = size.height - insetY) {
+                                this@drawWithContent.drawContent()
+                            }
                         }.shadow(Shadows.sheet, shape)
                         .mutedGlassPanel(shape)
                         .pointerInput(Unit) { detectTapGestures { } }

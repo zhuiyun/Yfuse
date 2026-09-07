@@ -15,14 +15,13 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.io.IOException
 import kotlinx.serialization.builtins.ListSerializer
@@ -36,228 +35,225 @@ internal class EmbyHomeService(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** Aggregates the home screen: continue-watching, latest-per-library, featured. */
-    suspend fun homeContent(server: SavedServer): Result<HomeContent> =
+    /** Publishes the directory immediately, then each completed section without waiting for counts. */
+    suspend fun homeContent(
+        server: SavedServer,
+        initialContent: HomeContent = HomeContent(),
+        onProgress: suspend (HomeContent) -> Unit = {},
+    ): Result<HomeContent> =
         embyApiCall("home_content") {
-            coroutineScope {
-                val views =
-                    withTimeoutOrNull(HOME_VIEWS_TIMEOUT_MS) {
-                        libraryService.views(server)
-                    } ?: throw IOException("媒体库目录加载超时，请重试")
-                // One server can expose dozens of views. Bound the section fan-out so opening
-                // Home does not turn those rows into a TLS/HTTP connection storm.
-                val sectionPermits = Semaphore(4)
-                suspend fun <T> boundedSection(block: suspend () -> T): T =
-                    sectionPermits.withPermit {
-                        // Waiting for another section is not time spent requesting this one.
-                        withTimeout(HOME_SECTION_TIMEOUT_MS) { block() }
-                    }
-                // A failed preview must not blank the home screen or hide a library's entry.
-                val resumeDeferred =
-                    async {
-                        runCatching { boundedSection { fetchResume(server) } }
-                            .onFailure {
-                                AppLog.warning(
-                                    category = "emby",
-                                    event = "home_section_degraded",
-                                    message = "Continue-watching section failed and was omitted",
-                                    throwable = it,
-                                    attributes =
-                                        mapOf(
-                                            "serverId" to server.id,
-                                            "section" to "resume",
-                                        ),
-                                )
-                            }.getOrDefault(emptyList())
-                    }
-                val favoritesDeferred =
-                    async {
-                        runCatching {
-                            boundedSection {
-                                val collection =
-                                    browseService.fetchFavorites(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
-                                HomeRow(
-                                    libraryId = FAVORITES_COLLECTION_ID,
-                                    title = "我的收藏",
-                                    items = collection.items,
-                                    totalCount = collection.totalCount,
+            val views =
+                withTimeoutOrNull(HOME_VIEWS_TIMEOUT_MS) {
+                    libraryService.views(server)
+                } ?: throw IOException("媒体库目录加载超时，请重试")
+            val initialRows = initialContent.rows.associateBy { it.libraryId }
+            var content =
+                initialContent.copy(
+                    rows =
+                        listOf(
+                            initialRows[FAVORITES_COLLECTION_ID]
+                                ?: HomeRow(FAVORITES_COLLECTION_ID, "我的收藏", emptyList()),
+                            initialRows[WATCH_LATER_COLLECTION_ID]
+                                ?: HomeRow(WATCH_LATER_COLLECTION_ID, "稍后观看", emptyList()),
+                        ) +
+                            views.map { view ->
+                                initialRows[view.id]?.copy(title = view.name)
+                                    ?: HomeRow(view.id, view.name, emptyList())
+                            },
+                )
+            onProgress(content)
+            val contentLock = Mutex()
+            val pendingPreviews =
+                (
+                    views.map { it.id } +
+                        listOf(
+                            FAVORITES_COLLECTION_ID,
+                            WATCH_LATER_COLLECTION_ID,
+                        )
+                ).toMutableSet()
+
+            suspend fun update(transform: (HomeContent) -> HomeContent) {
+                contentLock.withLock {
+                    val next = transform(content)
+                    content =
+                        next.copy(
+                            featured =
+                                (next.resume + next.rows.flatMap { it.items })
+                                    .filter { it.backdropTag != null }
+                                    .distinctBy { it.id }
+                                    .take(8),
+                        )
+                    onProgress(content)
+                }
+            }
+            // This budget includes queueing. A large or slow server cannot extend a refresh
+            // indefinitely by starting a fresh timeout for each queued section.
+            val completed =
+                withTimeoutOrNull(HOME_ENRICHMENT_TIMEOUT_MS) {
+                    coroutineScope {
+                        val permits = Semaphore(4)
+
+                        suspend fun <T> section(
+                            name: String,
+                            block: suspend () -> T,
+                            apply: (HomeContent, T) -> HomeContent,
+                        ) {
+                            val result =
+                                try {
+                                    val value =
+                                        permits.withPermit {
+                                            withTimeoutOrNull(HOME_SECTION_TIMEOUT_MS) { block() }
+                                                ?: throw IOException("媒体库分区加载超时")
+                                        }
+                                    Result.success(value)
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    Result.failure(error)
+                                }
+                            result
+                                .onSuccess { value -> update { apply(it, value) } }
+                                .onFailure { error ->
+                                    AppLog.warning(
+                                        category = "emby",
+                                        event = "home_section_degraded",
+                                        message = "Library section failed; available content was retained",
+                                        throwable = error,
+                                        attributes = mapOf("serverId" to server.id, "section" to name),
+                                    )
+                                }
+                        }
+                        // Start previews before optional metadata so slow count endpoints never
+                        // take every connection while visible library content is still queued.
+                        views.forEach { view ->
+                            launch {
+                                section("latest", { fetchLatest(server, view.id) }) { current, items ->
+                                    pendingPreviews.remove(view.id)
+                                    current.copy(
+                                        rows =
+                                            current.rows.map { row ->
+                                                if (row.libraryId == view.id) {
+                                                    row.copy(
+                                                        items = items,
+                                                        totalCount = maxOf(row.totalCount, items.size),
+                                                        loadFailed = false,
+                                                    )
+                                                } else {
+                                                    row
+                                                }
+                                            },
+                                    )
+                                }
+                            }
+                        }
+                        launch {
+                            section(
+                                "resume",
+                                { fetchResume(server) },
+                            ) { current, items -> current.copy(resume = items) }
+                        }
+                        launch {
+                            section("favorites", {
+                                browseService.fetchFavorites(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
+                            }) { current, collection ->
+                                pendingPreviews.remove(FAVORITES_COLLECTION_ID)
+                                current.copy(
+                                    rows =
+                                        current.rows.map { row ->
+                                            if (row.libraryId == FAVORITES_COLLECTION_ID) {
+                                                HomeRow(
+                                                    FAVORITES_COLLECTION_ID,
+                                                    "我的收藏",
+                                                    collection.items,
+                                                    collection.totalCount,
+                                                )
+                                            } else {
+                                                row
+                                            }
+                                        },
                                 )
                             }
-                        }.onFailure {
-                            AppLog.warning(
-                                category = "emby",
-                                event = "home_section_degraded",
-                                message = "Favorites section failed and was left empty",
-                                throwable = it,
-                                attributes =
-                                    mapOf(
-                                        "serverId" to server.id,
-                                        "section" to "favorites",
-                                    ),
-                            )
-                        }.getOrDefault(HomeRow(FAVORITES_COLLECTION_ID, "我的收藏", emptyList(), loadFailed = true))
-                    }
-                val watchLaterDeferred =
-                    async {
-                        runCatching {
-                            boundedSection {
-                                val collection =
-                                    browseService.fetchWatchLater(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
-                                HomeRow(
-                                    libraryId = WATCH_LATER_COLLECTION_ID,
-                                    title = "稍后观看",
-                                    items = collection.items,
-                                    totalCount = collection.totalCount,
+                        }
+                        launch {
+                            section("watch_later", {
+                                browseService.fetchWatchLater(server, PERSONAL_COLLECTION_PREVIEW_LIMIT)
+                            }) { current, collection ->
+                                pendingPreviews.remove(WATCH_LATER_COLLECTION_ID)
+                                current.copy(
+                                    rows =
+                                        current.rows.map { row ->
+                                            if (row.libraryId == WATCH_LATER_COLLECTION_ID) {
+                                                HomeRow(
+                                                    WATCH_LATER_COLLECTION_ID,
+                                                    "稍后观看",
+                                                    collection.items,
+                                                    collection.totalCount,
+                                                )
+                                            } else {
+                                                row
+                                            }
+                                        },
                                 )
                             }
-                        }.onFailure {
-                            AppLog.warning(
-                                category = "emby",
-                                event = "home_section_degraded",
-                                message = "Watch-later section failed and was left empty",
-                                throwable = it,
-                                attributes =
-                                    mapOf(
-                                        "serverId" to server.id,
-                                        "section" to "watch_later",
-                                    ),
-                            )
-                        }.getOrDefault(HomeRow(WATCH_LATER_COLLECTION_ID, "稍后观看", emptyList(), loadFailed = true))
-                    }
-                val countsDeferred =
-                    async {
-                        runCatching { boundedSection { libraryService.counts(server) } }
-                            .onFailure {
-                                // Counts are useful footer metadata, not a reason to blank an
-                                // otherwise healthy library page. A missing/older endpoint simply
-                                // leaves the footer hidden until a later refresh succeeds.
-                                AppLog.warning(
-                                    category = "emby",
-                                    event = "library_counts_degraded",
-                                    message = "Library title counts failed and were omitted",
-                                    throwable = it,
-                                    attributes = mapOf("serverId" to server.id),
-                                )
-                            }.getOrNull()
-                    }
-                val collectionsDeferred =
-                    async {
-                        runCatching {
-                            boundedSection {
+                        }
+                        launch {
+                            section("collections", {
                                 browseService
                                     .fetchMediaContainers(
                                         server,
                                         MediaContainerKind.BoxSet,
-                                        startIndex = 0,
-                                        limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
+                                        0,
+                                        MEDIA_CONTAINER_PREVIEW_LIMIT,
                                     ).containers
-                            }
-                        }.onFailure {
-                            AppLog.warning(
-                                category = "emby",
-                                event = "home_section_degraded",
-                                message = "Collection previews failed and were omitted",
-                                throwable = it,
-                                attributes =
-                                    mapOf(
-                                        "serverId" to server.id,
-                                        "section" to "collections",
-                                    ),
-                            )
-                        }.getOrDefault(emptyList())
-                    }
-                val playlistsDeferred =
-                    async {
-                        runCatching {
-                            boundedSection {
+                            }) { current, containers -> current.copy(collections = containers) }
+                        }
+                        launch {
+                            section("playlists", {
                                 browseService
                                     .fetchMediaContainers(
                                         server,
                                         MediaContainerKind.Playlist,
-                                        startIndex = 0,
-                                        limit = MEDIA_CONTAINER_PREVIEW_LIMIT,
+                                        0,
+                                        MEDIA_CONTAINER_PREVIEW_LIMIT,
                                     ).containers
+                            }) { current, containers -> current.copy(playlists = containers) }
+                        }
+                        launch {
+                            section(
+                                "counts",
+                                { libraryService.counts(server) },
+                            ) { current, counts -> current.copy(counts = counts) }
+                        }
+                        views.forEach { view ->
+                            launch {
+                                section("library_count", { fetchLibraryCount(server, view.id) }) { current, count ->
+                                    current.copy(
+                                        rows =
+                                            current.rows.map { row ->
+                                                if (row.libraryId == view.id) row.copy(totalCount = count) else row
+                                            },
+                                    )
+                                }
                             }
-                        }.onFailure {
-                            AppLog.warning(
-                                category = "emby",
-                                event = "home_section_degraded",
-                                message = "Playlist previews failed and were omitted",
-                                throwable = it,
-                                attributes =
-                                    mapOf(
-                                        "serverId" to server.id,
-                                        "section" to "playlists",
-                                    ),
-                            )
-                        }.getOrDefault(emptyList())
-                    }
-                val rowDeferred =
-                    views.map { view ->
-                        async {
-                            val itemsDeferred =
-                                async {
-                                    runCatching { boundedSection { fetchLatest(server, view.id) } }
-                                }
-                            val totalDeferred =
-                                async {
-                                    runCatching { boundedSection { fetchLibraryCount(server, view.id) } }
-                                }
-                            val itemsResult =
-                                itemsDeferred.await().onFailure {
-                                    AppLog.warning(
-                                        category = "emby",
-                                        event = "home_section_degraded",
-                                        message = "Library preview failed; browse entry was retained",
-                                        throwable = it,
-                                        attributes =
-                                            mapOf(
-                                                "serverId" to server.id,
-                                                "section" to "latest",
-                                                "libraryId" to view.id,
-                                            ),
-                                    )
-                                }
-                            val items = itemsResult.getOrDefault(emptyList())
-                            // The chip shows the library's real size, not the loaded page.
-                            val total =
-                                totalDeferred.await().onFailure {
-                                    AppLog.warning(
-                                        category = "emby",
-                                        event = "library_count_degraded",
-                                        message = "Library count failed; loaded item count used as fallback",
-                                        throwable = it,
-                                        attributes =
-                                            mapOf(
-                                                "serverId" to server.id,
-                                                "libraryId" to view.id,
-                                            ),
-                                    )
-                                }.getOrDefault(items.size)
-                            HomeRow(view.id, view.name, items, total, loadFailed = itemsResult.isFailure)
                         }
                     }
-                val resume = resumeDeferred.await()
-                val counts = countsDeferred.await()
-                val collections = collectionsDeferred.await()
-                val playlists = playlistsDeferred.await()
-                val rows =
-                    listOf(favoritesDeferred.await(), watchLaterDeferred.await()) +
-                        rowDeferred.awaitAll()
-                val featured =
-                    (resume + rows.flatMap { it.items })
-                        .filter { it.backdropTag != null }
-                        .distinctBy { it.id }
-                        .take(8)
-                HomeContent(
-                    featured = featured,
-                    resume = resume,
-                    rows = rows,
-                    counts = counts,
-                    collections = collections,
-                    playlists = playlists,
+                    true
+                } ?: false
+            if (!completed) {
+                AppLog.warning(
+                    category = "emby",
+                    event = "home_enrichment_timeout",
+                    message = "Library refresh budget exhausted; completed sections remain available",
+                    attributes = mapOf("serverId" to server.id, "pendingPreviews" to pendingPreviews.size.toString()),
                 )
             }
+            // All children have settled here, including those cancelled by the overall budget.
+            content.copy(
+                rows =
+                    content.rows.map { row ->
+                        if (row.libraryId in pendingPreviews) row.copy(loadFailed = true) else row
+                    },
+            )
         }
 
     /** Library sizes move slowly; one count per library per ten minutes is plenty for a chip. */
@@ -316,7 +312,7 @@ internal class EmbyHomeService(
                     parameter("Ids", ids.joinToString(","))
                     parameter(
                         "Fields",
-                            "BackdropImageTags,UserData,Overview,CommunityRating,ParentBackdropItemId," +
+                        "BackdropImageTags,UserData,Overview,CommunityRating,ParentBackdropItemId," +
                             "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks,ProviderIds",
                     )
                     parameter("EnableImageTypes", "Primary,Backdrop")
@@ -333,18 +329,18 @@ internal class EmbyHomeService(
     ): List<MediaItem> {
         val response =
             client.get("${server.baseUrl}/Users/${server.userId}/Items/Latest") {
-                    header("X-Emby-Token", server.accessToken)
-                    parameter("ParentId", viewId)
-                    parameter("Limit", 16)
-                    // Overview feeds the carousel synopsis.
-                    parameter(
-                        "Fields",
-                        "BackdropImageTags,ProductionYear,Overview,CommunityRating,UserData,ParentBackdropItemId," +
-                            "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks",
-                    )
-                    parameter("EnableImageTypes", "Primary,Backdrop")
-                    parameter("ImageTypeLimit", 2)
-                }
+                header("X-Emby-Token", server.accessToken)
+                parameter("ParentId", viewId)
+                parameter("Limit", 16)
+                // Overview feeds the carousel synopsis.
+                parameter(
+                    "Fields",
+                    "BackdropImageTags,ProductionYear,Overview,CommunityRating,UserData,ParentBackdropItemId," +
+                        "ParentBackdropImageTags,SeriesPrimaryImageTag,RunTimeTicks",
+                )
+                parameter("EnableImageTypes", "Primary,Backdrop")
+                parameter("ImageTypeLimit", 2)
+            }
         // Use the generated serializer explicitly. Release shrinking can erase the reflective
         // generic List type that Ktor's body<List<...>>() converter otherwise relies on.
         val items =
@@ -360,3 +356,5 @@ private const val LIBRARY_COUNT_TTL_MS = 10 * 60_000L
 private const val MAX_CACHED_LIBRARY_COUNTS = 256
 private const val HOME_VIEWS_TIMEOUT_MS = 15_000L
 private const val HOME_SECTION_TIMEOUT_MS = 15_000L
+
+private const val HOME_ENRICHMENT_TIMEOUT_MS = 30_000L

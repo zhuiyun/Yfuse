@@ -121,7 +121,10 @@ fun FallbackImage(
         if (!exhausted) {
             candidates.getOrNull(candidateIndex)?.let { candidate ->
                 val requestIndex = candidateIndex
-                key(candidate) {
+                // The candidate list resets loaded/exhausted above. Recreate the painter in
+                // the same generation even if only a fallback URL changed; otherwise Coil
+                // keeps its successful painter and never re-emits onSuccess, leaving alpha 0.
+                key(candidates, candidate) {
                     AsyncImage(
                         model = candidate,
                         contentDescription = contentDescription,

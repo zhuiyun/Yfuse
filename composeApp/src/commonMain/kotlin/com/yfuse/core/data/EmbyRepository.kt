@@ -688,8 +688,16 @@ class EmbyRepository(
             embyApiCall("item_counts") { libraryService.counts(server) }
         }
 
-    suspend fun homeContent(server: SavedServer): Result<HomeContent> =
-        if (server.kind == MediaServerKind.Plex) plex.homeContent(server) else homeService.homeContent(server)
+    suspend fun homeContent(
+        server: SavedServer,
+        initialContent: HomeContent = HomeContent(),
+        onProgress: suspend (HomeContent) -> Unit = {},
+    ): Result<HomeContent> =
+        if (server.kind == MediaServerKind.Plex) {
+            plex.homeContent(server)
+        } else {
+            homeService.homeContent(server, initialContent, onProgress)
+        }
 
     suspend fun mediaContainerItems(
         server: SavedServer,

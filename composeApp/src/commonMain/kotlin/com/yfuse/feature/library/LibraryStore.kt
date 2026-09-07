@@ -13,12 +13,14 @@ import com.yfuse.core.model.HomeContent
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.network.toUserMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlin.coroutines.CoroutineContext
+import kotlin.time.TimeSource
 
 enum class LibraryContentSource {
     None,
@@ -78,6 +80,10 @@ private sealed interface Msg {
     data class Loaded(
         val content: HomeContent,
         val updatedAtEpochMs: Long,
+    ) : Msg
+
+    data class Progress(
+        val content: HomeContent,
     ) : Msg
 
     data class FavoriteChanged(
@@ -209,14 +215,38 @@ class LibraryStoreFactory(
             dispatch(Msg.Loading(refresh = refresh && !state().content.isEmpty))
             loadJob =
                 scope.launch {
+                    val started = TimeSource.Monotonic.markNow()
+                    var firstProgress = true
+                    val logAttributes = mapOf("serverId" to server.id, "generation" to generation.toString())
+                    AppLog.info("feature.library", "load_started", "Media library load started", logAttributes)
                     try {
                         repo
-                            .homeContent(server)
-                            .onSuccess { content ->
+                            .homeContent(server, initialContent = state().content) { content ->
+                                if (ownsLoad(generation, connection)) {
+                                    dispatch(Msg.Progress(content))
+                                    if (firstProgress) {
+                                        firstProgress = false
+                                        AppLog.info(
+                                            "feature.library",
+                                            "directory_ready",
+                                            "Media library directory is ready for browsing",
+                                            logAttributes +
+                                                ("durationMs" to started.elapsedNow().inWholeMilliseconds.toString()),
+                                        )
+                                    }
+                                }
+                            }.onSuccess { content ->
                                 if (!ownsLoad(generation, connection)) return@onSuccess
                                 val updatedAtEpochMs = nowEpochMs().coerceAtLeast(0L)
                                 cache.write(server.id, content, updatedAtEpochMs)
                                 dispatch(Msg.Loaded(content, updatedAtEpochMs))
+                                AppLog.info(
+                                    "feature.library",
+                                    "load_completed",
+                                    "Media library load completed",
+                                    logAttributes +
+                                        ("durationMs" to started.elapsedNow().inWholeMilliseconds.toString()),
+                                )
                             }.onFailure { error ->
                                 if (!ownsLoad(generation, connection)) return@onFailure
                                 AppLog.warning(
@@ -228,6 +258,9 @@ class LibraryStoreFactory(
                                 )
                                 dispatch(Msg.Failed(error.toUserMessage("加载失败")))
                             }
+                    } catch (cancelled: CancellationException) {
+                        AppLog.info("feature.library", "load_cancelled", "Media library load cancelled", logAttributes)
+                        throw cancelled
                     } finally {
                         if (generation == loadGeneration) loadJob = null
                     }
@@ -289,6 +322,8 @@ class LibraryStoreFactory(
                         updatedAtEpochMs = msg.updatedAtEpochMs,
                         error = null,
                     )
+                is Msg.Progress ->
+                    copy(content = msg.content.copy(resume = deduplicatePlaybackHistory(msg.content.resume)))
                 is Msg.FavoriteChanged ->
                     copy(
                         content =
