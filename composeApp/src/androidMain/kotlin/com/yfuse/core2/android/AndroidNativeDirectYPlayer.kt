@@ -1025,7 +1025,12 @@ internal class AndroidNativeDirectYPlayer(
                 }
                 return
             }
-            if (!refreshOutputGate()) return
+            if (!refreshOutputGate()) {
+                mutableState.update { current ->
+                    current.copy(playbackRequested = true, playing = false, buffering = true)
+                }
+                return
+            }
             val now = System.nanoTime()
             wallClock.start(currentPositionUs(), now)
             if (audioRendererConfigured) {
@@ -1744,8 +1749,8 @@ internal class AndroidNativeDirectYPlayer(
                             videoDecoderName = videoDecoder.decoderName.orEmpty(),
                             audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
                             droppedFramesMeasured = true,
-                            sourceQueueBytes =
-                                (transportQoe?.bufferedAheadBytes ?: 0L) + readAhead.queuedBytes,
+                            // Long forward-cache coverage includes disk bytes, not queued heap input.
+                            sourceQueueBytes = readAhead.queuedBytes,
                             sourceBufferedMs = sourceBufferedMs,
                             sourceStarvationCount = readAhead.starvationCount,
                             audioUnderrunCount =
