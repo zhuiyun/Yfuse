@@ -39,10 +39,14 @@ internal fun DialogAnimationSheet(
         }
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
             DialogAnimation.entries.forEachIndexed { index, animation ->
-                if (index == 0 || animation == DialogAnimation.Hologram) {
+                if (index == 0 || animation == DialogAnimation.Hologram || animation == DialogAnimation.Magnetic) {
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        if (index == 0) "基础动效" else "科幻动效",
+                        when {
+                            index == 0 -> "基础动效"
+                            animation == DialogAnimation.Hologram -> "科幻动效"
+                            else -> "材质与空间"
+                        },
                         color = LocalPalette.current.sub,
                         style = AppTypography.caption.strong,
                     )

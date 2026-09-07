@@ -37,6 +37,11 @@ enum class DialogAnimation(
     Layers("分层悬浮", "玻璃、标题与内容从不同深度归位", 480, 300),
     Portal("光圈展开", "从点击位置扩张光圈，收回时逆向闭合", 480, 320),
     Reconstruct("数字重构", "横向切片错位进入，快速拼成完整面板", 460, 300),
+    Magnetic("磁悬停泊", "沿短弧线滑入，轻微倾斜后平稳归位", 440, 280),
+    Liquid("液态成形", "圆润水滴舒展成玻璃面板，文字保持原比例", 500, 320),
+    Blinds("光栅百叶", "竖向光栅依次翻开，关闭时逐条闭合", 480, 320),
+    Assemble("四角汇聚", "四块玻璃从四角靠拢，接缝平稳闭合", 480, 300),
+    Radar("雷达扫掠", "旋转光束揭开面板，反向扫掠收起", 500, 340),
 }
 
 val LocalDialogAnimation = staticCompositionLocalOf { DialogAnimation.Lift }
@@ -71,6 +76,8 @@ internal data class DialogMotionFrame(
     val rotationX: Float = 0f,
     val insetX: Float = 0f,
     val insetY: Float = 0f,
+    val offsetX: Float = 0f,
+    val rotationZ: Float = 0f,
 )
 
 internal fun dialogMotionFrame(
@@ -119,8 +126,18 @@ internal fun dialogMotionFrame(
                 12f * hidden,
                 insetY = 0.5f * (1f - (p / 0.4f).coerceIn(0f, 1f)),
             )
+        DialogAnimation.Magnetic ->
+            DialogMotionFrame(
+                scaleX = 1f - 0.05f * hidden,
+                scaleY = 1f - 0.05f * hidden,
+                offsetY = 26f * hidden,
+                insetY = 0.5f * (1f - (p / 0.5f).coerceIn(0f, 1f)),
+                offsetX = 28f * hidden * hidden - 8f * sin(PI * p).toFloat(),
+                rotationZ = -3f * hidden,
+            )
         DialogAnimation.Hologram, DialogAnimation.Fold, DialogAnimation.Energy,
-        DialogAnimation.Portal, DialogAnimation.Reconstruct,
+        DialogAnimation.Portal, DialogAnimation.Reconstruct, DialogAnimation.Liquid,
+        DialogAnimation.Blinds, DialogAnimation.Assemble, DialogAnimation.Radar,
         -> DialogMotionFrame()
     }
 }
@@ -162,6 +179,8 @@ internal fun Modifier.dialogMotion(
                     frame.offsetY * density
                 }
             rotationX = frame.rotationX
+            translationX = frame.offsetX * density
+            rotationZ = frame.rotationZ
             cameraDistance = 1200f * density
         }.drawWithContent {
             val entered = progress().coerceIn(0f, 1f)

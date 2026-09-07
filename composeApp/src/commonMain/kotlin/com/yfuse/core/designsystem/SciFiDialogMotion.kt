@@ -135,7 +135,7 @@ internal fun ContentDrawScope.drawSciFiDialog(
                 }
             }
         }
-        else -> return false
+        else -> return drawMaterialDialog(animation, progress, glow)
     }
     return true
 }
