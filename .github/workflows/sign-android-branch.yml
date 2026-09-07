@@ -287,6 +287,7 @@ jobs:
       - name: Build signed release APK
         run: |
           ./gradlew :composeApp:assembleRelease \
+            -Dorg.gradle.jvmargs="-Xmx6g -Dfile.encoding=UTF-8" --max-workers=2 \
             -PyfuseVersionCode=${{ steps.version.outputs.version_code }} \
             -PyfuseVersionName=${{ steps.version.outputs.version_name }} \
             -PconfirmMdkDistributionRights=true --no-daemon
