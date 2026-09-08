@@ -56,7 +56,7 @@ internal fun rememberSearchResultsHandoff(phase: SearchResultsPhase): Modifier {
     // Update only after a successful composition, including completions while the route is hidden.
     SideEffect { handoff.committed(phase) }
     LaunchedEffect(progress) {
-        if (progress.value < 1f) progress.animateTo(1f, tween(150, easing = Motion.Curve))
+        if (progress.value < 1f) progress.animateTo(1f, tween(Motion.STATE_HANDOFF, easing = Motion.Curve))
     }
     return remember(progress) { Modifier.graphicsLayer { alpha = progress.value } }
 }

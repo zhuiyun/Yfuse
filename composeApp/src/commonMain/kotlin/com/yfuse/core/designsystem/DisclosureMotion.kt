@@ -26,7 +26,7 @@ internal fun rememberDisclosureProgress(expanded: Boolean): State<Float> {
     val progress = remember(moving) { Animatable(target) }
     LaunchedEffect(expanded, moving) {
         if (moving) {
-            progress.animateTo(target, tween(160, easing = Motion.Curve))
+            progress.animateTo(target, tween(Motion.DISCLOSURE, easing = Motion.Curve))
         } else {
             progress.snapTo(target)
         }

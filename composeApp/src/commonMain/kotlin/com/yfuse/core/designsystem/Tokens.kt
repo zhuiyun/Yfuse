@@ -436,6 +436,9 @@ object Motion {
     const val EMPHASIZED = 280
     const val AMBIENT = 500
 
+    const val STATE_HANDOFF = 150
+    const val DISCLOSURE = 160
+
     // ------------------------------------------------------------ 弹簧
     //
     // Durations belong to transitions — a page arriving takes as long as it takes, and the
