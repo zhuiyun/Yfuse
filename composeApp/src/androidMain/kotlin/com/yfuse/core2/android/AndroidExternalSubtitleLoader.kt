@@ -1,7 +1,9 @@
 package com.yfuse.core2.android
 
+import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.os.CancellationSignal
 import com.yfuse.core2.api.YExternalSubtitleSource
 import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
@@ -14,9 +16,19 @@ import com.yfuse.core2.subtitle.YSubtitlePayload
 import com.yfuse.core2.subtitle.YTextSubtitleParser
 import com.yfuse.core2.subtitle.decodeExternalSubtitleText
 import com.yfuse.core2.subtitle.externalTextSubtitleFormat
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.util.concurrent.atomic.AtomicReference
 
 internal data class AndroidLoadedExternalSubtitle(
     val track: YTrack,
@@ -25,17 +37,20 @@ internal data class AndroidLoadedExternalSubtitle(
 
 /** Bounded sidecar loader. It never feeds external subtitle bytes into the video decoder. */
 internal class AndroidExternalSubtitleLoader(
-    context: Context,
+    private val resolveContent: () -> ContentResolver,
 ) {
-    private val contentResolver = context.applicationContext.contentResolver
+    constructor(context: Context) : this({ context.applicationContext.contentResolver })
 
-    fun load(
+    suspend fun load(
         source: YExternalSubtitleSource,
         headers: Map<String, String>,
         trackId: String = EXTERNAL_SUBTITLE_TRACK_ID,
     ): AndroidLoadedExternalSubtitle {
         val loaded = read(source.uri, headers)
+        val loadingContext = currentCoroutineContext()
+        loadingContext.ensureActive()
         val text = decodeExternalSubtitleText(loaded.data)
+        loadingContext.ensureActive()
         val format =
             source.format
                 ?: externalTextSubtitleFormat(
@@ -47,7 +62,8 @@ internal class AndroidExternalSubtitleLoader(
         require(format.standaloneTextSupported) {
             "External subtitle format is unsupported"
         }
-        val parsed = YTextSubtitleParser.parse(text, format).cues
+        val parsed = YTextSubtitleParser.parse(text, format, loadingContext::ensureActive).cues
+        loadingContext.ensureActive()
         require(parsed.isNotEmpty()) { "External subtitle contains no displayable cues" }
         val cues =
             if (format in setOf(YSubtitleFormat.Ass, YSubtitleFormat.Ssa) &&
@@ -56,7 +72,10 @@ internal class AndroidExternalSubtitleLoader(
                 val script = YAssSubtitleSource(text.encodeToByteArray(), fullScript = true)
                 // Keep the event intervals so idle gaps do not run a frame callback. The full script
                 // remains shared and is parsed once by libass, retaining all styles and embedded fonts.
-                parsed.map { it.copy(payload = YSubtitlePayload.AssEvent(script)) }
+                parsed.map {
+                    loadingContext.ensureActive()
+                    it.copy(payload = YSubtitlePayload.AssEvent(script))
+                }
             } else {
                 parsed
             }
@@ -74,82 +93,121 @@ internal class AndroidExternalSubtitleLoader(
         )
     }
 
-    private fun read(
+    private suspend fun read(
         uriString: String,
         headers: Map<String, String>,
-    ): LoadedBytes {
-        val uri = Uri.parse(uriString)
-        return when (uri.scheme?.lowercase()) {
+    ): LoadedBytes =
+        when (uriString.substringBefore(':').lowercase()) {
             "http", "https" -> readHttp(uriString, headers)
             "content", "file", "android.resource" -> {
-                val mimeType = contentResolver.getType(uri)
-                val data =
-                    requireNotNull(contentResolver.openInputStream(uri)) {
-                        "External subtitle source cannot be opened"
-                    }.use(InputStream::readBoundedSubtitleBytes)
-                LoadedBytes(data, mimeType)
+                val uri = Uri.parse(uriString)
+                val contentResolver = resolveContent()
+                val signal = CancellationSignal()
+                val input = AtomicReference<InputStream?>()
+                withSubtitleReadCancellation(
+                    close = {
+                        signal.cancel()
+                        runCatching { input.getAndSet(null)?.close() }
+                    },
+                ) {
+                    // getType is a synchronous provider call without CancellationSignal. The
+                    // declared format, URI suffix and content prefix already identify text cues.
+                    val descriptor =
+                        requireNotNull(contentResolver.openAssetFileDescriptor(uri, "r", signal)) {
+                            "External subtitle source cannot be opened"
+                        }
+                    descriptor.use {
+                        currentCoroutineContext().ensureActive()
+                        descriptor.createInputStream().use { stream ->
+                            input.set(stream)
+                            currentCoroutineContext().ensureActive()
+                            LoadedBytes(stream.readBoundedSubtitleBytes(), mimeType = null)
+                        }
+                    }
+                }
             }
             else -> error("External subtitle source scheme is unsupported")
         }
-    }
 
-    private fun readHttp(
+    private suspend fun readHttp(
         uri: String,
         headers: Map<String, String>,
-    ): LoadedBytes =
-        runBlocking {
+    ): LoadedBytes {
+        val transport = AndroidHttpMediaTransport(followSafeRedirects = true, callTimeoutSeconds = 12L)
+        return withSubtitleReadCancellation(close = { transport.close() }) {
             val protocol =
-                if (Uri.parse(uri).scheme.equals("https", ignoreCase = true)) {
+                if (uri.startsWith("https:", ignoreCase = true)) {
                     YSourceProtocol.Https
                 } else {
                     YSourceProtocol.Http
                 }
-            val transport = AndroidHttpMediaTransport(followSafeRedirects = true, callTimeoutSeconds = 12L)
+            val response =
+                transport.open(
+                    YMediaTransportRequest(
+                        uri = uri,
+                        protocol = protocol,
+                        headers = headers,
+                    ),
+                )
+            require(response.statusCode in 200..299) { "External subtitle request failed" }
+            response.contentLength?.let { declaredLength ->
+                require(declaredLength <= MAX_EXTERNAL_SUBTITLE_BYTES) {
+                    "External subtitle exceeds the size limit"
+                }
+            }
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(READ_BUFFER_BYTES)
+            var total = 0
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val count = transport.read(buffer, 0, buffer.size)
+                if (count < 0) break
+                if (count == 0) continue
+                total += count
+                require(total <= MAX_EXTERNAL_SUBTITLE_BYTES) {
+                    "External subtitle exceeds the size limit"
+                }
+                output.write(buffer, 0, count)
+            }
+            LoadedBytes(data = output.toByteArray(), mimeType = null)
+        }
+    }
+}
+
+/** A sibling closes blocking IO as soon as its parent is cancelled, before the read can return. */
+internal suspend fun <T> withSubtitleReadCancellation(
+    close: suspend () -> Unit,
+    read: suspend () -> T,
+): T =
+    withContext(Dispatchers.IO) {
+        coroutineScope {
+            val closer =
+                launch(start = CoroutineStart.UNDISPATCHED) {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        withContext(NonCancellable + Dispatchers.IO) { close() }
+                    }
+                }
             try {
-                val response =
-                    transport.open(
-                        YMediaTransportRequest(
-                            uri = uri,
-                            protocol = protocol,
-                            headers = headers,
-                        ),
-                    )
-                require(response.statusCode in 200..299) { "External subtitle request failed" }
-                response.contentLength?.let { declaredLength ->
-                    require(declaredLength <= MAX_EXTERNAL_SUBTITLE_BYTES) {
-                        "External subtitle exceeds the size limit"
-                    }
-                }
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(READ_BUFFER_BYTES)
-                var total = 0
-                while (true) {
-                    val count = transport.read(buffer, 0, buffer.size)
-                    if (count < 0) break
-                    if (count == 0) continue
-                    total += count
-                    require(total <= MAX_EXTERNAL_SUBTITLE_BYTES) {
-                        "External subtitle exceeds the size limit"
-                    }
-                    output.write(buffer, 0, count)
-                }
-                LoadedBytes(data = output.toByteArray(), mimeType = null)
+                read().also { currentCoroutineContext().ensureActive() }
             } finally {
-                transport.close()
+                withContext(NonCancellable) { closer.cancelAndJoin() }
             }
         }
-}
+    }
 
 private data class LoadedBytes(
     val data: ByteArray,
     val mimeType: String?,
 )
 
-private fun InputStream.readBoundedSubtitleBytes(): ByteArray {
+private suspend fun InputStream.readBoundedSubtitleBytes(): ByteArray {
     val output = ByteArrayOutputStream()
     val buffer = ByteArray(READ_BUFFER_BYTES)
     var total = 0
     while (true) {
+        currentCoroutineContext().ensureActive()
         val count = read(buffer)
         if (count < 0) break
         if (count == 0) continue

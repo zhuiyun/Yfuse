@@ -1403,20 +1403,28 @@ class ExoVideoEngine(
     }
 
     override fun release() {
+        if (released) return
         released = true
-        retryJob?.cancel()
-        retryJob = null
-        fallbackJob?.cancel()
-        fallbackJob = null
-        ticker?.cancel()
-        ticker = null
-        secondarySubtitles.release()
-        spatialAudioStateMonitor?.release()
-        player.clearVideoFrameMetadataListener(videoFrameMetadataListener)
-        player.removeListener(listener)
-        player.removeAnalyticsListener(analyticsListener)
-        player.release()
-        cacheHandle?.close()
+        // Media3 release/listener mutations stay on the player's application looper.
+        tracePlaybackRelease("Exo") {
+            stage("cancelJobs") {
+                retryJob?.cancel()
+                retryJob = null
+                fallbackJob?.cancel()
+                fallbackJob = null
+                ticker?.cancel()
+                ticker = null
+            }
+            stage("subtitles") { secondarySubtitles.release() }
+            stage("audioMonitor") { spatialAudioStateMonitor?.release() }
+            stage("listeners") {
+                player.clearVideoFrameMetadataListener(videoFrameMetadataListener)
+                player.removeListener(listener)
+                player.removeAnalyticsListener(analyticsListener)
+            }
+            stage("player") { player.release() }
+            stage("cache") { cacheHandle?.close() }
+        }
     }
 
     private fun select(

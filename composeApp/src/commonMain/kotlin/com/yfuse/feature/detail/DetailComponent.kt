@@ -110,17 +110,19 @@ class DetailComponent(
         val state = store.state
         val detail = state.playTarget ?: return
         val server = state.playServer ?: return
-        buildOfflineDownloadRequests(
-            serverId = server.id,
-            currentItemId = detail.id,
-            currentTitle = detail.title,
-            currentRuntimeMinutes = detail.runtimeMinutes,
-            currentVersions = detail.versions,
-            seasonEpisodes = state.episodes,
-            selection = selection,
-            currentSeriesId = detail.seriesId,
-            currentSeasonId = state.episodes.firstOrNull { it.id == detail.id }?.seasonId,
-        ).forEach(dependencies.offlineMediaManager::enqueue)
+        val requests =
+            buildOfflineDownloadRequests(
+                serverId = server.id,
+                currentItemId = detail.id,
+                currentTitle = detail.title,
+                currentRuntimeMinutes = detail.runtimeMinutes,
+                currentVersions = detail.versions,
+                seasonEpisodes = state.episodes,
+                selection = selection,
+                currentSeriesId = detail.seriesId,
+                currentSeasonId = state.episodes.firstOrNull { it.id == detail.id }?.seasonId,
+            )
+        dependencies.offlineMediaManager.enqueueAll(requests)
     }
 
     suspend fun refreshServerMetadata(detail: MediaDetail): Result<Unit> {

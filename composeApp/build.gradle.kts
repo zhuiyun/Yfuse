@@ -656,6 +656,9 @@ kotlin {
     }
 
     sourceSets {
+        matching { it.name == "androidBenchmark" || it.name == "androidProfile" }.configureEach {
+            kotlin.srcDir("src/performance/kotlin")
+        }
         all {
             languageSettings.optIn("kotlinx.coroutines.ExperimentalCoroutinesApi")
         }
@@ -892,6 +895,9 @@ val requestedVersionName =
         }
         normalized
     }
+require((requestedVersionCode == null) == (requestedVersionName == null)) {
+    "yfuseVersionCode and yfuseVersionName must be overridden together"
+}
 val buildVersionCode = requestedVersionCode ?: storedVersionCode
 val buildVersionName = requestedVersionName ?: storedVersionName
 val buildApplicationId =
@@ -1006,6 +1012,23 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
             isDebuggable = false
+            applicationIdSuffix = ".benchmark"
+        }
+        create("profile") {
+            initWith(getByName("benchmark"))
+            // Capture source names; release R8 rewrites these rules with the application's code.
+            isMinifyEnabled = false
+            isShrinkResources = false
+            matchingFallbacks += listOf("release")
+        }
+    }
+
+    sourceSets {
+        listOf("benchmark", "profile").forEach { variant ->
+            getByName(variant) {
+                manifest.srcFile("src/performance/AndroidManifest.xml")
+                res.srcDir("src/performance/res")
+            }
         }
     }
 

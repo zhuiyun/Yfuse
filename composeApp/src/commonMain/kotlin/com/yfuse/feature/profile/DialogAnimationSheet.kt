@@ -67,7 +67,8 @@ internal fun DialogAnimationSheet(
                     animation == DialogAnimation.Ribbon ||
                     animation == DialogAnimation.Bloom ||
                     animation == DialogAnimation.PosterMorph ||
-                    animation == DialogAnimation.PaperPlane
+                    animation == DialogAnimation.PaperPlane ||
+                    animation == DialogAnimation.Envelope
                 ) {
                     Spacer(Modifier.height(12.dp))
                     Text(
@@ -78,6 +79,7 @@ internal fun DialogAnimationSheet(
                             animation == DialogAnimation.Bloom -> "轻巧与趣味"
                             animation == DialogAnimation.PosterMorph -> "交互与细节"
                             animation == DialogAnimation.PaperPlane -> "趣味小物"
+                            animation == DialogAnimation.Envelope -> "奇想动效"
                             else -> "材质与空间"
                         },
                         color = LocalPalette.current.sub,

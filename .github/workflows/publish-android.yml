@@ -100,15 +100,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          version_code="$(sed -n 's/^VERSION_CODE=//p' version.properties | tail -n 1 | tr -d '\r')"
-          version_name="$(sed -n 's/^VERSION_NAME=//p' version.properties | tail -n 1 | tr -d '\r')"
-          release_notes="$(tr '\r\n' '  ' < release-notes.txt | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
-
-          {
-            echo "VERSION_CODE=$version_code"
-            echo "VERSION_NAME=$version_name"
-            echo "RELEASE_NOTES=$release_notes"
-          } >> "$GITHUB_ENV"
+          python3 scripts/release_metadata.py --format github-env >> "$GITHUB_ENV"
 
       - name: Validate release request
         shell: bash

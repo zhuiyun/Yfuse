@@ -32,6 +32,8 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
+      - name: Verify shared signing and release metadata
+        run: python3 scripts/release_metadata.py
       - name: Install Android 36 and native build tools
         shell: bash
         run: |

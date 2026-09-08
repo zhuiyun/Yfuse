@@ -9,6 +9,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -71,8 +73,10 @@ internal class AndroidExternalSubtitleSession(
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
+                        currentCoroutineContext().ensureActive()
                         Completion(generation, id, null, error.javaClass.simpleName)
                     }
+                currentCoroutineContext().ensureActive()
                 completed(result)
             }
     }

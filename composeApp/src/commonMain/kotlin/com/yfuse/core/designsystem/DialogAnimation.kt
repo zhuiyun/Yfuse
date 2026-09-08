@@ -64,6 +64,11 @@ enum class DialogAnimation(
     InstantPhoto("拍立得冲印", "从短窄出片口展开，照片边框轻轻收稳", 420, 260),
     Zipper("拉链解封", "拉头向下划开，两侧顺势展开", 380, 240),
     Ticket("票根展开", "票头先显现，正文沿齿边利落铺开", 400, 250),
+    Envelope("信封拆启", "封口轻启，信笺从下沿舒展到眼前", 420, 260),
+    Constellation("星图织光", "星点连成轮廓，中央光面渐渐铺满", 420, 260),
+    PuzzleLock("拼图扣合", "两片圆弧拼图相向靠拢，接缝轻巧扣合", 400, 250),
+    Hourglass("沙漏汇流", "上下沙丘向中央汇流，细腰舒展成完整面板", 420, 260),
+    Pinwheel("风车开页", "四叶纸风车轻转开页，边角依次舒展", 420, 260),
 }
 
 val LocalDialogAnimation = staticCompositionLocalOf { DialogAnimation.Lift }
@@ -210,6 +215,9 @@ internal fun dialogMotionFrame(
         DialogAnimation.PaperPlane, DialogAnimation.WindChime, DialogAnimation.InstantPhoto,
         DialogAnimation.Zipper, DialogAnimation.Ticket,
         -> delightDialogMotionFrame(animation, p)
+        DialogAnimation.Envelope, DialogAnimation.Constellation, DialogAnimation.PuzzleLock,
+        DialogAnimation.Hourglass, DialogAnimation.Pinwheel,
+        -> curiousDialogMotionFrame(animation, p)
     }
 }
 
@@ -305,6 +313,9 @@ internal fun Modifier.dialogMotion(
                     DialogAnimation.PaperPlane, DialogAnimation.WindChime, DialogAnimation.InstantPhoto,
                     DialogAnimation.Zipper, DialogAnimation.Ticket,
                     -> drawDelightDialog(animation, entered, glow, cache)
+                    DialogAnimation.Envelope, DialogAnimation.Constellation, DialogAnimation.PuzzleLock,
+                    DialogAnimation.Hourglass, DialogAnimation.Pinwheel,
+                    -> drawCuriousDialog(animation, entered, glow, cache)
                     else -> false
                 }
             if (special) return@drawWithContent

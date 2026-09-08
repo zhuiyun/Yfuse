@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -170,12 +171,18 @@ class DialogMotionQualityInstrumentedTest {
     @Test
     fun new_styles_capture_midpoints_and_readable_rest_in_both_themes() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val requestedStyles = InstrumentationRegistry.getArguments().getString("motionStyles")
+        val expanded = requestedStyles != null
         val styles =
-            listOf("PaperPlane", "WindChime", "InstantPhoto", "Zipper", "Ticket")
-                .map { DialogAnimation.valueOf(it) }
+            (requestedStyles?.split(',') ?: listOf("PaperPlane", "WindChime", "InstantPhoto", "Zipper", "Ticket"))
+                .map { DialogAnimation.valueOf(it.trim()) }
         val style = mutableStateOf(styles.first())
         val progress = mutableFloatStateOf(1f)
         val dark = mutableStateOf(true)
+        val landscape = mutableStateOf(false)
+        val fractions = if (expanded) listOf(0.25f, 0.55f, 1f) else listOf(0.45f, 1f)
+        val shapes = if (expanded) listOf(false, true) else listOf(false)
+        val captured = mutableListOf<File>()
         val output = File(instrumentation.targetContext.getExternalFilesDir(null), "motion-visuals")
         check(output.mkdirs() || output.isDirectory)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -193,19 +200,48 @@ class DialogMotionQualityInstrumentedTest {
                             ) {
                                 Column(
                                     Modifier
-                                        .width(320.dp)
-                                        .dialogMotion(style.value, progress = { progress.floatValue })
+                                        .then(
+                                            if (expanded) {
+                                                Modifier.size(
+                                                    if (landscape.value) 336.dp else 320.dp,
+                                                    if (landscape.value) 220.dp else 480.dp,
+                                                )
+                                            } else {
+                                                Modifier.width(320.dp)
+                                            },
+                                        ).dialogMotion(style.value, progress = { progress.floatValue })
                                         .mutedGlassPanel(samplePage = false)
                                         .dialogInteriorMotion(style.value) { progress.floatValue }
                                         .padding(20.dp),
                                     verticalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
-                                    OverlayHeader(style.value.label, style.value.description)
-                                    Text("细腻入场，清晰停留。", color = LocalPalette.current.text)
-                                    Text("动画结束后保留完整正文、选项和按钮。", color = LocalPalette.current.sub)
-                                    OverlayOptionRow("轻盈节奏", true, {})
-                                    OverlayOptionRow("趣味细节", false, {})
-                                    OverlayButton("继续浏览", onClick = {})
+                                    if (landscape.value) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                            Column(
+                                                Modifier.weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            ) {
+                                                OverlayHeader(style.value.label, "细腻入场，清晰停留。")
+                                                Text("横向卡片保留正文比例。", color = LocalPalette.current.text)
+                                                Text("归位后完整呈现。", color = LocalPalette.current.sub)
+                                            }
+                                            Column(
+                                                Modifier.weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            ) {
+                                                OverlayOptionRow("轻盈节奏", true, {})
+                                                OverlayOptionRow("趣味细节", false, {})
+                                                OverlayButton("继续浏览", onClick = {})
+                                            }
+                                        }
+                                    } else {
+                                        OverlayHeader(style.value.label, style.value.description)
+                                        Text("细腻入场，清晰停留。", color = LocalPalette.current.text)
+                                        Text("动画结束后保留完整正文、选项和按钮。", color = LocalPalette.current.sub)
+                                        OverlayOptionRow("轻盈节奏", true, {})
+                                        OverlayOptionRow("趣味细节", false, {})
+                                        OverlayButton("继续浏览", onClick = {})
+                                    }
                                 }
                             }
                         }
@@ -214,27 +250,42 @@ class DialogMotionQualityInstrumentedTest {
             }
             for (isDark in listOf(true, false)) {
                 for (animation in styles) {
-                    for (fraction in listOf(0.45f, 1f)) {
-                        scenario.onActivity {
-                            dark.value = isDark
-                            style.value = animation
-                            progress.floatValue = fraction
+                    for (wide in shapes) {
+                        for (fraction in fractions) {
+                            scenario.onActivity {
+                                dark.value = isDark
+                                style.value = animation
+                                progress.floatValue = fraction
+                                landscape.value = wide
+                            }
+                            instrumentation.waitForIdleSync()
+                            SystemClock.sleep(140)
+                            val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+                            val themeName = if (isDark) "dark" else "light"
+                            val shapeName = if (wide) "landscape" else "portrait"
+                            val suffix = if (expanded) "-$shapeName" else ""
+                            val filename = "${animation.name}-$themeName$suffix-${(fraction * 100).toInt()}.png"
+                            try {
+                                val file = File(output, filename)
+                                file.outputStream().use {
+                                    assertTrue(
+                                        screenshot.compress(Bitmap.CompressFormat.PNG, 100, it),
+                                    )
+                                }
+                                captured += file
+                            } finally {
+                                screenshot.recycle()
+                            }
                         }
-                        instrumentation.waitForIdleSync()
-                        SystemClock.sleep(140)
-                        val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
-                        val themeName = if (isDark) "dark" else "light"
-                        val filename = "${animation.name}-$themeName-${(fraction * 100).toInt()}.png"
-                        File(
-                            output,
-                            filename,
-                        ).outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                        screenshot.recycle()
                     }
                 }
             }
         }
-        assertTrue("Expected midpoint and rest frames in both themes", output.listFiles().orEmpty().size >= 20)
+        assertTrue(
+            "Expected this run's midpoint/rest captures",
+            captured.size == styles.size * 2 * shapes.size * fractions.size,
+        )
+        assertTrue("Captured images must not be empty", captured.all { it.length() > 0L })
     }
 
     private fun injectTap(

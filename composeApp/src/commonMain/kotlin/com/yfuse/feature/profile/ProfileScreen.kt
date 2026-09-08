@@ -105,6 +105,7 @@ import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.designsystem.windowWidthTier
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.StartupTab
+import com.yfuse.core.offline.OfflineIndexStatus
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.offlinePlaybackUri
 import com.yfuse.core.playback.PlaybackEngineSelection
@@ -262,6 +263,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val skipMode by component.skipSegmentPreferences.skipMode.collectAsState()
     val customUserAgent by component.userAgentPreferences.customValue.collectAsState()
     val offlineItems by component.offlineMedia.items.collectAsState()
+    val offlineIndexStatus by component.offlineMedia.indexStatus.collectAsState()
     val accountState by component.account.state.collectAsState()
     val watchAvailable = accountState.canUseWatchTogether()
 
@@ -634,7 +636,12 @@ fun ProfileScreen(component: ProfileComponent) {
                             Section(title = "下载") {
                                 SettingsCard {
                                     DownloadRow(
-                                        value = "${offlineItems.size} 项 ›",
+                                        value =
+                                            when (offlineIndexStatus) {
+                                                OfflineIndexStatus.Loading -> "正在读取… ›"
+                                                OfflineIndexStatus.Failed -> "暂不可用 ›"
+                                                OfflineIndexStatus.Ready -> "${offlineItems.size} 项 ›"
+                                            },
                                         embedded = true,
                                         onClick = { openPage(ProfilePage.Downloads) },
                                     )

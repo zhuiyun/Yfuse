@@ -15,28 +15,19 @@ class BaselineProfileGenerator {
     val baselineProfileRule = BaselineProfileRule()
 
     @Test
-    fun generate() =
+    fun startup() =
         baselineProfileRule.collect(
             packageName = TARGET_PACKAGE,
             includeInStartupProfile = true,
         ) {
             pressHome()
-            startActivityAndWait()
-            device.waitForIdle()
-            repeat(2) {
-                device.swipe(
-                    device.displayWidth / 2,
-                    device.displayHeight * 3 / 4,
-                    device.displayWidth / 2,
-                    device.displayHeight / 4,
-                    SWIPE_STEPS,
-                )
-                device.waitForIdle()
-            }
+            startProductionApp()
         }
 
-    private companion object {
-        const val TARGET_PACKAGE = "com.yfuse"
-        const val SWIPE_STEPS = 18
-    }
+    @Test
+    fun homeJourney() =
+        baselineProfileRule.collect(packageName = TARGET_PACKAGE, includeInStartupProfile = false) {
+            startHomeFixture()
+            scrollHomeJourney()
+        }
 }

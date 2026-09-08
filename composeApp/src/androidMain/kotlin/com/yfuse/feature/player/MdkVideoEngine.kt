@@ -629,27 +629,33 @@ class MdkVideoEngine(
     override fun release() {
         if (released) return
         released = true
-        fallbackJob?.cancel()
-        fallbackJob = null
-        pollJob.cancel()
-        nativeEventJob.cancel()
-        nativeEventSignals.close()
-        networkProxy?.close()
-        val instance = player
-        player = null
-        attachedView = null
-        runCatching {
-            instance?.setListener(null)
-            instance?.setSurfaceView(null)
-            instance?.close()
-        }.onFailure {
-            safeLogcat(Log.WARN, MDK_TAG, "MDK teardown failed", it)
-            AppLog.warning(
-                category = "player.mdk",
-                event = "teardown_failed",
-                message = "MDK teardown failed",
-                throwable = it,
-            )
+        // setSurfaceView/close remove SurfaceHolder callbacks. Keep their existing caller/owner
+        // thread until device timings and the native SDK contract justify a different teardown.
+        tracePlaybackRelease("Mdk") {
+            stage("cancelJobs") {
+                fallbackJob?.cancel()
+                fallbackJob = null
+                pollJob.cancel()
+                nativeEventJob.cancel()
+                nativeEventSignals.close()
+            }
+            stage("networkProxy") { networkProxy?.close() }
+            val instance = player
+            player = null
+            attachedView = null
+            runCatching {
+                stage("listener") { instance?.setListener(null) }
+                stage("surface") { instance?.setSurfaceView(null) }
+                stage("nativeDestroy") { instance?.close() }
+            }.onFailure {
+                safeLogcat(Log.WARN, MDK_TAG, "MDK teardown failed", it)
+                AppLog.warning(
+                    category = "player.mdk",
+                    event = "teardown_failed",
+                    message = "MDK teardown failed",
+                    throwable = it,
+                )
+            }
         }
     }
 

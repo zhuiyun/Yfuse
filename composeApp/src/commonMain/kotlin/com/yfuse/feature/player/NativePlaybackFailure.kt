@@ -132,7 +132,6 @@ private val TERMINAL_RENDER_FAILURES =
         "failed to attach surface",
         "failed to create android surface",
         "surface is invalid",
-        "both surface and native_window are null",
     )
 
 internal fun isNativeSurfaceLossFailure(details: String?): Boolean {
@@ -142,11 +141,15 @@ internal fun isNativeSurfaceLossFailure(details: String?): Boolean {
 
 private val TERMINAL_SURFACE_LOSS_FAILURES =
     listOf(
-        "both surface and native_window are null",
         "failed to attach surface",
         "failed to create android surface",
         "surface is invalid",
     )
+
+// FFmpeg also prints "Both surface and native_window are NULL" during mediacodec-copy
+// initialization, then successfully decodes into buffers for MPV's GPU output. That message
+// alone is neither a lost output Surface nor a terminal decoder failure. END_FILE and the
+// existing startup watchdog still handle a decoder that subsequently cannot make progress.
 
 private val TERMINAL_NETWORK_FAILURES =
     listOf(

@@ -1,3 +1,2 @@
-version_code=205
-version_name=1.0.43
-# signing_trigger=2026-09-08-dialog-motion-polish
+# Trigger only. Signing and production publishing both read version.properties.
+# signing_trigger=2026-09-08-project-performance-and-dialogs

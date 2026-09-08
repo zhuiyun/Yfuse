@@ -11,7 +11,14 @@ android {
         minSdk = 28
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "String",
+            "TARGET_PACKAGE",
+            "\"${providers.gradleProperty("yfuseApplicationId").getOrElse("com.yfuse")}.benchmark\"",
+        )
     }
+
+    buildFeatures { buildConfig = true }
 
     targetProjectPath = ":composeApp"
     experimentalProperties["android.experimental.self-instrumenting"] = true
@@ -24,6 +31,12 @@ android {
     buildTypes {
         create("benchmark") {
             isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
+        create("profile") {
+            isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
         }
     }

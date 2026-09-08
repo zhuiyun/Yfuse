@@ -1,5 +1,6 @@
 package com.yfuse.macrobenchmark
 
+import androidx.benchmark.macro.BaselineProfileMode
 import androidx.benchmark.macro.CompilationMode
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.StartupMode
@@ -22,30 +23,15 @@ class HomeJourneyBenchmark {
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
             metrics = listOf(FrameTimingMetric()),
-            compilationMode = CompilationMode.Partial(),
+            compilationMode = CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3),
             iterations = 5,
             startupMode = StartupMode.WARM,
             setupBlock = {
                 pressHome()
-                startActivityAndWait()
-                device.waitForIdle()
+                startHomeFixture()
             },
             measureBlock = {
-                repeat(3) {
-                    device.swipe(
-                        device.displayWidth / 2,
-                        device.displayHeight * 3 / 4,
-                        device.displayWidth / 2,
-                        device.displayHeight / 4,
-                        SWIPE_STEPS,
-                    )
-                    device.waitForIdle()
-                }
+                scrollHomeJourney()
             },
         )
-
-    private companion object {
-        const val TARGET_PACKAGE = "com.yfuse"
-        const val SWIPE_STEPS = 18
-    }
 }

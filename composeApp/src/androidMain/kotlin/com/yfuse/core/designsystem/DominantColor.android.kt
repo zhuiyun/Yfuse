@@ -1,15 +1,15 @@
 package com.yfuse.core.designsystem
 
+import android.annotation.SuppressLint
+import android.content.Context
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.palette.graphics.Palette
 import coil3.BitmapImage
@@ -17,69 +17,32 @@ import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
+import coil3.size.Precision
+import coil3.size.Scale
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import android.graphics.Color as AndroidColor
+
+private val artworkColors = ArtworkColorCache(CoroutineScope(SupervisorJob() + Dispatchers.Default))
 
 @Composable
 actual fun rememberDominantColor(
     url: String?,
     fallback: Color,
 ): Color {
-    val context = LocalContext.current
-    // Detail routes intentionally share one SaveableStateProvider key. A saveable value at this
-    // slot can therefore restore the previous title's colour before [url] is evaluated. Keep the
-    // result with this live image request instead; the retained route still preserves it on back.
-    var colorArgb by remember(url) { mutableIntStateOf(fallback.toArgb()) }
-
-    LaunchedEffect(url) {
-        if (url.isNullOrBlank()) return@LaunchedEffect
-        val extracted =
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    // Hardware bitmaps cannot be read back by Palette.
-                    val request =
-                        ImageRequest
-                            .Builder(context)
-                            .data(url)
-                            .allowHardware(false)
-                            .build()
-                    val image = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)?.image
-                    val bitmap = (image as? BitmapImage)?.bitmap ?: return@runCatching null
-                    val palette =
-                        Palette
-                            .from(bitmap)
-                            // Keep Palette's default black/white/red-I-line filters. clearFilters()
-                            // made subtitles, letterboxing and faces win over the artwork colour.
-                            .maximumColorCount(24)
-                            .generate()
-                    val largestPopulation =
-                        palette.swatches
-                            .maxOfOrNull { it.population }
-                            ?.coerceAtLeast(1)
-                            ?: 1
-                    palette.swatches
-                        .asSequence()
-                        .filter { swatch ->
-                            val hsl = swatch.hsl
-                            hsl[1] >= 0.20f && hsl[2] in 0.16f..0.82f
-                        }.maxByOrNull { swatch ->
-                            val hsl = swatch.hsl
-                            val population = swatch.population.toFloat() / largestPopulation
-                            val usefulLightness = 1f - kotlin.math.abs(hsl[2] - 0.52f)
-                            hsl[1] * 0.55f + population * 0.30f + usefulLightness * 0.15f
-                        }?.rgb
-                        ?: palette.vibrantSwatch?.rgb
-                        ?: palette.dominantSwatch?.rgb
-                        ?: palette.mutedSwatch?.rgb
-                }.getOrNull()
-            }
-        if (extracted != null) colorArgb = extracted
-    }
-
-    return Color(colorArgb)
+    // Android Lint resolves this commonMain return type as Unit; retain the typed cached value.
+    @SuppressLint("RememberReturnType")
+    val key: ArtworkColorKey? =
+        remember<ArtworkColorKey?>(url) {
+            url?.takeIf(String::isNotBlank)?.let { ArtworkColorKey(it, ArtworkColorSample.Dominant) }
+        }
+    return rememberExtractedArtworkColor(key)?.let { Color(it) } ?: fallback
 }
 
 @Composable
@@ -88,29 +51,87 @@ actual fun rememberArtworkPageColor(
     targetAspectRatio: Float,
     fadeFraction: Float,
 ): Color? {
-    val context = LocalContext.current
-    var colorArgb by remember(url, targetAspectRatio, fadeFraction) { mutableStateOf<Int?>(null) }
+    // Android Lint resolves this commonMain return type as Unit; retain the typed cached value.
+    @SuppressLint("RememberReturnType")
+    val key: ArtworkColorKey? =
+        remember<ArtworkColorKey?>(url, targetAspectRatio, fadeFraction) {
+            url?.takeIf(String::isNotBlank)?.let { artworkPageColorKey(it, targetAspectRatio, fadeFraction) }
+        }
+    return rememberExtractedArtworkColor(key)?.let { Color(it) }
+}
 
-    LaunchedEffect(url, targetAspectRatio, fadeFraction) {
-        if (url.isNullOrBlank()) return@LaunchedEffect
-        val extracted =
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    val request =
-                        ImageRequest
-                            .Builder(context)
-                            .data(url)
-                            .allowHardware(false)
-                            .build()
-                    val image = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)?.image
-                    val bitmap = (image as? BitmapImage)?.bitmap ?: return@runCatching null
-                    bitmap.weightedArtworkPageColor(targetAspectRatio, fadeFraction)
-                }.getOrNull()
+@Composable
+private fun rememberExtractedArtworkColor(key: ArtworkColorKey?): Int? {
+    val context = LocalContext.current.applicationContext
+    val visible = LocalRouteVisible.current
+    // Retained routes keep their result. A new image starts empty, even under a shared saveable slot.
+    var colorArgb by remember(key) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(key, visible) {
+        if (key == null || !visible || colorArgb != null) return@LaunchedEffect
+        colorArgb = artworkColors.get(key) { extractArtworkColor(context, key) }
+    }
+    return colorArgb
+}
+
+/** FIT retains the full source aspect ratio so centre-crop and bottom-fade sampling are unchanged. */
+internal fun artworkColorImageRequest(
+    context: Context,
+    url: String,
+): ImageRequest =
+    ImageRequest
+        .Builder(context)
+        .data(url)
+        .size(256, 256)
+        .scale(Scale.FIT)
+        .precision(Precision.EXACT)
+        // Only this bounded sampling bitmap needs CPU pixels; display requests stay hardware-capable.
+        .allowHardware(false)
+        .build()
+
+private suspend fun extractArtworkColor(
+    context: Context,
+    key: ArtworkColorKey,
+): Int? =
+    try {
+        val result = SingletonImageLoader.get(context).execute(artworkColorImageRequest(context, key.url))
+        val bitmap = ((result as? SuccessResult)?.image as? BitmapImage)?.bitmap
+        val extractionContext = currentCoroutineContext()
+        extractionContext.ensureActive()
+        val value =
+            bitmap?.let {
+                when (key.sample) {
+                    ArtworkColorSample.Dominant -> it.dominantArtworkColor()
+                    ArtworkColorSample.PageFade ->
+                        it.weightedArtworkPageColor(key.aspectRatio, key.fadeFraction) {
+                            extractionContext.ensureActive()
+                        }
+                }
             }
-        if (extracted != null) colorArgb = extracted
+        extractionContext.ensureActive()
+        value
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
     }
 
-    return colorArgb?.let { Color(it) }
+internal fun Bitmap.dominantArtworkColor(): Int? {
+    val palette =
+        Palette
+            .from(this)
+            // Preserve Palette's filters: subtitles, black bars and skin must not become the accent.
+            .maximumColorCount(24)
+            .generate()
+    val largestPopulation = palette.swatches.maxOfOrNull { it.population }?.coerceAtLeast(1) ?: 1
+    return palette.swatches
+        .asSequence()
+        .filter { swatch -> swatch.hsl[1] >= 0.20f && swatch.hsl[2] in 0.16f..0.82f }
+        .maxByOrNull { swatch ->
+            val hsl = swatch.hsl
+            val population = swatch.population.toFloat() / largestPopulation
+            val usefulLightness = 1f - kotlin.math.abs(hsl[2] - 0.52f)
+            hsl[1] * 0.55f + population * 0.30f + usefulLightness * 0.15f
+        }?.rgb ?: palette.vibrantSwatch?.rgb ?: palette.dominantSwatch?.rgb ?: palette.mutedSwatch?.rgb
 }
 
 private data class BitmapCrop(
@@ -145,9 +166,10 @@ private fun Bitmap.centerCrop(targetAspectRatio: Float): BitmapCrop {
  * are ignored only when almost the entire row is neutral black; varied dark artwork remains
  * valid source material. If the whole region really is black, a second pass retains it.
  */
-private fun Bitmap.weightedArtworkPageColor(
+internal fun Bitmap.weightedArtworkPageColor(
     targetAspectRatio: Float,
     fadeFraction: Float,
+    checkActive: () -> Unit = {},
 ): Int? {
     if (width <= 0 || height <= 0) return null
     val crop = centerCrop(targetAspectRatio)
@@ -155,14 +177,15 @@ private fun Bitmap.weightedArtworkPageColor(
     val safeFadeFraction = fadeFraction.takeIf(Float::isFinite)?.coerceIn(0.02f, 1f) ?: 0.25f
     val fadeTop = crop.bottom - visibleHeight * safeFadeFraction
 
-    return sampleArtworkFade(crop, fadeTop, skipLetterboxRows = true)
-        ?: sampleArtworkFade(crop, fadeTop, skipLetterboxRows = false)
+    return sampleArtworkFade(crop, fadeTop, skipLetterboxRows = true, checkActive)
+        ?: sampleArtworkFade(crop, fadeTop, skipLetterboxRows = false, checkActive)
 }
 
 private fun Bitmap.sampleArtworkFade(
     crop: BitmapCrop,
     fadeTop: Float,
     skipLetterboxRows: Boolean,
+    checkActive: () -> Unit,
 ): Int? {
     val sampleColumns = minOf(72, (crop.right - crop.left).roundToInt().coerceAtLeast(1))
     val sampleRows = minOf(48, (crop.bottom - fadeTop).roundToInt().coerceAtLeast(1))
@@ -170,14 +193,15 @@ private fun Bitmap.sampleArtworkFade(
     var greenLinear = 0.0
     var blueLinear = 0.0
     var totalWeight = 0.0
+    val pixels = IntArray(sampleColumns)
 
     repeat(sampleRows) { row ->
+        checkActive()
         val fadeProgress = (row + 0.5f) / sampleRows
         val y =
             (fadeTop + (crop.bottom - fadeTop) * fadeProgress)
                 .toInt()
                 .coerceIn(0, height - 1)
-        val pixels = IntArray(sampleColumns)
         var opaquePixels = 0
         var neutralBlackPixels = 0
 

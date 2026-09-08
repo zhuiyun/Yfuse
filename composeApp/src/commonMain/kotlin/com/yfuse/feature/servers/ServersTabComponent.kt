@@ -9,7 +9,6 @@ import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.LibraryCache
 import com.yfuse.core.data.ServerActivityStore
 import com.yfuse.core.data.ServerHealthMonitor
-import com.yfuse.core.data.ServerManagementSnapshot
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.ServerStatsStore
 import com.yfuse.core.data.ThemePreferences
@@ -17,11 +16,6 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.util.componentScope
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,27 +24,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-sealed interface ServerManagementUiState {
-    data object Idle : ServerManagementUiState
-
-    data class Loading(
-        val serverId: String,
-    ) : ServerManagementUiState
-
-    data class Ready(
-        val serverId: String,
-        val snapshot: ServerManagementSnapshot,
-        val busyId: String? = null,
-        val message: String? = null,
-        val error: String? = null,
-    ) : ServerManagementUiState
-
-    data class Error(
-        val serverId: String,
-        val message: String,
-    ) : ServerManagementUiState
-}
 
 /**
  * The 服务器 tab — the saved servers as a grid, and everything one can do to one of them.
@@ -100,12 +73,11 @@ class ServersTabComponent(
         ServerRefreshController(scope) {
             val servers = registry.data.value.servers
             val healthResults = health.refreshAllResults(servers)
-            val statsResults = coroutineScope { refreshStats(this, servers) }
+            val statsResults = refreshStats(servers.map { it.id })
             summarizeServerRefresh(servers.map { it.id }, healthResults, statsResults)
         }
 
     private val _listFilter = MutableStateFlow(ServerListFilter())
-    private val _management = MutableStateFlow<ServerManagementUiState>(ServerManagementUiState.Idle)
 
     /** Sorting, latency and account filtering stay with this tab while the app is alive. */
     val listFilter: StateFlow<ServerListFilter> = _listFilter.asStateFlow()
@@ -119,66 +91,46 @@ class ServersTabComponent(
             .map { it.refreshing }
             .stateIn(scope, SharingStarted.Eagerly, false)
 
-    val management: StateFlow<ServerManagementUiState> = _management.asStateFlow()
+    private fun currentServer(id: String): SavedServer? =
+        registry.data.value.servers
+            .firstOrNull { it.id == id }
 
-    fun loadManagement(server: SavedServer) {
-        _management.value = ServerManagementUiState.Loading(server.id)
-        scope.launch {
-            repo.serverManagement(server).fold(
-                onSuccess = { snapshot ->
-                    _management.value = ServerManagementUiState.Ready(server.id, snapshot)
-                },
-                onFailure = {
-                    _management.value =
-                        ServerManagementUiState.Error(server.id, it.message ?: "读取服务器管理信息失败")
-                },
-            )
-        }
-    }
+    private val managementController = ServerManagementController(scope, ::currentServer, repo::serverManagement)
+    val management: StateFlow<ServerManagementUiState> = managementController.state
 
-    fun closeManagement() {
-        _management.value = ServerManagementUiState.Idle
-    }
+    fun loadManagement(server: SavedServer) = managementController.open(server.id)
+
+    fun closeManagement() = managementController.close()
 
     fun refreshManagedLibrary(
         server: SavedServer,
         libraryId: String,
+        sessionId: Long,
     ) {
-        val ready = _management.value as? ServerManagementUiState.Ready ?: return
-        _management.value = ready.copy(busyId = "library:$libraryId", message = null, error = null)
-        scope.launch {
-            repo.refreshLibrary(server, libraryId).fold(
-                onSuccess = {
-                    val libraryName =
-                        ready.snapshot.libraries
-                            .firstOrNull { library -> library.id == libraryId }
-                            ?.name
-                            ?: libraryId
-                    _management.value =
-                        ready.copy(message = "已提交媒体库扫描任务：$libraryName")
-                },
-                onFailure = {
-                    _management.value = ready.copy(error = it.message ?: "媒体库扫描启动失败")
-                },
-            )
+        managementController.submit(
+            server.id,
+            sessionId,
+            "library:$libraryId",
+            accepts = { it.libraries.any { library -> library.id == libraryId } },
+        ) { target ->
+            repo.refreshLibrary(target, libraryId).map {
+                ServerManagementActionResult("已提交媒体库扫描任务")
+            }
         }
     }
 
     fun runManagedTask(
         server: SavedServer,
         taskId: String,
+        sessionId: Long,
     ) {
-        val ready = _management.value as? ServerManagementUiState.Ready ?: return
-        _management.value = ready.copy(busyId = "task:$taskId", message = null, error = null)
-        scope.launch {
-            repo.runServerTask(server, taskId).fold(
-                onSuccess = {
-                    _management.value = ready.copy(message = "服务器任务已启动")
-                },
-                onFailure = {
-                    _management.value = ready.copy(error = it.message ?: "服务器任务启动失败")
-                },
-            )
+        managementController.submit(
+            server.id,
+            sessionId,
+            "task:$taskId",
+            accepts = { it.supportsScheduledTasks && it.tasks.any { task -> task.id == taskId } },
+        ) { target ->
+            repo.runServerTask(target, taskId).map { ServerManagementActionResult("服务器任务已启动") }
         }
     }
 
@@ -186,28 +138,26 @@ class ServersTabComponent(
         server: SavedServer,
         userId: String,
         pin: String,
+        sessionId: Long,
     ) {
-        val ready = _management.value as? ServerManagementUiState.Ready ?: return
-        _management.value = ready.copy(busyId = "home:$userId", message = null, error = null)
-        scope.launch {
-            repo.switchPlexServerHomeUser(server, userId, pin).fold(
-                onSuccess = { authenticated ->
-                    val replacement =
-                        authenticated.toSavedServer(
-                            serverName = server.serverName,
-                            localCleartextConfirmed = server.localCleartextConfirmed,
-                        )
-                    if (!registry.replace(server.id, replacement)) {
-                        _management.value = ready.copy(error = "服务器已不存在，请重新打开管理中心")
-                        return@fold
-                    }
-                    val updated = registry.serverById(replacement.id) ?: replacement
-                    loadManagement(updated)
-                },
-                onFailure = {
-                    _management.value = ready.copy(error = it.message ?: "Plex Home 用户切换失败")
-                },
-            )
+        managementController.submit(
+            server.id,
+            sessionId,
+            "home:$userId",
+            accepts = { it.supportsPlexHomeSwitch && it.plexHomeUsers.any { user -> user.id == userId } },
+        ) { target ->
+            repo.switchPlexServerHomeUser(target, userId, pin).mapCatching { authenticated ->
+                // This action was accepted for target, even if a different panel is now visible.
+                val current = currentServer(target.id)
+                check(current?.sameManagementAccount(target) == true) { "服务器会话已改变，请重新打开管理中心" }
+                val replacement =
+                    authenticated.toSavedServer(
+                        serverName = current.serverName,
+                        localCleartextConfirmed = current.localCleartextConfirmed,
+                    )
+                check(registry.replace(target.id, replacement)) { "服务器已不存在，请重新打开管理中心" }
+                ServerManagementActionResult("Plex Home 用户已切换", replacement.id)
+            }
         }
     }
 
@@ -236,7 +186,7 @@ class ServersTabComponent(
     fun refreshHealth(server: SavedServer) {
         scope.launch {
             health.refresh(server)
-            refreshStats(this, listOf(server))
+            refreshStats(listOf(server.id))
         }
     }
 
@@ -252,26 +202,12 @@ class ServersTabComponent(
             val missing =
                 registry.data.value.servers
                     .filter { stats.statsFor(it.id) == null }
-            if (missing.isNotEmpty()) refreshStats(this, missing)
+            if (missing.isNotEmpty()) refreshStats(missing.map { it.id })
         }
     }
 
-    private suspend fun refreshStats(
-        scope: CoroutineScope,
-        servers: List<SavedServer>,
-    ): Map<String, Result<Unit>> =
-        servers
-            .map { server ->
-                scope.async {
-                    val result =
-                        repo
-                            .itemCounts(server)
-                            .onFailure { if (it is CancellationException) throw it }
-                            .onSuccess { stats.record(server.id, it) }
-                    server.id to result.map { Unit }
-                }
-            }.awaitAll()
-            .toMap()
+    private suspend fun refreshStats(serverIds: List<String>): Map<String, Result<Unit>> =
+        refreshCurrentServerStats(serverIds, ::currentServer, repo::itemCounts, stats::record)
 
     /** Saves an edited route list, then re-probes so the new addresses report immediately. */
     fun setRoutes(
@@ -310,6 +246,7 @@ class ServersTabComponent(
      * server that no longer exists.
      */
     fun removeServer(id: String) {
+        managementController.closeIfServer(id)
         store.accept(ServersIntent.Remove(id))
         libraryCache.clear(id)
         val remaining =

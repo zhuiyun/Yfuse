@@ -51,6 +51,7 @@ import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.offline.DownloadStatus
+import com.yfuse.core.offline.OfflineIndexStatus
 import com.yfuse.core.offline.OfflineMedia
 import com.yfuse.core.offline.OfflineMediaManager
 import com.yfuse.core.offline.OfflineQueueSummary
@@ -115,6 +116,8 @@ internal fun DownloadsScreen(
     val wifiOnly by manager.wifiOnly.collectAsState()
     val policy by manager.policy.collectAsState()
     val autoDownloadRuleCount by manager.autoDownloadRuleCount.collectAsState()
+    val operationError by manager.operationError.collectAsState()
+    val indexStatus by manager.indexStatus.collectAsState()
     val pickStorageDirectory =
         rememberOfflineStorageDirectoryPicker { treeUri, label ->
             manager.setStorageDirectory(treeUri, label)
@@ -151,7 +154,11 @@ internal fun DownloadsScreen(
                     // over two wrapped lines, which on an empty queue was five zeros and a
                     // "0 B 离线文件" — the page opened by telling the reader nothing, at length.
                     Text(
-                        downloadSummaryLine(summary),
+                        when (indexStatus) {
+                            OfflineIndexStatus.Loading -> "正在读取下载记录…"
+                            OfflineIndexStatus.Failed -> "下载记录暂不可用"
+                            OfflineIndexStatus.Ready -> downloadSummaryLine(summary)
+                        },
                         style = AppTypography.caption.medium,
                         color = palette.sub2,
                         maxLines = 1,
@@ -177,6 +184,33 @@ internal fun DownloadsScreen(
                                         }
                                 }.touchTarget()
                                 .padding(horizontal = 8.dp),
+                    )
+                }
+            }
+        }
+
+        operationError?.let { message ->
+            item(key = "download-operation-error") {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        message,
+                        modifier = Modifier.weight(1f),
+                        style = AppTypography.caption.medium,
+                        color = palette.error,
+                    )
+                    Text(
+                        "关闭",
+                        style = AppTypography.caption.strong,
+                        color = accent,
+                        modifier =
+                            Modifier
+                                .pressable(
+                                    onClick = manager::clearOperationError,
+                                ).touchTarget()
+                                .padding(8.dp),
                     )
                 }
             }
@@ -375,13 +409,13 @@ internal fun DownloadsScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         BatchAction("暂停", Modifier.fillMaxWidth()) {
-                            selectedItems.forEach { manager.pause(it.id) }
+                            manager.pauseMany(selectedItems.map(OfflineMedia::id))
                         }
                         BatchAction("继续/重试", Modifier.fillMaxWidth()) {
-                            selectedItems.forEach { manager.resume(it.id) }
+                            manager.resumeMany(selectedItems.map(OfflineMedia::id))
                         }
                         BatchAction("删除", Modifier.fillMaxWidth(), danger = true) {
-                            selectedItems.forEach { manager.remove(it.id) }
+                            manager.removeMany(selectedItems.map(OfflineMedia::id))
                             selected = emptySet()
                         }
                     }
@@ -391,13 +425,13 @@ internal fun DownloadsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         BatchAction("暂停", Modifier.weight(1f)) {
-                            selectedItems.forEach { manager.pause(it.id) }
+                            manager.pauseMany(selectedItems.map(OfflineMedia::id))
                         }
                         BatchAction("继续/重试", Modifier.weight(1f)) {
-                            selectedItems.forEach { manager.resume(it.id) }
+                            manager.resumeMany(selectedItems.map(OfflineMedia::id))
                         }
                         BatchAction("删除", Modifier.weight(1f), danger = true) {
-                            selectedItems.forEach { manager.remove(it.id) }
+                            manager.removeMany(selectedItems.map(OfflineMedia::id))
                             selected = emptySet()
                         }
                     }
@@ -414,7 +448,12 @@ internal fun DownloadsScreen(
                     Icon(AppIcons.Download, null, tint = palette.hint, modifier = Modifier.size(30.dp))
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        if (items.isEmpty()) "还没有下载任务\n在详情页选择下载后会出现在这里" else "当前筛选没有任务",
+                        when {
+                            indexStatus == OfflineIndexStatus.Loading -> "正在读取下载记录…"
+                            indexStatus == OfflineIndexStatus.Failed -> "请检查存储后重新打开应用"
+                            items.isEmpty() -> "还没有下载任务\n在详情页选择下载后会出现在这里"
+                            else -> "当前筛选没有任务"
+                        },
                         style = AppTypography.body.regular,
                         color = palette.hint,
                     )

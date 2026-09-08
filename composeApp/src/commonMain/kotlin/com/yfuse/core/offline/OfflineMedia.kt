@@ -619,23 +619,39 @@ internal fun summarizeOfflineQueue(items: List<OfflineMedia>): OfflineQueueSumma
                 .sumOf(OfflineMedia::downloadedBytes),
     )
 
+enum class OfflineIndexStatus { Loading, Ready, Failed }
+
 interface OfflineMediaManager {
+    val indexStatus: StateFlow<OfflineIndexStatus>
     val items: StateFlow<List<OfflineMedia>>
     val wifiOnly: StateFlow<Boolean>
     val policy: StateFlow<OfflineDownloadPolicy>
     val autoDownloadRuleCount: StateFlow<Int>
+    val operationError: StateFlow<String?>
+
+    fun clearOperationError()
 
     fun enqueue(request: OfflineDownloadRequest)
 
+    /** One accepted command and one durable commit for an entire season selection. */
+    fun enqueueAll(requests: List<OfflineDownloadRequest>)
+
     fun pause(id: String)
+
+    /** Submit the selected IDs as one command, even when the selection exceeds queue capacity. */
+    fun pauseMany(ids: List<String>)
 
     fun pauseAll()
 
     fun resume(id: String)
 
+    fun resumeMany(ids: List<String>)
+
     fun resumeAll()
 
     fun remove(id: String)
+
+    fun removeMany(ids: List<String>)
 
     fun setWifiOnly(value: Boolean)
 

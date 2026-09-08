@@ -27,7 +27,6 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.min
 
@@ -40,7 +39,7 @@ import kotlin.math.min
  */
 @OptIn(UnstableApi::class)
 internal class AndroidPlaybackHttpProxy(
-    context: Context,
+    context: Context?,
     private val userAgent: String,
     videoCacheBytes: Long,
 ) : Closeable {
@@ -52,8 +51,27 @@ internal class AndroidPlaybackHttpProxy(
     private val routes = ConcurrentHashMap<String, Route>()
     private val routeIds = ConcurrentHashMap<Route, String>()
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ALL)
-    private val cacheHandle = VideoCachePool.acquire(context.applicationContext, videoCacheBytes)
+    private val cacheHandle =
+        if (videoCacheBytes >
+            0L
+        ) {
+            VideoCachePool.acquire(requireNotNull(context).applicationContext, videoCacheBytes)
+        } else {
+            null
+        }
     private val closed = AtomicBoolean(false)
+    private val routeLock = Any()
+    private val requests =
+        PlaybackProxyRequests {
+            runCatching { cacheHandle?.close() }.onFailure { error ->
+                AppLog.warning(
+                    "player.network",
+                    "cache_proxy_release_failed",
+                    "Could not release playback cache ownership",
+                    error,
+                )
+            }
+        }
     private val workers: ExecutorService =
         Executors.newCachedThreadPool { runnable ->
             Thread(runnable, "Yfuse-PlaybackHttpProxy-worker").apply { isDaemon = true }
@@ -72,35 +90,57 @@ internal class AndroidPlaybackHttpProxy(
         upstreamUrl: String,
         cacheable: Boolean = false,
     ): String {
-        if (!shouldProxyMpvNetworkUrl(upstreamUrl) || closed.get()) return upstreamUrl
-        val route = Route(upstreamUrl = upstreamUrl, cacheable = cacheable)
-        val routeId =
-            routeIds.computeIfAbsent(route) {
-                UUID.randomUUID().toString().replace("-", "")
-            }
-        routes[routeId] = route
-        return "http://$LOOPBACK_HOST:$port/$ROUTE_PREFIX/$routeId"
+        if (!shouldProxyMpvNetworkUrl(upstreamUrl)) return upstreamUrl
+        return synchronized(routeLock) {
+            if (closed.get()) return@synchronized upstreamUrl
+            val route = Route(upstreamUrl = upstreamUrl, cacheable = cacheable)
+            val routeId = routeIds.computeIfAbsent(route) { UUID.randomUUID().toString().replace("-", "") }
+            routes[routeId] = route
+            "http://$LOOPBACK_HOST:$port/$ROUTE_PREFIX/$routeId"
+        }
     }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         runCatching { server.close() }
+        requests.close()
         workers.shutdownNow()
-        runCatching { workers.awaitTermination(WORKER_SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
-        cacheHandle?.close()
-        routes.clear()
-        routeIds.clear()
+        // A DefaultHttpDataSource open cannot always be interrupted. Its worker retains the
+        // cache lease until its existing timeout/finally completes; release never waits for it.
+        synchronized(routeLock) {
+            routes.clear()
+            routeIds.clear()
+        }
     }
 
     private fun acceptLoop() {
         while (!closed.get()) {
             val socket = runCatching { server.accept() }.getOrNull() ?: break
-            runCatching { workers.execute { socket.use(::serve) } }
-                .onFailure { runCatching { socket.close() } }
+            val request = requests.register(socket) ?: continue
+            runCatching {
+                workers.execute {
+                    try {
+                        request.ensureOpen()
+                        serve(request)
+                    } catch (error: Exception) {
+                        if (!request.isCancelled) {
+                            AppLog.warning(
+                                "player.network",
+                                "proxy_client_failed",
+                                "Playback proxy client request failed",
+                                error,
+                            )
+                        }
+                    } finally {
+                        requests.finish(request)
+                    }
+                }
+            }.onFailure { requests.finish(request) }
         }
     }
 
-    private fun serve(socket: Socket) {
+    private fun serve(request: PlaybackProxyRequest) {
+        val socket = request.socket
         socket.soTimeout = CLIENT_SOCKET_TIMEOUT_MS
         val reader =
             BufferedReader(
@@ -127,19 +167,22 @@ internal class AndroidPlaybackHttpProxy(
                     line.substring(separator + 1).trim().take(MAX_REQUEST_HEADER_LENGTH)
             }
         }
+        request.ensureOpen()
 
         if (method == "GET" && route.cacheable && cacheHandle != null) {
-            serveCached(socket, route, requestHeaders)
+            serveCached(request, route, requestHeaders)
         } else {
-            servePlatform(socket, route, method, requestHeaders)
+            servePlatform(request, route, method, requestHeaders)
         }
     }
 
     private fun serveCached(
-        socket: Socket,
+        request: PlaybackProxyRequest,
         route: Route,
         requestHeaders: Map<String, String>,
     ) {
+        val socket = request.socket
+        request.ensureOpen()
         val rawRange = requestHeaders["range"]
         val range = parsePlaybackHttpByteRange(rawRange)
         val knownLength = cachedContentLength(route.upstreamUrl)
@@ -194,6 +237,7 @@ internal class AndroidPlaybackHttpProxy(
                     .setHttpRequestHeaders(requestProperties)
                     .build()
             val openedLength = dataSource.open(dataSpec)
+            request.ensureOpen()
             val responseHeaders = dataSource.responseHeaders
             runCatching { cookieManager.put(upstreamUri, responseHeaders) }
 
@@ -238,12 +282,12 @@ internal class AndroidPlaybackHttpProxy(
             responseStarted = true
             copyDataSource(
                 dataSource = dataSource,
-                socket = socket,
+                request = request,
                 contentLength = contentLength,
             )
             socket.getOutputStream().flush()
         } catch (error: HttpDataSource.InvalidResponseCodeException) {
-            if (!responseStarted) {
+            if (!request.isCancelled && !responseStarted) {
                 if (error.responseCode == 416) {
                     writeRangeNotSatisfiable(socket, knownLength)
                 } else {
@@ -251,6 +295,7 @@ internal class AndroidPlaybackHttpProxy(
                 }
             }
         } catch (error: Exception) {
+            if (request.isCancelled) return
             AppLog.warning(
                 category = "player.network",
                 event = "cache_proxy_failed",
@@ -265,14 +310,16 @@ internal class AndroidPlaybackHttpProxy(
     }
 
     private fun servePlatform(
-        socket: Socket,
+        request: PlaybackProxyRequest,
         route: Route,
         method: String,
         requestHeaders: Map<String, String>,
     ) {
+        val socket = request.socket
         val upstreamUri = URI(route.upstreamUrl)
         val connection = URL(route.upstreamUrl).openConnection() as HttpURLConnection
         try {
+            request.attachUpstreamCancellation(connection::disconnect)
             connection.instanceFollowRedirects = true
             connection.connectTimeout = UPSTREAM_CONNECT_TIMEOUT_MS
             connection.readTimeout = UPSTREAM_READ_TIMEOUT_MS
@@ -291,7 +338,9 @@ internal class AndroidPlaybackHttpProxy(
                 ?.takeIf(List<String>::isNotEmpty)
                 ?.let { connection.setRequestProperty("Cookie", it.joinToString("; ")) }
 
+            request.ensureOpen()
             val status = connection.responseCode
+            request.ensureOpen()
             runCatching { cookieManager.put(upstreamUri, connection.headerFields) }
             val body = responseBody(connection)
             val manifest = method == "GET" && connection.isHlsManifest(route.upstreamUrl)
@@ -311,6 +360,7 @@ internal class AndroidPlaybackHttpProxy(
             }
             socket.getOutputStream().flush()
         } catch (error: Exception) {
+            if (request.isCancelled) return
             AppLog.warning(
                 category = "player.network",
                 event = "platform_proxy_failed",
@@ -335,13 +385,14 @@ internal class AndroidPlaybackHttpProxy(
 
     private fun copyDataSource(
         dataSource: CacheDataSource,
-        socket: Socket,
+        request: PlaybackProxyRequest,
         contentLength: Long,
     ) {
-        val output = socket.getOutputStream()
+        val output = request.socket.getOutputStream()
         val buffer = ByteArray(NETWORK_BUFFER_BYTES)
         var remaining = contentLength
         while (remaining != 0L) {
+            request.ensureOpen()
             val requested =
                 if (remaining == UNKNOWN_LENGTH) {
                     buffer.size
@@ -349,6 +400,7 @@ internal class AndroidPlaybackHttpProxy(
                     min(buffer.size.toLong(), remaining).toInt()
                 }
             val read = dataSource.read(buffer, 0, requested)
+            request.ensureOpen()
             if (read == C.RESULT_END_OF_INPUT) break
             output.write(buffer, 0, read)
             if (remaining != UNKNOWN_LENGTH) remaining -= read.toLong()
@@ -527,7 +579,6 @@ private const val ROUTE_PREFIX = "yfuse-media"
 private const val CLIENT_SOCKET_TIMEOUT_MS = 30_000
 private const val UPSTREAM_CONNECT_TIMEOUT_MS = 15_000
 private const val UPSTREAM_READ_TIMEOUT_MS = 30_000
-private const val WORKER_SHUTDOWN_TIMEOUT_MS = 2_000L
 private const val UNKNOWN_LENGTH = -1L
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024

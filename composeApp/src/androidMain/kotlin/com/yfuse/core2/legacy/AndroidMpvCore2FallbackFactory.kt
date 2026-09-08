@@ -1,11 +1,13 @@
 package com.yfuse.core2.legacy
 
 import android.content.Context
+import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core2.android.AndroidCore2DiscRouteFactory
 import com.yfuse.core2.android.AndroidCore2FallbackRouteFactory
 import com.yfuse.core2.android.AndroidExternalSubtitleLoader
+import com.yfuse.core2.android.AndroidLoadedExternalSubtitle
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
 import com.yfuse.core2.android.EXTERNAL_SUBTITLE_TRACK_ID
 import com.yfuse.core2.api.YMediaItem
@@ -13,6 +15,7 @@ import com.yfuse.core2.api.YPlaybackRoute
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.YPlayerState
+import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.capability.YHdrType
@@ -24,13 +27,20 @@ import com.yfuse.feature.player.EngineTrack
 import com.yfuse.feature.player.MpvVideoEngine
 import com.yfuse.feature.player.PlayerMediaItem
 import com.yfuse.feature.player.PlayerMediaVersion
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /**
  * Executes Core2's production compatibility tiers through the bundled, verified libmpv runtime.
@@ -101,9 +111,20 @@ private class AndroidMpvCore2FallbackPlayer(
     optimizationMode: PlaybackOptimizationMode,
 ) : YPlayer {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val externalSubtitle =
+    private val subtitleRevision = MutableStateFlow(0L)
+
+    @Volatile
+    private var externalSubtitle =
         item.externalSubtitle?.let { source ->
-            runCatching { AndroidExternalSubtitleLoader(context).load(source, item.headers) }.getOrNull()
+            AndroidLoadedExternalSubtitle(
+                YTrack(
+                    EXTERNAL_SUBTITLE_TRACK_ID,
+                    YTrackType.Subtitle,
+                    source.language ?: "External subtitle",
+                    source.language,
+                ),
+                emptyList(),
+            )
         }
 
     @Volatile
@@ -142,7 +163,7 @@ private class AndroidMpvCore2FallbackPlayer(
     private val delegate = LegacyYPlayerAdapter(engine)
 
     override val state: StateFlow<YPlayerState> =
-        MappedFallbackStateFlow(delegate.state) { state ->
+        MappedFallbackStateFlow(delegate.state, subtitleRevision) { state ->
             state.copy(
                 subtitleTracks =
                     state.subtitleTracks.map { track ->
@@ -163,6 +184,32 @@ private class AndroidMpvCore2FallbackPlayer(
                     ),
             )
         }
+
+    init {
+        item.externalSubtitle?.let { source ->
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val loaded = AndroidExternalSubtitleLoader(context).load(source, item.headers)
+                    currentCoroutineContext().ensureActive()
+                    externalSubtitle = loaded
+                    subtitleRevision.update { it + 1L }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    currentCoroutineContext().ensureActive()
+                    externalSubtitle = null
+                    externalSubtitleSelected = false
+                    subtitleRevision.update { it + 1L }
+                    AppLog.warning(
+                        category = "player.core2",
+                        event = "external_subtitle_load_failed",
+                        message = "Compatibility subtitle failed; playback continues",
+                        attributes = mapOf("exceptionType" to error.javaClass.simpleName),
+                    )
+                }
+            }
+        }
+    }
 
     override val playbackRequested: Boolean get() = delegate.playbackRequested
 
@@ -209,6 +256,7 @@ private class AndroidMpvCore2FallbackPlayer(
                 delegate.selectTrack(type, id)
             }
         }
+        subtitleRevision.update { it + 1L }
     }
 
     override fun selectItem(index: Int) = delegate.selectItem(index)
@@ -225,9 +273,9 @@ private class AndroidMpvCore2FallbackPlayer(
     override fun retry() = delegate.retry()
 
     override fun release() {
+        scope.cancel()
         engine.detach()
         delegate.release()
-        scope.cancel()
     }
 }
 
@@ -251,14 +299,17 @@ internal fun resolvedMpvFallbackRoute(
 @OptIn(ExperimentalForInheritanceCoroutinesApi::class)
 private class MappedFallbackStateFlow(
     private val source: StateFlow<YPlayerState>,
+    private val revision: StateFlow<Long>,
     private val transform: (YPlayerState) -> YPlayerState,
 ) : StateFlow<YPlayerState> {
     override val value: YPlayerState get() = transform(source.value)
 
     override val replayCache: List<YPlayerState> get() = listOf(value)
 
-    override suspend fun collect(collector: FlowCollector<YPlayerState>): Nothing =
-        source.collect { value -> collector.emit(transform(value)) }
+    override suspend fun collect(collector: FlowCollector<YPlayerState>): Nothing {
+        combine(source, revision) { value, _ -> transform(value) }.collect { collector.emit(it) }
+        error("Playback state flows must not complete")
+    }
 }
 
 private const val USER_AGENT_HEADER = "User-Agent"

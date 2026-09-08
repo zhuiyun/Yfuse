@@ -4,11 +4,17 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.SystemClock
 import androidx.media3.common.C
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.LoadControl
+import androidx.media3.exoplayer.analytics.PlayerId
+import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId
+import androidx.media3.exoplayer.source.TrackGroupArray
+import androidx.media3.exoplayer.trackselection.ExoTrackSelection
+import androidx.media3.exoplayer.upstream.Allocator
 import com.yfuse.core.playback.PlaybackOptimizationMode
 import com.yfuse.core.playback.PlaybackStartupConditions
 import com.yfuse.core.playback.playbackStartupThresholdMs
@@ -26,7 +32,38 @@ internal class AdaptiveStartupLoadControl(
     private val mode: PlaybackOptimizationMode,
     private val evidence: StartupTransferEvidence,
     private val currentItem: () -> PlayerMediaItem?,
-) : LoadControl by delegate {
+) : LoadControl {
+    // Kotlin interface delegation does not forward Java default methods. Media3's lifecycle,
+    // back buffer and loading callbacks must reach the same DefaultLoadControl owner explicitly.
+    override fun onPrepared(playerId: PlayerId) = delegate.onPrepared(playerId)
+
+    override fun onTracksSelected(
+        parameters: LoadControl.Parameters,
+        trackGroups: TrackGroupArray,
+        trackSelections: Array<out ExoTrackSelection?>,
+    ) = delegate.onTracksSelected(parameters, trackGroups, trackSelections)
+
+    override fun onStopped(playerId: PlayerId) = delegate.onStopped(playerId)
+
+    override fun onReleased(playerId: PlayerId) = delegate.onReleased(playerId)
+
+    override fun getAllocator(playerId: PlayerId): Allocator = delegate.getAllocator(playerId)
+
+    override fun getBackBufferDurationUs(playerId: PlayerId): Long = delegate.getBackBufferDurationUs(playerId)
+
+    override fun retainBackBufferFromKeyframe(playerId: PlayerId): Boolean =
+        delegate.retainBackBufferFromKeyframe(playerId)
+
+    override fun shouldContinueLoading(parameters: LoadControl.Parameters): Boolean =
+        delegate.shouldContinueLoading(parameters)
+
+    override fun shouldContinuePreloading(
+        playerId: PlayerId,
+        timeline: Timeline,
+        mediaPeriodId: MediaPeriodId,
+        bufferedDurationUs: Long,
+    ): Boolean = delegate.shouldContinuePreloading(playerId, timeline, mediaPeriodId, bufferedDurationUs)
+
     override fun shouldStartPlayback(parameters: LoadControl.Parameters): Boolean {
         if (delegate.shouldStartPlayback(parameters)) return true
         if (parameters.rebuffering || parameters.targetLiveOffsetUs != C.TIME_UNSET) return false

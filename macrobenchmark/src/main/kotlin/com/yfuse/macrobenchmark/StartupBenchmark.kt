@@ -1,5 +1,6 @@
 package com.yfuse.macrobenchmark
 
+import androidx.benchmark.macro.CompilationMode
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
@@ -22,12 +23,9 @@ class StartupBenchmark {
             packageName = TARGET_PACKAGE,
             metrics = listOf(StartupTimingMetric(), FrameTimingMetric()),
             iterations = 5,
+            compilationMode = CompilationMode.None(),
             startupMode = StartupMode.COLD,
             setupBlock = { pressHome() },
-            measureBlock = { startActivityAndWait() },
+            measureBlock = { startProductionApp() },
         )
-
-    private companion object {
-        const val TARGET_PACKAGE = "com.yfuse"
-    }
 }

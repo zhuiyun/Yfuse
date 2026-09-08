@@ -70,8 +70,8 @@ internal fun rememberDeepPlaybackProbe(
     var result by remember(item?.serverId, item?.id, item?.versionId, transcoding) {
         mutableStateOf(PlaybackProbeResult.metadataOnly(baseline))
     }
-    var probedKey by remember { mutableStateOf<String?>(null) }
-    val probeKey = listOf(item?.serverId, item?.id, item?.versionId, transcoding).joinToString("|")
+    val completion = remember(service) { PlaybackProbeCompletionGate() }
+    val probeKey = listOf(item?.serverId, item?.id, item?.versionId, transcoding, customUserAgent).joinToString("|")
     LaunchedEffect(
         service,
         probeKey,
@@ -79,23 +79,24 @@ internal fun rememberDeepPlaybackProbe(
         playbackSettled,
     ) {
         val activeItem = item ?: return@LaunchedEffect
-        if (!playbackSettled || probedKey == probeKey) return@LaunchedEffect
+        if (!playbackSettled || !completion.needsProbe(probeKey)) return@LaunchedEffect
         delay(DEEP_PROBE_START_DELAY_MS)
-        probedKey = probeKey
         val uri =
             if (transcoding) {
                 activeItem.transcodeUrl.ifBlank { activeItem.fallbackTranscodeUrl }
             } else {
                 activeItem.url
             }
-        result =
-            service?.probe(
-                PlaybackProbeRequest(
-                    uri = uri,
-                    baseline = baseline,
-                    customUserAgent = customUserAgent,
-                ),
-            ) ?: PlaybackProbeResult.metadataOnly(baseline)
+        completion
+            .run(probeKey) {
+                service?.probe(
+                    PlaybackProbeRequest(
+                        uri = uri,
+                        baseline = baseline,
+                        customUserAgent = customUserAgent,
+                    ),
+                ) ?: PlaybackProbeResult.metadataOnly(baseline)
+            }?.let { result = it }
     }
     return result
 }

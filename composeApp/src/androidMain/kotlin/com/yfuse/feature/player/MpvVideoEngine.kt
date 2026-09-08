@@ -179,6 +179,7 @@ class MpvVideoEngine(
     private val fileLoadStartedAtMs = AtomicLong(-1L)
     private val fileLoadLastProgressMs = AtomicLong(-1L)
     private val endFileTracker = MpvEndFileTracker()
+    private val videoReadinessGate = MpvVideoReadinessGate()
     private val networkProxy =
         runCatching {
             AndroidPlaybackHttpProxy(
@@ -533,21 +534,7 @@ class MpvVideoEngine(
                             autoNext && _state.value.hasNext -> playNextIfAny()
                             else -> _state.update { it.copy(playing = false, buffering = false, ended = true) }
                         }
-                    "vo-configured" ->
-                        if (value) {
-                            readVideoOutput()
-                        } else {
-                            _state.update {
-                                it.copy(
-                                    diagnostics =
-                                        it.diagnostics.copy(
-                                            videoOutput = "等待 mpv 视频输出",
-                                            videoReadiness = PlaybackOutputReadiness.Waiting,
-                                            dolbyVisionOutput = false,
-                                        ),
-                                )
-                            }
-                        }
+                    "vo-configured" -> readVideoOutput()
                 }
             }
 
@@ -612,6 +599,7 @@ class MpvVideoEngine(
             override fun event(eventId: Int) {
                 when (eventId) {
                     MPVLib.MpvEvent.MPV_EVENT_START_FILE -> {
+                        videoReadinessGate.onStartFile()
                         surfaceRecoveryAttempts.set(0L)
                         markFileLoadProgress()
                         _state.update {
@@ -623,9 +611,11 @@ class MpvVideoEngine(
                                 diagnostics = it.diagnostics.copy(bufferedDurationMs = 0L),
                             )
                         }
+                        readVideoOutput()
                     }
 
                     MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
+                        videoReadinessGate.onFileLoaded()
                         cancelFileLoadWatchdog()
                         val seekMs = pendingSeekMs
                         pendingSeekMs = -1L
@@ -690,7 +680,9 @@ class MpvVideoEngine(
                         readVideoOutput()
                     }
                     MPVLib.MpvEvent.MPV_EVENT_AUDIO_RECONFIG -> logAudioOutput()
-                    MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART ->
+                    MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
+                        videoReadinessGate.onPlaybackRestart()
+                        readVideoOutput()
                         AppLog.info(
                             category = "player.mpv",
                             event = "playback_started",
@@ -700,6 +692,7 @@ class MpvVideoEngine(
                                     "itemIndex" to _state.value.currentIndex.toString(),
                                 ),
                         )
+                    }
                     MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
                         if (!endFileTracker.consumeExpectedEnd()) handleEndFile()
                     }
@@ -1271,27 +1264,33 @@ class MpvVideoEngine(
     override fun release() {
         if (released) return
         released = true
-        fallbackJob?.cancel()
-        fallbackJob = null
-        audioRouteJob?.cancel()
-        audioRouteJob = null
-        cancelFileLoadWatchdog()
-        networkProxy?.close()
-        val instance = mpv ?: return
-        mpv = null
-        runCatching {
-            instance.removeObserver(observer)
-            instance.removeLogObserver(logObserver)
-            instance.command(arrayOf("stop"))
-            instance.destroy()
-        }.onFailure {
-            safeLogcat(Log.WARN, TAG, "mpv teardown failed", it)
-            AppLog.warning(
-                category = "player.mpv",
-                event = "teardown_failed",
-                message = "mpv teardown failed",
-                throwable = it,
-            )
+        tracePlaybackRelease("Mpv") {
+            stage("cancelJobs") {
+                fallbackJob?.cancel()
+                fallbackJob = null
+                audioRouteJob?.cancel()
+                audioRouteJob = null
+                cancelFileLoadWatchdog()
+            }
+            stage("networkProxy") { networkProxy?.close() }
+            val instance = mpv ?: return@tracePlaybackRelease
+            mpv = null
+            runCatching {
+                stage("observers") {
+                    instance.removeObserver(observer)
+                    instance.removeLogObserver(logObserver)
+                }
+                stage("stop") { instance.command(arrayOf("stop")) }
+                stage("nativeDestroy") { instance.destroy() }
+            }.onFailure {
+                safeLogcat(Log.WARN, TAG, "mpv teardown failed", it)
+                AppLog.warning(
+                    category = "player.mpv",
+                    event = "teardown_failed",
+                    message = "mpv teardown failed",
+                    throwable = it,
+                )
+            }
         }
     }
 
@@ -1536,7 +1535,10 @@ class MpvVideoEngine(
         val instance = mpv ?: return
         runCatching {
             val outputConfigured = instance.getPropertyBoolean("vo-configured") == true
-            if (!outputConfigured) {
+            val currentMediaRendered =
+                videoReadinessGate.canReportRendering(outputConfigured, attachedSurface?.isValid == true) &&
+                    (instance.getPropertyInt("video-params/h") ?: 0) > 0
+            if (!currentMediaRendered) {
                 _state.update { state ->
                     state.copy(
                         diagnostics =
@@ -1820,6 +1822,8 @@ class MpvVideoEngine(
 
     /** Issues `loadfile replace` and reserves the END_FILE that closes its predecessor. */
     private fun replaceFile(url: String): Boolean {
+        videoReadinessGate.onLoadRequested()
+        readVideoOutput()
         val policy = currentFileLoadWatchdogPolicy(url)
         val replacing = endFileTracker.beforeLoad()
         val loaded =

@@ -9,21 +9,26 @@ object YTextSubtitleParser {
     fun parse(
         text: String,
         format: YSubtitleFormat,
+        ensureActive: () -> Unit = {},
     ): YSubtitleTimeline =
         YSubtitleTimeline(
             when (format) {
-                YSubtitleFormat.Srt -> parseSrt(text)
-                YSubtitleFormat.WebVtt -> parseWebVtt(text)
-                YSubtitleFormat.Ass, YSubtitleFormat.Ssa -> parseAss(text)
+                YSubtitleFormat.Srt -> parseSrt(text, ensureActive)
+                YSubtitleFormat.WebVtt -> parseWebVtt(text, ensureActive)
+                YSubtitleFormat.Ass, YSubtitleFormat.Ssa -> parseAss(text, ensureActive)
                 else -> error("$format is not a standalone text subtitle format")
             },
         )
 }
 
-private fun parseSrt(text: String): List<YSubtitleCue> =
-    normalizedLines(text)
-        .splitBlocks()
+private fun parseSrt(
+    text: String,
+    ensureActive: () -> Unit,
+): List<YSubtitleCue> =
+    normalizedLines(text, ensureActive)
+        .splitBlocks(ensureActive)
         .mapIndexedNotNull { index, block ->
+            ensureActive()
             val timingIndex = block.indexOfFirst { line -> SRT_TIMING_SEPARATOR in line }
             if (timingIndex < 0) return@mapIndexedNotNull null
             val timing = parseTimingLine(block[timingIndex], SRT_TIMING_SEPARATOR) ?: return@mapIndexedNotNull null
@@ -37,11 +42,15 @@ private fun parseSrt(text: String): List<YSubtitleCue> =
             )
         }
 
-private fun parseWebVtt(text: String): List<YSubtitleCue> {
-    val lines = normalizedLines(text).dropWhile { line -> line.isBlank() || line.startsWith("WEBVTT") }
+private fun parseWebVtt(
+    text: String,
+    ensureActive: () -> Unit,
+): List<YSubtitleCue> {
+    val lines = normalizedLines(text, ensureActive).dropWhile { line -> line.isBlank() || line.startsWith("WEBVTT") }
     return lines
-        .splitBlocks()
+        .splitBlocks(ensureActive)
         .mapIndexedNotNull { index, block ->
+            ensureActive()
             if (block.firstOrNull()?.startsWith("NOTE") == true) return@mapIndexedNotNull null
             val timingIndex = block.indexOfFirst { line -> WEBVTT_TIMING_SEPARATOR in line }
             if (timingIndex < 0) return@mapIndexedNotNull null
@@ -57,14 +66,18 @@ private fun parseWebVtt(text: String): List<YSubtitleCue> {
         }
 }
 
-private fun parseAss(text: String): List<YSubtitleCue> {
-    val lines = normalizedLines(text)
+private fun parseAss(
+    text: String,
+    ensureActive: () -> Unit,
+): List<YSubtitleCue> {
+    val lines = normalizedLines(text, ensureActive)
     var section = ""
     var fields = DEFAULT_ASS_FIELDS
     var styleFields = DEFAULT_ASS_STYLE_FIELDS
     val styles = mutableMapOf<String, YSubtitlePayload.TextStyle>()
     val cues = mutableListOf<YSubtitleCue>()
     lines.forEach { rawLine ->
+        ensureActive()
         val line = rawLine.trim()
         if (line.startsWith("[")) {
             section = line.lowercase()
@@ -167,17 +180,25 @@ private fun String.parseSubtitleTimeUs(): Long? {
     return (((hours * 60L + minutes) * 60L + seconds) * MICROS_PER_SECOND) + micros
 }
 
-private fun normalizedLines(text: String): List<String> =
-    text
+private fun normalizedLines(
+    text: String,
+    ensureActive: () -> Unit,
+): List<String> {
+    ensureActive()
+    return text
         .removePrefix("\uFEFF")
-        .replace("\r\n", "\n")
-        .replace('\r', '\n')
-        .split('\n')
+        .lineSequence()
+        .map { line ->
+            ensureActive()
+            line
+        }.toList()
+}
 
-private fun List<String>.splitBlocks(): List<List<String>> {
+private fun List<String>.splitBlocks(ensureActive: () -> Unit): List<List<String>> {
     val blocks = mutableListOf<MutableList<String>>()
     var current = mutableListOf<String>()
     forEach { line ->
+        ensureActive()
         if (line.isBlank()) {
             if (current.isNotEmpty()) {
                 blocks += current

@@ -470,19 +470,21 @@ fun ServersTabScreen(component: ServersTabComponent) {
     }
 
     managementFor?.let { opened ->
-        val live = state.servers.firstOrNull { it.id == opened.id }
+        val live = state.servers.firstOrNull { it.id == opened.id || opened.id in it.previousIds }
         if (live == null) {
             managementFor = null
             component.closeManagement()
         } else {
+            val matchingState = managementState.forServer(live.id)
+            val sessionId = (matchingState as? ServerManagementUiState.Ready)?.sessionId
             ServerManagementDialog(
                 server = live,
-                state = managementState,
+                state = matchingState,
                 onReload = { component.loadManagement(live) },
-                onRefreshLibrary = { component.refreshManagedLibrary(live, it) },
-                onRunTask = { component.runManagedTask(live, it) },
+                onRefreshLibrary = { id -> sessionId?.let { component.refreshManagedLibrary(live, id, it) } },
+                onRunTask = { id -> sessionId?.let { component.runManagedTask(live, id, it) } },
                 onSwitchHomeUser = { userId, pin ->
-                    component.switchManagedPlexUser(live, userId, pin)
+                    sessionId?.let { component.switchManagedPlexUser(live, userId, pin, it) }
                 },
                 onDismiss = {
                     managementFor = null
@@ -1254,7 +1256,7 @@ private fun ServerManagementDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalPalette.current
-    var plexHomePin by remember(server.id) { mutableStateOf("") }
+    var plexHomePin by remember(server.id, (state as? ServerManagementUiState.Ready)?.sessionId) { mutableStateOf("") }
     GlassDialog(onDismiss = onDismiss) {
         OverlayHeader(
             title = "服务器管理",

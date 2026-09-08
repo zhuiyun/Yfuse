@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -47,6 +48,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -180,18 +182,11 @@ private fun HomeContent(
 ) {
     val state by component.store.states.collectAsState(component.store.state)
     val calendarState by component.calendar.collectAsState()
-    val calendarItems =
-        remember(calendarState.days, state) {
-            homeCalendarPreviews(calendarState.days, state)
-        }
-    val palette = LocalPalette.current
-    val themeAccent = LocalAccentColors.current.accent
     val listState = component.listState
     // Same measurement as 媒体库's hero, off the same height token: the two roots open on the
     // same picture, so the point where the status bar flips its icons has to be the same one.
     // The shelf opened out into a grid, or null. Held here rather than in the store: it is
     // which page is on screen, not anything about the data.
-    var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
     val routeVisible = LocalRouteVisible.current
     var hiddenSinceLastRefresh by remember { mutableStateOf(false) }
     var hasBeenVisible by remember { mutableStateOf(false) }
@@ -208,6 +203,44 @@ private fun HomeContent(
         }
         if (routeVisible) hasBeenVisible = true
     }
+
+    HomeContentBody(
+        state = state,
+        calendarState = calendarState,
+        listState = listState,
+        heroPageColor = heroPageColor,
+        onHeroAccent = onHeroAccent,
+        onHeroPageColor = onHeroPageColor,
+        onIntent = component.store::accept,
+        onRefreshCalendar = { component.refreshCalendar(forceRefresh = true) },
+        onOpenProfile = component.onOpenProfile,
+        onOpenCalendar = component.onOpenCalendar,
+        onOpenLibrary = component.onOpenLibrary,
+        onOpenCalendarEntry = component::openCalendarEntry,
+    )
+}
+
+/** Shared production rendering; benchmark builds supply bounded local data through the same UI. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun HomeContentBody(
+    state: HomeState,
+    calendarState: HomeCalendarState,
+    listState: LazyListState,
+    heroPageColor: State<Color>,
+    onHeroAccent: (Color) -> Unit,
+    onHeroPageColor: (Color) -> Unit,
+    onIntent: (HomeIntent) -> Unit,
+    onRefreshCalendar: () -> Unit,
+    onOpenProfile: () -> Unit,
+    onOpenCalendar: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenCalendarEntry: (CalendarEntry) -> Unit,
+) {
+    val calendarItems = remember(calendarState.days, state) { homeCalendarPreviews(calendarState.days, state) }
+    val palette = LocalPalette.current
+    val themeAccent = LocalAccentColors.current.accent
+    var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
 
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = state.refreshing)
@@ -233,14 +266,14 @@ private fun HomeContent(
         PullToRefreshBox(
             isRefreshing = state.refreshing,
             onRefresh = {
-                component.store.accept(HomeIntent.Refresh)
-                component.refreshCalendar(forceRefresh = true)
+                onIntent(HomeIntent.Refresh)
+                onRefreshCalendar()
             },
             state = pullState,
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().testTag("home-feed"),
                 state = listState,
                 contentPadding = PaddingValues(bottom = TabBarInset),
                 verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
@@ -254,11 +287,11 @@ private fun HomeContent(
                         height = heroHeight,
                         showSidePreview = showSidePreview,
                         visible = heroVisible && !listState.isScrollInProgress,
-                        onOpenProfile = component.onOpenProfile,
-                        onOpenCalendar = component.onOpenCalendar,
-                        onPlay = { component.store.accept(HomeIntent.Play(it)) },
-                        onDetails = { component.store.accept(HomeIntent.Open(it)) },
-                        onFavorite = { component.store.accept(HomeIntent.Favorite(it)) },
+                        onOpenProfile = onOpenProfile,
+                        onOpenCalendar = onOpenCalendar,
+                        onPlay = { onIntent(HomeIntent.Play(it)) },
+                        onDetails = { onIntent(HomeIntent.Open(it)) },
+                        onFavorite = { onIntent(HomeIntent.Favorite(it)) },
                         onAccent = onHeroAccent,
                         onPageColor = onHeroPageColor,
                     )
@@ -277,7 +310,7 @@ private fun HomeContent(
                     item(key = "recommendations-error") {
                         ErrorState(
                             message = state.error!!,
-                            onRetry = { component.store.accept(HomeIntent.Retry) },
+                            onRetry = { onIntent(HomeIntent.Retry) },
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -309,7 +342,7 @@ private fun HomeContent(
                                     Modifier
                                         .pressable(
                                             onClickLabel = "重新刷新首页",
-                                            onClick = { component.store.accept(HomeIntent.Retry) },
+                                            onClick = { onIntent(HomeIntent.Retry) },
                                         ).touchTarget(),
                             )
                         }
@@ -320,8 +353,8 @@ private fun HomeContent(
                     item(key = "continue-watching") {
                         ContinueWatching(
                             items = state.resume,
-                            onSeeAll = component.onOpenLibrary,
-                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
+                            onSeeAll = onOpenLibrary,
+                            onClick = { onIntent(HomeIntent.OpenResume(it)) },
                         )
                     }
                 }
@@ -331,8 +364,8 @@ private fun HomeContent(
                         LibraryMediaShelf(
                             title = "我的收藏",
                             items = state.favorites,
-                            onSeeAll = component.onOpenLibrary,
-                            onClick = { component.store.accept(HomeIntent.OpenResume(it)) },
+                            onSeeAll = onOpenLibrary,
+                            onClick = { onIntent(HomeIntent.OpenResume(it)) },
                         )
                     }
                 }
@@ -342,8 +375,8 @@ private fun HomeContent(
                         item(key = "airing-calendar-preview") {
                             HomeCalendarShelf(
                                 items = calendarItems,
-                                onSeeAll = component.onOpenCalendar,
-                                onClick = { component.openCalendarEntry(it.entry) },
+                                onSeeAll = onOpenCalendar,
+                                onClick = { onOpenCalendarEntry(it.entry) },
                             )
                         }
                     }
@@ -361,7 +394,7 @@ private fun HomeContent(
                         item(key = "airing-calendar-error") {
                             ErrorState(
                                 message = calendarState.error!!,
-                                onRetry = { component.refreshCalendar(forceRefresh = true) },
+                                onRetry = onRefreshCalendar,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -379,7 +412,7 @@ private fun HomeContent(
                                 // most are not in the library at all, so the old destination
                                 // showed none of what the chip had just offered.
                                 onSeeAll = { expandedRow = row },
-                                onClick = { component.store.accept(HomeIntent.Open(it)) },
+                                onClick = { onIntent(HomeIntent.Open(it)) },
                             )
                         }
                     }
@@ -391,7 +424,7 @@ private fun HomeContent(
         // whole feed down and then let it snap back, and it never cleared itself.
         ActionToast(
             message = state.actionMessage,
-            onDismiss = { component.store.accept(HomeIntent.DismissMessage) },
+            onDismiss = { onIntent(HomeIntent.DismissMessage) },
             modifier = Modifier.padding(bottom = TabBarInset),
         )
 
@@ -405,7 +438,7 @@ private fun HomeContent(
                 items = row.items,
                 showReleaseDate = row.title == "即将上映" || row.title == "最新上线",
                 onOpen = {
-                    component.store.accept(HomeIntent.Open(it))
+                    onIntent(HomeIntent.Open(it))
                     expandedRow = null
                 },
                 onDismiss = { expandedRow = null },

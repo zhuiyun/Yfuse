@@ -6,9 +6,9 @@ import android.media.MediaFormat
 import android.net.Uri
 import android.os.SystemClock
 import com.yfuse.core.util.androidAppContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.security.MessageDigest
 
 internal actual fun createPlaybackMediaProbeService(): PlaybackMediaProbeService {
@@ -44,72 +44,84 @@ private class AndroidPlaybackMediaProbeService(
         if (request.baseline.discSource && !request.baseline.localSource) {
             return PlaybackProbeResult.metadataOnly(request.baseline, "远程光盘源由服务器解析")
         }
-        val cacheKey = request.uri.sha256()
+        val cacheKey = (request.uri + "\n" + request.customUserAgent).sha256()
         synchronized(cache) { cache[cacheKey] }?.let { return it }
 
+        val startedAtNs = System.nanoTime()
         val result =
-            withTimeoutOrNull(request.timeoutMs.coerceIn(MIN_PROBE_TIMEOUT_MS, MAX_PROBE_TIMEOUT_MS)) {
-                withContext(Dispatchers.IO) {
-                    val resolvedDiscKind =
-                        resolveLocalPlaybackDiscKind(
-                            context = context,
-                            uri = request.uri,
-                            declaredKind = request.baseline.discKind,
-                        )
-                    val resolvedRequest =
-                        if (resolvedDiscKind == request.baseline.discKind) {
-                            request
-                        } else {
-                            PlaybackProbeRequest(
-                                uri = request.uri,
-                                baseline =
-                                    request.baseline.copy(
-                                        discSource = true,
-                                        discKind = resolvedDiscKind,
-                                    ),
-                                customUserAgent = request.customUserAgent,
-                                timeoutMs = request.timeoutMs,
-                            )
-                        }
-                    val platform = inspect(resolvedRequest)
-                    if (!platform.requiresNativeProbe()) {
-                        platform
+            AndroidMediaProbeLane.shared.run(
+                timeoutMs = request.timeoutMs.coerceIn(MIN_PROBE_TIMEOUT_MS, MAX_PROBE_TIMEOUT_MS),
+                unavailable = {
+                    PlaybackProbeResult(
+                        status = PlaybackProbeStatus.TimedOut,
+                        probe = request.baseline,
+                        elapsedMs = (System.nanoTime() - startedAtNs).coerceAtLeast(0L) / 1_000_000L,
+                        detail = "本机深度探测超时或忙碌，继续使用服务端元数据",
+                    )
+                },
+            ) {
+                currentCoroutineContext().ensureActive()
+                val resolvedDiscKind =
+                    resolveLocalPlaybackDiscKind(
+                        context = context,
+                        uri = request.uri,
+                        declaredKind = request.baseline.discKind,
+                    )
+                val resolvedRequest =
+                    if (resolvedDiscKind == request.baseline.discKind) {
+                        request
                     } else {
-                        val native =
-                            nativeProbe.probe(
-                                PlaybackProbeRequest(
-                                    uri = resolvedRequest.uri,
-                                    baseline = platform.probe,
-                                    customUserAgent = resolvedRequest.customUserAgent,
-                                    timeoutMs = resolvedRequest.timeoutMs,
+                        PlaybackProbeRequest(
+                            uri = request.uri,
+                            baseline =
+                                request.baseline.copy(
+                                    discSource = true,
+                                    discKind = resolvedDiscKind,
                                 ),
-                            )
-                        when {
-                            native.status == PlaybackProbeStatus.Complete -> native
-                            platform.status == PlaybackProbeStatus.Complete -> platform
-                            else -> native
-                        }
+                            customUserAgent = request.customUserAgent,
+                            timeoutMs = request.timeoutMs,
+                        )
+                    }
+                val platform = inspect(resolvedRequest)
+                currentCoroutineContext().ensureActive()
+                if (!platform.requiresNativeProbe()) {
+                    platform
+                } else {
+                    val native =
+                        nativeProbe.probe(
+                            PlaybackProbeRequest(
+                                uri = resolvedRequest.uri,
+                                baseline = platform.probe,
+                                customUserAgent = resolvedRequest.customUserAgent,
+                                timeoutMs = resolvedRequest.timeoutMs,
+                            ),
+                        )
+                    when {
+                        native.status == PlaybackProbeStatus.Complete -> native
+                        platform.status == PlaybackProbeStatus.Complete -> platform
+                        else -> native
                     }
                 }
-            } ?: PlaybackProbeResult(
-                status = PlaybackProbeStatus.TimedOut,
-                probe = request.baseline,
-                elapsedMs = request.timeoutMs,
-                detail = "本机深度探测超时，继续使用服务端元数据",
-            )
-        synchronized(cache) {
-            cache[cacheKey] = result
-            while (cache.size > MAX_PROBE_CACHE_ENTRIES) {
-                cache.remove(cache.keys.first())
+            }
+        currentCoroutineContext().ensureActive()
+        // A busy lane or temporary network failure must not poison the process-wide cache.
+        if (result.status == PlaybackProbeStatus.Complete) {
+            synchronized(cache) {
+                cache[cacheKey] = result
+                while (cache.size > MAX_PROBE_CACHE_ENTRIES) {
+                    cache.remove(cache.keys.first())
+                }
             }
         }
         return result
     }
 
-    private fun inspect(request: PlaybackProbeRequest): PlaybackProbeResult {
+    private suspend fun inspect(request: PlaybackProbeRequest): PlaybackProbeResult {
         val startedAtMs = SystemClock.elapsedRealtime()
         val extractor = MediaExtractor()
         return try {
+            val inspectionContext = currentCoroutineContext()
+            inspectionContext.ensureActive()
             val headers =
                 request.customUserAgent
                     .trim()
@@ -117,7 +129,12 @@ private class AndroidPlaybackMediaProbeService(
                     ?.let { mapOf("User-Agent" to it) }
                     .orEmpty()
             extractor.setDataSource(context, Uri.parse(request.uri), headers)
-            val trackFormats = (0 until extractor.trackCount).map(extractor::getTrackFormat)
+            inspectionContext.ensureActive()
+            val trackFormats =
+                (0 until extractor.trackCount).map { index ->
+                    inspectionContext.ensureActive()
+                    extractor.getTrackFormat(index)
+                }
             val video = trackFormats.firstOrNull { it.mimeType()?.startsWith("video/") == true }
             val audio = trackFormats.firstOrNull { it.mimeType()?.startsWith("audio/") == true }
             val source = request.baseline.source.enrichedWith(video)
@@ -148,6 +165,8 @@ private class AndroidPlaybackMediaProbeService(
                 trackCount = trackFormats.size,
                 detail = PlaybackProbeDepth.PlatformExtractor.label,
             )
+        } catch (error: CancellationException) {
+            throw error
         } catch (_: SecurityException) {
             PlaybackProbeResult(
                 status = PlaybackProbeStatus.Unsupported,

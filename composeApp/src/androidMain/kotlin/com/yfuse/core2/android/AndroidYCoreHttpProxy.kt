@@ -58,7 +58,6 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -527,11 +526,11 @@ internal class AndroidYCoreHttpProxy(
     private val routes = LinkedHashMap<String, Route>()
     private val routeIds = HashMap<Route, String>()
     private val closed = AtomicBoolean(false)
+    private val requests = YCoreProxyRequests()
     private val activeRangeSources = ConcurrentHashMap.newKeySet<AndroidTransportMediaDataSource>()
     private val manifestDiscovery = AndroidAdaptiveManifestDiscovery()
     private val presentations = ConcurrentHashMap<String, AdaptivePresentation>()
     private val unmanagedManifestRoots = ConcurrentHashMap.newKeySet<String>()
-    private val activeManifestTransports = ConcurrentHashMap.newKeySet<YMediaTransport>()
 
     @Volatile
     private var adaptivePlaybackFeedback: TimedAdaptivePlaybackFeedback? = null
@@ -748,21 +747,21 @@ internal class AndroidYCoreHttpProxy(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        // Stop admission and close client sockets before cancelling upstream I/O. No worker wait
+        // belongs here: range sources retain their cache/memory leases until their finally runs.
+        runCatching { server.close() }
+        requests.close()
         manifestDiscovery.close()
-        activeManifestTransports.forEach { transport -> runCatching { runBlocking { transport.close() } } }
-        activeManifestTransports.clear()
-        activeRangeSources.forEach { runCatching { it.close() } }
-        activeRangeSources.clear()
         presentations.clear()
         unmanagedManifestRoots.clear()
-        runCatching { server.close() }
         workers.shutdownNow()
-        runCatching { workers.awaitTermination(WORKER_SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
         synchronized(routesLock) {
             routes.clear()
             routeIds.clear()
         }
     }
+
+    private fun trackedTransport() = YCoreProxyTransport(createTransport(), requests)
 
     private fun registerRoute(route: Route): String {
         require(routes.size < MAX_ROUTES) { "YCore adaptive route limit exceeded" }
@@ -778,6 +777,7 @@ internal class AndroidYCoreHttpProxy(
     ): String {
         val routeId =
             synchronized(routesLock) {
+                check(!closed.get()) { "Playback proxy is closed" }
                 routeIds[route] ?: registerRoute(route)
             }
         return "http://$LOOPBACK_HOST:${server.localPort}/$ROUTE_PREFIX/$routeId$pathSuffix"
@@ -786,8 +786,22 @@ internal class AndroidYCoreHttpProxy(
     private fun acceptLoop() {
         while (!closed.get()) {
             val socket = runCatching { server.accept() }.getOrNull() ?: break
-            runCatching { workers.execute { socket.use(::serve) } }
-                .onFailure { runCatching { socket.close() } }
+            val registration = requests.register { runCatching { socket.close() } }
+            if (registration == null) continue
+            runCatching {
+                workers.execute {
+                    try {
+                        socket.use { if (!closed.get()) serve(it) }
+                    } catch (_: Exception) {
+                        // Closing a client can interrupt header reads before serve installs its response handling.
+                    } finally {
+                        registration.close()
+                    }
+                }
+            }.onFailure {
+                registration.close()
+                runCatching { socket.close() }
+            }
         }
     }
 
@@ -1434,7 +1448,7 @@ internal class AndroidYCoreHttpProxy(
                 protocol = requireNotNull(route.upstreamUri.sourceProtocolOrNull()),
                 headers = route.upstreamHeadersWithUserAgent(),
                 credentials = route.credentials,
-                createTransport = createTransport,
+                createTransport = ::trackedTransport,
                 initialMediaBitRateBitsPerSecond = route.mediaBitRateBitsPerSecond,
                 cacheDirectory = cacheDirectory.takeIf { route.cacheable },
                 cacheIdentity = route.cacheIdentity.takeIf { route.cacheable },
@@ -1452,9 +1466,10 @@ internal class AndroidYCoreHttpProxy(
                         else -> null
                     },
             )
-        activeRangeSources.add(source)
-        updateRangePlaybackWindow(source)
         try {
+            activeRangeSources.add(source)
+            check(!closed.get()) { "Playback proxy is closed" }
+            updateRangePlaybackWindow(source)
             val totalLength = source.getSize()
             require(totalLength >= 0L) { "Upstream media length is unknown" }
             val start = requestedRange?.startInclusive ?: 0L
@@ -1500,7 +1515,7 @@ internal class AndroidYCoreHttpProxy(
         route: Route,
         method: String,
     ) = runBlocking {
-        val transport = createTransport()
+        val transport = trackedTransport()
         try {
             val response =
                 transport.open(
@@ -1562,17 +1577,28 @@ internal class AndroidYCoreHttpProxy(
     ): ByteArray =
         suspendCancellableCoroutine { continuation ->
             val budget = YManifestDiscoveryBudget { !closed.get() }
+            val registration = requests.register { continuation.cancel() }
+            if (registration == null) return@suspendCancellableCoroutine
             val future =
-                workers.submit {
-                    try {
-                        continuation.resume(loadBounded(upstreamUri, maximumBytes, route, budget))
-                    } catch (error: Throwable) {
-                        continuation.resumeWithException(error)
+                try {
+                    workers.submit {
+                        try {
+                            continuation.resume(loadBounded(upstreamUri, maximumBytes, route, budget))
+                        } catch (error: Throwable) {
+                            continuation.resumeWithException(error)
+                        } finally {
+                            registration.close()
+                        }
                     }
+                } catch (failure: Exception) {
+                    registration.close()
+                    continuation.resumeWithException(failure)
+                    return@suspendCancellableCoroutine
                 }
             continuation.invokeOnCancellation {
                 budget.cancel()
                 future.cancel(false)
+                registration.close()
             }
         }
 
@@ -1583,9 +1609,8 @@ internal class AndroidYCoreHttpProxy(
         discoveryBudget: YManifestDiscoveryBudget? = null,
     ): ByteArray =
         runBlocking {
-            val transport = createTransport()
-            activeManifestTransports.add(transport)
-            val cancellation = discoveryBudget?.onCancel { runBlocking { transport.close() } }
+            val transport = trackedTransport()
+            val cancellation = discoveryBudget?.onCancel(transport::cancel)
             try {
                 check(!closed.get()) { "Adaptive presentation was closed" }
                 discoveryBudget?.checkActive()
@@ -1613,7 +1638,6 @@ internal class AndroidYCoreHttpProxy(
                 output.toByteArray()
             } finally {
                 cancellation?.close()
-                activeManifestTransports.remove(transport)
                 transport.close()
             }
         }
@@ -1920,7 +1944,6 @@ private const val LOOPBACK_HOST = "127.0.0.1"
 private const val LOOPBACK_BACKLOG = 8
 private const val ROUTE_PREFIX = "ycore-resource"
 private const val CLIENT_SOCKET_TIMEOUT_MS = 30_000
-private const val WORKER_SHUTDOWN_TIMEOUT_MS = 2_000L
 private const val NETWORK_BUFFER_BYTES = 64 * 1024
 private const val MAX_HLS_MANIFEST_BYTES = 4 * 1024 * 1024
 private const val MAX_DASH_MANIFEST_BYTES = 8 * 1024 * 1024

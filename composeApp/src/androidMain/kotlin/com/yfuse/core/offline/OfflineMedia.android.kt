@@ -24,7 +24,9 @@ import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.EmbyStream
 import com.yfuse.core.network.validateEmbyServerEndpoint
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -640,43 +642,102 @@ internal class AndroidOfflineMediaManager(
         }
     private val serializer = ListSerializer(OfflineMedia.serializer())
     private val autoRuleSerializer = ListSerializer(OfflineAutoDownloadRule.serializer())
-    private val directory = File(context.filesDir, "offline-media").apply { mkdirs() }
+    private val directory by lazy { File(context.filesDir, "offline-media").apply { mkdirs() } }
     private val indexStore = OfflineMediaIndexStore(context, json)
     private val indexLock = Any()
     private val _wifiOnly = MutableStateFlow(settings.getBoolean(WIFI_KEY, true))
     override val wifiOnly: StateFlow<Boolean> = _wifiOnly.asStateFlow()
     private val _policy = MutableStateFlow(loadOfflineDownloadPolicy(settings))
     override val policy: StateFlow<OfflineDownloadPolicy> = _policy.asStateFlow()
-    private val autoRulesState = MutableStateFlow(loadAutoRules())
+    private val autoRulesState = MutableStateFlow<List<OfflineAutoDownloadRule>>(emptyList())
     private val _autoDownloadRuleCount = MutableStateFlow(autoRulesState.value.size)
     override val autoDownloadRuleCount: StateFlow<Int> = _autoDownloadRuleCount.asStateFlow()
-    private val _items = MutableStateFlow(loadIndex())
+    private val _items = MutableStateFlow<List<OfflineMedia>>(emptyList())
     override val items: StateFlow<List<OfflineMedia>> = _items.asStateFlow()
+    private val _operationError = MutableStateFlow<String?>(null)
+    override val operationError: StateFlow<String?> = _operationError.asStateFlow()
+    private val _indexStatus = MutableStateFlow(OfflineIndexStatus.Loading)
+    override val indexStatus: StateFlow<OfflineIndexStatus> = _indexStatus.asStateFlow()
     private val runLock = Mutex()
+    private val commands =
+        OfflineCommandQueue(CoroutineScope(SupervisorJob() + Dispatchers.IO)) { error ->
+            if (_indexStatus.value != OfflineIndexStatus.Ready) _indexStatus.value = OfflineIndexStatus.Failed
+            _operationError.value =
+                if (_indexStatus.value == OfflineIndexStatus.Failed) {
+                    "下载记录未能读取，请检查存储后重新打开应用"
+                } else if (error is OfflineCommandRejectedException) {
+                    "下载操作过于频繁，请稍后重试"
+                } else {
+                    "下载操作未完成，请检查存储空间和目录权限后重试"
+                }
+            AppLog.error("offline", "command_failed", "Offline command could not be completed", error)
+        }
 
     init {
-        cleanupOrphanedArtifacts(_items.value)
+        commands.submit(::initialize)
+    }
+
+    override fun clearOperationError() {
+        _operationError.value = null
+    }
+
+    private fun command(action: () -> Unit) {
+        commands.submit {
+            check(_indexStatus.value == OfflineIndexStatus.Ready) { "下载索引未能读取，请检查存储后重新打开应用" }
+            action()
+        }
+    }
+
+    private fun commandEach(
+        ids: List<String>,
+        action: (String) -> Unit,
+    ) {
+        commands.submitBatch(
+            ids,
+            beforeBatch = {
+                check(_indexStatus.value == OfflineIndexStatus.Ready) { "下载索引未能读取，请检查存储后重新打开应用" }
+            },
+            action = action,
+        )
+    }
+
+    private suspend fun awaitCommands() {
+        commands.awaitPending()
+        check(_indexStatus.value == OfflineIndexStatus.Ready) { "下载索引未能读取，请检查存储后重新打开应用" }
+    }
+
+    private fun initialize() {
+        autoRulesState.value = loadAutoRules()
+        _autoDownloadRuleCount.value = autoRulesState.value.size
         val recovered =
-            _items.value.map { stored ->
-                // v1 persisted authenticated source/poster URLs. Extract the non-secret source
-                // selection once, then erase both URLs before the index is written again.
-                val item = sanitizeLegacyOfflineItem(stored)
-                when (item.status) {
-                    DownloadStatus.Downloading -> item.copy(status = DownloadStatus.Queued)
-                    DownloadStatus.Completed ->
-                        if (item.localPath?.let(::offlinePathExists) == true) {
-                            item
-                        } else {
-                            item.copy(
-                                status = DownloadStatus.Failed,
-                                localPath = null,
-                                error = "离线文件不存在",
-                            )
+            recoverOfflineIndex(
+                load = ::loadIndex,
+                cleanup = ::cleanupOrphanedArtifacts,
+                persist = indexStore::sync,
+                recover = { storedItems ->
+                    storedItems.map { stored ->
+                        // v1 persisted authenticated source/poster URLs. Extract the non-secret source
+                        // selection once, then erase both URLs before the index is written again.
+                        val item = sanitizeLegacyOfflineItem(stored)
+                        when (item.status) {
+                            DownloadStatus.Downloading -> item.copy(status = DownloadStatus.Queued)
+                            DownloadStatus.Completed ->
+                                if (item.localPath?.let(::offlinePathExists) == true) {
+                                    item
+                                } else {
+                                    item.copy(
+                                        status = DownloadStatus.Failed,
+                                        localPath = null,
+                                        error = "离线文件不存在",
+                                    )
+                                }
+                            else -> item
                         }
-                    else -> item
-                }
-            }
-        commit(recovered)
+                    }
+                },
+            )
+        _items.value = recovered.sortedByDescending(OfflineMedia::updatedAtEpochMs)
+        _indexStatus.value = OfflineIndexStatus.Ready
         val resetCount = _items.value.count { it.status == DownloadStatus.Queued }
         val missingCount =
             _items.value.count {
@@ -698,57 +759,60 @@ internal class AndroidOfflineMediaManager(
         rebuildAutoDownloadSchedule()
     }
 
-    override fun enqueue(request: OfflineDownloadRequest) {
-        if (request.autoDownloadNewEpisodes) registerAutoDownloadRule(request)
-        val id = "${request.serverId}#${request.itemId}"
-        var sourceChanged = false
-        lateinit var next: OfflineMedia
+    override fun enqueue(request: OfflineDownloadRequest) = enqueueAll(listOf(request))
+
+    override fun enqueueAll(requests: List<OfflineDownloadRequest>) {
+        if (requests.isEmpty()) return
+        val snapshot = requests.toList()
+        command { enqueueBatch(snapshot) }
+    }
+
+    private fun enqueueBatch(requests: List<OfflineDownloadRequest>) {
+        val unique = requests.associateBy { "${it.serverId}#${it.itemId}" }.values
+        var pending = false
         synchronized(indexLock) {
-            val old = _items.value.firstOrNull { it.id == id }
-            val plan = planOfflineEnqueue(old, request, System.currentTimeMillis())
-            sourceChanged = plan.sourceChanged
-            next =
-                plan.item.copy(
-                    storageTreeUri =
-                        old?.storageTreeUri?.takeUnless { plan.sourceChanged }
-                            ?: _policy.value.storageTreeUri,
-                )
-            commitLocked(_items.value.filterNot { it.id == id } + next)
-            if (old != null && sourceChanged) {
-                // Commit the new revision first so the active loop sees that it was superseded.
-                // Keep cleanup under the same lock so a replacement cannot claim its files before
-                // the old generation's deterministic artifacts have been removed.
-                old.localPath?.let(::deleteOfflinePath)
-                old.subtitlePath?.let(::deleteOfflinePath)
-                offlineVideoTarget(context, directory, old).let { target ->
-                    target.deletePartial()
-                    target.published()?.path?.let(::deleteOfflinePath)
+            val batch = planOfflineEnqueueBatch(_items.value, unique.toList(), _policy.value.storageTreeUri, now())
+            pending = batch.changed.any { !it.item.playable }
+            // Publish every replacement revision durably before cleaning any old artifact.
+            commitLocked(batch.items)
+            batch.changed.forEach { change ->
+                val old = change.previous ?: return@forEach
+                if (change.sourceChanged) {
+                    // Commit the new revision first so the active loop sees that it was superseded.
+                    // Keep cleanup under the same lock so a replacement cannot claim its files before
+                    // the old generation's deterministic artifacts have been removed.
+                    old.localPath?.let(::deleteOfflinePath)
+                    old.subtitlePath?.let(::deleteOfflinePath)
+                    offlineVideoTarget(context, directory, old).let { target ->
+                        target.deletePartial()
+                        target.published()?.path?.let(::deleteOfflinePath)
+                    }
+                    completedFile(old).delete()
+                    legacyCompletedFile(old.id).delete()
+                    subtitleFile(old.id).delete()
+                    deleteSubtitlePartFiles(old.id)
+                } else if (!change.item.playable) {
+                    // Re-queuing the same variant intentionally preserves its verified range and
+                    // partial video. Only subtitle staging is revision-bound and cannot be resumed.
+                    deleteSubtitlePartFiles(old.id)
                 }
-                completedFile(old).delete()
-                legacyCompletedFile(old.id).delete()
-                subtitleFile(old.id).delete()
-                deleteSubtitlePartFiles(old.id)
-            } else if (old != null && !next.playable) {
-                // Re-queuing the same variant intentionally preserves its verified range and
-                // partial video. Only subtitle staging is revision-bound and cannot be resumed.
-                deleteSubtitlePartFiles(old.id)
             }
         }
+        registerAutoDownloadRules(unique.filter { it.autoDownloadNewEpisodes })
         AppLog.info(
             category = "offline",
             event = "download_enqueued",
-            message = "Offline download enqueued",
-            attributes =
-                mapOf(
-                    "itemId" to request.itemId,
-                    "alreadyPlayable" to next.playable.toString(),
-                    "sourceChanged" to sourceChanged.toString(),
-                ),
+            message = "Offline download batch enqueued",
+            attributes = mapOf("itemCount" to unique.size.toString()),
         )
-        if (!next.playable) kick()
+        if (pending) kick()
     }
 
-    override fun pause(id: String) {
+    override fun pause(id: String) = pauseMany(listOf(id))
+
+    override fun pauseMany(ids: List<String>) = commandEach(ids, ::pauseNow)
+
+    private fun pauseNow(id: String) {
         update(id) {
             if (
                 it.status in
@@ -774,7 +838,9 @@ internal class AndroidOfflineMediaManager(
         AppLog.info("offline", "download_paused", "Offline download paused")
     }
 
-    override fun pauseAll() {
+    override fun pauseAll() = command(::pauseAllNow)
+
+    private fun pauseAllNow() {
         val nowMs = now()
         synchronized(indexLock) {
             commitLocked(
@@ -805,7 +871,11 @@ internal class AndroidOfflineMediaManager(
         AppLog.info("offline", "downloads_paused", "All offline downloads paused")
     }
 
-    override fun resume(id: String) {
+    override fun resume(id: String) = resumeMany(listOf(id))
+
+    override fun resumeMany(ids: List<String>) = commandEach(ids, ::resumeNow)
+
+    private fun resumeNow(id: String) {
         update(id) {
             if (it.status == DownloadStatus.Completed || it.status == DownloadStatus.Downloading) {
                 it
@@ -825,7 +895,9 @@ internal class AndroidOfflineMediaManager(
         kick()
     }
 
-    override fun resumeAll() {
+    override fun resumeAll() = command(::resumeAllNow)
+
+    private fun resumeAllNow() {
         val nowMs = now()
         var resumed = false
         synchronized(indexLock) {
@@ -852,7 +924,11 @@ internal class AndroidOfflineMediaManager(
         if (resumed) kick() else rebuildWakeSchedule(ExistingWorkPolicy.REPLACE)
     }
 
-    override fun remove(id: String) {
+    override fun remove(id: String) = removeMany(listOf(id))
+
+    override fun removeMany(ids: List<String>) = commandEach(ids, ::removeNow)
+
+    private fun removeNow(id: String) {
         synchronized(indexLock) {
             _items.value.firstOrNull { it.id == id }?.let { item ->
                 // Keep the index until every deterministic artifact is gone. If the process
@@ -889,7 +965,9 @@ internal class AndroidOfflineMediaManager(
         AppLog.info("offline", "download_removed", "Offline download removed")
     }
 
-    override fun setWifiOnly(value: Boolean) {
+    override fun setWifiOnly(value: Boolean) = command { setWifiOnlyNow(value) }
+
+    private fun setWifiOnlyNow(value: Boolean) {
         _wifiOnly.value = value
         settings.putBoolean(WIFI_KEY, value)
         persistPolicy(_policy.value.copy(wifiOnly = value))
@@ -919,29 +997,33 @@ internal class AndroidOfflineMediaManager(
         rebuildAutoDownloadSchedule()
     }
 
-    override fun setMaxConcurrentDownloads(value: Int) {
-        persistPolicy(_policy.value.copy(maxConcurrentDownloads = value).normalized())
-        kick()
-    }
+    override fun setMaxConcurrentDownloads(value: Int) =
+        command {
+            persistPolicy(_policy.value.copy(maxConcurrentDownloads = value).normalized())
+            kick()
+        }
 
-    override fun setAutoDeleteWatched(value: Boolean) {
-        persistPolicy(_policy.value.copy(autoDeleteWatched = value))
-    }
+    override fun setAutoDeleteWatched(value: Boolean) =
+        command {
+            persistPolicy(_policy.value.copy(autoDeleteWatched = value))
+        }
 
-    override fun setAutoDownloadEnabled(value: Boolean) {
-        persistPolicy(_policy.value.copy(autoDownloadEnabled = value))
-        rebuildAutoDownloadSchedule()
-    }
+    override fun setAutoDownloadEnabled(value: Boolean) =
+        command {
+            persistPolicy(_policy.value.copy(autoDownloadEnabled = value))
+            rebuildAutoDownloadSchedule()
+        }
 
-    override fun setAutoDownloadItemLimit(value: Int) {
-        persistPolicy(_policy.value.copy(autoDownloadItemLimit = value).normalized())
-        rebuildAutoDownloadSchedule()
-    }
+    override fun setAutoDownloadItemLimit(value: Int) =
+        command {
+            persistPolicy(_policy.value.copy(autoDownloadItemLimit = value).normalized())
+            rebuildAutoDownloadSchedule()
+        }
 
     override fun setStorageDirectory(
         treeUri: String?,
         label: String?,
-    ) {
+    ) = command {
         persistPolicy(
             _policy.value.copy(
                 storageTreeUri = treeUri,
@@ -950,56 +1032,61 @@ internal class AndroidOfflineMediaManager(
         )
     }
 
-    override fun clearAutoDownloadRules() {
-        persistAutoRules(emptyList())
-        rebuildAutoDownloadSchedule()
-    }
+    override fun clearAutoDownloadRules() =
+        command {
+            persistAutoRules(emptyList())
+            rebuildAutoDownloadSchedule()
+        }
 
     override fun onPlaybackCompleted(
         serverId: String,
         itemId: String,
-    ) {
-        if (!_policy.value.autoDeleteWatched) return
+    ) = command {
+        if (!_policy.value.autoDeleteWatched) return@command
         _items.value
             .firstOrNull { it.serverId == serverId && it.itemId == itemId }
-            ?.let { remove(it.id) }
+            ?.let { removeNow(it.id) }
     }
 
     internal suspend fun runPendingDownloads() =
-        runLock.withLock {
-            while (true) {
-                val nowMs = now()
-                val next =
-                    selectPendingOfflineDownloads(
-                        items = _items.value,
-                        nowMs = nowMs,
-                        maxConcurrentDownloads = _policy.value.maxConcurrentDownloads,
-                    )
-                if (next.isEmpty()) break
-                if (_wifiOnly.value && !onUnmeteredNetwork()) {
-                    AppLog.info(
-                        category = "offline",
-                        event = "waiting_for_wifi",
-                        message = "Offline download is waiting for Wi-Fi",
-                    )
-                    next.forEach { pending ->
-                        update(pending.id) {
-                            it.copy(
-                                status = DownloadStatus.WaitingForWifi,
-                                error = null,
-                                updatedAtEpochMs = now(),
-                            )
+        withContext(Dispatchers.IO) {
+            runLock.withLock {
+                while (true) {
+                    awaitCommands()
+                    val nowMs = now()
+                    val next =
+                        selectPendingOfflineDownloads(
+                            items = _items.value,
+                            nowMs = nowMs,
+                            maxConcurrentDownloads = _policy.value.maxConcurrentDownloads,
+                        )
+                    if (next.isEmpty()) break
+                    if (_wifiOnly.value && !onUnmeteredNetwork()) {
+                        AppLog.info(
+                            category = "offline",
+                            event = "waiting_for_wifi",
+                            message = "Offline download is waiting for Wi-Fi",
+                        )
+                        next.forEach { pending ->
+                            update(pending.id) {
+                                it.copy(
+                                    status = DownloadStatus.WaitingForWifi,
+                                    error = null,
+                                    updatedAtEpochMs = now(),
+                                )
+                            }
                         }
+                        break
                     }
-                    break
-                }
-                coroutineScope {
-                    next.map { pending -> async { download(pending) } }.awaitAll()
+                    coroutineScope {
+                        next.map { pending -> async { download(pending) } }.awaitAll()
+                    }
                 }
             }
         }
 
     internal suspend fun refreshAutoDownloads() {
+        awaitCommands()
         val activePolicy = _policy.value
         if (!activePolicy.autoDownloadEnabled) return
         autoRulesState.value.forEach { rule ->
@@ -1021,86 +1108,93 @@ internal class AndroidOfflineMediaManager(
                         )
                         return@forEach
                     }
-            val ruleItems =
-                _items.value
-                    .asSequence()
-                    .filter {
-                        it.serverId == rule.serverId &&
-                            it.seriesId == rule.seriesId &&
-                            it.seasonId == rule.seasonId &&
-                            it.automaticallyDownloaded
-                    }.toList()
-            val existingIds = ruleItems.mapTo(linkedSetOf(), OfflineMedia::itemId)
-            val protectedStatuses =
-                setOf(
-                    DownloadStatus.Queued,
-                    DownloadStatus.WaitingForWifi,
-                    DownloadStatus.Downloading,
-                )
-            val nonReplaceableCount =
-                ruleItems.count { it.status in protectedStatuses }
-            val selected =
-                selectNewAutoDownloadEpisodes(
-                    episodes = episodes,
-                    knownEpisodeIds = rule.knownEpisodeIds,
-                    existingItemIds = existingIds,
-                    itemLimit = (activePolicy.autoDownloadItemLimit - nonReplaceableCount).coerceAtLeast(0),
-                )
-            val completedToKeep =
-                (activePolicy.autoDownloadItemLimit - nonReplaceableCount - selected.size)
-                    .coerceAtLeast(0)
-            ruleItems
-                .filter { it.status !in protectedStatuses }
-                .sortedByDescending(OfflineMedia::updatedAtEpochMs)
-                .drop(completedToKeep)
-                .forEach { remove(it.id) }
-            // Remember every item returned by this refresh. A temporary item limit must not
-            // make older episodes look newly published when capacity opens later.
-            updateAutoRule(rule.id) { current ->
-                current.copy(
-                    knownEpisodeIds =
-                        (current.knownEpisodeIds + episodes.map(Episode::id))
-                            .takeLastBounded(MAX_KNOWN_AUTO_EPISODES),
-                    updatedAtEpochMs = now(),
-                )
-            }
-            selected.forEach { episode ->
-                val version = episode.versions.firstOrNull()
-                val subtitle =
-                    matchOfflineSubtitleTrack(
-                        tracks = version?.subtitleTracks.orEmpty(),
-                        language = rule.subtitleLanguage,
-                        codec = rule.subtitleCodec,
-                        default = false,
-                        forced = false,
+            commands.execute {
+                if (_policy.value != activePolicy || autoRulesState.value.none { it == rule }) return@execute
+                val ruleItems =
+                    _items.value
+                        .asSequence()
+                        .filter {
+                            it.serverId == rule.serverId &&
+                                it.seriesId == rule.seriesId &&
+                                it.seasonId == rule.seasonId &&
+                                it.automaticallyDownloaded
+                        }.toList()
+                val existingIds = ruleItems.mapTo(linkedSetOf(), OfflineMedia::itemId)
+                val protectedStatuses =
+                    setOf(
+                        DownloadStatus.Queued,
+                        DownloadStatus.WaitingForWifi,
+                        DownloadStatus.Downloading,
                     )
-                enqueue(
-                    OfflineDownloadRequest(
-                        serverId = rule.serverId,
-                        itemId = episode.id,
-                        title =
-                            listOfNotNull(
-                                episode.seasonNumber?.let { "S$it" },
-                                episode.indexNumber?.let { "E$it" },
-                                episode.name,
-                            ).joinToString(" "),
-                        mediaSourceId = version?.id,
-                        quality = rule.quality,
-                        subtitleStreamIndex = subtitle?.index,
-                        subtitleCodec = subtitle?.codec,
-                        subtitleLanguage = subtitle?.language,
-                        estimatedBytes =
-                            estimateOfflineBytes(
-                                sourceSizeBytes = version?.sizeBytes,
-                                sourceBitrateBps = version?.bitrateBps,
-                                runtimeMinutes = episode.runtimeMinutes,
-                                quality = rule.quality,
-                                includeSubtitle = subtitle != null,
-                            ),
-                        seriesId = rule.seriesId,
-                        seasonId = episode.seasonId ?: rule.seasonId,
-                        automaticallyDownloaded = true,
-                    ),
+                val nonReplaceableCount =
+                    ruleItems.count { it.status in protectedStatuses }
+                val selected =
+                    selectNewAutoDownloadEpisodes(
+                        episodes = episodes,
+                        knownEpisodeIds = rule.knownEpisodeIds,
+                        existingItemIds = existingIds,
+                        itemLimit = (activePolicy.autoDownloadItemLimit - nonReplaceableCount).coerceAtLeast(0),
+                    )
+                val completedToKeep =
+                    (activePolicy.autoDownloadItemLimit - nonReplaceableCount - selected.size)
+                        .coerceAtLeast(0)
+                ruleItems
+                    .filter { it.status !in protectedStatuses }
+                    .sortedByDescending(OfflineMedia::updatedAtEpochMs)
+                    .drop(completedToKeep)
+                    .forEach { removeNow(it.id) }
+                val requests =
+                    selected.map { episode ->
+                        val version = episode.versions.firstOrNull()
+                        val subtitle =
+                            matchOfflineSubtitleTrack(
+                                tracks = version?.subtitleTracks.orEmpty(),
+                                language = rule.subtitleLanguage,
+                                codec = rule.subtitleCodec,
+                                default = false,
+                                forced = false,
+                            )
+                        OfflineDownloadRequest(
+                            serverId = rule.serverId,
+                            itemId = episode.id,
+                            title =
+                                listOfNotNull(
+                                    episode.seasonNumber?.let { "S$it" },
+                                    episode.indexNumber?.let { "E$it" },
+                                    episode.name,
+                                ).joinToString(" "),
+                            mediaSourceId = version?.id,
+                            quality = rule.quality,
+                            subtitleStreamIndex = subtitle?.index,
+                            subtitleCodec = subtitle?.codec,
+                            subtitleLanguage = subtitle?.language,
+                            estimatedBytes =
+                                estimateOfflineBytes(
+                                    sourceSizeBytes = version?.sizeBytes,
+                                    sourceBitrateBps = version?.bitrateBps,
+                                    runtimeMinutes = episode.runtimeMinutes,
+                                    quality = rule.quality,
+                                    includeSubtitle = subtitle != null,
+                                ),
+                            seriesId = rule.seriesId,
+                            seasonId = episode.seasonId ?: rule.seasonId,
+                            automaticallyDownloaded = true,
+                        )
+                    }
+                commitOfflineAutoDiscovery(
+                    enqueue = { if (requests.isNotEmpty()) enqueueBatch(requests) },
+                    rememberEpisodes = {
+                        // Remember every item returned by this refresh. A temporary item limit must not
+                        // make older episodes look newly published when capacity opens later.
+                        updateAutoRule(rule.id) { current ->
+                            current.copy(
+                                knownEpisodeIds =
+                                    (current.knownEpisodeIds + episodes.map(Episode::id))
+                                        .takeLastBounded(MAX_KNOWN_AUTO_EPISODES),
+                                updatedAtEpochMs = now(),
+                            )
+                        }
+                    },
                 )
             }
         }
@@ -1665,50 +1759,26 @@ internal class AndroidOfflineMediaManager(
         }
     }
 
-    private fun commit(value: List<OfflineMedia>) {
-        synchronized(indexLock) { commitLocked(value) }
-    }
-
     private fun commitLocked(
         value: List<OfflineMedia>,
         persist: Boolean = true,
     ) {
         val previous = _items.value
         val normalized = value.sortedByDescending { it.updatedAtEpochMs }
-        _items.value = normalized
         if (persist) indexStore.sync(previous, normalized)
+        _items.value = normalized
     }
 
-    private fun loadIndex(): List<OfflineMedia> {
-        val databaseItems =
-            runCatching(indexStore::load)
-                .onFailure {
-                    AppLog.error(
-                        category = "offline",
-                        event = "stored_database_invalid",
-                        message = "Stored offline download database could not be read",
-                        throwable = it,
-                    )
-                }.getOrDefault(emptyList())
-        if (databaseItems.isNotEmpty()) return databaseItems
-        val raw = settings.getStringOrNull(INDEX_KEY) ?: return emptyList()
-        return runCatching {
-            json.decodeFromString(serializer, raw)
-        }.onFailure {
-            AppLog.error(
-                category = "offline",
-                event = "stored_index_invalid",
-                message = "Stored offline download index could not be decoded",
-                throwable = it,
-            )
-        }.getOrDefault(emptyList())
-            .also { migrated ->
-                if (migrated.isNotEmpty()) {
-                    indexStore.sync(emptyList(), migrated)
-                    settings.remove(INDEX_KEY)
-                }
-            }
-    }
+    private fun loadIndex(): List<OfflineMedia> =
+        loadOfflineIndexOnce(
+            load = indexStore::load,
+            migrationComplete = indexStore::migrationComplete,
+            readLegacy = {
+                settings.getStringOrNull(INDEX_KEY)?.let { json.decodeFromString(serializer, it) }
+            },
+            migrateAtomically = indexStore::migrateLegacy,
+            discardLegacy = { settings.remove(INDEX_KEY) },
+        )
 
     /**
      * The offline directory is private to this manager. Delete any deterministic artifact that
@@ -1781,28 +1851,33 @@ internal class AndroidOfflineMediaManager(
         }
     }
 
-    private fun registerAutoDownloadRule(request: OfflineDownloadRequest) {
-        val seriesId = request.seriesId?.takeIf(String::isNotBlank) ?: return
-        val id = "${request.serverId}#$seriesId#${request.seasonId.orEmpty()}"
-        val existing = autoRulesState.value.firstOrNull { it.id == id }
-        val rule =
-            OfflineAutoDownloadRule(
-                id = id,
-                serverId = request.serverId,
-                seriesId = seriesId,
-                seasonId = request.seasonId,
-                quality = request.quality,
-                subtitleCodec = request.subtitleCodec,
-                subtitleLanguage = request.subtitleLanguage,
-                knownEpisodeIds =
-                    (
-                        existing?.knownEpisodeIds.orEmpty() +
-                            request.knownEpisodeIds +
-                            request.itemId
-                    ).takeLastBounded(MAX_KNOWN_AUTO_EPISODES),
-                updatedAtEpochMs = now(),
-            )
-        persistAutoRules(autoRulesState.value.filterNot { it.id == id } + rule)
+    private fun registerAutoDownloadRules(requests: List<OfflineDownloadRequest>) {
+        if (requests.isEmpty()) return
+        var rules = autoRulesState.value
+        requests.forEach { request ->
+            val seriesId = request.seriesId?.takeIf(String::isNotBlank) ?: return@forEach
+            val id = "${request.serverId}#$seriesId#${request.seasonId.orEmpty()}"
+            val existing = rules.firstOrNull { it.id == id }
+            val rule =
+                OfflineAutoDownloadRule(
+                    id = id,
+                    serverId = request.serverId,
+                    seriesId = seriesId,
+                    seasonId = request.seasonId,
+                    quality = request.quality,
+                    subtitleCodec = request.subtitleCodec,
+                    subtitleLanguage = request.subtitleLanguage,
+                    knownEpisodeIds =
+                        (
+                            existing?.knownEpisodeIds.orEmpty() +
+                                request.knownEpisodeIds +
+                                request.itemId
+                        ).takeLastBounded(MAX_KNOWN_AUTO_EPISODES),
+                    updatedAtEpochMs = now(),
+                )
+            rules = rules.filterNot { it.id == id } + rule
+        }
+        persistAutoRules(rules)
         rebuildAutoDownloadSchedule()
     }
 

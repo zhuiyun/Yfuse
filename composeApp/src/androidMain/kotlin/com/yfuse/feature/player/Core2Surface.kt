@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.view.SurfaceHolder
@@ -145,8 +146,16 @@ private fun Core2SubtitleOverlay(
     val hasAss =
         hasActiveAss(playerState.subtitleCues, offsetMs) ||
             hasActiveAss(playerState.secondarySubtitleCues, playerState.secondarySubtitleOffsetMs)
-    val clock =
-        remember(playerState.positionMs, playerState.playing, playerState.buffering, playerState.speed) {
+
+    // Android Lint resolves this commonMain return type as Unit; the cached anchor is immutable.
+    @SuppressLint("RememberReturnType")
+    val clock: YSubtitleClockAnchor =
+        remember<YSubtitleClockAnchor>(
+            playerState.positionMs,
+            playerState.playing,
+            playerState.buffering,
+            playerState.speed,
+        ) {
             YSubtitleClockAnchor(
                 playerState.positionMs,
                 System.nanoTime(),

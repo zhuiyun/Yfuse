@@ -1,0 +1,107 @@
+name: Android physical-device performance
+
+# Opt-in: requires an administrator-provisioned, trusted physical-device runner.
+# No stock GitHub runner has this label or the attached phone; this is not a required PR gate.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [benchmark, profile]
+        default: benchmark
+        description: Optimized benchmark or source-name profile capture
+      serial:
+        required: true
+        type: string
+        description: Attached physical Android serial (profile needs API 33+ or existing root)
+      baseline_run_id:
+        required: false
+        type: string
+        description: Earlier successful benchmark run ID; empty creates the first baseline
+      baseline_artifact:
+        required: false
+        type: string
+        description: Exact benchmark artifact name from that run
+      max_regression_percent:
+        required: false
+        type: string
+        description: Explicit calibrated regression limit when comparing a baseline (no invented default)
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: yfuse-android-physical-performance
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    # Provision SDK 36, build tools 36, NDK 29, CMake 3.22.1, JDK 17/21, Python 3,
+    # Gradle dependency access and one unlocked, authorized arm64 physical phone.
+    runs-on: [self-hosted, Linux, X64, android-physical, yfuse-performance]
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Validate explicit comparison inputs
+        env:
+          BASELINE_RUN: ${{ inputs.baseline_run_id }}
+          BASELINE_ARTIFACT: ${{ inputs.baseline_artifact }}
+          REGRESSION_LIMIT: ${{ inputs.max_regression_percent }}
+          PERFORMANCE_MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import math, os
+          run = os.environ['BASELINE_RUN']
+          artifact = os.environ['BASELINE_ARTIFACT']
+          limit = os.environ['REGRESSION_LIMIT']
+          if any((run, artifact, limit)):
+              assert run.isdecimal() and artifact and limit, 'Comparison requires run ID, artifact name and an explicit limit'
+              assert os.environ['PERFORMANCE_MODE'] == 'benchmark', 'Profiles do not contain performance measurements'
+              assert math.isfinite(float(limit)) and float(limit) >= 0, 'Invalid regression limit'
+          PY
+      - name: Fetch and verify pinned player engines
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v 7z >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y p7zip-full; fi
+          chmod +x gradlew scripts/fetch-engines.sh
+          scripts/fetch-engines.sh
+          test -s composeApp/libs/libmpv-release.aar
+          test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
+      - name: Download the explicit same-device baseline
+        if: inputs.baseline_run_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ inputs.baseline_artifact }}
+          run-id: ${{ inputs.baseline_run_id }}
+          github-token: ${{ github.token }}
+          path: artifacts/performance-baseline
+      - name: Validate runner-side parser
+        run: python3 -m unittest discover -s scripts -p test_android_performance.py
+      - name: Build, measure and validate evidence
+        env:
+          PERFORMANCE_MODE: ${{ inputs.mode }}
+          PERFORMANCE_SERIAL: ${{ inputs.serial }}
+          BASELINE_RUN: ${{ inputs.baseline_run_id }}
+          REGRESSION_LIMIT: ${{ inputs.max_regression_percent }}
+        run: |
+          set -euo pipefail
+          comparison=()
+          if [[ -n "$BASELINE_RUN" ]]; then
+            test -s artifacts/performance-baseline/summary.json
+            comparison=(--baseline artifacts/performance-baseline/summary.json --max-regression-percent "$REGRESSION_LIMIT")
+          fi
+          python3 scripts/android_performance.py --mode "$PERFORMANCE_MODE" --serial "$PERFORMANCE_SERIAL" --output artifacts/android-performance/${{ github.run_id }} "${comparison[@]}"
+        shell: bash
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: android-performance-${{ inputs.mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/android-performance/${{ github.run_id }}/
+          if-no-files-found: error

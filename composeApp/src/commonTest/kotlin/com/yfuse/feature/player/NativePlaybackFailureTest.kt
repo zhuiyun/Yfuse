@@ -30,12 +30,40 @@ class NativePlaybackFailureTest {
     fun fatal_render_failure_changes_engine_but_does_not_block_it() {
         val failure = nativePlaybackLogFailure("Failed initializing any suitable GPU context!")
         val missingSurface =
-            nativePlaybackLogFailure("hevc_mediacodec: Both surface and native_window are NULL")
+            nativePlaybackLogFailure("Failed to attach surface")
 
         assertEquals("播放器渲染器初始化失败，正在尝试其他播放器", failure?.message)
         assertEquals(PlaybackFailureKind.Renderer, missingSurface?.kind)
-        assertTrue(isNativeSurfaceLossFailure("Both surface and native_window are NULL"))
+        assertTrue(isNativeSurfaceLossFailure("Failed to attach surface"))
         assertFalse(failure?.blocksAutomaticFallback ?: true)
+    }
+
+    @Test
+    fun mediacodec_copy_without_a_decoder_surface_does_not_interrupt_successful_gpu_playback() {
+        // Captured on the S10: this decoder warning was followed by successful codec start,
+        // hardware copy decoding, and MPV's first video frame. Recovering the VO restarted
+        // the decoder and replayed the same harmless warning until fallback was triggered.
+        for (codec in listOf("h264", "hevc")) {
+            val warning = "$codec" + "_mediacodec: Both surface and native_window are NULL"
+            assertNull(nativePlaybackLogFailure(warning))
+            assertFalse(isNativeSurfaceLossFailure(warning))
+        }
+        assertNull(
+            nativePlaybackLogFailure("MediaCodec started successfully: codec = OMX.qcom.video.decoder.avc, ret = 0"),
+        )
+        assertNull(nativePlaybackLogFailure("Using hardware decoding (mediacodec-copy)."))
+        assertNull(nativePlaybackLogFailure("first video frame after restart shown"))
+
+        // A subsequent terminal player event must still fail even when its last diagnostic
+        // contains that ambiguous decoder message.
+        val terminal =
+            terminalNativePlaybackFailure(
+                fallbackMessage = "Native playback ended with an error",
+                details = "h264_mediacodec: Both surface and native_window are NULL",
+                kind = PlaybackFailureKind.Renderer,
+            )
+        assertEquals(PlaybackFailureKind.Renderer, terminal.kind)
+        assertEquals("Native playback ended with an error", terminal.message)
     }
 
     @Test
