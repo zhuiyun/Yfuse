@@ -75,12 +75,20 @@ internal fun ContentDrawScope.drawDialogSheen(
     progress: Float,
     cache: DialogDrawCache,
 ) {
-    val rim = 3.dp.toPx().coerceAtMost(size.minDimension / 2f)
+    val frame = dialogMotionFrame(DialogAnimation.Sheen, progress)
+    val bounds =
+        Rect(
+            size.width * frame.insetX,
+            size.height * frame.insetY,
+            size.width * (1f - frame.insetX),
+            size.height * (1f - frame.insetY),
+        )
+    val rim = 3.dp.toPx().coerceAtMost(minOf(bounds.width, bounds.height) / 2f)
     val band = size.width * 0.28f
-    clipRect {
-        clipRect(rim, rim, size.width - rim, size.height - rim, ClipOp.Difference) {
-            translate(left = (size.width + band) * progress - band) {
-                drawRect(cache.sheen, size = Size(band, size.height), alpha = sin(PI * progress).toFloat())
+    clipRect(bounds.left, bounds.top, bounds.right, bounds.bottom) {
+        clipRect(bounds.left + rim, bounds.top + rim, bounds.right - rim, bounds.bottom - rim, ClipOp.Difference) {
+            translate(left = (size.width + band) * progress - band, top = bounds.top) {
+                drawRect(cache.sheen, size = Size(band, bounds.height), alpha = sin(PI * progress).toFloat())
             }
         }
     }
