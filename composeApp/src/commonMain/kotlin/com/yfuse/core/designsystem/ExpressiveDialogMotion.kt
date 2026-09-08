@@ -2,7 +2,6 @@ package com.yfuse.core.designsystem
 
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -18,13 +17,14 @@ internal fun ContentDrawScope.drawExpressiveDialog(
     animation: DialogAnimation,
     progress: Float,
     glow: Color,
+    cache: DialogDrawCache,
 ): Boolean {
     if (animation != DialogAnimation.Ribbon &&
         animation != DialogAnimation.Iris &&
         animation != DialogAnimation.Mosaic &&
         animation != DialogAnimation.Curtain
     ) {
-        return false
+        return drawPlayfulDialog(animation, progress, glow, cache)
     }
 
     val p = progress.coerceIn(0f, 1f)
@@ -35,8 +35,8 @@ internal fun ContentDrawScope.drawExpressiveDialog(
     }
     val pulse = sin(PI * p).toFloat()
     val edgeWidth = 1.25.dp.toPx() * pulse
-    val aperture = Path()
-    val edge = Path()
+    val aperture = cache.aperture.apply { rewind() }
+    val edge = cache.edge.apply { rewind() }
     when (animation) {
         DialogAnimation.Ribbon -> {
             val y = size.height * (1f - p)

@@ -5,12 +5,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.cos
@@ -48,61 +46,61 @@ internal fun ContentDrawScope.drawMaterialDialog(
     animation: DialogAnimation,
     progress: Float,
     glow: Color,
+    cache: DialogDrawCache,
 ): Boolean {
     val lineWidth = 1.5.dp.toPx() * sin(PI * progress).toFloat()
     when (animation) {
         DialogAnimation.Liquid -> {
             val bounds = liquidDialogBounds(size.width, size.height, progress)
             val roundness =
-                (1f - progress) * min(bounds.width, bounds.height) / 2f + 24.dp.toPx() * progress
+                (1f - progress) * (min(bounds.width, bounds.height) / 2f + 24.dp.toPx() * progress)
             val aperture =
-                Path().apply { addRoundRect(RoundRect(bounds, CornerRadius(roundness, roundness))) }
+                cache.aperture.apply {
+                    rewind()
+                    addRoundRect(RoundRect(bounds, CornerRadius(roundness, roundness)))
+                }
             clipPath(aperture) { this@drawMaterialDialog.drawContent() }
             drawPath(aperture, glow, style = Stroke(lineWidth))
         }
         DialogAnimation.Blinds -> {
             val stripWidth = size.width / 6f
+            val aperture = cache.aperture.apply { rewind() }
             for (index in 0 until 6) {
                 val opened = dialogStage(progress, index * 0.035f)
                 if (opened <= 0f) continue
                 val left = stripWidth * index
-                val pivot = Offset(left + stripWidth / 2f, center.y)
                 val projectedWidth = sin(opened * PI / 2f).toFloat()
-                withTransform({ scale(projectedWidth, 1f, pivot) }) {
-                    clipRect(left = left, right = left + stripWidth) {
-                        this@drawMaterialDialog.drawContent()
-                    }
-                    drawLine(glow, Offset(left, 0f), Offset(left, size.height), lineWidth)
-                }
+                val inset = stripWidth * (1f - projectedWidth) / 2f
+                aperture.addRect(Rect(left + inset, 0f, left + stripWidth - inset, size.height))
             }
+            clipPath(aperture) { this@drawMaterialDialog.drawContent() }
         }
         DialogAnimation.Assemble -> {
+            val aperture = cache.aperture.apply { rewind() }
             for (index in 0 until 4) {
                 val entered = dialogStage(progress, index * 0.025f)
                 if (entered <= 0f) continue
                 val bounds = dialogQuadrant(size.width, size.height, index)
                 val right = index % 2 == 1
                 val bottom = index / 2 == 1
-                val distance = 24.dp.toPx() * (1f - entered)
-                val shiftX = if (right) distance else -distance
-                val shiftY = if (bottom) distance else -distance
-                val reveal = (entered / 0.6f).coerceIn(0f, 1f)
-                withTransform({ translate(shiftX, shiftY) }) {
-                    clipRect(
-                        left = if (right) bounds.right - bounds.width * reveal else bounds.left,
-                        top = if (bottom) bounds.bottom - bounds.height * reveal else bounds.top,
-                        right = if (right) bounds.right else bounds.left + bounds.width * reveal,
-                        bottom = if (bottom) bounds.bottom else bounds.top + bounds.height * reveal,
-                    ) { this@drawMaterialDialog.drawContent() }
-                }
+                aperture.addRect(
+                    Rect(
+                        left = if (right) bounds.right - bounds.width * entered else bounds.left,
+                        top = if (bottom) bounds.bottom - bounds.height * entered else bounds.top,
+                        right = if (right) bounds.right else bounds.left + bounds.width * entered,
+                        bottom = if (bottom) bounds.bottom else bounds.top + bounds.height * entered,
+                    ),
+                )
             }
+            clipPath(aperture) { this@drawMaterialDialog.drawContent() }
         }
         DialogAnimation.Radar -> {
             val radius = dialogPortalRadius(size.width, size.height, center)
             val circle = Rect(center.x - radius, center.y - radius, center.x + radius, center.y + radius)
             val sweep = 360f * progress
             val sector =
-                Path().apply {
+                cache.aperture.apply {
+                    rewind()
                     moveTo(center.x, center.y)
                     lineTo(center.x, center.y - radius)
                     arcTo(circle, -90f, sweep, false)
@@ -116,7 +114,7 @@ internal fun ContentDrawScope.drawMaterialDialog(
                 drawCircle(glow, 3.dp.toPx() * sin(PI * progress).toFloat(), center)
             }
         }
-        else -> return drawExpressiveDialog(animation, progress, glow)
+        else -> return drawExpressiveDialog(animation, progress, glow, cache)
     }
     return true
 }

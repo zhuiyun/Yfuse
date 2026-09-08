@@ -256,6 +256,7 @@ fun Poster(
         }
     Box(
         modifier
+            .dialogPosterSource()
             .clip(shape)
             // 占位主色渐变 §3.1. The artwork's own colour cannot be known before the
             // artwork arrives, so this is the palette's placeholder tone with a slight

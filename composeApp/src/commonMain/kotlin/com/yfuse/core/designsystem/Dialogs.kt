@@ -44,9 +44,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -58,6 +60,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val ScrimColor = Color(0xFF0A0E16)
 private val OverlayShape = GlassShapes.sheet
@@ -108,6 +112,7 @@ fun GlassDialog(
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val parentMotionHost = LocalDialogMotionHost.current
     var leaving by remember { mutableStateOf(false) }
     var afterExit by remember { mutableStateOf<(() -> Unit)?>(null) }
     val canDismiss by rememberUpdatedState(dismissEnabled)
@@ -130,14 +135,42 @@ fun GlassDialog(
         val palette = LocalPalette.current
         val selectedAnimation = LocalDialogAnimation.current
         val animation = remember { selectedAnimation }
+        val modalMotionHost =
+            remember {
+                DialogMotionHost().apply {
+                    touch = parentMotionHost.touch
+                    poster = parentMotionHost.poster
+                }
+            }
         val progress =
             rememberOverlayTransition(leaving = leaving, animation = animation) { (afterExit ?: onDismiss)() }
+        val reduced = LocalAccessibilityOptions.current.reduceMotion
+        val drag =
+            rememberDialogDragState(
+                enabled = {
+                    animation == DialogAnimation.MagneticDrag &&
+                        !reduced &&
+                        canDismiss &&
+                        !leaving &&
+                        progress() >= 1f
+                },
+                dismiss = requestDismiss,
+            )
+        LaunchedEffect(reduced, leaving) {
+            if (reduced) {
+                drag.reset()
+            } else if (leaving) {
+                drag.stopSettling()
+            }
+        }
+        val contentMotion = remember(animation, progress) { DialogContentMotion(animation, progress) }
         CompositionLocalProvider(
             LocalOverlayDismiss provides requestDismiss,
             LocalOverlayLiquidButtons provides liquidButtons,
             LocalMutedGlass provides true,
             LocalOverlayComplete provides complete,
-            LocalDialogContentMotion provides DialogContentMotion(animation, progress),
+            LocalDialogContentMotion provides contentMotion,
+            LocalDialogMotionHost provides modalMotionHost,
         ) {
             Box(
                 Modifier
@@ -149,7 +182,13 @@ fun GlassDialog(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(ScrimColor.copy(alpha = if (palette.isDark) 0.28f else 0.16f)),
+                        .drawBehind {
+                            drawRect(
+                                ScrimColor,
+                                alpha =
+                                    (if (palette.isDark) 0.28f else 0.16f) * progress().coerceIn(0f, 1f),
+                            )
+                        },
                 )
                 val panelScrollState = rememberScrollState()
                 Column(
@@ -159,22 +198,42 @@ fun GlassDialog(
                         .padding(windowPadding)
                         .widthIn(max = maxWidth)
                         .fillMaxWidth()
-                        .dialogMotion(animation, progress)
-                        .shadow(Shadows.sheet, shape)
+                        .dialogMotion(
+                            animation,
+                            progress,
+                            drag.takeIf {
+                                animation == DialogAnimation.MagneticDrag &&
+                                    !reduced
+                            },
+                        ).shadow(Shadows.sheet, shape)
                         .mutedGlassPanel(shape)
                         .dialogInteriorMotion(animation, progress)
                         .pointerInput(Unit) { detectTapGestures { } }
                         .then(modifier)
                         .padding(contentPadding)
                         .then(
+                            if (animation == DialogAnimation.MagneticDrag &&
+                                !reduced
+                            ) {
+                                Modifier.nestedScroll(drag)
+                            } else {
+                                Modifier
+                            },
+                        ).then(
                             if (scrollable) {
                                 Modifier.verticalScroll(panelScrollState)
                             } else {
                                 Modifier
                             },
                         ),
-                    content = content,
-                )
+                ) {
+                    if (animation ==
+                        DialogAnimation.MagneticDrag
+                    ) {
+                        DialogDragHandle(drag, !reduced && canDismiss && !leaving)
+                    }
+                    content()
+                }
             }
         }
     }
@@ -214,16 +273,31 @@ internal fun rememberOverlayTransition(
             progress.animateTo(
                 target,
                 if (leaving) {
-                    tween(animation.exitMillis, easing = CubicBezierEasing(0.4f, 0f, 0.6f, 1f))
+                    tween(
+                        overlayRemainingDurationMillis(animation.exitMillis, progress.value, target),
+                        easing = OverlayExitCurve,
+                    )
                 } else {
-                    tween(animation.enterMillis, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f))
+                    tween(
+                        overlayRemainingDurationMillis(animation.enterMillis, progress.value, target),
+                        easing = OverlayEnterCurve,
+                    )
                 },
             )
         }
         if (leaving) finish()
     }
-    return { progress.value }
+    return remember(progress) { { progress.value } }
 }
+
+private val OverlayEnterCurve = CubicBezierEasing(0.2f, 0.45f, 0.25f, 1f)
+private val OverlayExitCurve = CubicBezierEasing(0.4f, 0f, 0.75f, 0.65f)
+
+internal fun overlayRemainingDurationMillis(
+    duration: Int,
+    current: Float,
+    target: Float,
+): Int = (duration * abs(target - current).coerceIn(0f, 1f)).roundToInt().coerceAtLeast(1)
 
 internal fun overlayDurationMillis(
     leaving: Boolean,
@@ -315,6 +389,7 @@ fun OverlayButton(
     val visuals = resolveGlassButtonVisuals(emphasis, palette, accent)
     Row(
         modifier
+            .dialogElementMotion(DialogElementRole.Action)
             .defaultMinSize(minHeight = 48.dp)
             .graphicsLayer { alpha = glassButtonAlpha(enabled) }
             .pressable(
@@ -438,6 +513,7 @@ fun OverlayOptionRow(
         }
     Row(
         modifier
+            .dialogElementMotion(DialogElementRole.Option)
             .fillMaxWidth()
             .pressable(
                 haptic = if (destructive) HapticSignal.Confirm else HapticSignal.Select,
