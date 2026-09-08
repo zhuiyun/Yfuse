@@ -1,11 +1,14 @@
 package com.yfuse.core.data
 
 import com.russhwolf.settings.MapSettings
+import com.russhwolf.settings.Settings
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.model.TmdbRow
+import kotlinx.coroutines.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -75,6 +78,58 @@ class TmdbHomeCacheTest {
         assertEquals(200, restored.title.length)
         assertEquals(1_500, restored.overview?.length)
         assertTrue(settings.getString("tmdb.home.cache.v1", "").length <= 512_000)
+    }
+
+    @Test
+    fun failing_settings_read_and_cleanup_are_a_cache_miss() {
+        val settings =
+            object : Settings by MapSettings() {
+                override fun getStringOrNull(key: String): String? = error("Storage unavailable")
+
+                override fun remove(key: String) = error("Storage remains unavailable")
+            }
+
+        assertNull(TmdbHomeCache(settings).readCached())
+    }
+
+    @Test
+    fun malformed_and_oversized_entries_remain_cache_misses_when_removal_fails() {
+        for (raw in listOf("not-json", "x".repeat(512_001))) {
+            val delegate = MapSettings().apply { putString("tmdb.home.cache.v1", raw) }
+            val settings =
+                object : Settings by delegate {
+                    override fun remove(key: String) = error("Read-only storage")
+                }
+
+            assertNull(TmdbHomeCache(settings).readCached())
+        }
+    }
+
+    @Test
+    fun cancellation_from_read_cleanup_and_write_is_preserved() {
+        val readCancelled =
+            object : Settings by MapSettings() {
+                override fun getStringOrNull(key: String): String? = throw CancellationException("Read cancelled")
+            }
+        assertFailsWith<CancellationException> { TmdbHomeCache(readCancelled).readCached() }
+
+        val invalid = MapSettings().apply { putString("tmdb.home.cache.v1", "not-json") }
+        val cleanupCancelled =
+            object : Settings by invalid {
+                override fun remove(key: String): Unit = throw CancellationException("Cleanup cancelled")
+            }
+        assertFailsWith<CancellationException> { TmdbHomeCache(cleanupCancelled).readCached() }
+
+        val writeCancelled =
+            object : Settings by MapSettings() {
+                override fun putString(
+                    key: String,
+                    value: String,
+                ): Unit = throw CancellationException("Write cancelled")
+            }
+        assertFailsWith<CancellationException> {
+            TmdbHomeCache(writeCancelled).write(TmdbHome(featured = listOf(item(1))))
+        }
     }
 
     private fun item(id: Int) =

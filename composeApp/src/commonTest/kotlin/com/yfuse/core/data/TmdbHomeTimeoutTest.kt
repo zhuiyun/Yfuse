@@ -25,9 +25,13 @@ class TmdbHomeTimeoutTest {
         runTest {
             val client = client { awaitCancellation() }
             try {
-                val result = TmdbRepository(client).home()
+                val result = TmdbRepository(client).refreshHome()
 
                 assertTrue(result.isFailure)
+                assertEquals(
+                    TmdbRecommendationFailure.TIMEOUT,
+                    (result.exceptionOrNull() as TmdbRecommendationException).failure,
+                )
                 assertEquals(20_000L, currentTime)
             } finally {
                 client.close()
@@ -49,7 +53,8 @@ class TmdbHomeTimeoutTest {
                     }
                 }
             try {
-                val result = TmdbRepository(client).home().getOrThrow()
+                val refresh = TmdbRepository(client).refreshHome().getOrThrow()
+                val result = refresh.content
 
                 assertEquals(
                     42,
@@ -60,6 +65,8 @@ class TmdbHomeTimeoutTest {
                         .id,
                 )
                 assertEquals(42, result.featured.single().id)
+                assertEquals(setOf("热门", "最新上线", "正在上映", "即将上映"), refresh.incompleteRows)
+                assertEquals(TmdbRecommendationFailure.TIMEOUT, refresh.failure)
                 assertEquals(22_000L, currentTime)
             } finally {
                 client.close()

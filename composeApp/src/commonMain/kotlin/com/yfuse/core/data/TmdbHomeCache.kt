@@ -6,6 +6,7 @@ import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.isoDateDaysBefore
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -52,33 +53,43 @@ class TmdbHomeCache(
     fun read(): TmdbHome? = readCached()?.content
 
     fun readCached(): Cached? {
-        val raw = settings.getStringOrNull(KEY) ?: return null
-        if (raw.length > MAX_SERIALIZED_CHARS) {
-            settings.remove(KEY)
-            AppLog.warning(
-                category = "feature.home",
-                event = "recommendations_cache_oversized",
-                message = "Oversized home recommendations cache was discarded",
-            )
-            return null
-        }
-        return runCatching {
+        return try {
+            val raw = settings.getStringOrNull(KEY) ?: return null
+            check(raw.length <= MAX_SERIALIZED_CHARS) { "Home recommendations cache exceeds its size limit" }
             val entry = json.decodeFromString(Entry.serializer(), raw)
             val currentDate = today()
             val oldestAcceptedDate = isoDateDaysBefore(currentDate, MAX_CACHE_AGE_DAYS)
             check(entry.savedOn.matches(Regex("\\d{4}-\\d{2}-\\d{2}")))
             check(entry.savedOn >= oldestAcceptedDate && entry.savedOn <= currentDate)
-            Cached(entry.content, entry.savedOn)
-        }.onFailure {
-            settings.remove(KEY)
+            Cached(entry.content, entry.savedOn).takeIf { !it.content.isEmpty }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // A failed Settings read or removal must not prevent the live request from starting.
+            discardUnreadableCache()
             AppLog.warning(
                 category = "feature.home",
                 event = "recommendations_cache_unreadable",
                 message = "Cached home recommendations were discarded",
-                throwable = it,
+                throwable = error,
             )
-        }.getOrNull()
-            ?.takeIf { !it.content.isEmpty }
+            null
+        }
+    }
+
+    private fun discardUnreadableCache() {
+        try {
+            settings.remove(KEY)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            AppLog.warning(
+                category = "feature.home",
+                event = "recommendations_cache_remove_failed",
+                message = "Unreadable home recommendations cache could not be removed",
+                throwable = error,
+            )
+        }
     }
 
     fun write(content: TmdbHome) {
@@ -94,7 +105,7 @@ class TmdbHomeCache(
                         )
                     },
             )
-        runCatching {
+        try {
             val encoded =
                 json.encodeToString(
                     Entry.serializer(),
@@ -104,12 +115,14 @@ class TmdbHomeCache(
                 "Home recommendations cache exceeds its size limit"
             }
             settings.putString(KEY, encoded)
-        }.onFailure {
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
             AppLog.warning(
                 category = "feature.home",
                 event = "recommendations_cache_write_failed",
                 message = "Home recommendations could not be cached",
-                throwable = it,
+                throwable = error,
             )
         }
     }

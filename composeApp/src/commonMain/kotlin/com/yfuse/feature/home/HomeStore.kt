@@ -8,6 +8,9 @@ import com.arkivanov.mvikotlin.extensions.coroutines.coroutineBootstrapper
 import com.yfuse.core.data.EmbyRepository
 import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.TmdbHomeCache
+import com.yfuse.core.data.TmdbHomeRefresh
+import com.yfuse.core.data.TmdbRecommendationException
+import com.yfuse.core.data.TmdbRecommendationFailure
 import com.yfuse.core.data.TmdbRepository
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.model.HomeContent
@@ -15,12 +18,14 @@ import com.yfuse.core.model.MediaItem
 import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.TmdbHome
 import com.yfuse.core.model.TmdbItem
+import com.yfuse.core.model.TmdbRow
 import com.yfuse.core.model.deduplicatePlaybackHistory
 import com.yfuse.core.network.knownUnavailableEndpointReason
 import com.yfuse.core.network.toUserMessage
 import com.yfuse.core.sync.ServerSyncManager
 import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.pickForDay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -68,7 +73,7 @@ data class HomeState(
     val libraryContent: List<HomeLibraryContent> = emptyList(),
     val resolving: Boolean = false,
     val error: String? = null,
-    /** A live refresh failed, but the last bounded cache is still usable. */
+    /** A recommendation refresh was incomplete or failed; server library state is independent. */
     val recommendationNotice: String? = null,
     val actionMessage: String? = null,
 ) {
@@ -196,6 +201,7 @@ private sealed interface Msg {
 
     data class Loaded(
         val content: TmdbHome,
+        val notice: String? = null,
     ) : Msg
 
     data class ResumeLoaded(
@@ -229,6 +235,80 @@ private sealed interface Msg {
 
 private const val RECOMMENDATIONS_UNAVAILABLE_MESSAGE =
     "影视推荐服务暂时不可用，请稍后重试"
+private val RECOMMENDATION_ROW_ORDER = listOf("热门", "最新上线", "正在上映", "即将上映")
+private const val MAX_MERGED_FEATURED = 21
+private const val MAX_MERGED_ROW_ITEMS = 80
+
+internal data class HomeRecommendationUpdate(
+    val content: TmdbHome,
+    val usedPreviousContent: Boolean,
+)
+
+/** Only failed feeds retain old entries. A successfully refreshed empty shelf clears its old items. */
+internal fun mergeRecommendationRefresh(
+    previous: TmdbHome,
+    refresh: TmdbHomeRefresh,
+): HomeRecommendationUpdate {
+    if (refresh.incompleteRows.isEmpty()) return HomeRecommendationUpdate(refresh.content, false)
+    var usedPrevious = false
+
+    fun mergeItems(
+        fresh: List<TmdbItem>,
+        old: List<TmdbItem>,
+        limit: Int,
+    ): List<TmdbItem> {
+        val freshIds = fresh.mapTo(mutableSetOf()) { it.mediaType to it.id }
+        val merged = (fresh + old).distinctBy { it.mediaType to it.id }.take(limit)
+        if (merged.any { (it.mediaType to it.id) !in freshIds }) usedPrevious = true
+        return merged
+    }
+
+    val newRows = refresh.content.rows.associateBy { it.title }
+    val oldRows = previous.rows.associateBy { it.title }
+    val titles =
+        (RECOMMENDATION_ROW_ORDER + refresh.content.rows.map { it.title } + previous.rows.map { it.title }).distinct()
+    val rows =
+        titles.mapNotNull { title ->
+            if (title in refresh.incompleteRows) {
+                val items =
+                    mergeItems(newRows[title]?.items.orEmpty(), oldRows[title]?.items.orEmpty(), MAX_MERGED_ROW_ITEMS)
+                items.takeIf { it.isNotEmpty() }?.let { TmdbRow(title, it) }
+            } else {
+                newRows[title]
+            }
+        }
+    val featured =
+        if ("热门" in refresh.incompleteRows) {
+            mergeItems(refresh.content.featured, previous.featured, MAX_MERGED_FEATURED)
+        } else {
+            refresh.content.featured
+        }
+    return HomeRecommendationUpdate(TmdbHome(featured, rows), usedPrevious)
+}
+
+internal fun recommendationFailureMessage(failure: TmdbRecommendationFailure?): String =
+    when (failure) {
+        TmdbRecommendationFailure.AUTHORIZATION ->
+            "影视推荐服务认证失败，请更新应用或联系维护者"
+        TmdbRecommendationFailure.ACCESS_DENIED ->
+            "影视推荐服务拒绝访问，请检查网络、代理或授权配置后重试"
+        TmdbRecommendationFailure.RATE_LIMITED -> "影视推荐请求过于频繁，请稍后重试"
+        TmdbRecommendationFailure.TIMEOUT -> "影视推荐请求超时，请检查网络后重试"
+        TmdbRecommendationFailure.NETWORK -> "无法连接影视推荐服务，请检查网络或代理后重试"
+        TmdbRecommendationFailure.INVALID_RESPONSE -> "影视推荐服务返回的数据异常，请稍后重试或更新应用"
+        TmdbRecommendationFailure.EMPTY -> "影视推荐服务暂未返回可用内容，请稍后重试"
+        TmdbRecommendationFailure.SERVICE, null -> RECOMMENDATIONS_UNAVAILABLE_MESSAGE
+    }
+
+private fun partialRecommendationNotice(
+    failure: TmdbRecommendationFailure?,
+    usedPreviousContent: Boolean,
+): String =
+    buildString {
+        append("部分推荐未更新")
+        failure?.let { append("：${recommendationFailureMessage(it)}") }
+        if (usedPreviousContent) append("；未更新的内容保留上次结果")
+    }
 
 /**
  * A synchronous Settings write cannot be interrupted once it starts. Serializing writes
@@ -368,23 +448,44 @@ class HomeStoreFactory(
                             }
                         }
 
-                        val result = tmdb.home()
+                        val result = tmdb.refreshHome()
                         if (generation != recommendationGeneration) return@launch
-                        val content = result.getOrNull()
-                        if (content != null) {
-                            recommendationCacheWriter.write(content)
+                        val refreshResult = result.getOrNull()
+                        if (refreshResult != null) {
+                            val update = mergeRecommendationRefresh(state().content, refreshResult)
+                            val complete = refreshResult.incompleteRows.isEmpty()
+                            // A partial page must not make yesterday's full cache look fresh today.
+                            if (complete) recommendationCacheWriter.write(update.content)
                             if (generation == recommendationGeneration) {
-                                dispatch(Msg.Loaded(content))
+                                dispatch(
+                                    Msg.Loaded(
+                                        content = update.content,
+                                        notice =
+                                            if (complete) {
+                                                null
+                                            } else {
+                                                partialRecommendationNotice(
+                                                    refreshResult.failure,
+                                                    update.usedPreviousContent,
+                                                )
+                                            },
+                                    ),
+                                )
                             }
                         } else {
                             val error = result.exceptionOrNull()
+                            if (error is CancellationException) throw error
                             AppLog.warning(
                                 category = "feature.home",
                                 event = "recommendations_load_failed",
                                 message = "Home recommendations failed to load",
                                 throwable = error,
                             )
-                            dispatch(Msg.Failed(RECOMMENDATIONS_UNAVAILABLE_MESSAGE))
+                            dispatch(
+                                Msg.Failed(
+                                    recommendationFailureMessage((error as? TmdbRecommendationException)?.failure),
+                                ),
+                            )
                         }
                     } finally {
                         if (generation == recommendationGeneration) recommendationJob = null
@@ -607,7 +708,7 @@ class HomeStoreFactory(
                         content = msg.content,
                         today = currentIsoDate(),
                         error = null,
-                        recommendationNotice = null,
+                        recommendationNotice = msg.notice,
                     )
                 is Msg.ResumeLoaded ->
                     copy(resume = deduplicatePlaybackHistory(msg.items, { it.item }, { it.server.id }))
@@ -629,7 +730,7 @@ class HomeStoreFactory(
                             loading = false,
                             refreshing = false,
                             error = null,
-                            recommendationNotice = "推荐内容刷新失败，正在显示最近缓存",
+                            recommendationNotice = "${msg.message}；已保留上次显示的推荐内容",
                         )
                     }
                 is Msg.Resolving -> copy(resolving = msg.value)

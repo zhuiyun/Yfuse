@@ -16,10 +16,15 @@ import com.yfuse.core.util.currentIsoDate
 import com.yfuse.core.util.isoDateDaysBefore
 import com.yfuse.core.util.pickForDay
 import io.ktor.client.HttpClient
+import io.ktor.client.call.NoTransformationFoundException
 import io.ktor.client.call.body
+import io.ktor.client.network.sockets.ConnectTimeoutException
+import io.ktor.client.network.sockets.SocketTimeoutException
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import io.ktor.serialization.ContentConvertException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -29,10 +34,16 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 
 @Serializable
 internal data class TmdbListDto(
     val results: List<TmdbItemDto> = emptyList(),
+)
+
+@Serializable
+private data class TmdbFeedDto(
+    val results: List<TmdbItemDto>,
 )
 
 @Serializable
@@ -173,22 +184,24 @@ class TmdbRepository(
     /** Home fans out sixteen feed requests at once on a cold start; six in flight is plenty. */
     private val feedRequests = Semaphore(FEED_REQUEST_CONCURRENCY)
 
-    suspend fun home(language: String = "zh-CN"): Result<TmdbHome> =
+    suspend fun home(language: String = "zh-CN"): Result<TmdbHome> = refreshHome(language).map { it.content }
+
+    suspend fun refreshHome(language: String = "zh-CN"): Result<TmdbHomeRefresh> =
         try {
             coroutineScope {
                 val today = currentIsoDate()
                 val recentStart = isoDateDaysBefore(today, RECENT_RELEASE_DAYS)
                 val currentYear = today.take(4).toIntOrNull() ?: 2026
                 val nextYearEnd = "${currentYear + 1}-12-31"
-                val popularMovies = async { fetch("/movie/popular", language, "movie") }
-                val popularShows = async { fetch("/tv/popular", language, "tv") }
-                val nowMovies = async { fetch("/movie/now_playing", language, "movie") }
-                val nowShows = async { fetch("/tv/airing_today", language, "tv") }
+                val popularMovies = async { fetchResult("/movie/popular", language, "movie") }
+                val popularShows = async { fetchResult("/tv/popular", language, "tv") }
+                val nowMovies = async { fetchResult("/movie/now_playing", language, "movie") }
+                val nowShows = async { fetchResult("/tv/airing_today", language, "tv") }
                 // `/movie/upcoming` is region-relative and can return dates that have already
                 // passed locally. Discover gives this shelf an explicit future window instead.
                 val upcomingMovies =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/movie",
                             language,
                             "movie",
@@ -204,7 +217,7 @@ class TmdbRepository(
                     }
                 val upcomingShows =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/tv",
                             language,
                             "tv",
@@ -219,7 +232,7 @@ class TmdbRepository(
                     }
                 val cnPopularMovies =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/movie",
                             language,
                             "movie",
@@ -234,7 +247,7 @@ class TmdbRepository(
                     }
                 val cnPopularShows =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/tv",
                             language,
                             "tv",
@@ -249,7 +262,7 @@ class TmdbRepository(
                     }
                 val cnNowMovies =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/movie",
                             language,
                             "movie",
@@ -267,7 +280,7 @@ class TmdbRepository(
                     }
                 val cnNowShows =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/tv",
                             language,
                             "tv",
@@ -284,7 +297,7 @@ class TmdbRepository(
                     }
                 val cnUpcomingMovies =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/movie",
                             language,
                             "movie",
@@ -302,7 +315,7 @@ class TmdbRepository(
                     }
                 val cnUpcomingShows =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/tv",
                             language,
                             "tv",
@@ -319,7 +332,7 @@ class TmdbRepository(
                     }
                 val latestMovies =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/movie",
                             language,
                             "movie",
@@ -335,7 +348,7 @@ class TmdbRepository(
                     }
                 val latestShows =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/tv",
                             language,
                             "tv",
@@ -350,7 +363,7 @@ class TmdbRepository(
                     }
                 val cnLatestMovies =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/movie",
                             language,
                             "movie",
@@ -368,7 +381,7 @@ class TmdbRepository(
                     }
                 val cnLatestShows =
                     async {
-                        fetch(
+                        fetchResult(
                             "/discover/tv",
                             language,
                             "tv",
@@ -383,7 +396,7 @@ class TmdbRepository(
                             ),
                         )
                     }
-                val result =
+                val responses =
                     awaitAll(
                         popularMovies,
                         popularShows,
@@ -402,6 +415,21 @@ class TmdbRepository(
                         cnLatestMovies,
                         cnLatestShows,
                     )
+                val result = responses.map { it.getOrDefault(emptyList()) }
+                val rowFeeds =
+                    linkedMapOf(
+                        "热门" to listOf(0, 1, 6, 7),
+                        "最新上线" to listOf(12, 13, 14, 15),
+                        "正在上映" to listOf(2, 3, 8, 9),
+                        "即将上映" to listOf(4, 5, 10, 11),
+                    )
+                val incompleteRows =
+                    rowFeeds.filterValues { indexes -> indexes.any { responses[it].isFailure } }.keys
+                val failure =
+                    responses
+                        .mapNotNull { response ->
+                            (response.exceptionOrNull() as? TmdbRecommendationException)?.failure
+                        }.minByOrNull { it.ordinal }
                 val popular =
                     integrateDomestic(
                         global = interleave(result[0], result[1]).eligibleCatalogItems(),
@@ -455,31 +483,39 @@ class TmdbRepository(
                         TmdbRow("即将上映", upcoming),
                     ).filter { it.items.isNotEmpty() }
 
-                // Sixteen queries and not one row between them is not a thin catalogue — it is
-                // TMDB being unreachable, which on a mainland connection without a proxy is the
-                // normal case. Reported as a failure so the screen can say so: it used to return
-                // an empty success, and the home tab rendered silent blank shelves instead.
-                if (rows.isEmpty() && featured.isEmpty()) {
+                // Even empty successful feeds carry freshness information: the store must
+                // clear those old shelves while retaining only the groups that failed.
+                val hasMixedResponses = responses.any { it.isSuccess } && responses.any { it.isFailure }
+                if (rows.isEmpty() && featured.isEmpty() && !hasMixedResponses) {
+                    val category = failure ?: TmdbRecommendationFailure.EMPTY
                     AppLog.warning(
                         category = "tmdb",
                         event = "home_unavailable",
-                        message = "Every TMDB feed came back empty; treating as unreachable",
+                        message = "TMDB home has no usable recommendations",
+                        attributes = mapOf("failure" to category.name),
                     )
-                    Result.failure(EmbyErrorException(EmbyError.Network))
+                    Result.failure(TmdbRecommendationException(category))
                 } else {
-                    Result.success(TmdbHome(featured = enrichedFeatured, rows = rows))
+                    Result.success(
+                        TmdbHomeRefresh(
+                            content = TmdbHome(featured = enrichedFeatured, rows = rows),
+                            incompleteRows = incompleteRows,
+                            failure = failure,
+                        ),
+                    )
                 }
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
+            val failure = e.toRecommendationFailure()
             AppLog.error(
                 category = "tmdb",
                 event = "home_failed",
                 message = "TMDB home feed failed",
-                throwable = e,
+                attributes = e.recommendationFailureAttributes(failure),
             )
-            Result.failure(EmbyErrorException(e.toError()))
+            Result.failure(TmdbRecommendationException(failure))
         }
 
     /** Candidate identities for a library series whose provider ids are missing or stale. */
@@ -1081,51 +1117,111 @@ class TmdbRepository(
         fallbackType: String,
         parameters: Map<String, String> = emptyMap(),
         requireArtwork: Boolean = true,
-    ): List<TmdbItem> =
-        try {
+    ): List<TmdbItem> = fetchResult(path, language, fallbackType, parameters, requireArtwork).getOrDefault(emptyList())
+
+    private suspend fun fetchResult(
+        path: String,
+        language: String,
+        fallbackType: String,
+        parameters: Map<String, String> = emptyMap(),
+        requireArtwork: Boolean = true,
+    ): Result<List<TmdbItem>> {
+        var responseStatus: Int? = null
+        return try {
             // Include permit wait in the deadline so an unreachable host cannot turn
             // sixteen feeds into three consecutive full-length timeout waves.
             val response =
                 withTimeoutOrNull(FEED_TOTAL_BUDGET_MS) {
                     feedRequests.withPermit {
-                        client
-                            .get("$TMDB_BASE$path") {
+                        val response =
+                            client.get("$TMDB_BASE$path") {
                                 parameter("language", language)
                                 parameters.forEach { (name, value) -> parameter(name, value) }
-                            }.body<TmdbListDto>()
+                            }
+                        // Mock/custom clients may not install expectSuccess; an error JSON is
+                        // never a successful empty catalogue, regardless of that client setting.
+                        val status = response.status.value
+                        responseStatus = status
+                        if (status !in 200..299) {
+                            throw TmdbRecommendationException(recommendationHttpFailure(status))
+                        }
+                        response.body<TmdbFeedDto>()
                     }
-                } ?: throw EmbyErrorException(EmbyError.Network)
-            response.results
-                .map { it.toItem(fallbackType) }
-                .filter { it.title.isNotBlank() }
-                .filter { !requireArtwork || it.posterPath != null || it.backdropPath != null }
+                } ?: throw TmdbRecommendationException(TmdbRecommendationFailure.TIMEOUT)
+            Result.success(
+                response.results
+                    .map { it.toItem(fallbackType) }
+                    .filter { it.title.isNotBlank() }
+                    .filter { !requireArtwork || it.posterPath != null || it.backdropPath != null },
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
+            val failure = e.toRecommendationFailure()
             AppLog.warning(
                 category = "tmdb",
                 event = "feed_request_failed",
                 message = "TMDB feed request failed: $path",
-                throwable = e,
-                attributes =
-                    mapOf(
-                        "answered" to (e is ResponseException).toString(),
-                        "status" to (
-                            (e as? ResponseException)
-                                ?.response
-                                ?.status
-                                ?.value
-                                ?.toString()
-                                ?: "none"
-                        ),
-                    ),
+                attributes = e.recommendationFailureAttributes(failure, responseStatus),
             )
             // Stays local to this shelf on purpose. These run as siblings under one
             // `coroutineScope`, so rethrowing here cancels every feed that *did* answer —
             // one unreachable shelf would take the whole screen down with it. Whether TMDB
             // is reachable at all is a question about the set, and `home` answers it.
-            emptyList()
+            Result.failure(TmdbRecommendationException(failure))
         }
+    }
+
+    private fun Throwable.recommendationFailureAttributes(
+        failure: TmdbRecommendationFailure,
+        responseStatus: Int? = null,
+    ): Map<String, String> {
+        val types = mutableListOf<String>()
+        var status = responseStatus
+        var current: Throwable? = this
+        repeat(8) {
+            val error = current ?: return@repeat
+            types += error::class.simpleName ?: "Throwable"
+            if (status == null && error is ResponseException) status = error.response.status.value
+            current = error.cause
+        }
+        return mapOf(
+            "failure" to failure.name,
+            "status" to (status?.toString() ?: "none"),
+            "exceptionTypes" to types.joinToString(" > "),
+        )
+    }
+
+    private fun recommendationHttpFailure(status: Int): TmdbRecommendationFailure =
+        when (status) {
+            401 -> TmdbRecommendationFailure.AUTHORIZATION
+            403 -> TmdbRecommendationFailure.ACCESS_DENIED
+            429 -> TmdbRecommendationFailure.RATE_LIMITED
+            else -> TmdbRecommendationFailure.SERVICE
+        }
+
+    private fun Throwable.toRecommendationFailure(): TmdbRecommendationFailure {
+        var current: Throwable? = this
+        // Transport engines can wrap timeout/serialization exceptions. Bound the walk so
+        // a vendor exception with an invalid cause chain cannot stall failure reporting.
+        repeat(8) {
+            val error = current ?: return TmdbRecommendationFailure.NETWORK
+            when (error) {
+                is TmdbRecommendationException -> return error.failure
+                is ResponseException -> return recommendationHttpFailure(error.response.status.value)
+                is HttpRequestTimeoutException,
+                is ConnectTimeoutException,
+                is SocketTimeoutException,
+                -> return TmdbRecommendationFailure.TIMEOUT
+                is SerializationException,
+                is ContentConvertException,
+                is NoTransformationFoundException,
+                -> return TmdbRecommendationFailure.INVALID_RESPONSE
+            }
+            current = error.cause
+        }
+        return TmdbRecommendationFailure.NETWORK
+    }
 
     private fun interleave(
         first: List<TmdbItem>,
