@@ -30,11 +30,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppShapes
+import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.DialogContentMotion
+import com.yfuse.core.designsystem.DialogDragHandle
+import com.yfuse.core.designsystem.DialogDragHandleHeight
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalDialogAnimation
 import com.yfuse.core.designsystem.LocalDialogContentMotion
@@ -47,6 +51,7 @@ import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.dialogInteriorMotion
 import com.yfuse.core.designsystem.dialogMotion
 import com.yfuse.core.designsystem.mutedGlassPanel
+import com.yfuse.core.designsystem.rememberDialogDragState
 import com.yfuse.core.designsystem.rememberOverlayTransition
 import com.yfuse.core.designsystem.shadow
 import kotlinx.coroutines.Job
@@ -264,6 +269,26 @@ internal fun PlayerPopupPanel(
         label = "popupPredictiveBack",
     )
     val requestDismiss = remember { { leaving = true } }
+    val drag =
+        rememberDialogDragState(
+            enabled = {
+                animation == DialogAnimation.MagneticDrag &&
+                    !reduceMotion &&
+                    !leaving &&
+                    backProgress == 0f &&
+                    progress() >= 1f
+            },
+            dismiss = requestDismiss,
+        )
+    LaunchedEffect(reduceMotion, leaving) {
+        if (reduceMotion) {
+            drag.reset()
+        } else if (leaving) {
+            drag.stopSettling()
+        }
+    }
+    val contentMotion = remember(animation, progress) { DialogContentMotion(animation, progress) }
+    val handleHeight = if (animation == DialogAnimation.MagneticDrag) DialogDragHandleHeight else 0.dp
     PlatformPredictiveBackHandler(
         onProgress = { if (!leaving && !reduceMotion) backProgress = it.coerceIn(0f, 1f) },
         onBack = requestDismiss,
@@ -277,22 +302,31 @@ internal fun PlayerPopupPanel(
     Column(
         modifier
             .width(PlayerPopupWidth)
-            .dialogMotion(animation) { progress() * (1f - backOffset * 0.25f) }
-            .heightIn(
-                min = if (compact) PlayerPopupCompactMinHeight else PlayerPopupMinHeight,
-                max = if (compact) PlayerPopupCompactMaxHeight else PlayerPopupMaxHeight,
+            .dialogMotion(animation, drag.takeIf { animation == DialogAnimation.MagneticDrag && !reduceMotion }) {
+                progress() * (1f - backOffset * 0.25f)
+            }.heightIn(
+                min = (if (compact) PlayerPopupCompactMinHeight else PlayerPopupMinHeight) + handleHeight,
+                max = (if (compact) PlayerPopupCompactMaxHeight else PlayerPopupMaxHeight) + handleHeight,
             ).shadow(Shadows.playerSheet, AppShapes.sheet)
             .mutedGlassPanel(AppShapes.sheet, samplePage = false, dark = true)
             .dialogInteriorMotion(animation, progress)
             // Taps inside the popup must not reach the dismiss catcher behind it.
             .noRippleClickable { }
             .imePadding()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .then(
+                if (animation == DialogAnimation.MagneticDrag &&
+                    !reduceMotion
+                ) {
+                    Modifier.nestedScroll(drag)
+                } else {
+                    Modifier
+                },
+            ).padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.Top,
         content = {
             CompositionLocalProvider(
                 LocalMutedGlass provides true,
-                LocalDialogContentMotion provides DialogContentMotion(animation, progress),
+                LocalDialogContentMotion provides contentMotion,
                 LocalOverlayDismiss provides requestDismiss,
                 LocalOverlayComplete provides { action ->
                     if (!leaving) {
@@ -300,7 +334,10 @@ internal fun PlayerPopupPanel(
                         leaving = true
                     }
                 },
-            ) { content() }
+            ) {
+                if (animation == DialogAnimation.MagneticDrag) DialogDragHandle(drag, !reduceMotion && !leaving)
+                content()
+            }
         },
     )
 }

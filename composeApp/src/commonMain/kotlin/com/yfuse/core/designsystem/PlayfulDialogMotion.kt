@@ -52,7 +52,7 @@ internal fun ContentDrawScope.drawPlayfulDialog(
     when (animation) {
         DialogAnimation.Bloom -> {
             val radius = dialogPortalRadius(size.width, size.height, center) * p
-            val separation = radius * 0.22f * (1f - p)
+            val separation = radius * 0.95f * (1f - p)
             // Overlapping, equally wound circles form one mask. At rest every petal
             // reaches all four corners, avoiding a jump when the endpoint bypasses it.
             for (index in 0 until 6) {

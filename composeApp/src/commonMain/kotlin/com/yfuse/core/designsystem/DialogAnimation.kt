@@ -194,8 +194,8 @@ private class DialogPanelPosition {
 @Composable
 internal fun Modifier.dialogMotion(
     animation: DialogAnimation,
-    progress: () -> Float,
     drag: DialogDragState? = null,
+    progress: () -> Float,
 ): Modifier {
     val host = LocalDialogMotionHost.current
     val anchor = remember { host.touch }

@@ -200,11 +200,12 @@ fun GlassDialog(
                         .fillMaxWidth()
                         .dialogMotion(
                             animation,
-                            progress,
-                            drag.takeIf {
-                                animation == DialogAnimation.MagneticDrag &&
-                                    !reduced
-                            },
+                            drag =
+                                drag.takeIf {
+                                    animation == DialogAnimation.MagneticDrag &&
+                                        !reduced
+                                },
+                            progress = progress,
                         ).shadow(Shadows.sheet, shape)
                         .mutedGlassPanel(shape)
                         .dialogInteriorMotion(animation, progress)

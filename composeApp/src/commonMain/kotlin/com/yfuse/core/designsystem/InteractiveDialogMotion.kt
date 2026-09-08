@@ -31,17 +31,19 @@ internal fun ContentDrawScope.drawInteractiveDialog(
                     rewind()
                     addOval(Rect(origin.x - radius, origin.y - radius, origin.x + radius, origin.y + radius))
                 }
-            clipPath(aperture) {
-                this@drawInteractiveDialog.drawContent()
-                val pulse = sin(PI * progress).toFloat()
-                for (index in 0..1) {
-                    val ring = maximum * dialogStage(progress, index * 0.09f)
-                    drawCircle(
-                        glow.copy(alpha = glow.alpha * pulse * (0.5f - index * 0.2f)),
-                        ring,
-                        origin,
-                        style = Stroke(1.dp.toPx()),
-                    )
+            clipRect {
+                clipPath(aperture) {
+                    this@drawInteractiveDialog.drawContent()
+                    val pulse = sin(PI * progress).toFloat()
+                    for (index in 0..1) {
+                        val ring = maximum * dialogStage(progress, index * 0.09f)
+                        drawCircle(
+                            glow.copy(alpha = glow.alpha * pulse * (0.5f - index * 0.2f)),
+                            ring,
+                            origin,
+                            style = Stroke(1.dp.toPx()),
+                        )
+                    }
                 }
             }
         }

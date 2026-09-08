@@ -134,7 +134,7 @@ internal fun DialogDragHandle(
     enabled: Boolean,
 ) {
     Box(
-        Modifier.fillMaxWidth().height(28.dp).draggable(
+        Modifier.fillMaxWidth().height(DialogDragHandleHeight).draggable(
             state = rememberDraggableState { state.move(it) },
             orientation = Orientation.Vertical,
             enabled = enabled,
@@ -145,3 +145,5 @@ internal fun DialogDragHandle(
         Box(Modifier.size(32.dp, 4.dp).background(LocalPalette.current.sub.copy(alpha = 0.35f), CircleShape))
     }
 }
+
+internal val DialogDragHandleHeight = 28.dp
