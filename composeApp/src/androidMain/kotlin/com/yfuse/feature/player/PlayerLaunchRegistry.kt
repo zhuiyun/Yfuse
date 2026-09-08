@@ -345,9 +345,13 @@ internal class PlayerLaunchViewModel : ViewModel() {
     var request: PlayerLaunchRequest? = null
     var resume: Pair<Int, Long>? = null
     var pending: PendingPlayerLaunch? = null
+    var enriching: PendingPlayerLaunch? = null
+    var launchStartedElapsedMs = SystemClock.elapsedRealtime()
 
     override fun onCleared() {
         pending?.store?.dispose()
         pending = null
+        enriching?.store?.dispose()
+        enriching = null
     }
 }

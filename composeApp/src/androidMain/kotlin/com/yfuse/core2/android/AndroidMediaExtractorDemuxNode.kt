@@ -64,6 +64,9 @@ internal interface YPlatformExtractorSource : YDemuxNode {
 
     fun blockedForegroundReadMs(): Long
 
+    /** null means unmeasured; zero is a measured stall. Must not wait for an extractor read. */
+    fun liveTransportThroughput(): Long? = null
+
     fun selectTrack(index: Int)
 
     fun unselectTrack(index: Int)
@@ -208,6 +211,9 @@ internal class AndroidMediaExtractorDemuxNode(
     /** Lock-free; safe to call from the codec/render pump. See the data source for why. */
     override fun blockedForegroundReadMs(): Long =
         (mediaDataSource as? AndroidTransportMediaDataSource)?.blockedForegroundReadMs() ?: 0L
+
+    override fun liveTransportThroughput(): Long? =
+        (mediaDataSource as? AndroidTransportMediaDataSource)?.liveTransportThroughput()
 
     override fun findFirstTrack(mimePrefix: String): Int? =
         (0 until trackCount).firstOrNull { index ->

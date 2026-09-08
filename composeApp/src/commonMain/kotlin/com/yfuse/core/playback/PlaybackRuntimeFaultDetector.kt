@@ -32,6 +32,9 @@ class PlaybackRuntimeFaultDetector(
     private var missingVideoSinceEpochMs: Long? = null
     private var missingAudioSinceEpochMs: Long? = null
     private var rebufferWaitSinceEpochMs: Long? = null
+    private var sourceStarvedSinceEpochMs: Long? = null
+    private var lastSourceQueueBytes = 0L
+    private var lastSourceBufferedMs = 0L
     private var reported = false
 
     init {
@@ -99,6 +102,28 @@ class PlaybackRuntimeFaultDetector(
         }
 
         val positionAdvancementExpected = observation.playing && !observation.buffering
+        val sourceProgress =
+            observation.sourceQueueBytes > lastSourceQueueBytes ||
+                observation.sourceBufferedMs > lastSourceBufferedMs
+        lastSourceQueueBytes = observation.sourceQueueBytes
+        lastSourceBufferedMs = observation.sourceBufferedMs
+        val confirmedTransportStarvation =
+            observation.sourceRemote &&
+                observation.sourceStarvationCount > 0L &&
+                observation.sourceQueueBytes <= 0L &&
+                observation.sourceBufferedMs <= 0L
+        // File size is a ceiling on a legitimate slow open, not permission to wait minutes on an
+        // empty transport. Only positive starvation evidence arms this shorter no-progress window.
+        sourceStarvedSinceEpochMs =
+            if (observation.buffering &&
+                confirmedTransportStarvation &&
+                !sourceProgress &&
+                !(outputHasStarted && positionAdvanced)
+            ) {
+                sourceStarvedSinceEpochMs ?: now
+            } else {
+                null
+            }
         if (positionAdvancementExpected && !positionAdvancementWasExpected) {
             // A focus/lifecycle pause may last arbitrarily long. Resume owns a fresh stall budget.
             lastProgressAtEpochMs = now
@@ -147,6 +172,15 @@ class PlaybackRuntimeFaultDetector(
                 }
             val fault =
                 when {
+                    now.heldSince(sourceStarvedSinceEpochMs) >= NETWORK_NO_PROGRESS_TIMEOUT_MS ->
+                        PlaybackRuntimeFault(
+                            if (outputHasStarted) {
+                                PlaybackRuntimeFaultKind.RebufferTimeout
+                            } else {
+                                PlaybackRuntimeFaultKind.StartupNetworkTimeout
+                            },
+                            "远程输入队列持续为空且没有新数据或输出进度",
+                        )
                     awaitingFirstOutput && now.heldSince(firstFrameWaitSinceEpochMs) >= startupTimeoutMs ->
                         startupTimeoutFault(observation, continuouslyBuffering = true)
                     outputHasStarted &&
@@ -225,6 +259,9 @@ class PlaybackRuntimeFaultDetector(
         missingVideoSinceEpochMs = null
         missingAudioSinceEpochMs = null
         rebufferWaitSinceEpochMs = null
+        sourceStarvedSinceEpochMs = null
+        lastSourceQueueBytes = 0L
+        lastSourceBufferedMs = 0L
         positionAdvancementWasExpected = false
     }
 }
@@ -239,3 +276,4 @@ private const val MISSING_OUTPUT_GRACE_MS = 4_000L
 private const val DEFAULT_STARTUP_TIMEOUT_MS = 15_000L
 private const val DEFAULT_REBUFFER_TIMEOUT_MS = 45_000L
 private const val POSITION_STALL_TIMEOUT_MS = 12_000L
+private const val NETWORK_NO_PROGRESS_TIMEOUT_MS = 30_000L

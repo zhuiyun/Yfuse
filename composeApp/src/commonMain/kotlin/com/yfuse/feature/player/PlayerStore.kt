@@ -15,6 +15,7 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.dto.toMediaVersion
 import com.yfuse.core.data.preferredVersion
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core.model.MediaVersion
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlaybackSegment
@@ -31,10 +32,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
+import kotlin.time.TimeSource
 
 private const val DISC_SOURCE_TRANSCODE_REASON =
     "ISO/DVD/Blu-ray 光盘源需要服务器解析主标题，已使用服务器转码"
@@ -684,6 +688,8 @@ data class PlayerState(
     val startIndex: Int = 0,
     val startPositionMs: Long = 0L,
     val error: String? = null,
+    /** Current media is playable while optional queue and recovery metadata finish. */
+    val enrichmentPending: Boolean = false,
 )
 
 sealed interface PlayerIntent {
@@ -703,6 +709,18 @@ private sealed interface PlayerMsg {
         val startIndex: Int,
         val startMs: Long,
     ) : PlayerMsg
+
+    data class QueueEnriched(
+        val items: List<PlayerMediaItem>,
+    ) : PlayerMsg
+
+    data class ServerFallbacks(
+        val itemId: String,
+        val serverId: String,
+        val items: List<PlayerMediaItem>,
+    ) : PlayerMsg
+
+    data object EnrichmentFinished : PlayerMsg
 
     data class Failed(
         val message: String,
@@ -759,6 +777,35 @@ class PlayerStoreFactory(
             val primaryServer = serverId?.let(registry::serverById) ?: registry.defaultServer
             loadJob?.cancel()
             val attempt = ++loadAttempt
+            val startedAt = TimeSource.Monotonic.markNow()
+            val requestedSessionId = EmbyStream.newPlaySessionId()
+
+            fun recordStage(
+                stage: String,
+                currentItemId: String = itemId,
+                currentServerId: String = primaryServer?.id.orEmpty(),
+                sessionId: String? = null,
+                outcome: String = "ready",
+            ) {
+                AppLog.info(
+                    category = "feature.player",
+                    event = "playback_preparation_stage",
+                    message =
+                        "Playback preparation reached $stage (${playbackDiagnosticTrace(requestedSessionId)})",
+                    attributes =
+                        mapOf(
+                            "stage" to stage,
+                            "itemId" to currentItemId,
+                            "serverId" to currentServerId,
+                            "requestSessionId" to requestedSessionId,
+                            "sessionId" to sessionId.orEmpty(),
+                            "requestTrace" to playbackDiagnosticTrace(requestedSessionId),
+                            "playbackTrace" to playbackDiagnosticTrace(sessionId),
+                            "outcome" to outcome,
+                            "elapsedMs" to startedAt.elapsedNow().inWholeMilliseconds.toString(),
+                        ),
+                )
+            }
             val job =
                 scope.launch {
                     if (primaryServer == null) {
@@ -775,7 +822,7 @@ class PlayerStoreFactory(
                     var effectiveItemId = itemId
                     var effectiveMediaSourceId = mediaSourceId
                     var effectiveStartPositionTicks = startPositionTicks
-                    var detailResult = repo.itemDetail(server, effectiveItemId)
+                    var detailResult = repo.itemDetail(server, effectiveItemId, includeInheritedPeople = false)
                     val failoverPlan = failoverRequest.consume(itemId)
                     val primaryFailure = detailResult.exceptionOrNull()
                     if (primaryFailure == null) {
@@ -802,7 +849,7 @@ class PlayerStoreFactory(
                                 hitResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(fallback.id, it) }
                                 continue
                             }
-                            val fallbackDetail = repo.itemDetail(fallback, hit.id)
+                            val fallbackDetail = repo.itemDetail(fallback, hit.id, includeInheritedPeople = false)
                             val resolved = fallbackDetail.getOrNull()
                             if (resolved != null) {
                                 AppLog.warning(
@@ -849,7 +896,7 @@ class PlayerStoreFactory(
                         effectiveItemId = target.itemId
                         effectiveMediaSourceId = null
                         effectiveStartPositionTicks = target.startPositionTicks
-                        detailResult = repo.itemDetail(server, effectiveItemId)
+                        detailResult = repo.itemDetail(server, effectiveItemId, includeInheritedPeople = false)
                         if (detailResult.isFailure) {
                             val failure = detailResult.exceptionOrNull()
                             failure?.let { healthMonitor?.recordFailure(server.id, it) }
@@ -881,6 +928,7 @@ class PlayerStoreFactory(
                                 ),
                         )
                     }
+                    recordStage("item_detail_ready", effectiveItemId, server.id)
                     val startMs = effectiveStartPositionTicks / 10_000L
                     val remainingFallbackServerIds =
                         failoverPlan
@@ -1057,7 +1105,7 @@ class PlayerStoreFactory(
                     // instead of adding the series and full episode-list latency to first play.
                     val seriesDetailDeferred =
                         if (detail?.type == "Episode" && seriesId != null) {
-                            async { repo.itemDetail(server, seriesId) }
+                            async { repo.itemDetail(server, seriesId, includeInheritedPeople = false) }
                         } else {
                             null
                         }
@@ -1067,7 +1115,6 @@ class PlayerStoreFactory(
                         } else {
                             null
                         }
-                    val requestedSessionId = EmbyStream.newPlaySessionId()
                     var selectedSourceMismatch: PlaybackSourceMismatch? = null
                     val playbackInfoResult =
                         withTimeoutOrNull(PLAYBACK_NEGOTIATION_TIMEOUT_MS) {
@@ -1147,6 +1194,17 @@ class PlayerStoreFactory(
                                 )
                             }
                     }
+                    recordStage(
+                        "playback_info_ready",
+                        effectiveItemId,
+                        server.id,
+                        negotiatedSessionId,
+                        when {
+                            playbackInfoResult == null -> "timeout"
+                            playbackInfoResult.isFailure -> "failed"
+                            else -> "ready"
+                        },
+                    )
                     selectedSourceMismatch?.let { mismatch ->
                         AppLog.error(
                             category = "feature.player",
@@ -1163,160 +1221,114 @@ class PlayerStoreFactory(
                         dispatch(PlayerMsg.Failed("所选资源与服务器返回不一致，请刷新详情后重试"))
                         return@launch
                     }
-                    // Trickplay is intentionally absent here: PlayerRoot already loads it lazily once
-                    // playback is visible, so a preview strip can never delay the first frame.
-                    //
-                    // Server fallbacks are recovery metadata for a source that fails later, and every
-                    // server they probe is by definition one we are *not* playing from - on the
-                    // degraded link that makes recovery interesting, those are the slowest requests
-                    // there are. Awaiting the Deferred where it is created serialized that behind
-                    // nothing, so its bounded cost landed squarely on the first frame. Start it here
-                    // and collect it just before the queue is published, so it overlaps the series
-                    // catalog and episode load that follow instead of adding to them.
-                    val serverFallbacksDeferred =
-                        failoverPlan
-                            ?.let { plan ->
-                                async {
-                                    resolveServerFallbacks(
-                                        serverIds = remainingFallbackServerIds,
-                                        mediaKey = plan.mediaKey,
-                                        startPositionTicks = effectiveStartPositionTicks,
-                                        titleFallback = detail?.title.orEmpty(),
-                                    )
-                                }
+                    // Only the selected source gates playback. Optional work remains owned by this
+                    // store and is published separately so slow catalogs and backup servers cannot
+                    // hold the first frame or replace the active source's play-session URLs.
+                    val currentItem =
+                        itemOf(
+                            id = effectiveItemId,
+                            title = detail?.title.orEmpty(),
+                            playbackSegments = detail?.playbackSegments.orEmpty(),
+                            providerIds = detail?.providerIds.orEmpty(),
+                            seasonNumber = detail?.seasonNumber,
+                            episodeNumber = detail?.episodeNumber,
+                            seriesId = detail?.seriesId,
+                            seriesName = detail?.seriesName,
+                            versions = detail?.versions.orEmpty(),
+                            runtimeTicks = detail?.runtimeTicks,
+                        )
+                    dispatch(PlayerMsg.Ready(listOf(currentItem), 0, startMs))
+                    recordStage("current_item_ready", currentItem.id, server.id, currentItem.playSessionId)
+                    // A synchronous Ready observer may dispose the store immediately.
+                    currentCoroutineContext().ensureActive()
+                    coroutineScope {
+                        launch {
+                            val fallbacks =
+                                failoverPlan
+                                    ?.let { plan ->
+                                        resolveServerFallbacks(
+                                            serverIds = remainingFallbackServerIds,
+                                            mediaKey = plan.mediaKey,
+                                            startPositionTicks = effectiveStartPositionTicks,
+                                            titleFallback = detail?.title.orEmpty(),
+                                        )
+                                    }.orEmpty()
+                            if (loadAttempt == attempt && fallbacks.isNotEmpty()) {
+                                dispatch(PlayerMsg.ServerFallbacks(effectiveItemId, server.id, fallbacks))
                             }
-
-                    suspend fun awaitServerFallbacks(): List<PlayerMediaItem> {
-                        val resolved = serverFallbacksDeferred?.await().orEmpty()
-                        if (resolved.isNotEmpty()) {
-                            AppLog.info(
-                                category = "feature.player",
-                                event = "playback_server_fallbacks_ready",
-                                message = "Exact-media server fallbacks were resolved before playback",
-                                attributes =
-                                    mapOf(
-                                        "serverId" to server.id,
-                                        "fallbackCount" to resolved.size.toString(),
-                                    ),
-                            )
                         }
-                        return resolved
-                    }
-
-                    var resolvedSeriesProviderIds: Map<String, String> = emptyMap()
-                    if (detail?.type == "Episode" && seriesId != null) {
-                        // The show's provider ids, not this episode's: they are what makes an
-                        // episode recognisable on someone else's server (see episodeWatchKey).
-                        // One extra request per queue, and a miss only costs the cross-server
-                        // half of watch-together.
-                        val seriesDetail = seriesDetailDeferred?.await()?.getOrNull()
-                        val seriesProviderIds = seriesDetail?.providerIds.orEmpty()
-                        resolvedSeriesProviderIds = seriesProviderIds
-                        val seriesPosterUrl =
-                            EmbyImages.primary(
-                                baseUrl = server.baseUrl,
-                                itemId = seriesDetail?.posterItemId ?: seriesId,
-                                tag = seriesDetail?.posterTag,
-                                maxHeight = 360,
-                                accessToken = server.accessToken,
-                            )
-                        val episodesResult = checkNotNull(episodeQueueDeferred).await()
-                        episodesResult.onFailure {
-                            AppLog.warning(
-                                category = "feature.player",
-                                event = "episode_queue_failed",
-                                message = "Episode playback queue failed to load",
-                                throwable = it,
-                                attributes = mapOf("serverId" to server.id),
-                            )
-                        }
-                        val episodes = episodesResult.getOrDefault(emptyList())
-                        if (episodes.isNotEmpty()) {
-                            val items =
-                                episodes.map { ep ->
-                                    itemOf(
-                                        ep.id,
-                                        listOfNotNull(ep.indexNumber?.let { "第 $it 集" }, ep.name).joinToString("  "),
-                                        ep.playbackSegments,
-                                        ep.providerIds,
-                                        ep.seasonNumber,
-                                        ep.indexNumber,
-                                        seriesId,
-                                        detail.seriesName,
-                                        seriesProviderIds,
-                                        // The opened detail is the freshest copy; every sibling now
-                                        // carries MediaSources from the single episode-list request.
-                                        // Without this, their transcode URL used item id as
-                                        // MediaSourceId and Emby rejected it with HTTP 400.
-                                        versions = if (ep.id == effectiveItemId) detail.versions else ep.versions,
-                                        stillTag = ep.primaryTag,
-                                        posterUrl = seriesPosterUrl,
-                                        // A finished episode reads as full rather than as untouched:
-                                        // Emby clears the resume percentage on completion, so the
-                                        // two are indistinguishable without the played flag.
-                                        progress =
-                                            when {
-                                                ep.played -> 1f
-                                                else -> ep.playedPercentage?.let { (it / 100.0).toFloat() }
-                                            },
-                                        caption = ep.indexNumber?.let { "第 $it 集" },
-                                        runtimeTicks =
-                                            if (ep.id == effectiveItemId) {
-                                                detail.runtimeTicks ?: ep.runtimeTicks
-                                            } else {
-                                                ep.runtimeTicks
-                                            },
-                                    )
+                        launch {
+                            if (detail?.type != "Episode" || seriesId == null) return@launch
+                            try {
+                                withTimeoutOrNull(PLAYER_QUEUE_ENRICHMENT_TIMEOUT_MS) {
+                                    val seriesDetail = seriesDetailDeferred?.await()?.getOrNull()
+                                    val seriesProviderIds = seriesDetail?.providerIds.orEmpty()
+                                    val seriesPosterUrl =
+                                        EmbyImages.primary(
+                                            baseUrl = server.baseUrl,
+                                            itemId = seriesDetail?.posterItemId ?: seriesId,
+                                            tag = seriesDetail?.posterTag,
+                                            maxHeight = 360,
+                                            accessToken = server.accessToken,
+                                        )
+                                    val episodesResult = checkNotNull(episodeQueueDeferred).await()
+                                    val episodes = episodesResult.getOrDefault(emptyList())
+                                    if (episodes.none { it.id == effectiveItemId }) return@withTimeoutOrNull
+                                    val items =
+                                        episodes.map { ep ->
+                                            itemOf(
+                                                ep.id,
+                                                listOfNotNull(
+                                                    ep.indexNumber?.let { "第 $it 集" },
+                                                    ep.name,
+                                                ).joinToString("  "),
+                                                ep.playbackSegments,
+                                                ep.providerIds,
+                                                ep.seasonNumber,
+                                                ep.indexNumber,
+                                                seriesId,
+                                                detail.seriesName ?: seriesDetail?.title,
+                                                seriesProviderIds,
+                                                // The opened detail is the freshest copy; every sibling now
+                                                // carries MediaSources from the single episode-list request.
+                                                // Without this, their transcode URL used item id as
+                                                // MediaSourceId and Emby rejected it with HTTP 400.
+                                                versions =
+                                                    if (ep.id ==
+                                                        effectiveItemId
+                                                    ) {
+                                                        detail.versions
+                                                    } else {
+                                                        ep.versions
+                                                    },
+                                                stillTag = ep.primaryTag,
+                                                posterUrl = seriesPosterUrl,
+                                                // A finished episode reads as full rather than as untouched:
+                                                // Emby clears the resume percentage on completion, so the
+                                                // two are indistinguishable without the played flag.
+                                                progress =
+                                                    when {
+                                                        ep.played -> 1f
+                                                        else -> ep.playedPercentage?.let { (it / 100.0).toFloat() }
+                                                    },
+                                                caption = ep.indexNumber?.let { "第 $it 集" },
+                                                runtimeTicks =
+                                                    if (ep.id == effectiveItemId) {
+                                                        detail.runtimeTicks ?: ep.runtimeTicks
+                                                    } else {
+                                                        ep.runtimeTicks
+                                                    },
+                                            )
+                                        }
+                                    if (loadAttempt == attempt) dispatch(PlayerMsg.QueueEnriched(items))
                                 }
-                            val serverFallbacks = awaitServerFallbacks()
-                            val effectiveIndex = items.indexOfFirst { it.id == effectiveItemId }
-                            val itemsWithFailover =
-                                items.mapIndexed { itemIndex, item ->
-                                    if (itemIndex == effectiveIndex) {
-                                        item.copy(serverFallbacks = serverFallbacks)
-                                    } else {
-                                        item
-                                    }
-                                }
-                            val index = itemsWithFailover.indexOfFirst { it.id == effectiveItemId }.coerceAtLeast(0)
-                            AppLog.info(
-                                category = "feature.player",
-                                event = "queue_ready",
-                                message = "Episode playback queue prepared",
-                                attributes = mapOf("itemCount" to itemsWithFailover.size.toString()),
-                            )
-                            dispatch(PlayerMsg.Ready(itemsWithFailover, index, startMs))
-                            return@launch
+                            } finally {
+                                seriesDetailDeferred?.cancel()
+                                episodeQueueDeferred?.cancel()
+                            }
                         }
                     }
-
-                    dispatch(
-                        PlayerMsg.Ready(
-                            listOf(
-                                itemOf(
-                                    id = effectiveItemId,
-                                    title = detail?.title ?: "",
-                                    playbackSegments = detail?.playbackSegments.orEmpty(),
-                                    providerIds = detail?.providerIds.orEmpty(),
-                                    seasonNumber = detail?.seasonNumber,
-                                    episodeNumber = detail?.episodeNumber,
-                                    seriesId = detail?.seriesId,
-                                    seriesName = detail?.seriesName,
-                                    seriesProviderIds = resolvedSeriesProviderIds.takeIf { it.isNotEmpty() },
-                                    versions = detail?.versions.orEmpty(),
-                                    runtimeTicks = detail?.runtimeTicks,
-                                ).copy(serverFallbacks = awaitServerFallbacks()),
-                            ),
-                            0,
-                            startMs,
-                        ),
-                    )
-                    AppLog.info(
-                        category = "feature.player",
-                        event = "queue_ready",
-                        message = "Single-item playback queue prepared",
-                        attributes = mapOf("detailAvailable" to (detail != null).toString()),
-                    )
+                    if (loadAttempt == attempt) dispatch(PlayerMsg.EnrichmentFinished)
                 }
             loadJob = job
             scope.launch(Dispatchers.Default) {
@@ -1332,7 +1344,7 @@ class PlayerStoreFactory(
                 // Only an actual timeout needs UI state, and all attempt/state checks stay on
                 // Main so a late watchdog cannot cancel a replacement queue load.
                 withContext(Dispatchers.Main) {
-                    if (loadAttempt != attempt || !job.isActive) return@withContext
+                    if (loadAttempt != attempt || !job.isActive || !state().loading) return@withContext
                     job.cancel()
                     AppLog.warning(
                         category = "feature.player",
@@ -1409,7 +1421,7 @@ class PlayerStoreFactory(
                 hitResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(serverId, it) }
                 return null
             }
-            var detailResult = repo.itemDetail(fallback, hit.id)
+            var detailResult = repo.itemDetail(fallback, hit.id, includeInheritedPeople = false)
             var detail = detailResult.getOrNull()
             if (detail == null) {
                 detailResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(serverId, it) }
@@ -1424,7 +1436,7 @@ class PlayerStoreFactory(
                     return null
                 }
                 fallbackStartPositionTicks = target.startPositionTicks
-                detailResult = repo.itemDetail(fallback, target.itemId)
+                detailResult = repo.itemDetail(fallback, target.itemId, includeInheritedPeople = false)
                 detail = detailResult.getOrNull()
                 if (detail == null) {
                     detailResult.exceptionOrNull()?.let { healthMonitor?.recordFailure(serverId, it) }
@@ -1532,6 +1544,7 @@ class PlayerStoreFactory(
                         loading = true,
                         items = emptyList(),
                         error = null,
+                        enrichmentPending = false,
                     )
                 is PlayerMsg.Ready ->
                     copy(
@@ -1540,12 +1553,45 @@ class PlayerStoreFactory(
                         startIndex = msg.startIndex,
                         startPositionMs = msg.startMs,
                         error = null,
+                        enrichmentPending = true,
                     )
+                is PlayerMsg.QueueEnriched -> {
+                    val selected = items.getOrNull(startIndex)
+                    val enriched =
+                        msg.items.map { next ->
+                            val current = items.firstOrNull { it.id == next.id && it.serverId == next.serverId }
+                            current?.withQueueMetadata(next) ?: next
+                        }
+                    copy(
+                        items = enriched,
+                        startIndex =
+                            enriched
+                                .indexOfFirst { it.id == selected?.id && it.serverId == selected?.serverId }
+                                .coerceAtLeast(
+                                    0,
+                                ),
+                    )
+                }
+                is PlayerMsg.ServerFallbacks ->
+                    copy(
+                        items =
+                            items.map { item ->
+                                if (item.id == msg.itemId &&
+                                    item.serverId == msg.serverId
+                                ) {
+                                    item.copy(serverFallbacks = msg.items)
+                                } else {
+                                    item
+                                }
+                            },
+                    )
+                PlayerMsg.EnrichmentFinished -> copy(enrichmentPending = false)
                 is PlayerMsg.Failed ->
                     copy(
                         loading = false,
                         items = emptyList(),
                         error = msg.message,
+                        enrichmentPending = false,
                     )
             }
     }
@@ -1566,3 +1612,24 @@ internal fun Throwable.isPlaybackFailoverEligible(): Boolean =
         is EmbyError.Server -> error.code in 500..599
         else -> false
     }
+
+/** Enrichment cannot replace a negotiated URL/session or a recovery choice already published. */
+internal fun PlayerMediaItem.withQueueMetadata(metadata: PlayerMediaItem): PlayerMediaItem =
+    copy(
+        title = metadata.title,
+        playbackSegments = metadata.playbackSegments,
+        seasonNumber = metadata.seasonNumber ?: seasonNumber,
+        episodeNumber = metadata.episodeNumber ?: episodeNumber,
+        seriesId = metadata.seriesId ?: seriesId,
+        seriesName = metadata.seriesName ?: seriesName,
+        seriesKey = metadata.seriesKey,
+        watchKey = metadata.watchKey,
+        matchKeys = metadata.matchKeys,
+        stillUrl = metadata.stillUrl,
+        posterUrl = metadata.posterUrl,
+        progress = metadata.progress,
+        caption = metadata.caption,
+        durationMsHint = metadata.durationMsHint.takeIf { it > 0L } ?: durationMsHint,
+    )
+
+private const val PLAYER_QUEUE_ENRICHMENT_TIMEOUT_MS = 15_000L

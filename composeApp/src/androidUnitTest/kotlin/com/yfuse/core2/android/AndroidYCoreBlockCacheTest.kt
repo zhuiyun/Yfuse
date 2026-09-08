@@ -9,8 +9,88 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AndroidYCoreBlockCacheTest {
+    @Test
+    fun deferred_corruption_cleanup_never_deletes_a_new_valid_commit() {
+        val directory = Files.createTempDirectory("ycore-cache-repair-test").toFile()
+        val identity = YCacheIdentity("scope", "media", "version")
+        val tasks = mutableListOf<() -> Unit>()
+        val queue = AndroidCacheWriteQueue(execute = { tasks.add(it) })
+        val cache = AndroidYCoreBlockCache(directory, identity, 64, 128, queue)
+        try {
+            cache.writeBlock(0L, ByteArray(64) { 1 }, 128L)
+            val file = blockFile(directory, identity, 0L)
+            file.writeBytes(ByteArray(20))
+            assertNull(cache.readBlock(0L))
+            assertEquals(1, tasks.size)
+            // The foreground rejected an old corrupt inode; another writer commits before repair.
+            val repaired = ByteArray(64) { 2 }
+            cache.writeBlock(0L, repaired, 128L)
+            tasks.removeAt(0).invoke()
+            assertContentEquals(repaired, cache.readBlock(0L))
+            assertEquals(64, cache.cachedBlockLength(0L))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun externally_removed_cache_blocks_are_not_reported_as_buffered() {
+        val directory = Files.createTempDirectory("ycore-cache-removed-test").toFile()
+        val identity = YCacheIdentity("scope", "media", "version")
+        val cache = AndroidYCoreBlockCache(directory, identity, 64, 128)
+        try {
+            cache.writeBlock(0L, ByteArray(64), 128L)
+            assertEquals(64, cache.cachedBlockLength(0L))
+            assertTrue(blockFile(directory, identity, 0L).delete())
+            assertNull(cache.cachedBlockLength(0L))
+            assertTrue(cache.awaitPendingWrites(2_000L))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun background_queue_is_bounded_deduplicates_and_releases_capacity_after_failure() {
+        val scheduled = mutableListOf<() -> Unit>()
+        val queue = AndroidCacheWriteQueue(maximumBytes = 128, maximumEntries = 2, execute = { scheduled.add(it) })
+        var writes = 0
+        assertTrue(queue.enqueue("a", 64) { writes++ })
+        assertTrue(queue.enqueue("a", 64) { error("Duplicate must not run") })
+        assertTrue(queue.enqueue("b", 64) { throw java.io.IOException("Full disk") })
+        assertFalse(queue.enqueue("c", 64) { writes++ })
+        assertEquals(2, scheduled.size)
+        scheduled.removeAt(0).invoke()
+        kotlin.test.assertFailsWith<java.io.IOException> { scheduled.removeAt(0).invoke() }
+        assertTrue(queue.enqueue("c", 128) { writes++ })
+        scheduled.removeAt(0).invoke()
+        assertEquals(2, writes)
+        assertTrue(queue.hasCapacity(128))
+    }
+
+    @Test
+    fun incremental_eviction_retains_recently_read_blocks_and_does_not_rewrite_unchanged_length() {
+        val directory = Files.createTempDirectory("ycore-cache-lru-test").toFile()
+        val identity = YCacheIdentity("scope", "media", "version")
+        try {
+            val cache = AndroidYCoreBlockCache(directory, identity, 64, 128)
+            cache.writeBlock(0, ByteArray(64) { 1 }, 256L)
+            cache.writeBlock(1, ByteArray(64) { 2 }, 256L)
+            val lengthFile = File(blockFile(directory, identity, 0).parentFile, "length")
+            assertTrue(lengthFile.setLastModified(10_000L))
+            assertContentEquals(ByteArray(64) { 1 }, cache.readBlock(0))
+            cache.writeBlock(2, ByteArray(64) { 3 }, 256L)
+            assertEquals(10_000L, lengthFile.lastModified())
+            assertNull(cache.readBlock(1))
+            assertContentEquals(ByteArray(64) { 1 }, cache.readBlock(0))
+            assertContentEquals(ByteArray(64) { 3 }, cache.readBlock(2))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     fun directory_key_is_stable_and_contains_no_provider_identity() {
         val identity =
@@ -43,6 +123,7 @@ class AndroidYCoreBlockCacheTest {
             block.writeBytes(corrupted)
 
             assertNull(cache.readBlock(index = 0L))
+            assertTrue(cache.awaitPendingWrites(2_000L))
             assertFalse(block.exists())
         } finally {
             directory.deleteRecursively()
@@ -68,6 +149,7 @@ class AndroidYCoreBlockCacheTest {
             val restrided = cacheFor(directory, identity, blockSizeBytes = 8192)
 
             assertNull(restrided.readBlock(index = 1L))
+            assertTrue(restrided.awaitPendingWrites(2_000L))
             // Every block in this directory describes offsets the new stride cannot address, so an
             // unreadable one is dropped rather than left to occupy the budget forever.
             assertFalse(blockFile(directory, identity, index = 1L).exists())

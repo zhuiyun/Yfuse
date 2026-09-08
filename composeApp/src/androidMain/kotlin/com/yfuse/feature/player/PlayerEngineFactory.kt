@@ -180,6 +180,7 @@ internal fun createVideoEngine(
                     startPlaybackRequested = startPlaybackRequested,
                     startSpeed = startSpeed,
                     decoderMode = resolvedDecoderMode,
+                    optimizationMode = optimizationMode,
                     autoNext = autoNext,
                     customUserAgent = customUserAgent,
                     scope = scope,

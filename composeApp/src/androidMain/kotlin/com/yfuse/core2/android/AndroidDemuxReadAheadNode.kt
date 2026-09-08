@@ -8,6 +8,7 @@ import com.yfuse.core2.demux.YSubtitlePacketDecoder
 import com.yfuse.core2.demux.YTrackId
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
+import com.yfuse.core2.subtitle.YSubtitlePayload
 import kotlinx.coroutines.CancellationException
 import java.util.ArrayDeque
 import java.util.concurrent.Callable
@@ -25,9 +26,12 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 internal class AndroidDemuxReadAheadNode(
     private val delegate: YDemuxer,
-) : YSubtitlePacketDecoder {
+) {
     private val monitor = Any()
-    private val samples = ArrayDeque<YCompressedSample>()
+    private val samples = ArrayDeque<YQueuedDemuxResult.Sample>()
+    private var nativeSubtitleTracks = emptySet<YTrackId>()
+    private var subtitleTracks = emptySet<YTrackId>()
+    private var generation = 0L
     private var executor: ExecutorService? = null
     private var opened = false
     private var tracksSelected = false
@@ -46,7 +50,7 @@ internal class AndroidDemuxReadAheadNode(
 
     fun open(source: YDemuxSource): YDemuxOpenResult =
         runOnOwner {
-            delegate.open(source).also {
+            delegate.open(source).also { result ->
                 synchronized(monitor) {
                     opened = true
                     tracksSelected = false
@@ -54,9 +58,35 @@ internal class AndroidDemuxReadAheadNode(
                     endOfInput = false
                     failure = null
                     throughputBitsPerSecond = 0L
+                    configureSubtitleTracks(result)
                 }
             }
         }
+
+    /** Transfers an already-open, idle demuxer to this owner without repeating source analysis. */
+    fun adoptOpen(result: YDemuxOpenResult): YDemuxOpenResult =
+        runOnOwner {
+            synchronized(monitor) {
+                opened = true
+                tracksSelected = false
+                clearQueueLocked()
+                endOfInput = false
+                failure = null
+                throughputBitsPerSecond = 0L
+                configureSubtitleTracks(result)
+            }
+            result
+        }
+
+    private fun configureSubtitleTracks(result: YDemuxOpenResult) {
+        val decoder = delegate as? YSubtitlePacketDecoder
+        subtitleTracks = result.tracks.filter { it.subtitle != null }.mapTo(mutableSetOf()) { it.id }
+        nativeSubtitleTracks =
+            result.tracks
+                .filter { track ->
+                    track.subtitle?.format?.let { decoder?.supportsSubtitleFormat(it) } == true
+                }.mapTo(mutableSetOf()) { it.id }
+    }
 
     fun configure(
         targetAheadUs: Long,
@@ -102,16 +132,26 @@ internal class AndroidDemuxReadAheadNode(
         requestFill()
     }
 
-    fun pollSample(): YQueuedDemuxResult {
+    fun pollSample(excludedTrackIds: Set<YTrackId> = emptySet()): YQueuedDemuxResult {
         synchronized(monitor) {
             failure?.let { return YQueuedDemuxResult.Failed(it) }
-            val sample = samples.pollFirst()
-            if (sample != null) {
-                queuedBytes = (queuedBytes - sample.data.size).coerceAtLeast(0L)
-                if (bufferedDurationUsLocked() <= lowWatermarkUs) requestFillLocked()
-                return YQueuedDemuxResult.Sample(sample)
+            val iterator = samples.iterator()
+            var sample: YQueuedDemuxResult.Sample? = null
+            while (iterator.hasNext()) {
+                val candidate = iterator.next()
+                if (candidate.value.trackId !in excludedTrackIds) {
+                    sample = candidate
+                    iterator.remove()
+                    break
+                }
             }
-            if (endOfInput) return YQueuedDemuxResult.EndOfInput
+            if (sample != null) {
+                queuedBytes = (queuedBytes - sample.memoryBytes).coerceAtLeast(0L)
+                if (bufferedDurationUsLocked() <= lowWatermarkUs) requestFillLocked()
+                return sample
+            }
+            if (endOfInput && samples.isEmpty()) return YQueuedDemuxResult.EndOfInput
+            if (samples.isNotEmpty()) return YQueuedDemuxResult.Empty
             starvationCount++
             requestFillLocked()
             return YQueuedDemuxResult.Empty
@@ -138,16 +178,8 @@ internal class AndroidDemuxReadAheadNode(
         requestFill()
     }
 
-    override fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
+    fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
         (delegate as? YSubtitlePacketDecoder)?.supportsSubtitleFormat(format) == true
-
-    override fun decodeSubtitle(sample: YCompressedSample): List<YSubtitleCue> =
-        runOnOwner {
-            val decoder =
-                delegate as? YSubtitlePacketDecoder
-                    ?: error("The active demuxer has no native subtitle decoder")
-            decoder.decodeSubtitle(sample)
-        }
 
     fun snapshot(): YDemuxReadAheadSnapshot =
         synchronized(monitor) {
@@ -228,27 +260,47 @@ internal class AndroidDemuxReadAheadNode(
         var filledBytes = 0L
         try {
             while (true) {
-                synchronized(monitor) {
-                    if (
-                        !opened ||
-                        !tracksSelected ||
-                        endOfInput ||
-                        failure != null ||
-                        queueAtHighWatermarkLocked()
-                    ) {
-                        return
+                val readGeneration =
+                    synchronized(monitor) {
+                        if (
+                            !opened ||
+                            !tracksSelected ||
+                            endOfInput ||
+                            failure != null ||
+                            queueAtHighWatermarkLocked()
+                        ) {
+                            return
+                        }
+                        generation
                     }
-                }
                 val sample = delegate.readSample()
+                // Decode on the native owner before publishing the packet. The codec pump only
+                // consumes completed cues and never waits behind a blocking read on this executor.
+                val queued =
+                    sample?.let {
+                        YQueuedDemuxResult.Sample(
+                            value = it,
+                            subtitleCues =
+                                if (it.trackId in nativeSubtitleTracks) {
+                                    com.yfuse.core2.api.yPlaybackStage(
+                                        category = com.yfuse.core2.api.YPlaybackFailureCategory.Container,
+                                        stage = com.yfuse.core2.api.YPlaybackFailureStage.Bitstream,
+                                        safeDetail = "Enhanced native subtitle decode",
+                                    ) { (delegate as YSubtitlePacketDecoder).decodeSubtitle(it) }
+                                } else {
+                                    null
+                                },
+                        )
+                    }
                 synchronized(monitor) {
-                    if (!opened) return
-                    if (sample == null) {
+                    if (!opened || readGeneration != generation) return
+                    if (queued == null) {
                         endOfInput = true
                         return
                     }
-                    samples.addLast(sample)
-                    queuedBytes += sample.data.size
-                    filledBytes += sample.data.size
+                    samples.addLast(queued)
+                    queuedBytes += queued.memoryBytes
+                    filledBytes += queued.value.data.size
                     maximumQueuedBytesObserved = maxOf(maximumQueuedBytesObserved, queuedBytes)
                 }
             }
@@ -277,14 +329,17 @@ internal class AndroidDemuxReadAheadNode(
         if (samples.size < 2) return 0L
         var minimum = Long.MAX_VALUE
         var maximum = Long.MIN_VALUE
-        samples.forEach { sample ->
+        samples.forEach { queued ->
+            val sample = queued.value
+            if (sample.trackId in subtitleTracks) return@forEach
             minimum = minOf(minimum, sample.presentationTimeUs)
             maximum = maxOf(maximum, sample.presentationTimeUs + (sample.durationUs ?: 0L))
         }
-        return (maximum - minimum).coerceAtLeast(0L)
+        return if (minimum == Long.MAX_VALUE) 0L else (maximum - minimum).coerceAtLeast(0L)
     }
 
     private fun clearQueueLocked() {
+        generation++
         samples.clear()
         queuedBytes = 0L
     }
@@ -342,7 +397,20 @@ internal class AndroidDemuxReadAheadNode(
 internal sealed interface YQueuedDemuxResult {
     data class Sample(
         val value: YCompressedSample,
-    ) : YQueuedDemuxResult
+        val subtitleCues: List<YSubtitleCue>? = null,
+    ) : YQueuedDemuxResult {
+        val memoryBytes: Long =
+            value.data.size.toLong() +
+                subtitleCues.orEmpty().sumOf { cue ->
+                    when (val payload = cue.payload) {
+                        is YSubtitlePayload.BitmapArgb -> payload.pixels.size.toLong() * 4L
+                        is YSubtitlePayload.Encoded -> payload.data.size.toLong()
+                        is YSubtitlePayload.Text ->
+                            (payload.plainText.length + payload.sourceMarkup.length).toLong() *
+                                2L
+                    }
+                }
+    }
 
     data class Failed(
         val cause: Throwable,

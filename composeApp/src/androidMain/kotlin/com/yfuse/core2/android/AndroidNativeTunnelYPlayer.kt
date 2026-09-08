@@ -42,6 +42,7 @@ internal class AndroidNativeTunnelYPlayer(
     context: Context,
     private val request: YPlayerOpenRequest,
     private val routeEvaluator: AndroidCore2RouteEvaluator = AndroidCore2RouteEvaluator(context),
+    private val initialDecision: YCore2RouteDecision? = null,
     private val allowAudioPassthrough: Boolean = true,
     private val frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
 ) : YPlayer {
@@ -75,6 +76,9 @@ internal class AndroidNativeTunnelYPlayer(
 
     @Volatile
     private var released = false
+
+    @Volatile
+    private var releasedAtMs: Long? = null
 
     override fun prepare() = send(Command.Prepare)
 
@@ -175,6 +179,7 @@ internal class AndroidNativeTunnelYPlayer(
 
     override fun release() {
         if (released) return
+        releasedAtMs = System.nanoTime() / 1_000_000L
         released = true
         commands.close()
         wakeSignal.trySend(Unit)
@@ -200,14 +205,34 @@ internal class AndroidNativeTunnelYPlayer(
         val session = AndroidNativeTunnelSession(appContext, frameRateSwitchMode = frameRateSwitchMode)
         var surfaceOutput: AndroidSurfaceVideoOutput? = null
         var currentIndex = request.startIndex
+        var pendingInitialDecision = initialDecision
+        val rebufferTracker =
+            com.yfuse.core2.api
+                .YRebufferTracker()
         var requestedPlay = request.autoPlay
         var prepared = false
         var lastPublishNs = 0L
         var nativeDolbyVisionRoute = false
 
+        fun finishRebuffer() {
+            val stats = rebufferTracker.stop(releasedAtMs ?: System.nanoTime() / 1_000_000L)
+            mutableState.updateState {
+                it.copy(
+                    diagnostics =
+                        it.diagnostics.copy(
+                            bufferEvents = stats.events,
+                            rebufferDurationMs = stats.durationMs,
+                            longestRebufferMs = stats.longestMs,
+                        ),
+                )
+            }
+        }
+
         fun publishFailure(failure: Throwable) {
-            session.close()
+            if (failure is CancellationException) throw failure
+            finishRebuffer()
             prepared = false
+            runCatching { session.close() }
             nativeDolbyVisionRoute = false
             requestedPlay = false
             val typed = failure as? YPlaybackException
@@ -234,6 +259,7 @@ internal class AndroidNativeTunnelYPlayer(
         }
 
         fun prepareCurrent(positionUs: Long) {
+            rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
             nativeDolbyVisionRoute = false
             mutableState.updateState {
                 it.copy(
@@ -258,7 +284,9 @@ internal class AndroidNativeTunnelYPlayer(
             }
             val item = request.items[currentIndex]
             val decision =
-                routeEvaluator.evaluate(
+                pendingInitialDecision
+                    .takeIf { currentIndex == request.startIndex }
+                    .also { pendingInitialDecision = null } ?: routeEvaluator.evaluate(
                     item,
                     preferTunnel = true,
                     allowAudioPassthrough = allowAudioPassthrough,
@@ -331,12 +359,19 @@ internal class AndroidNativeTunnelYPlayer(
         }
 
         fun publishSnapshot(force: Boolean = false) {
-            if (!prepared) return
+            if (!prepared || released) return
             val now = System.nanoTime()
             if (!force && now - lastPublishNs < STATE_PUBLISH_INTERVAL_NS) return
             lastPublishNs = now
             val snapshot = session.snapshot()
             if (snapshot.ended) requestedPlay = false
+            val rebuffers =
+                rebufferTracker.observe(
+                    now / 1_000_000L,
+                    requestedPlay,
+                    snapshot.buffering,
+                    snapshot.videoOutputVerified || snapshot.audioClockReady,
+                )
             mutableState.updateState {
                 it.copy(
                     phase = if (snapshot.ended) YPlaybackPhase.Ended else YPlaybackPhase.Ready,
@@ -362,6 +397,9 @@ internal class AndroidNativeTunnelYPlayer(
                                     "等待 HW_AV_SYNC 时钟"
                                 },
                             videoOutputVerified = snapshot.videoOutputVerified,
+                            bufferEvents = rebuffers.events,
+                            rebufferDurationMs = rebuffers.durationMs,
+                            longestRebufferMs = rebuffers.longestMs,
                             audioOutputVerified = snapshot.audioClockReady,
                             dolbyVisionOutput = snapshot.videoOutputVerified && nativeDolbyVisionRoute,
                         ),
@@ -371,10 +409,13 @@ internal class AndroidNativeTunnelYPlayer(
 
         try {
             while (scope.isActive) {
-                var handled = false
+                val pendingCommands = mutableListOf<Command>()
                 while (true) {
                     val command = commands.tryReceive().getOrNull() ?: break
-                    handled = true
+                    pendingCommands += command
+                }
+                val handled = pendingCommands.isNotEmpty()
+                for (command in pendingCommands) {
                     try {
                         when (command) {
                             Command.Prepare ->
@@ -392,6 +433,7 @@ internal class AndroidNativeTunnelYPlayer(
                                 if (prepared) session.pause()
                             }
                             is Command.Seek -> {
+                                rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
                                 if (prepared) {
                                     session.seekTo(command.positionUs)
                                     mutableState.updateState {
@@ -458,6 +500,7 @@ internal class AndroidNativeTunnelYPlayer(
                     } catch (failure: Throwable) {
                         if (failure is CancellationException) throw failure
                         publishFailure(failure)
+                        break
                     }
                 }
 
@@ -473,7 +516,7 @@ internal class AndroidNativeTunnelYPlayer(
                     } else {
                         false
                     }
-                publishSnapshot()
+                playbackWorkerStep(::publishFailure) { publishSnapshot() }
                 if (!handled && !didWork) {
                     // A queued command ends the wait at once; a paused session has no pump work
                     // and can sleep longer without delaying command handling.
@@ -482,6 +525,7 @@ internal class AndroidNativeTunnelYPlayer(
                 }
             }
         } finally {
+            finishRebuffer()
             session.close()
         }
     }

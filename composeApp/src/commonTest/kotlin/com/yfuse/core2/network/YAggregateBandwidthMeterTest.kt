@@ -8,6 +8,29 @@ import kotlin.test.assertTrue
 
 class YAggregateBandwidthMeterTest {
     @Test
+    fun `default estimator lowers emergency estimate within two seconds without disturbing stable median`() {
+        val meter = YAggregateBandwidthMeter()
+        meter.onTransferStarted(0L)
+        var now = 0L
+        repeat(40) {
+            now += ONE_SECOND_NS / 2
+            meter.onBytesTransferred(2_500_000L, now)
+        }
+        assertEquals(40_000_000L, meter.bitsPerSecond(now))
+        repeat(4) {
+            now += ONE_SECOND_NS / 2
+            meter.onBytesTransferred(250_000L, now)
+        }
+        assertEquals(40_000_000L, meter.bitsPerSecond(now))
+        assertEquals(4_000_000L, meter.bitsPerSecond(now, fastDecrease = true))
+        assertTrue(meter.hasEstimate)
+        assertEquals(0L, meter.bitsPerSecond(now + 2 * ONE_SECOND_NS, fastDecrease = true))
+        // No active transfer means an intentional full-buffer pause, not a stalled connection.
+        meter.onTransferFinished(0L, now + 2 * ONE_SECOND_NS)
+        assertEquals(40_000_000L, meter.bitsPerSecond(now + 10 * ONE_SECOND_NS, fastDecrease = true))
+    }
+
+    @Test
     fun `continuous concurrent transfers publish before the group ends without counting bytes twice`() {
         val meter = YAggregateBandwidthMeter()
         repeat(2) { meter.onTransferStarted(0L) }

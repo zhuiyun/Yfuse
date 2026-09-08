@@ -7,6 +7,8 @@ import com.mediadevkit.sdk.MDKPlayer
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.safeLogcat
 import com.yfuse.core.model.DecoderMode
+import com.yfuse.core.playback.PlaybackOptimizationMode
+import com.yfuse.core.playback.mdkBufferProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -248,8 +250,12 @@ class MdkVideoEngine(
     private val stopEncoding: suspend (String) -> Boolean = { true },
     context: Context? = null,
     private val videoCacheBytes: Long = 0L,
+    private val optimizationMode: PlaybackOptimizationMode = PlaybackOptimizationMode.Balanced,
 ) : VideoEngine {
-    private val items = items
+    @Volatile
+    private var items = items.toList()
+    private val memoryBudgetBytes = context?.let(::playbackMemoryBudgetBytes) ?: 32L * 1024L * 1024L
+    private var appliedBufferRange: String? = null
     private val networkProxy =
         if (context != null && videoCacheBytes > 0L) {
             runCatching {
@@ -522,6 +528,35 @@ class MdkVideoEngine(
         pauseAtEndOfCurrentItem = enabled
     }
 
+    override fun appendItems(items: List<PlayerMediaItem>): Boolean =
+        updateQueue(this.items + items, _state.value.currentIndex)
+
+    @Synchronized
+    override fun updateQueue(
+        items: List<PlayerMediaItem>,
+        currentIndex: Int,
+    ): Boolean {
+        if (released || fallbackJob?.isActive == true) return false
+        val previous = this.items
+        val previousIndex = _state.value.currentIndex
+        if (!canUpdatePlaybackQueue(previous, previousIndex, items, currentIndex)) return false
+        val transcoded = remapPlaybackQueueIndices(transcodedIndices, previous, items)
+        val progressive = remapPlaybackQueueIndices(progressiveIndices, previous, items)
+        val transitions = remapPlaybackQueueIndices(progressiveTransitionIndices, previous, items)
+        transcodedIndices.clear()
+        transcodedIndices.addAll(transcoded)
+        items.forEachIndexed { index, item -> if (item.startsWithServerTranscode()) transcodedIndices += index }
+        progressiveIndices.clear()
+        progressiveIndices.addAll(progressive)
+        progressiveTransitionIndices.clear()
+        progressiveTransitionIndices.addAll(transitions)
+        if (tracksLoadedForIndex == previousIndex) tracksLoadedForIndex = currentIndex
+        this.items = items.toList()
+        _state.update { it.copy(currentIndex = currentIndex, itemCount = items.size) }
+        return true
+    }
+
+    @Synchronized
     override fun selectItem(index: Int) {
         if (index !in items.indices || released) return
         pendingSeekMs = 0L
@@ -618,6 +653,25 @@ class MdkVideoEngine(
         }
     }
 
+    private fun applyBufferRange(
+        instance: MDKPlayer,
+        item: PlayerMediaItem,
+        started: Boolean,
+    ) {
+        val profile =
+            mdkBufferProfile(
+                optimizationMode,
+                bitrateBitsPerSecond = item.activeVersion?.sourceBitrateBps?.toLong() ?: 0L,
+                memoryBudgetBytes = memoryBudgetBytes,
+                remote = item.url.isRemotePlaybackSource(),
+            )
+        val range = profile.propertyValue(started)
+        if (range == appliedBufferRange) return
+        // Official SDK property mirrors setBufferRange(min, max, drop=false). Keep VOD packets.
+        instance.setProperty("buffer", range)
+        appliedBufferRange = range
+    }
+
     private fun ensurePlayer(): MDKPlayer? {
         player?.let { return it }
         return runCatching {
@@ -652,6 +706,7 @@ class MdkVideoEngine(
         val index = _state.value.currentIndex
         val item = items.getOrNull(index) ?: return
         runCatching {
+            applyBufferRange(instance, item, started = false)
             endStateGate.restart()
             val upstreamUrl = playbackUrl(item, index)
             val usingServerTranscode =
@@ -753,6 +808,14 @@ class MdkVideoEngine(
             val reportedDurationMs = instance.duration().coerceAtLeast(0L)
             val bufferedDurationMs = instance.bufferedDuration().coerceAtLeast(0L)
             val playbackEvidence = decodeMdkPlaybackEvidence(instance.playbackEvidence())
+            items.getOrNull(_state.value.currentIndex)?.let { item ->
+                if (playbackEvidence.firstVideoFrameRendered ||
+                    playbackEvidence.videoCodec.isEmpty() &&
+                    positionMs > 0L
+                ) {
+                    applyBufferRange(instance, item, started = true)
+                }
+            }
             _state.update { current ->
                 val durationMs =
                     reportedDurationMs.takeIf { it > 0L }

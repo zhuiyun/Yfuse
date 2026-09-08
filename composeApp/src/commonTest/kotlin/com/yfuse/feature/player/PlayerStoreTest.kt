@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -31,6 +32,126 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlayerStoreTest {
+    @Test
+    fun current_episode_is_ready_before_the_catalog_and_keeps_its_negotiated_session() =
+        runBlocking {
+            withTimeout(5_000L) {
+                // PlaybackInfo uses Dispatchers.Default. A virtual clock could time out before
+                // that real worker resumes; the unresolved catalog gate proves the startup order.
+                val releaseCatalog = CompletableDeferred<Unit>()
+                val registry =
+                    testRegistry().apply {
+                        addOrUpdate(SavedServer("id", "http://host:8096", "server", "u1", "user", "tok"))
+                    }
+                val repo =
+                    testRepo { request ->
+                        when {
+                            request.url.encodedPath.endsWith("/PlaybackInfo") ->
+                                json(
+                                    """
+                                    {"MediaSources":[{"Id":"source-e2","Container":"mkv","Path":"/series/e2.mkv",
+                                    "Size":123456789,"SupportsDirectPlay":true,"MediaStreams":[
+                                    {"Type":"Video","Codec":"h264","Width":1920,"Height":1080},
+                                    {"Type":"Audio","Codec":"aac","Channels":2,"SampleRate":48000}]}],
+                                    "PlaySessionId":"selected-session"}
+                                    """.trimIndent(),
+                                )
+                            request.url.encodedPath.contains("/Shows/s1/Episodes") -> {
+                                releaseCatalog.await()
+                                json(
+                                    """{"Items":[{"Id":"e1","Name":"Earlier","Type":"Episode","IndexNumber":1},{"Id":"e2","Name":"Current","Type":"Episode","IndexNumber":2,"ParentIndexNumber":1},{"Id":"e3","Name":"Next","Type":"Episode","IndexNumber":3}]}""",
+                                )
+                            }
+                            request.url.encodedPath.endsWith("/Items/s1") -> {
+                                releaseCatalog.await()
+                                json("""{"Id":"s1","Name":"Series","Type":"Series","ProviderIds":{"Tmdb":"123"}}""")
+                            }
+                            else ->
+                                json(
+                                    """{"Id":"e2","Name":"Current","Type":"Episode","SeriesId":"s1"}""",
+                                )
+                        }
+                    }
+                val store = PlayerStoreFactory(DefaultStoreFactory(), repo, registry, "e2", 900_000_000L).create()
+                try {
+                    val ready = store.states.first { !it.loading }
+                    assertNull(ready.error)
+                    assertEquals(listOf("e2"), ready.items.map { it.id })
+                    assertTrue(ready.enrichmentPending)
+                    assertNull(ready.items.single().seasonNumber)
+                    assertNull(ready.items.single().episodeNumber)
+                    assertEquals("selected-session", ready.items.single().playSessionId)
+                    assertEquals("source-e2", ready.items.single().versionId)
+                    assertEquals(90_000L, ready.startPositionMs)
+                    releaseCatalog.complete(Unit)
+                    val complete = store.states.first { !it.loading && !it.enrichmentPending }
+                    assertEquals(listOf("e1", "e2", "e3"), complete.items.map { it.id })
+                    assertEquals(1, complete.startIndex)
+                    assertEquals(1, complete.items[1].seasonNumber)
+                    assertEquals(2, complete.items[1].episodeNumber)
+                    assertEquals("Series", complete.items[1].seriesName)
+                    assertEquals("selected-session", complete.items[1].playSessionId)
+                    assertEquals(ready.items.single().url, complete.items[1].url)
+                    assertEquals(ready.items.single().playSessionId, complete.items[1].playSessionId)
+                    assertEquals(90_000L, complete.startPositionMs)
+                } finally {
+                    releaseCatalog.complete(Unit)
+                    store.dispose()
+                }
+            }
+        }
+
+    @Test
+    fun optional_backup_server_does_not_hold_the_primary_source_ready() =
+        runTest {
+            val releaseBackup = CompletableDeferred<Unit>()
+            val registry =
+                testRegistry().apply {
+                    addOrUpdate(SavedServer("primary", "http://primary", "primary", "u1", "user", "tok"))
+                    addOrUpdate(SavedServer("backup", "http://backup", "backup", "u1", "user", "tok"))
+                }
+            val failover =
+                PlaybackFailoverRequest().apply {
+                    set(PlaybackFailoverPlan("movie", "tmdb:603", listOf("backup")))
+                }
+            val repo =
+                testRepo(dispatcher = UnconfinedTestDispatcher(testScheduler)) { request ->
+                    if (request.url.host == "backup") releaseBackup.await()
+                    when {
+                        request.url.encodedPath.endsWith("/PlaybackInfo") -> json("""{"MediaSources":[]}""")
+                        request.url.parameters["AnyProviderIdEquals"] != null -> json("""{"Items":[]}""")
+                        else -> json("""{"Id":"movie","Name":"Movie","Type":"Movie","ProviderIds":{"Tmdb":"603"}}""")
+                    }
+                }
+            val store =
+                PlayerStoreFactory(
+                    DefaultStoreFactory(),
+                    repo,
+                    registry,
+                    "movie",
+                    0L,
+                    serverId = "primary",
+                    failoverRequest = failover,
+                ).create()
+            try {
+                val ready = store.states.first { !it.loading }
+                assertEquals("primary", ready.items.single().serverId)
+                assertTrue(ready.enrichmentPending)
+                releaseBackup.complete(Unit)
+                assertEquals(
+                    ready.items.single().url,
+                    store.states
+                        .first { !it.enrichmentPending }
+                        .items
+                        .single()
+                        .url,
+                )
+            } finally {
+                releaseBackup.complete(Unit)
+                store.dispose()
+            }
+        }
+
     @Test
     fun episode_metadata_starts_before_playback_negotiation_completes() =
         runTest {
@@ -70,7 +191,7 @@ class PlayerStoreTest {
                     startPositionTicks = 0L,
                 ).create()
             try {
-                val state = store.states.first { !it.loading }
+                val state = store.states.first { !it.loading && !it.enrichmentPending }
                 assertNull(state.error)
                 assertTrue(negotiationCompleted)
                 assertEquals("e1", state.items.first().id)
@@ -102,7 +223,7 @@ class PlayerStoreTest {
                     queueLoadTimeoutMs = 50L,
                 ).create()
 
-            val state = store.states.first { !it.loading }
+            val state = store.states.first { !it.loading && !it.enrichmentPending }
 
             assertEquals("播放准备超时，请检查服务器连接后重试", state.error)
             assertTrue(state.items.isEmpty())
@@ -138,7 +259,7 @@ class PlayerStoreTest {
                     startPositionTicks = 12_340_000L,
                 ).create()
 
-            val failed = store.states.first { !it.loading }
+            val failed = store.states.first { !it.loading && !it.enrichmentPending }
             assertEquals("没有可用的服务器", failed.error)
             assertTrue(failed.items.isEmpty())
             assertEquals(0, requestCount.get(), "A missing server should fail before making HTTP calls")
@@ -161,7 +282,7 @@ class PlayerStoreTest {
             assertEquals(1, requestCount.get())
 
             allowSuccessfulLoad.complete(Unit)
-            val recovered = store.states.first { !it.loading && it.error == null }
+            val recovered = store.states.first { !it.loading && !it.enrichmentPending && it.error == null }
 
             assertEquals(listOf("movie"), recovered.items.map { it.id })
             assertEquals("恢复播放", recovered.items.single().title)
@@ -208,7 +329,7 @@ class PlayerStoreTest {
                     startPositionTicks = 25_000_000L,
                 ).create()
 
-            val state = store.states.first { !it.loading }
+            val state = store.states.first { !it.loading && !it.enrichmentPending }
 
             assertEquals(listOf("e1", "e2"), state.items.map { it.id })
             assertEquals(listOf(2, 2), state.items.map { it.seasonNumber })
@@ -303,7 +424,7 @@ class PlayerStoreTest {
 
             val item =
                 store.states
-                    .first { !it.loading }
+                    .first { !it.loading && !it.enrichmentPending }
                     .items
                     .single()
 
@@ -363,7 +484,7 @@ class PlayerStoreTest {
                     startPositionTicks = 0L,
                 ).create()
 
-            val state = store.states.first { !it.loading }
+            val state = store.states.first { !it.loading && !it.enrichmentPending }
             val sibling = state.items.single { it.id == "e2" }
 
             assertTrue("MediaSourceId=source-e2" in sibling.transcodeUrl, sibling.transcodeUrl)
@@ -481,7 +602,7 @@ class PlayerStoreTest {
 
             val next =
                 store.states
-                    .first { !it.loading }
+                    .first { !it.loading && !it.enrichmentPending }
                     .items
                     .single { it.id == "e2" }
 
@@ -542,7 +663,7 @@ class PlayerStoreTest {
                     mediaSourceId = "source-182",
                 ).create()
 
-            val state = store.states.first { !it.loading }
+            val state = store.states.first { !it.loading && !it.enrichmentPending }
             val item = state.items.single()
 
             assertNull(state.error)
@@ -645,7 +766,7 @@ class PlayerStoreTest {
 
             val item =
                 store.states
-                    .first { !it.loading }
+                    .first { !it.loading && !it.enrichmentPending }
                     .items
                     .single()
 

@@ -57,6 +57,11 @@ import com.yfuse.core2.sync.YClockSnapshot
 import com.yfuse.core2.sync.YMediaClock
 import kotlinx.coroutines.CancellationException
 
+private data class PreparedVideoAccessUnit(
+    val data: ByteArray,
+    val hdr10PlusPayload: ByteArray?,
+)
+
 internal data class YEnhancedPlaybackSnapshot(
     val positionUs: Long,
     val durationUs: Long,
@@ -108,7 +113,7 @@ internal data class YEnhancedPlaybackSnapshot(
  */
 internal class AndroidEnhancedPlaybackSession(
     context: Context,
-    private val demuxer: YDemuxer = AndroidFfmpegDemuxer(),
+    private var demuxer: YDemuxer = AndroidFfmpegDemuxer(),
     private val videoDecoder: AndroidMediaCodecVideoNode = AndroidMediaCodecVideoNode(),
     private val audioDecoder: AndroidMediaCodecAudioNode = AndroidMediaCodecAudioNode(),
     private val audioRenderer: AndroidAudioTrackRenderNode = AndroidAudioTrackRenderNode(context),
@@ -119,7 +124,7 @@ internal class AndroidEnhancedPlaybackSession(
     frameRateSwitchMode: YFrameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
     private val preferredRemoteBufferTargetUs: Long? = null,
 ) {
-    private val demuxReadAhead = AndroidDemuxReadAheadNode(demuxer)
+    private var demuxReadAhead = AndroidDemuxReadAheadNode(demuxer)
     private val wallClock = YMediaClock()
     private val frameRateManager = AndroidFrameRateManager(context, frameRateSwitchMode)
     private val capabilityProvider = AndroidYCapabilityProvider(context)
@@ -138,7 +143,10 @@ internal class AndroidEnhancedPlaybackSession(
     private val secondarySubtitleCues = mutableListOf<YSubtitleCue>()
     private var audioOutputPath = YAudioOutputPath.None
     private var surface: Surface? = null
-    private var pendingSample: YCompressedSample? = null
+    private val pendingSamples = linkedMapOf<YTrackId, YQueuedDemuxResult.Sample>()
+    private val blockedInputTracks = mutableSetOf<YTrackId>()
+    private var inputGeneration = 0L
+    private val videoAccessUnits = AndroidAccessUnitCache<YCompressedSample, PreparedVideoAccessUnit>()
     private var pendingVideoOutput: YCodecOutputResult.Buffer? = null
     private var pendingAudioOutput: YEnhancedPendingAudioOutput? = null
     private var pendingEncodedAudioData: java.nio.ByteBuffer? = null
@@ -200,8 +208,20 @@ internal class AndroidEnhancedPlaybackSession(
         expectedAudio: Boolean = false,
         sourceHints: YMediaSourceHints? = null,
         allowAudioPassthrough: Boolean = true,
+        preparedDemux: AndroidPreparedEnhancedDemux? = null,
     ): YDemuxOpenResult {
         close()
+        val adoptedOpen =
+            if (preparedDemux != null) {
+                demuxReadAhead.release()
+                demuxer = preparedDemux.demuxer
+                demuxReadAhead = AndroidDemuxReadAheadNode(demuxer)
+                // Establish ownership before validating the (revocable) Surface so failure cleanup
+                // also closes a transferred native context when output disappears during handoff.
+                demuxReadAhead.adoptOpen(preparedDemux.openResult)
+            } else {
+                null
+            }
         dualDolbyEvidence = dualDolbyEvidence.invalidate(YOutputEvidenceResetReason.SourceChanged)
         this.runtimeCapabilityKey = runtimeCapabilityKey
         require(
@@ -226,7 +246,7 @@ internal class AndroidEnhancedPlaybackSession(
                 stage = YPlaybackFailureStage.SourceOpen,
                 safeDetail = "Enhanced source open",
             ) {
-                demuxReadAhead.open(source)
+                adoptedOpen ?: demuxReadAhead.open(source)
             }
         val videoTrack =
             result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
@@ -698,10 +718,8 @@ internal class AndroidEnhancedPlaybackSession(
                 secondarySubtitleCues.clear()
             }
         }
-        pendingSample =
-            pendingSample?.takeUnless { sample ->
-                sample.trackId !in selectedTrackIds()
-            }
+        pendingSamples.clear()
+        videoAccessUnits.clear()
         demuxReadAhead.selectTracks(selectedTrackIds())
         if (nextTrack != null || previousTrack != null) {
             seekToInternal(position, tailRetry = false, resetVideoDecoder = false)
@@ -762,7 +780,8 @@ internal class AndroidEnhancedPlaybackSession(
         }
         if (audioTrack != null && !isAudioPassthrough() && !softwareAudioActive) audioDecoder.flush()
         if (audioRendererConfigured) flushAudio()
-        pendingSample = null
+        pendingSamples.clear()
+        videoAccessUnits.clear()
         pendingVideoOutput = null
         pendingSoftwareVideoOutput = null
         subtitleCues.clear()
@@ -933,7 +952,8 @@ internal class AndroidEnhancedPlaybackSession(
         releasePendingAudioOutput()
         pendingEncodedAudioData = null
         pendingSoftwareAudioOutput = null
-        pendingSample = null
+        pendingSamples.clear()
+        videoAccessUnits.clear()
         runCatching(audioRenderer::release)
         runCatching(encodedAudioRenderer::release)
         runCatching(audioDecoder::release)
@@ -984,34 +1004,64 @@ internal class AndroidEnhancedPlaybackSession(
 
     private fun feedInput(): Boolean {
         if (inputEnded) return queueEndOfStream()
-        if (lastQueuedUs - currentPositionUs() > maxInputAheadUs) return false
-
-        val sample =
-            pendingSample ?: when (val queued = demuxReadAhead.pollSample()) {
-                is YQueuedDemuxResult.Sample -> queued.value
-                is YQueuedDemuxResult.Failed ->
-                    yPlaybackStage(
-                        category = sourceFailureCategory(),
-                        stage = YPlaybackFailureStage.Demux,
-                        safeDetail = "Enhanced compressed sample read-ahead",
-                    ) {
-                        throw queued.cause
-                    }
-                YQueuedDemuxResult.Empty -> {
-                    if (
-                        outputActive &&
-                        lastQueuedUs - currentPositionUs() <= REBUFFER_OUTPUT_MARGIN_US
-                    ) {
-                        bufferGate.markStarved()
-                        suspendOutputForBuffering()
-                    }
-                    return false
-                }
-                YQueuedDemuxResult.EndOfInput -> {
-                    inputEnded = true
-                    return true
-                }
+        val generation = inputGeneration
+        var didWork = false
+        val blockedTracks = blockedInputTracks.also { it.clear() }
+        // Each track may retain at most one unaccepted access unit. Keep per-track ordering while
+        // letting audio advance when video is full (and vice versa), including partial passthrough.
+        for ((track, queued) in pendingSamples.toMap()) {
+            val accepted = queueSample(queued)
+            if (generation != inputGeneration) return true
+            if (accepted) {
+                pendingSamples.remove(track)
+                didWork = true
+            } else {
+                blockedTracks += track
             }
+        }
+        repeat(4) {
+            val queued =
+                when (val next = demuxReadAhead.pollSample(blockedTracks)) {
+                    is YQueuedDemuxResult.Sample -> next
+                    is YQueuedDemuxResult.Failed ->
+                        yPlaybackStage(
+                            category = sourceFailureCategory(),
+                            stage = YPlaybackFailureStage.Demux,
+                            safeDetail = "Enhanced compressed sample read-ahead",
+                        ) {
+                            throw next.cause
+                        }
+                    YQueuedDemuxResult.Empty -> {
+                        if (
+                            pendingSamples.isEmpty() &&
+                            outputActive &&
+                            lastQueuedUs - currentPositionUs() <= REBUFFER_OUTPUT_MARGIN_US
+                        ) {
+                            bufferGate.markStarved()
+                            suspendOutputForBuffering()
+                        }
+                        return didWork
+                    }
+                    YQueuedDemuxResult.EndOfInput -> {
+                        if (pendingSamples.isEmpty()) inputEnded = true
+                        return didWork || inputEnded
+                    }
+                }
+            val accepted = queueSample(queued)
+            if (generation != inputGeneration) return true
+            if (accepted) {
+                didWork = true
+            } else {
+                pendingSamples[queued.value.trackId] = queued
+                blockedTracks += queued.value.trackId
+            }
+        }
+        return didWork
+    }
+
+    private fun queueSample(queuedSample: YQueuedDemuxResult.Sample): Boolean {
+        val generation = inputGeneration
+        val sample = queuedSample.value
         if (YSampleFlag.Encrypted in sample.flags) {
             error("Encrypted enhanced-demux samples require the dedicated DRM route")
         }
@@ -1023,7 +1073,7 @@ internal class AndroidEnhancedPlaybackSession(
                     if (softwareVideoActive) {
                         val softwareSample =
                             if (requireNotNull(plan).usesHdrFallback) {
-                                sample.copy(data = transformVideoSample(sample.data))
+                                sample.copy(data = preparedVideoAccessUnit(sample).data)
                             } else {
                                 sample
                             }
@@ -1035,30 +1085,19 @@ internal class AndroidEnhancedPlaybackSession(
                             requireNotNull(softwareDecoder).queueVideo(softwareSample).toCodecQueueResult()
                         }
                     } else {
-                        val hdr10PlusPayload =
-                            videoTrack.video
-                                ?.takeIf { it.hdrType == com.yfuse.core2.capability.YHdrType.Hdr10Plus }
-                                ?.samplePacking
-                                ?.let { packing -> YBitstream.hdr10PlusItuT35Payload(sample.data, packing) }
+                        val preparedUnit = preparedVideoAccessUnit(sample)
+                        val hdr10PlusPayload = preparedUnit.hdr10PlusPayload
                         hdr10PlusPayload?.let(videoDecoder::setHdr10PlusMetadata)
                         hdr10PlusPayload?.let { payload ->
                             gpuVideoOutput?.queueHdr10PlusMetadata(sample.presentationTimeUs, payload)
                         }
-                        val transformed =
-                            yPlaybackStage(
-                                category = YPlaybackFailureCategory.Container,
-                                stage = YPlaybackFailureStage.Bitstream,
-                                safeDetail = "Enhanced video bitstream normalization",
-                            ) {
-                                transformVideoSample(sample.data)
-                            }
                         yPlaybackStage(
                             category = YPlaybackFailureCategory.Decoder,
                             stage = YPlaybackFailureStage.VideoDecoderQueue,
                             safeDetail = "Enhanced video access unit",
                         ) {
                             videoDecoder.queueAccessUnit(
-                                data = java.nio.ByteBuffer.wrap(transformed),
+                                data = java.nio.ByteBuffer.wrap(preparedUnit.data),
                                 presentationTimeUs = sample.presentationTimeUs,
                                 flags = sample.toExtractorFlags(),
                             )
@@ -1067,22 +1106,41 @@ internal class AndroidEnhancedPlaybackSession(
                 }
                 audioTrack?.id -> queueAudioSample(sample)
                 subtitleTrack?.id, secondarySubtitleTrack?.id -> {
-                    queueSubtitleSample(sample)
+                    queueSubtitleSample(sample, queuedSample.subtitleCues)
                     YCodecQueueResult.Queued
                 }
                 else -> YCodecQueueResult.Queued
             }
+        if (generation != inputGeneration) return true
         if (queued != YCodecQueueResult.Queued) {
-            pendingSample = sample
             return false
         }
         if (sample.trackId == videoTrack.id && !softwareVideoActive) {
             recordDolbyVisionLayerDelivery(sample.data)
         }
-        pendingSample = null
+        videoAccessUnits.queued(sample)
         lastQueuedUs = maxOf(lastQueuedUs, sample.presentationTimeUs)
         return true
     }
+
+    private fun preparedVideoAccessUnit(sample: YCompressedSample): PreparedVideoAccessUnit =
+        videoAccessUnits.getOrPrepare(sample) {
+            yPlaybackStage(
+                category = YPlaybackFailureCategory.Container,
+                stage = YPlaybackFailureStage.Bitstream,
+                safeDetail = "Enhanced video bitstream normalization",
+            ) {
+                val video = sourceVideoTrack?.video
+                PreparedVideoAccessUnit(
+                    data = transformVideoSample(sample.data),
+                    hdr10PlusPayload =
+                        video
+                            ?.takeIf { it.hdrType == YHdrType.Hdr10Plus }
+                            ?.samplePacking
+                            ?.let { YBitstream.hdr10PlusItuT35Payload(sample.data, it) },
+                )
+            }
+        }
 
     private fun queueEndOfStream(): Boolean {
         var queued = false
@@ -1624,6 +1682,7 @@ internal class AndroidEnhancedPlaybackSession(
     private fun ended(): Boolean = videoOutputEnded && (audioTrack == null || audioOutputEnded)
 
     private fun resetEndState() {
+        inputGeneration++
         inputEnded = false
         videoInputEnded = false
         audioInputEnded = audioTrack == null
@@ -1689,23 +1748,16 @@ internal class AndroidEnhancedPlaybackSession(
         runCatching { audioDecoder.releaseOutput(pending.output) }
     }
 
-    private fun queueSubtitleSample(sample: YCompressedSample) {
+    private fun queueSubtitleSample(
+        sample: YCompressedSample,
+        decodedCues: List<YSubtitleCue>?,
+    ) {
         val track =
             listOfNotNull(subtitleTrack, secondarySubtitleTrack).firstOrNull { it.id == sample.trackId } ?: return
         val format = track.subtitle?.format ?: return
         val cues = if (track.id == secondarySubtitleTrack?.id) secondarySubtitleCues else subtitleCues
-        val nativeDecoder =
-            demuxReadAhead.takeIf { it.supportsSubtitleFormat(format) }
-        if (nativeDecoder != null) {
-            val decoded =
-                yPlaybackStage(
-                    category = YPlaybackFailureCategory.Container,
-                    stage = YPlaybackFailureStage.Bitstream,
-                    safeDetail = "Enhanced native subtitle decode",
-                ) {
-                    nativeDecoder.decodeSubtitle(sample)
-                }
-            cues.addAll(decoded)
+        if (decodedCues != null) {
+            cues.addAll(decodedCues)
         } else if (format.textOverlaySupported) {
             YEmbeddedSubtitleDecoder
                 .decode(

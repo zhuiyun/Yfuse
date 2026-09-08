@@ -24,6 +24,38 @@ import kotlin.test.assertTrue
 
 class AndroidAdaptiveHttpMediaTransportTest {
     @Test
+    fun partial_cronet_fallback_without_validator_defers_to_the_block_retry() =
+        runBlocking {
+            val cronet =
+                FakeTransport(
+                    entityTag = null,
+                    reads = ArrayDeque(listOf(FakeRead.Bytes(byteArrayOf(1, 2)), FakeRead.End)),
+                )
+            val fallback = FakeTransport()
+            val route = AndroidAdaptiveHttpRouteState()
+            val transport = AndroidAdaptiveHttpMediaTransport(route, { cronet }, { fallback })
+            transport.open(CLOSE_TEST_REQUEST)
+            assertEquals(2, transport.read(ByteArray(2), 0, 2))
+            assertFailsWith<java.io.IOException> { transport.read(ByteArray(2), 0, 2) }
+            assertEquals(0, fallback.openCalls)
+            assertTrue(!route.cronetAvailable)
+            transport.close()
+        }
+
+    @Test
+    fun a_changed_entity_is_rejected_before_cronet_fallback_bytes_are_delivered() =
+        runBlocking {
+            val cronet = FakeTransport(reads = ArrayDeque(listOf(FakeRead.Bytes(byteArrayOf(1, 2)), FakeRead.End)))
+            val fallback = FakeTransport(entityTag = "\"changed-media\"")
+            val transport = AndroidAdaptiveHttpMediaTransport(createCronet = { cronet }, createOkHttp = { fallback })
+            transport.open(CLOSE_TEST_REQUEST)
+            assertEquals(2, transport.read(ByteArray(2), 0, 2))
+            val failure = assertFailsWith<AndroidRangeResponseException> { transport.read(ByteArray(2), 0, 2) }
+            assertEquals(YTransportFailureKind.InvalidRange, failure.failureKind)
+            transport.close()
+        }
+
+    @Test
     fun close_reaches_an_okhttp_transport_before_its_open_returns() =
         runBlocking {
             val pending = ClosingTransport()
@@ -315,6 +347,7 @@ class AndroidAdaptiveHttpMediaTransportTest {
 
             assertContentEquals(byteArrayOf(1, 2, 3, 4), bytes)
             assertEquals(YByteRange(102L, 103L), fallback.requests.single().range)
+            assertEquals("\"stable-media\"", fallback.requests.single().headers["If-Range"])
             assertTrue(cronet.closeCalls >= 1)
 
             transport.open(request.copy(range = YByteRange(200L, 203L)))
@@ -490,6 +523,7 @@ private class FakeTransport(
     private val statusCode: Int = 206,
     private val acceptedRangeStartOffset: Long = 0L,
     private val negotiatedProtocol: String = "",
+    private val entityTag: String? = "\"stable-media\"",
 ) : YMediaTransport {
     override val supportedProtocols = setOf(YSourceProtocol.Http, YSourceProtocol.Https)
     override val features = setOf(YTransportFeature.ByteRange)
@@ -512,6 +546,8 @@ private class FakeTransport(
             statusCode = statusCode,
             acceptedRange = acceptedRange,
             negotiatedProtocol = negotiatedProtocol,
+            contentLength = 1_000L,
+            entityTag = entityTag,
         )
     }
 

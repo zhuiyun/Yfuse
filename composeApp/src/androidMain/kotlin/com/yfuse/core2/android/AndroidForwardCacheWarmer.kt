@@ -52,7 +52,7 @@ internal class AndroidForwardCacheWarmer(
 
     private fun warm() {
         try {
-            while (canWarm()) {
+            while (canWarm() && cache.canAcceptWrite) {
                 val index =
                     synchronized(lock) {
                         if (closed || cursor >= end) return
@@ -73,7 +73,7 @@ internal class AndroidForwardCacheWarmer(
                         // Ignore completions for an abandoned seek window.
                         synchronized(lock) {
                             if (!closed && index in start until end && bytes.isNotEmpty()) {
-                                cache.writeBlock(index, bytes, length)
+                                cache.enqueueWriteBlock(index, bytes, length)
                             }
                         }
                     } finally {

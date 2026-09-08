@@ -122,7 +122,7 @@ class AndroidTransportMediaDataSourcePrefetchTest {
         assertEquals(3, transportPrefetchConcurrency(0, 10, 0))
         assertEquals(6, transportPrefetchConcurrency(20, 10, 0))
         assertEquals(2, transportPrefetchConcurrency(20, 10, 9_000_000))
-        assertEquals(4, transportPrefetchConcurrency(8, 10, 0))
+        assertEquals(2, transportPrefetchConcurrency(8, 10, 0))
     }
 
     @Test

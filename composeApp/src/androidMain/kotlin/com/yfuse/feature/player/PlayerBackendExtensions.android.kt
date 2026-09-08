@@ -67,6 +67,11 @@ internal class PlayerBackendExtensions(
 
     fun appendItems(items: List<PlayerMediaItem>): Boolean = engine.appendItems(items)
 
+    fun updateQueue(
+        items: List<PlayerMediaItem>,
+        currentIndex: Int,
+    ): Boolean = engine.updateQueue(items, currentIndex)
+
     fun setVideoScaleMode(mode: VideoScaleMode): Boolean =
         when (engine) {
             is MpvVideoEngine -> {

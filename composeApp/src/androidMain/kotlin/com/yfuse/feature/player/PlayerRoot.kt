@@ -52,6 +52,7 @@ import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core.model.DecoderMode
 import com.yfuse.core.model.PlaybackMethod
 import com.yfuse.core.model.PlayerEngine
@@ -128,7 +129,7 @@ internal fun PlayerRoot(
     accountTokens: AccountAccessTokenSource,
     watchTogetherPreferences: WatchTogetherPreferences,
     playbackGate: WatchGatedPlayback,
-    onPlayerAttached: (YPlayer, (List<PlayerMediaItem>) -> Boolean) -> Unit,
+    onPlayerAttached: (YPlayer, (List<PlayerMediaItem>) -> Boolean, (List<PlayerMediaItem>, Int) -> Boolean) -> Unit,
     onPlayerDetached: (YPlayer) -> Unit,
     onPlaybackState: (PlaybackState, PlayerMediaItem?) -> Unit,
     onVideoBounds: (Rect) -> Unit,
@@ -139,6 +140,7 @@ internal fun PlayerRoot(
     remoteChrome: TvPlayerChromeBridge? = null,
     /** Initial Cast/user autoplay intent; engine handovers use the live snapshot after this. */
     startPlaybackRequested: Boolean = true,
+    launchStartedElapsedMs: Long = SystemClock.elapsedRealtime(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -276,7 +278,7 @@ internal fun PlayerRoot(
     var versionChoices by remember {
         mutableStateOf(emptyMap<String, PlayerMediaVersion>())
     }
-    var serverChoices by remember(items) {
+    var serverChoices by remember {
         mutableStateOf(emptyMap<Int, PlayerMediaItem>())
     }
     val serverFallbackPlans =
@@ -404,6 +406,7 @@ internal fun PlayerRoot(
             )
         }
     val player = remember(engine) { engine.asYPlayer() }
+    val engineCreatedElapsedMs = remember(engine) { SystemClock.elapsedRealtime() }
     val engineHandoverSnapshot = remember(engine) { resume }
     var handoverPositionValidated by remember(engine) { mutableStateOf(false) }
     // When the replacement engine first reported motion; null until it does. Opening a stream
@@ -433,6 +436,81 @@ internal fun PlayerRoot(
             }
         }
 
+    val latestQueueUpdater =
+        rememberUpdatedState<(List<PlayerMediaItem>, Int) -> Boolean> { refreshed, currentIndex ->
+            val remappedChoices =
+                serverChoices
+                    .mapNotNull { (oldIndex, chosen) ->
+                        val original = items.getOrNull(oldIndex)
+                        val nextIndex =
+                            refreshed.indexOfFirst {
+                                it.id == original?.id &&
+                                    it.serverId == original?.serverId
+                            }
+                        nextIndex.takeIf { it >= 0 }?.let { it to chosen }
+                    }.toMap()
+            val prepared =
+                refreshed.mapIndexed { index, item ->
+                    val sourced = remappedChoices[index] ?: item
+                    preflightItem(versionChoices[sourced.id]?.let(sourced::withVersion) ?: sourced)
+                }
+            val accepted =
+                prepared.canUseCore2Trial(startIndex = currentIndex) &&
+                    player.updateQueue(
+                        prepared.toCore2MediaItems(
+                            customUserAgent = customUserAgent,
+                            cacheMaximumBytes = videoCacheBytes,
+                        ),
+                        currentIndex,
+                    ) ||
+                    backendExtensions.updateQueue(prepared, currentIndex)
+            if (accepted) {
+                serverChoices = remappedChoices
+                resume = resume.copy(itemIndex = currentIndex)
+            }
+            accepted
+        }
+    val latestStartupItems = rememberUpdatedState(preflightItems)
+    LaunchedEffect(engine) {
+        var videoReported = false
+        var audioReported = false
+        engine.state.collect { state ->
+            fun stage(name: String) {
+                val now = SystemClock.elapsedRealtime()
+                val item = latestStartupItems.value.getOrNull(state.currentIndex)
+                AppLog.info(
+                    category = "player",
+                    event = "playback_startup_stage",
+                    message =
+                        "Playback startup reached $name on ${state.diagnostics.engine} " +
+                            "(${playbackDiagnosticTrace(item?.playSessionId)})",
+                    attributes =
+                        mapOf(
+                            "stage" to name,
+                            "itemId" to item?.id.orEmpty(),
+                            "serverId" to item?.serverId.orEmpty(),
+                            "sessionId" to item?.playSessionId.orEmpty(),
+                            "playbackTrace" to playbackDiagnosticTrace(item?.playSessionId),
+                            "engine" to state.diagnostics.engine,
+                            "route" to state.diagnostics.playMethod,
+                            "renderPath" to state.diagnostics.plannedRenderPath,
+                            "decoder" to state.diagnostics.decoder,
+                            "outputGeneration" to state.diagnostics.outputEvidenceGeneration.toString(),
+                            "engineElapsedMs" to (now - engineCreatedElapsedMs).coerceAtLeast(0L).toString(),
+                            "activityElapsedMs" to (now - launchStartedElapsedMs).coerceAtLeast(0L).toString(),
+                        ),
+                )
+            }
+            if (!videoReported && state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering) {
+                videoReported = true
+                stage("first_video_output")
+            }
+            if (!audioReported && state.diagnostics.effectiveAudioReadiness == PlaybackOutputReadiness.Rendering) {
+                audioReported = true
+                stage("first_audio_output")
+            }
+        }
+    }
     val attachedKind = kind
     val attachedEngineLabel =
         if (engine is YPlayerVideoEngineAdapter) {
@@ -451,7 +529,11 @@ internal fun PlayerRoot(
                     "implementation" to engine::class.java.name,
                 ),
         )
-        onPlayerAttached(player) { appended -> latestQueueAppender.value(appended) }
+        onPlayerAttached(
+            player,
+            { appended -> latestQueueAppender.value(appended) },
+            { refreshed, currentIndex -> latestQueueUpdater.value(refreshed, currentIndex) },
+        )
         onDispose {
             onPlayerDetached(player)
             AndroidNativeCrashMonitor.disarm(
@@ -2149,6 +2231,7 @@ internal fun PlayerRoot(
         currentItem?.versionId,
         state.error,
         core2NativeOnlyActive,
+        serverFallbackPlans[state.currentIndex],
     ) {
         if (
             core2NativeOnlyActive ||

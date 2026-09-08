@@ -37,6 +37,7 @@ class AndroidForwardCacheWarmerTest {
         try {
             warmer.updateWindow(3, 7)
             executor.submit {}.get(2, TimeUnit.SECONDS)
+            assertTrue(cache.awaitPendingWrites(2_000L))
             assertEquals(listOf(3L, 5L, 6L), loaded)
             assertEquals(64, cache.cachedBlockLength(6))
             assertNull(cache.cachedBlockLength(7))

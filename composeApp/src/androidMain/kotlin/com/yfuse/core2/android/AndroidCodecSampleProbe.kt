@@ -12,6 +12,7 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Bounded content-backed runtime probe: queue real compressed access units from the selected item,
@@ -25,46 +26,106 @@ internal class AndroidCodecSampleProbe(
     fun probe(
         item: YMediaItem,
         decoderName: String,
+        preparedExtractor: YPlatformExtractorSource? = null,
+        returnPreparedExtractor: (YPlatformExtractorSource) -> Unit = { it.release() },
     ): YCodecConfigurationProbeResult {
-        val demuxer = AndroidMediaExtractorDemuxNode(appContext)
+        // Claim ownership before dispatch: the skipped branch returns the untouched extractor
+        // only when no worker acquired it. After a timeout the worker performs all cleanup.
+        val acquired = AtomicBoolean(false)
+        return yCoreStartupStage("codec_sample_probe", item, decoderName) {
+            AndroidCodecProbeLane.bounded.run(
+                timeoutMs = PROBE_TIMEOUT_MS,
+                skipped = {
+                    if (acquired.compareAndSet(false, true)) preparedExtractor?.let(returnPreparedExtractor)
+                    YCodecConfigurationProbeResult.Inconclusive
+                },
+            ) { expired ->
+                if (!acquired.compareAndSet(false, true)) {
+                    YCodecConfigurationProbeResult.Inconclusive
+                } else {
+                    probeOnOwner(item, decoderName, preparedExtractor, returnPreparedExtractor, expired)
+                }
+            }
+        }
+    }
+
+    private fun probeOnOwner(
+        item: YMediaItem,
+        decoderName: String,
+        preparedExtractor: YPlatformExtractorSource?,
+        returnPreparedExtractor: (YPlatformExtractorSource) -> Unit,
+        expired: AtomicBoolean,
+    ): YCodecConfigurationProbeResult {
+        val demuxer = preparedExtractor ?: AndroidMediaExtractorDemuxNode(appContext)
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PROBE_TIMEOUT_MS)
+        var selectedTrack: Int? = null
+        var sourceUsable = false
+        var reusable = false
         var codec: MediaCodec? = null
         var imageReader: ImageReader? = null
+        val imageReaderLock = Any()
+        var imageReaderClosed = false
         var callbackThread: HandlerThread? = null
         var configured = false
         return try {
-            demuxer.open(
-                YAndroidMediaSource(
-                    uri = item.uri,
-                    headers = item.headers,
-                    credentials = item.transportCredentials,
-                    cacheIdentity = item.cacheIdentity,
-                    cacheMaximumBytes = item.cacheMaximumBytes,
-                ),
-            )
+            if (preparedExtractor == null) {
+                demuxer.open(
+                    YAndroidMediaSource(
+                        uri = item.uri,
+                        headers = item.headers,
+                        credentials = item.transportCredentials,
+                        cacheIdentity = item.cacheIdentity,
+                        cacheMaximumBytes = item.cacheMaximumBytes,
+                    ),
+                )
+            }
+            if (expired.get() ||
+                Thread.currentThread().isInterrupted
+            ) {
+                return YCodecConfigurationProbeResult.Inconclusive
+            }
             val trackIndex = demuxer.findFirstTrack("video/") ?: return YCodecConfigurationProbeResult.Inconclusive
+            sourceUsable = true
             val format = demuxer.trackFormat(trackIndex)
             val width = format.integerOr(PROBE_WIDTH_KEY, MIN_PROBE_DIMENSION).coerceAtLeast(MIN_PROBE_DIMENSION)
             val height = format.integerOr(PROBE_HEIGHT_KEY, MIN_PROBE_DIMENSION).coerceAtLeast(MIN_PROBE_DIMENSION)
             imageReader = ImageReader.newInstance(width, height, ImageFormat.PRIVATE, PROBE_SURFACE_IMAGES)
             callbackThread = HandlerThread("YCore-codec-probe").apply { start() }
+            val callbackHandler = Handler(callbackThread.looper)
+            // This private Surface must consume frames even while their rendered callback is delayed.
+            // Availability only drains buffers; it is never promoted to rendered-output evidence.
+            imageReader.setOnImageAvailableListener(
+                { reader ->
+                    synchronized(imageReaderLock) {
+                        if (!imageReaderClosed) {
+                            runCatching { reader.acquireLatestImage()?.close() }
+                        }
+                    }
+                },
+                callbackHandler,
+            )
             val rendered = CountDownLatch(1)
             codec = MediaCodec.createByCodecName(decoderName)
             codec.setOnFrameRenderedListener(
                 { _, _, _ -> rendered.countDown() },
-                Handler(callbackThread.looper),
+                callbackHandler,
             )
             codec.configure(format, imageReader.surface, null, 0)
             codec.start()
             configured = true
             demuxer.selectTrack(trackIndex)
+            selectedTrack = trackIndex
             val sampleBuffer =
                 ByteBuffer.allocateDirect(
                     format.maxInputSizeOr(DEFAULT_SAMPLE_BUFFER_BYTES).coerceAtMost(MAX_SAMPLE_BUFFER_BYTES),
                 )
             val info = MediaCodec.BufferInfo()
-            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PROBE_TIMEOUT_MS)
             var queuedSamples = 0
-            while (System.nanoTime() < deadline && queuedSamples < MAX_PROBE_SAMPLES) {
+            while (!expired.get() &&
+                !Thread.currentThread().isInterrupted &&
+                System.nanoTime() < deadline &&
+                queuedSamples < MAX_PROBE_SAMPLES
+            ) {
                 val inputIndex = codec.dequeueInputBuffer(PROBE_DEQUEUE_TIMEOUT_US)
                 if (inputIndex >= 0) {
                     val sample = demuxer.readSample(sampleBuffer) ?: break
@@ -107,10 +168,26 @@ internal class AndroidCodecSampleProbe(
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
-            runCatching { imageReader?.close() }
+            // Keep draining until the producer stops. Closing under the same lock also protects
+            // against a previously queued availability callback running after listener removal.
+            synchronized(imageReaderLock) {
+                imageReaderClosed = true
+                runCatching { imageReader?.setOnImageAvailableListener(null, null) }
+                runCatching { imageReader?.close() }
+            }
             callbackThread?.quitSafely()
             runCatching { callbackThread?.join(CALLBACK_THREAD_JOIN_MS) }
-            demuxer.release()
+            // Reset and return only after codec teardown, while this worker still owns the source.
+            if (sourceUsable && !expired.get() && !Thread.currentThread().isInterrupted) {
+                reusable =
+                    runCatching {
+                        if (selectedTrack != null) {
+                            demuxer.seekTo(0L)
+                            demuxer.unselectTrack(checkNotNull(selectedTrack))
+                        }
+                    }.isSuccess
+            }
+            if (reusable && !expired.get()) returnPreparedExtractor(demuxer) else demuxer.release()
         }
     }
 }

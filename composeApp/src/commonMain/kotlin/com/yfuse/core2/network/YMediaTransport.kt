@@ -101,6 +101,8 @@ data class YMediaTransportResponse(
     val redirectCount: Int = 0,
     val finalProtocol: YSourceProtocol? = null,
     val cleartextRedirect: Boolean = false,
+    /** Exact strong entity tag, kept in memory for safe range resumption; never log it. */
+    val entityTag: String? = null,
 )
 
 interface YMediaTransport {

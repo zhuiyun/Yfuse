@@ -113,6 +113,9 @@ internal class AndroidNativeDirectYPlayer(
     @Volatile
     private var released = false
 
+    @Volatile
+    private var releasedAtMs: Long? = null
+
     override val playbackRequested: Boolean get() = mutableState.value.playbackRequested
 
     override fun prepare() {
@@ -274,6 +277,7 @@ internal class AndroidNativeDirectYPlayer(
 
     override fun release() {
         if (released) return
+        releasedAtMs = System.nanoTime() / 1_000_000L
         released = true
         commands.close()
         wakeSignal.trySend(Unit)
@@ -462,6 +466,7 @@ internal class AndroidNativeDirectYPlayer(
         private var audioTrackIndex: Int? = null
         private var videoFormat: MediaFormat? = null
         private var inspectHdr10PlusSamples = false
+        private val hdrAccessUnits = AndroidAccessUnitCache<YExtractorSample, ByteArray?>()
         private var audioInputFormat: MediaFormat? = null
         private var subtitleTrackIndex: Int? = null
         private val subtitleCues = mutableListOf<YSubtitleCue>()
@@ -529,7 +534,9 @@ internal class AndroidNativeDirectYPlayer(
          */
         private var outputHasEverRendered = false
 
-        private var lastPublishedBuffering = false
+        private val rebufferTracker =
+            com.yfuse.core2.api
+                .YRebufferTracker()
 
         @Volatile
         private var transportReadBlocked = false
@@ -1102,6 +1109,8 @@ internal class AndroidNativeDirectYPlayer(
             resetEndState()
             seekTargetVideoUs = targetUs
             bufferGate.reset()
+            rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
+            hdrAccessUnits.clear()
             seekTargetAudioUs = targetUs
             lastVideoPresentationUs = targetUs
             lastQueuedPresentationUs = targetUs
@@ -1352,7 +1361,7 @@ internal class AndroidNativeDirectYPlayer(
                             else -> {
                                 awaitVideoSyncSample = false
                                 awaitVideoSyncSampleDrops = 0
-                                applyHdr10PlusMetadata(sample.data)
+                                applyHdr10PlusMetadata(sample)
                                 videoDecoder.queueAccessUnit(
                                     sample.data,
                                     sample.presentationTimeUs,
@@ -1376,14 +1385,16 @@ internal class AndroidNativeDirectYPlayer(
                     else -> YCodecQueueResult.Queued
                 }
             if (queued != YCodecQueueResult.Queued) return false
+            hdrAccessUnits.queued(sample)
             lastQueuedPresentationUs = maxOf(lastQueuedPresentationUs, sample.presentationTimeUs)
             return true
         }
 
         /** MediaExtractor does not consistently forward per-frame ST 2094-40 metadata. */
-        private fun applyHdr10PlusMetadata(data: ByteBuffer) {
+        private fun applyHdr10PlusMetadata(sample: YExtractorSample) {
+            val data = sample.data
             if (!inspectHdr10PlusSamples || !data.hasRemaining()) return
-            val payload = extractNativeDirectHdr10PlusPayload(data) ?: return
+            val payload = hdrAccessUnits.getOrPrepare(sample) { extractNativeDirectHdr10PlusPayload(data) } ?: return
             videoDecoder.setHdr10PlusMetadata(payload)
         }
 
@@ -1641,7 +1652,7 @@ internal class AndroidNativeDirectYPlayer(
          * and only measured pressure buys depth.
          */
         private fun refreshAdaptiveBufferPlan(readAhead: YExtractorReadAheadSnapshot) {
-            if (!sourceRemote || readAhead.throughputBitsPerSecond <= 0L) return
+            if (!sourceRemote || !readAhead.throughputMeasured) return
             val nowNs = System.nanoTime()
             if (nowNs - lastBufferReplanNs < BUFFER_REPLAN_INTERVAL_NS) return
             lastBufferReplanNs = nowNs
@@ -1701,6 +1712,7 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         private fun publishClockPosition() {
+            if (released) return
             val nowNs = System.nanoTime()
             if (nowNs - lastStatePublishNs < STATE_PUBLISH_INTERVAL_NS) return
             lastStatePublishNs = nowNs
@@ -1743,8 +1755,13 @@ internal class AndroidNativeDirectYPlayer(
             // only counted transport starvation, so a stall that never starved the read-ahead queue
             // — a pump blocked on the origin, a runtime recovery restart, an audio route change —
             // reported a clean session and PlaybackHealth graded it as if nothing had happened.
-            val enteredRebuffer = buffering && !lastPublishedBuffering && outputHasEverRendered
-            lastPublishedBuffering = buffering
+            val rebuffers =
+                rebufferTracker.observe(
+                    nowNs / NANOS_PER_MILLISECOND,
+                    requestedPlay && !isEnded(),
+                    buffering,
+                    outputHasEverRendered,
+                )
             mutableState.update { current ->
                 current.copy(
                     positionMs = positionMs,
@@ -1756,9 +1773,9 @@ internal class AndroidNativeDirectYPlayer(
                     buffering = buffering,
                     diagnostics =
                         current.diagnostics.copy(
-                            bufferEvents =
-                                current.diagnostics.bufferEvents +
-                                    if (enteredRebuffer) 1 else 0,
+                            bufferEvents = rebuffers.events,
+                            rebufferDurationMs = rebuffers.durationMs,
+                            longestRebufferMs = rebuffers.longestMs,
                             droppedFrames = droppedFrames,
                             videoDecoderName = videoDecoder.decoderName.orEmpty(),
                             audioDecoderName = audioDecoderDiagnosticName().orEmpty(),
@@ -1844,6 +1861,15 @@ internal class AndroidNativeDirectYPlayer(
                         "demuxBufferedMs" to
                             (readAhead.bufferedDurationUs / MICROS_PER_MILLISECOND).toString(),
                         "demuxStarvations" to readAhead.starvationCount.toString(),
+                        "rebufferDurationMs" to
+                            mutableState.value.diagnostics.rebufferDurationMs
+                                .toString(),
+                        "longestRebufferMs" to
+                            mutableState.value.diagnostics.longestRebufferMs
+                                .toString(),
+                        "sourceMaximumCacheWriteMs" to (transportQoe?.maximumCacheWriteMs?.toString() ?: ""),
+                        "sourceFailedCacheWrites" to (transportQoe?.failedCacheWriteCount?.toString() ?: ""),
+                        "sourceDroppedCacheWrites" to (transportQoe?.droppedCacheWriteCount?.toString() ?: ""),
                         "avOffsetMs" to (lastAvSyncOffsetUs?.div(MICROS_PER_MILLISECOND)?.toString() ?: ""),
                     ),
             )
@@ -2447,6 +2473,17 @@ internal class AndroidNativeDirectYPlayer(
         }
 
         fun releaseMedia() {
+            val stats = rebufferTracker.stop(releasedAtMs ?: System.nanoTime() / 1_000_000L)
+            mutableState.update {
+                it.copy(
+                    diagnostics =
+                        it.diagnostics.copy(
+                            bufferEvents = stats.events,
+                            rebufferDurationMs = stats.durationMs,
+                            longestRebufferMs = stats.longestMs,
+                        ),
+                )
+            }
             externalSubtitleSession.close()
             renderCallbackGeneration++
             pendingVideoOutput?.let { output ->
@@ -2484,6 +2521,7 @@ internal class AndroidNativeDirectYPlayer(
             awaitVideoSyncSampleDrops = 0
             videoFormat = null
             inspectHdr10PlusSamples = false
+            hdrAccessUnits.clear()
             audioInputFormat = null
             audioTrackFormat = null
             audioOutputPath = YAudioOutputPath.None

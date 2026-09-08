@@ -178,6 +178,10 @@ class PlayerActivity : ComponentActivity() {
 
     private var activePlayer: YPlayer? = null
     private var activeQueueAppender: ((List<PlayerMediaItem>) -> Boolean)? = null
+    private var activeQueueUpdater: ((List<PlayerMediaItem>, Int) -> Boolean)? = null
+    private var enrichmentJob: Job? = null
+    private var pendingEnrichment: PlayerState? = null
+    private var playerLaunchGeneration = 0L
     private var playbackGate: WatchGatedPlayback? = null
     private var activeState = PlaybackState()
     private lateinit var audioManager: AudioManager
@@ -518,7 +522,7 @@ class PlayerActivity : ComponentActivity() {
                 )
             launchViewModel.request = request
             launchViewModel.pending = null
-            pending.store.dispose()
+            launchViewModel.enriching = pending
             AppLog.info(
                 category = "feature.player",
                 event = "preparation_completed_in_activity",
@@ -529,7 +533,66 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    private fun observePlaybackEnrichment() {
+        enrichmentJob?.cancel()
+        val pending = launchViewModel.enriching ?: return
+        enrichmentJob =
+            lifecycleScope.launch {
+                pending.store.states.collect { state ->
+                    pendingEnrichment = state
+                    applyPendingEnrichment()
+                }
+            }
+    }
+
+    /** The engine absorbs catalog changes around the open item; enrichment never triggers prepare. */
+    private fun applyPendingEnrichment() {
+        val state = pendingEnrichment ?: return
+        if (state.items.isEmpty()) return
+        val current = playbackItems.value
+        val playing =
+            current.getOrNull(activePlayer?.state?.value?.currentIndex ?: activeState.currentIndex)
+                ?: current.firstOrNull() ?: return
+        val updated =
+            state.items
+                .map { metadata ->
+                    current
+                        .firstOrNull { it.id == metadata.id && it.serverId == metadata.serverId }
+                        ?.withQueueMetadata(metadata)
+                        ?.copy(serverFallbacks = metadata.serverFallbacks)
+                        ?: metadata
+                }.let { if (televisionDevice) it.withoutServerTranscodeForTv() else it }
+        val selectedIndex = updated.indexOfFirst { it.id == playing.id && it.serverId == playing.serverId }
+        if (selectedIndex < 0) return
+        if (!current.hasSamePlaybackSourcesAs(updated) &&
+            activeQueueUpdater?.invoke(updated, selectedIndex) != true
+        ) {
+            // Recovery metadata must be usable even while the native child cannot yet absorb a
+            // reordered catalog (for example, its first source open has already failed).
+            playbackItems.value =
+                current.map { item ->
+                    state.items
+                        .firstOrNull { it.id == item.id && it.serverId == item.serverId }
+                        ?.let { item.withQueueMetadata(it).copy(serverFallbacks = it.serverFallbacks) } ?: item
+                }
+            return // Attachment/state updates retry the full catalog handoff.
+        }
+        playbackItems.value = updated
+        sessionTitles = updated.map { it.title }
+        val position = activePlayer?.currentPositionMs() ?: launchViewModel.resume?.second ?: state.startPositionMs
+        launchViewModel.request = launchViewModel.request?.copy(items = updated, startIndex = selectedIndex)
+        launchViewModel.resume = selectedIndex to position
+        pendingEnrichment = null
+        if (!state.enrichmentPending) {
+            launchViewModel.enriching?.store?.dispose()
+            launchViewModel.enriching = null
+            enrichmentJob?.cancel()
+            enrichmentJob = null
+        }
+    }
+
     private fun initializePlayer(launchRequest: PlayerLaunchRequest) {
+        val launchGeneration = ++playerLaunchGeneration
         launchViewModel.request = launchRequest
         val items =
             if (televisionDevice) {
@@ -678,18 +741,22 @@ class PlayerActivity : ComponentActivity() {
                     accountTokens = accountTokens,
                     watchTogetherPreferences = watchTogetherPreferences,
                     playbackGate = playbackController,
-                    onPlayerAttached = { player, appendItems ->
+                    onPlayerAttached = { player, appendItems, updateQueue ->
                         activePlayer = player
                         activeQueueAppender = appendItems
+                        activeQueueUpdater = updateQueue
+                        applyPendingEnrichment()
                     },
                     onPlayerDetached = { player ->
                         if (activePlayer === player) {
                             activePlayer = null
                             activeQueueAppender = null
+                            activeQueueUpdater = null
                         }
                     },
                     onPlaybackState = { state, item ->
                         activeState = state
+                        applyPendingEnrichment()
                         applyScreenOnPolicy()
                         if (
                             state.playing &&
@@ -708,7 +775,7 @@ class PlayerActivity : ComponentActivity() {
                             completedOfflineKey = null
                         }
                         if (
-                            launchViewModel.request === launchRequest &&
+                            playerLaunchGeneration == launchGeneration &&
                             state.currentIndex in playbackItems.value.indices
                         ) {
                             launchViewModel.resume = state.currentIndex to state.positionMs.coerceAtLeast(0L)
@@ -745,10 +812,12 @@ class PlayerActivity : ComponentActivity() {
                     onRefreshEpisodes = { refreshEpisodes(force = true) },
                     onRemotePlayRequested = ::ensureAudioFocus,
                     remoteChrome = tvChromeController.takeIf { televisionDevice },
+                    launchStartedElapsedMs = launchViewModel.launchStartedElapsedMs,
                     startPlaybackRequested = startPlaybackRequested,
                 )
             }
         }
+        observePlaybackEnrichment()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -768,8 +837,13 @@ class PlayerActivity : ComponentActivity() {
                 Toast.makeText(this, "新的播放会话已过期，继续当前播放", Toast.LENGTH_SHORT).show()
                 return
             }
+            launchViewModel.enriching?.store?.dispose()
+            launchViewModel.enriching = null
+            enrichmentJob?.cancel()
+            pendingEnrichment = null
             launchViewModel.pending?.store?.dispose()
             launchViewModel.pending = replacement
+            launchViewModel.launchStartedElapsedMs = SystemClock.elapsedRealtime()
             launchViewModel.request = null
             launchViewModel.resume = null
             setIntent(intent)
@@ -786,8 +860,13 @@ class PlayerActivity : ComponentActivity() {
         val payload = PlayerLaunchIntentPayload.readFrom(intent) ?: return
         when (val replacement = resolveFreshPlayerLaunch(payload)) {
             is PlayerLaunchResolution.Ready -> {
+                launchViewModel.enriching?.store?.dispose()
+                launchViewModel.enriching = null
+                enrichmentJob?.cancel()
+                pendingEnrichment = null
                 setIntent(intent)
                 launchViewModel.request = replacement.request
+                launchViewModel.launchStartedElapsedMs = SystemClock.elapsedRealtime()
                 launchViewModel.resume = null
                 // Suppress leave-to-PiP while Activity.recreate tears down the old composition.
                 stopRequested = true
@@ -946,6 +1025,7 @@ class PlayerActivity : ComponentActivity() {
         activePlayer?.release()
         activePlayer = null
         activeQueueAppender = null
+        activeQueueUpdater = null
         abandonAudioFocus()
         ActivePlayback.clear()
         stopPlaybackKeepAliveService()
@@ -970,6 +1050,7 @@ class PlayerActivity : ComponentActivity() {
         activePlayer?.release()
         activePlayer = null
         activeQueueAppender = null
+        activeQueueUpdater = null
         abandonAudioFocus()
         ActivePlayback.clear()
         stopPlaybackKeepAliveService()
@@ -1087,6 +1168,7 @@ class PlayerActivity : ComponentActivity() {
      * current item and position when playable sources are added, removed, reordered or replaced.
      */
     private fun refreshEpisodes(force: Boolean = false) {
+        if (launchViewModel.enriching != null) return
         if (episodeRefreshJob?.isActive == true) return
         val snapshot = playbackItems.value
         val seed = snapshot.firstOrNull { it.seriesId != null && it.serverId != null } ?: return

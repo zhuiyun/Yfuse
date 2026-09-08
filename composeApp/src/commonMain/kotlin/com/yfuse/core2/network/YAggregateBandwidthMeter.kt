@@ -41,6 +41,10 @@ class YAggregateBandwidthMeter(
     private var rollingStartedAtNs = 0L
     private var rollingBytes = 0L
     private var hasProgressSamples = false
+    private val recentSamples = ArrayDeque<RecentSample>()
+    private var lastProgressNs = 0L
+
+    val hasEstimate: Boolean get() = synchronized(lock) { samples.isNotEmpty() }
 
     /** Call when a range transfer begins, before any byte of it is read. */
     fun onTransferStarted(nowNs: Long) {
@@ -53,6 +57,7 @@ class YAggregateBandwidthMeter(
                 hasProgressSamples = false
             }
             activeTransfers++
+            if (activeTransfers == 1) lastProgressNs = nowNs
         }
     }
 
@@ -64,6 +69,7 @@ class YAggregateBandwidthMeter(
         synchronized(lock) {
             if (activeTransfers == 0 || bytes <= 0L) return@synchronized null
             hasProgressSamples = true
+            lastProgressNs = nowNs
             rollingBytes += bytes
             val elapsedNs = (nowNs - rollingStartedAtNs).coerceAtLeast(0L)
             if (elapsedNs < ROLLING_SAMPLE_NANOS || rollingBytes < minimumSampleBytes) {
@@ -112,7 +118,10 @@ class YAggregateBandwidthMeter(
         }
 
     /** Weighted median of the retained window, or 0 when nothing has been measured yet. */
-    fun bitsPerSecond(nowNs: Long? = null): Long =
+    fun bitsPerSecond(
+        nowNs: Long? = null,
+        fastDecrease: Boolean = false,
+    ): Long =
         synchronized(lock) {
             if (nowNs != null &&
                 activeTransfers > 0 &&
@@ -126,7 +135,27 @@ class YAggregateBandwidthMeter(
             var accumulated = 0.0
             for (sample in samples.sortedBy(WeightedSample::bitsPerSecond)) {
                 accumulated += sample.weight
-                if (accumulated >= target) return@synchronized sample.bitsPerSecond
+                if (accumulated >= target) {
+                    if (!fastDecrease || nowNs == null) return@synchronized sample.bitsPerSecond
+                    if (activeTransfers > 0 && nowNs - lastProgressNs >= STALLED_SAMPLE_NANOS) return@synchronized 0L
+                    while (recentSamples.isNotEmpty() &&
+                        nowNs - recentSamples.first().finishedNs >= FAST_WINDOW_NANOS
+                    ) {
+                        recentSamples.removeFirst()
+                    }
+                    val elapsed = recentSamples.sumOf { it.durationNs }
+                    val recentBytes = recentSamples.sumOf { it.bytes }
+                    // A single burst must not lower the estimate. Require at least one second of
+                    // aggregate transfer time; increases continue to use the stable median.
+                    return@synchronized if (elapsed >= FAST_MINIMUM_NANOS) {
+                        minOf(
+                            sample.bitsPerSecond,
+                            recentBytes.saturatedMultiply(BITS_PER_BYTE * NANOS_PER_SECOND) / elapsed,
+                        )
+                    } else {
+                        sample.bitsPerSecond
+                    }
+                }
             }
             samples.last().bitsPerSecond
         }
@@ -139,6 +168,8 @@ class YAggregateBandwidthMeter(
             busyPeriodBytes = 0L
             rollingBytes = 0L
             hasProgressSamples = false
+            recentSamples.clear()
+            lastProgressNs = 0L
         }
     }
 
@@ -146,6 +177,12 @@ class YAggregateBandwidthMeter(
         val elapsedNs = (nowNs - rollingStartedAtNs).coerceAtLeast(1L)
         val bytes = rollingBytes
         val rate = bytes.saturatedMultiply(BITS_PER_BYTE * NANOS_PER_SECOND) / elapsedNs
+        recentSamples.addLast(RecentSample(nowNs, elapsedNs, bytes))
+        while (recentSamples.isNotEmpty() &&
+            nowNs - recentSamples.first().finishedNs >= FAST_WINDOW_NANOS
+        ) {
+            recentSamples.removeFirst()
+        }
         record(rate, bytes.coerceAtLeast(minimumSampleBytes))
         rollingStartedAtNs = nowNs
         rollingBytes = 0L
@@ -167,6 +204,12 @@ class YAggregateBandwidthMeter(
     private data class WeightedSample(
         val bitsPerSecond: Long,
         val weight: Double,
+    )
+
+    private data class RecentSample(
+        val finishedNs: Long,
+        val durationNs: Long,
+        val bytes: Long,
     )
 }
 
@@ -191,3 +234,5 @@ private const val DEFAULT_MINIMUM_SAMPLE_NANOS = 20L * 1_000_000L
 private const val DEFAULT_MAXIMUM_WEIGHT = 32.0 * 1024.0
 private const val ROLLING_SAMPLE_NANOS = 500_000_000L
 private const val STALLED_SAMPLE_NANOS = 2_000_000_000L
+private const val FAST_WINDOW_NANOS = 2_000_000_000L
+private const val FAST_MINIMUM_NANOS = 1_000_000_000L

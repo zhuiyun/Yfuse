@@ -72,6 +72,11 @@ internal class AndroidTransportMediaDataSource(
             null
         }
     private val blocks = LinkedHashMap<Long, ByteArray>(16, 0.75f, true)
+    private var startupSlice: Pair<Long, YLoadedTransportBlock>? = null
+    private var startupReadServed = false
+    private val representationLock = Any()
+    private var representationTag: String? = null
+    private var representationLength: Long? = null
 
     /**
      * Heap budget for [blocks], which holds already-delivered bytes.
@@ -120,7 +125,7 @@ internal class AndroidTransportMediaDataSource(
                     !closed &&
                         window.playing &&
                         window.bufferedUs >= window.minimumWarmBufferUs &&
-                        bandwidthMeter.bitsPerSecond(System.nanoTime()) >
+                        effectiveThroughput(System.nanoTime()) >
                         mediaBitRateBitsPerSecond.toDouble() * window.speed * 1.1
                 },
             )
@@ -184,15 +189,32 @@ internal class AndroidTransportMediaDataSource(
         if (knownSize >= 0L && position >= knownSize) return -1
         if (kotlin.math.abs(position - latestReadPosition) > blockSize.toLong() * 2L) {
             forwardCache?.updateWindow(0L, 0L)
+            startupSlice = null
+            startupReadServed = false
         }
         var readPosition = position
         var outputOffset = offset
         var remaining = size
         while (remaining > 0 && (knownSize < 0L || readPosition < knownSize)) {
             val blockIndex = readPosition / blockSize
-            val block = blocks[blockIndex] ?: resolveBlock(blockIndex)
+            val offsetInBlock = (readPosition % blockSize).toInt()
+            val loaded =
+                blocks[blockIndex]?.let { YLoadedTransportBlock(it, knownSize.takeIf { it >= 0L }) }
+                    ?: startupSlice
+                        ?.takeIf { (index, slice) ->
+                            index == blockIndex &&
+                                offsetInBlock in slice.offsetInBlock until (slice.offsetInBlock + slice.bytes.size)
+                        }?.second
+                    ?: resolveBlock(
+                        blockIndex,
+                        startupOffset =
+                            offsetInBlock.takeIf {
+                                !startupReadServed && blockSize > STARTUP_RANGE_BYTES && size <= STARTUP_RANGE_BYTES
+                            },
+                    )
+            val block = loaded.bytes
             if (!prefetchSuppressed) schedulePrefetch(blockIndex + 1L)
-            val blockOffset = (readPosition % blockSize).toInt()
+            val blockOffset = offsetInBlock - loaded.offsetInBlock
             if (blockOffset >= block.size) break
             val count = minOf(remaining, block.size - blockOffset)
             block.copyInto(buffer, outputOffset, blockOffset, blockOffset + count)
@@ -202,6 +224,7 @@ internal class AndroidTransportMediaDataSource(
         }
         val copied = size - remaining
         if (copied > 0) {
+            if (!prefetchSuppressed) startupReadServed = true
             latestReadPosition = readPosition
             scheduleForwardCache()
         }
@@ -277,18 +300,40 @@ internal class AndroidTransportMediaDataSource(
             bufferedAheadBytes = bufferedAheadBytes,
             contentLengthBytes = knownSize,
             mediaBitRateBitsPerSecond = mediaBitRateBitsPerSecond,
-            throughputBitsPerSecond = bandwidthMeter.bitsPerSecond(System.nanoTime()),
+            throughputBitsPerSecond = effectiveThroughput(System.nanoTime()),
+            throughputMeasured = bandwidthMeter.hasEstimate,
+            maximumCacheWriteMs = diskCache?.maximumWriteMs ?: 0L,
+            failedCacheWriteCount = diskCache?.failedWriteCount ?: 0L,
+            droppedCacheWriteCount = diskCache?.droppedWriteCount ?: 0L,
         )
     }
 
-    private fun resolveBlock(blockIndex: Long): ByteArray {
+    private fun resolveBlock(
+        blockIndex: Long,
+        startupOffset: Int? = null,
+    ): YLoadedTransportBlock {
         if (startupTailPrefetchBlockIndex == blockIndex) startupTailPrefetchBlockIndex = null
         val startedNs = System.nanoTime()
         val budget = YRangeReadBudget(rangeReadBudgetMs)
         foregroundReadStartedAtNs = startedNs
         onBlockingReadStateChanged?.invoke(true)
         try {
-            val prefetched = takePrefetchedBlock(blockIndex, budget)
+            val pending = prefetchedBlocks[blockIndex]
+            val preferStartupSlice =
+                startupOffset != null &&
+                    pending != null &&
+                    !pending.future.isDone &&
+                    pending.completedBytes.get() < blockSize.toLong() * 3L / 4L
+            val prefetched =
+                if (preferStartupSlice) {
+                    // A seek needs a small access unit now, not an unfinished whole speculative block.
+                    // Preserve almost-complete transfers so a late seek does not discard their tail.
+                    prefetchedBlocks.remove(blockIndex)?.cancel()
+                    promotedPrefetchCount++
+                    null
+                } else {
+                    takePrefetchedBlock(blockIndex, budget)
+                }
             val loaded =
                 if (prefetched != null) {
                     prefetchHitCount++
@@ -304,7 +349,7 @@ internal class AndroidTransportMediaDataSource(
                         // A cache miss must not throw away already useful read-ahead work.
                         schedulePrefetch(blockIndex + 1L)
                     }
-                    loadBlockNow(blockIndex, budget)
+                    loadBlockNow(blockIndex, budget, startupOffset)
                 }
             maximumResolveWaitMs =
                 maxOf(
@@ -317,11 +362,21 @@ internal class AndroidTransportMediaDataSource(
                 if (knownSize >= 0L) require(knownSize == contentLength) { "Remote media size changed during playback" }
                 knownSize = contentLength
             }
-            cache(blockIndex, loaded.bytes)
-            if (loaded.bytes.isNotEmpty()) {
-                diskCache?.writeBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
+            val completeBlock =
+                loaded.offsetInBlock == 0 &&
+                    (loaded.bytes.size == blockSize || blockIndex * blockSize + loaded.bytes.size == knownSize)
+            if (completeBlock) {
+                cache(blockIndex, loaded.bytes)
+                if (loaded.bytes.isNotEmpty() && !loaded.fromDiskCache) {
+                    diskCache?.enqueueWriteBlock(blockIndex, loaded.bytes, knownSize.takeIf { it >= 0L })
+                }
+            } else if (loaded.bytes.isNotEmpty()) {
+                // A startup slice is addressed by its real offset and is never a persistent block.
+                // Keep the stable 2 MiB stride and fill the complete block in the background.
+                startupSlice = blockIndex to loaded
+                if (!prefetchSuppressed) schedulePrefetchBlock(blockIndex)
             }
-            return loaded.bytes
+            return loaded
         } catch (failure: Exception) {
             if (!closed && !failure.isTransportCancellation()) foregroundFailure = failure
             throw failure
@@ -358,6 +413,7 @@ internal class AndroidTransportMediaDataSource(
     private fun loadBlockNow(
         blockIndex: Long,
         budget: YRangeReadBudget,
+        startupOffset: Int? = null,
     ): YLoadedTransportBlock {
         diskCache?.let { cache ->
             val startedNs = System.nanoTime()
@@ -366,6 +422,7 @@ internal class AndroidTransportMediaDataSource(
                     bytes = cached,
                     contentLength = cache.contentLength,
                     cacheLoadDurationMs = (System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND,
+                    fromDiskCache = true,
                 )
             }
         }
@@ -374,6 +431,15 @@ internal class AndroidTransportMediaDataSource(
             blockTransport = transport,
             knownSizeSnapshot = knownSize,
             budget = budget,
+            rangeOffset = startupOffset ?: 0,
+            requestedBytes =
+                if (startupOffset ==
+                    null
+                ) {
+                    blockSize
+                } else {
+                    minOf(STARTUP_RANGE_BYTES, blockSize - startupOffset)
+                },
         )
     }
 
@@ -384,15 +450,32 @@ internal class AndroidTransportMediaDataSource(
         progress: YTransportBlockPrefetch? = null,
         isCancelled: () -> Boolean = { false },
         budget: YRangeReadBudget = YRangeReadBudget(rangeReadBudgetMs),
+        rangeOffset: Int = 0,
+        requestedBytes: Int = blockSize,
     ): YLoadedTransportBlock {
         var completedRetries = 0
+        val partial = YPartialTransportBlock(ByteArray(requestedBytes))
+        val startedNs = System.nanoTime()
         while (true) {
             if (closed || isCancelled() || progress?.isCancelled == true || Thread.currentThread().isInterrupted) {
                 throw CancellationException("Media range was abandoned")
             }
             try {
                 budget.checkRemaining()
-                return loadRemoteBlock(blockIndex, blockTransport, knownSizeSnapshot, progress, budget)
+                return loadRemoteBlock(
+                    blockIndex,
+                    blockTransport,
+                    knownSizeSnapshot,
+                    progress,
+                    budget,
+                    partial,
+                    rangeOffset,
+                ).copy(
+                    remoteLoadDurationMs =
+                        ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(
+                            1L,
+                        ),
+                )
             } catch (failure: Exception) {
                 if (closed || isCancelled() || progress?.isCancelled == true || failure.isTransportCancellation()) {
                     throw CancellationException("Media range was abandoned")
@@ -426,6 +509,13 @@ internal class AndroidTransportMediaDataSource(
                     throw failure
                 }
                 completedRetries++
+                // Only a strong entity tag plus a known length can bind bytes across exchanges.
+                if (partial.entityTag == null ||
+                    partial.contentLength == null ||
+                    partial.total >= partial.bytes.size
+                ) {
+                    partial.total = 0
+                }
                 // Waiting on the close latch instead of sleeping lets close() interrupt the retry
                 // at once instead of pinning the extractor thread until the delay expires.
                 val closedDuringWait =
@@ -446,12 +536,16 @@ internal class AndroidTransportMediaDataSource(
         knownSizeSnapshot: Long,
         progress: YTransportBlockPrefetch?,
         budget: YRangeReadBudget,
+        partial: YPartialTransportBlock,
+        rangeOffset: Int,
     ): YLoadedTransportBlock =
         runBlocking {
             val startedNs = System.nanoTime()
             progress?.beginAttempt(startedNs)
-            val position = blockIndex.saturatedMultiply(blockSize.toLong())
-            val end = position.saturatedAdd(blockSize.toLong() - 1L)
+            val blockStart = blockIndex.saturatedMultiply(blockSize.toLong()).saturatedAdd(rangeOffset.toLong())
+            val position = blockStart.saturatedAdd(partial.total.toLong())
+            val end = blockStart.saturatedAdd(partial.bytes.size.toLong() - 1L)
+            val attemptOffset = partial.total
             var transferredBytes = 0L
             bandwidthMeter.onTransferStarted(startedNs)
             val watchdog =
@@ -466,7 +560,14 @@ internal class AndroidTransportMediaDataSource(
                             protocol = protocol,
                             startInclusive = position,
                             endInclusive = end,
-                            headers = headers,
+                            headers =
+                                if (attemptOffset >
+                                    0
+                                ) {
+                                    headers + ("If-Range" to checkNotNull(partial.entityTag))
+                                } else {
+                                    headers
+                                },
                             credentials = credentials,
                         ),
                     )
@@ -490,14 +591,48 @@ internal class AndroidTransportMediaDataSource(
                 }
                 reportTransportRoute(response)
                 val responseContentLength = response.contentLength?.takeIf { it >= 0L }
+                response.acceptedRange?.endInclusive?.let { servedEnd ->
+                    val expectedEnd = responseContentLength?.let { minOf(end, it - 1L) } ?: end
+                    if (servedEnd != expectedEnd) {
+                        throw YRangeReadException(
+                            YTransportFailureKind.InvalidRange,
+                            "Random-access transport returned mismatched range end",
+                        )
+                    }
+                }
+                if (attemptOffset > 0 &&
+                    (response.entityTag != partial.entityTag || responseContentLength != partial.contentLength)
+                ) {
+                    throw YRangeReadException(
+                        YTransportFailureKind.InvalidRange,
+                        "Media representation changed during range resumption",
+                    )
+                }
+                synchronized(representationLock) {
+                    require(
+                        representationTag == null ||
+                            response.entityTag == null ||
+                            response.entityTag == representationTag,
+                    ) { "Remote media entity changed during playback" }
+                    require(
+                        representationLength == null ||
+                            responseContentLength == null ||
+                            responseContentLength == representationLength,
+                    ) { "Remote media size changed during playback" }
+                    response.entityTag?.let { representationTag = it }
+                    responseContentLength?.let { representationLength = it }
+                }
+                partial.entityTag =
+                    response.entityTag?.takeIf { it.length >= 2 && it.startsWith('"') && it.endsWith('"') }
+                partial.contentLength = responseContentLength
                 responseContentLength?.let { total ->
                     if (knownSizeSnapshot >= 0L) {
                         require(knownSizeSnapshot == total) { "Remote media size changed during playback" }
                     }
                 }
                 val effectiveKnownSize = responseContentLength ?: knownSizeSnapshot
-                val output = ByteArray(blockSize)
-                var total = 0
+                val output = partial.bytes
+                var total = partial.total
                 var emptyReads = 0
                 while (total < output.size) {
                     val count = blockTransport.read(output, total, output.size - total)
@@ -520,6 +655,7 @@ internal class AndroidTransportMediaDataSource(
                     watchdog.progressed()
                     emptyReads = 0
                     total += count
+                    partial.total = total
                     transferredBytes += count
                     val nowNs = System.nanoTime()
                     progress?.recordProgress(total.toLong(), nowNs)
@@ -531,14 +667,14 @@ internal class AndroidTransportMediaDataSource(
                     response.acceptedRange
                         ?.endInclusive
                         ?.let { servedEnd -> servedEnd - position + 1L }
-                        ?.coerceAtMost(blockSize.toLong())
+                        ?.coerceAtMost((output.size - attemptOffset).toLong())
                         ?: effectiveKnownSize.takeIf { it >= 0L }?.let {
-                            (it - position).coerceIn(0L, blockSize.toLong())
+                            (it - position).coerceIn(0L, (output.size - attemptOffset).toLong())
                         }
                 if (
                     expectedBytes != null &&
-                    total.toLong() != expectedBytes &&
-                    (effectiveKnownSize < 0L || position + total != effectiveKnownSize)
+                    total.toLong() - attemptOffset != expectedBytes &&
+                    (effectiveKnownSize < 0L || blockStart + total != effectiveKnownSize)
                 ) {
                     throw YRangeReadException(
                         failureKind = YTransportFailureKind.PrematureEof,
@@ -549,11 +685,12 @@ internal class AndroidTransportMediaDataSource(
                     )
                 }
                 watchdog.checkFailure()
-                transferredBytes = total.toLong()
+                transferredBytes = (total - attemptOffset).toLong()
                 YLoadedTransportBlock(
                     // A full block is the common case; copyOf would duplicate the whole 2 MiB.
                     bytes = if (total == output.size) output else output.copyOf(total),
                     contentLength = responseContentLength,
+                    offsetInBlock = rangeOffset,
                     remoteLoadDurationMs =
                         ((System.nanoTime() - startedNs) / NANOS_PER_MILLISECOND).coerceAtLeast(1L),
                 )
@@ -647,7 +784,7 @@ internal class AndroidTransportMediaDataSource(
             )
         (prefetchExecutor as? ThreadPoolExecutor)?.corePoolSize =
             transportPrefetchConcurrency(
-                throughput = bandwidthMeter.bitsPerSecond(System.nanoTime()),
+                throughput = effectiveThroughput(System.nanoTime()),
                 consumption = (mediaBitRateBitsPerSecond * window.speed.toDouble()).toLong(),
                 bufferedUs = (window.bufferedUs / window.speed).toLong(),
             )
@@ -669,6 +806,7 @@ internal class AndroidTransportMediaDataSource(
                 shouldPrefetchTransportBlock(tail, blockSize, knownSize) &&
                     !blocks.containsKey(tail)
             }?.let(desired::add)
+        startupSlice?.first?.takeIf { !blocks.containsKey(it) }?.let(desired::add)
         cancelPrefetchOutside(desired)
         desired.sorted().forEach(::schedulePrefetchBlock)
     }
@@ -689,6 +827,7 @@ internal class AndroidTransportMediaDataSource(
                             contentLength = cache.contentLength,
                             cacheLoadDurationMs =
                                 (System.nanoTime() - cacheStartedNs) / NANOS_PER_MILLISECOND,
+                            fromDiskCache = true,
                         )
                     }
                 }
@@ -884,6 +1023,7 @@ internal class AndroidTransportMediaDataSource(
     private fun discardCachedBlocks() {
         cancelPrefetchOutside(emptySet())
         blocks.clear()
+        startupSlice = null
         cachedBytes = 0L
     }
 
@@ -891,6 +1031,7 @@ internal class AndroidTransportMediaDataSource(
         index: Long,
         block: ByteArray,
     ) {
+        if (startupSlice?.first == index) startupSlice = null
         blocks.put(index, block)?.let { cachedBytes -= it.size }
         cachedBytes += block.size
         val iterator = blocks.entries.iterator()
@@ -898,6 +1039,18 @@ internal class AndroidTransportMediaDataSource(
             cachedBytes -= iterator.next().value.size
             iterator.remove()
         }
+    }
+
+    private fun effectiveThroughput(nowNs: Long): Long =
+        bandwidthMeter.bitsPerSecond(
+            nowNs,
+            fastDecrease = playbackWindow.bufferedUs / playbackWindow.speed < 3_000_000L,
+        )
+
+    /** A short bandwidth-meter lock only; never takes the blocking readAt monitor. */
+    fun liveTransportThroughput(): Long? {
+        val rate = effectiveThroughput(System.nanoTime())
+        return rate.takeIf { bandwidthMeter.hasEstimate }
     }
 }
 
@@ -915,6 +1068,10 @@ internal data class YTransportPrefetchQoeSnapshot(
     val mediaBitRateBitsPerSecond: Long = 0L,
     /** Aggregate link estimate across concurrent range transfers, or 0 before the first sample. */
     val throughputBitsPerSecond: Long = 0L,
+    val throughputMeasured: Boolean = false,
+    val maximumCacheWriteMs: Long = 0L,
+    val failedCacheWriteCount: Long = 0L,
+    val droppedCacheWriteCount: Long = 0L,
 )
 
 internal fun YTransportPrefetchQoeSnapshot.bufferedAheadDurationMs(durationMs: Long): Long {
@@ -981,7 +1138,17 @@ private data class YLoadedTransportBlock(
      * YCore" produce the same zero.
      */
     val cacheLoadDurationMs: Long = 0L,
+    val offsetInBlock: Int = 0,
+    val fromDiskCache: Boolean = false,
 )
+
+private class YPartialTransportBlock(
+    val bytes: ByteArray,
+) {
+    var total = 0
+    var entityTag: String? = null
+    var contentLength: Long? = null
+}
 
 private class YTransportBlockPrefetch(
     val blockIndex: Long,
@@ -1103,6 +1270,7 @@ private fun Long.saturatedMultiply(other: Long): Long {
 }
 
 private const val MIN_TRANSPORT_BLOCK_BYTES = 256 * 1024
+private const val STARTUP_RANGE_BYTES = 128 * 1024
 private const val DEFAULT_TRANSPORT_CACHE_BYTES = 64L * 1024L * 1024L
 
 /** Backward window kept on the heap, in blocks. Forward bytes live in the prefetch futures. */
@@ -1149,6 +1317,7 @@ internal fun transportPrefetchConcurrency(
 ): Int =
     when {
         consumption <= 0L || throughput <= 0L -> 3
+        bufferedUs < 3_000_000L && throughput < consumption -> 2
         bufferedUs >= 8_000_000L && throughput > consumption -> 2
         bufferedUs < 2_000_000L && throughput > consumption * 1.5 -> MAX_TRANSPORT_PREFETCH_CONCURRENCY
         else -> 4

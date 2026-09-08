@@ -24,7 +24,6 @@ import com.yfuse.core2.strategy.YPlaybackPlan
 import com.yfuse.core2.strategy.YRenderPath
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -53,6 +52,7 @@ internal class AndroidNativeEnhancedYPlayer(
     private val forcedPlan: YPlaybackPlan? = null,
     private val requireDolbyVisionIdentity: Boolean = false,
     private val preferredRemoteBufferTargetUs: Long? = null,
+    private val initialDecision: YCore2RouteDecision? = null,
 ) : YPlayer {
     private val appContext = context.applicationContext
     private val capabilityProvider = AndroidYCapabilityProvider(context)
@@ -83,7 +83,8 @@ internal class AndroidNativeEnhancedYPlayer(
     override val state: StateFlow<YPlayerState> = mutableState.asStateFlow()
     override val playbackRequested: Boolean get() = mutableState.value.playbackRequested
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val playbackDispatcher = createPlaybackWorkerDispatcher("YCore-NativeEnhanced")
+    private val scope = CoroutineScope(SupervisorJob() + playbackDispatcher)
     private val commands = Channel<Command>(Channel.UNLIMITED)
 
     /** Conflated hint that wakes an idle run loop as soon as a command is queued. */
@@ -92,6 +93,9 @@ internal class AndroidNativeEnhancedYPlayer(
 
     @Volatile
     private var released = false
+
+    @Volatile
+    private var releasedAtMs: Long? = null
 
     override fun prepare() {
         if (released) return
@@ -254,9 +258,11 @@ internal class AndroidNativeEnhancedYPlayer(
 
     override fun release() {
         if (released) return
+        releasedAtMs = System.nanoTime() / 1_000_000L
         released = true
         commands.close()
         wakeSignal.trySend(Unit)
+        worker.invokeOnCompletion { playbackDispatcher.close() }
         worker.cancel()
         scope.cancel()
         mutableState.update { current ->
@@ -275,7 +281,7 @@ internal class AndroidNativeEnhancedYPlayer(
     }
 
     private suspend fun runLoop() {
-        val proxy =
+        fun newProxy(): AndroidYCoreHttpProxy? =
             runCatching {
                 AndroidYCoreHttpProxy(
                     context = appContext,
@@ -290,6 +296,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     forwardCacheTargetUs = preferredRemoteBufferTargetUs ?: 60_000_000L,
                 )
             }.getOrNull()
+        var proxy: AndroidYCoreHttpProxy? = null
         val session =
             AndroidEnhancedPlaybackSession(
                 context = appContext,
@@ -316,8 +323,13 @@ internal class AndroidNativeEnhancedYPlayer(
         var activePlan: YPlaybackPlan? = null
         var activeDolbyProfile: Int? = null
         var adaptiveFeedbackGeneration = 0L
+        var pendingInitialDecision = initialDecision
+        val rebufferTracker =
+            com.yfuse.core2.api
+                .YRebufferTracker()
 
         suspend fun prepareCurrent(positionUs: Long) {
+            rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
             externalSubtitleSession.close()
             adaptiveFeedbackGeneration++
             proxy?.updatePlaybackFeedback(
@@ -343,7 +355,9 @@ internal class AndroidNativeEnhancedYPlayer(
             }
             val item = request.items[currentIndex]
             val decision =
-                routeEvaluator.evaluate(
+                pendingInitialDecision
+                    .takeIf { currentIndex == request.startIndex }
+                    .also { pendingInitialDecision = null } ?: routeEvaluator.evaluate(
                     item,
                     allowAudioPassthrough = allowAudioPassthrough,
                 )
@@ -368,6 +382,14 @@ internal class AndroidNativeEnhancedYPlayer(
                     "Only YCore enhanced, GPU and software plans may be forced"
                 }
             }
+            val preparedDemux = routeEvaluator.takePreparedEnhancedDemux(item)
+            if (preparedDemux != null) {
+                session.close()
+                proxy?.close()
+                proxy = preparedDemux.proxy
+            } else if (proxy == null) {
+                proxy = newProxy()
+            }
             val result =
                 session.open(
                     source = proxy?.enhancedSource(item) ?: enhancedDemuxSource(item),
@@ -379,6 +401,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     expectedAudio = (item.sourceHints?.audioTrackCount ?: 0) > 0,
                     sourceHints = item.sourceHints,
                     allowAudioPassthrough = allowAudioPassthrough,
+                    preparedDemux = preparedDemux,
                 )
             prepared = true
             secondaryExternalSubtitleId = null
@@ -456,11 +479,18 @@ internal class AndroidNativeEnhancedYPlayer(
         var lastAudioRendering = false
 
         fun publishSnapshot(force: Boolean = false) {
-            if (!prepared) return
+            if (!prepared || released) return
             val now = System.nanoTime()
             if (!force && now - lastPublishNs < STATE_PUBLISH_INTERVAL_NS) return
             lastPublishNs = now
             val snapshot = session.snapshot()
+            val rebuffers =
+                rebufferTracker.observe(
+                    now / 1_000_000L,
+                    requestedPlay && !snapshot.ended,
+                    snapshot.buffering,
+                    snapshot.firstVideoFrameRendered || snapshot.audioRendering,
+                )
             val audioDiagnosticsDue =
                 force ||
                     snapshot.audioRendering != lastAudioRendering ||
@@ -479,6 +509,9 @@ internal class AndroidNativeEnhancedYPlayer(
                                 "audioRendering" to snapshot.audioRendering.toString(),
                                 "audioFallbacks" to snapshot.audioFallbackCount.toString(),
                                 "positionMs" to (snapshot.positionUs / MICROS_PER_MILLISECOND).toString(),
+                                "rebufferEvents" to rebuffers.events.toString(),
+                                "rebufferDurationMs" to rebuffers.durationMs.toString(),
+                                "longestRebufferMs" to rebuffers.longestMs.toString(),
                             ),
                 )
             }
@@ -597,6 +630,9 @@ internal class AndroidNativeEnhancedYPlayer(
                             sourceStarvationCount = snapshot.sourceStarvationCount,
                             networkBitsPerSecond = snapshot.sourceNetworkBitsPerSecond,
                             droppedFrames = snapshot.droppedFrames,
+                            bufferEvents = rebuffers.events,
+                            rebufferDurationMs = rebuffers.durationMs,
+                            longestRebufferMs = rebuffers.longestMs,
                             avSyncOffsetMs = snapshot.avSyncOffsetUs?.div(MICROS_PER_MILLISECOND),
                             avSyncMeasurement =
                                 if (snapshot.avSyncOffsetUs != null) {
@@ -604,6 +640,84 @@ internal class AndroidNativeEnhancedYPlayer(
                                 } else {
                                     "等待音视频时钟样本"
                                 },
+                        ),
+                )
+            }
+        }
+
+        fun finishRebuffer() {
+            val stats = rebufferTracker.stop(releasedAtMs ?: System.nanoTime() / 1_000_000L)
+            mutableState.updateState {
+                it.copy(
+                    diagnostics =
+                        it.diagnostics.copy(
+                            bufferEvents = stats.events,
+                            rebufferDurationMs = stats.durationMs,
+                            longestRebufferMs = stats.longestMs,
+                        ),
+                )
+            }
+        }
+
+        fun publishFailure(failure: Throwable) {
+            if (failure is CancellationException) throw failure
+            finishRebuffer()
+            val typed = failure as? YPlaybackException
+            AppLog.error(
+                category = "core2.native",
+                event = "native_enhanced_failed",
+                message = "YCore enhanced playback failed",
+                throwable = failure,
+                attributes =
+                    mapOf(
+                        "failureCategory" to (typed?.category?.name ?: "Unknown"),
+                        "failureStage" to (typed?.stage?.name ?: "Unknown"),
+                        "failureDetail" to typed?.safeDetail.orEmpty(),
+                        "itemIndex" to currentIndex.toString(),
+                        "sourceScheme" to
+                            request.items[currentIndex]
+                                .uri
+                                .substringBefore(':')
+                                .lowercase(),
+                    ),
+            )
+            prepared = false
+            runCatching { session.close() }
+            requestedPlay = false
+            mutableState.updateState {
+                it.copy(
+                    phase = YPlaybackPhase.Failed,
+                    playing = false,
+                    playbackRequested = false,
+                    buffering = false,
+                    error = yCoreEnhancedFailureMessage(typed),
+                    // Unknown is deliberately non-penalizing until each native stage has
+                    // a typed failure domain. Never infer decoder failure from text.
+                    errorCategory = typed?.category ?: YPlaybackFailureCategory.Unknown,
+                    diagnostics =
+                        it.diagnostics.copy(
+                            recoverableNetworkFailure =
+                                typed?.category == YPlaybackFailureCategory.Network &&
+                                    isRecoverableMediaReadFailure(typed.cause),
+                            videoOutput = "停止",
+                            audioOutput = "停止",
+                            videoOutputVerified = false,
+                            audioOutputVerified = false,
+                            dolbyVisionOutput = false,
+                            dolbyVisionRpuApplied = false,
+                            dolbyVisionEnhancementLayerDelivered = false,
+                            dolbyVisionFelComposed = false,
+                            immersiveAudioCarrierOutput = false,
+                            dolbyAtmosSourceDetected = false,
+                            dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
+                            audioOutputRoute = "",
+                            audioOutputRouteVerified = false,
+                            dolbyAtmosOutput = false,
+                            spatialAudioOutput = false,
+                            headTrackingAvailable = false,
+                            reason =
+                                typed?.stage?.let { stage -> "NativeEnhanced failed at ${stage.name}" }
+                                    ?: "NativeEnhanced failed before typed-stage classification",
                         ),
                 )
             }
@@ -617,7 +731,7 @@ internal class AndroidNativeEnhancedYPlayer(
                     pendingCommands += command
                 }
                 val handled = pendingCommands.isNotEmpty()
-                coalesceNativeEnhancedCommands(pendingCommands).forEach { command ->
+                for (command in coalesceNativeEnhancedCommands(pendingCommands)) {
                     try {
                         when (command) {
                             Command.Prepare ->
@@ -635,6 +749,7 @@ internal class AndroidNativeEnhancedYPlayer(
                                 if (prepared) session.pause()
                             }
                             is Command.Seek -> {
+                                rebufferTracker.discontinuity(System.nanoTime() / 1_000_000L)
                                 if (prepared) {
                                     adaptiveFeedbackGeneration++
                                     proxy?.updatePlaybackFeedback(
@@ -719,11 +834,11 @@ internal class AndroidNativeEnhancedYPlayer(
                                         mutableState.value.subtitleTracks.firstOrNull {
                                             it.id == selectedId
                                         }
-                                    if (selectedId != null && candidate == null) return@forEach
-                                    if (command.secondary && candidate?.selected == true) return@forEach
+                                    if (selectedId != null && candidate == null) continue
+                                    if (command.secondary && candidate?.selected == true) continue
                                     // Repeated UI restore events must not clear the active channel.
-                                    if (command.secondary && selectedId == secondaryTrackId) return@forEach
-                                    if (!command.secondary && candidate?.selected == true) return@forEach
+                                    if (command.secondary && selectedId == secondaryTrackId) continue
+                                    if (!command.secondary && candidate?.selected == true) continue
                                     session.selectSubtitleTrack(command.trackId?.let(::YTrackId), command.secondary)
                                     if (command.secondary) {
                                         secondaryExternalSubtitleId = command.externalTrackId
@@ -762,68 +877,17 @@ internal class AndroidNativeEnhancedYPlayer(
                         }
                         publishSnapshot(force = true)
                     } catch (failure: Throwable) {
-                        if (failure is CancellationException) throw failure
-                        val typed = failure as? YPlaybackException
-                        AppLog.error(
-                            category = "core2.native",
-                            event = "native_enhanced_failed",
-                            message = "YCore enhanced playback failed",
-                            throwable = failure,
-                            attributes =
-                                mapOf(
-                                    "failureCategory" to (typed?.category?.name ?: "Unknown"),
-                                    "failureStage" to (typed?.stage?.name ?: "Unknown"),
-                                    "failureDetail" to typed?.safeDetail.orEmpty(),
-                                    "itemIndex" to currentIndex.toString(),
-                                    "sourceScheme" to
-                                        request.items[currentIndex]
-                                            .uri
-                                            .substringBefore(':')
-                                            .lowercase(),
-                                ),
-                        )
-                        session.close()
-                        prepared = false
-                        requestedPlay = false
-                        mutableState.updateState {
-                            it.copy(
-                                phase = YPlaybackPhase.Failed,
-                                playing = false,
-                                playbackRequested = false,
-                                buffering = false,
-                                error = yCoreEnhancedFailureMessage(typed),
-                                // Unknown is deliberately non-penalizing until each native stage has
-                                // a typed failure domain. Never infer decoder failure from text.
-                                errorCategory = typed?.category ?: YPlaybackFailureCategory.Unknown,
-                                diagnostics =
-                                    it.diagnostics.copy(
-                                        videoOutput = "停止",
-                                        audioOutput = "停止",
-                                        videoOutputVerified = false,
-                                        audioOutputVerified = false,
-                                        dolbyVisionOutput = false,
-                                        dolbyVisionRpuApplied = false,
-                                        dolbyVisionEnhancementLayerDelivered = false,
-                                        dolbyVisionFelComposed = false,
-                                        immersiveAudioCarrierOutput = false,
-                                        dolbyAtmosSourceDetected = false,
-                                        dolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
-                                        audioOutputRoute = "",
-                                        audioOutputRouteVerified = false,
-                                        dolbyAtmosOutput = false,
-                                        spatialAudioOutput = false,
-                                        headTrackingAvailable = false,
-                                        reason =
-                                            typed?.stage?.let { stage -> "NativeEnhanced failed at ${stage.name}" }
-                                                ?: "NativeEnhanced failed before typed-stage classification",
-                                    ),
-                            )
-                        }
+                        publishFailure(failure)
+                        break
                     }
                 }
 
-                val didWork = if (prepared && requestedPlay) session.pump() else false
-                publishSnapshot()
+                val didWork =
+                    playbackWorkerStep(::publishFailure) {
+                        val worked = if (prepared && requestedPlay) session.pump() else false
+                        publishSnapshot()
+                        worked
+                    } ?: false
                 if (!handled && !didWork) {
                     // A queued command ends the wait at once; a paused session has no pump work
                     // and can sleep longer without delaying command handling.
@@ -832,6 +896,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 }
             }
         } finally {
+            finishRebuffer()
             externalSubtitleSession.close()
             session.release()
             proxy?.close()

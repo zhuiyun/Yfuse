@@ -32,6 +32,11 @@ internal class AndroidEnhancedMediaProbe(
     private val context: Context? = null,
 ) {
     private val probeCacheLock = Any()
+    private val preparedDemux = AndroidPreparedMediaSlot<AndroidPreparedEnhancedDemux> { it.close() }
+
+    fun takePreparedDemux(item: YMediaItem): AndroidPreparedEnhancedDemux? = preparedDemux.take(item)
+
+    fun closePreparedDemux() = preparedDemux.close()
 
     /**
      * Recent deep-probe failures, each with the nanoTime after which it may be retried.
@@ -62,6 +67,7 @@ internal class AndroidEnhancedMediaProbe(
     fun probe(
         item: YMediaItem,
         knownDolbyEvidence: YDolbyVisionNalEvidence? = null,
+        retainForPlayback: Boolean = false,
     ): YCore2ProbeResult? {
         val cacheKey = item.enhancedProbeCacheKey()
         // Media identity may survive a refreshed URL or authorization headers; failures may not.
@@ -75,7 +81,10 @@ internal class AndroidEnhancedMediaProbe(
                 failureCache.remove(failureKey)
             }
         }
-        val result = probeUncached(item, knownDolbyEvidence)
+        val result =
+            yCoreStartupStage("enhanced_probe", item) {
+                probeUncached(item, knownDolbyEvidence, retainForPlayback)
+            }
         synchronized(probeCacheLock) {
             when (result) {
                 is YCore2ProbeResult.Success -> {
@@ -105,11 +114,14 @@ internal class AndroidEnhancedMediaProbe(
     private fun probeUncached(
         item: YMediaItem,
         knownDolbyEvidence: YDolbyVisionNalEvidence?,
+        retainForPlayback: Boolean,
     ): YCore2ProbeResult? {
         probeSource?.let { source -> return source(item) }
         val demuxer = createDemuxer()
         if (!demuxer.available) return null
         var proxy: AndroidYCoreHttpProxy? = null
+        var retained = false
+        var sampledVideo = false
         return try {
             if (context != null && shouldProxyEnhancedSourceUri(item.uri)) {
                 proxy =
@@ -125,8 +137,8 @@ internal class AndroidEnhancedMediaProbe(
             }
             val result =
                 demuxer.open(
-                    proxy?.enhancedSource(item, probeOnly = true)
-                        ?: enhancedDemuxSource(item, probeOnly = true),
+                    proxy?.enhancedSource(item, probeOnly = !retainForPlayback)
+                        ?: enhancedDemuxSource(item, probeOnly = !retainForPlayback),
                 )
             val videoTrack =
                 result.tracks.firstOrNull { it.type == YDemuxTrackType.Video && it.video != null }
@@ -165,6 +177,7 @@ internal class AndroidEnhancedMediaProbe(
                 rpuCount = knownDolbyEvidence.rpuCount
                 enhancementLayerCount = knownDolbyEvidence.enhancementLayerCount
             } else if (packing != null && (video.dolbyVisionConfig != null || item.sourceHints?.dolbyVision == true)) {
+                sampledVideo = true
                 demuxer.selectTracks(setOf(videoTrack.id))
                 repeat(DOLBY_PROBE_SAMPLE_LIMIT) {
                     val sample = demuxer.readSample() ?: return@repeat
@@ -182,41 +195,61 @@ internal class AndroidEnhancedMediaProbe(
                         observedNals = YDolbyVisionNalEvidence(rpuCount, enhancementLayerCount),
                     )
                 }
-            YCore2ProbeResult.Success(
-                playbackRequest =
-                    YPlaybackRequest(
-                        container = result.container,
-                        video =
-                            YVideoRequirement(
-                                codec = video.codec,
-                                width = video.width,
-                                height = video.height,
-                                frameRate = video.frameRate,
-                                bitDepth = video.bitDepth,
-                                hdrType = video.hdrType,
-                                dolbyVisionProfile = video.dolbyVisionConfig?.profile,
-                            ),
-                        audio =
-                            audio?.let {
-                                YAudioRequirement(
-                                    codec = it.codec,
-                                    channelCount = it.channelCount.coerceAtLeast(1),
-                                    sampleRate = it.sampleRate.coerceAtLeast(1),
-                                )
-                            },
-                        platformDemuxSupported = false,
-                        enhancedDemuxSupported = true,
-                        fallbackHdrType = video.dolbyVisionConfig?.compatibleBaseHdr,
-                        preferTunnel = false,
-                    ),
-                videoMime = video.mimeType,
-                audioMime = audio?.mimeType,
-                durationMs = (result.durationUs ?: 0L).coerceAtLeast(0L) / 1_000L,
-                dolbyVisionConfig = video.dolbyVisionConfig,
-                dolbyVisionStreamEvidence = dolbyEvidence,
-                unconfiguredDolbyVisionSignal =
-                    video.dolbyVisionConfig == null && (rpuCount > 0 || enhancementLayerCount > 0),
-            )
+            val probe =
+                YCore2ProbeResult.Success(
+                    playbackRequest =
+                        YPlaybackRequest(
+                            container = result.container,
+                            video =
+                                YVideoRequirement(
+                                    codec = video.codec,
+                                    width = video.width,
+                                    height = video.height,
+                                    frameRate = video.frameRate,
+                                    bitDepth = video.bitDepth,
+                                    hdrType = video.hdrType,
+                                    dolbyVisionProfile = video.dolbyVisionConfig?.profile,
+                                ),
+                            audio =
+                                audio?.let {
+                                    YAudioRequirement(
+                                        codec = it.codec,
+                                        channelCount = it.channelCount.coerceAtLeast(1),
+                                        sampleRate = it.sampleRate.coerceAtLeast(1),
+                                    )
+                                },
+                            platformDemuxSupported = false,
+                            enhancedDemuxSupported = true,
+                            fallbackHdrType = video.dolbyVisionConfig?.compatibleBaseHdr,
+                            preferTunnel = false,
+                        ),
+                    videoMime = video.mimeType,
+                    audioMime = audio?.mimeType,
+                    durationMs = (result.durationUs ?: 0L).coerceAtLeast(0L) / 1_000L,
+                    dolbyVisionConfig = video.dolbyVisionConfig,
+                    dolbyVisionStreamEvidence = dolbyEvidence,
+                    unconfiguredDolbyVisionSignal =
+                        video.dolbyVisionConfig == null && (rpuCount > 0 || enhancementLayerCount > 0),
+                )
+            if (retainForPlayback &&
+                probe.unconfiguredDolbyVisionSignal.not() &&
+                result.tracks.count { it.audio != null } >= (item.sourceHints?.audioTrackCount ?: 0) &&
+                video.width > 0 &&
+                video.height > 0
+            ) {
+                // A full open retains FFmpeg's analyzed packets. NAL sampling advances them, so
+                // only then seek back; metadata-only probes do not incur a redundant range seek.
+                val reset =
+                    runCatching {
+                        if (sampledVideo) demuxer.seekTo(0L)
+                        demuxer.selectTracks(emptySet())
+                    }.isSuccess
+                if (reset) {
+                    preparedDemux.offer(item, AndroidPreparedEnhancedDemux(demuxer, result, proxy))
+                    retained = true
+                }
+            }
+            probe
         } catch (failure: Throwable) {
             if (failure is CancellationException) throw failure
             val typed = failure as? YPlaybackException
@@ -238,10 +271,12 @@ internal class AndroidEnhancedMediaProbe(
             )
             YCore2ProbeResult.Failure(YCore2ProbeFailure.SourceUnavailable)
         } finally {
-            try {
-                demuxer.close()
-            } finally {
-                proxy?.close()
+            if (!retained) {
+                try {
+                    demuxer.close()
+                } finally {
+                    proxy?.close()
+                }
             }
         }
     }

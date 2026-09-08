@@ -141,6 +141,8 @@ internal object PlaybackDiagnosticReportRegistry {
                     appendLine("dropped.frames=${state.diagnostics.droppedFrames}")
                     appendLine("dropped.measured=${evidence.droppedFramesMeasured}")
                     appendLine("buffer.events=${diagnostics.bufferEvents}")
+                    appendLine("rebuffer.total.ms=${diagnostics.rebufferDurationMs}")
+                    appendLine("rebuffer.longest.ms=${diagnostics.longestRebufferMs}")
                     appendLine("buffered.ms=${diagnostics.bufferedDurationMs}")
                     appendLine("audio.underruns=${evidence.audioUnderrunCount}")
                     appendLine("source.queue.bytes=${diagnostics.sourceQueueBytes}")

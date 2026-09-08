@@ -4,6 +4,7 @@ import android.graphics.ImageFormat
 import android.media.ImageReader
 import android.media.MediaCodec
 import android.media.MediaFormat
+import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.capability.YVideoRequirement
 import kotlinx.coroutines.CancellationException
 import java.io.IOException
@@ -23,6 +24,29 @@ internal enum class YCodecConfigurationProbeResult {
  */
 internal class AndroidCodecConfigurationProbe {
     fun probe(
+        decoderName: String,
+        mimeType: String,
+        requirement: YVideoRequirement,
+        item: YMediaItem? = null,
+    ): YCodecConfigurationProbeResult =
+        yCoreStartupStage("codec_configuration_probe", item, decoderName) {
+            AndroidCodecProbeLane.bounded.run(
+                timeoutMs = 2_000L,
+                skipped = { YCodecConfigurationProbeResult.Inconclusive },
+            ) { expired ->
+                if (expired.get()) {
+                    YCodecConfigurationProbeResult.Inconclusive
+                } else {
+                    probeOnOwner(
+                        decoderName,
+                        mimeType,
+                        requirement,
+                    )
+                }
+            }
+        }
+
+    private fun probeOnOwner(
         decoderName: String,
         mimeType: String,
         requirement: YVideoRequirement,

@@ -21,6 +21,7 @@ import com.yfuse.core.playback.bluRayDiscRoot
 import com.yfuse.core.playback.cachedLocalPlaybackDiscKind
 import com.yfuse.core.playback.detectPlaybackDiscKind
 import com.yfuse.core.playback.mpvBufferProfile
+import com.yfuse.core.playback.mpvRenderProfile
 import com.yfuse.core.playback.playbackDolbyVisionRoute
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
@@ -154,7 +155,8 @@ class MpvVideoEngine(
         PlaybackDolbyVisionRuntimeCapabilities.conservative(),
     private val videoCacheBytes: Long = 0L,
 ) : VideoEngine {
-    private val items = items
+    @Volatile
+    private var items = items.toList()
     private val outputPreferences = GlobalContext.get().get<PlaybackPreferences>()
     private val audioPassthroughMode = outputPreferences.audioPassthrough.value.toPlayerMode()
     private val frameRateMatchMode = outputPreferences.frameRateMatch.value.toPlayerMode()
@@ -784,11 +786,14 @@ class MpvVideoEngine(
                         !item.url.startsWith("file://", ignoreCase = true) &&
                         !item.url.startsWith("content://", ignoreCase = true)
                 }
-            if (hugeRemoteSource) {
-                // Keep remote remux/BD seeks bounded while following the user's memory/startup goal.
+            if (items.any { it.url.isRemotePlaybackSource() }) {
+                // Every remote source needs a bounded window, including small files and unknown sizes.
                 val bufferProfile = mpvBufferProfile(optimizationMode)
-                instance.optionalOption("demuxer-max-bytes", bufferProfile.forwardBytes.toString())
-                instance.optionalOption("demuxer-max-back-bytes", bufferProfile.backBytes.toString())
+                val memoryBudget = playbackMemoryBudgetBytes(context)
+                val forwardBytes = minOf(bufferProfile.forwardBytes.toLong(), memoryBudget * 3L / 4L)
+                val backBytes = minOf(bufferProfile.backBytes.toLong(), memoryBudget - forwardBytes)
+                instance.optionalOption("demuxer-max-bytes", forwardBytes.toString())
+                instance.optionalOption("demuxer-max-back-bytes", backBytes.toString())
                 instance.optionalOption(
                     "demuxer-readahead-secs",
                     bufferProfile.readaheadSeconds.toString(),
@@ -830,12 +835,18 @@ class MpvVideoEngine(
                                 ((version.sourceWidth ?: 0) >= 3_000 || (version.sourceHeight ?: 0) >= 1_600)
                         } == true
                     }
-            instance.optionalOption("hdr-compute-peak", if (highPressureSoftwareDolby) "no" else "yes")
+            val renderProfile =
+                mpvRenderProfile(
+                    optimizationMode,
+                    resourceConstrained =
+                        highPressureSoftwareDolby || playbackMemoryBudgetBytes(context) <= 32L * 1024L * 1024L,
+                )
+            instance.optionalOption("hdr-compute-peak", if (renderProfile.computeHdrPeak) "yes" else "no")
             // The compatibility GPU tier is a real libplacebo renderer, not a label-only route.
             // Keep these optional because the exact mpv/libplacebo option surface is artifact-bound.
-            instance.optionalOption("scale", if (highPressureSoftwareDolby) "bilinear" else "ewa_lanczossharp")
-            instance.optionalOption("cscale", if (highPressureSoftwareDolby) "bilinear" else "ewa_lanczossharp")
-            instance.optionalOption("deband", if (highPressureSoftwareDolby) "no" else "yes")
+            instance.optionalOption("scale", renderProfile.scale)
+            instance.optionalOption("cscale", renderProfile.scale)
+            instance.optionalOption("deband", if (renderProfile.deband) "yes" else "no")
             instance.optionalOption("dither-depth", "auto")
             instance.optionalOption("gamut-mapping-mode", "perceptual")
             if (highPressureSoftwareDolby || hugeRemoteSource) {
@@ -1143,6 +1154,34 @@ class MpvVideoEngine(
         pauseAtEndOfCurrentItem = enabled
     }
 
+    override fun appendItems(items: List<PlayerMediaItem>): Boolean =
+        updateQueue(this.items + items, _state.value.currentIndex)
+
+    @Synchronized
+    override fun updateQueue(
+        items: List<PlayerMediaItem>,
+        currentIndex: Int,
+    ): Boolean {
+        if (released || fallbackJob?.isActive == true) return false
+        val previous = this.items
+        if (!canUpdatePlaybackQueue(previous, _state.value.currentIndex, items, currentIndex)) return false
+        val transcoded = remapPlaybackQueueIndices(transcodedIndices, previous, items)
+        val progressive = remapPlaybackQueueIndices(progressiveIndices, previous, items)
+        val transitions = remapPlaybackQueueIndices(progressiveTransitionIndices, previous, items)
+        transcodedIndices.clear()
+        transcodedIndices.addAll(transcoded)
+        items.forEachIndexed { index, item -> if (item.startsWithServerTranscode()) transcodedIndices += index }
+        progressiveIndices.clear()
+        progressiveIndices.addAll(progressive)
+        progressiveTransitionIndices.clear()
+        progressiveTransitionIndices.addAll(transitions)
+        this.items = items.toList()
+        // libmpv plays one file; only our catalog and its ordinal change, never loadfile/seek.
+        _state.update { it.copy(currentIndex = currentIndex, itemCount = items.size) }
+        return true
+    }
+
+    @Synchronized
     override fun selectItem(index: Int) {
         if (index !in items.indices) return
         resetFrameEvidence()

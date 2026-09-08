@@ -20,5 +20,19 @@ internal fun parseUnsatisfiedContentRangeLength(value: String?): Long? {
     return match.groupValues[1].toLongOrNull()?.takeIf { it >= 0L }
 }
 
+/** A 206 Content-Length describes this response body, never the complete remote resource. */
+internal fun mediaResponseContentLength(
+    statusCode: Int,
+    contentRange: String?,
+    bodyLength: Long?,
+): Long? =
+    if (statusCode == 206) {
+        parseContentRange(contentRange)?.total
+    } else {
+        parseContentRange(contentRange)?.total
+            ?: parseUnsatisfiedContentRangeLength(contentRange)
+            ?: bodyLength?.takeIf { it >= 0L }
+    }
+
 private val CONTENT_RANGE = Regex("bytes\\s+(\\d+)-(\\d+)/(\\d+|\\*)", RegexOption.IGNORE_CASE)
 private val UNSATISFIED_CONTENT_RANGE = Regex("bytes\\s+\\*/(\\d+)", RegexOption.IGNORE_CASE)

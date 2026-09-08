@@ -202,6 +202,8 @@ data class PlaybackDiagnostics(
     val networkRecoverySuccesses: Int = 0,
     val bufferedDurationMs: Long = 0L,
     val bufferEvents: Int = 0,
+    val rebufferDurationMs: Long = 0L,
+    val longestRebufferMs: Long = 0L,
     val networkBitsPerSecond: Long = 0L,
     val sourceQueueBytes: Long = 0L,
     val sourceBufferedMs: Long = 0L,
@@ -477,6 +479,12 @@ interface VideoEngine {
      * mid-episode used to interrupt the episode being watched to make room for it.
      */
     fun appendItems(items: List<PlayerMediaItem>): Boolean = false
+
+    /** Updates surrounding catalog entries without reopening the active media item. */
+    fun updateQueue(
+        items: List<PlayerMediaItem>,
+        currentIndex: Int,
+    ): Boolean = false
 
     fun release()
 }

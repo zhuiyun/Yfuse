@@ -12,6 +12,83 @@ import kotlin.test.assertNull
  */
 class PlaybackRuntimeFaultDetectorTest {
     @Test
+    fun synthetic_startup_clock_does_not_reset_confirmed_network_starvation() {
+        val detector = PlaybackRuntimeFaultDetector(0L, 0L, startupTimeoutMs = 180_000L)
+        val empty =
+            observation(1_000L, 1_000L, playing = false, buffering = true)
+                .copy(sourceRemote = true, sourceStarvationCount = 1L)
+        assertNull(detector.observe(empty))
+        assertNull(detector.observe(empty.copy(nowEpochMs = 30_000L, positionMs = 30_000L)))
+        assertEquals(
+            PlaybackRuntimeFaultKind.StartupNetworkTimeout,
+            assertNotNull(detector.observe(empty.copy(nowEpochMs = 31_000L, positionMs = 31_000L))).kind,
+        )
+    }
+
+    @Test
+    fun verified_playback_progress_starts_a_fresh_network_starvation_window() {
+        val detector = PlaybackRuntimeFaultDetector(0L, 0L, rebufferTimeoutMs = 180_000L)
+        detector.observe(observation(1_000L, 1_000L, videoReady = true))
+        val empty =
+            observation(2_000L, 1_000L, playing = false, buffering = true, videoReady = true)
+                .copy(sourceRemote = true, sourceStarvationCount = 1L)
+        assertNull(detector.observe(empty))
+        assertNull(detector.observe(empty.copy(nowEpochMs = 30_000L, positionMs = 2_000L)))
+        assertNull(detector.observe(empty.copy(nowEpochMs = 31_000L, positionMs = 2_000L)))
+        assertNull(detector.observe(empty.copy(nowEpochMs = 60_999L, positionMs = 2_000L)))
+        assertEquals(
+            PlaybackRuntimeFaultKind.RebufferTimeout,
+            assertNotNull(detector.observe(empty.copy(nowEpochMs = 61_000L, positionMs = 2_000L))).kind,
+        )
+    }
+
+    @Test
+    fun a_large_remote_source_recovers_on_confirmed_empty_input_without_waiting_for_the_hard_ceiling() {
+        val detector = PlaybackRuntimeFaultDetector(0L, 0L, startupTimeoutMs = 180_000L, rebufferTimeoutMs = 180_000L)
+        val empty =
+            observation(1_000L, 0L, playing = false, buffering = true)
+                .copy(sourceRemote = true, sourceStarvationCount = 1L)
+        assertNull(detector.observe(empty))
+        assertNull(detector.observe(empty.copy(nowEpochMs = 30_999L)))
+        assertEquals(
+            PlaybackRuntimeFaultKind.StartupNetworkTimeout,
+            assertNotNull(detector.observe(empty.copy(nowEpochMs = 31_000L))).kind,
+        )
+    }
+
+    @Test
+    fun arriving_input_resets_the_empty_source_window_and_decoder_backpressure_is_not_network_starvation() {
+        val detector = PlaybackRuntimeFaultDetector(0L, 0L, startupTimeoutMs = 180_000L, rebufferTimeoutMs = 180_000L)
+        val empty =
+            observation(1_000L, 0L, playing = false, buffering = true)
+                .copy(sourceRemote = true, sourceStarvationCount = 1L)
+        detector.observe(empty)
+        assertNull(
+            detector.observe(empty.copy(nowEpochMs = 20_000L, sourceQueueBytes = 64_000L, sourceBufferedMs = 500L)),
+        )
+        assertNull(detector.observe(empty.copy(nowEpochMs = 21_000L)))
+        assertNull(detector.observe(empty.copy(nowEpochMs = 50_999L)))
+        assertNull(
+            detector.observe(empty.copy(nowEpochMs = 51_000L, sourceQueueBytes = 64_000L, sourceBufferedMs = 500L)),
+        )
+    }
+
+    @Test
+    fun buffered_packets_do_not_trigger_the_short_empty_network_budget() {
+        val detector = detector(rebufferTimeoutMs = 60_000L)
+        detector.observe(observation(1_000L, 1_000L, videoReady = true))
+        val buffered =
+            observation(2_000L, 1_000L, videoReady = true, playing = false, buffering = true)
+                .copy(sourceRemote = true, sourceQueueBytes = 1_000_000L, sourceBufferedMs = 10_000L)
+        detector.observe(buffered)
+        assertNull(detector.observe(buffered.copy(nowEpochMs = 32_000L)))
+        assertEquals(
+            PlaybackRuntimeFaultKind.RebufferTimeout,
+            assertNotNull(detector.observe(buffered.copy(nowEpochMs = 62_000L))).kind,
+        )
+    }
+
+    @Test
     fun healthy_playback_reports_nothing() {
         val detector = detector()
 

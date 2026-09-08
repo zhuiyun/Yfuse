@@ -410,6 +410,7 @@ private fun PlayerMediaItem.toCore2MediaItem(
         mimeType = if (usingServerTranscode) null else version?.container.toCore2ContainerMimeType(),
         headers = headers,
         providerKey = serverId,
+        playbackSessionId = playSessionId,
         cacheIdentity = yCoreCacheIdentity(),
         cacheMaximumBytes = cacheMaximumBytes.coerceAtLeast(0L),
         drmConfiguration = drmConfiguration ?: version?.drmConfiguration,

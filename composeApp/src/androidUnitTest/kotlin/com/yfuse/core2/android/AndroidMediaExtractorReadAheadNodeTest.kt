@@ -23,6 +23,43 @@ import kotlin.test.assertTrue
  */
 class AndroidMediaExtractorReadAheadNodeTest {
     @Test
+    fun `live throughput reports a measured zero while the extractor owner is blocked`() {
+        val blocked = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val throughput =
+            java.util.concurrent.atomic
+                .AtomicLong(40_000_000L)
+        val base = FakeExtractorSource(64, 100_000L)
+        val source =
+            object : YPlatformExtractorSource by base {
+                override fun readSample(target: ByteBuffer): YExtractorSample? {
+                    blocked.countDown()
+                    check(release.await(5, TimeUnit.SECONDS))
+                    return base.readSample(target)
+                }
+
+                override fun liveTransportThroughput(): Long = throughput.get()
+            }
+        val node = AndroidMediaExtractorReadAheadNode(source)
+        val sampler =
+            java.util.concurrent.Executors
+                .newSingleThreadExecutor()
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            assertTrue(blocked.await(2, TimeUnit.SECONDS))
+            throughput.set(0L)
+            val snapshot = sampler.submit<YExtractorReadAheadSnapshot> { node.snapshot() }.get(1, TimeUnit.SECONDS)
+            assertEquals(0L, snapshot.throughputBitsPerSecond)
+            assertTrue(snapshot.throughputMeasured)
+        } finally {
+            release.countDown()
+            node.close()
+            sampler.shutdownNow()
+        }
+    }
+
+    @Test
     fun `missing audio does not count video span as playable buffer and memory cap still releases gate`() {
         val node = AndroidMediaExtractorReadAheadNode(FakeExtractorSource(1_024, 100_000L))
         try {

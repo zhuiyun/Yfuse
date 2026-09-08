@@ -7,10 +7,17 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Debug
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.PowerManager
 import android.os.SystemClock
+import android.view.SurfaceHolder
+import android.view.SurfaceView
+import android.view.ViewGroup
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.yfuse.MainActivity
 import com.yfuse.core2.api.YDiscKind
 import com.yfuse.core2.api.YDiscMedia
 import com.yfuse.core2.api.YMediaItem
@@ -32,6 +39,7 @@ import com.yfuse.core2.test.YMediaTestCase
 import com.yfuse.core2.test.YMediaTestObservation
 import com.yfuse.core2.test.YMediaTestSuite
 import com.yfuse.core2.test.observedMetadataErrors
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
@@ -48,10 +56,140 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
-/** Device lane for the external, licensed YCore media corpus. */
+/** Device lanes for generated smoke media and the external, licensed YCore media corpus. */
 @RunWith(AndroidJUnit4::class)
 class YCoreMediaSuiteInstrumentedTest {
+    @Test
+    fun generated_avc_media_survives_core_playback_lifecycle() =
+        runBlocking {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val mediaFile = GeneratedAvcTestMedia.create(context.cacheDir)
+            try {
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    exerciseCase(
+                        context = context,
+                        testCase =
+                            YMediaTestCase(
+                                id = "generated-avc-smoke",
+                                relativePath = mediaFile.name,
+                                videoCodec = "h264",
+                                bitDepth = 8,
+                                frameRate = GeneratedAvcTestMedia.FRAME_RATE.toDouble(),
+                                container = "mp4",
+                                audioCodec = "none",
+                                height = GeneratedAvcTestMedia.HEIGHT,
+                                bitrateBitsPerSecond = GeneratedAvcTestMedia.BIT_RATE.toLong(),
+                            ),
+                        item =
+                            YMediaItem(
+                                id = "generated-avc-smoke",
+                                uri = Uri.fromFile(mediaFile).toString(),
+                                title = "generated-avc-smoke",
+                            ),
+                        verifyNextEpisode = true,
+                        seekStartIteration = 0,
+                        seekIterations = 10,
+                        surfaceRecreationIterations = 2,
+                        outputFactory = { width, height -> createSurfaceViewOutput(scenario, width, height) },
+                    )
+                }
+            } finally {
+                check(mediaFile.delete() || !mediaFile.exists()) { "Could not remove generated test media" }
+            }
+        }
+
+    @Test
+    fun generated_avc_surface_view_renders_first_frame_and_seek() =
+        runBlocking {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val mediaFile = GeneratedAvcTestMedia.create(context.cacheDir)
+            val label = "generated-avc-surface-view"
+            try {
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    val surfaceReady = CompletableDeferred<AndroidSurfaceVideoOutput>()
+                    scenario.onActivity { activity ->
+                        val view =
+                            SurfaceView(activity).apply {
+                                keepScreenOn = true
+                                holder.addCallback(
+                                    object : SurfaceHolder.Callback {
+                                        override fun surfaceCreated(holder: SurfaceHolder) {
+                                            if (holder.surface.isValid) {
+                                                surfaceReady.complete(AndroidSurfaceVideoOutput(holder.surface))
+                                            } else {
+                                                surfaceReady.completeExceptionally(
+                                                    AssertionError("$label created an invalid Surface"),
+                                                )
+                                            }
+                                        }
+
+                                        override fun surfaceChanged(
+                                            holder: SurfaceHolder,
+                                            format: Int,
+                                            width: Int,
+                                            height: Int,
+                                        ) = Unit
+
+                                        override fun surfaceDestroyed(holder: SurfaceHolder) {
+                                            if (!surfaceReady.isCompleted) {
+                                                surfaceReady.completeExceptionally(
+                                                    AssertionError("$label Surface disappeared before becoming ready"),
+                                                )
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                        activity.setContentView(view)
+                    }
+                    // Wait on the instrumentation thread; Surface callbacks require the main thread.
+                    val output = withTimeout(10_000L) { surfaceReady.await() }
+                    val item = YMediaItem(id = label, uri = Uri.fromFile(mediaFile).toString(), title = label)
+                    val player =
+                        AndroidAdaptiveCore2YPlayer(
+                            context = context,
+                            request = YPlayerOpenRequest(items = listOf(item), autoPlay = true, autoNext = false),
+                            allowAudioPassthrough = true,
+                            frameRateSwitchMode = YFrameRateSwitchMode.SeamlessOnly,
+                            failureLedger =
+                                YCore2FailureLedger(
+                                    store = InMemoryYCore2FailureStore(),
+                                    nowEpochMs = System::currentTimeMillis,
+                                ),
+                        )
+                    try {
+                        assertTrue("$label Surface is no longer valid", output.surface.isValid)
+                        assertTrue(player.setVideoOutput(output))
+                        player.prepare()
+                        player.play()
+                        awaitPlayable(player, "$label:first-frame")
+                        reportProgress("$label: verified first rendered frame")
+                        awaitFreshVideoOutput(player, "$label:seek") {
+                            player.seekTo(stressSeekTarget(player.state.value.durationMs, 1))
+                            player.play()
+                        }
+                        reportProgress("$label: verified a new rendered frame after one seek")
+                    } finally {
+                        try {
+                            val state = player.state.value
+                            reportProgress(
+                                "$label: final phase=${state.phase}, route=${state.diagnostics.route}, " +
+                                    "positionMs=${state.positionMs}, " +
+                                    "videoVerified=${state.diagnostics.videoOutputVerified}",
+                            )
+                        } finally {
+                            // Release the codec before ActivityScenario destroys the holder Surface.
+                            player.release()
+                        }
+                    }
+                }
+            } finally {
+                check(mediaFile.delete() || !mediaFile.exists()) { "Could not remove generated test media" }
+            }
+        }
+
     @Test
     fun baseline_media_survives_core_playback_lifecycle() =
         runBlocking {
@@ -196,6 +334,8 @@ class YCoreMediaSuiteInstrumentedTest {
         surfaceRecreationIterations: Int,
         soakDurationMs: Long = 0L,
         soakQueue: Boolean = false,
+        outputFactory: suspend (width: Int, height: Int) -> TestVideoOutput =
+            { width, height -> TestSurfaceOutput(width, height) },
     ) {
         val request =
             YPlayerOpenRequest(
@@ -215,7 +355,21 @@ class YCoreMediaSuiteInstrumentedTest {
                         nowEpochMs = System::currentTimeMillis,
                     ),
             )
-        var output = TestSurfaceOutput()
+        var output =
+            try {
+                outputFactory(1_920, 1_080)
+            } catch (failure: Throwable) {
+                player.release()
+                throw failure
+            }
+        val surfaceOutputs = mutableListOf(output)
+
+        fun surfaceConsumptionDiagnostics(): String =
+            "consumedImages=${surfaceOutputs.sumOf { it.consumedImages }}, " +
+                "consumerErrors=${surfaceOutputs.sumOf { it.consumerErrors }}, " +
+                "surfaceCount=${surfaceOutputs.size}, " +
+                "currentSurfaceConsumedImages=${output.consumedImages}, outputKind=${output.kind}"
+
         val health = DeviceHealthSampler(context, testCase)
         var completed = false
         var timedOut = false
@@ -285,10 +439,11 @@ class YCoreMediaSuiteInstrumentedTest {
                 delay(SURFACE_DETACH_SETTLE_MS)
                 output =
                     if (iteration % 2 == 0) {
-                        TestSurfaceOutput(width = 1_920, height = 1_080)
+                        outputFactory(1_920, 1_080)
                     } else {
-                        TestSurfaceOutput(width = 1_080, height = 1_920)
+                        outputFactory(1_080, 1_920)
                     }
+                surfaceOutputs.add(output)
                 awaitFreshVideoOutput(player, "${testCase.id}:surface-recreate-${iteration + 1}") {
                     assertTrue(player.setVideoOutput(output.output))
                     player.play()
@@ -386,23 +541,30 @@ class YCoreMediaSuiteInstrumentedTest {
             completed = true
         } catch (failure: Throwable) {
             timedOut = failure.hasTimeoutCause()
-            throw failure
+            throw AssertionError("${failure.message}; ${surfaceConsumptionDiagnostics()}", failure)
         } finally {
-            health.sample(player.state.value)
-            reportObservation(
-                health.finish(
-                    state = player.state.value,
-                    completed = completed,
-                    timedOut = timedOut,
-                    seekCycles = completedSeekCycles,
-                    surfaceRecreations = completedSurfaceRecreations,
-                    queueTransitions = queueTransitions,
-                    continuousSoakMinutes = if (soakQueue) 0 else completedSoakMinutes,
-                    queueSoakMinutes = if (soakQueue) completedSoakMinutes else 0,
-                ),
-            )
-            player.release()
-            output.close()
+            try {
+                reportProgress("${testCase.id}: Surface consumption ${surfaceConsumptionDiagnostics()}")
+                health.sample(player.state.value)
+                reportObservation(
+                    health.finish(
+                        state = player.state.value,
+                        completed = completed,
+                        timedOut = timedOut,
+                        seekCycles = completedSeekCycles,
+                        surfaceRecreations = completedSurfaceRecreations,
+                        queueTransitions = queueTransitions,
+                        continuousSoakMinutes = if (soakQueue) 0 else completedSoakMinutes,
+                        queueSoakMinutes = if (soakQueue) completedSoakMinutes else 0,
+                    ),
+                )
+            } finally {
+                try {
+                    player.release()
+                } finally {
+                    output.close()
+                }
+            }
         }
     }
 
@@ -630,15 +792,167 @@ class YCoreMediaSuiteInstrumentedTest {
         )
     }
 
+    private interface TestVideoOutput : AutoCloseable {
+        val output: AndroidSurfaceVideoOutput
+        val kind: String
+        val consumedImages: Int
+            get() = 0
+        val consumerErrors: Int
+            get() = 0
+    }
+
+    private suspend fun createSurfaceViewOutput(
+        scenario: ActivityScenario<MainActivity>,
+        width: Int,
+        height: Int,
+    ): TestVideoOutput {
+        val surfaceReady = CompletableDeferred<AndroidSurfaceVideoOutput>()
+        var attachedView: SurfaceView? = null
+        val callback =
+            object : SurfaceHolder.Callback {
+                override fun surfaceCreated(holder: SurfaceHolder) {
+                    if (holder.surface.isValid) {
+                        surfaceReady.complete(AndroidSurfaceVideoOutput(holder.surface))
+                    } else {
+                        surfaceReady.completeExceptionally(AssertionError("SurfaceView created an invalid Surface"))
+                    }
+                }
+
+                override fun surfaceChanged(
+                    holder: SurfaceHolder,
+                    format: Int,
+                    width: Int,
+                    height: Int,
+                ) = Unit
+
+                override fun surfaceDestroyed(holder: SurfaceHolder) {
+                    if (!surfaceReady.isCompleted) {
+                        surfaceReady.completeExceptionally(
+                            AssertionError("SurfaceView disappeared before becoming ready"),
+                        )
+                    }
+                }
+            }
+
+        fun detachView() {
+            scenario.onActivity {
+                attachedView?.let { view ->
+                    view.holder.removeCallback(callback)
+                    // SurfaceHolder owns this Surface; removing the View releases it through Android's lifecycle.
+                    (view.parent as? ViewGroup)?.removeView(view)
+                }
+                attachedView = null
+            }
+        }
+
+        try {
+            scenario.onActivity { activity ->
+                val view = SurfaceView(activity)
+                attachedView = view
+                view.keepScreenOn = true
+                view.holder.addCallback(callback)
+                val display = activity.resources.displayMetrics
+                val scale = minOf(display.widthPixels.toFloat() / width, display.heightPixels.toFloat() / height, 1f)
+                activity.setContentView(
+                    view,
+                    ViewGroup.LayoutParams(
+                        (width * scale).toInt().coerceAtLeast(1),
+                        (height * scale).toInt().coerceAtLeast(1),
+                    ),
+                )
+            }
+            val surfaceOutput = withTimeout(10_000L) { surfaceReady.await() }
+            return object : TestVideoOutput {
+                override val output = surfaceOutput
+                override val kind = "SurfaceView"
+
+                // No ImageReader is involved; its consumption counters stay zero and do not verify video output.
+                override fun close() = detachView()
+            }
+        } catch (failure: Throwable) {
+            runCatching { detachView() }.onFailure { failure.addSuppressed(it) }
+            throw failure
+        }
+    }
+
     private class TestSurfaceOutput(
         width: Int = 1_920,
         height: Int = 1_080,
-    ) : AutoCloseable {
+    ) : TestVideoOutput {
+        private val lock = Any()
+        private var closed = false
         private val imageReader = ImageReader.newInstance(width, height, ImageFormat.PRIVATE, 2)
-        val output = AndroidSurfaceVideoOutput(imageReader.surface)
+        private val consumerThread = HandlerThread("ycore-test-surface-consumer")
+        private val consumedImageCount = AtomicInteger()
+        private val consumerErrorCount = AtomicInteger()
+        override val consumedImages: Int
+            get() = consumedImageCount.get()
+        override val consumerErrors: Int
+            get() = consumerErrorCount.get()
+        override val kind = "ImageReader"
+        override val output: AndroidSurfaceVideoOutput
+
+        init {
+            try {
+                consumerThread.start()
+                imageReader.setOnImageAvailableListener(
+                    { reader ->
+                        synchronized(lock) {
+                            if (!closed) {
+                                // Drain the Surface queue without treating consumption as rendered-frame verification.
+                                try {
+                                    reader.acquireLatestImage()?.let { image ->
+                                        try {
+                                            consumedImageCount.incrementAndGet()
+                                        } finally {
+                                            image.close()
+                                        }
+                                    }
+                                } catch (_: RuntimeException) {
+                                    consumerErrorCount.incrementAndGet()
+                                }
+                            }
+                        }
+                    },
+                    Handler(consumerThread.looper),
+                )
+                output = AndroidSurfaceVideoOutput(imageReader.surface)
+            } catch (failure: Throwable) {
+                synchronized(lock) {
+                    closed = true
+                    runCatching { imageReader.setOnImageAvailableListener(null, null) }
+                    runCatching { imageReader.close() }
+                }
+                stopConsumerThread()
+                throw failure
+            }
+        }
 
         override fun close() {
-            imageReader.close()
+            try {
+                synchronized(lock) {
+                    if (closed) return
+                    closed = true
+                    try {
+                        imageReader.setOnImageAvailableListener(null, null)
+                    } finally {
+                        imageReader.close()
+                    }
+                }
+            } finally {
+                stopConsumerThread()
+            }
+        }
+
+        private fun stopConsumerThread() {
+            consumerThread.quitSafely()
+            if (Thread.currentThread() !== consumerThread) {
+                try {
+                    consumerThread.join(2_000L)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
+            }
         }
     }
 

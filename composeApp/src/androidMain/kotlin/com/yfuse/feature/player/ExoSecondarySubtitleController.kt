@@ -250,6 +250,18 @@ internal class ExoSecondarySubtitleController(
         player.addMediaItems(mediaItems)
     }
 
+    fun updateQueue(
+        mediaItems: List<MediaItem>,
+        currentIndex: Int,
+    ) {
+        if (player.mediaItemCount == 0) return
+        val oldIndex = player.currentMediaItemIndex
+        player.removeMediaItems(oldIndex + 1, player.mediaItemCount)
+        if (oldIndex > 0) player.removeMediaItems(0, oldIndex)
+        if (currentIndex > 0) player.addMediaItems(0, mediaItems.take(currentIndex))
+        if (currentIndex + 1 < mediaItems.size) player.addMediaItems(mediaItems.drop(currentIndex + 1))
+    }
+
     fun release() {
         player.removeListener(listener)
         player.release()

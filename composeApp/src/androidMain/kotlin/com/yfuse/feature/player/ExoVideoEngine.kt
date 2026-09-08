@@ -17,6 +17,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
@@ -151,7 +152,7 @@ class ExoVideoEngine(
         }
     private val progressiveTranscodeIndices = mutableSetOf<Int>()
     private val progressiveTransitionIndices = mutableSetOf<Int>()
-    private val retryCounts = mutableMapOf<String, Int>()
+    private val retryCounts = mutableMapOf<Triple<String, String, String>, Int>()
 
     /** Compact, credential-free failure trail preserved across replaceMediaItem fallback hops. */
     private val failureHistory = mutableMapOf<Int, MutableList<String>>()
@@ -164,6 +165,7 @@ class ExoVideoEngine(
         }
     private val cacheHandle = VideoCachePool.acquire(context.applicationContext, videoCacheBytes)
     private val trackSelector = DefaultTrackSelector(context)
+    private val startupTransferEvidence = StartupTransferEvidence()
 
     val player: ExoPlayer =
         run {
@@ -217,7 +219,13 @@ class ExoVideoEngine(
                 } ?: platformUpstream
             // Validate the bytes after the optional cache as well as after HTTP. A stale cached HTML
             // error page must not masquerade as an HLS manifest any more than a fresh one may.
-            val dataSourceFactory = HlsManifestGuardDataSourceFactory(playbackDataSourceFactory)
+            val guardedDataSourceFactory = HlsManifestGuardDataSourceFactory(playbackDataSourceFactory)
+            val dataSourceFactory =
+                DataSource.Factory {
+                    guardedDataSourceFactory.createDataSource().also { source ->
+                        source.addTransferListener(startupTransferEvidence)
+                    }
+                }
             val extractorsFactory =
                 DefaultExtractorsFactory()
                     .setTsExtractorFlags(
@@ -233,10 +241,16 @@ class ExoVideoEngine(
                             profile.maxBufferMs,
                             profile.playbackStartMs,
                             profile.rebufferStartMs,
-                        ).setTargetBufferBytes(profile.targetBufferBytes)
-                        .setPrioritizeTimeOverSizeThresholds(false)
+                        ).setTargetBufferBytes(
+                            minOf(profile.targetBufferBytes.toLong(), playbackMemoryBudgetBytes(context)).toInt(),
+                        ).setPrioritizeTimeOverSizeThresholds(false)
                         .setBackBuffer(profile.backBufferMs, profile.backBufferMs > 0)
                         .build()
+                        .let { ordinary ->
+                            AdaptiveStartupLoadControl(ordinary, optimizationMode, startupTransferEvidence) {
+                                this@ExoVideoEngine.items.getOrNull(_state.value.currentIndex)
+                            }
+                        }
                 }
 
             // 隧道播放 on television devices: the decoder and the AudioTrack share one HW_AV_SYNC
@@ -1010,6 +1024,7 @@ class ExoVideoEngine(
                 mediaItem: MediaItem?,
                 reason: Int,
             ) {
+                startupTransferEvidence.reset()
                 clearActiveOutputEvidence()
                 val previousState = _state.value
                 val index = player.currentMediaItemIndex
@@ -1658,6 +1673,58 @@ class ExoVideoEngine(
         return true
     }
 
+    override fun updateQueue(
+        items: List<PlayerMediaItem>,
+        currentIndex: Int,
+    ): Boolean {
+        if (released || fallbackJob?.isActive == true || retryJob?.isActive == true) return false
+        val oldIndex = player.currentMediaItemIndex
+        val previous = this.items.toList()
+        if (!canUpdatePlaybackQueue(previous, oldIndex, items, currentIndex)) return false
+        val remappedTranscoded = remapPlaybackQueueIndices(transcodedIndices, previous, items)
+        val remappedProgressive = remapPlaybackQueueIndices(progressiveTranscodeIndices, previous, items)
+        val remappedTransitions = remapPlaybackQueueIndices(progressiveTransitionIndices, previous, items)
+        val remappedHistory =
+            failureHistory.entries
+                .mapNotNull { (index, history) ->
+                    val old = previous.getOrNull(index) ?: return@mapNotNull null
+                    val updated = items.indexOfFirst { it.id == old.id && it.serverId == old.serverId }
+                    updated.takeIf { it >= 0 }?.let { it to history }
+                }.toMap()
+        this.items.clear()
+        this.items.addAll(items)
+        transcodedIndices.clear()
+        transcodedIndices.addAll(remappedTranscoded)
+        items.forEachIndexed { index, item -> if (item.startsWithServerTranscode()) transcodedIndices += index }
+        progressiveTranscodeIndices.clear()
+        progressiveTranscodeIndices.addAll(remappedProgressive)
+        progressiveTransitionIndices.clear()
+        progressiveTransitionIndices.addAll(remappedTransitions)
+        failureHistory.clear()
+        failureHistory.putAll(remappedHistory)
+        persistentCacheUrls.clear()
+        items.mapNotNullTo(persistentCacheUrls) { it.persistentPlaybackCacheUrl() }
+        val mediaItems =
+            items.mapIndexed { index, item ->
+                mediaItem(
+                    item,
+                    when (index) {
+                        in progressiveTranscodeIndices -> item.fallbackTranscodeUrl
+                        in transcodedIndices -> item.transcodeUrl
+                        else -> item.url
+                    },
+                )
+            }
+        // Keep the active MediaPeriod intact; setMediaItems would discard its compressed buffer.
+        player.removeMediaItems(oldIndex + 1, player.mediaItemCount)
+        if (oldIndex > 0) player.removeMediaItems(0, oldIndex)
+        if (currentIndex > 0) player.addMediaItems(0, mediaItems.take(currentIndex))
+        if (currentIndex + 1 < mediaItems.size) player.addMediaItems(mediaItems.drop(currentIndex + 1))
+        secondarySubtitles.updateQueue(mediaItems, currentIndex)
+        _state.update { it.copy(currentIndex = currentIndex, itemCount = items.size) }
+        return true
+    }
+
     private fun switchToProgressiveTranscode(): Boolean {
         val index = player.currentMediaItemIndex
         if (index in progressiveTranscodeIndices) return false
@@ -1789,7 +1856,10 @@ class ExoVideoEngine(
         return true
     }
 
-    private fun retryKey(index: Int): String = "$index:${streamVariantOf(index)}"
+    private fun retryKey(index: Int): Triple<String, String, String> {
+        val item = items.getOrNull(index)
+        return Triple(item?.serverId.orEmpty(), item?.id ?: "missing:$index", streamVariantOf(index))
+    }
 
     private fun streamVariantOf(index: Int): String =
         when {

@@ -179,7 +179,7 @@ internal fun playbackStartupTimeoutMs(probe: PlaybackMediaProbe): Long =
         else -> 15_000L
     }
 
-/** A settled stream gets a separate, conservative budget before transport recovery is attempted. */
+/** Hard ceiling for a slow stream. Confirmed empty-transport stalls use a separate progress window. */
 internal fun playbackRebufferTimeoutMs(probe: PlaybackMediaProbe): Long =
     when {
         probe.discSource || probe.discKind != PlaybackDiscKind.None -> 180_000L

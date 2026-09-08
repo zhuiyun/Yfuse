@@ -52,6 +52,8 @@ internal class AndroidAdaptiveHttpMediaTransport(
     private var activeExpectedBytes: Long? = null
     private var activeBytesRead = 0L
     private var activeIsCronet = false
+    private var activeEntityTag: String? = null
+    private var activeContentLength: Long? = null
 
     override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
         require(request.protocol in supportedProtocols)
@@ -156,17 +158,46 @@ internal class AndroidAdaptiveHttpMediaTransport(
         cronetFailure: Throwable,
         generation: Long,
     ): Int {
+        val validator: Pair<String?, Long?>
         val resumedRequest =
             synchronized(transportLock) {
                 requireCurrentGeneration(generation)
                 val request = checkNotNull(activeRequest) { "Cronet request metadata is unavailable" }
-                request.resumeAfter(activeBytesRead)
+                validator = activeEntityTag to activeContentLength
+                if (activeBytesRead > 0L && (validator.first == null || validator.second == null)) {
+                    routeState.disableCronet(request.uri)
+                    preferred = null
+                    // The enclosing block loader can discard unvalidated partial bytes and retry
+                    // through OkHttp. This transport cannot retract bytes already handed to it.
+                    throw IOException("Cronet partial response has no safe resumption validator", cronetFailure)
+                }
+                request.resumeAfter(activeBytesRead)?.let { remaining ->
+                    if (activeBytesRead >
+                        0L
+                    ) {
+                        remaining.copy(headers = remaining.headers + ("If-Range" to checkNotNull(validator.first)))
+                    } else {
+                        remaining
+                    }
+                }
             } ?: return -1
         routeState.disableCronet(resumedRequest.uri)
         preferred = null
         val fallbackGeneration = closeActive(propagateCancellation = true, expectedGeneration = generation)
         try {
-            openOkHttp(resumedRequest, fallbackGeneration)
+            val response = openOkHttp(resumedRequest, fallbackGeneration)
+            if (resumedRequest.headers.containsKey("If-Range") &&
+                (response.entityTag != validator.first || response.contentLength != validator.second)
+            ) {
+                closeActive(propagateCancellation = true, expectedGeneration = fallbackGeneration)
+                throw AndroidRangeResponseException(
+                    YTransportFailureKind.InvalidRange,
+                    response.statusCode,
+                    resumedRequest.range?.startInclusive ?: 0L,
+                    response.acceptedRange?.startInclusive,
+                    "Media representation changed during Cronet fallback",
+                )
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (fallbackFailure: Throwable) {
@@ -248,6 +279,8 @@ internal class AndroidAdaptiveHttpMediaTransport(
             activeExpectedBytes = response.expectedBodyBytes(request)
             activeBytesRead = 0L
             activeIsCronet = cronet
+            activeEntityTag = response.entityTag?.takeIf { it.length >= 2 && it.startsWith('"') && it.endsWith('"') }
+            activeContentLength = response.contentLength
         }
     }
 
@@ -287,6 +320,8 @@ internal class AndroidAdaptiveHttpMediaTransport(
         activeExpectedBytes = null
         activeBytesRead = 0L
         activeIsCronet = false
+        activeEntityTag = null
+        activeContentLength = null
     }
 
     private suspend fun closeTransport(

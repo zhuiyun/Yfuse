@@ -70,6 +70,12 @@ interface YPlayer {
      */
     fun appendItems(items: List<YMediaItem>): Boolean = items.isEmpty()
 
+    /** Replace queue metadata/order while retaining the currently open media and its output. */
+    fun updateQueue(
+        items: List<YMediaItem>,
+        currentIndex: Int,
+    ): Boolean = false
+
     fun currentPositionMs(): Long = state.value.positionMs
 
     fun retry()
@@ -129,6 +135,8 @@ data class YMediaItem(
     val sourceHints: YMediaSourceHints? = null,
     /** In-memory source credentials forwarded only to the selected YCore transport. */
     val transportCredentials: YTransportCredentials? = null,
+    /** Opaque playback-session identity for correlating timings; never an access token. */
+    val playbackSessionId: String? = null,
 ) {
     init {
         require(cacheMaximumBytes >= 0L)
@@ -398,6 +406,8 @@ data class YPlayerDiagnostics(
     val reason: String? = null,
     /** Rebuffer transitions after first output; startup buffering is excluded. */
     val bufferEvents: Int = 0,
+    val rebufferDurationMs: Long = 0L,
+    val longestRebufferMs: Long = 0L,
     /** Transport-confirmed transient failure; permission/DRM failures never set this. */
     val recoverableNetworkFailure: Boolean = false,
 ) {

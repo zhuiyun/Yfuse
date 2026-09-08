@@ -8,7 +8,11 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.CRC32
 
 /**
@@ -30,25 +34,62 @@ internal class AndroidYCoreBlockCache(
      */
     private val blockSizeBytes: Int,
     private val maximumBytes: Long,
+    private val writeQueue: AndroidCacheWriteQueue = WRITER,
 ) {
     private val root = File(cacheDirectory, CACHE_ROOT_DIRECTORY)
     private val supersededRoots = SUPERSEDED_CACHE_ROOT_DIRECTORIES.map { name -> File(cacheDirectory, name) }
     private val sourceDirectory = File(root, yCoreCacheDirectoryKey(identity))
     private val contentLengthFile = File(sourceDirectory, CONTENT_LENGTH_FILE)
+    private val index = synchronized(ROOTS) { ROOTS.getOrPut(root.absolutePath) { CacheIndex(root) } }
+    private val maximumWriteNs = AtomicLong()
+    private val writeFailures = AtomicLong()
+    private val droppedWrites = AtomicLong()
+
+    val maximumWriteMs: Long get() = maximumWriteNs.get() / 1_000_000L
+    val failedWriteCount: Long get() = writeFailures.get()
+    val droppedWriteCount: Long get() = droppedWrites.get()
+    val canAcceptWrite: Boolean get() = writeQueue.hasCapacity(blockSizeBytes)
+
+    /** Used by cache verification and orderly maintenance, never by the foreground reader. */
+    fun awaitPendingWrites(timeoutMs: Long): Boolean = writeQueue.awaitIdle(timeoutMs)
+
+    /** The caller owns immutable block bytes. At most four writes / 16 MiB are retained process-wide. */
+    fun enqueueWriteBlock(
+        blockIndex: Long,
+        bytes: ByteArray,
+        contentLength: Long?,
+    ) {
+        if (!writeQueue.enqueue(blockFile(blockIndex).absolutePath, bytes.size) {
+                val startedNs = System.nanoTime()
+                try {
+                    writeBlock(blockIndex, bytes, contentLength)
+                } catch (_: Exception) {
+                    // Cache persistence is optional; it must never turn delivered media into an EOF.
+                    writeFailures.incrementAndGet()
+                } finally {
+                    maximumWriteNs.accumulateAndGet(System.nanoTime() - startedNs, ::maxOf)
+                }
+            }
+        ) {
+            droppedWrites.incrementAndGet()
+        }
+    }
 
     init {
         require(blockSizeBytes > 0)
         require(maximumBytes > 0L)
-        synchronized(CACHE_LOCK) {
-            // v1 blocks carried no integrity header and v2 blocks no stride, so neither can be
-            // validated by this format and both have to go rather than be read on faith.
-            supersededRoots.forEach { directory -> if (directory.isDirectory) directory.deleteRecursively() }
+        if (supersededRoots.any(File::isDirectory)) {
+            synchronized(index.writeLock) {
+                // v1 blocks carried no integrity header and v2 blocks no stride, so neither can be
+                // validated by this format and both have to go rather than be read on faith.
+                supersededRoots.forEach { directory -> if (directory.isDirectory) directory.deleteRecursively() }
+            }
         }
     }
 
     val contentLength: Long?
         get() =
-            synchronized(CACHE_LOCK) {
+            run {
                 contentLengthFile
                     .takeIf(File::isFile)
                     ?.let { file -> runCatching { file.readText() }.getOrNull() }
@@ -58,7 +99,7 @@ internal class AndroidYCoreBlockCache(
             }
 
     fun readBlock(index: Long): ByteArray? =
-        synchronized(CACHE_LOCK) {
+        run {
             require(index >= 0L)
             val file = blockFile(index)
             val length = file.length()
@@ -66,22 +107,28 @@ internal class AndroidYCoreBlockCache(
                 !file.isFile ||
                 length !in (BLOCK_HEADER_BYTES + 1L)..(BLOCK_HEADER_BYTES + blockSizeBytes)
             ) {
-                if (file.exists()) file.delete()
-                return@synchronized null
+                if (file.exists()) discardIfStillInvalid(file)
+                return@run null
             }
             val block = runCatching { decodeBlock(file.readBytes(), blockSizeBytes) }.getOrNull()
             if (block == null) {
-                file.delete()
-                return@synchronized null
+                discardIfStillInvalid(file)
+                return@run null
             }
             file.setLastModified(System.currentTimeMillis())
+            this.index.touch(file)
             block
         }
 
     /** Metadata-only lookup for forward-cache scheduling; readBlock still validates the CRC before serving bytes. */
     fun cachedBlockLength(index: Long): Int? =
-        synchronized(CACHE_LOCK) {
+        run {
             val file = blockFile(index)
+            this.index.length(file, blockSizeBytes)?.let { length ->
+                if (file.isFile && file.length() == BLOCK_HEADER_BYTES + length.toLong()) return@run length
+                discardIfStillInvalid(file)
+                return@run null
+            }
             runCatching {
                 DataInputStream(file.inputStream()).use { input ->
                     if (input.readInt() != BLOCK_MAGIC || input.readInt() != blockSizeBytes) return@use null
@@ -97,40 +144,42 @@ internal class AndroidYCoreBlockCache(
         contentLength: Long?,
     ) {
         require(index >= 0L && bytes.isNotEmpty())
-        synchronized(CACHE_LOCK) {
+        synchronized(this.index.writeLock) {
+            this.index.initialize()
             sourceDirectory.mkdirs()
             if (!sourceDirectory.isDirectory) return
             require(bytes.size <= blockSizeBytes)
-            writeAtomically(blockFile(index), encodeBlock(bytes, blockSizeBytes))
-            contentLength?.takeIf { it >= 0L }?.let { length ->
-                writeAtomically(contentLengthFile, length.toString().encodeToByteArray())
+            val file = blockFile(index)
+            // Background/full-block reads can race another source instance warming the same item.
+            // Compare validated bytes so a corrupt file or changed payload is never mistaken for a hit.
+            if (readBlock(index)?.contentEquals(bytes) != true) {
+                writeAtomically(file, encodeBlock(bytes, blockSizeBytes))
             }
-            trimToBudget()
+            this.index.record(file, bytes.size, blockSizeBytes)
+            contentLength?.takeIf { it >= 0L }?.let { length ->
+                if (this.contentLength != length) {
+                    writeAtomically(contentLengthFile, length.toString().encodeToByteArray())
+                }
+            }
+            this.index.trimToBudget(maximumBytes)
         }
     }
 
     private fun blockFile(index: Long): File = File(sourceDirectory, "$BLOCK_PREFIX$index$BLOCK_SUFFIX")
 
-    private fun trimToBudget() {
-        if (!root.isDirectory) return
-        val blocks =
-            root
-                .walkTopDown()
-                .filter { file ->
-                    file.isFile && file.name.startsWith(BLOCK_PREFIX) && file.name.endsWith(BLOCK_SUFFIX)
-                }.toList()
-                .sortedBy(File::lastModified)
-        var total = blocks.sumOf { block -> block.payloadLengthOnDisk() }
-        val iterator = blocks.iterator()
-        while (total > maximumBytes && iterator.hasNext()) {
-            val oldest = iterator.next()
-            val length = oldest.payloadLengthOnDisk()
-            if (oldest.delete()) total -= length
+    private fun discardIfStillInvalid(file: File) {
+        writeQueue.enqueue("repair:${file.absolutePath}", 1) {
+            synchronized(index.writeLock) {
+                // A reader may have observed the old inode immediately before an atomic commit.
+                // Revalidate the current file under the writer lock before deleting anything.
+                val valid = runCatching { decodeBlock(file.readBytes(), blockSizeBytes) }.getOrNull()
+                if (valid == null) {
+                    if (file.delete() || !file.exists()) index.remove(file)
+                } else {
+                    index.record(file, valid.size, blockSizeBytes)
+                }
+            }
         }
-        root
-            .walkBottomUp()
-            .filter { it.isDirectory && it != root }
-            .forEach { directory -> if (directory.list().isNullOrEmpty()) directory.delete() }
     }
 
     private fun writeAtomically(
@@ -145,10 +194,14 @@ internal class AndroidYCoreBlockCache(
                 output.flush()
                 fileOutput.fd.sync()
             }
-            if (!temporary.renameTo(target)) {
-                target.delete()
-                require(temporary.renameTo(target)) { "YCore cache block could not be committed" }
-            }
+            // Android's app cache is on one filesystem. Readers can retain the previous inode while
+            // this atomically replaces it; they never wait behind a writer's fsync or eviction scan.
+            Files.move(
+                temporary.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
             target.setLastModified(System.currentTimeMillis())
         } finally {
             temporary.delete()
@@ -156,7 +209,141 @@ internal class AndroidYCoreBlockCache(
     }
 
     private companion object {
-        val CACHE_LOCK = Any()
+        val ROOTS = mutableMapOf<String, CacheIndex>()
+        val WRITER = AndroidCacheWriteQueue()
+    }
+}
+
+/** LRU metadata is built once on the writer, then updated in constant time per read/write. */
+private class CacheIndex(
+    private val root: File,
+) {
+    val writeLock = Any()
+    private val entries = LinkedHashMap<File, Pair<Int, Int>>()
+    private var totalBytes = 0L
+    private var initialized = false
+
+    fun initialize() {
+        if (initialized) return
+        root
+            .walkTopDown()
+            .filter { it.isFile && it.name.startsWith(BLOCK_PREFIX) && it.name.endsWith(BLOCK_SUFFIX) }
+            .sortedBy(File::lastModified)
+            .forEach { file ->
+                runCatching {
+                    DataInputStream(file.inputStream()).use { input ->
+                        if (input.readInt() != BLOCK_MAGIC) return@use
+                        val stride = input.readInt()
+                        val length = input.readInt()
+                        if (length in 1..stride &&
+                            file.length() == BLOCK_HEADER_BYTES + length.toLong()
+                        ) {
+                            record(file, length, stride)
+                        }
+                    }
+                }
+            }
+        initialized = true
+    }
+
+    @Synchronized
+    fun length(
+        file: File,
+        stride: Int,
+    ): Int? = entries[file]?.takeIf { it.second == stride }?.first
+
+    @Synchronized
+    fun touch(file: File) {
+        entries.remove(file)?.let { entries[file] = it }
+    }
+
+    @Synchronized
+    fun record(
+        file: File,
+        length: Int,
+        stride: Int,
+    ) {
+        totalBytes -= entries.remove(file)?.first ?: 0
+        entries[file] = length to stride
+        totalBytes += length
+    }
+
+    @Synchronized
+    fun remove(file: File) {
+        totalBytes -= entries.remove(file)?.first ?: 0
+    }
+
+    fun trimToBudget(maximumBytes: Long) {
+        while (true) {
+            val oldest =
+                synchronized(this) {
+                    if (totalBytes <= maximumBytes) return
+                    entries.keys.firstOrNull() ?: return
+                }
+            if (oldest.delete() || !oldest.exists()) remove(oldest) else return
+        }
+    }
+}
+
+/** Non-blocking admission; queued duplicate blocks share a single writer and failures release capacity. */
+internal class AndroidCacheWriteQueue(
+    private val maximumBytes: Long = 16L * 1024L * 1024L,
+    private val maximumEntries: Int = 4,
+    private val execute: (() -> Unit) -> Unit = { task -> executor.execute(task) },
+) {
+    private val pending = mutableSetOf<String>()
+    private var bytes = 0L
+
+    @Synchronized
+    fun hasCapacity(size: Int): Boolean = pending.size < maximumEntries && size <= maximumBytes - bytes
+
+    fun awaitIdle(timeoutMs: Long): Boolean {
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+        while (System.nanoTime() < deadline) {
+            if (synchronized(this) { pending.isEmpty() }) return true
+            Thread.sleep(1L)
+        }
+        return synchronized(this) { pending.isEmpty() }
+    }
+
+    @Synchronized
+    fun enqueue(
+        key: String,
+        size: Int,
+        write: () -> Unit,
+    ): Boolean {
+        require(size > 0)
+        if (key in pending) return true
+        if (pending.size >= maximumEntries || size > maximumBytes - bytes) return false
+        pending.add(key)
+        bytes += size
+        try {
+            execute {
+                try {
+                    write()
+                } finally {
+                    synchronized(this) {
+                        pending.remove(key)
+                        bytes -= size
+                    }
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            pending.remove(key)
+            bytes -= size
+            return false
+        }
+        return true
+    }
+
+    private companion object {
+        val executor =
+            Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "YCore-CacheWriter").apply {
+                    isDaemon =
+                        true
+                }
+            }
     }
 }
 

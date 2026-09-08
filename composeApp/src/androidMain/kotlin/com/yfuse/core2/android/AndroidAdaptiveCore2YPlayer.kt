@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import com.yfuse.core.logging.AppLog
+import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
@@ -246,7 +247,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 errorCategory = null,
             )
         }
-        commands.trySend(Command.SelectItem(index))
+        commands.trySend(Command.SelectItem(queueItems[index].id))
     }
 
     override fun selectDiscTitle(index: Int): Boolean = !released && activeChild?.selectDiscTitle(index) == true
@@ -269,6 +270,39 @@ internal class AndroidAdaptiveCore2YPlayer(
                 queueItems = previous
                 false
             }
+        }
+
+    override fun updateQueue(
+        items: List<YMediaItem>,
+        currentIndex: Int,
+    ): Boolean =
+        synchronized(queueLock) {
+            if (released ||
+                activeChild == null ||
+                mutableState.value.phase != YPlaybackPhase.Ready
+            ) {
+                return@synchronized false
+            }
+            val oldItems = queueItems
+            val current = oldItems.getOrNull(mutableState.value.currentIndex) ?: return@synchronized false
+            val replacement = items.getOrNull(currentIndex) ?: return@synchronized false
+            // Metadata may arrive later, but an update must never replace an active byte source.
+            if (current.id != replacement.id ||
+                current.uri != replacement.uri ||
+                current.headers != replacement.headers ||
+                current.drmConfiguration != replacement.drmConfiguration ||
+                current.transportCredentials != replacement.transportCredentials
+            ) {
+                return@synchronized false
+            }
+            if (items.map { it.id }.distinct().size != items.size) return@synchronized false
+            queueItems = items
+            if (!commands.trySend(Command.QueueUpdated).isSuccess) {
+                queueItems = oldItems
+                return@synchronized false
+            }
+            mutableState.update { it.copy(currentIndex = currentIndex, itemCount = items.size) }
+            true
         }
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
@@ -353,7 +387,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         }
 
     private suspend fun runLoop() {
-        var currentIndex = request.startIndex
+        var currentIndex by AndroidQueueCursor(request.items[request.startIndex].id) { queueItems }
         var child: YPlayer? = null
         var secondarySubtitleOffsetMs = 0L
         var childCollector: Job? = null
@@ -471,6 +505,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             preferTunnel = preferTunnel,
                             allowAudioPassthrough = allowAudioPassthrough,
                             forcePowerSaver = forcePowerSaver,
+                            prepareSourceForPlayback = false,
                         )
                     }.onSuccess { decision ->
                         currentCoroutineContext().ensureActive()
@@ -532,6 +567,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 context = context,
                 request = singleRequest,
                 routeEvaluator = routeEvaluator,
+                initialDecision = decision,
                 allowAudioPassthrough = allowAudioPassthrough,
                 frameRateSwitchMode = frameRateSwitchMode,
                 forcedPlan =
@@ -651,6 +687,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 context = context,
                 request = singleRequest,
                 routeEvaluator = routeEvaluator,
+                initialDecision = decision,
                 allowAudioPassthrough = false,
                 frameRateSwitchMode = frameRateSwitchMode,
                 forcedPlan = plan,
@@ -792,9 +829,15 @@ internal class AndroidAdaptiveCore2YPlayer(
             AppLog.info(
                 category = "player.core2",
                 event = "route_selected",
-                message = "YCore selected an executable playback graph",
+                message =
+                    "YCore selected ${plan.route.name} playback graph " +
+                        "(${playbackDiagnosticTrace(item.playbackSessionId)})",
                 attributes =
                     mapOf(
+                        "itemId" to item.id,
+                        "serverId" to item.providerKey.orEmpty(),
+                        "sessionId" to item.playbackSessionId.orEmpty(),
+                        "playbackTrace" to playbackDiagnosticTrace(item.playbackSessionId),
                         "route" to plan.route.name,
                         "demuxPath" to plan.demuxPath.name,
                         "decodePath" to plan.decodePath.name,
@@ -819,11 +862,12 @@ internal class AndroidAdaptiveCore2YPlayer(
             return when {
                 !forceSoftwareFallback && tunnelAllowed && decision.nativeTunnelExecutable ->
                     AndroidNativeTunnelYPlayer(
-                        context,
-                        singleRequest,
-                        routeEvaluator,
-                        allowAudioPassthrough,
-                        frameRateSwitchMode,
+                        context = context,
+                        request = singleRequest,
+                        routeEvaluator = routeEvaluator,
+                        initialDecision = decision,
+                        allowAudioPassthrough = allowAudioPassthrough,
+                        frameRateSwitchMode = frameRateSwitchMode,
                     )
                 !forceSoftwareFallback &&
                     decision.nativeDirectExecutable &&
@@ -848,6 +892,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         context = context,
                         request = singleRequest,
                         routeEvaluator = routeEvaluator,
+                        initialDecision = decision,
                         allowAudioPassthrough = allowAudioPassthrough,
                         frameRateSwitchMode = frameRateSwitchMode,
                         preferredRemoteBufferTargetUs = preferredRemoteBufferTargetUs,
@@ -862,6 +907,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                         context = context,
                         request = singleRequest,
                         routeEvaluator = routeEvaluator,
+                        initialDecision = decision,
                         allowAudioPassthrough = false,
                         frameRateSwitchMode = frameRateSwitchMode,
                         forcedPlan = plan,
@@ -900,6 +946,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             context = context,
                             request = singleRequest,
                             routeEvaluator = routeEvaluator,
+                            initialDecision = decision,
                             allowAudioPassthrough = false,
                             frameRateSwitchMode = frameRateSwitchMode,
                             forcedPlan = nativeGpuPlan,
@@ -935,8 +982,10 @@ internal class AndroidAdaptiveCore2YPlayer(
             )
             child = next
             secondarySubtitleSupported = next.supportsSecondarySubtitleTrack
+            val childItemId = queueItems[currentIndex].id
             activeChild = next
-            val childIndex = currentIndex
+
+            fun childIndex(): Int = queueItems.indexOfFirst { it.id == childItemId }.coerceAtLeast(0)
             val childFailureKey = pendingFailureKey
             val childVerifiedRoute = pendingVerifiedRoute
             var failureRecorded = false
@@ -971,7 +1020,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             codecResets =
                                 maxOf(
                                     childState.diagnostics.codecResetCount +
-                                        (codecResetCounts[childIndex] ?: 0),
+                                        (codecResetCounts[childIndex()] ?: 0),
                                     if (childState.errorCategory == YPlaybackFailureCategory.Decoder) 1 else 0,
                                 ),
                             audioUnderruns =
@@ -1030,7 +1079,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 )
                         val prematureEndRecoveryKey =
                             RouteRecoveryKey(
-                                itemIndex = childIndex,
+                                itemIndex = childIndex(),
                                 route = reportedChildState.diagnostics.route,
                                 category = YPlaybackFailureCategory.Network,
                             )
@@ -1083,7 +1132,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 attributes =
                                     mapOf(
                                         "route" to reportedChildState.diagnostics.route.name,
-                                        "itemIndex" to childIndex.toString(),
+                                        "itemIndex" to childIndex().toString(),
                                         "positionMs" to reportedChildState.positionMs.toString(),
                                         "durationMs" to reportedChildState.durationMs.toString(),
                                         "attempt" to sameRouteRecoveryAttempts[prematureEndRecoveryKey].toString(),
@@ -1091,7 +1140,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             )
                             commands.trySend(
                                 Command.RecoverSameRoute(
-                                    index = childIndex,
+                                    index = childIndex(),
                                     positionMs = reportedChildState.positionMs,
                                     route = reportedChildState.diagnostics.route,
                                 ),
@@ -1155,7 +1204,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             childState.phase == YPlaybackPhase.Ready
                         ) {
                             nextItemPreloadRequested = true
-                            scheduleNextItemPreload(childIndex)
+                            scheduleNextItemPreload(childIndex())
                         }
                         if (
                             childState.phase == YPlaybackPhase.Failed &&
@@ -1165,7 +1214,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                             recoveryQueued = true
                             val recoveryKey =
                                 RouteRecoveryKey(
-                                    itemIndex = childIndex,
+                                    itemIndex = childIndex(),
                                     route = childState.diagnostics.route,
                                     category = childState.errorCategory,
                                 )
@@ -1175,17 +1224,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                                         route = childState.diagnostics.route,
                                         category = childState.errorCategory,
                                         sameRouteAttempts = sameRouteRecoveryAttempts[recoveryKey] ?: 0,
-                                        protectedContent = queueItems[childIndex].drmConfiguration != null,
+                                        protectedContent = queueItems[childIndex()].drmConfiguration != null,
                                     ),
                                 )
                             ) {
                                 YPlaybackRecoveryAction.RetrySameRoute -> {
                                     sameRouteRecoveryAttempts[recoveryKey] =
                                         (sameRouteRecoveryAttempts[recoveryKey] ?: 0) + 1
-                                    codecResetCounts[childIndex] = (codecResetCounts[childIndex] ?: 0) + 1
+                                    codecResetCounts[childIndex()] = (codecResetCounts[childIndex()] ?: 0) + 1
                                     commands.trySend(
                                         Command.RecoverSameRoute(
-                                            index = childIndex,
+                                            index = childIndex(),
                                             positionMs = childState.positionMs,
                                             route = childState.diagnostics.route,
                                         ),
@@ -1193,18 +1242,18 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     return@collect
                                 }
                                 YPlaybackRecoveryAction.DisableTunnel -> {
-                                    commands.trySend(Command.FallbackFromTunnel(childIndex, childState.positionMs))
+                                    commands.trySend(Command.FallbackFromTunnel(childIndex(), childState.positionMs))
                                     return@collect
                                 }
                                 YPlaybackRecoveryAction.FallbackToEnhanced -> {
                                     commands.trySend(
-                                        Command.FallbackToEnhanced(childIndex, childState.positionMs),
+                                        Command.FallbackToEnhanced(childIndex(), childState.positionMs),
                                     )
                                     return@collect
                                 }
                                 YPlaybackRecoveryAction.FallbackToSoftware -> {
                                     commands.trySend(
-                                        Command.FallbackToSoftware(childIndex, childState.positionMs),
+                                        Command.FallbackToSoftware(childIndex(), childState.positionMs),
                                     )
                                     return@collect
                                 }
@@ -1213,14 +1262,14 @@ internal class AndroidAdaptiveCore2YPlayer(
                         }
                         mutableState.value =
                             childState.copy(
-                                currentIndex = childIndex,
+                                currentIndex = childIndex(),
                                 itemCount = queueItems.size,
                                 playbackRequested = requestedPlay && childState.phase != YPlaybackPhase.Ended,
                                 diagnostics =
                                     childState.diagnostics.copy(
                                         codecResetCount =
                                             childState.diagnostics.codecResetCount +
-                                                (codecResetCounts[childIndex] ?: 0),
+                                                (codecResetCounts[childIndex()] ?: 0),
                                     ),
                             )
                         // An audio route change held back during preparation applies now that
@@ -1241,9 +1290,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                         if (
                             childState.phase == YPlaybackPhase.Ended &&
                             request.autoNext &&
-                            childIndex + 1 < queueItems.size
+                            childIndex() + 1 < queueItems.size
                         ) {
-                            commands.trySend(Command.SelectItem(childIndex + 1))
+                            commands.trySend(Command.SelectItem(queueItems[childIndex() + 1].id))
                         }
                     }
                 }
@@ -1367,17 +1416,37 @@ internal class AndroidAdaptiveCore2YPlayer(
                             }
                         }
                         is Command.SelectItem -> {
+                            val selectedIndex = queueItems.indexOfFirst { it.id == command.itemId }
+                            if (selectedIndex < 0) continue
                             nextItemPreloadJob?.cancel()
                             nextItemPreloadJob = null
-                            if (preloadedNextRoute?.index != command.index) preloadedNextRoute = null
+                            if (preloadedNextRoute?.index != selectedIndex) preloadedNextRoute = null
                             pendingPositionMs = 0L
-                            currentIndex = command.index
+                            currentIndex = selectedIndex
                             sameRouteRecoveryAttempts.keys.removeAll { it.itemIndex == currentIndex }
                             codecResetCounts.remove(currentIndex)
                             allowTunnel = true
                             forceEnhancedFallback = false
                             forceSoftwareFallback = false
                             rebuild(0L)
+                        }
+                        Command.QueueUpdated -> {
+                            nextItemPreloadJob?.cancel()
+                            nextItemPreloadJob = null
+                            preloadedNextRoute = null
+                            sameRouteRecoveryAttempts.clear()
+                            codecResetCounts.clear()
+                            mutableState.updateState {
+                                it.copy(
+                                    currentIndex = currentIndex,
+                                    itemCount = queueItems.size,
+                                )
+                            }
+                            if (child?.state?.value?.phase ==
+                                YPlaybackPhase.Ready
+                            ) {
+                                scheduleNextItemPreload(currentIndex)
+                            }
                         }
                         Command.QueueExtended -> {
                             mutableState.updateState { it.copy(itemCount = queueItems.size) }
@@ -1564,6 +1633,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             nextItemPreloadJob?.cancel()
             stopChild()
             routeEvaluator.closePreparedExtractor()
+            routeEvaluator.closePreparedEnhancedDemux()
         }
     }
 
@@ -1577,6 +1647,8 @@ internal class AndroidAdaptiveCore2YPlayer(
         data object Retry : Command
 
         data object QueueExtended : Command
+
+        data object QueueUpdated : Command
 
         data object AudioRouteChanged : Command
 
@@ -1611,7 +1683,7 @@ internal class AndroidAdaptiveCore2YPlayer(
         ) : Command
 
         data class SelectItem(
-            val index: Int,
+            val itemId: String,
         ) : Command
 
         data class FallbackFromTunnel(

@@ -179,9 +179,11 @@ internal class AndroidHttpMediaTransport(
             YMediaTransportResponse(
                 statusCode = finalResponse.code,
                 contentLength =
-                    parseContentRange(finalResponse.header("Content-Range"))?.total
-                        ?: parseUnsatisfiedContentRangeLength(finalResponse.header("Content-Range"))
-                        ?: finalResponse.body?.contentLength()?.takeIf { it >= 0L },
+                    mediaResponseContentLength(
+                        finalResponse.code,
+                        finalResponse.header("Content-Range"),
+                        finalResponse.body?.contentLength(),
+                    ),
                 acceptedRange = acceptedRange,
                 features =
                     buildSet {
@@ -205,6 +207,7 @@ internal class AndroidHttpMediaTransport(
                         YSourceProtocol.Http
                     },
                 cleartextRedirect = cleartextRedirect,
+                entityTag = finalResponse.header("ETag")?.takeIf { it.startsWith('"') && it.endsWith('"') },
             )
         }
 

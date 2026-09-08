@@ -266,6 +266,7 @@ internal class AndroidMediaExtractorReadAheadNode(
 
     fun snapshot(): YExtractorReadAheadSnapshot =
         synchronized(monitor) {
+            val liveThroughput = delegate.liveTransportThroughput()
             YExtractorReadAheadSnapshot(
                 queuedSamples = samples.size,
                 queuedBytes = queuedBytes,
@@ -273,7 +274,8 @@ internal class AndroidMediaExtractorReadAheadNode(
                 starvationCount = starvationCount,
                 starved = starved && samples.isEmpty() && !endOfInput,
                 targetAheadUs = targetAheadUs,
-                throughputBitsPerSecond = latestTransportQoeSnapshot?.throughputBitsPerSecond ?: 0L,
+                throughputBitsPerSecond = liveThroughput ?: latestTransportQoeSnapshot?.throughputBitsPerSecond ?: 0L,
+                throughputMeasured = liveThroughput != null || latestTransportQoeSnapshot?.throughputMeasured == true,
                 endOfInput = endOfInput || failure != null,
                 atCapacity = queuedBytes >= maximumQueueBytes,
                 trackBufferedDurationUs = trackBufferedDurationsUsLocked(),
@@ -514,6 +516,7 @@ internal data class YExtractorReadAheadSnapshot(
     val targetAheadUs: Long = DEFAULT_HIGH_WATERMARK_US,
     /** Aggregate transport throughput, or 0 before the first measured busy period. */
     val throughputBitsPerSecond: Long = 0L,
+    val throughputMeasured: Boolean = false,
     val endOfInput: Boolean = false,
     val atCapacity: Boolean = false,
     val trackBufferedDurationUs: Map<Int, Long> = emptyMap(),
