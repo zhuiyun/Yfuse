@@ -14,6 +14,12 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
+private val BloomPetalDirections =
+    List(6) { index ->
+        val angle = (index * 60.0 - 90.0) * PI / 180.0
+        Offset(cos(angle).toFloat(), sin(angle).toFloat())
+    }
+
 internal fun capsuleDialogBounds(
     width: Float,
     height: Float,
@@ -55,9 +61,8 @@ internal fun ContentDrawScope.drawPlayfulDialog(
             val separation = radius * 0.95f * (1f - p)
             // Overlapping, equally wound circles form one mask. At rest every petal
             // reaches all four corners, avoiding a jump when the endpoint bypasses it.
-            for (index in 0 until 6) {
-                val angle = (index * 60.0 - 90.0) * PI / 180.0
-                val petal = center + Offset(cos(angle).toFloat(), sin(angle).toFloat()) * separation
+            for (direction in BloomPetalDirections) {
+                val petal = center + direction * separation
                 aperture.addOval(Rect(petal.x - radius, petal.y - radius, petal.x + radius, petal.y + radius))
             }
         }

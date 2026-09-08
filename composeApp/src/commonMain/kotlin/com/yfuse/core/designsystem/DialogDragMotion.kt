@@ -54,6 +54,7 @@ internal class DialogDragState(
 
     fun stopSettling() {
         settle?.cancel()
+        settle = null
     }
 
     fun reset() {
@@ -64,7 +65,7 @@ internal class DialogDragState(
 
     fun move(delta: Float): Float {
         if (!enabled() || dismissedByDrag) return 0f
-        settle?.cancel()
+        stopSettling()
         val before = offset
         offset = (offset + delta).coerceIn(0f, threshold * 3f)
         return offset - before
@@ -72,7 +73,8 @@ internal class DialogDragState(
 
     fun release(velocity: Float) {
         if (dismissedByDrag) return
-        settle?.cancel()
+        stopSettling()
+        if (offset <= 0f) return
         if (enabled() && shouldDismissDialogDrag(offset, velocity, threshold)) {
             dismissedByDrag = true
             dismiss()

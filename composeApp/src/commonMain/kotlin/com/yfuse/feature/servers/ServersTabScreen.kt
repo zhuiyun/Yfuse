@@ -36,8 +36,10 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -66,6 +68,7 @@ import com.yfuse.core.data.ServerHealthStatus
 import com.yfuse.core.data.ServerStats
 import com.yfuse.core.data.formatServerCount
 import com.yfuse.core.data.formatWatchedAgo
+import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -76,7 +79,9 @@ import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.OverlayButton
@@ -96,6 +101,7 @@ import com.yfuse.core.designsystem.YfFormField
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.liquidGlass
+import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.serverTintColor
@@ -130,6 +136,7 @@ private const val AGE_TICK_MS = 30_000L
 fun ServersTabScreen(component: ServersTabComponent) {
     val state by component.store.states.collectAsState(component.store.state)
     val palette = LocalPalette.current
+    val routeVisible = LocalRouteVisible.current
     val health by component.health.health.collectAsState()
     val lastWatched by component.activity.lastWatched.collectAsState()
     val serverStats by component.stats.stats.collectAsState()
@@ -149,7 +156,9 @@ fun ServersTabScreen(component: ServersTabComponent) {
     // The ages on the cards are relative, so they go stale where nothing else does. One
     // clock for the whole grid rather than one per card.
     var nowEpochMs by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(routeVisible) {
+        if (!routeVisible) return@LaunchedEffect
+        nowEpochMs = System.currentTimeMillis()
         while (true) {
             delay(AGE_TICK_MS)
             nowEpochMs = System.currentTimeMillis()
@@ -165,7 +174,16 @@ fun ServersTabScreen(component: ServersTabComponent) {
     var managementFor by remember { mutableStateOf<SavedServer?>(null) }
     // The refresh round now has a real completion signal — it awaits both the probes and the
     // count requests — so the spinner tracks the work instead of a fixed delay.
-    val refreshing by component.refreshing.collectAsState()
+    val refreshState by component.refreshState.collectAsState()
+    val refreshing = refreshState.refreshing
+    var requestedRefreshGeneration by remember { mutableStateOf<Long?>(null) }
+    val requestRefresh: () -> Unit = {
+        component.refreshAll()?.let { requestedRefreshGeneration = it }
+    }
+    SideEffect {
+        if (!routeVisible) requestedRefreshGeneration = null
+    }
+    val refreshFeedback = serverRefreshFeedback(refreshState, requestedRefreshGeneration, routeVisible)
     val pullState = rememberPullToRefreshState()
     RefreshThresholdHaptics(pullState, refreshing = refreshing)
 
@@ -196,7 +214,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = refreshing,
-            onRefresh = { component.refreshAll() },
+            onRefresh = requestRefresh,
             state = pullState,
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -228,7 +246,8 @@ fun ServersTabScreen(component: ServersTabComponent) {
                     ServersHeader(
                         onAdd = { component.store.accept(ServersIntent.OpenAddDialog) },
                         refreshing = refreshing,
-                        onRefreshAll = { component.refreshAll() },
+                        refreshFeedback = refreshFeedback,
+                        onRefreshAll = requestRefresh,
                         layout = layout,
                         onLayout = component::setLayout,
                         filter = listFilter,
@@ -237,7 +256,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
                 }
 
                 currentServer?.let { server ->
-                    item(key = "current-${server.id}", span = { GridItemSpan(maxLineSpan) }) {
+                    item(key = server.id, contentType = "current-server", span = { GridItemSpan(maxLineSpan) }) {
                         CurrentServerHero(
                             server = server,
                             health = health[server.id],
@@ -246,6 +265,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
                             onlineCount = onlineServerCount,
                             onOpen = { component.onOpenLibrary() },
                             onMore = { actionsFor = server },
+                            modifier = motionAwareItem(),
                         )
                     }
                 }
@@ -279,7 +299,7 @@ fun ServersTabScreen(component: ServersTabComponent) {
                     }
                 }
 
-                items(otherVisibleServers, key = { it.id }) { server ->
+                items(otherVisibleServers, key = { it.id }, contentType = { "server-card" }) { server ->
                     ServerCard(
                         server = server,
                         isCurrent = false,
@@ -291,9 +311,22 @@ fun ServersTabScreen(component: ServersTabComponent) {
                             component.onOpenLibrary()
                         },
                         onMore = { actionsFor = server },
+                        modifier = motionAwareItem(),
                     )
                 }
             }
+        }
+        // A new request also cancels the previous toast's timeout; it must not dismiss this generation.
+        key(if (routeVisible) refreshState.generation else null) {
+            val feedbackGeneration = refreshState.generation
+            ActionToast(
+                message = refreshFeedback?.message,
+                onDismiss = {
+                    if (requestedRefreshGeneration == feedbackGeneration) requestedRefreshGeneration = null
+                },
+                modifier = Modifier.padding(bottom = TabBarInset),
+                accent = refreshFeedback?.let { refreshResultColor(it.result) },
+            )
         }
     }
 
@@ -480,6 +513,7 @@ private fun routesSummary(
 private fun ServersHeader(
     onAdd: () -> Unit,
     refreshing: Boolean,
+    refreshFeedback: ServerRefreshOutcome?,
     onRefreshAll: () -> Unit,
     layout: ServerLayout,
     onLayout: (ServerLayout) -> Unit,
@@ -488,15 +522,21 @@ private fun ServersHeader(
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
-    val spin by rememberInfiniteTransition(label = "servers-refresh").animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec =
-            infiniteRepeatable(
-                animation = tween(Motion.REFRESH_SPIN, easing = LinearEasing),
-            ),
-        label = "servers-refresh-angle",
-    )
+    val animateRefresh = refreshing && LocalRouteVisible.current && !LocalAccessibilityOptions.current.reduceMotion
+    val spin =
+        if (animateRefresh) {
+            rememberInfiniteTransition(label = "servers-refresh").animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(Motion.REFRESH_SPIN, easing = LinearEasing),
+                    ),
+                label = "servers-refresh-angle",
+            )
+        } else {
+            null
+        }
     Column(
         Modifier.fillMaxWidth().padding(bottom = 4.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -608,18 +648,34 @@ private fun ServersHeader(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    AppIcons.Refresh,
+                    when (refreshFeedback?.result) {
+                        ServerRefreshResult.Success -> AppIcons.Check
+                        ServerRefreshResult.PartialFailure, ServerRefreshResult.Failure -> AppIcons.Info
+                        ServerRefreshResult.Cancelled -> AppIcons.Close
+                        ServerRefreshResult.Empty, null -> AppIcons.Refresh
+                    },
                     contentDescription = null,
-                    tint = if (refreshing) accent.accent else palette.sub2,
+                    tint =
+                        refreshFeedback?.let { refreshResultColor(it.result) }
+                            ?: if (refreshing) accent.accent else palette.sub2,
                     modifier =
                         Modifier
                             .size(15.dp)
-                            .graphicsLayer { rotationZ = if (refreshing) spin else 0f },
+                            .graphicsLayer { rotationZ = spin?.value ?: 0f },
                 )
             }
         }
     }
 }
+
+@Composable
+private fun refreshResultColor(result: ServerRefreshResult): Color =
+    when (result) {
+        ServerRefreshResult.Success -> Semantic.Success
+        ServerRefreshResult.PartialFailure -> Semantic.Warning
+        ServerRefreshResult.Failure -> Semantic.Error
+        ServerRefreshResult.Cancelled, ServerRefreshResult.Empty -> LocalPalette.current.sub2
+    }
 
 @Composable
 private fun CurrentServerHero(
@@ -630,6 +686,7 @@ private fun CurrentServerHero(
     onlineCount: Int,
     onOpen: () -> Unit,
     onMore: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -640,7 +697,7 @@ private fun CurrentServerHero(
         latencySeverityColor(health?.latencySeverity ?: LatencySeverity.Unknown)
 
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .semantics { selected = true }
             .pressable(
@@ -862,6 +919,7 @@ private fun ServerCard(
     lastWatchedLabel: String,
     onClick: () -> Unit,
     onMore: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -904,7 +962,7 @@ private fun ServerCard(
                 )
         }
     Box(
-        Modifier
+        modifier
             .fillMaxWidth()
             .semantics { selected = isCurrent }
             .pressable(

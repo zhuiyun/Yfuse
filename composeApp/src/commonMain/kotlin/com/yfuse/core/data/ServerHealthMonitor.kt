@@ -6,6 +6,7 @@ import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.model.ServersData
 import com.yfuse.core.network.EmbyError
 import com.yfuse.core.network.EmbyErrorException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -26,6 +27,9 @@ import kotlinx.coroutines.sync.withPermit
 
 /** A lightweight health model used by server rows and playback failover decisions. */
 enum class ServerHealthStatus { Unknown, Healthy, Degraded, Offline, AuthRequired }
+
+private fun <T> Result<T>.rethrowProbeCancellation(): Result<T> =
+    onFailure { if (it is CancellationException) throw it }
 
 /**
  * The experience implied by a measured round-trip time.
@@ -153,10 +157,14 @@ class ServerHealthMonitor(
         appForeground.value = value
     }
 
-    suspend fun refreshAll(servers: List<SavedServer> = registry.data.value.servers) =
+    suspend fun refreshAll(servers: List<SavedServer> = registry.data.value.servers) {
+        refreshAllResults(servers)
+    }
+
+    /** Results belong to these probes, even when a periodic round publishes newer health concurrently. */
+    suspend fun refreshAllResults(servers: List<SavedServer>): Map<String, Result<Unit>> =
         coroutineScope {
-            servers.map { server -> async { refresh(server) } }.awaitAll()
-            Unit
+            servers.map { server -> async { server.id to refreshResult(server) } }.awaitAll().toMap()
         }
 
     /**
@@ -168,13 +176,19 @@ class ServerHealthMonitor(
      * currently up, and failover has nothing to fail over to.
      */
     suspend fun refresh(server: SavedServer) {
+        refreshResult(server)
+    }
+
+    suspend fun refreshResult(server: SavedServer): Result<Unit> {
         val routes = server.effectiveRoutes
         if (routes.size <= 1) {
-            probePermits
-                .withPermit { repository.probeServer(server) }
-                .onSuccess { latency -> recordSuccess(server.id, latency) }
-                .onFailure { recordFailure(server.id, it) }
-            return
+            val result =
+                probePermits
+                    .withPermit { repository.probeServer(server) }
+                    .rethrowProbeCancellation()
+                    .onSuccess { latency -> recordSuccess(server.id, latency) }
+                    .onFailure { recordFailure(server.id, it) }
+            return result.map { Unit }
         }
         // The active address answers the foreground question every minute. Backups are
         // re-checked every few minutes, or at once when the active one stops answering,
@@ -184,9 +198,10 @@ class ServerHealthMonitor(
         if (!backupsDue) {
             val active = server.activeRoute
             val activeOnly =
-                probePermits.withPermit {
-                    repository.probeAddress(active.url, server.accessToken, server.kind)
-                }
+                probePermits
+                    .withPermit {
+                        repository.probeAddress(active.url, server.accessToken, server.kind)
+                    }.rethrowProbeCancellation()
             val latency = activeOnly.getOrNull()
             if (latency != null) {
                 val previousRoutes = _health.value[server.id]?.routes.orEmpty()
@@ -195,7 +210,7 @@ class ServerHealthMonitor(
                     latencyMs = latency,
                     routes = previousRoutes + (active.id to RouteHealth(ServerHealthStatus.Healthy, latency)),
                 )
-                return
+                return Result.success(Unit)
             }
         }
         lastBackupProbeAtMs.update { current -> current + (server.id to now) }
@@ -205,9 +220,10 @@ class ServerHealthMonitor(
                     .map { route ->
                         async {
                             route to
-                                probePermits.withPermit {
-                                    repository.probeAddress(route.url, server.accessToken, server.kind)
-                                }
+                                probePermits
+                                    .withPermit {
+                                        repository.probeAddress(route.url, server.accessToken, server.kind)
+                                    }.rethrowProbeCancellation()
                         }
                     }.awaitAll()
             }
@@ -240,6 +256,8 @@ class ServerHealthMonitor(
                 failOver(server, probed)
             }
         }
+        return activeResult?.map { Unit }
+            ?: Result.failure(IllegalStateException("Active route missing from probe results"))
     }
 
     /**

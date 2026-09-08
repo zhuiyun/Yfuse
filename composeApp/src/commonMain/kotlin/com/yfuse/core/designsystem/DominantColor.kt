@@ -89,15 +89,7 @@ fun rememberAnimatedArtworkAccent(
     identity: Any?,
     durationMillis: Int = Motion.ACCENT,
 ): Color {
-    val extracted = rememberDominantColor(url, fallback)
-    var target by remember(identity, fallback, darkTheme) {
-        mutableStateOf(harmonizeArtworkAccent(extracted, darkTheme))
-    }
-    LaunchedEffect(extracted, fallback, darkTheme, identity) {
-        if (extracted != fallback) {
-            target = harmonizeArtworkAccent(extracted, darkTheme)
-        }
-    }
+    val target = rememberArtworkAccentTarget(url, fallback, darkTheme, identity)
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val eased by animateColorAsState(
         targetValue = target,
@@ -109,6 +101,26 @@ fun rememberAnimatedArtworkAccent(
         label = "artworkAccent",
     )
     return eased
+}
+
+/** Stable semantic theme target. Animation belongs to local decorative draw nodes, not a whole-page palette. */
+@Composable
+fun rememberArtworkAccentTarget(
+    url: String?,
+    fallback: Color,
+    darkTheme: Boolean,
+    identity: Any?,
+): Color {
+    val extracted = rememberDominantColor(url, fallback)
+    var target by remember(identity, fallback, darkTheme) {
+        mutableStateOf(harmonizeArtworkAccent(extracted, darkTheme))
+    }
+    LaunchedEffect(extracted, fallback, darkTheme, identity) {
+        if (extracted != fallback) {
+            target = harmonizeArtworkAccent(extracted, darkTheme)
+        }
+    }
+    return target
 }
 
 /**

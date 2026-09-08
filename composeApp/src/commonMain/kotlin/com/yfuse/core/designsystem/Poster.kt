@@ -1,7 +1,5 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,12 +44,12 @@ import coil3.decode.DataSource
 import kotlin.math.roundToInt
 
 /** Large artwork may resolve cinematically, but should never hold the image soft for 550ms. */
-private const val ArtworkRevealDurationMs = 400
+private const val ARTWORK_REVEAL_DURATION_MS = 400
 private val ArtworkRevealBlur = 6.dp
-private const val ArtworkRevealScaleFrom = 1.025f
+private const val ARTWORK_REVEAL_SCALE_FROM = 1.025f
 
 /** Dense rails and grids only need a quick opacity hand-off from their placeholder. */
-internal const val PosterFadeDurationMs = 180
+internal const val POSTER_FADE_DURATION_MS = 180
 
 /**
  * An image that is allowed a second (and third) guess.
@@ -76,12 +74,12 @@ fun FallbackImage(
      * cast avatar has nothing to resolve into.
      */
     progressive: Boolean = true,
-    /** Fade the drawable without adding the progressive blur and 1.05 scale. */
+    /** Fade the drawable without adding progressive blur or scale. */
     alphaOnly: Boolean = false,
     /** Large artwork uses the default 400ms reveal; dense posters pass 180ms. */
-    revealDurationMillis: Int = ArtworkRevealDurationMs,
+    revealDurationMillis: Int = ARTWORK_REVEAL_DURATION_MS,
     revealBlur: Dp = ArtworkRevealBlur,
-    revealScaleFrom: Float = ArtworkRevealScaleFrom,
+    revealScaleFrom: Float = ARTWORK_REVEAL_SCALE_FROM,
     /** Reports the fallback candidate whose drawable actually reached the screen. */
     onResolvedUrl: (String) -> Unit = {},
 ) {
@@ -103,16 +101,12 @@ fun FallbackImage(
      * guess about the page.
      */
     var instant by remember(candidates, candidateIndex) { mutableStateOf(false) }
-    val animate = progressive && !LocalAccessibilityOptions.current.reduceMotion && !instant
-    // 0 while the picture is still arriving, 1 once it has settled into place.
-    val settle by animateFloatAsState(
-        targetValue = if (loaded || !animate) 1f else 0f,
-        animationSpec =
-            tween(
-                durationMillis = if (animate) revealDurationMillis else 0,
-                easing = Motion.Curve,
-            ),
-        label = "imageIn",
+    val settle by rememberImageRevealProgress(
+        requestKey = candidates to candidateIndex,
+        loaded = loaded,
+        instant = instant,
+        enabled = progressive,
+        durationMillis = revealDurationMillis,
     )
     Box(modifier) {
         if (exhausted) {
@@ -297,7 +291,7 @@ fun Poster(
                     .sharedMediaArtwork(sharedTransitionKey)
                     .fillMaxSize(),
             alphaOnly = true,
-            revealDurationMillis = PosterFadeDurationMs,
+            revealDurationMillis = POSTER_FADE_DURATION_MS,
         )
 
         overlay()

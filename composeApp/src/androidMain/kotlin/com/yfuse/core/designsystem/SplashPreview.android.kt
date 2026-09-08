@@ -22,9 +22,11 @@ actual fun SplashPreview(
 ) {
     val choreography = remember(variant) { variant.choreography }
     val clock = remember(variant) { Animatable(0f) }
+    val visible = LocalRouteVisible.current
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
 
-    LaunchedEffect(variant, playing) {
-        if (!playing) {
+    LaunchedEffect(variant, playing, visible, reduceMotion) {
+        if (!playing || !visible || reduceMotion) {
             // Park on the resolved mark rather than an empty frame.
             clock.snapTo(choreography.fadeStartMs)
             return@LaunchedEffect
@@ -36,7 +38,7 @@ actual fun SplashPreview(
                 animationSpec = tween(choreography.fadeStartMs.toInt(), easing = LinearEasing),
             )
             // Hold the finished mark so the loop reads as a cycle, not a stutter.
-            delay(LoopHoldMs)
+            delay(LOOP_HOLD_MS)
         }
     }
 
@@ -46,4 +48,4 @@ actual fun SplashPreview(
     Canvas(modifier) { with(choreography) { drawMark(clock.value, mark) } }
 }
 
-private const val LoopHoldMs = 900L
+private const val LOOP_HOLD_MS = 900L

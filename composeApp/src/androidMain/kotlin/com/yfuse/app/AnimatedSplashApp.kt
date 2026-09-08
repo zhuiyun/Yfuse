@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -39,8 +42,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yfuse.core.designsystem.DarkPalette
 import com.yfuse.core.designsystem.LightPalette
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.SplashAnimation
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.defaultAnimation
@@ -76,11 +83,11 @@ fun AnimatedSplashApp(
     val stillFrame = reduceMotion || systemAnimationsOff
     val splashHistory =
         remember(context) {
-            context.getSharedPreferences(SplashHistoryPreferences, Context.MODE_PRIVATE)
+            context.getSharedPreferences(SPLASH_HISTORY_PREFERENCES, Context.MODE_PRIVATE)
         }
     val firstSplash =
         rememberSaveable {
-            !splashHistory.getBoolean(SplashHistorySeenKey, false)
+            !splashHistory.getBoolean(SPLASH_HISTORY_SEEN_KEY, false)
         }
     val timing =
         remember(firstSplash, reduceMotion, systemAnimationsOff) {
@@ -94,14 +101,36 @@ fun AnimatedSplashApp(
     var splashVisible by rememberSaveable {
         mutableStateOf(root.themePreferences.splashAnimation.value)
     }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, splashVisible) {
+        if (!splashVisible) return@DisposableEffect onDispose { }
+        val observer =
+            LifecycleEventObserver { _, event ->
+                // Returning from Home should expose the prepared app, without resuming a hidden welcome.
+                if (event == Lifecycle.Event.ON_STOP) splashVisible = false
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(splashVisible, firstSplash, splashHistory) {
         if (splashVisible && firstSplash) {
-            splashHistory.edit().putBoolean(SplashHistorySeenKey, true).apply()
+            splashHistory.edit().putBoolean(SPLASH_HISTORY_SEEN_KEY, true).apply()
         }
     }
 
     Box(Modifier.fillMaxSize()) {
-        App(root)
+        val parentRouteVisible = LocalRouteVisible.current
+        CompositionLocalProvider(LocalRouteVisible provides (parentRouteVisible && !splashVisible)) {
+            Box(
+                Modifier.fillMaxSize().drawWithContent {
+                    // The splash background stays opaque through its final frame. Keep data and layout
+                    // preparation active, but do not record wallpaper, posters and glass underneath it.
+                    if (!splashVisible) drawContent()
+                },
+            ) {
+                App(root)
+            }
+        }
 
         // Dialog-based overlays use their own window and can otherwise appear above the
         // Compose splash. Do not compose them until the splash has fully finished.
@@ -180,7 +209,7 @@ private fun AnimatedSplashScreen(
             Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    val tint = smooth(span(clock.value, 0f, EntryTintMs))
+                    val tint = smooth(span(clock.value, 0f, ENTRY_TINT_MS))
                     drawRect(lerpColor(entryColor, targetColor, tint))
                 },
         contentAlignment = Alignment.Center,
@@ -315,40 +344,40 @@ internal fun splashTiming(
             SplashTiming(
                 motionDurationMs = 0,
                 fadeDurationMs = 0,
-                stillFrameHoldMs = SystemAnimationsOffHoldMs,
+                stillFrameHoldMs = SYSTEM_ANIMATIONS_OFF_HOLD_MS,
             )
         reduceMotion ->
             SplashTiming(
                 motionDurationMs = 0,
-                fadeDurationMs = ReducedMotionFadeMs,
-                stillFrameHoldMs = ReducedMotionHoldMs,
+                fadeDurationMs = REDUCED_MOTION_FADE_MS,
+                stillFrameHoldMs = REDUCED_MOTION_HOLD_MS,
             )
         firstLaunch ->
             SplashTiming(
-                motionDurationMs = FirstLaunchMotionMs,
-                fadeDurationMs = FirstLaunchFadeMs,
+                motionDurationMs = FIRST_LAUNCH_MOTION_MS,
+                fadeDurationMs = FIRST_LAUNCH_FADE_MS,
                 stillFrameHoldMs = 0,
             )
         else ->
             SplashTiming(
-                motionDurationMs = ReturningLaunchMotionMs,
-                fadeDurationMs = ReturningLaunchFadeMs,
+                motionDurationMs = RETURNING_LAUNCH_MOTION_MS,
+                fadeDurationMs = RETURNING_LAUNCH_FADE_MS,
                 stillFrameHoldMs = 0,
             )
     }
 
-private const val SplashHistoryPreferences = "yfuse_splash_history"
-private const val SplashHistorySeenKey = "has_seen_full_splash"
+private const val SPLASH_HISTORY_PREFERENCES = "yfuse_splash_history"
+private const val SPLASH_HISTORY_SEEN_KEY = "has_seen_full_splash"
 
-private const val FirstLaunchMotionMs = 1_080
-private const val FirstLaunchFadeMs = 120
-private const val ReturningLaunchMotionMs = 1_080
-private const val ReturningLaunchFadeMs = 120
-private const val ReducedMotionHoldMs = 260L
-private const val ReducedMotionFadeMs = 80
-private const val SystemAnimationsOffHoldMs = 180L
+private const val FIRST_LAUNCH_MOTION_MS = 1_080
+private const val FIRST_LAUNCH_FADE_MS = 120
+private const val RETURNING_LAUNCH_MOTION_MS = 1_080
+private const val RETURNING_LAUNCH_FADE_MS = 120
+private const val REDUCED_MOTION_HOLD_MS = 260L
+private const val REDUCED_MOTION_FADE_MS = 80
+private const val SYSTEM_ANIMATIONS_OFF_HOLD_MS = 180L
 
-private const val EntryTintMs = 300f
+private const val ENTRY_TINT_MS = 300f
 
 /**
  * 水 → 火, the palette from 「Yfuse 水火 Logo」, run across the wordmark in the same

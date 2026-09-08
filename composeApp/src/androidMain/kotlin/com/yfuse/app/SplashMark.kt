@@ -118,6 +118,10 @@ internal fun DrawScope.withSheen(
     progress: Float,
     content: DrawScope.() -> Unit,
 ) {
+    if (!splashSheenActive(progress)) {
+        content()
+        return
+    }
     val bounds = Rect(Offset.Zero, size)
     drawContext.canvas.saveLayer(bounds, Paint())
     content()
@@ -142,6 +146,9 @@ internal fun DrawScope.withSheen(
     }
     drawContext.canvas.restore()
 }
+
+/** Only the moving SrcAtop highlight needs an offscreen layer; the rest draws directly. */
+internal fun splashSheenActive(progress: Float): Boolean = progress > 0.001f && progress < 0.999f
 
 /** A's radial bloom: water on one side, fire on the other. */
 internal fun DrawScope.drawWaterFireBloom(strength: Float) {

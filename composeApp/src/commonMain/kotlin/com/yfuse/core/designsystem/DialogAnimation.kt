@@ -59,6 +59,11 @@ enum class DialogAnimation(
     MagneticDrag("磁吸归位", "向下拖动弹窗，轻拉回弹，拉远后顺势关闭", 380, 240),
     Sheen("柔光扫入", "面板轻轻浮起，海报色柔光掠过边缘", 380, 240),
     Cascade("内容接力", "面板先落定，标题、选项与按钮依次轻盈入场", 420, 260),
+    PaperPlane("纸飞机投递", "沿折纸航线轻巧滑入，稳稳送到眼前", 380, 240),
+    WindChime("风铃轻摆", "悬挂卡片轻摆两拍，迅速安静归位", 420, 260),
+    InstantPhoto("拍立得冲印", "从短窄出片口展开，照片边框轻轻收稳", 420, 260),
+    Zipper("拉链解封", "拉头向下划开，两侧顺势展开", 380, 240),
+    Ticket("票根展开", "票头先显现，正文沿齿边利落铺开", 400, 250),
 }
 
 val LocalDialogAnimation = staticCompositionLocalOf { DialogAnimation.Lift }
@@ -100,12 +105,31 @@ internal data class DialogMotionFrame(
     val rotationZ: Float = 0f,
 )
 
+private val RestingDialogMotionFrame = DialogMotionFrame()
+
+/** Layer properties and the reveal mask share one immutable geometry result for each progress. */
+internal class DialogMotionFrameCache(
+    private val animation: DialogAnimation,
+) {
+    private var lastProgress = Float.NaN
+    private var lastFrame = RestingDialogMotionFrame
+
+    fun frame(progress: Float): DialogMotionFrame {
+        val p = progress.coerceIn(0f, 1f)
+        if (p != lastProgress) {
+            lastProgress = p
+            lastFrame = dialogMotionFrame(animation, p)
+        }
+        return lastFrame
+    }
+}
+
 internal fun dialogMotionFrame(
     animation: DialogAnimation,
     progress: Float,
 ): DialogMotionFrame {
     val p = progress.coerceIn(0f, 1f)
-    if (p == 1f) return DialogMotionFrame()
+    if (p == 1f) return RestingDialogMotionFrame
     val hidden = 1f - p
     return when (animation) {
         DialogAnimation.Lift, DialogAnimation.Sheen, DialogAnimation.Cascade ->
@@ -182,7 +206,10 @@ internal fun dialogMotionFrame(
         DialogAnimation.Ribbon, DialogAnimation.Iris, DialogAnimation.Mosaic, DialogAnimation.Curtain,
         DialogAnimation.Bloom, DialogAnimation.Diagonal, DialogAnimation.Capsule, DialogAnimation.Steps,
         DialogAnimation.PosterMorph, DialogAnimation.Ripple, DialogAnimation.PageFold,
-        -> DialogMotionFrame()
+        -> RestingDialogMotionFrame
+        DialogAnimation.PaperPlane, DialogAnimation.WindChime, DialogAnimation.InstantPhoto,
+        DialogAnimation.Zipper, DialogAnimation.Ticket,
+        -> delightDialogMotionFrame(animation, p)
     }
 }
 
@@ -202,43 +229,54 @@ internal fun Modifier.dialogMotion(
     val position = remember { DialogPanelPosition() }
     val glow = LocalAccentColors.current.accent
     val cache = remember(glow) { DialogDrawCache(glow) }
+    val frames = remember(animation) { DialogMotionFrameCache(animation) }
     val poster = remember { host.poster?.takeIf { animation == DialogAnimation.PosterMorph } }
     val posterLayer = if (animation == DialogAnimation.PosterMorph) rememberGraphicsLayer() else null
-    return onGloballyPositioned { position.origin = it.positionInWindow() }
-        .graphicsLayer {
-            val frame = dialogMotionFrame(animation, progress())
-            transformOrigin =
-                when {
-                    animation == DialogAnimation.Touch && anchor != null ->
-                        TransformOrigin(
-                            (anchor.x - position.origin.x) / size.width.coerceAtLeast(1f),
-                            (anchor.y - position.origin.y) / size.height.coerceAtLeast(1f),
-                        )
-                    animation == DialogAnimation.Perspective -> TransformOrigin(0.5f, 0.85f)
-                    animation == DialogAnimation.CardExtract -> TransformOrigin(0.15f, 0.95f)
-                    else -> TransformOrigin.Center
+    val layerOnly = animation == DialogAnimation.Slide || animation == DialogAnimation.Touch
+    val transformed =
+        onGloballyPositioned { position.origin = it.positionInWindow() }
+            .graphicsLayer {
+                val entered = progress().coerceIn(0f, 1f)
+                val frame = frames.frame(entered)
+                // Binary endpoint visibility requires no translucent offscreen layer during motion.
+                alpha = if (layerOnly && entered <= 0f) 0f else 1f
+                transformOrigin =
+                    when {
+                        animation == DialogAnimation.Touch && anchor != null ->
+                            TransformOrigin(
+                                (anchor.x - position.origin.x) / size.width.coerceAtLeast(1f),
+                                (anchor.y - position.origin.y) / size.height.coerceAtLeast(1f),
+                            )
+                        animation == DialogAnimation.Perspective -> TransformOrigin(0.5f, 0.85f)
+                        animation == DialogAnimation.CardExtract -> TransformOrigin(0.15f, 0.95f)
+                        animation == DialogAnimation.WindChime -> TransformOrigin(0.5f, 0f)
+                        else -> TransformOrigin.Center
+                    }
+                scaleX = frame.scaleX
+                scaleY = frame.scaleY
+                translationY =
+                    if (animation == DialogAnimation.Slide) {
+                        (host.origin.y + host.height - position.origin.y + size.height).coerceAtLeast(size.height) *
+                            frame.offsetY
+                    } else {
+                        frame.offsetY * density
+                    }
+                rotationX = frame.rotationX
+                translationX = frame.offsetX * density
+                rotationZ = frame.rotationZ
+                cameraDistance = 1200f * density
+                if (drag != null) {
+                    translationY += drag.offset
+                    if (drag.dismissedByDrag) translationY += (host.height + size.height) * (1f - entered)
+                    val stretch = (drag.offset / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                    scaleX *= 1f - 0.035f * stretch
+                    scaleY *= 1f + 0.015f * stretch
                 }
-            scaleX = frame.scaleX
-            scaleY = frame.scaleY
-            translationY =
-                if (animation == DialogAnimation.Slide) {
-                    (host.origin.y + host.height - position.origin.y + size.height).coerceAtLeast(size.height) *
-                        frame.offsetY
-                } else {
-                    frame.offsetY * density
-                }
-            rotationX = frame.rotationX
-            translationX = frame.offsetX * density
-            rotationZ = frame.rotationZ
-            cameraDistance = 1200f * density
-            if (drag != null) {
-                translationY += drag.offset
-                if (drag.dismissedByDrag) translationY += (host.height + size.height) * (1f - progress())
-                val stretch = (drag.offset / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                scaleX *= 1f - 0.035f * stretch
-                scaleY *= 1f + 0.015f * stretch
             }
-        }.drawWithContent {
+    // A pure layer transform reuses its recorded content without invalidating a draw modifier.
+    if (layerOnly) return transformed
+    return transformed
+        .drawWithContent {
             val entered = progress().coerceIn(0f, 1f)
             // Both endpoints bypass effects, including when reduced motion snaps to them.
             if (entered <= 0f) return@drawWithContent
@@ -251,19 +289,32 @@ internal fun Modifier.dialogMotion(
             ) {
                 return@drawWithContent
             }
-            if (drawInteractiveDialog(animation, entered, anchor?.minus(position.origin), glow, cache)) {
-                return@drawWithContent
-            }
-            if (drawSciFiDialog(animation, entered, anchor?.minus(position.origin), glow, cache)) {
-                return@drawWithContent
-            }
-            val frame = dialogMotionFrame(animation, progress())
+            val special =
+                when (animation) {
+                    DialogAnimation.Ripple, DialogAnimation.PageFold ->
+                        drawInteractiveDialog(animation, entered, anchor?.minus(position.origin), glow, cache)
+                    DialogAnimation.Hologram, DialogAnimation.Fold, DialogAnimation.Energy,
+                    DialogAnimation.Portal, DialogAnimation.Reconstruct,
+                    -> drawSciFiDialog(animation, entered, anchor?.minus(position.origin), glow, cache)
+                    DialogAnimation.Liquid, DialogAnimation.Blinds, DialogAnimation.Assemble, DialogAnimation.Radar ->
+                        drawMaterialDialog(animation, entered, glow, cache)
+                    DialogAnimation.Ribbon, DialogAnimation.Iris, DialogAnimation.Mosaic, DialogAnimation.Curtain ->
+                        drawExpressiveDialog(animation, entered, glow, cache)
+                    DialogAnimation.Bloom, DialogAnimation.Diagonal, DialogAnimation.Capsule, DialogAnimation.Steps ->
+                        drawPlayfulDialog(animation, entered, glow, cache)
+                    DialogAnimation.PaperPlane, DialogAnimation.WindChime, DialogAnimation.InstantPhoto,
+                    DialogAnimation.Zipper, DialogAnimation.Ticket,
+                    -> drawDelightDialog(animation, entered, glow, cache)
+                    else -> false
+                }
+            if (special) return@drawWithContent
+            val frame = frames.frame(entered)
             clipRect(
                 left = size.width * frame.insetX,
                 top = size.height * frame.insetY,
                 right = size.width * (1f - frame.insetX),
                 bottom = size.height * (1f - frame.insetY),
             ) { this@drawWithContent.drawContent() }
-            if (animation == DialogAnimation.Sheen) drawDialogSheen(entered, cache)
+            if (animation == DialogAnimation.Sheen) drawDialogSheen(entered, cache, frame)
         }.graphicsLayer()
 }

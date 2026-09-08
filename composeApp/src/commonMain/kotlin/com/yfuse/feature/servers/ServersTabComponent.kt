@@ -2,6 +2,7 @@ package com.yfuse.feature.servers
 
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.essenty.lifecycle.doOnDestroy
+import com.arkivanov.essenty.lifecycle.doOnPause
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.yfuse.app.AppDependencies
 import com.yfuse.core.data.EmbyRepository
@@ -16,12 +17,17 @@ import com.yfuse.core.model.SavedServer
 import com.yfuse.core.model.ServerLayout
 import com.yfuse.core.model.ServerRoute
 import com.yfuse.core.util.componentScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -90,7 +96,13 @@ class ServersTabComponent(
     private val libraryCache: LibraryCache = dependencies.libraryCache
     private val scope = componentScope(lifecycle)
 
-    private val _refreshing = MutableStateFlow(false)
+    private val refreshController =
+        ServerRefreshController(scope) {
+            val servers = registry.data.value.servers
+            val healthResults = health.refreshAllResults(servers)
+            val statsResults = coroutineScope { refreshStats(this, servers) }
+            summarizeServerRefresh(servers.map { it.id }, healthResults, statsResults)
+        }
 
     private val _listFilter = MutableStateFlow(ServerListFilter())
     private val _management = MutableStateFlow<ServerManagementUiState>(ServerManagementUiState.Idle)
@@ -98,8 +110,14 @@ class ServersTabComponent(
     /** Sorting, latency and account filtering stay with this tab while the app is alive. */
     val listFilter: StateFlow<ServerListFilter> = _listFilter.asStateFlow()
 
-    /** Drives the header's refresh control so a whole-grid re-probe is visibly running. */
-    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+    /** Each explicit refresh has its own real result, separate from background/initial probes. */
+    val refreshState: StateFlow<ServerRefreshState> = refreshController.state
+
+    /** Existing non-phone surfaces retain their Boolean loading contract. */
+    val refreshing: StateFlow<Boolean> =
+        refreshState
+            .map { it.refreshing }
+            .stateIn(scope, SharingStarted.Eagerly, false)
 
     val management: StateFlow<ServerManagementUiState> = _management.asStateFlow()
 
@@ -212,19 +230,7 @@ class ServersTabComponent(
      * user's side — "is this server worth opening right now" — and splitting them would leave
      * a card reporting 40 ms beside counts read a week ago.
      */
-    fun refreshAll() {
-        if (_refreshing.value) return
-        _refreshing.value = true
-        scope.launch {
-            try {
-                val servers = registry.data.value.servers
-                health.refreshAll(servers)
-                refreshStats(this, servers)
-            } finally {
-                _refreshing.value = false
-            }
-        }
-    }
+    fun refreshAll(): Long? = refreshController.refreshAll()
 
     /** Re-probes one card from its context menu without making every server flash. */
     fun refreshHealth(server: SavedServer) {
@@ -253,14 +259,19 @@ class ServersTabComponent(
     private suspend fun refreshStats(
         scope: CoroutineScope,
         servers: List<SavedServer>,
-    ) {
+    ): Map<String, Result<Unit>> =
         servers
             .map { server ->
                 scope.async {
-                    repo.itemCounts(server).onSuccess { stats.record(server.id, it) }
+                    val result =
+                        repo
+                            .itemCounts(server)
+                            .onFailure { if (it is CancellationException) throw it }
+                            .onSuccess { stats.record(server.id, it) }
+                    server.id to result.map { Unit }
                 }
             }.awaitAll()
-    }
+            .toMap()
 
     /** Saves an edited route list, then re-probes so the new addresses report immediately. */
     fun setRoutes(
@@ -309,6 +320,7 @@ class ServersTabComponent(
     }
 
     init {
+        lifecycle.doOnPause { refreshController.suppressFeedback() }
         lifecycle.doOnDestroy { store.dispose() }
     }
 }

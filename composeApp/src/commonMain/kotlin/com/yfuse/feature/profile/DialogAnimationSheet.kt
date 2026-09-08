@@ -51,7 +51,11 @@ internal fun DialogAnimationSheet(
             previewOrigin.poster = host.poster
             preview = selected
         }
-        OverlayHeader("弹窗动画", "选择后立即保存，点击预览查看显示与隐藏效果", onClose = onDismiss)
+        OverlayHeader(
+            "弹窗动画",
+            "${DialogAnimation.entries.size} 款风格，选择后立即保存，点击预览查看显示与隐藏效果",
+            onClose = onDismiss,
+        )
         if (LocalAccessibilityOptions.current.reduceMotion) {
             Text("已开启“减少动画”，当前预览与实际弹窗均直接显示。", color = LocalPalette.current.sub, style = AppTypography.caption.regular)
         }
@@ -62,7 +66,8 @@ internal fun DialogAnimationSheet(
                     animation == DialogAnimation.Magnetic ||
                     animation == DialogAnimation.Ribbon ||
                     animation == DialogAnimation.Bloom ||
-                    animation == DialogAnimation.PosterMorph
+                    animation == DialogAnimation.PosterMorph ||
+                    animation == DialogAnimation.PaperPlane
                 ) {
                     Spacer(Modifier.height(12.dp))
                     Text(
@@ -72,6 +77,7 @@ internal fun DialogAnimationSheet(
                             animation == DialogAnimation.Ribbon -> "流动与韵律"
                             animation == DialogAnimation.Bloom -> "轻巧与趣味"
                             animation == DialogAnimation.PosterMorph -> "交互与细节"
+                            animation == DialogAnimation.PaperPlane -> "趣味小物"
                             else -> "材质与空间"
                         },
                         color = LocalPalette.current.sub,

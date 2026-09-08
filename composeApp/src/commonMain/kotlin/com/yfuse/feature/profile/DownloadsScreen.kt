@@ -47,6 +47,7 @@ import com.yfuse.core.designsystem.MinTouchTarget
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.glass
+import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.offline.DownloadStatus
@@ -420,7 +421,7 @@ internal fun DownloadsScreen(
                 }
             }
         } else {
-            items(shown, key = { it.id }) { item ->
+            items(shown, key = { it.id }, contentType = { "download-task" }) { item ->
                 DownloadTaskRow(
                     item = item,
                     selected = item.id in selected,
@@ -435,7 +436,7 @@ internal fun DownloadsScreen(
                         manager.remove(item.id)
                         selected = selected - item.id
                     },
-                    modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                    modifier = motionAwareItem().padding(horizontal = Dimens.pageHorizontal),
                 )
             }
         }

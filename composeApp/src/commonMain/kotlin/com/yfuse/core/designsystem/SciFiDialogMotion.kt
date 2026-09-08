@@ -134,13 +134,13 @@ internal fun ContentDrawScope.drawSciFiDialog(
         DialogAnimation.Reconstruct -> {
             val aperture = cache.aperture.apply { rewind() }
             for (index in 0 until 6) {
-                val slice = dialogSlice(progress, index)
-                if (slice.reveal <= 0f) continue
+                val reveal = dialogStage(progress, index * 0.035f)
+                if (reveal <= 0f) continue
                 val top = size.height * index / 6
                 val bottom = size.height * (index + 1) / 6
-                val width = size.width * slice.reveal
+                val width = size.width * reveal
                 val left = if (index % 2 == 0) 0f else size.width - width
-                aperture.addRect(Rect(left, top, left + width, top + (bottom - top) * slice.reveal))
+                aperture.addRect(Rect(left, top, left + width, top + (bottom - top) * reveal))
             }
             clipPath(aperture) { this@drawSciFiDialog.drawContent() }
         }

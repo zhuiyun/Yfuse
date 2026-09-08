@@ -74,8 +74,8 @@ internal fun ContentDrawScope.drawInteractiveDialog(
 internal fun ContentDrawScope.drawDialogSheen(
     progress: Float,
     cache: DialogDrawCache,
+    frame: DialogMotionFrame,
 ) {
-    val frame = dialogMotionFrame(DialogAnimation.Sheen, progress)
     val bounds =
         Rect(
             size.width * frame.insetX,

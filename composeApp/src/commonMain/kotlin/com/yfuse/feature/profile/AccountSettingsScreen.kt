@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -65,6 +66,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.ConfirmDialog
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
@@ -80,6 +82,7 @@ import com.yfuse.core.designsystem.YfInlineLinkButton
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.util.rememberShareHandler
 import kotlinx.coroutines.launch
@@ -1165,6 +1168,7 @@ private fun EncryptionInfoCard() {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     var expanded by rememberSaveable { mutableStateOf(false) }
+    val disclosure = rememberDisclosureProgress(expanded)
     AccountCard {
         Row(
             modifier =
@@ -1208,13 +1212,13 @@ private fun EncryptionInfoCard() {
                 )
             }
             Icon(
-                imageVector = if (expanded) AppIcons.ChevronDown else AppIcons.ChevronRight,
+                imageVector = AppIcons.ChevronRight,
                 contentDescription = null,
                 tint = palette.sub2,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = disclosure.value * 90f },
             )
         }
-        if (expanded) {
+        DisclosureContent(expanded, disclosure) {
             Spacer(Modifier.height(13.dp))
             Text(
                 "服务器令牌、弹幕源链接、绑定和同步设置会在本机使用 AES-256-GCM " +

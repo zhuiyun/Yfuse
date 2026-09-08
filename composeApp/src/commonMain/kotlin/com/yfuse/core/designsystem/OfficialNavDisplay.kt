@@ -133,6 +133,7 @@ private fun noBackTransition(): ContentTransform =
     ContentTransform(
         targetContentEnter = EnterTransition.None,
         initialContentExit = ExitTransition.None,
+        sizeTransform = null,
     )
 
 private fun rootContentTransform(
@@ -148,7 +149,7 @@ private fun rootContentTransform(
     val tabEnter =
         fadeIn(tween(Motion.TAB, easing = Motion.Curve)) +
             scaleIn(
-                animationSpec = Motion.settle(),
+                animationSpec = tween(Motion.TAB, easing = Motion.Curve),
                 initialScale = Motion.TAB_SCALE_FROM,
             )
     val tabExit =
@@ -158,35 +159,44 @@ private fun rootContentTransform(
                 targetScale = ROOT_TAB_EXIT_SCALE,
             )
 
-    return when (motion) {
-        OfficialNavMotion.Stack -> stackContentTransform(popping, pushTravelPx, popTravelPx)
-        OfficialNavMotion.RootTab -> tabEnter togetherWith tabExit
-        OfficialNavMotion.SearchEnter ->
-            (
-                fadeIn(tween(Motion.TAB, easing = Motion.Curve)) +
-                    scaleIn(
-                        animationSpec = Motion.settle(),
-                        initialScale = SEARCH_SCALE_FROM,
-                    ) +
-                    slideInVertically(
-                        animationSpec = tween(Motion.TAB, easing = Motion.Curve),
-                        initialOffsetY = { searchTravelPx },
-                    )
-            ) togetherWith tabExit
-        OfficialNavMotion.SearchExit ->
-            tabEnter togetherWith
+    val transform =
+        when (motion) {
+            OfficialNavMotion.Stack -> stackContentTransform(popping, pushTravelPx, popTravelPx)
+            OfficialNavMotion.RootTab -> tabEnter togetherWith tabExit
+            OfficialNavMotion.SearchEnter ->
                 (
-                    fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
-                        scaleOut(
-                            animationSpec = tween(Motion.QUICK, easing = Motion.Curve),
-                            targetScale = SEARCH_SCALE_FROM,
+                    fadeIn(tween(Motion.TAB, easing = Motion.Curve)) +
+                        scaleIn(
+                            animationSpec = tween(Motion.TAB, easing = Motion.Curve),
+                            initialScale = SEARCH_SCALE_FROM,
                         ) +
-                        slideOutVertically(
-                            animationSpec = tween(Motion.QUICK, easing = Motion.Curve),
-                            targetOffsetY = { searchTravelPx },
+                        slideInVertically(
+                            animationSpec = tween(Motion.TAB, easing = Motion.Curve),
+                            initialOffsetY = { searchTravelPx },
                         )
-                )
-    }
+                ) togetherWith tabExit
+            OfficialNavMotion.SearchExit ->
+                tabEnter togetherWith
+                    (
+                        fadeOut(tween(Motion.QUICK, easing = Motion.Curve)) +
+                            scaleOut(
+                                animationSpec = tween(Motion.QUICK, easing = Motion.Curve),
+                                targetScale = SEARCH_SCALE_FROM,
+                            ) +
+                            slideOutVertically(
+                                animationSpec = tween(Motion.QUICK, easing = Motion.Curve),
+                                targetOffsetY = { searchTravelPx },
+                            )
+                    )
+        }
+    // Each route already fills the host. A second size animation only keeps both expensive pages
+    // measured longer; opacity, translation and scale share the same finite hand-off instead.
+    return ContentTransform(
+        targetContentEnter = transform.targetContentEnter,
+        initialContentExit = transform.initialContentExit,
+        targetContentZIndex = transform.targetContentZIndex,
+        sizeTransform = null,
+    )
 }
 
 private fun stackContentTransform(

@@ -15,6 +15,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -26,11 +28,92 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class CarouselEffectsInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+
+    @Test(timeout = 30_000L)
+    fun page_colour_frames_only_invalidate_drawing_and_hidden_or_reduced_pages_snap() {
+        val target = mutableStateOf(Color(0xFF050505))
+        val visible = mutableStateOf(true)
+        val reduced = mutableStateOf(false)
+        val output = AtomicReference<State<Color>>()
+        val drawn = AtomicReference<Color>()
+        val firstOutputForTarget = AtomicReference<Pair<Color, Color>>()
+        val compositions = AtomicInteger()
+        val draws = AtomicInteger()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    YfuseTheme(dark = true, accessibility = AccessibilityOptions(reduceMotion = reduced.value)) {
+                        CompositionLocalProvider(LocalRouteVisible provides visible.value) {
+                            val currentTarget = target.value
+                            val colour = rememberCarouselPageColor(currentTarget)
+                            SideEffect {
+                                output.set(colour)
+                                compositions.incrementAndGet()
+                                if (firstOutputForTarget.get()?.first != currentTarget) {
+                                    firstOutputForTarget.set(currentTarget to colour.value)
+                                }
+                            }
+                            Box(
+                                Modifier.fillMaxSize().drawBehind {
+                                    drawn.set(colour.value)
+                                    draws.incrementAndGet()
+                                    drawRect(colour.value)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            waitUntil { drawn.get() == target.value }
+            val first = target.value
+            val second = Color(0xFF101010)
+            scenario.onActivity { target.value = second }
+            waitUntil { drawn.get() != first && drawn.get() != second }
+            val animationCompositions = compositions.get()
+            val animationDraws = draws.get()
+            waitUntil { drawn.get() == second }
+            instrumentation.waitForIdleSync()
+            assertEquals("Colour frames recomposed their host", animationCompositions, compositions.get())
+            assertTrue("Colour animation did not draw subsequent frames", draws.get() > animationDraws)
+
+            val third = Color(0xFF202020)
+            scenario.onActivity { target.value = third }
+            waitUntil { drawn.get() != second && drawn.get() != third }
+            scenario.onActivity { visible.value = false }
+            waitUntil { output.get()?.value == third }
+            instrumentation.waitForIdleSync()
+            val hiddenCompositions = compositions.get()
+            SystemClock.sleep(150L)
+            assertEquals(third, output.get().value)
+            assertEquals(hiddenCompositions, compositions.get())
+            scenario.onActivity { visible.value = true }
+            instrumentation.waitForIdleSync()
+            assertEquals("Returning to the page replayed its colour animation", third, output.get().value)
+
+            val fourth = Color(0xFF303030)
+            scenario.onActivity {
+                reduced.value = true
+                target.value = fourth
+            }
+            waitUntil { output.get()?.value == fourth }
+            assertEquals(fourth to fourth, firstOutputForTarget.get())
+            assertEquals(fourth, output.get().value)
+            scenario.onActivity {
+                reduced.value = false
+                target.value = Color.White
+            }
+            // A light target uses dark text: retaining even the first dark-background frame is unsafe.
+            waitUntil { output.get()?.value == Color.White }
+            assertEquals(Color.White to Color.White, firstOutputForTarget.get())
+            assertEquals(Color.White, output.get().value)
+        }
+    }
 
     @Test
     fun caption_animates_on_selection_but_not_when_returning_or_reducing_motion() {

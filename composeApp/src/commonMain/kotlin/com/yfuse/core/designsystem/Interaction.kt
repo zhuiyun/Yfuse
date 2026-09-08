@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -17,14 +16,21 @@ import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.grid.LazyGridItemScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.Role
@@ -145,18 +151,21 @@ fun Modifier.pressable(
         when {
             reduceMotion -> snap()
             down -> Motion.pressSpec(pressed = true, reduceMotion = false)
-            else -> Motion.settle()
+            else -> Motion.pressSpec(pressed = false, reduceMotion = false)
         }
     val scale by animateFloatAsState(
         targetValue = targetScale,
         animationSpec = scaleSpec,
         label = "pressScale",
     )
-    val ringAlpha by animateFloatAsState(
-        targetValue = focusRingTargetAlpha(enabled, focused, hovered),
-        animationSpec = if (reduceMotion) snap() else tween(Motion.QUICK, easing = Motion.Curve),
-        label = "focusRing",
-    )
+    val ringAlpha =
+        animateFloatAsState(
+            targetValue = focusRingTargetAlpha(enabled, focused, hovered),
+            animationSpec = if (reduceMotion) snap() else tween(Motion.QUICK, easing = Motion.Curve),
+            label = "focusRing",
+        )
+    // Only the visibility boundary changes the modifier chain; fractional alpha stays in drawing.
+    val showRing by remember(ringAlpha) { derivedStateOf { ringAlpha.value > 0f } }
     val focusColor = LocalAccentColors.current.accent
 
     // 减弱动态效果 turns the lean off rather than shortening it: a rotation that snaps to
@@ -193,6 +202,8 @@ fun Modifier.pressable(
         .graphicsLayer {
             scaleX = scale
             scaleY = scale
+            rotationX = 0f
+            rotationY = 0f
             if (lean > 0f && pressPoint.isSpecified && size.minDimension > 0f) {
                 // -1..1 across the surface, so the corner nearest the finger drops away
                 // and the opposite one lifts.
@@ -203,12 +214,37 @@ fun Modifier.pressable(
                 rotationX = -vertical * TILT_DEGREES * lean
             }
         }.then(
-            if (ringAlpha > 0f) {
-                Modifier.border(
-                    width = 2.dp,
-                    color = focusColor.copy(alpha = focusColor.alpha * ringAlpha),
-                    shape = focusShape,
-                )
+            if (showRing) {
+                Modifier.drawWithCache {
+                    var cachedOutline: Outline? = null
+                    var cachedClip: Path? = null
+                    // Clip the outer half of the stroke: the complete 2dp ring stays inside its hit target.
+                    val ringStroke = Stroke(4.dp.toPx())
+                    onDrawWithContent {
+                        drawContent()
+                        val alpha = ringAlpha.value
+                        if (alpha > 0f) {
+                            // Most touch-only controls never show a ring; build their geometry only on demand.
+                            val outline =
+                                cachedOutline ?: focusShape.createOutline(size, layoutDirection, this).also {
+                                    cachedOutline = it
+                                }
+                            val ringClip =
+                                cachedClip ?: when (outline) {
+                                    is Outline.Generic -> outline.path
+                                    is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
+                                    is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
+                                }.also { cachedClip = it }
+                            clipPath(ringClip) {
+                                drawOutline(
+                                    outline,
+                                    focusColor.copy(alpha = focusColor.alpha * alpha),
+                                    style = ringStroke,
+                                )
+                            }
+                        }
+                    }
+                }
             } else {
                 Modifier
             },

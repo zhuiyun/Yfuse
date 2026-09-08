@@ -32,6 +32,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -96,7 +98,7 @@ import com.yfuse.core.designsystem.loopingCarouselItemIndex
 import com.yfuse.core.designsystem.loopingCarouselSemantics
 import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
@@ -156,7 +158,7 @@ fun HomeScreen(component: HomeComponent) {
     val pageColor = rememberCarouselPageColor(retainedPageColor.value)
     var heroAccent by remember { mutableStateOf<Color?>(null) }
     ArtworkPageTheme(
-        background = pageColor,
+        background = retainedPageColor.value,
         artworkAccent = heroAccent,
     ) {
         HomeContent(
@@ -172,7 +174,7 @@ fun HomeScreen(component: HomeComponent) {
 @Composable
 private fun HomeContent(
     component: HomeComponent,
-    heroPageColor: Color?,
+    heroPageColor: State<Color>,
     onHeroAccent: (Color) -> Unit,
     onHeroPageColor: (Color) -> Unit,
 ) {
@@ -192,6 +194,7 @@ private fun HomeContent(
     var expandedRow by remember { mutableStateOf<TmdbRow?>(null) }
     val routeVisible = LocalRouteVisible.current
     var hiddenSinceLastRefresh by remember { mutableStateOf(false) }
+    var hasBeenVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(routeVisible) {
         if (routeVisible && hiddenSinceLastRefresh) {
@@ -200,9 +203,10 @@ private fun HomeContent(
             // Episodes can arrive while detail/player covers the tab. Refresh the compact
             // calendar too so its 入库/下一集 state is correct on the first frame back home.
             component.refreshCalendar(forceRefresh = true)
-        } else if (!routeVisible) {
+        } else if (!routeVisible && hasBeenVisible) {
             hiddenSinceLastRefresh = true
         }
+        if (routeVisible) hasBeenVisible = true
     }
 
     val pullState = rememberPullToRefreshState()
@@ -214,10 +218,9 @@ private fun HomeContent(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = livingPosterHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
         val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
-        val pageColor = heroPageColor ?: palette.background
         // The artwork alpha dissolves directly into this one opaque, poster-derived colour.
         // No seam overlay or local colour band exists between the hero and the page.
-        Box(Modifier.fillMaxSize().background(pageColor))
+        Box(Modifier.fillMaxSize().drawBehind { drawRect(heroPageColor.value) })
 
         val scrolledPastHero by rememberScrolledPastHero(listState, heroHeight)
         val heroVisible = !scrolledPastHero
@@ -591,7 +594,7 @@ private fun HomeHeroCarousel(
                 HeroPageIndicator(
                     pageCount = items.size,
                     selectedPage = loopingCarouselItemIndex(pagerState.currentPage, items.size),
-                    pageOffset = pagerState.currentPageOffsetFraction,
+                    pageOffsetProvider = { pagerState.currentPageOffsetFraction },
                     onPageSelected = { targetIndex ->
                         interaction++
                         carouselScope.launch {
@@ -651,7 +654,7 @@ private fun HeroSlide(
         remember(item) { tmdbHeroArtworkUrls(item) }
     var resolvedArtworkUrl by remember(item?.id) { mutableStateOf<String?>(null) }
     val artworkAccent =
-        rememberAnimatedArtworkAccent(
+        rememberArtworkAccentTarget(
             url = artworkUrls.firstOrNull { it != null },
             fallback = Brand.Primary, // design-system: brand-identity
             darkTheme = palette.isDark,

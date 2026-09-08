@@ -102,7 +102,17 @@ internal fun ContentDrawScope.drawPosterDialog(
         if (valid != null && progress < 0.65f) {
             // A separate layer owns opacity: changing the original layer would also fade
             // the poster behind the dialog. The source remains live and keeps its aspect.
-            overlay.record(size = valid.layer.size) { drawLayer(valid.layer) }
+            if (cache.posterSourceLayer !== valid.layer ||
+                cache.posterOverlayLayer !== overlay ||
+                cache.posterSourceSize != valid.layer.size
+            ) {
+                // The display list retains the live child layer. Opacity/transform updates do
+                // not need to record the same drawLayer command again on every animation frame.
+                overlay.record(size = valid.layer.size) { drawLayer(valid.layer) }
+                cache.posterSourceLayer = valid.layer
+                cache.posterOverlayLayer = overlay
+                cache.posterSourceSize = valid.layer.size
+            }
             overlay.alpha = 1f - (progress / 0.65f).coerceIn(0f, 1f)
             val scale = max(bounds.width / valid.bounds.width, bounds.height / valid.bounds.height)
             clipRect(bounds.left, bounds.top, bounds.right, bounds.bottom) {

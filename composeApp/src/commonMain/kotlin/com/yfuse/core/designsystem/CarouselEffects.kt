@@ -1,17 +1,19 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -70,13 +72,46 @@ fun Modifier.carouselTouchPause(touched: MutableState<Boolean>): Modifier =
         }
     }
 
+/** The page theme uses its target once; only background draw nodes observe this frame clock. */
 @Composable
-fun rememberCarouselPageColor(target: Color?): Color? {
+fun rememberCarouselPageColor(target: Color?): State<Color> {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val color by animateColorAsState(
-        targetValue = target ?: LocalPalette.current.background,
-        animationSpec = tween(if (reduceMotion) 0 else Motion.CAROUSEL_COLOR, easing = Motion.Curve),
-        label = "carousel-page-color",
-    )
-    return color.takeIf { target != null }
+    val visible = LocalRouteVisible.current
+    val palette = rememberArtworkPagePalette(target)
+    val targetColor = target ?: palette.background
+    val previousOutput = remember { arrayOfNulls<State<Color>>(1) }
+    val transition =
+        remember(targetColor, palette, reduceMotion, visible) {
+            // This is a retarget-time read, not a subscription that recomposes the host each frame.
+            val start = Snapshot.withoutReadObservation { previousOutput[0]?.value ?: targetColor }
+            val safe =
+                artworkPageTransitionIsSafe(
+                    start,
+                    targetColor,
+                    listOf(palette.text, palette.sub, palette.sub2, palette.body, palette.hint, palette.error),
+                )
+            PageColorTransition(start, targetColor, !reduceMotion && visible && start != targetColor && safe)
+        }
+    // Each retarget starts at the last displayed colour, even if its predecessor snapped before
+    // its effect could run. Hidden/reduced/unsafe targets are correct on their very first draw.
+    val output =
+        remember(transition) {
+            mutableStateOf(if (transition.animate) transition.start else transition.target)
+        }
+    LaunchedEffect(transition) {
+        if (transition.animate) {
+            animate(0f, 1f, animationSpec = tween(Motion.CAROUSEL_COLOR, easing = Motion.Curve)) { value, _ ->
+                output.value = interpolateArtworkPageColor(transition.start, transition.target, value)
+            }
+            output.value = transition.target
+        }
+    }
+    SideEffect { previousOutput[0] = output }
+    return output
 }
+
+private data class PageColorTransition(
+    val start: Color,
+    val target: Color,
+    val animate: Boolean,
+)

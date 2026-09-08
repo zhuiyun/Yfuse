@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,11 +63,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
@@ -381,7 +384,7 @@ fun App(root: RootComponent) {
                                 ).backdropSource(backdrop),
                         ) {
                             val previousRootTab = remember { arrayOf(active) }
-                            val rootMotion = rootTabMotion(previousRootTab[0], active)
+                            val rootMotion = remember(active) { rootTabMotion(previousRootTab[0], active) }
                             SideEffect { previousRootTab[0] = active }
                             // Top-level tabs are a real Navigation 3 back stack, while each tab's
                             // nested host continues to own its child routes. This host opts into
@@ -796,28 +799,35 @@ private fun BottomNavigationDock(
     ) {
         BoxWithConstraints(Modifier.weight(1f)) {
             val expandedWidth = maxWidth
-            val dockWidth by animateDpAsState(
-                targetValue = if (collapsed) Dimens.tabBarHeight else maxWidth,
-                animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.92f, stiffness = 360f),
-                label = "navigationDockWidth",
-            )
+            val dockWidth =
+                animateDpAsState(
+                    targetValue = if (collapsed) Dimens.tabBarHeight else maxWidth,
+                    animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.92f, stiffness = 360f),
+                    label = "navigationDockWidth",
+                )
             // A single continuous lens changes width; content fades inside its clipped bounds.
             // The fixed outer slot keeps search still, including when a fling is interrupted.
             AnimatedContent(
                 targetState = collapsed,
-                modifier = Modifier.width(dockWidth).clip(CircleShape).navigationGlass(backdrop, CircleShape),
+                modifier =
+                    Modifier
+                        .clip(CircleShape)
+                        .navigationGlass(backdrop, CircleShape)
+                        .navigationDockViewport(dockWidth, expandedWidth),
                 contentAlignment = Alignment.CenterStart,
                 transitionSpec = {
                     val duration = if (reduceMotion) 0 else Motion.EMPHASIZED
                     (
-                        fadeIn(
-                            tween(duration),
-                        ) + scaleIn(tween(duration, easing = Motion.Curve), initialScale = 0.96f)
-                    ) togetherWith
                         (
-                            fadeOut(tween(if (reduceMotion) 0 else Motion.QUICK)) +
-                                scaleOut(tween(duration), targetScale = 0.98f)
-                        )
+                            fadeIn(
+                                tween(duration),
+                            ) + scaleIn(tween(duration, easing = Motion.Curve), initialScale = 0.96f)
+                        ) togetherWith
+                            (
+                                fadeOut(tween(if (reduceMotion) 0 else Motion.QUICK)) +
+                                    scaleOut(tween(duration), targetScale = 0.98f)
+                            )
+                    ).using(null)
                 },
                 label = "navigationDockContent",
             ) { isCollapsed ->
@@ -848,6 +858,19 @@ private fun BottomNavigationDock(
         )
     }
 }
+
+/** Measure tab content once at its resting width; animation only changes the surrounding clipped viewport. */
+internal fun Modifier.navigationDockViewport(
+    animatedWidth: State<Dp>,
+    expandedWidth: Dp,
+): Modifier =
+    layout { measurable, constraints ->
+        val fullWidth = expandedWidth.roundToPx().coerceIn(constraints.minWidth, constraints.maxWidth)
+        val content = measurable.measure(constraints.copy(minWidth = fullWidth, maxWidth = fullWidth))
+        // The width clock is deliberately read during layout, never while composing the tab buttons.
+        val visibleWidth = animatedWidth.value.roundToPx().coerceIn(constraints.minWidth, fullWidth)
+        layout(visibleWidth, content.height) { content.placeRelative(0, 0) }
+    }
 
 /** The bar contracted to one key — the current tab's glyph, and a way back to the rest. */
 @Composable

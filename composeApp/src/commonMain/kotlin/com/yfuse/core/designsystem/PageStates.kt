@@ -154,11 +154,12 @@ private fun skeletonPulseAt(millis: Long): Float {
 @Composable
 fun SkeletonPulseProvider(content: @Composable () -> Unit) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val visible = LocalRouteVisible.current
     val clock = remember { SkeletonPulseClock() }
     val hasConsumers = clock.consumerCount > 0
 
-    LaunchedEffect(clock, reduceMotion, hasConsumers) {
-        if (reduceMotion || !hasConsumers) {
+    LaunchedEffect(clock, reduceMotion, hasConsumers, visible) {
+        if (reduceMotion || !hasConsumers || !visible) {
             clock.alpha.floatValue = 1f
             return@LaunchedEffect
         }
@@ -178,9 +179,10 @@ fun SkeletonBlock(
     shape: Shape = AppShapes.micro,
 ) {
     val clock = LocalSkeletonPulseClock.current
-    DisposableEffect(clock) {
-        clock?.registerConsumer()
-        onDispose { clock?.unregisterConsumer() }
+    val visible = LocalRouteVisible.current
+    DisposableEffect(clock, visible) {
+        if (visible) clock?.registerConsumer()
+        onDispose { if (visible) clock?.unregisterConsumer() }
     }
     Box(
         modifier

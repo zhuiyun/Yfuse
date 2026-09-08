@@ -14,7 +14,7 @@ class MotionAccessibilityPolicyTest {
 
     @Test
     fun dense_posters_use_a_short_fade_and_fallbacks_keep_identity() {
-        assertEquals(180, PosterFadeDurationMs)
+        assertEquals(180, POSTER_FADE_DURATION_MS)
         assertEquals("海", imageFallbackMonogram(" 海报 "))
         assertEquals("Y", imageFallbackMonogram("yfuse"))
         assertEquals("—", imageFallbackMonogram(null))

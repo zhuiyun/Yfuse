@@ -38,7 +38,14 @@ fun Modifier.mutedGlassPanel(
     // In-window player panels must never sample a root layer that contains themselves.
     val backdrop = LocalDialogBackdrop.current.takeIf { samplePage }
     val opaque = LocalAccessibilityOptions.current.reduceTransparency || backdrop?.active != true
-    val tint = if (dark) Color(0xFF191E27) else Color(0xFF878F9B)
+    // Without a backdrop (including reduced transparency), light text tokens need their
+    // light surface. Making the translucent grey tint opaque leaves captions hard to read.
+    val tint =
+        when {
+            dark -> Color(0xFF191E27)
+            opaque -> LightPalette.background
+            else -> Color(0xFF878F9B)
+        }
     val body =
         tint.copy(
             alpha =

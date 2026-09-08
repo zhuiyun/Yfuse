@@ -38,6 +38,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.PlayerTokens
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
@@ -75,7 +76,8 @@ fun WatchStickerGlyph(
     animated: Boolean = true,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val motion = if (animated && !reduceMotion) sticker.motion else WatchStickerMotion.Still
+    val visible = LocalRouteVisible.current
+    val motion = if (animated && visible && !reduceMotion) sticker.motion else WatchStickerMotion.Still
     val sharedClock = LocalStickerClock.current
     val phase =
         when {
@@ -224,9 +226,10 @@ internal fun WatchStickerTray(
 ) {
     val selectedCategory = remember { mutableStateOf(WatchStickerCategory.Reaction) }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val visible = LocalRouteVisible.current
     val accent = LocalAccentColors.current
     val sharedClock =
-        if (reduceMotion) {
+        if (reduceMotion || !visible) {
             null
         } else {
             rememberInfiniteTransition(label = "sticker-tray-clock").animateFloat(

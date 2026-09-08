@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
@@ -106,7 +107,7 @@ import com.yfuse.core.designsystem.loopingCarouselTargetPage
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.overlayAction
 import com.yfuse.core.designsystem.pressable
-import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberArtworkAccentTarget
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberArtworkPagePalette
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
@@ -234,9 +235,9 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
     val retainedPageColor =
         rememberRetainedArtworkPageColor("library:${state.currentServer?.id.orEmpty()}")
     val sampledPageColor = rememberCarouselPageColor(retainedPageColor.value)
-    val palette = rememberArtworkPagePalette(sampledPageColor)
+    val palette = rememberArtworkPagePalette(retainedPageColor.value)
     val accent =
-        rememberAnimatedArtworkAccent(
+        rememberArtworkAccentTarget(
             url = slideUrl,
             fallback = Brand.Primary, // design-system: brand-identity
             darkTheme = palette.isDark,
@@ -299,13 +300,12 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
 
     val bottomContentInset = floatingNavigationContentInset()
     ArtworkPageTheme(
-        background = sampledPageColor,
+        background = retainedPageColor.value,
         artworkAccent = accent,
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val heroHeight = libraryHeroHeight(maxHeight, wideLayout = maxWidth >= 600.dp)
-            val pageColor = sampledPageColor ?: palette.background
-            Box(Modifier.fillMaxSize().background(pageColor))
+            Box(Modifier.fillMaxSize().drawBehind { drawRect(sampledPageColor.value) })
             val lightPageReached by rememberScrolledPastHero(listState, heroHeight)
             val showSidePreview = maxWidth >= 600.dp || maxWidth > maxHeight
             val artworkWidth =
@@ -462,7 +462,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                                                     pageCount = slides.size,
                                                     selectedPage =
                                                         loopingCarouselItemIndex(pagerState.currentPage, slides.size),
-                                                    pageOffset = pagerState.currentPageOffsetFraction,
+                                                    pageOffsetProvider = { pagerState.currentPageOffsetFraction },
                                                     onPageSelected = { targetIndex ->
                                                         interaction++
                                                         carouselScope.launch {
@@ -604,7 +604,7 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                     Modifier
                         .fillMaxWidth()
                         .windowInsetsTopHeight(WindowInsets.statusBars)
-                        .background(pageColor),
+                        .drawBehind { drawRect(sampledPageColor.value) },
                 )
             }
 

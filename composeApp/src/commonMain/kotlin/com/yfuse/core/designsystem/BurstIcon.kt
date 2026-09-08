@@ -55,6 +55,7 @@ fun BurstIcon(
     iconSize: Dp = 14.dp,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val visible = LocalRouteVisible.current
     val pop = remember { Animatable(1f) }
     val ring = remember { Animatable(1f) }
     // The state the animation has already reacted to. Without it the effect fires on every
@@ -62,11 +63,21 @@ fun BurstIcon(
     // title would burst at it.
     var reacted by remember { mutableStateOf(active) }
 
-    LaunchedEffect(active, reduceMotion) {
-        if (active == reacted) return@LaunchedEffect
+    LaunchedEffect(active, reduceMotion, visible) {
+        if (reduceMotion || !visible) {
+            reacted = active
+            pop.snapTo(1f)
+            ring.snapTo(1f)
+            return@LaunchedEffect
+        }
+        if (active == reacted) {
+            // A rapid visibility/accessibility reversal may cancel the reset effect itself.
+            pop.snapTo(1f)
+            ring.snapTo(1f)
+            return@LaunchedEffect
+        }
         val turnedOn = active && !reacted
         reacted = active
-        if (reduceMotion) return@LaunchedEffect
         if (turnedOn) {
             ring.snapTo(0f)
             launch {
@@ -82,18 +93,18 @@ fun BurstIcon(
                     ),
             )
         } else {
+            ring.snapTo(1f)
             pop.snapTo(1.16f)
             pop.animateTo(1f, tween(RELEASE_MS, easing = Motion.Curve))
         }
     }
 
     Box(modifier, contentAlignment = Alignment.Center) {
-        val progress = ring.value
-        if (progress < 1f) {
-            Canvas(Modifier.size(iconSize * 2.4f)) {
-                // Starts just outside the glyph and runs to the edge of this box, thinning
-                // and fading as it goes.
-                val radius = size.minDimension / 2f * (0.38f + progress * 0.62f)
+        Canvas(Modifier.matchParentSize()) {
+            val progress = ring.value
+            if (!reduceMotion && visible && progress < 1f) {
+                // Draw outside the fixed icon bounds without enlarging its layout or hit target.
+                val radius = iconSize.toPx() * 1.2f * (0.38f + progress * 0.62f)
                 drawCircle(
                     color = burstColor.copy(alpha = (1f - progress) * 0.5f),
                     radius = radius,

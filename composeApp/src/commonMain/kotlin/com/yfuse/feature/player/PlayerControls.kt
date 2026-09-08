@@ -213,6 +213,7 @@ internal fun PlayerControls(
     modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(true) }
+    val hintProgress = rememberPlayerHintProgress(visible)
     var locked by remember { mutableStateOf(false) }
     var settingsPanelKind by remember { mutableStateOf<SettingsPanelKind?>(null) }
     var trackPanelMode by remember { mutableStateOf(TrackPanelMode.Subtitle) }
@@ -946,9 +947,10 @@ internal fun PlayerControls(
                 modifier =
                     Modifier
                         .align(Alignment.BottomEnd)
+                        .playerHintOffset(hintProgress, (-60).dp)
                         .padding(
                             end = 22.dp,
-                            bottom = if (visible) 84.dp else 24.dp,
+                            bottom = 24.dp,
                         ),
             )
         }
@@ -1165,7 +1167,8 @@ internal fun PlayerControls(
             modifier =
                 Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = if (visible) 70.dp else 18.dp, end = 22.dp),
+                    .playerHintOffset(hintProgress, 52.dp)
+                    .padding(top = 18.dp, end = 22.dp),
         ) {
             WatchChatPreview(
                 messages = watch.chatMessages,

@@ -1,15 +1,16 @@
 package com.yfuse.core.designsystem
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -24,7 +25,7 @@ object HeroPageIndicatorDefaults {
 }
 
 /**
- * Shared hero pagination with one 44dp tab target per visual dot.
+ * Shared hero pagination with one fixed 48dp tab target per visual dot.
  *
  * The dots used to be fixed white because they sat on the darkest part of a scrim. They now
  * sit in the strip where the artwork has already dissolved into the page — see
@@ -42,6 +43,7 @@ fun HeroPageIndicator(
     pageOffset: Float = 0f,
     modifier: Modifier = Modifier,
     onArtwork: Boolean = false,
+    pageOffsetProvider: (() -> Float)? = null,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val palette = LocalPalette.current
@@ -51,10 +53,6 @@ fun HeroPageIndicator(
     ) {
         repeat(pageCount.coerceAtLeast(0)) { index ->
             val active = index == selectedPage
-            val weight = carouselIndicatorWeight(index, selectedPage, if (reduceMotion) 0f else pageOffset, pageCount)
-            val width =
-                HeroPageIndicatorDefaults.inactiveWidth +
-                    (HeroPageIndicatorDefaults.activeWidth - HeroPageIndicatorDefaults.inactiveWidth) * weight
             Box(
                 Modifier
                     .pressable(
@@ -64,17 +62,31 @@ fun HeroPageIndicator(
                     ).semantics {
                         selected = active
                         contentDescription = "第 ${index + 1} 张，共 $pageCount 张"
-                    }.touchTarget()
-                    .width(width)
-                    .height(HeroPageIndicatorDefaults.dotHeight)
-                    .clip(AppShapes.track)
-                    .background(
-                        if (onArtwork) {
-                            Color.White.copy(alpha = 0.34f + 0.60f * weight)
-                        } else {
-                            palette.text.copy(alpha = 0.28f + 0.54f * weight)
-                        },
-                    ),
+                    }.size(MinTouchTarget)
+                    .drawBehind {
+                        // Stable touch/layout slots; fractional pager movement invalidates drawing only.
+                        val offset = if (reduceMotion) 0f else pageOffsetProvider?.invoke() ?: pageOffset
+                        val weight = carouselIndicatorWeight(index, selectedPage, offset, pageCount)
+                        val width =
+                            (
+                                HeroPageIndicatorDefaults.inactiveWidth +
+                                    (HeroPageIndicatorDefaults.activeWidth - HeroPageIndicatorDefaults.inactiveWidth) *
+                                    weight
+                            ).toPx()
+                        val height = HeroPageIndicatorDefaults.dotHeight.toPx()
+                        val color =
+                            if (onArtwork) {
+                                Color.White.copy(alpha = 0.34f + 0.60f * weight)
+                            } else {
+                                palette.text.copy(alpha = 0.28f + 0.54f * weight)
+                            }
+                        drawRoundRect(
+                            color = color,
+                            topLeft = Offset((size.width - width) / 2f, (size.height - height) / 2f),
+                            size = Size(width, height),
+                            cornerRadius = CornerRadius(height / 2f),
+                        )
+                    },
             )
         }
     }

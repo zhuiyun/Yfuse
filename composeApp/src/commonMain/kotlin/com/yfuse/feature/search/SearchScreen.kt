@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
@@ -58,6 +59,7 @@ import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
+import com.yfuse.core.designsystem.DisclosureContent
 import com.yfuse.core.designsystem.ErrorState
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.GlassShapes
@@ -76,6 +78,7 @@ import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.mediaLazyItemKey
 import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.skeletonFill
 import com.yfuse.core.designsystem.touchTarget
@@ -134,6 +137,7 @@ private fun SearchHomeScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val routeVisible = LocalRouteVisible.current
+    val resultHandoff = rememberSearchResultsHandoff(state.resultsPhase())
     var filterSheet by remember { mutableStateOf<SearchFilterSheet?>(null) }
     var coverageExpanded by remember(state.searchedQuery) { mutableStateOf(false) }
     StatusBarIconStyle(darkIcons = !palette.isDark)
@@ -218,7 +222,7 @@ private fun SearchHomeScreen(
             if ((state.hasSearched || state.error != null) && !awaitingFirstResults) {
                 item(key = "search-results-heading") {
                     Column(
-                        Modifier.padding(horizontal = Dimens.pageHorizontal),
+                        Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         ResultsHeading(
@@ -247,14 +251,15 @@ private fun SearchHomeScreen(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = Dimens.pageHorizontal),
+                                        .padding(horizontal = Dimens.pageHorizontal)
+                                        .then(resultHandoff),
                             )
                         }
 
                     // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
                     state.visibleGroups.all { it.items.isEmpty() } && !state.loading ->
                         item(key = "search-results-empty") {
-                            Box(Modifier.padding(horizontal = Dimens.pageHorizontal)) {
+                            Box(Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff)) {
                                 EmptyResults(filtered = state.type != SearchType.All)
                             }
                         }
@@ -283,7 +288,8 @@ private fun SearchHomeScreen(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = Dimens.pageHorizontal),
+                                        .padding(horizontal = Dimens.pageHorizontal)
+                                        .then(resultHandoff),
                             )
                         }
 
@@ -304,7 +310,7 @@ private fun SearchHomeScreen(
                                     store.accept(SearchIntent.LoadMore(group.serverId))
                                 },
                                 modifier =
-                                    Modifier.padding(horizontal = Dimens.pageHorizontal),
+                                    Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff),
                             )
                         }
                 }
@@ -680,6 +686,7 @@ private fun SearchCoverageNotice(
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
     val hiddenCount = unavailable.size + emptyServerCount
+    val disclosure = rememberDisclosureProgress(expanded)
     Column(
         Modifier
             .fillMaxWidth()
@@ -711,8 +718,14 @@ private fun SearchCoverageNotice(
                 style = AppTypography.caption.strong,
                 color = accent.accent,
             )
+            Icon(
+                AppIcons.ChevronRight,
+                contentDescription = null,
+                tint = accent.accent,
+                modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = disclosure.value * 90f },
+            )
         }
-        if (expanded) {
+        DisclosureContent(expanded, disclosure) {
             Column(
                 Modifier.padding(start = 13.dp, end = 13.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
