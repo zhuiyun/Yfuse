@@ -11,6 +11,7 @@ internal data class AndroidAudioRouteEvidence(
     val label: String = "",
     val verified: Boolean = false,
     val encodings: Set<Int> = emptySet(),
+    val fingerprint: String = "",
 )
 
 /** Vendor/HDMI evidence hook; Android's TrueHD encoding bit alone cannot prove Atmos objects. */
@@ -95,6 +96,7 @@ internal fun AudioTrack.activeRouteEvidence(clockAdvancing: Boolean): AndroidAud
         label = if (product.isBlank()) type else "$type · $product",
         verified = true,
         encodings = runCatching { device.encodings.toSet() }.getOrDefault(emptySet()),
+        fingerprint = device.playbackCapabilityFingerprint(),
     )
 }
 
@@ -151,6 +153,11 @@ internal fun resolveDolbyAtmosOutputMode(
 }
 
 internal fun YAudioCodec?.isDolbyAtmosSource(): Boolean = this == YAudioCodec.Eac3Joc || this == YAudioCodec.TrueHdAtmos
+
+internal fun AudioDeviceInfo.playbackCapabilityFingerprint(): String =
+    "$id:$type:${encodings.sorted().joinToString(
+        ",",
+    )}:${sampleRates.sorted().joinToString(",")}:${channelCounts.sorted().joinToString(",")}"
 
 private fun audioDeviceTypeLabel(type: Int): String =
     when (type) {

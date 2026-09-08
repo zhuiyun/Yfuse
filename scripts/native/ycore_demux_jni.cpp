@@ -96,7 +96,7 @@ constexpr int kSoftwareFrameEof = 2;
 constexpr int kSoftwareFrameGrowBuffer = -1;
 constexpr int kSoftwareDecoderApiVersion = 2;
 constexpr int kDiscApiVersion = 2;
-constexpr int kAssRendererApiVersion = 1;
+constexpr int kAssRendererApiVersion = 2;
 // Version 2: session handles are positive registry ids. Version 1 (artifacts without this
 // getter) returned the DemuxSession pointer, which Android's pointer tagging turns negative.
 constexpr int kDemuxHandleContractVersion = 2;
@@ -2479,6 +2479,235 @@ jint native_software_decoder_api_version(JNIEnv*, jclass) {
     return kSoftwareDecoderApiVersion;
 }
 
+
+// ASS drawing owns no AVFormatContext: a blocked network read cannot block its clock updates.
+struct AssRenderSession {
+    ASS_Library* library = nullptr;
+    ASS_Renderer* renderer = nullptr;
+    ASS_Track* track = nullptr;
+    std::mutex mutex;
+    bool full_script = false;
+    bool first_frame = true;
+    int width = 0;
+    int height = 0;
+    int64_t revision = -1;
+    ~AssRenderSession() {
+        if (track) ass_free_track(track);
+        if (renderer) ass_renderer_done(renderer);
+        if (library) ass_library_done(library);
+    }
+};
+std::mutex g_ass_sessions_mutex;
+std::unordered_map<int64_t, std::shared_ptr<AssRenderSession>> g_ass_sessions;
+std::atomic<int64_t> g_ass_next_id{1};
+
+std::shared_ptr<AssRenderSession> ass_session(jlong handle) {
+    std::lock_guard<std::mutex> lock(g_ass_sessions_mutex);
+    auto found = g_ass_sessions.find(handle);
+    return found == g_ass_sessions.end() ? nullptr : found->second;
+}
+
+jstring native_track_font_name(JNIEnv* env, jclass, jlong handle, jint index) {
+    AVStream* stream = checked_stream(env, from_handle(handle), index);
+    if (!stream || stream->codecpar->codec_type != AVMEDIA_TYPE_ATTACHMENT ||
+        stream->codecpar->extradata_size <= 0 ||
+        stream->codecpar->extradata_size > static_cast<int>(kMaxSubtitlePayloadBytes)) return nullptr;
+    AVDictionaryEntry* filename = av_dict_get(stream->metadata, "filename", nullptr, 0);
+    if (!filename || !filename->value) return nullptr;
+    std::string name(filename->value);
+    std::string lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+    const size_t dot = lower.find_last_of('.');
+    const std::string extension = dot == std::string::npos ? "" : lower.substr(dot);
+    if (extension != ".ttf" && extension != ".otf" && extension != ".ttc") return nullptr;
+    return env->NewStringUTF(name.c_str());
+}
+
+jlong native_create_ass_renderer(
+    JNIEnv* env, jclass, jbyteArray encoded, jboolean full_script, jint width, jint height,
+    jobjectArray font_names, jobjectArray font_data, jint cache_megabytes, jobjectArray style_overrides) {
+    if (!encoded || width <= 0 || height <= 0 || width > 8192 || height > 8192 ||
+        static_cast<int64_t>(width) * height * 4 > static_cast<int64_t>(kMaxSubtitlePayloadBytes)) {
+        throw_illegal_argument(env, "ASS canvas exceeds its memory limit");
+        return 0;
+    }
+    const jsize size = env->GetArrayLength(encoded);
+    if (size < 0 || size > static_cast<jsize>(kMaxSubtitlePayloadBytes)) {
+        throw_illegal_argument(env, "ASS input exceeds its memory limit");
+        return 0;
+    }
+    auto session = std::make_shared<AssRenderSession>();
+    session->width = width;
+    session->height = height;
+    session->full_script = full_script;
+    session->library = ass_library_init();
+    if (!session->library) { throw_illegal_state(env, "Unable to initialize libass"); return 0; }
+    ass_set_extract_fonts(session->library, 1);
+    ass_set_fonts_dir(session->library, "/system/fonts");
+    const jsize font_count = font_data ? env->GetArrayLength(font_data) : 0;
+    if (font_count > 128 || (font_count && (!font_names || env->GetArrayLength(font_names) != font_count))) {
+        throw_illegal_argument(env, "Invalid ASS font attachments"); return 0;
+    }
+    size_t font_bytes = 0;
+    for (jsize index = 0; index < font_count; ++index) {
+        auto data = static_cast<jbyteArray>(env->GetObjectArrayElement(font_data, index));
+        auto name = static_cast<jstring>(env->GetObjectArrayElement(font_names, index));
+        if (!data || !name) { throw_illegal_argument(env, "Invalid ASS font attachment"); return 0; }
+        const jsize length = env->GetArrayLength(data);
+        font_bytes += static_cast<size_t>(length);
+        if (font_bytes > kMaxSubtitlePayloadBytes) {
+            env->DeleteLocalRef(data); env->DeleteLocalRef(name);
+            throw_illegal_argument(env, "ASS fonts exceed their memory limit"); return 0;
+        }
+        std::vector<char> bytes(static_cast<size_t>(length));
+        env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte*>(bytes.data()));
+        std::string filename = to_utf8(env, name);
+        env->DeleteLocalRef(data); env->DeleteLocalRef(name);
+        if (env->ExceptionCheck()) return 0;
+        ass_add_font(session->library, filename.c_str(), bytes.data(), length);
+    }
+    std::vector<char> text(static_cast<size_t>(size) + 1, '\0');
+    env->GetByteArrayRegion(encoded, 0, size, reinterpret_cast<jbyte*>(text.data()));
+    if (env->ExceptionCheck()) return 0;
+    // Reading the full script also imports embedded [Fonts] and all authored style/event fields.
+    session->track = full_script
+        ? ass_read_memory(session->library, text.data(), size, nullptr)
+        : ass_new_track(session->library);
+    if (!session->track) { throw_illegal_argument(env, "ASS script could not be parsed"); return 0; }
+    if (!full_script) ass_process_codec_private(session->track, text.data(), size);
+    const jsize override_count = style_overrides ? env->GetArrayLength(style_overrides) : 0;
+    if (override_count > 32) { throw_illegal_argument(env, "Too many ASS style overrides"); return 0; }
+    std::vector<std::string> override_values;
+    for (jsize i = 0; i < override_count; ++i) {
+        auto value = static_cast<jstring>(env->GetObjectArrayElement(style_overrides, i));
+        override_values.push_back(to_utf8(env, value));
+        env->DeleteLocalRef(value);
+        if (env->ExceptionCheck()) return 0;
+        if (override_values.back().size() > 256) { throw_illegal_argument(env, "Invalid ASS style override"); return 0; }
+    }
+    if (!override_values.empty()) {
+        std::vector<const char*> overrides;
+        for (const auto& value : override_values) overrides.push_back(value.c_str());
+        overrides.push_back(nullptr);
+        ass_set_style_overrides(session->library, overrides.data());
+        ass_process_force_style(session->track);
+    }
+    session->renderer = ass_renderer_init(session->library);
+    if (!session->renderer) { throw_illegal_state(env, "Unable to initialize ASS renderer"); return 0; }
+    configure_ass_fonts(session->renderer);
+    ass_set_frame_size(session->renderer, width, height);
+    ass_set_storage_size(session->renderer, width, height);
+    ass_set_cache_limits(session->renderer, 1024, std::max(1, std::min(16, cache_megabytes)));
+    const int64_t id = g_ass_next_id.fetch_add(1);
+    std::lock_guard<std::mutex> lock(g_ass_sessions_mutex);
+    g_ass_sessions.emplace(id, session);
+    return id;
+}
+
+// Composite every libass image in paint order, including shadows and outlines. One cropped
+// display plane avoids the old 64-rectangle cutoff truncating complex karaoke/typesetting.
+jbyteArray ass_display_plane(JNIEnv* env, const AssRenderSession& session, ASS_Image* images) {
+    int left = session.width, top = session.height, right = 0, bottom = 0;
+    for (auto image = images; image; image = image->next) {
+        if (!image->bitmap || image->w <= 0 || image->h <= 0 || image->stride < image->w) continue;
+        left = std::min(left, std::max(0, image->dst_x));
+        top = std::min(top, std::max(0, image->dst_y));
+        right = std::max(right, std::min(session.width, image->dst_x + image->w));
+        bottom = std::max(bottom, std::min(session.height, image->dst_y + image->h));
+    }
+    if (right <= left || bottom <= top) return env->NewByteArray(0);
+    const int width = right - left, height = bottom - top;
+    const size_t count = static_cast<size_t>(width) * height;
+    if (count > (kMaxSubtitlePayloadBytes - 56) / 4) {
+        throw_illegal_state(env, "ASS output exceeds its memory limit"); return nullptr;
+    }
+    std::vector<uint32_t> pixels(count, 0);
+    for (auto image = images; image; image = image->next) {
+        if (!image->bitmap || image->w <= 0 || image->h <= 0 || image->stride < image->w) continue;
+        const int x0 = std::max(left, image->dst_x), y0 = std::max(top, image->dst_y);
+        const int x1 = std::min(right, image->dst_x + image->w), y1 = std::min(bottom, image->dst_y + image->h);
+        const uint32_t opacity = 255U - (image->color & 255U);
+        for (int y = y0; y < y1; ++y) for (int x = x0; x < x1; ++x) {
+            const uint32_t alpha = (image->bitmap[(y - image->dst_y) * image->stride + x - image->dst_x] * opacity + 127) / 255;
+            if (!alpha) continue;
+            uint32_t& dst = pixels[static_cast<size_t>(y - top) * width + x - left];
+            const uint32_t inverse = 255U - alpha;
+            const uint32_t a = alpha + ((dst >> 24) * inverse + 127) / 255;
+            const uint32_t r = (((image->color >> 24) & 255U) * alpha + ((dst >> 16) & 255U) * inverse + 127) / 255;
+            const uint32_t g = (((image->color >> 16) & 255U) * alpha + ((dst >> 8) & 255U) * inverse + 127) / 255;
+            const uint32_t b = (((image->color >> 8) & 255U) * alpha + (dst & 255U) * inverse + 127) / 255;
+            dst = (a << 24) | (r << 16) | (g << 8) | b;
+        }
+    }
+    std::vector<uint8_t> output;
+    output.reserve(56 + count * 4);
+    append_u32(&output, kSubtitlePayloadMagic); append_u32(&output, kSubtitlePayloadVersion);
+    append_u32(&output, session.width); append_u32(&output, session.height);
+    append_u32(&output, 0); append_u32(&output, 1); append_u32(&output, 1);
+    append_u32(&output, left); append_u32(&output, top); append_u32(&output, width); append_u32(&output, height);
+    append_u32(&output, 1); append_u32(&output, count); append_u32(&output, 0);
+    for (uint32_t pixel : pixels) {
+        const uint32_t a = pixel >> 24;
+        // Kotlin Bitmap.createBitmap(IntArray) consumes straight ARGB; libass was composed premultiplied.
+        if (a) pixel = (a << 24) |
+            (std::min(255U, (((pixel >> 16) & 255U) * 255 + a / 2) / a) << 16) |
+            (std::min(255U, (((pixel >> 8) & 255U) * 255 + a / 2) / a) << 8) |
+            std::min(255U, ((pixel & 255U) * 255 + a / 2) / a);
+        append_u32(&output, pixel);
+    }
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(output.size()));
+    if (result) env->SetByteArrayRegion(result, 0, output.size(), reinterpret_cast<const jbyte*>(output.data()));
+    return result;
+}
+
+jbyteArray native_render_ass(JNIEnv* env, jclass, jlong handle, jlong position_us, jlong revision,
+    jobjectArray packets, jlongArray starts_us, jlongArray durations_us) {
+    auto session = ass_session(handle);
+    if (!session) { throw_illegal_state(env, "ASS renderer is closed"); return nullptr; }
+    std::lock_guard<std::mutex> lock(session->mutex);
+    bool events_changed = false;
+    if (!session->full_script && session->revision != revision) {
+        const jsize count = packets ? env->GetArrayLength(packets) : 0;
+        if (count > 4096 || !starts_us || !durations_us || env->GetArrayLength(starts_us) != count ||
+            env->GetArrayLength(durations_us) != count) {
+            throw_illegal_argument(env, "ASS packet times are inconsistent"); return nullptr;
+        }
+        std::vector<jlong> starts(count), durations(count);
+        env->GetLongArrayRegion(starts_us, 0, count, starts.data());
+        env->GetLongArrayRegion(durations_us, 0, count, durations.data());
+        if (env->ExceptionCheck()) return nullptr;
+        ass_flush_events(session->track);
+        size_t total = 0;
+        for (jsize i = 0; i < count; ++i) {
+            auto packet = static_cast<jbyteArray>(env->GetObjectArrayElement(packets, i));
+            if (!packet) continue;
+            const jsize length = env->GetArrayLength(packet);
+            total += length;
+            if (total > kMaxSubtitlePayloadBytes) {
+                env->DeleteLocalRef(packet); throw_illegal_argument(env, "ASS events exceed their memory limit"); return nullptr;
+            }
+            std::vector<char> data(static_cast<size_t>(length));
+            env->GetByteArrayRegion(packet, 0, length, reinterpret_cast<jbyte*>(data.data()));
+            env->DeleteLocalRef(packet);
+            if (env->ExceptionCheck()) return nullptr;
+            ass_process_chunk(session->track, data.data(), length, std::max<int64_t>(0, starts[i] / 1000),
+                std::max<int64_t>(1, durations[i] / 1000));
+        }
+        session->revision = revision;
+        events_changed = true;
+    }
+    int changed = 0;
+    ASS_Image* images = ass_render_frame(session->renderer, session->track, std::max<int64_t>(0, position_us / 1000), &changed);
+    if (!changed && !events_changed && !session->first_frame) return nullptr;
+    session->first_frame = false;
+    return ass_display_plane(env, *session, images);
+}
+
+void native_close_ass_renderer(JNIEnv*, jclass, jlong handle) {
+    std::lock_guard<std::mutex> lock(g_ass_sessions_mutex);
+    g_ass_sessions.erase(handle);
+}
+
 jint native_ass_renderer_api_version(JNIEnv*, jclass) {
     return kAssRendererApiVersion;
 }
@@ -2843,6 +3072,10 @@ jint native_seek(JNIEnv* env, jclass, jlong handle, jlong position_us) {
 }
 
 static const JNINativeMethod kMethods[] = {
+    {"nativeTrackFontName", "(JI)Ljava/lang/String;", reinterpret_cast<void*>(native_track_font_name)},
+    {"nativeCreateAssRenderer", "([BZII[Ljava/lang/String;[[BI[Ljava/lang/String;)J", reinterpret_cast<void*>(native_create_ass_renderer)},
+    {"nativeRenderAss", "(JJJ[[B[J[J)[B", reinterpret_cast<void*>(native_render_ass)},
+    {"nativeCloseAssRenderer", "(J)V", reinterpret_cast<void*>(native_close_ass_renderer)},
     {"nativeDiscApiVersion", "()I", reinterpret_cast<void*>(native_disc_api_version)},
     {"nativeAssRendererApiVersion", "()I", reinterpret_cast<void*>(native_ass_renderer_api_version)},
     {"nativeDemuxHandleContractVersion", "()I", reinterpret_cast<void*>(native_demux_handle_contract_version)},

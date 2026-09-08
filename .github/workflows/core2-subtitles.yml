@@ -16,7 +16,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
@@ -40,6 +40,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y p7zip-full
           bash scripts/fetch-engines.sh
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
       - name: Compile and test subtitle paths
         run: |
           ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:testDebugUnitTest --no-daemon \

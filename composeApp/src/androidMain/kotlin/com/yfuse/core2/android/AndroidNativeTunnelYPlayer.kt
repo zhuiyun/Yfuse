@@ -72,13 +72,17 @@ internal class AndroidNativeTunnelYPlayer(
 
     /** Conflated hint that wakes an idle run loop as soon as a command is queued. */
     private val wakeSignal = Channel<Unit>(Channel.CONFLATED)
-    private val worker: Job = scope.launch { runLoop() }
 
     @Volatile
     private var released = false
 
     @Volatile
+    private var activeSession: AndroidNativeTunnelSession? = null
+
+    @Volatile
     private var releasedAtMs: Long? = null
+
+    private val worker: Job = scope.launch { runLoop() }
 
     override fun prepare() = send(Command.Prepare)
 
@@ -175,12 +179,15 @@ internal class AndroidNativeTunnelYPlayer(
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
 
+    override fun setAudioDelayMs(delayMs: Long): Boolean = !released && delayMs == 0L
+
     override fun retry() = send(Command.Prepare)
 
     override fun release() {
         if (released) return
         releasedAtMs = System.nanoTime() / 1_000_000L
         released = true
+        activeSession?.cancelPendingRead()
         commands.close()
         wakeSignal.trySend(Unit)
         worker.cancel()
@@ -203,6 +210,7 @@ internal class AndroidNativeTunnelYPlayer(
 
     private suspend fun runLoop() {
         val session = AndroidNativeTunnelSession(appContext, frameRateSwitchMode = frameRateSwitchMode)
+        activeSession = session
         var surfaceOutput: AndroidSurfaceVideoOutput? = null
         var currentIndex = request.startIndex
         var pendingInitialDecision = initialDecision
@@ -386,7 +394,9 @@ internal class AndroidNativeTunnelYPlayer(
                                     .joinToString(" + "),
                             videoOutput =
                                 if (snapshot.videoOutputVerified) {
-                                    "Tunnel sideband 已渲染"
+                                    if (snapshot.tunneledOutput) "Tunnel sideband 已渲染" else "暂停定位帧 · 硬解 Surface"
+                                } else if (snapshot.pausedPreviewSubmittedUnconfirmed) {
+                                    "暂停定位帧已提交 · 系统未回调确认"
                                 } else {
                                     "等待 Tunnel 首帧"
                                 },
@@ -397,10 +407,22 @@ internal class AndroidNativeTunnelYPlayer(
                                     "等待 HW_AV_SYNC 时钟"
                                 },
                             videoOutputVerified = snapshot.videoOutputVerified,
+                            renderer =
+                                if (snapshot.tunneledOutput) {
+                                    "Tunnel sideband + HW_AV_SYNC AudioTrack"
+                                } else {
+                                    "暂停定位帧 · MediaCodec Surface（音频暂停）"
+                                },
                             bufferEvents = rebuffers.events,
                             rebufferDurationMs = rebuffers.durationMs,
                             longestRebufferMs = rebuffers.longestMs,
+                            sourceQueueBytes = snapshot.sourceQueueBytes,
+                            sourceBufferedMs = snapshot.sourceBufferedUs / MICROS_PER_MILLISECOND,
+                            sourceStarvationCount = snapshot.sourceStarvationCount,
                             audioOutputVerified = snapshot.audioClockReady,
+                            audioOutputRoute = snapshot.audioOutputRoute,
+                            audioOutputRouteVerified = snapshot.audioOutputRouteVerified,
+                            audioOutputFingerprint = snapshot.audioOutputFingerprint,
                             dolbyVisionOutput = snapshot.videoOutputVerified && nativeDolbyVisionRoute,
                         ),
                 )
@@ -505,7 +527,7 @@ internal class AndroidNativeTunnelYPlayer(
                 }
 
                 val didWork =
-                    if (prepared && requestedPlay) {
+                    if (prepared) {
                         try {
                             session.pump()
                         } catch (failure: Throwable) {
@@ -520,13 +542,19 @@ internal class AndroidNativeTunnelYPlayer(
                 if (!handled && !didWork) {
                     // A queued command ends the wait at once; a paused session has no pump work
                     // and can sleep longer without delaying command handling.
-                    val idleDelayMs = if (requestedPlay) PUMP_IDLE_DELAY_MS else PUMP_PAUSED_IDLE_DELAY_MS
+                    val idleDelayMs =
+                        playbackPumpIdleDelayMs(
+                            playing = requestedPlay,
+                            buffering = mutableState.value.buffering,
+                            previewPending = session.previewPending,
+                        )
                     withTimeoutOrNull(idleDelayMs) { wakeSignal.receiveCatching() }
                 }
             }
         } finally {
             finishRebuffer()
-            session.close()
+            session.release()
+            activeSession = null
         }
     }
 

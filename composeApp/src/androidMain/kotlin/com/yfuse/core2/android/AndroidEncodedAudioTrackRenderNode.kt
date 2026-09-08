@@ -78,6 +78,7 @@ internal class AndroidEncodedAudioTrackRenderNode(
         get() = dolbyAtmosOutputMode.encodedPassthrough
 
     val audioRouteLabel: String get() = routeEvidence.label
+    val audioRouteFingerprint: String get() = routeEvidence.fingerprint
 
     val audioRouteVerified: Boolean get() = routeEvidence.verified
 

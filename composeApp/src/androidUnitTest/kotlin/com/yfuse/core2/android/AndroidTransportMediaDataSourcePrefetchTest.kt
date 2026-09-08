@@ -280,7 +280,6 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     @Test
     fun `queued foreground promotion is included in qoe diagnostics`() {
         val media = ByteArray(TEST_BLOCK_BYTES * 16) { it.toByte() }
-        val created = AtomicInteger()
         val activePrefetches = CountDownLatch(transportPrefetchConcurrency(0L, 40_000_000L, 0L))
         val releasePrefetches = CountDownLatch(1)
         val source =
@@ -289,17 +288,22 @@ class AndroidTransportMediaDataSourcePrefetchTest {
                 protocol = YSourceProtocol.Https,
                 headers = emptyMap(),
                 createTransport = {
-                    if (created.getAndIncrement() == 0) {
-                        MemoryRangeTransport(media) { _, _ -> }
-                    } else {
-                        BlockingPrefetchTransport(media, activePrefetches, releasePrefetches)
-                    }
+                    SelectivelyBlockingRangeTransport(
+                        media,
+                        activePrefetches,
+                        releasePrefetches,
+                        MAX_TRANSPORT_PREFETCH_CONCURRENCY,
+                    )
                 },
                 initialMediaBitRateBitsPerSecond = 40_000_000L,
                 blockSizeOverride = TEST_BLOCK_BYTES,
+                memoryLeaseOverride =
+                    PlaybackMemoryPool(128L * 1024L * 1024L)
+                        .acquire(PlaybackBufferKind.Transport, 128L * 1024L * 1024L),
             )
         val worker = Executors.newSingleThreadExecutor()
         try {
+            source.updatePlaybackWindow(YTransportPlaybackWindow(bufferedUs = 2_000_000L))
             assertEquals(1, worker.submit<Int> { source.readAt(0L, ByteArray(1), 0, 1) }.get(2, TimeUnit.SECONDS))
             assertTrue(activePrefetches.await(2, TimeUnit.SECONDS))
             assertEquals(
@@ -353,6 +357,7 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     @Test
     fun `server bitrate sizes prefetch before extractor opens and missing track bitrate cannot erase it`() {
         val media = ByteArray(256)
+        val pool = PlaybackMemoryPool(128L * 1024L * 1024L)
         val source =
             AndroidTransportMediaDataSource(
                 uri = "https://example.invalid/video.mkv",
@@ -361,6 +366,9 @@ class AndroidTransportMediaDataSourcePrefetchTest {
                 createTransport = { MemoryRangeTransport(media) { _, _ -> } },
                 initialMediaBitRateBitsPerSecond = 37_932_765L,
                 blockSizeOverride = 2 * 1024 * 1024,
+                memoryLeaseOverride = pool.acquire(PlaybackBufferKind.Transport, 128L * 1024L * 1024L),
+                allowsSpeculativeWork = { true },
+                refreshMemoryPressure = {},
             )
         try {
             assertEquals(24, source.qoeSnapshot().depthBlocks)
@@ -396,7 +404,6 @@ class AndroidTransportMediaDataSourcePrefetchTest {
     @Test
     fun `random extractor seek closes cancelled range prefetch transports`() {
         val media = ByteArray(TEST_BLOCK_BYTES * 8) { it.toByte() }
-        val created = AtomicInteger()
         val prefetchOpened = CountDownLatch(1)
         val prefetchClosed = CountDownLatch(1)
         val source =
@@ -405,11 +412,7 @@ class AndroidTransportMediaDataSourcePrefetchTest {
                 protocol = YSourceProtocol.Https,
                 headers = emptyMap(),
                 createTransport = {
-                    if (created.getAndIncrement() == 0) {
-                        MemoryRangeTransport(media) { _, _ -> }
-                    } else {
-                        BlockingPrefetchTransport(media, prefetchOpened, prefetchClosed)
-                    }
+                    SelectivelyBlockingRangeTransport(media, prefetchOpened, prefetchClosed)
                 },
                 blockSizeOverride = TEST_BLOCK_BYTES,
             )
@@ -478,6 +481,40 @@ class AndroidTransportMediaDataSourcePrefetchTest {
             sampler.shutdownNow()
             worker.shutdownNow()
         }
+    }
+}
+
+/** Request coordinates identify speculative work; foreground transports are intentionally no longer reused. */
+private class SelectivelyBlockingRangeTransport(
+    private val media: ByteArray,
+    private val opened: CountDownLatch,
+    private val closed: CountDownLatch,
+    private val blockingBlockCount: Int = 2,
+) : YMediaTransport {
+    override val supportedProtocols = setOf(YSourceProtocol.Http, YSourceProtocol.Https)
+    override val features = setOf(YTransportFeature.ByteRange)
+    private var delegate: YMediaTransport? = null
+
+    override suspend fun open(request: YMediaTransportRequest): YMediaTransportResponse {
+        val start = requireNotNull(request.range).startInclusive
+        val selected =
+            if (start in TEST_BLOCK_BYTES.toLong()..TEST_BLOCK_BYTES.toLong() * blockingBlockCount) {
+                BlockingPrefetchTransport(media, opened, closed)
+            } else {
+                MemoryRangeTransport(media) { _, _ -> }
+            }
+        delegate = selected
+        return selected.open(request)
+    }
+
+    override suspend fun read(
+        destination: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int = requireNotNull(delegate).read(destination, offset, length)
+
+    override suspend fun close() {
+        delegate?.close()
     }
 }
 

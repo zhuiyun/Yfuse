@@ -11,36 +11,68 @@ fun parseYDashManifest(
     val mpd = root.children.singleOrNull { it.localName == "mpd" } ?: error("DASH MPD root is missing")
     val mpdBase = mpd.firstChild("baseurl")?.textValue()?.let { resolveAdaptiveUri(baseUri, it) } ?: baseUri
     val live = mpd.attribute("type")?.equals("dynamic", ignoreCase = true) == true
-    val periods = mpd.children("period")
-    require(periods.isNotEmpty()) { "DASH MPD contains no Period" }
-    val representations = mutableListOf<YDashRepresentation>()
-    periods.forEach { period ->
+    val periodNodes = mpd.children("period")
+    require(periodNodes.isNotEmpty()) { "DASH MPD contains no Period" }
+    val presentationDurationUs = mpd.attribute("mediapresentationduration")?.parseIsoDurationUs()
+    val periods = mutableListOf<YDashPeriod>()
+    periodNodes.forEachIndexed { index, period ->
+        val startUs =
+            period.attribute("start")?.parseIsoDurationUsAllowZero()
+                ?: if (index == 0) {
+                    0L
+                } else {
+                    requireNotNull(periods.last().endUs) {
+                        "DASH Period start cannot be inferred without its predecessor duration"
+                    }
+                }
+        val nextStartUs = periodNodes.getOrNull(index + 1)?.attribute("start")?.parseIsoDurationUsAllowZero()
+        val durationUs =
+            period.attribute("duration")?.parseIsoDurationUs()
+                ?: nextStartUs?.let { it - startUs }
+                ?: presentationDurationUs?.takeIf { index == periodNodes.lastIndex }?.let { it - startUs }
+        require(durationUs == null || durationUs > 0L) { "DASH Period has a non-positive duration" }
+        periods.lastOrNull()?.endUs?.let { require(startUs >= it) { "DASH Periods overlap" } }
         val periodBase = period.firstChild("baseurl")?.textValue()?.let { resolveAdaptiveUri(mpdBase, it) } ?: mpdBase
-        period.children("adaptationset").forEach { adaptation ->
-            representations += parseAdaptationSet(adaptation, periodBase)
-        }
+        val periodTemplate = period.firstChild("segmenttemplate")?.toDashSegmentTemplate()
+        val representations =
+            period.children("adaptationset").flatMap { adaptation ->
+                parseAdaptationSet(adaptation, periodBase, periodTemplate)
+            }
+        periods +=
+            YDashPeriod(
+                id = period.attribute("id")?.takeIf(String::isNotBlank) ?: "period-$index",
+                startUs = startUs,
+                durationUs = durationUs,
+                representations = representations,
+            )
     }
     return YDashManifest(
         isLive = live,
         minimumUpdatePeriodUs = mpd.attribute("minimumupdateperiod")?.parseIsoDurationUs(),
-        mediaPresentationDurationUs = mpd.attribute("mediapresentationduration")?.parseIsoDurationUs(),
+        mediaPresentationDurationUs = presentationDurationUs ?: periods.last().endUs.takeIf { !live },
         availabilityStartTime = mpd.attribute("availabilitystarttime"),
         publishTime = mpd.attribute("publishtime"),
         timeShiftBufferDepthUs = mpd.attribute("timeshiftbufferdepth")?.parseIsoDurationUs(),
         suggestedPresentationDelayUs = mpd.attribute("suggestedpresentationdelay")?.parseIsoDurationUs(),
-        periodStartUs = periods.singleOrNull()?.attribute("start")?.parseIsoDurationUsAllowZero(),
-        representations = representations,
+        periodStartUs = periods.singleOrNull()?.startUs,
+        representations = periods.first().representations,
+        periods = periods,
     )
 }
 
 private fun parseAdaptationSet(
     adaptation: XmlNode,
     inheritedBaseUri: String,
+    inheritedTemplate: PartialDashSegmentTemplate? = null,
 ): List<YDashRepresentation> {
     val adaptationBase =
         adaptation.firstChild("baseurl")?.textValue()?.let { resolveAdaptiveUri(inheritedBaseUri, it) }
             ?: inheritedBaseUri
-    val adaptationTemplate = adaptation.firstChild("segmenttemplate")?.toDashSegmentTemplate()
+    val adaptationTemplate =
+        mergePartialSegmentTemplates(
+            inheritedTemplate,
+            adaptation.firstChild("segmenttemplate")?.toDashSegmentTemplate(),
+        )
     val adaptationProtection = adaptation.children("contentprotection").map(XmlNode::toContentProtection)
     val adaptationSupplemental = adaptation.children("supplementalproperty").map(XmlNode::toDashDescriptor)
     val adaptationMime = adaptation.attribute("mimetype")
@@ -110,6 +142,7 @@ private data class PartialDashSegmentTemplate(
     val duration: Long?,
     val startNumber: Long?,
     val timeline: List<YDashTimelineEntry>?,
+    val presentationTimeOffset: Long?,
 )
 
 private fun XmlNode.toDashSegmentTemplate(): PartialDashSegmentTemplate =
@@ -119,6 +152,7 @@ private fun XmlNode.toDashSegmentTemplate(): PartialDashSegmentTemplate =
         timescale = attribute("timescale")?.toLongOrNull(),
         duration = attribute("duration")?.toLongOrNull(),
         startNumber = attribute("startnumber")?.toLongOrNull(),
+        presentationTimeOffset = attribute("presentationtimeoffset")?.toLongOrNull(),
         timeline =
             firstChild("segmenttimeline")
                 ?.children("s")
@@ -130,6 +164,23 @@ private fun XmlNode.toDashSegmentTemplate(): PartialDashSegmentTemplate =
                     )
                 },
     )
+
+private fun mergePartialSegmentTemplates(
+    parent: PartialDashSegmentTemplate?,
+    child: PartialDashSegmentTemplate?,
+): PartialDashSegmentTemplate? {
+    if (parent == null) return child
+    if (child == null) return parent
+    return PartialDashSegmentTemplate(
+        initialization = child.initialization ?: parent.initialization,
+        media = child.media ?: parent.media,
+        timescale = child.timescale ?: parent.timescale,
+        duration = child.duration ?: parent.duration,
+        startNumber = child.startNumber ?: parent.startNumber,
+        timeline = child.timeline ?: parent.timeline,
+        presentationTimeOffset = child.presentationTimeOffset ?: parent.presentationTimeOffset,
+    )
+}
 
 private fun mergeSegmentTemplates(
     parent: PartialDashSegmentTemplate?,
@@ -145,6 +196,7 @@ private fun mergeSegmentTemplates(
         duration = child?.duration ?: parent?.duration,
         startNumber = child?.startNumber ?: parent?.startNumber ?: 1L,
         timeline = timeline,
+        presentationTimeOffset = child?.presentationTimeOffset ?: parent?.presentationTimeOffset ?: 0L,
     )
 }
 

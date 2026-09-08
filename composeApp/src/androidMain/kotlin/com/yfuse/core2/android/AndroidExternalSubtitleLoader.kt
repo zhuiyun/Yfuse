@@ -7,8 +7,10 @@ import com.yfuse.core2.api.YTrack
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
+import com.yfuse.core2.subtitle.YAssSubtitleSource
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitleFormat
+import com.yfuse.core2.subtitle.YSubtitlePayload
 import com.yfuse.core2.subtitle.YTextSubtitleParser
 import com.yfuse.core2.subtitle.decodeExternalSubtitleText
 import com.yfuse.core2.subtitle.externalTextSubtitleFormat
@@ -45,8 +47,19 @@ internal class AndroidExternalSubtitleLoader(
         require(format.standaloneTextSupported) {
             "External subtitle format is unsupported"
         }
-        val cues = YTextSubtitleParser.parse(text, format).cues
-        require(cues.isNotEmpty()) { "External subtitle contains no displayable cues" }
+        val parsed = YTextSubtitleParser.parse(text, format).cues
+        require(parsed.isNotEmpty()) { "External subtitle contains no displayable cues" }
+        val cues =
+            if (format in setOf(YSubtitleFormat.Ass, YSubtitleFormat.Ssa) &&
+                FfmpegNativeBridge.dynamicAssRendererAvailable
+            ) {
+                val script = YAssSubtitleSource(text.encodeToByteArray(), fullScript = true)
+                // Keep the event intervals so idle gaps do not run a frame callback. The full script
+                // remains shared and is parsed once by libass, retaining all styles and embedded fonts.
+                parsed.map { it.copy(payload = YSubtitlePayload.AssEvent(script)) }
+            } else {
+                parsed
+            }
         return AndroidLoadedExternalSubtitle(
             track =
                 YTrack(

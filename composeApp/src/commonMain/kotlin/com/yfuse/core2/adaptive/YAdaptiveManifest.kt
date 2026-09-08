@@ -301,12 +301,14 @@ data class YDashSegmentTemplate(
     val duration: Long? = null,
     val startNumber: Long = 1L,
     val timeline: List<YDashTimelineEntry> = emptyList(),
+    val presentationTimeOffset: Long = 0L,
 ) {
     init {
         require(media.isNotBlank())
         require(timescale > 0L)
         require(duration == null || duration > 0L)
         require(startNumber >= 0L)
+        require(presentationTimeOffset >= 0L)
         require(duration != null || timeline.isNotEmpty())
     }
 }
@@ -361,6 +363,23 @@ data class YDashRepresentation(
                 }
 }
 
+data class YDashPeriod(
+    val id: String,
+    val startUs: Long,
+    val durationUs: Long?,
+    val representations: List<YDashRepresentation>,
+) {
+    init {
+        require(id.isNotBlank())
+        require(startUs >= 0L)
+        require(durationUs == null || durationUs > 0L && durationUs <= Long.MAX_VALUE - startUs)
+        require(representations.isNotEmpty())
+        require(representations.distinctBy(YDashRepresentation::id).size == representations.size)
+    }
+
+    val endUs: Long? get() = durationUs?.let { startUs + it }
+}
+
 data class YDashManifest(
     val isLive: Boolean,
     val minimumUpdatePeriodUs: Long? = null,
@@ -371,6 +390,8 @@ data class YDashManifest(
     val suggestedPresentationDelayUs: Long? = null,
     val periodStartUs: Long? = null,
     val representations: List<YDashRepresentation>,
+    /** Representation ids are scoped to each Period, not to the entire presentation. */
+    val periods: List<YDashPeriod> = emptyList(),
 ) {
     init {
         require(minimumUpdatePeriodUs == null || minimumUpdatePeriodUs > 0L)
@@ -381,6 +402,7 @@ data class YDashManifest(
         require(suggestedPresentationDelayUs == null || suggestedPresentationDelayUs > 0L)
         require(periodStartUs == null || periodStartUs >= 0L)
         require(representations.isNotEmpty())
+        require(periods.distinctBy(YDashPeriod::id).size == periods.size)
     }
 }
 

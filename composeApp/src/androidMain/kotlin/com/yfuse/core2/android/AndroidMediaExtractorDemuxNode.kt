@@ -13,7 +13,6 @@ import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
 import com.yfuse.core2.sync.YMediaTimestampTimeline
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
@@ -67,6 +66,9 @@ internal interface YPlatformExtractorSource : YDemuxNode {
     /** null means unmeasured; zero is a measured stall. Must not wait for an extractor read. */
     fun liveTransportThroughput(): Long? = null
 
+    /** Cancel only the outstanding read; a following owner-thread seek may reuse the source. */
+    fun cancelPendingRead() = Unit
+
     fun selectTrack(index: Int)
 
     fun unselectTrack(index: Int)
@@ -113,7 +115,6 @@ internal class AndroidMediaExtractorDemuxNode(
             currentSource = source
             selectedTracks = emptySet()
         } catch (throwable: Throwable) {
-            if (throwable is CancellationException) throw throwable
             runCatching { opened.release() }
             runCatching { mediaDataSource?.close() }
             mediaDataSource = null
@@ -214,6 +215,10 @@ internal class AndroidMediaExtractorDemuxNode(
 
     override fun liveTransportThroughput(): Long? =
         (mediaDataSource as? AndroidTransportMediaDataSource)?.liveTransportThroughput()
+
+    override fun cancelPendingRead() {
+        (mediaDataSource as? AndroidTransportMediaDataSource)?.cancelPendingRead()
+    }
 
     override fun findFirstTrack(mimePrefix: String): Int? =
         (0 until trackCount).firstOrNull { index ->

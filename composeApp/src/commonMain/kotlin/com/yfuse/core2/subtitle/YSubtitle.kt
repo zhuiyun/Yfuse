@@ -18,7 +18,27 @@ enum class YSubtitleFormat {
         get() = this == Srt || this == WebVtt || this == Ass || this == Ssa
 }
 
+/** Immutable script/header and optional container fonts, shared by every packet in one ASS track. */
+class YAssSubtitleSource(
+    val data: ByteArray,
+    val fullScript: Boolean,
+    val fonts: List<YSubtitleFont> = emptyList(),
+    val canvasWidth: Int = 0,
+    val canvasHeight: Int = 0,
+)
+
+class YSubtitleFont(
+    val name: String,
+    val data: ByteArray,
+)
+
 sealed interface YSubtitlePayload {
+    /** The overlay owns rendering; packet decode never takes a libass frame at a future demux PTS. */
+    data class AssEvent(
+        val source: YAssSubtitleSource,
+        val packet: ByteArray? = null,
+    ) : YSubtitlePayload
+
     data class TextStyle(
         val bold: Boolean = false,
         val italic: Boolean = false,
@@ -51,7 +71,7 @@ sealed interface YSubtitlePayload {
         val format: YSubtitleFormat,
     ) : YSubtitlePayload
 
-    /** Premultiplied ARGB subtitle rectangle positioned in its authored video canvas. */
+    /** Straight ARGB pixels; platform Bitmap creation premultiplies them for presentation. */
     data class BitmapArgb(
         val width: Int,
         val height: Int,

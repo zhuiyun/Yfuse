@@ -160,6 +160,8 @@ jobs:
           path: |
             .native-build/artifacts/libmpv-yfuse-bluray.aar
             .native-build/artifacts/libmpv-yfuse-bluray.aar.sha256
+            .native-build/artifacts/ycore-native.aar
+            .native-build/artifacts/ycore-native.aar.sha256
             .native-build/artifacts/ycore-gpu.aar
             .native-build/artifacts/ycore-gpu.aar.sha256
             .native-build/artifacts/NATIVE-SOURCES.txt
@@ -234,6 +236,7 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/install-yfuse-mpv-bluray.sh
+          bash scripts/install-ycore-native.sh
           install -m 0644 .native-build/artifacts/ycore-gpu.aar composeApp/libs/ycore-gpu.aar
           install -m 0644 .native-build/artifacts/ycore-gpu.aar.sha256 composeApp/libs/ycore-gpu.aar.sha256
           install -m 0644 .native-build/artifacts/NATIVE-SOURCES.txt composeApp/libs/ycore-gpu.sources.txt

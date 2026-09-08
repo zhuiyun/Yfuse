@@ -25,7 +25,9 @@ import com.yfuse.core2.demux.YVideoGeometry
 import com.yfuse.core2.demux.YVideoTrackFormat
 import com.yfuse.core2.dolby.YDolbyVisionConfig
 import com.yfuse.core2.hdr.YHdrStaticMetadata
+import com.yfuse.core2.subtitle.YAssSubtitleSource
 import com.yfuse.core2.subtitle.YSubtitleCue
+import com.yfuse.core2.subtitle.YSubtitleFont
 import com.yfuse.core2.subtitle.YSubtitleFormat
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import com.yfuse.core2.sync.YMediaTimestampTimeline
@@ -34,7 +36,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Enhanced-demux implementation backed by the pinned FFmpeg 8.1 libraries in the custom native AAR.
+ * Enhanced-demux implementation backed by the pinned FFmpeg libraries in the custom native AAR.
  *
  * FFmpeg normally stops at AVPacket. An optional versioned extension also exposes bounded software
  * video/audio decode for codecs with no executable MediaCodec route. Encoded samples are copied
@@ -47,7 +49,7 @@ import java.nio.ByteOrder
 internal class AndroidFfmpegDemuxer :
     YDemuxer,
     YSubtitlePacketDecoder {
-    override val name: String = "FFmpeg 8.1 / libavformat"
+    override val name: String = "FFmpeg / libavformat"
 
     private val timeline = YMediaTimestampTimeline()
     private var handle = 0L
@@ -55,6 +57,8 @@ internal class AndroidFfmpegDemuxer :
     private var packetBuffer = ByteBuffer.allocateDirect(INITIAL_PACKET_BUFFER_BYTES)
     private var prefetchedSample: YCompressedSample? = null
     private var discSource = false
+    private val assSources = mutableMapOf<YTrackId, YAssSubtitleSource>()
+    private var assFonts: List<YSubtitleFont>? = null
 
     val available: Boolean get() = FfmpegNativeBridge.available
 
@@ -191,6 +195,32 @@ internal class AndroidFfmpegDemuxer :
         require(track.subtitle?.format?.let(::supportsSubtitleFormat) == true) {
             "This subtitle track is not supported by the native subtitle decoder"
         }
+        if (track.subtitle?.format in ASS_SUBTITLE_FORMATS && FfmpegNativeBridge.dynamicAssRendererAvailable) {
+            val source =
+                assSources.getOrPut(track.id) {
+                    val video = requireOpenResult().tracks.firstNotNullOfOrNull { it.video }
+                    YAssSubtitleSource(
+                        data =
+                            track.subtitle
+                                ?.codecPrivateData
+                                ?.entries
+                                ?.firstOrNull() ?: byteArrayOf(),
+                        fullScript = false,
+                        fonts = assFonts ?: loadAssFonts().also { assFonts = it },
+                        canvasWidth = video?.width ?: 0,
+                        canvasHeight = video?.height ?: 0,
+                    )
+                }
+            val startUs = sample.presentationTimeUs.coerceAtLeast(0L)
+            return listOf(
+                YSubtitleCue(
+                    id = "${track.id.value}:$startUs",
+                    startUs = startUs,
+                    endUs = startUs + (sample.durationUs?.takeIf { it > 0L } ?: 5_000_000L),
+                    payload = YSubtitlePayload.AssEvent(source, sample.data),
+                ),
+            )
+        }
         val decoded =
             FfmpegNativeBridge.decodeSubtitle(
                 handle = requireHandle(),
@@ -202,6 +232,19 @@ internal class AndroidFfmpegDemuxer :
                 durationUs = sample.durationUs,
             ) ?: return emptyList()
         return decoded.toBitmapSubtitleCues(sample)
+    }
+
+    private fun loadAssFonts(): List<YSubtitleFont> {
+        var remaining = 32 * 1024 * 1024
+        return buildList {
+            for (index in 0 until FfmpegNativeBridge.trackCount(requireHandle())) {
+                val name = FfmpegNativeBridge.trackFontName(requireHandle(), index) ?: continue
+                val bytes = FfmpegNativeBridge.trackExtradata(requireHandle(), index) ?: continue
+                if (bytes.isEmpty() || bytes.size > remaining) continue
+                remaining -= bytes.size
+                add(YSubtitleFont(name, bytes))
+            }
+        }
     }
 
     override fun supportsSubtitleFormat(format: YSubtitleFormat): Boolean =
@@ -253,6 +296,8 @@ internal class AndroidFfmpegDemuxer :
     }
 
     override fun close() {
+        assSources.clear()
+        assFonts = null
         val previous = handle
         handle = 0L
         openResult = null

@@ -8,6 +8,7 @@ import com.yfuse.core2.adaptive.YAdaptiveEncryptionMethod
 import com.yfuse.core2.adaptive.YAdaptiveSelectionConditions
 import com.yfuse.core2.adaptive.YAdaptiveVariant
 import com.yfuse.core2.adaptive.YAdaptiveVariantSelector
+import com.yfuse.core2.adaptive.YDashManifest
 import com.yfuse.core2.adaptive.YDashPlaybackCapabilities
 import com.yfuse.core2.adaptive.YDashRepresentation
 import com.yfuse.core2.adaptive.YDashResourceKind
@@ -21,8 +22,12 @@ import com.yfuse.core2.adaptive.alignYDashSwitchingRepresentations
 import com.yfuse.core2.adaptive.alignYHlsVariantSegments
 import com.yfuse.core2.adaptive.buildYDashPlaybackManifest
 import com.yfuse.core2.adaptive.buildYHlsPlaybackMaster
+import com.yfuse.core2.adaptive.compatibleYDashReopenRepresentations
+import com.yfuse.core2.adaptive.compatibleYHlsReopenVariants
+import com.yfuse.core2.adaptive.manifestForPeriod
 import com.yfuse.core2.adaptive.parseYDashManifest
 import com.yfuse.core2.adaptive.parseYHlsPlaylist
+import com.yfuse.core2.adaptive.periodForPositionUs
 import com.yfuse.core2.adaptive.renderDashTemplate
 import com.yfuse.core2.adaptive.rewriteYHlsResourceUris
 import com.yfuse.core2.adaptive.selectYDashPlaybackRepresentations
@@ -32,10 +37,16 @@ import com.yfuse.core2.network.YMediaTransport
 import com.yfuse.core2.network.YMediaTransportRequest
 import com.yfuse.core2.network.YSourceProtocol
 import com.yfuse.core2.network.YTransportCredentials
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
+import java.io.File
 import java.io.InputStreamReader
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -49,6 +60,8 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 internal data class YAdaptivePlaybackFeedback(
     val bufferedDurationUs: Long,
@@ -146,7 +159,7 @@ private data class TimedAdaptivePlaybackFeedback(
  * YCore's anonymous sparse block cache; live media and encryption keys are never written to disk.
  */
 internal class AndroidYCoreHttpProxy(
-    context: Context,
+    context: Context? = null,
     private val userAgent: String,
     private val cacheMaximumBytes: Long,
     private val createTransport: () -> YMediaTransport = {
@@ -159,6 +172,7 @@ internal class AndroidYCoreHttpProxy(
         currentPlaybackNetworkClass() == PlaybackNetworkClass.Metered
     },
     private val forwardCacheTargetUs: Long = 60_000_000L,
+    cacheDirectory: File? = null,
 ) : Closeable {
     private data class Route(
         val upstreamUri: String,
@@ -177,6 +191,15 @@ internal class AndroidYCoreHttpProxy(
         val dashAbrResource: DashAbrResourceRoute? = null,
         val hlsAbrResource: HlsAbrResourceRoute? = null,
         val mediaBitRateBitsPerSecond: Long = 0L,
+        val playbackTarget: AdaptiveTargetConfiguration? = null,
+    )
+
+    private class AdaptiveTargetConfiguration(
+        val presentation: AdaptivePresentation,
+        val revision: Long,
+        val variantId: String,
+        val hls: HlsPlaybackManifest? = null,
+        val dash: YDashManifest? = null,
     )
 
     private data class DashTemplateRoute(
@@ -210,40 +233,192 @@ internal class AndroidYCoreHttpProxy(
         val selectedVariantId: String? = null,
     )
 
+    private inner class AdaptivePresentation(
+        val rootUri: String,
+        val rootRoute: Route,
+        val dash: YDashManifest? = null,
+        val hlsMaster: YHlsPlaylist.Master? = null,
+        val hlsRootText: String? = null,
+        initialHls: Pair<YAdaptiveVariant, HlsPlaybackManifest>? = null,
+    ) {
+        val gate = YAdaptiveReopenGate()
+        private val hlsChoices = linkedMapOf<String, Pair<YAdaptiveVariant, HlsPlaybackManifest>>()
+        private var hlsVariantId = initialHls?.first?.id
+        private val dashVariantIds = mutableMapOf<String, String>()
+        private var currentDashPeriodId: String? = null
+        private var currentHlsSession: HlsAbrSession? = null
+
+        init {
+            initialHls?.let { hlsChoices[it.first.id] = it }
+        }
+
+        @Synchronized
+        fun addHlsChoice(
+            variant: YAdaptiveVariant,
+            playback: HlsPlaybackManifest,
+        ) {
+            hlsChoices[variant.id] = variant to playback
+            currentHlsSession?.addVariant(YHlsVariantMediaPlaylist(variant, playback.media))
+        }
+
+        @Synchronized
+        fun hasHlsChoice(id: String): Boolean = id in hlsChoices
+
+        @Synchronized
+        fun pollTarget(globalPositionMs: Long): YAdaptivePlaybackTarget? {
+            val generation = latestPlaybackFeedback()?.value?.generation ?: return null
+            val positionUs = globalPositionMs.coerceIn(0L, Long.MAX_VALUE / 1_000L) * 1_000L
+            if (dash != null && dash.periodForPositionUs(positionUs).id != currentDashPeriodId) {
+                gate.discardPending()
+                return null
+            }
+            val desired = gate.consume(generation) ?: return null
+            return target(globalPositionMs, desired)
+        }
+
+        @Synchronized
+        fun target(
+            globalPositionMs: Long,
+            forcedVariantId: String? = null,
+        ): YAdaptivePlaybackTarget {
+            val generation = latestPlaybackFeedback()?.value?.generation ?: 0L
+            val revision = gate.beginTarget(generation)
+            val requestedUs = globalPositionMs.coerceIn(0L, Long.MAX_VALUE / 1_000L) * 1_000L
+            val period = dash?.periodForPositionUs(requestedUs)
+            val offsetMs = period?.startUs?.div(1_000L) ?: 0L
+            val durationMs: Long
+            val configuration: AdaptiveTargetConfiguration
+            if (dash != null && period != null) {
+                val manifest = dash.manifestForPeriod(period)
+                val default =
+                    selectYDashPlaybackRepresentations(
+                        manifest,
+                        rootRoute.startupSelectionConditions(),
+                        YDashPlaybackCapabilities(rootRoute.allowDolbyVisionHls, rootRoute.allowDolbyAtmosHls),
+                    ).video.id
+                val variantId = forcedVariantId ?: dashVariantIds[period.id] ?: default
+                require(manifest.representations.any { it.id == variantId }) {
+                    "DASH reopen variant is outside its Period"
+                }
+                dashVariantIds[period.id] = variantId
+                currentDashPeriodId = period.id
+                configuration = AdaptiveTargetConfiguration(this, revision, variantId, dash = manifest)
+                durationMs = dash.mediaPresentationDurationUs?.div(1_000L) ?: 0L
+            } else {
+                val variantId = forcedVariantId ?: requireNotNull(hlsVariantId)
+                val (variant, playback) =
+                    requireNotNull(hlsChoices[variantId]) { "HLS reopen variant is not discovered" }
+                hlsVariantId = variantId
+                val initial = YHlsVariantMediaPlaylist(variant, playback.media)
+                val session =
+                    HlsAbrSession(variantId, initial, isMeteredNetwork, ::latestPlaybackFeedback) { desired ->
+                        latestPlaybackFeedback()?.value?.generation?.let { feedbackGeneration ->
+                            gate.propose(revision, feedbackGeneration, desired)
+                        }
+                    }
+                hlsChoices.values.forEach { (candidate, candidatePlayback) ->
+                    session.addVariant(YHlsVariantMediaPlaylist(candidate, candidatePlayback.media))
+                }
+                currentHlsSession = session
+                val aligned =
+                    alignYHlsVariantSegments(listOf(initial), variantId).associateBy(YHlsAlignedSegment::sequence)
+                configuration =
+                    AdaptiveTargetConfiguration(
+                        this,
+                        revision,
+                        variantId,
+                        hls = playback.copy(abrSession = session, alignedSegments = aligned),
+                    )
+                durationMs =
+                    playback.media.segments
+                        .lastOrNull()
+                        ?.let { (it.startTimeUs + it.durationUs) / 1_000L } ?: 0L
+            }
+            val targetRoute =
+                rootRoute.copy(
+                    playbackTarget = configuration,
+                    cacheIdentity =
+                        period?.let {
+                            rootRoute.cacheIdentity?.forAdaptiveResourceKey("dash-period:${it.id}:${it.startUs}")
+                        } ?: rootRoute.cacheIdentity,
+                )
+            retirePlaybackTargets(this, revision - 1L)
+            val targetUri =
+                localRouteUrl(targetRoute, if (configuration.dash != null) "/manifest.mpd" else "/playlist.m3u8")
+            return YAdaptivePlaybackTarget(
+                rootUri = rootUri,
+                uri = targetUri,
+                localPositionMs = (globalPositionMs - offsetMs).coerceAtLeast(0L),
+                presentationOffsetMs = offsetMs,
+                presentationDurationMs = durationMs,
+                revision = revision,
+                periodEndGlobalMs = period?.endUs?.div(1_000L),
+                feedbackGeneration = generation,
+            )
+        }
+    }
+
     private class HlsAbrSession(
         initialVariantId: String,
+        private val initialPlaylist: YHlsVariantMediaPlaylist,
         private val isMeteredNetwork: () -> Boolean,
         private val latestFeedback: () -> TimedAdaptivePlaybackFeedback?,
+        private val requestReopen: ((String) -> Unit)? = null,
     ) {
         private val bandwidthEstimator = YAdaptiveBandwidthEstimator()
         private var currentVariantId = initialVariantId
         private val bufferModel = YAdaptiveBufferModel()
         private var lastCompletedSequence: Long? = null
+        private val discoveredVariants = linkedMapOf(initialVariantId to initialPlaylist)
+        private var alignedSegments = emptyMap<Long, YHlsAlignedSegment>()
+        private var reopenVariants = listOf(initialPlaylist.variant)
+
+        @Synchronized
+        fun addVariant(candidate: YHlsVariantMediaPlaylist) {
+            discoveredVariants[candidate.variant.id] = candidate
+            alignedSegments =
+                alignYHlsVariantSegments(discoveredVariants.values.toList(), initialPlaylist.variant.id)
+                    .associateBy(YHlsAlignedSegment::sequence)
+            reopenVariants =
+                compatibleYHlsReopenVariants(initialPlaylist, discoveredVariants.values.toList()).map { it.variant }
+        }
 
         @Synchronized
         fun select(segment: YHlsAlignedSegment): com.yfuse.core2.adaptive.YHlsAlignedSegmentResource {
             applyLatestFeedback()
+            val resources = alignedSegments[segment.sequence]?.resources ?: segment.resources
+            requestReopen?.let { request ->
+                val ideal =
+                    YAdaptiveVariantSelector.select(
+                        variants = reopenVariants,
+                        conditions = selectionConditions(),
+                        currentVariantId = currentVariantId,
+                    )
+                if (resources.none { it.variant.id == ideal.id }) request(ideal.id)
+            }
             val currentForSegment =
-                currentVariantId.takeIf { current -> segment.resources.any { it.variant.id == current } }
-                    ?: segment.resources
+                currentVariantId.takeIf { current -> resources.any { it.variant.id == current } }
+                    ?: resources
                         .minBy { it.variant.selectionBandwidthBitsPerSecond }
                         .variant.id
             val selected =
                 YAdaptiveVariantSelector.select(
-                    variants = segment.resources.map { it.variant },
+                    variants = resources.map { it.variant },
                     conditions =
-                        YAdaptiveSelectionConditions(
-                            estimatedBandwidthBitsPerSecond =
-                                bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
-                                    ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
-                            bufferedDurationUs = bufferModel.estimate(),
-                            metered = isMeteredNetwork(),
-                        ),
+                        selectionConditions(),
                     currentVariantId = currentForSegment,
                 )
             currentVariantId = selected.id
-            return segment.resources.first { it.variant.id == selected.id }
+            return resources.first { it.variant.id == selected.id }
         }
+
+        private fun selectionConditions() =
+            YAdaptiveSelectionConditions(
+                estimatedBandwidthBitsPerSecond =
+                    bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L } ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
+                bufferedDurationUs = bufferModel.estimate(),
+                metered = isMeteredNetwork(),
+            )
 
         @Synchronized
         fun recordNetworkSample(
@@ -278,6 +453,8 @@ internal class AndroidYCoreHttpProxy(
         initialRepresentationId: String,
         private val isMeteredNetwork: () -> Boolean,
         private val latestFeedback: () -> TimedAdaptivePlaybackFeedback?,
+        private val reopenCandidates: List<YDashRepresentation> = emptyList(),
+        private val requestReopen: ((String) -> Unit)? = null,
     ) {
         private val bandwidthEstimator = YAdaptiveBandwidthEstimator()
         private var currentRepresentationId = initialRepresentationId
@@ -289,17 +466,27 @@ internal class AndroidYCoreHttpProxy(
             require(representations.isNotEmpty())
             applyLatestFeedback()
             val variants = representations.map(YDashRepresentation::asAdaptiveVariant)
+            val conditions =
+                YAdaptiveSelectionConditions(
+                    estimatedBandwidthBitsPerSecond =
+                        bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
+                            ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
+                    bufferedDurationUs = bufferModel.estimate(),
+                    metered = isMeteredNetwork(),
+                )
+            if (reopenCandidates.isNotEmpty() && requestReopen != null) {
+                val ideal =
+                    YAdaptiveVariantSelector.select(
+                        reopenCandidates.map(YDashRepresentation::asAdaptiveVariant),
+                        conditions,
+                        currentRepresentationId,
+                    )
+                if (variants.none { it.id == ideal.id }) requestReopen.invoke(ideal.id)
+            }
             val selected =
                 YAdaptiveVariantSelector.select(
                     variants = variants,
-                    conditions =
-                        YAdaptiveSelectionConditions(
-                            estimatedBandwidthBitsPerSecond =
-                                bandwidthEstimator.estimateBitsPerSecond.takeIf { it > 0L }
-                                    ?: INITIAL_BANDWIDTH_BITS_PER_SECOND,
-                            bufferedDurationUs = bufferModel.estimate(),
-                            metered = isMeteredNetwork(),
-                        ),
+                    conditions = conditions,
                     currentVariantId = currentRepresentationId,
                 )
             currentRepresentationId = selected.id
@@ -335,12 +522,16 @@ internal class AndroidYCoreHttpProxy(
         }
     }
 
-    private val cacheDirectory = context.applicationContext.cacheDir
+    private val cacheDirectory = cacheDirectory ?: requireNotNull(context).applicationContext.cacheDir
     private val routesLock = Any()
     private val routes = LinkedHashMap<String, Route>()
     private val routeIds = HashMap<Route, String>()
     private val closed = AtomicBoolean(false)
     private val activeRangeSources = ConcurrentHashMap.newKeySet<AndroidTransportMediaDataSource>()
+    private val manifestDiscovery = AndroidAdaptiveManifestDiscovery()
+    private val presentations = ConcurrentHashMap<String, AdaptivePresentation>()
+    private val unmanagedManifestRoots = ConcurrentHashMap.newKeySet<String>()
+    private val activeManifestTransports = ConcurrentHashMap.newKeySet<YMediaTransport>()
 
     @Volatile
     private var adaptivePlaybackFeedback: TimedAdaptivePlaybackFeedback? = null
@@ -406,6 +597,140 @@ internal class AndroidYCoreHttpProxy(
         activeRangeSources.forEach(::updateRangePlaybackWindow)
     }
 
+    /** Resolves a complete source before the player probes/configures it; never splices new init into old samples. */
+    suspend fun resolvePlaybackTarget(
+        rootUri: String,
+        globalPositionMs: Long,
+    ): YAdaptivePlaybackTarget? =
+        withContext(Dispatchers.IO) {
+            if (closed.get() || rootUri in unmanagedManifestRoots) return@withContext null
+            val route = routeForLocalUri(rootUri) ?: return@withContext null
+            val existing = route.playbackTarget?.presentation ?: presentations[rootUri]
+            if (existing != null) return@withContext existing.target(globalPositionMs)
+            if (!route.hlsManifest && !route.dashManifest) return@withContext null
+            val maximumBytes = if (route.dashManifest) MAX_DASH_MANIFEST_BYTES else MAX_HLS_MANIFEST_BYTES
+            val text = loadBoundedCancellable(route.upstreamUri, maximumBytes, route).decodeToString()
+            val created =
+                if (route.dashManifest) {
+                    val manifest = parseYDashManifest(text, route.upstreamUri)
+                    // Live Period insertion/removal needs a moving-window controller, separate from VOD concatenation.
+                    if (manifest.isLive) {
+                        unmanagedManifestRoots.add(rootUri)
+                        return@withContext null
+                    }
+                    require(manifest.periods.all { it.durationUs != null }) { "Static DASH Period duration is unknown" }
+                    AdaptivePresentation(rootUri, route, dash = manifest)
+                } else {
+                    require(route.drmProtected || !text.hasHlsSessionKey()) {
+                        "HLS session keys require the native DRM route"
+                    }
+                    val master = parseYHlsPlaylist(text, route.upstreamUri) as? YHlsPlaylist.Master
+                    if (master == null || text.hasSeparateYCoreHlsRenditions()) {
+                        unmanagedManifestRoots.add(rootUri)
+                        return@withContext null
+                    }
+                    val playbackSet =
+                        selectYHlsPlaybackSet(
+                            master,
+                            route.startupSelectionConditions(),
+                            YHlsPlaybackCapabilities(route.allowDolbyVisionHls, route.allowDolbyAtmosHls),
+                        )
+                    val selected = playbackSet.initialVariant
+                    val selectedText =
+                        loadBoundedCancellable(selected.uri, MAX_HLS_MANIFEST_BYTES, route)
+                            .decodeToString()
+                            .withAuthoredHlsSessionKeysFrom(text, route.upstreamUri)
+                    val selectedMedia = selectedText.requireExecutableHlsMedia(selected.uri, route.drmProtected)
+                    if (selectedMedia.isLive || selectedText.hasLowLatencyHlsParts()) {
+                        unmanagedManifestRoots.add(rootUri)
+                        return@withContext null
+                    }
+                    AdaptivePresentation(
+                        rootUri,
+                        route,
+                        hlsMaster = master.copy(variants = playbackSet.variants),
+                        hlsRootText = text,
+                        initialHls = selected to HlsPlaybackManifest(selectedText, selected.uri, selectedMedia),
+                    )
+                }
+            currentCoroutineContext().ensureActive()
+            check(!closed.get()) { "Adaptive presentation was closed" }
+            val presentation = presentations.putIfAbsent(rootUri, created) ?: created
+            val target = presentation.target(globalPositionMs)
+            if (presentation === created) discoverPresentationHlsVariants(presentation)
+            target
+        }
+
+    /** Single-use and generation-bound; caller rebuilds at the returned global/local timeline coordinates. */
+    fun pollPlaybackTransition(
+        rootUri: String,
+        globalPositionMs: Long,
+    ): YAdaptivePlaybackTarget? {
+        if (closed.get()) return null
+        val presentation =
+            presentations[rootUri] ?: routeForLocalUri(rootUri)?.playbackTarget?.presentation ?: return null
+        return presentation.pollTarget(globalPositionMs)
+    }
+
+    private fun routeForLocalUri(uri: String): Route? {
+        val parsed = runCatching { URI(uri) }.getOrNull() ?: return null
+        if (parsed.host != LOOPBACK_HOST || parsed.port != server.localPort) return null
+        val prefix = "/$ROUTE_PREFIX/"
+        val path = parsed.path ?: return null
+        if (!path.startsWith(prefix)) return null
+        return findRoute(path.removePrefix(prefix).substringBefore('/'))
+    }
+
+    /** Keep the current and immediately preceding target while the actor closes the old decoder. */
+    private fun retirePlaybackTargets(
+        presentation: AdaptivePresentation,
+        keepFromRevision: Long,
+    ) {
+        synchronized(routesLock) {
+            val iterator = routes.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                val target = entry.value.playbackTarget
+                if (target != null && target.presentation === presentation && target.revision < keepFromRevision) {
+                    routeIds.remove(entry.value)
+                    iterator.remove()
+                }
+            }
+        }
+    }
+
+    private fun Route.startupSelectionConditions() =
+        YAdaptiveSelectionConditions(
+            estimatedBandwidthBitsPerSecond = INITIAL_BANDWIDTH_BITS_PER_SECOND,
+            bufferedDurationUs = STARTUP_BUFFER_US,
+            maximumWidth = maximumWidth,
+            maximumHeight = maximumHeight,
+            metered = isMeteredNetwork(),
+        )
+
+    private fun discoverPresentationHlsVariants(presentation: AdaptivePresentation) {
+        val master = presentation.hlsMaster ?: return
+        val route = presentation.rootRoute
+        master.variants
+            .filter { it.fits(route.maximumWidth, route.maximumHeight) && !presentation.hasHlsChoice(it.id) }
+            .sortedBy(YAdaptiveVariant::selectionBandwidthBitsPerSecond)
+            .take(MAX_HLS_ABR_VARIANTS - 1)
+            .forEach { variant ->
+                manifestDiscovery.submit(presentation to variant.id) { budget ->
+                    val text =
+                        loadBounded(variant.uri, MAX_HLS_MANIFEST_BYTES, route, budget)
+                            .decodeToString()
+                            .withAuthoredHlsSessionKeysFrom(presentation.hlsRootText.orEmpty(), route.upstreamUri)
+                    val media = text.requireExecutableHlsMedia(variant.uri, route.drmProtected)
+                    if (!media.isLive && !text.hasLowLatencyHlsParts()) {
+                        budget.publishIfActive {
+                            presentation.addHlsChoice(variant, HlsPlaybackManifest(text, variant.uri, media))
+                        }
+                    }
+                }
+            }
+    }
+
     private fun updateRangePlaybackWindow(source: AndroidTransportMediaDataSource) {
         val feedback = adaptivePlaybackFeedback?.value ?: return
         source.updatePlaybackWindow(
@@ -423,8 +748,13 @@ internal class AndroidYCoreHttpProxy(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        manifestDiscovery.close()
+        activeManifestTransports.forEach { transport -> runCatching { runBlocking { transport.close() } } }
+        activeManifestTransports.clear()
         activeRangeSources.forEach { runCatching { it.close() } }
         activeRangeSources.clear()
+        presentations.clear()
+        unmanagedManifestRoots.clear()
         runCatching { server.close() }
         workers.shutdownNow()
         runCatching { workers.awaitTermination(WORKER_SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
@@ -599,11 +929,12 @@ internal class AndroidYCoreHttpProxy(
         route: Route,
         method: String,
     ) {
-        val rootText = loadBounded(route.upstreamUri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
+        val pinned = route.playbackTarget?.hls
+        val rootText = pinned?.text ?: loadBounded(route.upstreamUri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
         require(route.drmProtected || !rootText.hasHlsSessionKey()) {
             "HLS session keys require the native DRM route"
         }
-        val root = parseYHlsPlaylist(rootText, route.upstreamUri)
+        val root = pinned?.media ?: parseYHlsPlaylist(rootText, route.upstreamUri)
         if (root is YHlsPlaylist.Master && rootText.hasSeparateYCoreHlsRenditions()) {
             val conditions =
                 YAdaptiveSelectionConditions(
@@ -657,7 +988,7 @@ internal class AndroidYCoreHttpProxy(
         }
         val playback =
             when (root) {
-                is YHlsPlaylist.Media -> HlsPlaybackManifest(rootText, route.upstreamUri, root)
+                is YHlsPlaylist.Media -> pinned ?: HlsPlaybackManifest(rootText, route.upstreamUri, root)
                 is YHlsPlaylist.Master -> loadHlsPlaybackManifest(root, route)
             }
         playback.media.requireSupportedEncryption(route.drmProtected)
@@ -678,7 +1009,7 @@ internal class AndroidYCoreHttpProxy(
                     }
                 if (mediaSegment != null) segmentIndex++
                 val aligned = mediaSegment?.let { playback.alignedSegments[it.sequence] }
-                if (aligned != null && aligned.resources.size > 1 && playback.abrSession != null) {
+                if (aligned != null && playback.abrSession != null) {
                     localHlsAbrUrl(route, persistent, aligned, playback.abrSession)
                 } else {
                     localUrl(
@@ -724,46 +1055,40 @@ internal class AndroidYCoreHttpProxy(
         root: YHlsPlaylist.Master,
         route: Route,
     ): HlsPlaybackManifest {
-        val selected =
-            YAdaptiveVariantSelector.select(
-                variants = root.variants,
-                conditions =
-                    YAdaptiveSelectionConditions(
-                        estimatedBandwidthBitsPerSecond = INITIAL_BANDWIDTH_BITS_PER_SECOND,
-                        bufferedDurationUs = STARTUP_BUFFER_US,
-                        maximumWidth = route.maximumWidth,
-                        maximumHeight = route.maximumHeight,
-                        metered = isMeteredNetwork(),
-                    ),
+        val playbackSet =
+            selectYHlsPlaybackSet(
+                root,
+                route.startupSelectionConditions(),
+                YHlsPlaybackCapabilities(route.allowDolbyVisionHls, route.allowDolbyAtmosHls),
             )
+        val selected = playbackSet.initialVariant
         val selectedText = loadBounded(selected.uri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
         val selectedMedia = selectedText.requireExecutableHlsMedia(selected.uri, route.drmProtected)
         if (selectedMedia.isLive || selectedText.hasLowLatencyHlsParts()) {
             return HlsPlaybackManifest(selectedText, selected.uri, selectedMedia)
         }
         val eligibleAlternates =
-            root.variants
+            playbackSet.variants
                 .filter { it.id != selected.id && it.fits(route.maximumWidth, route.maximumHeight) }
                 .sortedBy(YAdaptiveVariant::selectionBandwidthBitsPerSecond)
                 .take(MAX_HLS_ABR_VARIANTS - 1)
-        val variantMedia =
-            buildList {
-                add(YHlsVariantMediaPlaylist(selected, selectedMedia))
-                eligibleAlternates.mapNotNullTo(this) { variant ->
-                    runCatching {
-                        val text = loadBounded(variant.uri, MAX_HLS_MANIFEST_BYTES, route).decodeToString()
-                        if (text.hasLowLatencyHlsParts()) return@runCatching null
+        val initialPlaylist = YHlsVariantMediaPlaylist(selected, selectedMedia)
+        val aligned = alignYHlsVariantSegments(listOf(initialPlaylist), selected.id)
+        val session =
+            HlsAbrSession(selected.id, initialPlaylist, isMeteredNetwork, ::latestPlaybackFeedback)
+        eligibleAlternates.forEach { variant ->
+            manifestDiscovery.submit(session to variant.id) { budget ->
+                val text = loadBounded(variant.uri, MAX_HLS_MANIFEST_BYTES, route, budget).decodeToString()
+                if (!text.hasLowLatencyHlsParts()) {
+                    val candidate =
                         YHlsVariantMediaPlaylist(
                             variant,
                             text.requireExecutableHlsMedia(variant.uri, route.drmProtected),
                         )
-                    }.getOrNull()
+                    budget.publishIfActive { session.addVariant(candidate) }
                 }
-            }.filterNotNull()
-        val aligned = alignYHlsVariantSegments(variantMedia, selected.id)
-        val session =
-            HlsAbrSession(selected.id, isMeteredNetwork, ::latestPlaybackFeedback)
-                .takeIf { aligned.any { it.resources.size > 1 } }
+            }
+        }
         return HlsPlaybackManifest(
             text = selectedText,
             uri = selected.uri,
@@ -838,6 +1163,21 @@ internal class AndroidYCoreHttpProxy(
         }.trimEnd()
     }
 
+    private fun String.withAuthoredHlsSessionKeysFrom(
+        master: String,
+        masterUri: String,
+    ): String {
+        val keys =
+            master.lineSequence().filter { it.trim().startsWith("#EXT-X-SESSION-KEY:", ignoreCase = true) }.toList()
+        if (keys.isEmpty()) return this
+        val absoluteKeys =
+            rewriteYHlsResourceUris((listOf("#EXTM3U") + keys).joinToString("\n"), masterUri) { uri, _ -> uri }
+                .lineSequence()
+                .drop(1)
+                .joinToString("\n")
+        return lineSequence().first() + "\n" + absoluteKeys + "\n" + lineSequence().drop(1).joinToString("\n")
+    }
+
     private fun localHlsAbrUrl(
         parent: Route,
         cacheable: Boolean,
@@ -867,12 +1207,16 @@ internal class AndroidYCoreHttpProxy(
         route: Route,
         method: String,
     ) {
-        val sourceXml = loadBounded(route.upstreamUri, MAX_DASH_MANIFEST_BYTES, route).decodeToString()
-        require(DASH_PERIOD_TAG.findAll(sourceXml).count() == 1) {
-            "Multi-period DASH requires the period controller"
-        }
-        val manifest = parseYDashManifest(sourceXml, route.upstreamUri)
-        val selection =
+        val pinned = route.playbackTarget
+        val manifest =
+            pinned?.dash ?: run {
+                val sourceXml = loadBounded(route.upstreamUri, MAX_DASH_MANIFEST_BYTES, route).decodeToString()
+                require(DASH_PERIOD_TAG.findAll(sourceXml).count() == 1) {
+                    "Multi-period DASH must be opened through the presentation controller"
+                }
+                parseYDashManifest(sourceXml, route.upstreamUri)
+            }
+        val initialSelection =
             selectYDashPlaybackRepresentations(
                 manifest = manifest,
                 conditions =
@@ -889,15 +1233,50 @@ internal class AndroidYCoreHttpProxy(
                         dolbyAtmosOutput = route.allowDolbyAtmosHls,
                     ),
             )
+        val selection =
+            pinned?.variantId?.let { selectedId ->
+                initialSelection.copy(video = manifest.representations.single { it.id == selectedId })
+            } ?: initialSelection
         val switchingRepresentations =
             alignYDashSwitchingRepresentations(
-                manifest = manifest,
+                manifest =
+                    manifest.copy(
+                        representations =
+                            manifest.representations.filter {
+                                it.id == selection.video.id ||
+                                    it.asAdaptiveVariant().fits(route.maximumWidth, route.maximumHeight)
+                            },
+                    ),
                 selectedRepresentationId = selection.video.id,
                 maximumRepresentations = MAX_DASH_ABR_REPRESENTATIONS,
             )
         val dashAbrSession =
-            DashAbrSession(selection.video.id, isMeteredNetwork, ::latestPlaybackFeedback)
-                .takeIf { switchingRepresentations.size > 1 }
+            DashAbrSession(
+                selection.video.id,
+                isMeteredNetwork,
+                ::latestPlaybackFeedback,
+                reopenCandidates =
+                    if (pinned != null) {
+                        compatibleYDashReopenRepresentations(selection.video, manifest.representations)
+                            .filter {
+                                it.id == selection.video.id ||
+                                    it.asAdaptiveVariant().fits(route.maximumWidth, route.maximumHeight)
+                            }.filterNot { it.id == selection.video.id }
+                            .sortedBy(YDashRepresentation::bandwidthBitsPerSecond)
+                            .take(MAX_DASH_ABR_REPRESENTATIONS - 1) + selection.video
+                    } else {
+                        emptyList()
+                    },
+                requestReopen =
+                    pinned?.let { target ->
+                        { desired ->
+                            latestPlaybackFeedback()?.value?.generation?.let { generation ->
+                                target.presentation.gate.propose(target.revision, generation, desired)
+                            }
+                            Unit
+                        }
+                    },
+            ).takeIf { switchingRepresentations.size > 1 || pinned != null }
         val rewritten =
             buildYDashPlaybackManifest(
                 manifest = manifest,
@@ -1176,14 +1555,40 @@ internal class AndroidYCoreHttpProxy(
         }
     }
 
-    private fun loadBounded(
+    private suspend fun loadBoundedCancellable(
         upstreamUri: String,
         maximumBytes: Int,
         route: Route,
     ): ByteArray =
+        suspendCancellableCoroutine { continuation ->
+            val budget = YManifestDiscoveryBudget { !closed.get() }
+            val future =
+                workers.submit {
+                    try {
+                        continuation.resume(loadBounded(upstreamUri, maximumBytes, route, budget))
+                    } catch (error: Throwable) {
+                        continuation.resumeWithException(error)
+                    }
+                }
+            continuation.invokeOnCancellation {
+                budget.cancel()
+                future.cancel(false)
+            }
+        }
+
+    private fun loadBounded(
+        upstreamUri: String,
+        maximumBytes: Int,
+        route: Route,
+        discoveryBudget: YManifestDiscoveryBudget? = null,
+    ): ByteArray =
         runBlocking {
             val transport = createTransport()
+            activeManifestTransports.add(transport)
+            val cancellation = discoveryBudget?.onCancel { runBlocking { transport.close() } }
             try {
+                check(!closed.get()) { "Adaptive presentation was closed" }
+                discoveryBudget?.checkActive()
                 val response =
                     transport.open(
                         YMediaTransportRequest(
@@ -1198,6 +1603,7 @@ internal class AndroidYCoreHttpProxy(
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(NETWORK_BUFFER_BYTES)
                 while (true) {
+                    discoveryBudget?.checkActive()
                     val count = transport.read(buffer, 0, buffer.size)
                     if (count < 0) break
                     if (count == 0) continue
@@ -1206,6 +1612,8 @@ internal class AndroidYCoreHttpProxy(
                 }
                 output.toByteArray()
             } finally {
+                cancellation?.close()
+                activeManifestTransports.remove(transport)
                 transport.close()
             }
         }

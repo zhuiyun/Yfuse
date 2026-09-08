@@ -10,7 +10,9 @@ import java.security.MessageDigest
 import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 import java.util.Properties
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 
 plugins {
     alias(libs.plugins.multiplatform)
@@ -55,23 +57,12 @@ val confirmNativeOnlyRelease =
         ?.trim()
         ?.equals("true", ignoreCase = true) == true
 
-val includeYCoreGpuCompanion =
-    !nativeOnlyRuntime &&
-        layout.projectDirectory
-            .file("libs/ycore-gpu.aar")
-            .asFile
-            .isFile
-
-// Native-only owns the dependency-closed YCore AAR. Compatibility packages receive only the
-// isolated GPU companion because libmpv already supplies the demux/FFmpeg dependency closure.
+// Both APK profiles consume one dependency-closed YCore runtime. The full MPV carrier is stripped
+// of identical shared dependencies below, so an old bundled demux cannot win JNI packaging order.
 val packagedYCoreGpu =
-    if (nativeOnlyRuntime) {
-        layout.projectDirectory
-            .file("libs/ycore-native.aar")
-            .asFile.isFile
-    } else {
-        includeYCoreGpuCompanion
-    }
+    layout.projectDirectory
+        .file("libs/ycore-native.aar")
+        .asFile.isFile
 
 /**
  * Keeps feature code on the semantic design-system surface. These are deliberately simple
@@ -283,7 +274,7 @@ val verifyStandaloneYCoreArtifact by tasks.registering {
             "ycore-software-decoder-api=2",
             "ycore-tone-map-source=scripts/native/ycore_tone_map.h",
             "ycore-libass=0.17.4",
-            "ycore-libass-api=1",
+            "ycore-libass-api=2",
             "ycore-disc-api=2",
             "ycore-bdmv-vfs=read-only-saf",
             "ycore-gpu-api=2",
@@ -425,12 +416,57 @@ val verifyYCoreGpuCompanionArtifact by tasks.registering {
     }
 }
 
+val fullMpvCarrier = layout.buildDirectory.file("generated/ycore/libmpv-runtime.aar")
+val prepareFullMpvCarrier by tasks.registering {
+    group = "build"
+    description = "Uses the same verified YCore native runtime in full and native-only APKs."
+    dependsOn(verifyCustomMpvArtifact, verifyStandaloneYCoreArtifact)
+    val mpv = layout.projectDirectory.file("libs/libmpv-release.aar")
+    val ycore = layout.projectDirectory.file("libs/ycore-native.aar")
+    inputs.files(mpv, ycore)
+    outputs.file(fullMpvCarrier)
+    doLast {
+        val output = fullMpvCarrier.get().asFile
+        output.parentFile.mkdirs()
+        val staged = File(output.parentFile, "${output.name}.tmp")
+        try {
+            ZipFile(mpv.asFile).use { original ->
+                ZipFile(ycore.asFile).use { runtime ->
+                    ZipOutputStream(staged.outputStream().buffered()).use { archive ->
+                        original.entries().asSequence().forEach { entry ->
+                            val replacement = runtime.getEntry(entry.name)
+                            val replaced =
+                                entry.name.startsWith("jni/") && entry.name.endsWith(".so") && replacement != null
+                            if (replaced) {
+                                if (!entry.name.endsWith("/libycore_demux.so") &&
+                                    !entry.name.endsWith("/libycore_gpu.so")
+                                ) {
+                                    val oldBytes = original.getInputStream(entry).use { it.readBytes() }
+                                    val newBytes = runtime.getInputStream(replacement).use { it.readBytes() }
+                                    require(oldBytes.contentEquals(newBytes)) {
+                                        "MPV and YCore shared dependency differs: ${entry.name}; rebuild both from the same pinned native sources"
+                                    }
+                                }
+                            } else {
+                                archive.putNextEntry(ZipEntry(entry.name).apply { time = 0L })
+                                if (!entry.isDirectory) original.getInputStream(entry).use { it.copyTo(archive) }
+                                archive.closeEntry()
+                            }
+                        }
+                    }
+                }
+            }
+            Files.move(staged.toPath(), output.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            staged.delete()
+        }
+    }
+}
+
 val verifyProductionYCoreGpu by tasks.registering {
     group = "verification"
     description = "Fails release packaging when the selected profile has no YCore Vulkan runtime."
-    if (!nativeOnlyRuntime) {
-        dependsOn(verifyYCoreGpuCompanionArtifact)
-    }
+    dependsOn(verifyStandaloneYCoreArtifact)
     doLast {
         require(nativeOnlyRuntime || packagedYCoreGpu) {
             "Release builds require the YCore GPU runtime; run scripts/install-ycore-native.sh first"
@@ -691,10 +727,8 @@ kotlin {
                 implementation(files("libs/ycore-native.aar"))
                 compileOnly(files("libs/libmpv-release.aar"))
             } else {
-                implementation(files("libs/libmpv-release.aar"))
-                if (includeYCoreGpuCompanion) {
-                    implementation(files("libs/ycore-gpu.aar"))
-                }
+                implementation(files(fullMpvCarrier).builtBy(prepareFullMpvCarrier))
+                implementation(files("libs/ycore-native.aar"))
             }
             implementation(libs.androidx.palette)
             implementation(libs.androidx.work.runtime)
@@ -1172,9 +1206,6 @@ tasks.configureEach {
             dependsOn(verifyStandaloneYCoreArtifact)
         } else {
             dependsOn(verifyCustomMpvArtifact)
-        }
-        if (includeYCoreGpuCompanion) {
-            dependsOn(verifyYCoreGpuCompanionArtifact)
         }
         if (includeMdk) dependsOn(verifyMdkArtifact)
         dependsOn(verifyMediaTestManifest)

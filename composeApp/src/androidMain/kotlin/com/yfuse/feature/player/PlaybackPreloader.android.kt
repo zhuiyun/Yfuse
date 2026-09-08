@@ -15,6 +15,8 @@ import com.yfuse.core.data.PlaybackPreferences
 import com.yfuse.core.data.UserAgentPreferences
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.network.currentPlaybackNetworkClass
+import com.yfuse.core2.android.AndroidPlaybackMemoryBudget
+import com.yfuse.core2.android.PlaybackBufferKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -81,8 +83,17 @@ internal class AndroidPlaybackSourcePreloader(
         lateinit var job: Job
         job =
             scope.launch(start = CoroutineStart.LAZY) {
+                val memory = AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Preload, 128L * 1024L)
+                if (memory.limitBytes < 32L * 1024L) {
+                    memory.close()
+                    return@launch
+                }
                 val cacheBytes = playbackPreferences.videoCacheSize.value.bytes
-                val handle = VideoCachePool.acquire(applicationContext, cacheBytes) ?: return@launch
+                val handle =
+                    VideoCachePool.acquire(applicationContext, cacheBytes) ?: run {
+                        memory.close()
+                        return@launch
+                    }
                 try {
                     val httpFactory =
                         DefaultHttpDataSource
@@ -115,7 +126,12 @@ internal class AndroidPlaybackSourcePreloader(
                             .setLength(preloadBytes)
                             .build()
 
-                    val writer = CacheWriter(dataSource, dataSpec, null, null)
+                    val buffer = ByteArray(memory.limitBytes.coerceAtMost(128L * 1024L).toInt())
+                    val writer =
+                        CacheWriter(dataSource, dataSpec, buffer) { _, _, _ ->
+                            AndroidPlaybackMemoryBudget.refreshPressure()
+                            if (memory.limitBytes < buffer.size || cancelled.get()) writerRef.get()?.cancel()
+                        }
                     writerRef.set(writer)
                     try {
                         writer.cache()
@@ -144,6 +160,7 @@ internal class AndroidPlaybackSourcePreloader(
                     )
                 } finally {
                     handle.close()
+                    memory.close()
                 }
             }
         val existing = jobs.putIfAbsent(cacheKey, job)

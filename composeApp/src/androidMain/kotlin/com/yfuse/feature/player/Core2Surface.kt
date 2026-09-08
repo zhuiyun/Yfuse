@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,11 +17,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -39,9 +43,11 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.yfuse.core2.android.AndroidAssSubtitleRenderer
 import com.yfuse.core2.android.AndroidSurfaceVideoOutput
 import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.legacy.YPlayerVideoEngineAdapter
+import com.yfuse.core2.subtitle.YSubtitleClockAnchor
 import com.yfuse.core2.subtitle.YSubtitleCue
 import com.yfuse.core2.subtitle.YSubtitlePayload
 import com.yfuse.core2.subtitle.YSubtitleTimeline
@@ -104,6 +110,7 @@ internal fun Core2Surface(
         )
         Core2SubtitleOverlay(
             engine = engine,
+            canvasSize = IntSize(videoWidth, videoHeight),
             offsetMs = subtitleOffsetMs,
             scale = subtitleScale,
             brightness = subtitleBrightness,
@@ -118,6 +125,7 @@ internal fun Core2Surface(
 @Composable
 private fun Core2SubtitleOverlay(
     engine: YPlayerVideoEngineAdapter,
+    canvasSize: IntSize,
     offsetMs: Long,
     scale: Float,
     brightness: Float,
@@ -126,9 +134,41 @@ private fun Core2SubtitleOverlay(
     modifier: Modifier,
 ) {
     val playerState by engine.player.state.collectAsState()
+
+    fun hasActiveAss(
+        cues: List<YSubtitleCue>,
+        delayMs: Long,
+    ): Boolean {
+        val timeUs = (playerState.positionMs - delayMs) * MICROS_PER_MILLISECOND
+        return cues.any { it.payload is YSubtitlePayload.AssEvent && timeUs >= it.startUs && timeUs < it.endUs }
+    }
+    val hasAss =
+        hasActiveAss(playerState.subtitleCues, offsetMs) ||
+            hasActiveAss(playerState.secondarySubtitleCues, playerState.secondarySubtitleOffsetMs)
+    val clock =
+        remember(playerState.positionMs, playerState.playing, playerState.buffering, playerState.speed) {
+            YSubtitleClockAnchor(
+                playerState.positionMs,
+                System.nanoTime(),
+                playerState.playing && !playerState.buffering,
+                playerState.speed,
+            )
+        }
+    var frameClock by remember { mutableStateOf(clock to clock.positionMs) }
+    LaunchedEffect(clock, hasAss) {
+        if (!hasAss || !clock.advancing) {
+            frameClock = clock to clock.positionMs
+            return@LaunchedEffect
+        }
+        while (true) withFrameNanos { frameClock = clock to clock.positionAt(it) }
+    }
+    val subtitlePositionMs = if (hasAss && frameClock.first == clock) frameClock.second else playerState.positionMs
+
     Core2SubtitleChannel(
         cues = playerState.subtitleCues,
-        positionMs = playerState.positionMs,
+        positionMs = subtitlePositionMs,
+        timelineGeneration = playerState.diagnostics.outputEvidenceGeneration,
+        canvasSize = canvasSize,
         offsetMs = offsetMs,
         scale = scale,
         brightness = brightness,
@@ -140,7 +180,9 @@ private fun Core2SubtitleOverlay(
     )
     Core2SubtitleChannel(
         cues = playerState.secondarySubtitleCues,
-        positionMs = playerState.positionMs,
+        positionMs = subtitlePositionMs,
+        timelineGeneration = playerState.diagnostics.outputEvidenceGeneration,
+        canvasSize = canvasSize,
         offsetMs = playerState.secondarySubtitleOffsetMs,
         scale = scale,
         brightness = brightness,
@@ -156,6 +198,8 @@ private fun Core2SubtitleOverlay(
 private fun Core2SubtitleChannel(
     cues: List<YSubtitleCue>,
     positionMs: Long,
+    timelineGeneration: Long,
+    canvasSize: IntSize,
     offsetMs: Long,
     scale: Float,
     brightness: Float,
@@ -174,9 +218,25 @@ private fun Core2SubtitleChannel(
         remember<List<YSubtitleCue>>(timeline, positionMs, offsetMs) {
             timeline.activeAt(positionMs * MICROS_PER_MILLISECOND, offsetMs * MICROS_PER_MILLISECOND)
         }
+    val assRenderer = remember { AndroidAssSubtitleRenderer() }
+    DisposableEffect(assRenderer) { onDispose(assRenderer::close) }
+    val assOverrides = remember(appearance) { appearance.assStyleOverrides() }
+    LaunchedEffect(assRenderer, cues, positionMs, timelineGeneration, offsetMs, canvasSize, assOverrides) {
+        assRenderer.submit(
+            cues,
+            (positionMs - offsetMs) * MICROS_PER_MILLISECOND,
+            canvasSize.width,
+            canvasSize.height,
+            assOverrides,
+            timelineGeneration = timelineGeneration,
+        )
+    }
+    val assBitmaps by assRenderer.bitmaps.collectAsState()
     if (activeCues.isEmpty()) return
     val activeText = activeCues.mapNotNull { cue -> cue.payload as? YSubtitlePayload.Text }
-    val activeBitmaps = activeCues.mapNotNull { cue -> cue.payload as? YSubtitlePayload.BitmapArgb }
+    val activeBitmaps =
+        activeCues.mapNotNull { cue -> cue.payload as? YSubtitlePayload.BitmapArgb } +
+            if (activeCues.any { it.payload is YSubtitlePayload.AssEvent }) assBitmaps else emptyList()
 
     BoxWithConstraints(modifier) {
         activeBitmaps.forEach { payload ->
@@ -220,7 +280,8 @@ private fun Core2SubtitleChannel(
                         ).requiredSize(
                             width = (maxWidth.value * scaledWidth / payload.canvasWidth).dp,
                             height = (maxHeight.value * scaledHeight / payload.canvasHeight).dp,
-                        ).graphicsLayer(alpha = brightness.coerceIn(0.35f, 1f)),
+                        ).background(Color(appearance.backgroundColorArgb.toULong()))
+                        .graphicsLayer(alpha = brightness.coerceIn(0.35f, 1f)),
             )
         }
         activeText
@@ -407,3 +468,24 @@ private class Core2SurfaceView(
 }
 
 private const val MICROS_PER_MILLISECOND = 1_000L
+
+/** Preserve authored styles by default; explicit user styling reaches the native ASS track too. */
+internal fun SubtitleAppearance.assStyleOverrides(): List<String> {
+    if (this == SubtitleAppearance()) return emptyList()
+
+    fun assColor(argb: Long): String {
+        val alpha = 255L - ((argb ushr 24) and 255L)
+        val red = (argb ushr 16) and 255L
+        val green = (argb ushr 8) and 255L
+        val blue = argb and 255L
+        return "&H" + ((alpha shl 24) or (blue shl 16) or (green shl 8) or red).toString(16).padStart(8, '0')
+    }
+    return listOf(
+        "PrimaryColour=" + assColor(textColorArgb),
+        "OutlineColour=" + assColor(outlineColorArgb),
+        "BackColour=" + assColor(backgroundColorArgb),
+        "BorderStyle=1",
+        "Outline=" + outlineWidth.coerceIn(0f, 10f),
+        "Shadow=0",
+    )
+}

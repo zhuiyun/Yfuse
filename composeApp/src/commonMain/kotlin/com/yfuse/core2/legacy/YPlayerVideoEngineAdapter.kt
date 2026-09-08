@@ -52,6 +52,10 @@ internal class YPlayerVideoEngineAdapter(
 
     override fun setSpeed(speed: Float) = player.setSpeed(speed)
 
+    override val supportsAudioDelay: Boolean get() = player.supportsAudioDelay
+
+    override fun setAudioDelayMs(delayMs: Long): Boolean = player.setAudioDelayMs(delayMs)
+
     override fun selectAudioTrack(id: String) = player.selectTrack(YTrackType.Audio, id)
 
     override fun selectSubtitleTrack(id: String) = player.selectTrack(YTrackType.Subtitle, id)

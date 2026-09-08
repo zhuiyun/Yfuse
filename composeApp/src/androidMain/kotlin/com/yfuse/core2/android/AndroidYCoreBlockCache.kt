@@ -293,9 +293,29 @@ internal class AndroidCacheWriteQueue(
 ) {
     private val pending = mutableSetOf<String>()
     private var bytes = 0L
+    private var memoryLease: PlaybackMemoryLease? = null
+
+    private fun budgetBytes(): Long {
+        AndroidPlaybackMemoryBudget.refreshPressure()
+        val lease = memoryLease ?: AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.CacheWrite, maximumBytes)
+        memoryLease = lease
+        return minOf(maximumBytes, lease.limitBytes)
+    }
+
+    private fun releaseIdleLease() {
+        if (pending.isEmpty()) {
+            memoryLease?.close()
+            memoryLease = null
+        }
+    }
 
     @Synchronized
-    fun hasCapacity(size: Int): Boolean = pending.size < maximumEntries && size <= maximumBytes - bytes
+    fun hasCapacity(size: Int): Boolean =
+        try {
+            pending.size < maximumEntries && size <= budgetBytes() - bytes
+        } finally {
+            releaseIdleLease()
+        }
 
     fun awaitIdle(timeoutMs: Long): Boolean {
         val deadline = System.nanoTime() + timeoutMs * 1_000_000L
@@ -314,7 +334,10 @@ internal class AndroidCacheWriteQueue(
     ): Boolean {
         require(size > 0)
         if (key in pending) return true
-        if (pending.size >= maximumEntries || size > maximumBytes - bytes) return false
+        if (pending.size >= maximumEntries || size > budgetBytes() - bytes) {
+            releaseIdleLease()
+            return false
+        }
         pending.add(key)
         bytes += size
         try {
@@ -325,12 +348,20 @@ internal class AndroidCacheWriteQueue(
                     synchronized(this) {
                         pending.remove(key)
                         bytes -= size
+                        if (pending.isEmpty()) {
+                            memoryLease?.close()
+                            memoryLease = null
+                        }
                     }
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             pending.remove(key)
             bytes -= size
+            if (pending.isEmpty()) {
+                memoryLease?.close()
+                memoryLease = null
+            }
             return false
         }
         return true

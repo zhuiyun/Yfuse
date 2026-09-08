@@ -14,6 +14,7 @@ import com.yfuse.core.logging.AppLog
 import com.yfuse.core2.graph.YVideoDecodeNode
 import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicLong
 
 /** Result of a non-blocking compressed-sample enqueue. */
 internal enum class YCodecQueueResult {
@@ -29,6 +30,7 @@ internal sealed interface YCodecOutputResult {
         val presentationTimeUs: Long,
         val flags: Int,
         val size: Int,
+        internal val codecTimestampIdentity: Long? = null,
     ) : YCodecOutputResult {
         val endOfStream: Boolean get() = flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
     }
@@ -99,6 +101,12 @@ internal class AndroidMediaCodecVideoNode(
 
     private var codec: MediaCodec? = null
     private var started = false
+    private var frameTimestampMapper: CodecFrameTimestampMapper? = null
+    private val frameListenerVersion = AtomicLong()
+    private val frameCallbackGate = Any()
+    private var endOfStreamPositionUs: Long? = null
+
+    val frameTimestampIdentityIsolated: Boolean get() = started && frameTimestampMapper != null
 
     val decoderName: String? get() = codec?.name
 
@@ -107,8 +115,10 @@ internal class AndroidMediaCodecVideoNode(
         surface: Surface,
         decoderName: String? = null,
         mediaCrypto: MediaCrypto? = null,
+        isolateFrameTimestamps: Boolean = false,
     ) {
         release()
+        frameTimestampMapper = if (isolateFrameTimestamps) CodecFrameTimestampMapper() else null
         val mime =
             format.getString(MediaFormat.KEY_MIME)
                 ?: error("Video MediaFormat is missing ${MediaFormat.KEY_MIME}")
@@ -288,10 +298,21 @@ internal class AndroidMediaCodecVideoNode(
         listener: ((presentationTimeUs: Long, nanoTime: Long) -> Unit)?,
     ) {
         val decoder = requireStartedCodec()
+        val mapper = frameTimestampMapper
+        val version =
+            synchronized(frameCallbackGate) {
+                mapper?.listenerChanged()
+                frameListenerVersion.incrementAndGet()
+            }
         decoder.setOnFrameRenderedListener(
             listener?.let { callback ->
-                MediaCodec.OnFrameRenderedListener { _, presentationTimeUs, nanoTime ->
-                    callback(presentationTimeUs, nanoTime)
+                MediaCodec.OnFrameRenderedListener { source, presentationTimeUs, nanoTime ->
+                    synchronized(frameCallbackGate) {
+                        if (source !== decoder || frameListenerVersion.get() != version) return@OnFrameRenderedListener
+                        val mediaTimeUs =
+                            if (mapper == null) presentationTimeUs else mapper.rendered(presentationTimeUs)
+                        if (mediaTimeUs != null) callback(mediaTimeUs, nanoTime)
+                    }
                 }
             },
             handler,
@@ -323,6 +344,7 @@ internal class AndroidMediaCodecVideoNode(
         cryptoInfo: YExtractorCryptoInfo? = null,
     ): YCodecQueueResult {
         val decoder = requireStartedCodec()
+        if (frameTimestampMapper?.canQueue() == false) return YCodecQueueResult.TryAgain
         val inputIndex = decoder.dequeueInputBuffer(0L)
         if (inputIndex < 0) return YCodecQueueResult.TryAgain
 
@@ -336,22 +358,29 @@ internal class AndroidMediaCodecVideoNode(
         input.put(sample)
         val encrypted = flags and MediaExtractorFlags.ENCRYPTED != 0
         require(encrypted == (cryptoInfo != null)) { "Encrypted video sample metadata is inconsistent" }
-        if (cryptoInfo == null) {
-            decoder.queueInputBuffer(
-                inputIndex,
-                0,
-                size,
-                presentationTimeUs,
-                flags.toCodecInputFlags(),
-            )
-        } else {
-            decoder.queueSecureInputBuffer(
-                inputIndex,
-                0,
-                cryptoInfo.toMediaCodecCryptoInfo(),
-                presentationTimeUs,
-                flags.toCodecInputFlags(),
-            )
+        val mapper = frameTimestampMapper
+        val codecTimeUs = mapper?.queue(presentationTimeUs) ?: presentationTimeUs
+        try {
+            if (cryptoInfo == null) {
+                decoder.queueInputBuffer(
+                    inputIndex,
+                    0,
+                    size,
+                    codecTimeUs,
+                    flags.toCodecInputFlags(),
+                )
+            } else {
+                decoder.queueSecureInputBuffer(
+                    inputIndex,
+                    0,
+                    cryptoInfo.toMediaCodecCryptoInfo(),
+                    codecTimeUs,
+                    flags.toCodecInputFlags(),
+                )
+            }
+        } catch (failure: Throwable) {
+            mapper?.cancelQueue(codecTimeUs)
+            throw failure
         }
         return YCodecQueueResult.Queued
     }
@@ -369,15 +398,18 @@ internal class AndroidMediaCodecVideoNode(
 
     fun queueEndOfStream(presentationTimeUs: Long): YCodecQueueResult {
         val decoder = requireStartedCodec()
+        if (frameTimestampMapper?.canQueue() == false) return YCodecQueueResult.TryAgain
         val inputIndex = decoder.dequeueInputBuffer(0L)
         if (inputIndex < 0) return YCodecQueueResult.TryAgain
-        decoder.queueInputBuffer(
-            inputIndex,
-            0,
-            0,
-            presentationTimeUs.coerceAtLeast(0L),
-            MediaCodec.BUFFER_FLAG_END_OF_STREAM,
-        )
+        val mapper = frameTimestampMapper
+        val codecTimeUs = mapper?.queue(presentationTimeUs) ?: presentationTimeUs.coerceAtLeast(0L)
+        try {
+            decoder.queueInputBuffer(inputIndex, 0, 0, codecTimeUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+            endOfStreamPositionUs = presentationTimeUs
+        } catch (failure: Throwable) {
+            mapper?.cancelQueue(codecTimeUs)
+            throw failure
+        }
         return YCodecQueueResult.Queued
     }
 
@@ -391,11 +423,34 @@ internal class AndroidMediaCodecVideoNode(
                 YCodecOutputResult.FormatChanged(decoder.outputFormat)
             else -> {
                 if (outputIndex < 0) return YCodecOutputResult.TryAgain
+                if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
+                    decoder.releaseOutputBuffer(outputIndex, false)
+                    return YCodecOutputResult.TryAgain
+                }
+                val mapper = frameTimestampMapper
+                val restoredTimeUs = mapper?.dequeue(info.presentationTimeUs)
+                val endOfStream = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+                if (mapper != null && restoredTimeUs == null && info.size == 0 && !endOfStream) {
+                    decoder.releaseOutputBuffer(outputIndex, false)
+                    return YCodecOutputResult.TryAgain
+                }
+                val mediaTimeUs =
+                    if (mapper == null) {
+                        info.presentationTimeUs
+                    } else {
+                        restoredTimeUs ?: if (endOfStream && info.size == 0) {
+                            endOfStreamPositionUs ?: 0L
+                        } else {
+                            decoder.releaseOutputBuffer(outputIndex, false)
+                            error("Video decoder did not preserve its queued frame timestamp identity")
+                        }
+                    }
                 YCodecOutputResult.Buffer(
                     index = outputIndex,
-                    presentationTimeUs = info.presentationTimeUs,
+                    presentationTimeUs = mediaTimeUs,
                     flags = info.flags,
                     size = info.size,
+                    codecTimestampIdentity = if (restoredTimeUs != null) info.presentationTimeUs else null,
                 )
             }
         }
@@ -411,20 +466,36 @@ internal class AndroidMediaCodecVideoNode(
         renderTimeNs: Long? = null,
     ) {
         val decoder = requireStartedCodec()
-        if (!render) {
-            decoder.releaseOutputBuffer(output.index, false)
-        } else if (renderTimeNs != null) {
-            decoder.releaseOutputBuffer(output.index, renderTimeNs)
-        } else {
-            decoder.releaseOutputBuffer(output.index, true)
+        val mapper = frameTimestampMapper
+        val token = output.codecTimestampIdentity
+        if (mapper != null && token != null && !mapper.release(token, render)) return
+        try {
+            if (!render) {
+                decoder.releaseOutputBuffer(output.index, false)
+            } else if (renderTimeNs != null) {
+                decoder.releaseOutputBuffer(output.index, AndroidVideoVsyncSampler.align(renderTimeNs))
+            } else {
+                decoder.releaseOutputBuffer(output.index, true)
+            }
+        } catch (failure: Throwable) {
+            if (token != null) mapper?.cancelRelease(token)
+            throw failure
         }
     }
 
     override fun flush() {
+        synchronized(frameCallbackGate) { frameTimestampMapper?.flush() }
+        endOfStreamPositionUs = null
         if (started) codec?.flush()
     }
 
     override fun release() {
+        synchronized(frameCallbackGate) {
+            frameListenerVersion.incrementAndGet()
+            frameTimestampMapper?.flush()
+            frameTimestampMapper = null
+        }
+        endOfStreamPositionUs = null
         val decoder = codec
         codec = null
         val wasStarted = started

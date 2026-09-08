@@ -17,7 +17,8 @@ jobs:
   verify:
     name: Compile, test, lint, and verify design contracts
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # Cold pinned native dependency bootstrap can take as long as the dedicated native build.
+    timeout-minutes: 300
     env:
       APK_SIZE_BUDGET_BYTES: "30000000"
     steps:
@@ -50,6 +51,8 @@ jobs:
           scripts/fetch-engines.sh
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
       # Formatting is recorded here and enforced at the end of the job, so a line-wrap
       # violation can no longer hide the compile, test, lint and release signals behind it.
       - name: Record ktlint violations
@@ -85,15 +88,6 @@ jobs:
             if [[ -f "$report" ]]; then cat "$report"; fi
             exit "$lint_status"
           fi
-      - name: Build and install current YCore GPU companion
-        shell: bash
-        run: |
-          set -euo pipefail
-          artifacts="$RUNNER_TEMP/ycore-gpu-companion"
-          bash scripts/build-ycore-gpu-companion.sh "$artifacts"
-          install -m 0644 "$artifacts/ycore-gpu.aar" composeApp/libs/ycore-gpu.aar
-          install -m 0644 "$artifacts/ycore-gpu.aar.sha256" composeApp/libs/ycore-gpu.aar.sha256
-          install -m 0644 "$artifacts/NATIVE-SOURCES.txt" composeApp/libs/ycore-gpu.sources.txt
       - name: Build R8 release package
         run: ./gradlew :composeApp:assembleRelease -PallowDebugSigning=true --no-daemon
       - name: Verify release package and size budget

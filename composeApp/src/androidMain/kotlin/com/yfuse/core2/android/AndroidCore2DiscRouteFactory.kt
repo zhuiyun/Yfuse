@@ -106,7 +106,7 @@ private class AndroidYCoreBluRayPlayer(
                 discNavigation = navigation,
                 diagnostics =
                     player.diagnostics.copy(
-                        demuxer = "libbluray 1.4.1 + FFmpeg 8.1",
+                        demuxer = "libbluray 1.4.1 + FFmpeg",
                     ),
             )
         }.stateIn(

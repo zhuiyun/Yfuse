@@ -35,7 +35,7 @@ jobs:
     if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[artifact only]')
     name: Build, sign, and publish
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 300
     environment:
       name: production
     env:
@@ -297,6 +297,9 @@ jobs:
           scripts/fetch-engines.sh
           test -f composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
+
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
 
       - name: Configure release signing
         shell: bash

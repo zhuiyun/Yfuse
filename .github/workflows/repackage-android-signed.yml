@@ -20,7 +20,7 @@ jobs:
   repackage:
     name: Build, sign, and verify current master APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 300
     environment:
       name: production
     env:
@@ -105,12 +105,8 @@ jobs:
           test -s composeApp/libs/libmpv-release.aar
           test -f composeApp/libs/mdk-sdk/lib/cmake/FindMDK.cmake
 
-      - name: Build and install source-matched standalone YCore runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/build-ycore-native.sh --arch arm64
-          bash scripts/install-ycore-native.sh .native-build/artifacts
+      - name: Build and install current YCore runtime
+        uses: ./.github/actions/build-current-ycore
 
       - name: Configure production signing
         shell: bash

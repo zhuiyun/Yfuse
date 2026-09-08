@@ -78,6 +78,13 @@ fun buildYDashPlaybackManifest(
             addAll(selection.alternateAudio)
             addAll(selection.text)
         }
+    val staticPeriodDurationUs =
+        if (manifest.isLive) {
+            null
+        } else {
+            manifest.periods.singleOrNull()?.durationUs
+                ?: durationUs?.minus(manifest.periodStartUs ?: 0L)?.takeIf { it > 0L }
+        }
     require(representations.distinctBy(YDashRepresentation::id).size == representations.size) {
         "DASH selected representation ids are not unique"
     }
@@ -103,18 +110,22 @@ fun buildYDashPlaybackManifest(
         appendXmlAttribute("minBufferTime", "PT1.5S")
         appendXmlAttribute(
             "profiles",
-            if (manifest.isLive) {
-                "urn:mpeg:dash:profile:isoff-live:2011"
-            } else {
-                "urn:mpeg:dash:profile:isoff-on-demand:2011"
-            },
+            // SegmentTemplate with separate init/media uses the ISO BMFF live profile even for VOD.
+            "urn:mpeg:dash:profile:isoff-live:2011",
         )
         append(">\n")
         append("  <Period")
         appendXmlAttribute("start", (manifest.periodStartUs ?: 0L).toDashDuration())
+        staticPeriodDurationUs?.let { appendXmlAttribute("duration", it.toDashDuration()) }
         append(">\n")
         representations.forEach { representation ->
-            appendRepresentation(representation, allowContentProtection, manifest.isLive, localize)
+            appendRepresentation(
+                representation,
+                allowContentProtection,
+                manifest.isLive,
+                staticPeriodDurationUs,
+                localize,
+            )
         }
         append("  </Period>\n")
         append("</MPD>\n")
@@ -125,9 +136,10 @@ private fun StringBuilder.appendRepresentation(
     representation: YDashRepresentation,
     allowContentProtection: Boolean,
     live: Boolean,
+    staticPeriodDurationUs: Long?,
     localize: (YDashRepresentation, String, YDashResourceKind) -> String,
 ) {
-    val template = requireNotNull(representation.segmentTemplate)
+    val template = requireNotNull(representation.segmentTemplate).withBoundedStaticTimeline(staticPeriodDurationUs)
     append("    <AdaptationSet contentType=\"")
     append(representation.contentType.xmlValue())
     append("\"")
@@ -142,6 +154,9 @@ private fun StringBuilder.appendRepresentation(
     appendXmlAttribute("timescale", template.timescale.toString())
     template.duration?.let { appendXmlAttribute("duration", it.toString()) }
     appendXmlAttribute("startNumber", template.startNumber.toString())
+    if (template.presentationTimeOffset != 0L) {
+        appendXmlAttribute("presentationTimeOffset", template.presentationTimeOffset.toString())
+    }
     template.initialization?.let {
         appendXmlAttribute(
             "initialization",
@@ -178,6 +193,27 @@ private fun StringBuilder.appendRepresentation(
     representation.audioSamplingRate?.let { appendXmlAttribute("audioSamplingRate", it.toString()) }
     append("/>\n")
     append("    </AdaptationSet>\n")
+}
+
+/** Explicit finite timelines prevent native demuxers from probing a nonexistent segment after VOD EOS. */
+private fun YDashSegmentTemplate.withBoundedStaticTimeline(periodDurationUs: Long?): YDashSegmentTemplate {
+    val segmentDuration = duration ?: return this
+    if (periodDurationUs == null || timeline.isNotEmpty() || presentationTimeOffset != 0L) return this
+    // Keep authored addressing when the exact ratio cannot be represented safely in this small MPD subset.
+    if (periodDurationUs > Long.MAX_VALUE / timescale || segmentDuration > Long.MAX_VALUE / MICROS_PER_SECOND) {
+        return this
+    }
+    val presentationTicks = periodDurationUs * timescale
+    val segmentTicks = segmentDuration * MICROS_PER_SECOND
+    val count = presentationTicks / segmentTicks + if (presentationTicks % segmentTicks != 0L) 1L else 0L
+    if (count !in 1L..(Int.MAX_VALUE.toLong() + 1L) || startNumber > Long.MAX_VALUE - count + 1L) return this
+    return copy(
+        duration = null,
+        timeline =
+            listOf(
+                YDashTimelineEntry(startTime = 0L, duration = segmentDuration, repeat = (count - 1L).toInt()),
+            ),
+    )
 }
 
 private fun StringBuilder.appendContentProtection(protection: YDashContentProtection) {

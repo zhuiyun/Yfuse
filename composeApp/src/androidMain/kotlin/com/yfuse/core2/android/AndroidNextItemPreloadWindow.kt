@@ -14,11 +14,13 @@ internal suspend fun awaitCore2NextItemPreloadWindow(currentState: () -> YPlayer
     var elapsedMs = 0L
     var healthySinceMs: Long? = null
     while (true) {
+        AndroidPlaybackMemoryBudget.refreshPressure()
         val state = currentState() ?: return false
         if (state.phase == YPlaybackPhase.Ended || state.phase == YPlaybackPhase.Failed) return false
         val bufferedAheadMs = (state.bufferedPositionMs - state.positionMs).coerceAtLeast(0L)
         val healthy =
-            state.phase == YPlaybackPhase.Ready &&
+            AndroidPlaybackMemoryBudget.allowsSpeculativeWork &&
+                state.phase == YPlaybackPhase.Ready &&
                 state.playing &&
                 !state.buffering &&
                 state.speed.isFinite() &&

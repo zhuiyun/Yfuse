@@ -12,6 +12,7 @@ import android.os.PowerManager
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core2.api.YMediaItem
+import com.yfuse.core2.api.YOutputEvidenceResetReason
 import com.yfuse.core2.api.YPlaybackFailureCategory
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
@@ -23,6 +24,7 @@ import com.yfuse.core2.api.YPlayerState
 import com.yfuse.core2.api.YTrackType
 import com.yfuse.core2.api.YVideoOutput
 import com.yfuse.core2.api.appendingDistinct
+import com.yfuse.core2.api.invalidateOutputEvidence
 import com.yfuse.core2.api.isPrematurePlaybackEnd
 import com.yfuse.core2.capability.YAudioOutputPath
 import com.yfuse.core2.capability.YHdrType
@@ -55,6 +57,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
@@ -164,6 +169,15 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     @Volatile
     private var activeChild: YPlayer? = null
+
+    private val actualAudioRouteMonitor =
+        scope.launch {
+            mutableState
+                .map { it.diagnostics.audioOutputFingerprint }
+                .filter { it.isNotBlank() }
+                .distinctUntilChanged()
+                .collect { queueAudioRouteChange() }
+        }
 
     init {
         // registerAudioDeviceCallback immediately invokes onAudioDevicesAdded with every output
@@ -307,6 +321,14 @@ internal class AndroidAdaptiveCore2YPlayer(
 
     override fun currentPositionMs(): Long = mutableState.value.positionMs
 
+    override val supportsAudioDelay: Boolean get() = true
+
+    override fun setAudioDelayMs(delayMs: Long): Boolean {
+        if (released) return false
+        commands.trySend(Command.SetAudioDelay(delayMs.coerceIn(-5_000L, 5_000L)))
+        return true
+    }
+
     override fun retry() = send(Command.Retry)
 
     override fun release() {
@@ -342,21 +364,31 @@ internal class AndroidAdaptiveCore2YPlayer(
      * what separates a real route change from that noise.
      */
     private fun currentAudioOutputFingerprint(): String {
-        val manager = audioManager ?: return ""
+        val routed =
+            activeChild
+                ?.state
+                ?.value
+                ?.diagnostics
+                ?.audioOutputFingerprint
+                .orEmpty()
+        if (routed.isBlank()) return ""
         val outputs =
-            manager
-                .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                .map { device -> "${device.type}:${device.id}" }
-                .sorted()
-                .joinToString(",")
-        return "$outputs|${androidSpatialAudioFingerprint(context)}"
+            audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS).orEmpty().map {
+                it.playbackCapabilityFingerprint()
+            }
+        return activeAudioOutputFingerprint(routed, outputs, androidSpatialAudioFingerprint(context))
     }
 
     private fun queueAudioRouteChange() {
         if (released) return
         val fingerprint = currentAudioOutputFingerprint()
+        if (fingerprint.isBlank()) return
         synchronized(audioOutputFingerprintLock) {
             if (fingerprint == observedAudioOutputFingerprint) return
+            if (observedAudioOutputFingerprint.isBlank()) {
+                observedAudioOutputFingerprint = fingerprint
+                return
+            }
             observedAudioOutputFingerprint = fingerprint
         }
         if (audioRouteChangeQueued.compareAndSet(false, true)) {
@@ -394,6 +426,13 @@ internal class AndroidAdaptiveCore2YPlayer(
         var output: YVideoOutput? = null
         var requestedPlay = request.autoPlay
         var speed = 1f
+        var audioDelayMs = 0L
+        var adaptiveTarget: YAdaptivePlaybackTarget? = null
+        var pendingAdaptiveTarget: YAdaptivePlaybackTarget? = null
+        var pausedSeekPreviewRequested = false
+
+        fun globalChildPosition(): Long =
+            (child?.currentPositionMs() ?: 0L) + (adaptiveTarget?.presentationOffsetMs ?: 0L)
         var pendingPositionMs = request.startPositionMs
         var allowTunnel = true
         var forceEnhancedFallback = false
@@ -695,7 +734,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             )
         }
 
-        fun createChild(positionMs: Long): YPlayer? {
+        suspend fun createChild(positionMs: Long): YPlayer? {
             pendingFailureKey = null
             pendingVerifiedRoute = null
             val bypassLearnedRouteMemory =
@@ -704,10 +743,17 @@ internal class AndroidAdaptiveCore2YPlayer(
                     compatibilityRouteAvailable = fallbackRouteFactory != null,
                 )
             bypassLearnedRouteMemoryOnce = false
-            val item = queueItems[currentIndex]
+            val rootItem = queueItems[currentIndex]
+            val target =
+                pendingAdaptiveTarget?.takeIf { it.rootUri == rootItem.uri }
+                    ?: adaptiveFeedbackSink?.resolvePlaybackTarget(rootItem.uri, positionMs.coerceAtLeast(0L))
+            pendingAdaptiveTarget = null
+            adaptiveTarget = target
+            val item = target?.let { rootItem.copy(uri = it.uri) } ?: rootItem
             val forcePowerSaver = currentThermalStatus() >= SEVERE_THERMAL_STATUS
             val tunnelAllowed =
                 allowTunnel &&
+                    audioDelayMs == 0L &&
                     item.drmConfiguration == null &&
                     item.allExternalSubtitles.isEmpty() &&
                     kotlin.math.abs(speed - 1f) <= TUNNEL_SPEED_EPSILON
@@ -715,7 +761,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                 YPlayerOpenRequest(
                     items = listOf(item),
                     startIndex = 0,
-                    startPositionMs = positionMs.coerceAtLeast(0L),
+                    startPositionMs = target?.localPositionMs ?: positionMs.coerceAtLeast(0L),
                     autoPlay = requestedPlay,
                     autoNext = false,
                 )
@@ -729,7 +775,8 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
             val warmedRoute =
                 preloadedNextRoute?.takeIf { warmed ->
-                    positionMs == 0L &&
+                    target == null &&
+                        positionMs == 0L &&
                         warmed.matches(
                             index = currentIndex,
                             item = item,
@@ -750,7 +797,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             // A route this device already rendered for exactly this media skips the probes and
             // starts at planning; the device-side gates below still run on it.
             val rememberedProbe =
-                if (warmedRoute == null && !bypassLearnedRouteMemory && !forceSoftwareFallback) {
+                if (target == null && warmedRoute == null && !bypassLearnedRouteMemory && !forceSoftwareFallback) {
                     verifiedRouteMemory.probeFor(item)
                 } else {
                     null
@@ -858,7 +905,9 @@ internal class AndroidAdaptiveCore2YPlayer(
                     ),
             )
             pendingFailureKey = decision.toFailureKey()
-            pendingVerifiedRoute = item to decision.probe
+            // Manifest target revisions may carry a different init under the same user cache identity.
+            // Each revision is probed afresh and must never poison the root item's learned probe.
+            pendingVerifiedRoute = if (target == null) item to decision.probe else null
             return when {
                 !forceSoftwareFallback && tunnelAllowed && decision.nativeTunnelExecutable ->
                     AndroidNativeTunnelYPlayer(
@@ -971,6 +1020,7 @@ internal class AndroidAdaptiveCore2YPlayer(
 
         fun attachChild(next: YPlayer) {
             stopChild()
+            val attachedTarget = adaptiveTarget
             val attachedFeedbackGeneration = adaptiveFeedbackGeneration.incrementAndGet()
             adaptiveFeedbackSink?.updatePlaybackFeedback(
                 YAdaptivePlaybackFeedback(
@@ -994,7 +1044,7 @@ internal class AndroidAdaptiveCore2YPlayer(
             var recoveryQueued = false
             var nextItemPreloadRequested = false
             val networkRecoveryWindow = AndroidNetworkRecoveryWindow()
-            val learningStartPositionMs = next.currentPositionMs()
+            val learningStartPositionMs = next.currentPositionMs() + (attachedTarget?.presentationOffsetMs ?: 0L)
             val learningStartBatteryPermille = currentBatteryPermille()
             val learningStartThermalStatus = currentThermalStatus()
 
@@ -1052,10 +1102,24 @@ internal class AndroidAdaptiveCore2YPlayer(
             }
 
             next.setSpeed(speed)
+            next.setAudioDelayMs(audioDelayMs)
             next.setVideoOutput(output)
             childCollector =
                 scope.launch {
-                    next.state.collect { reportedChildState ->
+                    next.state.collect { localChildState ->
+                        if (activeChild !== next) return@collect
+                        val reportedChildState = mapAdaptivePresentationState(localChildState, attachedTarget)
+                        val nextPeriodPosition =
+                            attachedTarget?.periodEndGlobalMs?.takeIf { endMs ->
+                                localChildState.phase == YPlaybackPhase.Ended &&
+                                    !isPrematurePlaybackEnd(localChildState.positionMs, localChildState.durationMs) &&
+                                    attachedTarget.presentationDurationMs > endMs
+                            }
+                        if (nextPeriodPosition != null && !recoveryQueued) {
+                            recoveryQueued = true
+                            commands.trySend(Command.AdaptiveTransition(next, nextPeriodPosition, null))
+                            return@collect
+                        }
                         val reportedBufferedDurationMs =
                             maxOf(
                                 reportedChildState.diagnostics.sourceBufferedMs,
@@ -1071,6 +1135,25 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 generation = adaptiveFeedbackGeneration.get(),
                             ),
                         )
+                        if (attachedTarget != null &&
+                            localChildState.phase == YPlaybackPhase.Ready &&
+                            !recoveryQueued
+                        ) {
+                            val transition =
+                                adaptiveFeedbackSink?.pollPlaybackTransition(
+                                    attachedTarget.rootUri,
+                                    reportedChildState.positionMs,
+                                )
+                            if (transition != null &&
+                                transition.feedbackGeneration == adaptiveFeedbackGeneration.get()
+                            ) {
+                                recoveryQueued = true
+                                commands.trySend(
+                                    Command.AdaptiveTransition(next, reportedChildState.positionMs, transition),
+                                )
+                                return@collect
+                            }
+                        }
                         val prematureEnd =
                             reportedChildState.phase == YPlaybackPhase.Ended &&
                                 isPrematurePlaybackEnd(
@@ -1298,10 +1381,14 @@ internal class AndroidAdaptiveCore2YPlayer(
                 }
             next.setSecondarySubtitleOffsetMs(secondarySubtitleOffsetMs)
             next.prepare()
+            if (pausedSeekPreviewRequested) {
+                pausedSeekPreviewRequested = false
+                next.seekTo(attachedTarget?.localPositionMs ?: pendingPositionMs)
+            }
             if (requestedPlay) next.play()
         }
 
-        fun rebuild(positionMs: Long) {
+        suspend fun rebuild(positionMs: Long) {
             // MediaCodec instances are scarce on vendor builds. Release the failed/old graph
             // before probing and constructing its replacement so Retry cannot contend with it.
             stopChild()
@@ -1318,9 +1405,10 @@ internal class AndroidAdaptiveCore2YPlayer(
                     error = null,
                     errorCategory = null,
                     diagnostics =
-                        it.diagnostics.copy(
-                            reason = "Evaluating YCore 2.0 route for queue item $currentIndex",
-                        ),
+                        it.diagnostics
+                            .copy(
+                                reason = "Evaluating YCore 2.0 route for queue item $currentIndex",
+                            ).invalidateOutputEvidence(YOutputEvidenceResetReason.DecoderReconfigured),
                 )
             }
             val next = createChild(positionMs)
@@ -1359,7 +1447,12 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     ),
                                 )
                                 pendingPositionMs = positionMs
-                                child?.seekTo(positionMs)
+                                if (adaptiveTarget != null) {
+                                    pausedSeekPreviewRequested = !requestedPlay
+                                    rebuild(positionMs)
+                                } else {
+                                    child?.seekTo(positionMs)
+                                }
                             }
                             if (pendingSeekMs.get() >= 0L) queuePendingSeek()
                         }
@@ -1375,10 +1468,33 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 kotlin.math.abs(speed - 1f) > TUNNEL_SPEED_EPSILON
                             ) {
                                 allowTunnel = false
-                                pendingPositionMs = active.currentPositionMs()
+                                pendingPositionMs = globalChildPosition()
                                 rebuild(pendingPositionMs)
                             } else {
                                 active?.setSpeed(speed)
+                            }
+                        }
+                        is Command.SetAudioDelay -> {
+                            audioDelayMs = command.delayMs
+                            if (audioDelayMs != 0L &&
+                                child
+                                    ?.state
+                                    ?.value
+                                    ?.diagnostics
+                                    ?.route == YPlaybackRoute.NativeTunnel
+                            ) {
+                                allowTunnel = false
+                                pendingPositionMs = globalChildPosition()
+                                rebuild(pendingPositionMs)
+                            } else {
+                                child?.setAudioDelayMs(audioDelayMs)
+                            }
+                        }
+                        is Command.AdaptiveTransition -> {
+                            if (child === command.fromChild) {
+                                pendingAdaptiveTarget = command.target
+                                pendingPositionMs = command.globalPositionMs
+                                rebuild(pendingPositionMs)
                             }
                         }
                         is Command.SecondarySubtitleOffset -> {
@@ -1397,7 +1513,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     ?.route == YPlaybackRoute.NativeTunnel
                             ) {
                                 allowTunnel = false
-                                pendingPositionMs = active.currentPositionMs()
+                                pendingPositionMs = globalChildPosition()
                                 rebuild(pendingPositionMs)
                             }
                             child?.selectTrack(command.type, command.id)
@@ -1488,7 +1604,7 @@ internal class AndroidAdaptiveCore2YPlayer(
                                     deferredAudioRouteChange.set(true)
                                 else -> {
                                     pendingPositionMs =
-                                        child?.currentPositionMs() ?: mutableState.value.positionMs
+                                        if (child != null) globalChildPosition() else mutableState.value.positionMs
                                     forceEnhancedFallback = false
                                     forceSoftwareFallback = false
                                     rebuild(pendingPositionMs)
@@ -1506,7 +1622,8 @@ internal class AndroidAdaptiveCore2YPlayer(
                                 activeRoute == YPlaybackRoute.GpuEnhanced ||
                                 activeRoute == YPlaybackRoute.SoftwareFallback
                             ) {
-                                pendingPositionMs = child?.currentPositionMs() ?: mutableState.value.positionMs
+                                pendingPositionMs =
+                                    if (child != null) globalChildPosition() else mutableState.value.positionMs
                                 rebuild(pendingPositionMs)
                             }
                         }
@@ -1638,6 +1755,16 @@ internal class AndroidAdaptiveCore2YPlayer(
     }
 
     private sealed interface Command {
+        data class SetAudioDelay(
+            val delayMs: Long,
+        ) : Command
+
+        data class AdaptiveTransition(
+            val fromChild: YPlayer,
+            val globalPositionMs: Long,
+            val target: YAdaptivePlaybackTarget?,
+        ) : Command
+
         data object Prepare : Command
 
         data object Play : Command

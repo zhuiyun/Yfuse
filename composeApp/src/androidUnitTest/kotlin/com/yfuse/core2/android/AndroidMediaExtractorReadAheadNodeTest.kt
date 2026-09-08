@@ -23,6 +23,75 @@ import kotlin.test.assertTrue
  */
 class AndroidMediaExtractorReadAheadNodeTest {
     @Test
+    fun `seek cancels blocked old read and resumes without publishing stale samples or failure`() {
+        val blocked = CountDownLatch(1)
+        val cancelled = CountDownLatch(1)
+        val reads = AtomicInteger()
+        val base = FakeExtractorSource(1_024, 100_000L)
+        val source =
+            object : YPlatformExtractorSource by base {
+                override fun readSample(target: ByteBuffer): YExtractorSample? {
+                    if (reads.getAndIncrement() == 0) {
+                        blocked.countDown()
+                        check(cancelled.await(5, TimeUnit.SECONDS))
+                        throw java.io.InterruptedIOException("Cancelled old range")
+                    }
+                    return base.readSample(target)
+                }
+
+                override fun cancelPendingRead() {
+                    if (blocked.count == 0L) cancelled.countDown()
+                }
+            }
+        val node = AndroidMediaExtractorReadAheadNode(source)
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            assertTrue(blocked.await(2, TimeUnit.SECONDS))
+            node.seekTo(9_000_000L)
+            node.awaitQueued(1)
+            val sample = node.pollSample() as YQueuedExtractorResult.Sample
+            assertEquals(9_000_000L, sample.value.presentationTimeUs)
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
+    fun `release cancels a blocked read before waiting for extractor ownership`() {
+        val blocked = CountDownLatch(1)
+        val cancelled = CountDownLatch(1)
+        val base = FakeExtractorSource(10, 100_000L)
+        val source =
+            object : YPlatformExtractorSource by base {
+                override fun readSample(target: ByteBuffer): YExtractorSample? {
+                    blocked.countDown()
+                    check(cancelled.await(5, TimeUnit.SECONDS))
+                    throw java.io.InterruptedIOException("Cancelled range")
+                }
+
+                override fun cancelPendingRead() {
+                    if (blocked.count == 0L) cancelled.countDown()
+                }
+            }
+        val node = AndroidMediaExtractorReadAheadNode(source)
+        val closer =
+            java.util.concurrent.Executors
+                .newSingleThreadExecutor()
+        try {
+            node.open(SOURCE)
+            node.selectTracks(setOf(VIDEO_TRACK))
+            assertTrue(blocked.await(2, TimeUnit.SECONDS))
+            closer.submit { node.close() }.get(1, TimeUnit.SECONDS)
+            assertTrue(base.released)
+        } finally {
+            cancelled.countDown()
+            node.close()
+            closer.shutdownNow()
+        }
+    }
+
+    @Test
     fun `live throughput reports a measured zero while the extractor owner is blocked`() {
         val blocked = CountDownLatch(1)
         val release = CountDownLatch(1)

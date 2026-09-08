@@ -261,6 +261,8 @@ internal fun PlayerRoot(
     var scaleMode by remember { mutableStateOf(VideoScaleMode.Fit) }
     var subtitleControls by remember { mutableStateOf(SubtitleControlState()) }
     var audioControls by remember { mutableStateOf(AudioControlState()) }
+    val audioOutputDelayPreferences = remember(context) { AudioOutputDelayPreferences(context) }
+    var lastVerifiedAudioRoute by remember { mutableStateOf("") }
     var sleepTimerOption by remember { mutableStateOf(SleepTimerOption.Off) }
     var sleepTimerEndIndex by remember { mutableStateOf<Int?>(null) }
     var sleepTimerEndSessionRevision by remember { mutableStateOf<Long?>(null) }
@@ -1290,7 +1292,7 @@ internal fun PlayerRoot(
         requestedPlaybackSpeed = remembered?.speed ?: 1f
         audioControls =
             audioControls.copy(
-                delayMs = remembered?.audioDelayMs ?: 0L,
+                delayMs = audioOutputDelayPreferences.read(lastVerifiedAudioRoute) ?: remembered?.audioDelayMs ?: 0L,
                 enhancement =
                     remembered
                         ?.audioEnhancement
@@ -1330,6 +1332,23 @@ internal fun PlayerRoot(
             itemId = currentItem?.id,
             transform = transform,
         )
+    }
+
+    LaunchedEffect(currentItem?.id, state.diagnostics.audioOutputRoute, state.diagnostics.audioOutputRouteVerified) {
+        val route = state.diagnostics.audioOutputRoute
+        if (!state.diagnostics.audioOutputRouteVerified || route.isBlank()) return@LaunchedEffect
+        if (route != lastVerifiedAudioRoute) {
+            lastVerifiedAudioRoute = route
+            val item = currentItem
+            val seriesDelay =
+                playbackPreferences
+                    .rememberedSeriesPlayback(
+                        serverId = item?.serverId,
+                        seriesId = item?.seriesId,
+                        itemId = item?.id,
+                    )?.audioDelayMs ?: 0L
+            audioControls = audioControls.copy(delayMs = audioOutputDelayPreferences.read(route) ?: seriesDelay)
+        }
     }
 
     val reportingTarget = playbackReportingTarget(currentItem)
@@ -2716,6 +2735,7 @@ internal fun PlayerRoot(
                     AudioControlActions(
                         onDelay = {
                             audioControls = audioControls.copy(delayMs = it)
+                            audioOutputDelayPreferences.write(lastVerifiedAudioRoute, it)
                             rememberSeriesPlayback { remembered -> remembered.copy(audioDelayMs = it) }
                         },
                         onAutoSync = {
@@ -2723,6 +2743,7 @@ internal fun PlayerRoot(
                                 val corrected =
                                     calibratedAudioDelayMs(audioControls.delayMs, measured)
                                 audioControls = audioControls.copy(delayMs = corrected)
+                                audioOutputDelayPreferences.write(lastVerifiedAudioRoute, corrected)
                                 rememberSeriesPlayback { remembered ->
                                     remembered.copy(audioDelayMs = corrected)
                                 }

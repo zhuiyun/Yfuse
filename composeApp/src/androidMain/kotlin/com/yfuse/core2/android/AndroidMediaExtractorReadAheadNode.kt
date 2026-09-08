@@ -2,7 +2,6 @@ package com.yfuse.core2.android
 
 import android.content.Context
 import android.media.MediaFormat
-import kotlinx.coroutines.CancellationException
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
 import java.util.concurrent.Callable
@@ -47,10 +46,15 @@ internal class AndroidMediaExtractorReadAheadNode(
     private var sampleCapacity = DEFAULT_SAMPLE_CAPACITY_BYTES
     private var targetAheadUs = DEFAULT_HIGH_WATERMARK_US
     private var maximumQueueBytes = DEFAULT_MAXIMUM_QUEUE_BYTES
+    private var memoryLease: PlaybackMemoryLease? = null
+
+    private fun queueBudgetBytes() = minOf(maximumQueueBytes, memoryLease?.limitBytes ?: maximumQueueBytes)
+
     private var queuedBytes = 0L
     private var starvationCount = 0L
     private var starved = false
     private var hasDeliveredSample = false
+    private var generation = 0L
 
     @Volatile
     private var latestTransportQoeSnapshot: YTransportPrefetchQoeSnapshot? = null
@@ -64,6 +68,9 @@ internal class AndroidMediaExtractorReadAheadNode(
         preparedSource: YPlatformExtractorSource? = null,
     ) {
         synchronized(monitor) {
+            if (memoryLease == null) {
+                memoryLease = AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Demux, 24L * 1024L * 1024L)
+            }
             opened = false
             readAheadEnabled = false
             selectedTracks = emptySet()
@@ -128,6 +135,8 @@ internal class AndroidMediaExtractorReadAheadNode(
      */
     fun blockedForegroundReadMs(): Long = delegate.blockedForegroundReadMs()
 
+    fun cancelPendingRead() = delegate.cancelPendingRead()
+
     fun updatePlaybackWindow(window: YTransportPlaybackWindow) = delegate.updatePlaybackWindow(window)
 
     fun configureSampleCapacity(bytes: Int) {
@@ -174,6 +183,7 @@ internal class AndroidMediaExtractorReadAheadNode(
             selectedTracks = emptySet()
             clearQueueLocked()
         }
+        delegate.cancelPendingRead()
         runOnOwner {
             val previous = synchronized(monitor) { ownerSelectedTracks }
             previous.minus(trackIndices).forEach(delegate::unselectTrack)
@@ -197,6 +207,14 @@ internal class AndroidMediaExtractorReadAheadNode(
         }
     }
 
+    fun pauseReadAhead() {
+        synchronized(monitor) {
+            readAheadEnabled = false
+            generation++
+        }
+        delegate.cancelPendingRead()
+    }
+
     fun seekTo(positionUs: Long) {
         val resume =
             synchronized(monitor) {
@@ -205,6 +223,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 clearQueueLocked()
                 current
             }
+        delegate.cancelPendingRead()
         runOnOwner {
             delegate.seekTo(positionUs)
             synchronized(monitor) {
@@ -277,7 +296,7 @@ internal class AndroidMediaExtractorReadAheadNode(
                 throughputBitsPerSecond = liveThroughput ?: latestTransportQoeSnapshot?.throughputBitsPerSecond ?: 0L,
                 throughputMeasured = liveThroughput != null || latestTransportQoeSnapshot?.throughputMeasured == true,
                 endOfInput = endOfInput || failure != null,
-                atCapacity = queuedBytes >= maximumQueueBytes,
+                atCapacity = samples.isNotEmpty() && queuedBytes >= queueBudgetBytes(),
                 trackBufferedDurationUs = trackBufferedDurationsUsLocked(),
             )
         }
@@ -289,11 +308,14 @@ internal class AndroidMediaExtractorReadAheadNode(
                 readAheadEnabled = false
                 selectedTracks = emptySet()
                 clearQueueLocked()
+                memoryLease?.close()
+                memoryLease = null
                 latestTransportQoeSnapshot = null
                 transportQoeRefreshScheduled.set(false)
                 executor
             }
         if (owner != null) {
+            delegate.cancelPendingRead()
             runCatching {
                 runOnOwner {
                     delegate.release()
@@ -385,6 +407,7 @@ internal class AndroidMediaExtractorReadAheadNode(
     }
 
     private fun fillToHighWatermark() {
+        var readingGeneration = synchronized(monitor) { generation }
         try {
             val capacity = synchronized(monitor) { sampleCapacity }
             val buffer = stagingBuffer(capacity)
@@ -400,8 +423,10 @@ internal class AndroidMediaExtractorReadAheadNode(
                     ) {
                         return
                     }
+                    readingGeneration = generation
                 }
                 val extracted = delegate.readSample(buffer)
+                if (synchronized(monitor) { generation != readingGeneration }) return
                 val copied =
                     extracted?.let { sample ->
                         val bytes = ByteArray(sample.data.remaining())
@@ -410,7 +435,13 @@ internal class AndroidMediaExtractorReadAheadNode(
                     }
                 if (copied != null) delegate.advance()
                 synchronized(monitor) {
-                    if (!opened || !readAheadEnabled || selectedTracks.isEmpty()) return
+                    if (!opened ||
+                        !readAheadEnabled ||
+                        selectedTracks.isEmpty() ||
+                        generation != readingGeneration
+                    ) {
+                        return
+                    }
                     if (copied == null) {
                         endOfInput = true
                         return
@@ -421,10 +452,11 @@ internal class AndroidMediaExtractorReadAheadNode(
                 }
             }
         } catch (throwable: Throwable) {
-            if (throwable is CancellationException) throw throwable
             synchronized(monitor) {
-                failure = throwable
-                endOfInput = true
+                if (generation == readingGeneration) {
+                    failure = throwable
+                    endOfInput = true
+                }
             }
         } finally {
             synchronized(monitor) {
@@ -435,7 +467,7 @@ internal class AndroidMediaExtractorReadAheadNode(
     }
 
     private fun queueAtHighWatermarkLocked(): Boolean =
-        queuedBytes >= maximumQueueBytes ||
+        (samples.isNotEmpty() && queuedBytes >= queueBudgetBytes()) ||
             (samples.size >= MINIMUM_SAMPLES_BEFORE_TIME_LIMIT && bufferedDurationUsLocked() >= targetAheadUs)
 
     private fun bufferedDurationUsLocked(): Long = trackBufferedDurationsUsLocked().values.minOrNull() ?: 0L
@@ -462,6 +494,7 @@ internal class AndroidMediaExtractorReadAheadNode(
     }
 
     private fun clearQueueLocked() {
+        generation++
         samples.clear()
         queuedBytes = 0L
         starved = false

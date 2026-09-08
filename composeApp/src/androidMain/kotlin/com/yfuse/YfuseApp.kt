@@ -1,8 +1,10 @@
 package com.yfuse
 
+import android.app.Activity
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.SharedPreferences
+import android.os.Bundle
 import android.os.StrictMode
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -27,6 +29,8 @@ import com.yfuse.core.security.ServerSessionRecovery
 import com.yfuse.core.sync.playback.PlaybackSyncManager
 import com.yfuse.core.util.androidAppContext
 import com.yfuse.core.util.imageCacheContext
+import com.yfuse.core2.android.AndroidPlaybackMemoryBudget
+import com.yfuse.core2.android.AndroidVideoVsyncSampler
 import com.yfuse.di.appModule
 import com.yfuse.feature.calendar.scheduleCalendarReminderWork
 import com.yfuse.feature.calendar.scheduleCalendarSyncWork
@@ -57,6 +61,31 @@ class YfuseApp :
     SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
+        AndroidPlaybackMemoryBudget.initialize(this)
+        AndroidVideoVsyncSampler.initialize(this)
+        registerActivityLifecycleCallbacks(
+            object : ActivityLifecycleCallbacks {
+                override fun onActivityResumed(activity: Activity) = AndroidPlaybackMemoryBudget.setBackground(false)
+
+                override fun onActivityCreated(
+                    activity: Activity,
+                    state: Bundle?,
+                ) = Unit
+
+                override fun onActivityStarted(activity: Activity) = Unit
+
+                override fun onActivityPaused(activity: Activity) = Unit
+
+                override fun onActivityStopped(activity: Activity) = Unit
+
+                override fun onActivitySaveInstanceState(
+                    activity: Activity,
+                    state: Bundle,
+                ) = Unit
+
+                override fun onActivityDestroyed(activity: Activity) = Unit
+            },
+        )
         installStrictModeForDebugBuilds()
         val startupTrace = AppStartupTrace()
         imageCacheContext = this
@@ -157,7 +186,11 @@ class YfuseApp :
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            AndroidPlaybackMemoryBudget.setBackground(true)
             notifyPlaybackAppBackground()
+        }
+        if (level in ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW..ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            AndroidPlaybackMemoryBudget.trim()
         }
     }
 

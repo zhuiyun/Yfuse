@@ -252,6 +252,7 @@ private fun YDashRepresentation.resolvedInitializationUriOrNull(): String? {
 private fun YDashSegmentTemplate?.switchCompatibleWith(reference: YDashSegmentTemplate): Boolean {
     this ?: return false
     return timescale == reference.timescale &&
+        presentationTimeOffset == reference.presentationTimeOffset &&
         duration == reference.duration &&
         startNumber == reference.startNumber &&
         timeline == reference.timeline &&

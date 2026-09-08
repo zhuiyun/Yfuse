@@ -8,7 +8,6 @@ import android.os.Build
 import android.os.Process
 import android.view.Surface
 import kotlinx.coroutines.CancellationException
-import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -28,8 +27,15 @@ internal data class YSoftwareRenderSnapshot(
 internal class AndroidSoftwareVideoRenderNode {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val lifecycleLock = Any()
+    private var memory: PlaybackMemoryLease? = null
+    private var requestedMemoryBytes = 0L
     private var executor: ExecutorService? = null
-    private var bitmap: Bitmap? = null
+    private val frames =
+        BoundedFrameLeasePool<Pair<Int, Int>, Bitmap>(
+            MAX_IN_FLIGHT_SOFTWARE_FRAMES,
+            { (width, height) -> Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888) },
+            Bitmap::recycle,
+        )
 
     @Volatile
     private var surface: Surface? = null
@@ -54,46 +60,62 @@ internal class AndroidSoftwareVideoRenderNode {
      * At most two frames (one rendering and one queued) are retained. Returning false asks the
      * decoder lane to keep its reusable FFmpeg buffer until render capacity is available.
      */
-    fun tryRender(frame: YSoftwareVideoDecodeResult.Frame): Boolean {
-        throwIfFailed()
-        requireNotNull(surface).also { require(it.isValid) }
-        if (!reserveFrameSlot()) return false
-        val copied =
+    fun tryRender(frame: YSoftwareVideoDecodeResult.Frame): Boolean =
+        synchronized(lifecycleLock) {
+            throwIfFailed()
+            requireNotNull(surface).also { require(it.isValid) }
+            require(frame.width > 0 && frame.height > 0 && frame.strideBytes == frame.width * BGRA_BYTES_PER_PIXEL) {
+                "Software video frame stride is unsupported"
+            }
+            require(frame.data.remaining().toLong() >= frame.strideBytes.toLong() * frame.height) {
+                "Software video frame is truncated"
+            }
+            val requestedBytes =
+                frame.width.toLong() * frame.height * BGRA_BYTES_PER_PIXEL *
+                    MAX_IN_FLIGHT_SOFTWARE_FRAMES
+            if (requestedBytes != requestedMemoryBytes) {
+                if (inFlightFrames.get() != 0) return false
+                frames.clear()
+                memory?.close()
+                memory = AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Render, requestedBytes)
+                requestedMemoryBytes = requestedBytes
+            }
+            AndroidPlaybackMemoryBudget.refreshPressure()
+            check(requestedBytes <= requireNotNull(memory).limitBytes) {
+                "Software video frames exceed the current playback memory budget"
+            }
+            val lease = frames.acquire(frame.width to frame.height) ?: return false
             try {
-                val source = frame.data.duplicate()
-                ByteArray(source.remaining()).also(source::get)
+                // Copy directly from FFmpeg into the leased Bitmap. No intermediate per-frame
+                // ByteArray or second pixel copy is needed; FFmpeg may reuse its buffer on return.
+                lease.value.copyPixelsFromBuffer(frame.data.duplicate())
             } catch (throwable: Throwable) {
-                if (throwable is CancellationException) throw throwable
+                lease.close()
+                throw throwable
+            }
+            val generation = renderGeneration.get()
+            inFlightFrames.incrementAndGet()
+            try {
+                owner().execute {
+                    try {
+                        if (generation == renderGeneration.get()) {
+                            renderCopiedFrame(lease.value, frame.presentationTimeUs)
+                        }
+                    } catch (throwable: Throwable) {
+                        if (throwable is CancellationException) throw throwable
+                        failure.compareAndSet(null, throwable)
+                    } finally {
+                        lease.close()
+                        inFlightFrames.decrementAndGet()
+                    }
+                }
+            } catch (throwable: Throwable) {
+                lease.close()
                 inFlightFrames.decrementAndGet()
                 throw throwable
             }
-        val generation = renderGeneration.get()
-        try {
-            owner().execute {
-                try {
-                    if (generation == renderGeneration.get()) {
-                        renderCopiedFrame(
-                            data = copied,
-                            presentationTimeUs = frame.presentationTimeUs,
-                            width = frame.width,
-                            height = frame.height,
-                            strideBytes = frame.strideBytes,
-                        )
-                    }
-                } catch (throwable: Throwable) {
-                    if (throwable is CancellationException) throw throwable
-                    failure.compareAndSet(null, throwable)
-                } finally {
-                    inFlightFrames.decrementAndGet()
-                }
-            }
-        } catch (throwable: Throwable) {
-            if (throwable is CancellationException) throw throwable
-            inFlightFrames.decrementAndGet()
-            throw throwable
+            true
         }
-        return true
-    }
 
     fun snapshot(): YSoftwareRenderSnapshot =
         YSoftwareRenderSnapshot(
@@ -109,11 +131,14 @@ internal class AndroidSoftwareVideoRenderNode {
 
     /** Discards queued frames and waits for any current Canvas post before a seek or Surface swap. */
     fun flush() {
-        renderGeneration.incrementAndGet()
-        val active = synchronized(lifecycleLock) { executor }
-        if (active != null) {
+        val fence =
+            synchronized(lifecycleLock) {
+                renderGeneration.incrementAndGet()
+                executor?.submit { Unit }
+            }
+        if (fence != null) {
             try {
-                active.submit { Unit }.get()
+                fence.get()
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) throw throwable
                 failure.compareAndSet(null, throwable.cause ?: throwable)
@@ -136,16 +161,10 @@ internal class AndroidSoftwareVideoRenderNode {
         lastPresentationTimeUs.set(0L)
         lastRenderedRealtimeNs.set(0L)
         failure.set(null)
-        bitmap?.recycle()
-        bitmap = null
-    }
-
-    private fun reserveFrameSlot(): Boolean {
-        while (true) {
-            val current = inFlightFrames.get()
-            if (current >= MAX_IN_FLIGHT_SOFTWARE_FRAMES) return false
-            if (inFlightFrames.compareAndSet(current, current + 1)) return true
-        }
+        frames.clear()
+        memory?.close()
+        memory = null
+        requestedMemoryBytes = 0L
     }
 
     private fun owner(): ExecutorService =
@@ -163,25 +182,12 @@ internal class AndroidSoftwareVideoRenderNode {
         }
 
     private fun renderCopiedFrame(
-        data: ByteArray,
+        target: Bitmap,
         presentationTimeUs: Long,
-        width: Int,
-        height: Int,
-        strideBytes: Int,
     ) {
         val output = requireNotNull(surface).also { require(it.isValid) }
-        require(strideBytes == width * BGRA_BYTES_PER_PIXEL) {
-            "Software video frame stride is unsupported"
-        }
-        require(data.size >= strideBytes * height) { "Software video frame is truncated" }
-        val target =
-            bitmap
-                ?.takeIf { it.width == width && it.height == height && !it.isRecycled }
-                ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
-                    bitmap?.recycle()
-                    bitmap = it
-                }
-        target.copyPixelsFromBuffer(ByteBuffer.wrap(data))
+        val width = target.width
+        val height = target.height
         val canvas =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 runCatching(output::lockHardwareCanvas).getOrElse { output.lockCanvas(null) }

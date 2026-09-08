@@ -70,7 +70,7 @@ FFMPEG_REVISION="$(manifest_value ffmpeg)"
 [[ "$(manifest_value ycore-tone-map-source)" == "scripts/native/ycore_tone_map.h" ]] ||
   fail "YCore HDR tone-map provenance is missing"
 [[ "$(manifest_value ycore-libass)" == "0.17.4" ]] || fail "unexpected libass revision"
-[[ "$(manifest_value ycore-libass-api)" == "1" ]] || fail "YCore libass renderer API v1 is missing"
+[[ "$(manifest_value ycore-libass-api)" == "2" ]] || fail "YCore dynamic libass renderer API v2 is missing"
 [[ "$(manifest_value ycore-disc-api)" == "2" ]] || fail "YCore disc API v2 (HDMV overlay/input) is missing"
 [[ "$(manifest_value ycore-bdmv-vfs)" == "read-only-saf" ]] ||
   fail "YCore read-only filesystem/SAF BDMV VFS is missing"

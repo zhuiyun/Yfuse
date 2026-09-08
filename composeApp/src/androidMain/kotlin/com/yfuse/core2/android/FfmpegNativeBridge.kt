@@ -12,12 +12,17 @@ import java.nio.ByteBuffer
  * AAR is absent. Callers must check [available] before opening an enhanced-demux session.
  */
 internal object FfmpegNativeBridge {
-    val available: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    private val loadResult by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         runCatching {
             System.loadLibrary(LIBRARY_NAME)
-            true
-        }.getOrDefault(false)
+        }
     }
+
+    val available: Boolean get() = loadResult.isSuccess
+
+    /** Diagnostic cause retained so a missing symbol is not mislabeled as an absent AAR. */
+    val loadFailureDescription: String?
+        get() = loadResult.exceptionOrNull()?.let { "${it.javaClass.simpleName}: ${it.message.orEmpty().take(512)}" }
 
     val softwareDecodeAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         available &&
@@ -26,6 +31,52 @@ internal object FfmpegNativeBridge {
 
     val assRendererAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         available && runCatching { nativeAssRendererApiVersion() >= ASS_RENDERER_API_VERSION }.getOrDefault(false)
+    }
+
+    val dynamicAssRendererAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        available && runCatching { nativeAssRendererApiVersion() >= 2 }.getOrDefault(false)
+    }
+
+    fun trackFontName(
+        handle: Long,
+        index: Int,
+    ): String? = if (dynamicAssRendererAvailable) nativeTrackFontName(handle, index) else null
+
+    fun createAssRenderer(
+        source: com.yfuse.core2.subtitle.YAssSubtitleSource,
+        width: Int = source.canvasWidth.takeIf { it > 0 } ?: 1280,
+        height: Int = source.canvasHeight.takeIf { it > 0 } ?: 720,
+        cacheMegabytes: Int = 4,
+        styleOverrides: List<String> = emptyList(),
+    ): Long {
+        check(dynamicAssRendererAvailable) { "Dynamic ASS renderer API is unavailable" }
+        return nativeCreateAssRenderer(
+            source.data,
+            source.fullScript,
+            width,
+            height,
+            source.fonts
+                .map {
+                    it.name
+                }.toTypedArray(),
+            source.fonts.map { it.data }.toTypedArray(),
+            cacheMegabytes,
+            styleOverrides.toTypedArray(),
+        ).also { check(it > 0L) { "ASS renderer could not be created" } }
+    }
+
+    /** null means unchanged, an empty array clears the overlay. All calls stay on its isolated owner. */
+    fun renderAss(
+        handle: Long,
+        positionUs: Long,
+        revision: Long,
+        packets: Array<ByteArray>,
+        startsUs: LongArray,
+        durationsUs: LongArray,
+    ): ByteArray? = nativeRenderAss(handle, positionUs, revision, packets, startsUs, durationsUs)
+
+    fun closeAssRenderer(handle: Long) {
+        if (handle > 0L) nativeCloseAssRenderer(handle)
     }
 
     val discNavigationAvailable: Boolean by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -393,6 +444,33 @@ internal object FfmpegNativeBridge {
     private external fun nativeSoftwareDecoderApiVersion(): Int
 
     private external fun nativeAssRendererApiVersion(): Int
+
+    private external fun nativeTrackFontName(
+        handle: Long,
+        index: Int,
+    ): String?
+
+    private external fun nativeCreateAssRenderer(
+        data: ByteArray,
+        fullScript: Boolean,
+        width: Int,
+        height: Int,
+        fontNames: Array<String>,
+        fontData: Array<ByteArray>,
+        cacheMegabytes: Int,
+        styleOverrides: Array<String>,
+    ): Long
+
+    private external fun nativeRenderAss(
+        handle: Long,
+        positionUs: Long,
+        revision: Long,
+        packets: Array<ByteArray>,
+        startsUs: LongArray,
+        durationsUs: LongArray,
+    ): ByteArray?
+
+    private external fun nativeCloseAssRenderer(handle: Long)
 
     private external fun nativeDiscApiVersion(): Int
 

@@ -42,6 +42,10 @@ internal class AndroidDemuxReadAheadNode(
     private var lowWatermarkUs = DEFAULT_LOW_WATERMARK_US
     private var highWatermarkUs = DEFAULT_HIGH_WATERMARK_US
     private var maximumQueueBytes = DEFAULT_MAXIMUM_QUEUE_BYTES
+    private var memoryLease: PlaybackMemoryLease? = null
+
+    private fun queueBudgetBytes() = minOf(maximumQueueBytes, memoryLease?.limitBytes ?: maximumQueueBytes)
+
     private var maximumQueuedBytesObserved = 0L
     private var starvationCount = 0L
     private var throughputBitsPerSecond = 0L
@@ -79,6 +83,9 @@ internal class AndroidDemuxReadAheadNode(
         }
 
     private fun configureSubtitleTracks(result: YDemuxOpenResult) {
+        if (memoryLease == null) {
+            memoryLease = AndroidPlaybackMemoryBudget.acquire(PlaybackBufferKind.Demux, MAXIMUM_QUEUE_BYTES)
+        }
         val decoder = delegate as? YSubtitlePacketDecoder
         subtitleTracks = result.tracks.filter { it.subtitle != null }.mapTo(mutableSetOf()) { it.id }
         nativeSubtitleTracks =
@@ -191,7 +198,7 @@ internal class AndroidDemuxReadAheadNode(
                 starvationCount = starvationCount,
                 throughputBitsPerSecond = throughputBitsPerSecond,
                 endOfInput = endOfInput,
-                atCapacity = queuedBytes >= maximumQueueBytes,
+                atCapacity = samples.isNotEmpty() && queuedBytes >= queueBudgetBytes(),
             )
         }
 
@@ -201,6 +208,8 @@ internal class AndroidDemuxReadAheadNode(
                 opened = false
                 tracksSelected = false
                 clearQueueLocked()
+                memoryLease?.close()
+                memoryLease = null
                 executor
             }
         if (owner != null) {
@@ -322,7 +331,7 @@ internal class AndroidDemuxReadAheadNode(
     }
 
     private fun queueAtHighWatermarkLocked(): Boolean =
-        queuedBytes >= maximumQueueBytes ||
+        (samples.isNotEmpty() && queuedBytes >= queueBudgetBytes()) ||
             (samples.size >= MINIMUM_SAMPLES_BEFORE_TIME_LIMIT && bufferedDurationUsLocked() >= highWatermarkUs)
 
     private fun bufferedDurationUsLocked(): Long {
@@ -405,6 +414,7 @@ internal sealed interface YQueuedDemuxResult {
                     when (val payload = cue.payload) {
                         is YSubtitlePayload.BitmapArgb -> payload.pixels.size.toLong() * 4L
                         is YSubtitlePayload.Encoded -> payload.data.size.toLong()
+                        is YSubtitlePayload.AssEvent -> payload.packet?.size?.toLong() ?: 0L
                         is YSubtitlePayload.Text ->
                             (payload.plainText.length + payload.sourceMarkup.length).toLong() *
                                 2L

@@ -36,6 +36,12 @@ interface YPlayer {
 
     fun setSpeed(speed: Float)
 
+    /** Supports an audio/video phase correction without leaving the native player. */
+    val supportsAudioDelay: Boolean get() = false
+
+    /** Positive values make audio later relative to video; values are bounded to +/- five seconds. */
+    fun setAudioDelayMs(delayMs: Long): Boolean = delayMs == 0L
+
     fun selectTrack(
         type: YTrackType,
         id: String,
@@ -392,6 +398,8 @@ data class YPlayerDiagnostics(
     val dolbyAtmosOutputMode: YDolbyAtmosOutputMode = YDolbyAtmosOutputMode.None,
     /** Active AudioTrack route label, redacted to device type/product name only. */
     val audioOutputRoute: String = "",
+    /** Actual routed output identity/capabilities; empty until the track has an observed route. */
+    val audioOutputFingerprint: String = "",
     /** True only after AudioTrack reports a routed device while its clock is advancing. */
     val audioOutputRouteVerified: Boolean = false,
     val dolbyAtmosOutput: Boolean = false,

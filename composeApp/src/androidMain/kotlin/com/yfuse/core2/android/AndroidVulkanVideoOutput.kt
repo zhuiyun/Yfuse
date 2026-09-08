@@ -39,6 +39,7 @@ internal class AndroidVulkanVideoOutput
         colorConfig: YGpuColorPipelineConfig,
     ) : Closeable {
         private val activeColorConfig = AtomicReference(colorConfig)
+        private val targetSurface = AtomicReference(target)
         private val thread = HandlerThread("YCore-Vulkan-Frames").apply { start() }
         private val handler = Handler(thread.looper)
 
@@ -69,7 +70,8 @@ internal class AndroidVulkanVideoOutput
         val renderedFrameCount: Int get() = presentedFrames.get()
         val outputVerified: Boolean
             get() =
-                currentFeatureMask and YNativeGpuFeature.OutputMeasured.mask != 0L &&
+                presentedFrames.get() > 0 &&
+                    currentFeatureMask and YNativeGpuFeature.OutputMeasured.mask != 0L &&
                     currentFeatureMask and YNativeGpuFeature.DecodedFramePresented.mask != 0L &&
                     (
                         activeColorConfig.get().sourceTransfer == YGpuColorTransfer.Sdr ||
@@ -93,11 +95,53 @@ internal class AndroidVulkanVideoOutput
                 )
             if (replacement == 0L) return false
             synchronized(rendererLock) {
+                targetSurface.set(target)
                 AndroidYCoreGpuNativeBridge.destroyRenderer(renderer.getAndSet(replacement))
                 featureMask.set(AndroidYCoreGpuNativeBridge.rendererFeatureMask(replacement))
                 gpuDurationNs.set(0L)
                 presentedFrames.set(0)
                 attemptedFrames.set(0)
+            }
+            return true
+        }
+
+        /** A new producer Surface prevents already-queued old images from proving a new seek. */
+        fun resetOutputEvidence(switchDecoderSurface: (Surface) -> Unit): Boolean {
+            val replacement = createPrivateImageReader(decoderWidth.get(), decoderHeight.get())
+            val newRenderer =
+                AndroidYCoreGpuNativeBridge.createRenderer(
+                    targetSurface.get(),
+                    activeColorConfig.get().outputTransfer,
+                )
+            if (newRenderer == 0L) {
+                replacement.close()
+                return false
+            }
+            attachImageListener(replacement)
+            try {
+                switchDecoderSurface(replacement.surface)
+            } catch (failure: Throwable) {
+                replacement.setOnImageAvailableListener(null, null)
+                replacement.close()
+                AndroidYCoreGpuNativeBridge.destroyRenderer(newRenderer)
+                throw failure
+            }
+            val previous: ImageReader
+            synchronized(rendererLock) {
+                previous = imageReader
+                imageReader = replacement
+                AndroidYCoreGpuNativeBridge.destroyRenderer(renderer.getAndSet(newRenderer))
+                pendingHdr10Plus.clear()
+                activeColorConfig.updateAndGet { it.copy(hdr10PlusSceneMetadata = null) }
+                featureMask.set(AndroidYCoreGpuNativeBridge.rendererFeatureMask(newRenderer))
+                gpuDurationNs.set(0L)
+                presentedFrames.set(0)
+                attemptedFrames.set(0)
+                frameIndex.set(0)
+            }
+            handler.post {
+                previous.setOnImageAvailableListener(null, null)
+                runCatching(previous::close)
             }
             return true
         }
@@ -206,8 +250,6 @@ internal class AndroidVulkanVideoOutput
                         runCatching(reader::acquireLatestImage).getOrNull()
                             ?: return@setOnImageAvailableListener
                     image.use {
-                        attemptedFrames.incrementAndGet()
-                        applyHdr10PlusForTimestamp(image.timestamp / 1_000L)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             val producerFinished =
                                 runCatching {
@@ -220,8 +262,11 @@ internal class AndroidVulkanVideoOutput
                         val hardwareBuffer = runCatching { image.hardwareBuffer }.getOrNull() ?: return@use
                         hardwareBuffer.use {
                             synchronized(rendererLock) {
+                                if (reader !== imageReader) return@synchronized
                                 val handle = renderer.get()
                                 if (handle == 0L) return@synchronized
+                                attemptedFrames.incrementAndGet()
+                                applyHdr10PlusForTimestamp(image.timestamp / 1_000L)
                                 val mask =
                                     AndroidYCoreGpuNativeBridge.renderHardwareBuffer(
                                         renderer = handle,

@@ -68,7 +68,7 @@ internal class AndroidNativeEnhancedYPlayer(
                 diagnostics =
                     YPlayerDiagnostics(
                         route = forcedPlan?.route ?: YPlaybackRoute.NativeEnhanced,
-                        demuxer = "FFmpeg 8.1 / libavformat",
+                        demuxer = "FFmpeg / libavformat",
                         renderer =
                             if (forcedPlan?.route == YPlaybackRoute.GpuEnhanced) {
                                 "Vulkan + AudioTrack"
@@ -157,6 +157,14 @@ internal class AndroidNativeEnhancedYPlayer(
         if (released || !speed.isFinite() || speed <= 0f) return
         mutableState.updateState { it.copy(speed = speed) }
         submit(Command.SetSpeed(speed))
+    }
+
+    override val supportsAudioDelay: Boolean get() = true
+
+    override fun setAudioDelayMs(delayMs: Long): Boolean {
+        if (released) return false
+        submit(Command.SetAudioDelay(delayMs.coerceIn(-5_000L, 5_000L)))
+        return true
     }
 
     override fun selectTrack(
@@ -308,6 +316,7 @@ internal class AndroidNativeEnhancedYPlayer(
         var currentIndex = request.startIndex
         var requestedPlay = request.autoPlay
         var speed = 1f
+        var audioDelayMs = 0L
         var prepared = false
         var lastPublishNs = 0L
         var externalSubtitles = emptyList<AndroidLoadedExternalSubtitle>()
@@ -409,6 +418,7 @@ internal class AndroidNativeEnhancedYPlayer(
             activePlan = playbackPlan
             speed = mutableState.value.speed
             session.setSpeed(speed)
+            session.setAudioDelayMs(audioDelayMs)
             val tracks = result.toAudioTracks(session.selectedAudioTrackId())
             externalSubtitleSession.reset(item.allExternalSubtitles, item.headers)
             externalSubtitles = externalSubtitleSession.tracks
@@ -444,7 +454,7 @@ internal class AndroidNativeEnhancedYPlayer(
                         it.diagnostics.copy(
                             route = playbackPlan.route,
                             container = result.container.name,
-                            demuxer = "FFmpeg 8.1 / libavformat",
+                            demuxer = "FFmpeg / libavformat",
                             videoCodec = video?.mimeType.orEmpty(),
                             videoWidth = video?.width ?: 0,
                             videoHeight = video?.height ?: 0,
@@ -557,6 +567,8 @@ internal class AndroidNativeEnhancedYPlayer(
                                     .joinToString(" + "),
                             videoOutput =
                                 when {
+                                    snapshot.pausedPreviewSubmittedUnconfirmed && !snapshot.firstVideoFrameRendered ->
+                                        "暂停定位帧已提交 · 系统未回调确认"
                                     snapshot.nativeGpuFeatureMask != 0L && snapshot.firstVideoFrameRendered ->
                                         nativeGpuOutputLabel(
                                             plan = activePlan,
@@ -620,6 +632,7 @@ internal class AndroidNativeEnhancedYPlayer(
                             dolbyAtmosSourceDetected = snapshot.dolbyAtmosSourceDetected,
                             dolbyAtmosOutputMode = snapshot.dolbyAtmosOutputMode,
                             audioOutputRoute = snapshot.audioOutputRoute,
+                            audioOutputFingerprint = snapshot.audioOutputFingerprint,
                             audioOutputRouteVerified = snapshot.audioOutputRouteVerified,
                             dolbyAtmosOutput = snapshot.dolbyAtmosOutput,
                             spatialAudioOutput = snapshot.spatialAudioOutput,
@@ -767,6 +780,10 @@ internal class AndroidNativeEnhancedYPlayer(
                                 speed = command.speed
                                 if (prepared) session.setSpeed(speed)
                             }
+                            is Command.SetAudioDelay -> {
+                                audioDelayMs = command.delayMs
+                                session.setAudioDelayMs(audioDelayMs)
+                            }
                             is Command.ExternalSubtitleReady -> {
                                 if (externalSubtitleSession.accept(command.result)) {
                                     externalSubtitles = externalSubtitleSession.tracks
@@ -884,14 +901,19 @@ internal class AndroidNativeEnhancedYPlayer(
 
                 val didWork =
                     playbackWorkerStep(::publishFailure) {
-                        val worked = if (prepared && requestedPlay) session.pump() else false
+                        val worked = if (prepared) session.pump() else false
                         publishSnapshot()
                         worked
                     } ?: false
                 if (!handled && !didWork) {
                     // A queued command ends the wait at once; a paused session has no pump work
                     // and can sleep longer without delaying command handling.
-                    val idleDelayMs = if (requestedPlay) PUMP_IDLE_DELAY_MS else PUMP_PAUSED_IDLE_DELAY_MS
+                    val idleDelayMs =
+                        playbackPumpIdleDelayMs(
+                            playing = requestedPlay,
+                            buffering = mutableState.value.buffering,
+                            previewPending = session.previewPending,
+                        )
                     withTimeoutOrNull(idleDelayMs) { wakeSignal.receiveCatching() }
                 }
             }
@@ -904,6 +926,10 @@ internal class AndroidNativeEnhancedYPlayer(
     }
 
     internal sealed interface Command {
+        data class SetAudioDelay(
+            val delayMs: Long,
+        ) : Command
+
         data class ExternalSubtitleReady(
             val result: AndroidExternalSubtitleSession.Completion,
         ) : Command
@@ -986,6 +1012,8 @@ private fun AndroidNativeEnhancedYPlayer.Command.canBeReplacedBy(next: AndroidNa
         is AndroidNativeEnhancedYPlayer.Command.ExternalSubtitleReady -> false
         is AndroidNativeEnhancedYPlayer.Command.Seek -> next is AndroidNativeEnhancedYPlayer.Command.Seek
         is AndroidNativeEnhancedYPlayer.Command.SetSpeed -> next is AndroidNativeEnhancedYPlayer.Command.SetSpeed
+        is AndroidNativeEnhancedYPlayer.Command.SetAudioDelay ->
+            next is AndroidNativeEnhancedYPlayer.Command.SetAudioDelay
         is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput ->
             next is AndroidNativeEnhancedYPlayer.Command.SetVideoOutput
         is AndroidNativeEnhancedYPlayer.Command.SelectAudioTrack ->

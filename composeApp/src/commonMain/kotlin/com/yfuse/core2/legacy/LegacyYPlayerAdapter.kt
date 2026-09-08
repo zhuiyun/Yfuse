@@ -50,6 +50,10 @@ internal class LegacyYPlayerAdapter(
 
     override fun setSpeed(speed: Float) = engine.setSpeed(speed)
 
+    override val supportsAudioDelay: Boolean get() = engine.supportsAudioDelay
+
+    override fun setAudioDelayMs(delayMs: Long): Boolean = engine.setAudioDelayMs(delayMs)
+
     override fun selectTrack(
         type: YTrackType,
         id: String,

@@ -1,0 +1,36 @@
+name: Build current YCore runtime
+description: Cache pinned native dependencies, rebuild current demux and GPU sources, and install standalone runtime.
+runs:
+  using: composite
+  steps:
+    - name: Verify current-runtime build contract
+      shell: bash
+      run: |
+        bash -n scripts/build-current-ycore-native.sh
+        python3 -m unittest discover --start-directory scripts/tests --pattern test_build_current_ycore.py --verbose
+    - name: Install native build prerequisites
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y autoconf automake binutils build-essential cmake curl git gperf libtool ninja-build pkg-config python3 python3-venv unzip wget yasm
+        python3 -m venv "$RUNNER_TEMP/yfuse-native-meson"
+        "$RUNNER_TEMP/yfuse-native-meson/bin/pip" install --disable-pip-version-check 'Jinja2==3.1.6' 'meson==1.6.1'
+        echo "$RUNNER_TEMP/yfuse-native-meson/bin" >> "$GITHUB_PATH"
+        sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+        manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+        if [[ ! -x "$manager" ]]; then manager="$(find "$sdk/cmdline-tools" -type f -name sdkmanager -print -quit)"; fi
+        test -x "$manager"
+        yes | "$manager" --licenses >/dev/null 2>&1 || true
+        "$manager" 'ndk;29.0.14206865'
+    - name: Restore pinned native headers and static libraries
+      uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: |
+          .native-build/yfuse-mpv/source/buildscripts/prefix
+          .native-build/ycore-dependencies.sources.txt
+          .native-build/ycore-dependencies.key
+        key: ycore-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-yfuse-mpv-bluray.sh', 'scripts/build-yfuse-mpv-dolby.sh', 'scripts/native/patch_yfuse*.py', 'scripts/engine-checksums.sha256', 'scripts/yfuse-mpv-sources.txt') }}
+    - name: Compile and install current YCore demux and GPU
+      shell: bash
+      run: bash scripts/build-current-ycore-native.sh

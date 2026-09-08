@@ -1,5 +1,6 @@
 package com.yfuse.core2.android
 
+import android.graphics.Bitmap
 import android.graphics.ImageFormat
 import android.media.ImageReader
 import android.net.Uri
@@ -9,8 +10,11 @@ import android.os.Bundle
 import android.os.Debug
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.view.PixelCopy
+import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.ViewGroup
@@ -23,8 +27,10 @@ import com.yfuse.core2.api.YDiscMedia
 import com.yfuse.core2.api.YMediaItem
 import com.yfuse.core2.api.YPlaybackPhase
 import com.yfuse.core2.api.YPlaybackRoute
+import com.yfuse.core2.api.YPlayer
 import com.yfuse.core2.api.YPlayerOpenRequest
 import com.yfuse.core2.api.YTrackType
+import com.yfuse.core2.capability.YHdrType
 import com.yfuse.core2.capability.YVideoCodec
 import com.yfuse.core2.demux.YDemuxSource
 import com.yfuse.core2.demux.YDemuxTrackType
@@ -34,6 +40,10 @@ import com.yfuse.core2.dolby.YDolbyVisionStreamEvidence
 import com.yfuse.core2.quirk.InMemoryYCore2FailureStore
 import com.yfuse.core2.quirk.YCore2FailureLedger
 import com.yfuse.core2.render.YFrameRateSwitchMode
+import com.yfuse.core2.strategy.YDecodePath
+import com.yfuse.core2.strategy.YDemuxPath
+import com.yfuse.core2.strategy.YPlaybackPlan
+import com.yfuse.core2.strategy.YRenderPath
 import com.yfuse.core2.test.YMediaObservedFacts
 import com.yfuse.core2.test.YMediaTestCase
 import com.yfuse.core2.test.YMediaTestObservation
@@ -47,6 +57,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -61,6 +72,135 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Device lanes for generated smoke media and the external, licensed YCore media corpus. */
 @RunWith(AndroidJUnit4::class)
 class YCoreMediaSuiteInstrumentedTest {
+    @Test
+    fun generated_avc_aac_paused_seek_shows_one_frame_and_keeps_audio_paused() =
+        runBlocking {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val file = GeneratedAvcAacTestMedia.create(context.cacheDir)
+            try {
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    for (route in listOf(
+                        YPlaybackRoute.NativeDirect,
+                        YPlaybackRoute.NativeEnhanced,
+                        YPlaybackRoute.NativeTunnel,
+                    )) {
+                        val request =
+                            YPlayerOpenRequest(
+                                items = listOf(YMediaItem(id = "paused-preview", uri = Uri.fromFile(file).toString())),
+                                autoPlay = true,
+                            )
+                        val player: YPlayer =
+                            when (route) {
+                                YPlaybackRoute.NativeDirect -> AndroidNativeDirectYPlayer(context, request)
+                                YPlaybackRoute.NativeEnhanced ->
+                                    AndroidNativeEnhancedYPlayer(
+                                        context,
+                                        request,
+                                        allowAudioPassthrough = false,
+                                        forcedPlan =
+                                            YPlaybackPlan(
+                                                route = route,
+                                                demuxPath = YDemuxPath.Enhanced,
+                                                decodePath = YDecodePath.Hardware,
+                                                renderPath = YRenderPath.SurfaceDirect,
+                                                outputHdrType = YHdrType.Sdr,
+                                                reason = "Enhanced hardware test",
+                                            ),
+                                    )
+                                else ->
+                                    AndroidAdaptiveCore2YPlayer(
+                                        context,
+                                        request,
+                                        allowAudioPassthrough = false,
+                                    )
+                            }
+                        val output = createSurfaceViewOutput(scenario, 320, 180)
+                        try {
+                            assertTrue(player.setVideoOutput(output.output))
+                            player.prepare()
+                            player.play()
+                            awaitPlayable(player, "$route:initial")
+                            reportProgress(
+                                "paused-preview requested=$route actual=${player.state.value.diagnostics.route}",
+                            )
+                            if (route !=
+                                YPlaybackRoute.NativeTunnel
+                            ) {
+                                assertTrue(player.state.value.diagnostics.route == route)
+                            }
+                            for (target in listOf(2300L, 5600L, 1200L)) {
+                                player.pause()
+                                val generation = player.state.value.diagnostics.outputEvidenceGeneration
+                                player.seekTo(target)
+                                val targetFrame = (target * GeneratedAvcTestMedia.FRAME_RATE / 1000L).toInt()
+                                var copiedFrame: Int? = null
+                                try {
+                                    withTimeout(PLAYBACK_TIMEOUT_MS) {
+                                        while (true) {
+                                            val state = player.state.value
+                                            assertFalse(
+                                                failureMessage("$route:paused-preview", state),
+                                                state.phase == YPlaybackPhase.Failed,
+                                            )
+                                            if (state.diagnostics.outputEvidenceGeneration > generation) {
+                                                copiedFrame = copySurfaceFrameMarker(output.output.surface)
+                                                if (copiedFrame == targetFrame) break
+                                            }
+                                            delay(25L)
+                                        }
+                                    }
+                                } catch (failure: TimeoutCancellationException) {
+                                    throw AssertionError(
+                                        timeoutMessage(
+                                            "$route:paused-seek-$target expectedFrame=$targetFrame " +
+                                                "copiedFrame=$copiedFrame from generation $generation",
+                                            player.state.value,
+                                        ),
+                                        failure,
+                                    )
+                                }
+                                val preview = player.state.value
+                                assertFalse(
+                                    "Preview resumed playback: $preview",
+                                    player.playbackRequested || preview.playing,
+                                )
+                                assertTrue(
+                                    "Preview position misses target: $preview",
+                                    kotlin.math.abs(preview.positionMs - target) <= 200L,
+                                )
+                                delay(500L)
+                                val paused = player.state.value
+                                assertTrue(
+                                    "Paused Surface image advanced from frame $targetFrame",
+                                    copySurfaceFrameMarker(output.output.surface) == targetFrame,
+                                )
+                                assertTrue(
+                                    "Paused position advanced",
+                                    kotlin.math.abs(paused.positionMs - preview.positionMs) <= 20L,
+                                )
+                                assertFalse("Paused audio kept advancing", paused.diagnostics.audioOutputVerified)
+                                reportProgress(
+                                    "paused-preview route=$route target=$target frame=$copiedFrame " +
+                                        "callbackVerified=${paused.diagnostics.videoOutputVerified}",
+                                )
+                                player.play()
+                                awaitPlayable(player, "$route:resume")
+                            }
+                            assertTrue("Native audio delay unsupported", player.supportsAudioDelay)
+                            assertTrue(player.setAudioDelayMs(250L))
+                            awaitPlayable(player, "$route:audio-delay")
+                            assertTrue(player.setAudioDelayMs(0L))
+                        } finally {
+                            player.release()
+                            output.close()
+                        }
+                    }
+                }
+            } finally {
+                check(file.delete() || !file.exists())
+            }
+        }
+
     @Test
     fun generated_avc_media_survives_core_playback_lifecycle() =
         runBlocking {
@@ -334,9 +474,12 @@ class YCoreMediaSuiteInstrumentedTest {
         surfaceRecreationIterations: Int,
         soakDurationMs: Long = 0L,
         soakQueue: Boolean = false,
-        outputFactory: suspend (width: Int, height: Int) -> TestVideoOutput =
-            { width, height -> TestSurfaceOutput(width, height) },
+        outputFactory: (suspend (width: Int, height: Int) -> TestVideoOutput)? = null,
     ) {
+        val ownedScenario = if (outputFactory == null) ActivityScenario.launch(MainActivity::class.java) else null
+        val createOutput: suspend (Int, Int) -> TestVideoOutput =
+            outputFactory
+                ?: { width, height -> createSurfaceViewOutput(checkNotNull(ownedScenario), width, height) }
         val request =
             YPlayerOpenRequest(
                 items = if (verifyNextEpisode) listOf(item, item.copy(id = "${item.id}:next")) else listOf(item),
@@ -357,9 +500,10 @@ class YCoreMediaSuiteInstrumentedTest {
             )
         var output =
             try {
-                outputFactory(1_920, 1_080)
+                createOutput(1_920, 1_080)
             } catch (failure: Throwable) {
                 player.release()
+                ownedScenario?.close()
                 throw failure
             }
         val surfaceOutputs = mutableListOf(output)
@@ -439,9 +583,9 @@ class YCoreMediaSuiteInstrumentedTest {
                 delay(SURFACE_DETACH_SETTLE_MS)
                 output =
                     if (iteration % 2 == 0) {
-                        outputFactory(1_920, 1_080)
+                        createOutput(1_920, 1_080)
                     } else {
-                        outputFactory(1_080, 1_920)
+                        createOutput(1_080, 1_920)
                     }
                 surfaceOutputs.add(output)
                 awaitFreshVideoOutput(player, "${testCase.id}:surface-recreate-${iteration + 1}") {
@@ -562,7 +706,11 @@ class YCoreMediaSuiteInstrumentedTest {
                 try {
                     player.release()
                 } finally {
-                    output.close()
+                    try {
+                        output.close()
+                    } finally {
+                        ownedScenario?.close()
+                    }
                 }
             }
         }
@@ -620,7 +768,7 @@ class YCoreMediaSuiteInstrumentedTest {
     }
 
     private suspend fun awaitPlayable(
-        player: AndroidAdaptiveCore2YPlayer,
+        player: YPlayer,
         label: String,
     ) {
         try {
@@ -643,7 +791,7 @@ class YCoreMediaSuiteInstrumentedTest {
     }
 
     private suspend fun awaitTrackSelected(
-        player: AndroidAdaptiveCore2YPlayer,
+        player: YPlayer,
         type: YTrackType,
         id: String,
         label: String,
@@ -664,7 +812,7 @@ class YCoreMediaSuiteInstrumentedTest {
     }
 
     private suspend fun awaitEnded(
-        player: AndroidAdaptiveCore2YPlayer,
+        player: YPlayer,
         label: String,
     ) {
         try {
@@ -682,7 +830,7 @@ class YCoreMediaSuiteInstrumentedTest {
     }
 
     private suspend fun awaitFreshVideoOutput(
-        player: AndroidAdaptiveCore2YPlayer,
+        player: YPlayer,
         label: String,
         action: () -> Unit,
     ) = coroutineScope {
@@ -711,7 +859,7 @@ class YCoreMediaSuiteInstrumentedTest {
     }
 
     private suspend fun awaitVideoOutputDetached(
-        player: AndroidAdaptiveCore2YPlayer,
+        player: YPlayer,
         label: String,
     ) {
         try {
@@ -874,6 +1022,36 @@ class YCoreMediaSuiteInstrumentedTest {
             throw failure
         }
     }
+
+    /** Pixel content is independent device-test evidence; it never changes the player's callback proof. */
+    private suspend fun copySurfaceFrameMarker(surface: Surface): Int? =
+        suspendCancellableCoroutine { continuation ->
+            val bitmap =
+                Bitmap.createBitmap(
+                    GeneratedAvcTestMedia.WIDTH,
+                    GeneratedAvcTestMedia.HEIGHT,
+                    Bitmap.Config.ARGB_8888,
+                )
+            try {
+                PixelCopy.request(
+                    surface,
+                    bitmap,
+                    { result ->
+                        val marker =
+                            runCatching {
+                                if (result == PixelCopy.SUCCESS) GeneratedAvcTestMedia.readFrameMarker(bitmap) else null
+                            }
+                        bitmap.recycle()
+                        if (continuation.isActive) continuation.resumeWith(marker)
+                    },
+                    Handler(Looper.getMainLooper()),
+                )
+            } catch (failure: Throwable) {
+                bitmap.recycle()
+                if (continuation.isActive) continuation.resumeWith(Result.failure(failure))
+            }
+            // A cancelled test still leaves the bitmap owned by PixelCopy until its callback.
+        }
 
     private class TestSurfaceOutput(
         width: Int = 1_920,

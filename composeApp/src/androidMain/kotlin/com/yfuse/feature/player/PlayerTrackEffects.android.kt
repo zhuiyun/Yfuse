@@ -105,7 +105,13 @@ internal fun PlayerTrackEffects(
             requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)
         }
     }
-    LaunchedEffect(backendExtensions, engineKind, audioControls.delayMs) {
+    LaunchedEffect(
+        backendExtensions,
+        engineKind,
+        currentItemId,
+        audioControls.delayMs,
+        backendExtensions.supportsAudioDelay,
+    ) {
         val applied = backendExtensions.setAudioDelayMs(audioControls.delayMs)
         if (!applied && audioControls.delayMs != 0L) {
             requestMpvIfAllowed(engineKind, automaticEngineSelection, onRequestMpv)

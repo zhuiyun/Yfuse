@@ -38,6 +38,7 @@ internal class AndroidAudioTrackRenderNode(
     private var basePresentationTimeUs: Long? = null
     private var requestedPlay = false
     private var speed = 1f
+    private var audioDelayMs = 0L
     private var writtenBytes = 0L
     private var zeroWriteCount = 0L
     private var startThresholdFrames = 0
@@ -100,6 +101,7 @@ internal class AndroidAudioTrackRenderNode(
         }
 
     val audioRouteLabel: String get() = routeEvidence.label
+    val audioRouteFingerprint: String get() = routeEvidence.fingerprint
 
     val audioRouteVerified: Boolean get() = routeEvidence.verified
 
@@ -152,6 +154,14 @@ internal class AndroidAudioTrackRenderNode(
             }
         }
     }
+
+    fun setAudioDelayMs(value: Long) {
+        audioDelayMs = value.coerceIn(-5_000L, 5_000L)
+    }
+
+    /** Only for video pacing. Position/progress/route verification keep using the unmodified clock. */
+    fun videoClockPositionUs(fallbackPositionUs: Long): Long =
+        clockSnapshot()?.let { audioDelayVideoPositionUs(it.positionUs, audioDelayMs) } ?: fallbackPositionUs
 
     /** Writes the complete decoded PCM access unit or throws on an AudioTrack error. */
     fun write(
@@ -238,9 +248,13 @@ internal class AndroidAudioTrackRenderNode(
         fallbackRealtimeNs: Long,
     ): Long {
         val clock = clockSnapshot() ?: return fallbackRealtimeNs
-        val mediaDeltaUs = videoPresentationTimeUs - clock.positionUs
-        val scaledDeltaNs = mediaDeltaUs.toDouble() * 1_000.0 / speed.toDouble()
-        return clock.realtimeNs + scaledDeltaNs.toLong()
+        return audioDelayVideoReleaseNs(
+            videoPresentationUs = videoPresentationTimeUs,
+            audioPositionUs = clock.positionUs,
+            audioRealtimeNs = clock.realtimeNs,
+            speed = speed,
+            delayMs = audioDelayMs,
+        )
     }
 
     override fun flush() {

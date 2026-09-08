@@ -29,6 +29,24 @@ internal class AndroidTunnelAudioTrackRenderNode(
     private var playing = false
     private var mediaBaseUs: Long? = null
     private var frameBase: Long? = null
+    private val routeProgress = AndroidRoutedOutputProgress()
+    private var observedRouteId: Int? = null
+    private var routeGeneration = 0L
+
+    private val routeEvidence: AndroidAudioRouteEvidence
+        get() {
+            val active = track ?: return AndroidAudioRouteEvidence()
+            val id = active.routedDevice?.id
+            if (id != observedRouteId) {
+                observedRouteId = id
+                routeGeneration++
+            }
+            val clock = clockSnapshot()?.let { YAudioClockSnapshot(it.positionUs, it.nanoTime) }
+            return active.activeRouteEvidence(routeProgress.observe(routeGeneration, clock, playing))
+        }
+    val audioRouteFingerprint: String get() = routeEvidence.fingerprint
+    val audioRouteLabel: String get() = routeEvidence.label
+    val audioRouteVerified: Boolean get() = routeEvidence.verified
 
     fun configure(format: MediaFormat) {
         release()
@@ -159,6 +177,9 @@ internal class AndroidTunnelAudioTrackRenderNode(
     }
 
     private fun resetClockAnchor() {
+        routeProgress.reset()
+        observedRouteId = null
+        routeGeneration++
         mediaBaseUs = null
         frameBase = null
     }
