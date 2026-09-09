@@ -54,11 +54,13 @@ import com.yfuse.core.designsystem.OverlayHeader
 import com.yfuse.core.designsystem.OverlayOptionRow
 import com.yfuse.core.designsystem.OverlayOptionSpacing
 import com.yfuse.core.designsystem.PageHint
+import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.SkeletonPosterTile
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.motionAwareItem
 import com.yfuse.core.designsystem.pressable
+import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.LibraryResolution
 import com.yfuse.core.model.LibrarySort
@@ -81,6 +83,9 @@ private val PosterMinWidth = 96.dp
  * round: a wider grid shows more per screen and reaches the end more slowly.
  */
 private const val PREFETCH_ITEMS = 18
+
+/** The phone grid; the skeleton's breathing wave only needs a plausible column count. */
+private const val SKELETON_GRID_COLUMNS = 3
 
 private val sortLabels =
     mapOf(
@@ -622,9 +627,15 @@ private fun SkeletonGrid(bottomContentInset: androidx.compose.ui.unit.Dp) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         userScrollEnabled = false,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().skeletonSweep(),
     ) {
-        items(12) { SkeletonPosterTile(Modifier.fillMaxWidth()) }
+        // Phased along the diagonal the sweep travels, so the breath is one wave across
+        // the grid. Three columns is the phone case; a wider grid just repeats the wave.
+        items(12) { index ->
+            val row = index / SKELETON_GRID_COLUMNS
+            val column = index % SKELETON_GRID_COLUMNS
+            SkeletonPosterTile(Modifier.fillMaxWidth(), phaseMs = (row + column) * SKELETON_PHASE_STEP_MS)
+        }
     }
 }
 

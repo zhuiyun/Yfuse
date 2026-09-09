@@ -23,9 +23,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -57,6 +57,7 @@ import com.arkivanov.mvikotlin.extensions.coroutines.states
 import com.yfuse.core.designsystem.ActionToast
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.ArrivalMotion
 import com.yfuse.core.designsystem.ArtworkPageTheme
 import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.CaptionedPoster
@@ -78,6 +79,8 @@ import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.MediaSizing
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.PrimaryGradient
 import com.yfuse.core.designsystem.RefreshThresholdHaptics
@@ -85,6 +88,7 @@ import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.SkeletonRail
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.TabBarInset
+import com.yfuse.core.designsystem.arrivalSweep
 import com.yfuse.core.designsystem.carouselArtworkMotion
 import com.yfuse.core.designsystem.carouselCaptionEntry
 import com.yfuse.core.designsystem.carouselPageVisual
@@ -105,8 +109,10 @@ import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberCarouselCaptionProgress
 import com.yfuse.core.designsystem.rememberCarouselPageColor
 import com.yfuse.core.designsystem.rememberLoopingCarouselState
+import com.yfuse.core.designsystem.rememberRefreshReveal
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
 import com.yfuse.core.designsystem.rememberScrolledPastHero
+import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.CalendarEntry
 import com.yfuse.core.model.LibraryStatus
@@ -134,6 +140,9 @@ private val HomeStatusBarScrim =
     )
 
 private val HomeStatusBarScrimHeight = 128.dp
+
+/** Successive placeholder shelves breathe a little after one another, top to bottom. */
+private const val SKELETON_SHELF_PHASE_MS = 300
 
 /**
  * The caption clears the whole dissolve band.
@@ -263,6 +272,9 @@ internal fun HomeContentBody(
         // anything in it, so the same carousel was one height on the library tab and a
         // different one — changing under the user as their resume list filled up — on the
         // home tab. Both read the shared token now.
+        // One page-wide clock for the shelves replaced by a refresh, so every shelf's posters
+        // rise under a single sweep of light rather than each shelf flashing on its own.
+        val refreshArrival = rememberRefreshReveal(state.refreshing)
         PullToRefreshBox(
             isRefreshing = state.refreshing,
             onRefresh = {
@@ -273,7 +285,14 @@ internal fun HomeContentBody(
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().testTag("home-feed"),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        // Page-level light: the skeleton sweep while shelves load, the arrival
+                        // sweep when a refresh lands. Both draw only while their clock runs.
+                        .skeletonSweep()
+                        .arrivalSweep(refreshArrival)
+                        .testTag("home-feed"),
                 state = listState,
                 contentPadding = PaddingValues(bottom = TabBarInset),
                 verticalArrangement = Arrangement.spacedBy(Dimens.sectionGap),
@@ -301,9 +320,10 @@ internal fun HomeContentBody(
                     // Two shelves' worth of placeholders rather than one spinner: the page
                     // this becomes is a stack of rails, and a skeleton that is the wrong
                     // shape moves the content once it arrives.
-                    items(2, key = { "recommendations-loading-$it" }) {
+                    items(2, key = { "recommendations-loading-$it" }) { shelf ->
                         SkeletonRail(
                             modifier = Modifier.padding(horizontal = Dimens.pageHorizontal),
+                            phaseMs = shelf * SKELETON_SHELF_PHASE_MS,
                         )
                     }
                 } else if (state.error != null && state.content.isEmpty) {
@@ -407,6 +427,7 @@ internal fun HomeContentBody(
                             Recommended(
                                 title = row.title,
                                 items = row.items,
+                                arrival = refreshArrival,
                                 showReleaseDate = row.title == "即将上映" || row.title == "最新上线",
                                 // Opens this shelf, not the 库 tab. These come from TMDB and
                                 // most are not in the library at all, so the old destination
@@ -429,7 +450,7 @@ internal fun HomeContentBody(
         )
 
         if (state.resolving) {
-            CircularProgressIndicator(Modifier.align(Alignment.Center))
+            OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
         }
 
         expandedRow?.let { row ->
@@ -1367,6 +1388,8 @@ private fun HomeCalendarShelf(
 private fun Recommended(
     title: String,
     items: List<TmdbItem>,
+    /** The page's refresh clock: after a refresh the new posters rise in from the left. */
+    arrival: ArrivalMotion,
     showReleaseDate: Boolean,
     onSeeAll: () -> Unit,
     onClick: (TmdbItem) -> Unit,
@@ -1400,7 +1423,7 @@ private fun Recommended(
             contentPadding = PaddingValues(horizontal = Dimens.pageHorizontal),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(items.take(12), key = { "${it.mediaType}:${it.id}" }) { item ->
+            itemsIndexed(items.take(12), key = { _, it -> "${it.mediaType}:${it.id}" }) { index, item ->
                 CaptionedPoster(
                     url = TmdbImages.poster(item.posterPath),
                     fallbackUrls =
@@ -1427,7 +1450,7 @@ private fun Recommended(
                     // shelf posters use the route fade instead of competing for
                     // one shared element (which made the duplicate turn blank).
                     onClick = { onClick(item) },
-                    modifier = Modifier.width(MediaSizing.posterRailWidth),
+                    modifier = Modifier.width(MediaSizing.posterRailWidth).then(arrival.item(index)),
                     posterModifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
                 )
             }

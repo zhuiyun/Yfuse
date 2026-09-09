@@ -1,7 +1,9 @@
 package com.yfuse.feature.player
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
+import com.yfuse.core.designsystem.AmbientLight
 
 /**
  * Compatibility bridge for the controls refactor.
@@ -35,6 +37,7 @@ internal fun RefinedBottomBar(
     danmakuEnabled: Boolean,
     onOpenDanmaku: () -> Unit,
     modifier: Modifier = Modifier,
+    ambientLight: State<AmbientLight>? = null,
 ) {
     RefinedBottomBar(
         state = state,
@@ -60,5 +63,6 @@ internal fun RefinedBottomBar(
         artworkUrl = null,
         artworkIdentity = state.currentIndex,
         modifier = modifier,
+        ambientLight = ambientLight,
     )
 }

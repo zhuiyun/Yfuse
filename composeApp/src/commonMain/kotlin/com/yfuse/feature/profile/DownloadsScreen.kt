@@ -1,5 +1,11 @@
 package com.yfuse.feature.profile
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -7,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +36,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -39,11 +51,14 @@ import com.yfuse.app.TabBarInset
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
+import com.yfuse.core.designsystem.Brand
 import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccent
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MinTouchTarget
+import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.Semantic
 import com.yfuse.core.designsystem.SettingTint
 import com.yfuse.core.designsystem.glass
@@ -658,19 +673,91 @@ private fun DownloadTaskRow(
                 )
             }
         }
-        if (item.status != DownloadStatus.Completed) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(AppShapes.track)
-                    .background(palette.border),
-            ) {
-                Box(Modifier.fillMaxWidth(item.progress.coerceIn(0f, 1f)).height(4.dp).background(accent))
-            }
-        }
+        DownloadProgressTrack(item = item, accent = accent, trackColor = palette.border)
     }
 }
+
+/**
+ * The 4dp track under a transfer. While bytes are moving a highlight flows along the filled
+ * part, so a stalled download and a busy one no longer look the same; the fill itself eases
+ * to each new value instead of stepping. On completion the track draws in to the left and
+ * leaves a single green point, then that row simply has no track — rows that were already
+ * complete when the list opened never show either.
+ */
+@Composable
+private fun DownloadProgressTrack(
+    item: OfflineMedia,
+    accent: Color,
+    trackColor: Color,
+) {
+    val completed = item.status == DownloadStatus.Completed
+    val initiallyCompleted = remember { completed }
+    if (initiallyCompleted) return
+    val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
+    val progress by animateFloatAsState(
+        targetValue = item.progress.coerceIn(0f, 1f),
+        animationSpec = Motion.settle(reduceMotion),
+        label = "downloadProgress",
+    )
+    val collapse by animateFloatAsState(
+        targetValue = if (completed) 1f else 0f,
+        animationSpec = tween(if (reduceMotion) 0 else DOWNLOAD_COMPLETE_MS, easing = Motion.Curve),
+        label = "downloadComplete",
+    )
+    val flowing = item.status == DownloadStatus.Downloading && !reduceMotion
+    val transition = rememberInfiniteTransition(label = "downloadFlow")
+    val flow by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(DOWNLOAD_FLOW_MS, easing = LinearEasing)),
+        label = "downloadFlowPhase",
+    )
+    Box(Modifier.fillMaxWidth().height(4.dp)) {
+        Box(
+            Modifier
+                .fillMaxWidth((1f - collapse).coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .clip(AppShapes.track)
+                .background(trackColor),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(progress)
+                    .fillMaxHeight()
+                    .background(accent)
+                    .drawWithContent {
+                        drawContent()
+                        if (!flowing || size.width <= 0f) return@drawWithContent
+                        // One soft highlight travelling the filled length, never the empty part.
+                        val band = size.width * 0.35f
+                        val head = -band + (size.width + 2f * band) * flow
+                        drawRect(
+                            brush =
+                                Brush.horizontalGradient(
+                                    0f to Color.Transparent,
+                                    0.5f to Color.White.copy(alpha = 0.38f),
+                                    1f to Color.Transparent,
+                                    startX = head - band,
+                                    endX = head,
+                                ),
+                        )
+                    },
+            )
+        }
+        Box(
+            Modifier
+                .size(4.dp)
+                .graphicsLayer {
+                    alpha = collapse
+                    scaleX = collapse
+                    scaleY = collapse
+                }.background(Brand.Online, CircleShape),
+        )
+    }
+}
+
+private const val DOWNLOAD_COMPLETE_MS = 380
+private const val DOWNLOAD_FLOW_MS = 1_400
 
 private fun downloadStatusText(item: OfflineMedia): String =
     when (item.status) {

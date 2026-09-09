@@ -13,6 +13,22 @@ import kotlin.test.assertTrue
 
 class ThemePreferencesTest {
     @Test
+    fun pulse_sweep_can_be_disabled_and_restored_independently_of_reduced_motion() {
+        val settings = MapSettings()
+        val original = ThemePreferences(settings)
+        assertTrue(original.pulseSweep.value)
+        original.setPulseSweep(false)
+        val restored = ThemePreferences(settings)
+        assertFalse(restored.pulseSweep.value)
+        assertFalse(restored.reduceMotion.value)
+        restored.setReduceMotion(true)
+        restored.setPulseSweep(true)
+        val enabledAgain = ThemePreferences(settings)
+        assertTrue(enabledAgain.pulseSweep.value)
+        assertTrue(enabledAgain.reduceMotion.value)
+    }
+
+    @Test
     fun player_preferences_survive_recreation() {
         val settings = MapSettings()
         ThemePreferences(settings).apply {

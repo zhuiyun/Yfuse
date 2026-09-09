@@ -18,6 +18,8 @@ import org.koin.core.context.GlobalContext
 fun MdkSurface(
     engine: MdkVideoEngine,
     modifier: Modifier = Modifier,
+    /** 氛围光 reads this surface; libmdk letterboxes inside it, so the sampler is given the picture rect. */
+    ambientSampler: AmbientFrameSampler? = null,
 ) {
     val preferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
     val frameRatePreference by preferences.frameRateMatch.collectAsState()
@@ -64,8 +66,10 @@ fun MdkSurface(
                     },
                 )
                 engine.attach(this)
+                ambientSampler?.attach(this, letterboxed = true)
             }
         },
+        onRelease = { view -> ambientSampler?.detach(view) },
         modifier = modifier,
     )
 }

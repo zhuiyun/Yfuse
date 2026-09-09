@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,6 +51,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.StatusBarIconStyle
@@ -66,6 +66,7 @@ import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.solidGlass
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.ServerSource
 import com.yfuse.core.network.TmdbImages
 
@@ -399,11 +400,7 @@ fun TmdbInfoScreen(component: TmdbInfoComponent) {
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.Center,
                             ) {
-                                CircularProgressIndicator(
-                                    color = themeAccent,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(18.dp),
-                                )
+                                OrbProgress(size = 18.dp, color = themeAccent)
                             }
                         }
                     }
@@ -503,16 +500,13 @@ private fun TmdbPlayDock(
                     .pressable(enabled = !resolving, onClick = onPlay)
                     .clip(GlassShapes.card)
                     .background(accent)
+                    .waitingPulse(active = resolving, shape = GlassShapes.card, color = Color.White)
                     .border(1.dp, Color.White.copy(alpha = 0.24f), GlassShapes.card),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (resolving) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(15.dp),
-                    )
+                    OrbProgress(size = 15.dp, color = Color.White)
                 } else {
                     Icon(AppIcons.Play, null, tint = Color.White, modifier = Modifier.size(14.dp))
                 }

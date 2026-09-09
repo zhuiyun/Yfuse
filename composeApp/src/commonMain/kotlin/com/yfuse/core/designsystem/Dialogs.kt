@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -405,6 +404,10 @@ fun OverlayButton(
                 border = visuals.border,
                 over = palette.background,
                 sheen = visuals.sheen,
+            ).waitingPulse(
+                active = loading,
+                shape = AppShapes.control,
+                color = if (emphasis == GlassButtonEmphasis.Neutral) accent.accent else visuals.content,
             ).padding(horizontal = 16.dp, vertical = 11.dp)
             .semantics {
                 if (loading) stateDescription = "处理中"
@@ -413,11 +416,7 @@ fun OverlayButton(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (loading) {
-            CircularProgressIndicator(
-                Modifier.size(16.dp),
-                color = visuals.content,
-                strokeWidth = 2.dp,
-            )
+            OrbProgress(size = 16.dp, color = visuals.content)
             Spacer(Modifier.width(8.dp))
         }
         Text(

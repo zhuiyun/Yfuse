@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -183,6 +182,11 @@ fun YfButton(
                 border = visuals.border,
                 over = palette.background,
                 sheen = visuals.sheen,
+            ).waitingPulse(
+                active = loading,
+                shape = AppShapes.control,
+                // On an accent-filled key the accent would vanish; the ink is what shows there.
+                color = if (emphasis == GlassButtonEmphasis.Neutral) accent.accent else visuals.content,
             ).padding(horizontal = 16.dp, vertical = 11.dp)
             .semantics {
                 if (loading) stateDescription = "处理中"
@@ -191,11 +195,7 @@ fun YfButton(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (loading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                color = visuals.content,
-                strokeWidth = 2.dp,
-            )
+            OrbProgress(size = 16.dp, color = visuals.content)
             Spacer(Modifier.width(8.dp))
         }
         Text(label, style = AppTypography.body.strong, color = visuals.content)

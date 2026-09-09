@@ -454,6 +454,7 @@ internal fun AppearanceSettingsScreen(
     reduceTransparency: Boolean,
     largeText: Boolean,
     reduceMotion: Boolean,
+    pulseSweep: Boolean,
     onBackground: () -> Unit,
     onBrand: () -> Unit,
     onStartupTab: () -> Unit,
@@ -461,6 +462,7 @@ internal fun AppearanceSettingsScreen(
     onReduceTransparency: (Boolean) -> Unit,
     onLargeText: (Boolean) -> Unit,
     onReduceMotion: (Boolean) -> Unit,
+    onPulseSweep: (Boolean) -> Unit,
 ) {
     SettingsPage(
         title = "外观与辅助",
@@ -470,6 +472,15 @@ internal fun AppearanceSettingsScreen(
         item {
             Section(title = "外观") {
                 SettingsCard {
+                    SwitchRow(
+                        "搜索与导航动效",
+                        pulseSweep,
+                        true,
+                        icon = AppIcons.Refresh,
+                        iconTint = SettingTint.components,
+                        onChange = onPulseSweep,
+                    )
+                    SettingsDivider()
                     SettingRow(
                         "弹窗动画",
                         dialogAnimationSummary,

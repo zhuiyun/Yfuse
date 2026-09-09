@@ -118,6 +118,8 @@ internal fun SettingsPanel(
     skip: SkipSegmentState,
     skipActions: SkipSegmentActions,
     trackPanelMode: TrackPanelMode = TrackPanelMode.Subtitle,
+    ambientLightEnabled: Boolean = true,
+    onToggleAmbientLight: () -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -733,6 +735,13 @@ internal fun SettingsPanel(
                                     )
                                 }
                             }
+                            GroupLabel("画面")
+                            // Stays open: the light is judged against the picture behind the panel.
+                            PopupToggleHeader(
+                                label = "氛围光",
+                                checked = ambientLightEnabled,
+                                onToggle = onToggleAmbientLight,
+                            )
                             OptionRow("锁定控制", false, onClick = overlayAction(onLock))
                             OptionRow("手势说明", false, onClick = overlayAction(onOpenGestureHelp))
                             onExternalPlayer?.let { open ->

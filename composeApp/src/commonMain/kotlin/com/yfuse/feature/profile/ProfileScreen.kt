@@ -230,6 +230,7 @@ fun ProfileScreen(component: ProfileComponent) {
     val reduceTransparency by prefs.reduceTransparency.collectAsState()
     val largeText by prefs.largeText.collectAsState()
     val reduceMotion by prefs.reduceMotion.collectAsState()
+    val pulseSweep by prefs.pulseSweep.collectAsState()
     val decoder by prefs.decoder.collectAsState()
     val autoNext by prefs.autoNext.collectAsState()
     val splashAnimation by prefs.splashAnimation.collectAsState()
@@ -438,12 +439,14 @@ fun ProfileScreen(component: ProfileComponent) {
                         reduceTransparency = reduceTransparency,
                         largeText = largeText,
                         reduceMotion = reduceMotion,
+                        pulseSweep = pulseSweep,
                         onBackground = { sheet = Sheet.Background },
                         onBrand = { openPage(ProfilePage.Splash) },
                         onStartupTab = { sheet = Sheet.StartupTab },
                         onReduceTransparency = prefs::setReduceTransparency,
                         onLargeText = prefs::setLargeText,
                         onReduceMotion = prefs::setReduceMotion,
+                        onPulseSweep = prefs::setPulseSweep,
                     )
 
                 ProfilePage.DataAndDiagnostics ->

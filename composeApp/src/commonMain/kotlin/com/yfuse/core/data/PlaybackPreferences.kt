@@ -226,6 +226,15 @@ class PlaybackPreferences(
         }
     }
 
+    /** 氛围光: the picture's edge colours leak into the letterbox and tint the player chrome. */
+    private val _ambientLight = MutableStateFlow(settings.getBoolean(KEY_AMBIENT_LIGHT, true))
+    val ambientLight: StateFlow<Boolean> = _ambientLight.asStateFlow()
+
+    fun setAmbientLight(enabled: Boolean) {
+        _ambientLight.value = enabled
+        settings.putBoolean(KEY_AMBIENT_LIGHT, enabled)
+    }
+
     private val _core2TrialEnabled =
         MutableStateFlow(settings.getBoolean(KEY_CORE2_TRIAL_ENABLED, true))
     val core2TrialEnabled: StateFlow<Boolean> = _core2TrialEnabled.asStateFlow()
@@ -577,6 +586,7 @@ class PlaybackPreferences(
         const val KEY_OPTIMIZATION_MODE = "player.optimizationMode"
         const val KEY_ENGINE_SELECTION = "player.ycore.engineSelection"
         const val KEY_CORE2_TRIAL_ENABLED = "player.ycore2.trialEnabled"
+        const val KEY_AMBIENT_LIGHT = "player.ambientLight"
         const val KEY_CORE2_NATIVE_ONLY_ENABLED = "player.ycore2.nativeOnlyEnabled"
         const val KEY_PLAYBACK_FAILURES = "player.ycore.failures.v1"
         const val KEY_PLAYBACK_PERFORMANCE = "player.ycore.performance.v1"

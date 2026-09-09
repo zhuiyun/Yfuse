@@ -294,8 +294,13 @@ fun YfuseTheme(
     dialogAnimation: DialogAnimation = DialogAnimation.Lift,
     content: @Composable () -> Unit,
 ) {
-    val palette = if (dark) DarkPalette else LightPalette
-    val accentColors = remember(dark, accent) { resolveAccentColors(accent, dark) }
+    val targetPalette = if (dark) DarkPalette else LightPalette
+    val targetAccent = remember(dark, accent) { resolveAccentColors(accent, dark) }
+    val (palette, accentColors) =
+        rememberThemeCrossfade(
+            target = ThemeColors(targetPalette, targetAccent),
+            reduceMotion = accessibility.reduceMotion,
+        )
     val density = LocalDensity.current
     val adjustedDensity =
         if (accessibility.largeText) {

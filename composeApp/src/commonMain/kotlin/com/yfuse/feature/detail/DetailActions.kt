@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,9 +32,11 @@ import com.yfuse.core.designsystem.GlassLift
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.liquidGlass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.shadow
+import com.yfuse.core.designsystem.waitingPulse
 
 private const val EmbyTicksPerSecond = 10_000_000L
 
@@ -88,6 +89,7 @@ internal fun DetailActionDock(
                 .shadow(GlassLift.key, GlassShapes.card)
                 .clip(GlassShapes.card)
                 .background(actionKeyBrush(accent))
+                .waitingPulse(active = resolving, shape = GlassShapes.card, color = actionInk)
                 .border(
                     Dimens.hairline,
                     actionInk.copy(alpha = 0.26f),
@@ -116,11 +118,7 @@ internal fun DetailActionDock(
                     contentAlignment = Alignment.Center,
                 ) {
                     if (resolving) {
-                        CircularProgressIndicator(
-                            Modifier.size(15.dp),
-                            color = actionInk,
-                            strokeWidth = 2.dp,
-                        )
+                        OrbProgress(size = 15.dp, color = actionInk)
                     } else {
                         Icon(
                             AppIcons.Play,
@@ -279,6 +277,10 @@ private fun GlassActionButton(
                 fill = fill,
                 border = edge,
                 sheen = 0.72f,
+            ).waitingPulse(
+                active = loading,
+                shape = GlassShapes.card,
+                color = if (active) stateColors.foreground else accent,
             ).padding(horizontal = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -301,11 +303,7 @@ private fun GlassActionButton(
             contentAlignment = Alignment.Center,
         ) {
             if (loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(15.dp),
-                    color = if (active) stateColors.foreground else palette.body,
-                    strokeWidth = 1.8.dp,
-                )
+                OrbProgress(size = 15.dp, color = if (active) stateColors.foreground else palette.body)
             } else {
                 BurstIcon(
                     icon = icon,

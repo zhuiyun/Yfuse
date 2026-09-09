@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -27,6 +26,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
@@ -103,11 +103,7 @@ fun WatchInviteSheet(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        CircularProgressIndicator(
-                            Modifier.size(18.dp),
-                            color = accent.accent,
-                            strokeWidth = 2.dp,
-                        )
+                        OrbProgress(size = 18.dp, color = accent.accent)
                         Spacer(Modifier.width(10.dp))
                         Text("正在你的服务器上查找…", style = AppTypography.body.medium, color = palette.sub)
                     }
@@ -278,11 +274,7 @@ fun WatchInviteShareSheet(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(
-                        Modifier.size(16.dp),
-                        color = accent.accent,
-                        strokeWidth = 2.dp,
-                    )
+                    OrbProgress(size = 16.dp, color = accent.accent)
                     Spacer(Modifier.width(10.dp))
                     Text(
                         if (connecting) "正在创建房间…" else "正在连接一起看服务…",

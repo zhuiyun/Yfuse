@@ -118,6 +118,7 @@ import com.yfuse.core.designsystem.rememberScrolledPastHero
 import com.yfuse.core.designsystem.scrim
 import com.yfuse.core.designsystem.sharedMediaArtwork
 import com.yfuse.core.designsystem.sharedMediaOnClick
+import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.HomeRow
 import com.yfuse.core.model.MediaContainer
@@ -345,7 +346,8 @@ fun LibraryHomeScreen(component: LibraryHomeComponent) {
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
+                            // One page-wide sweep over the loading shelves, while any is loading.
+                            modifier = Modifier.fillMaxSize().skeletonSweep(),
                             state = listState,
                             contentPadding = PaddingValues(bottom = bottomContentInset),
                         ) {

@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,6 +54,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.artworkPageSurface
 import com.yfuse.core.designsystem.flatGlass
 import com.yfuse.core.designsystem.overlayDismiss
@@ -694,7 +694,7 @@ private fun SeriesCalendarEpisodeContent(
                                 ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp)
+                            OrbProgress(size = 15.dp)
                             Text(
                                 "正在刷新排期…",
                                 style = AppTypography.caption.regular,
@@ -808,7 +808,7 @@ private fun SeriesCalendarCenteredState(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (progress) {
-            CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+            OrbProgress(size = 22.dp)
             Spacer(Modifier.height(10.dp))
         }
         Text(

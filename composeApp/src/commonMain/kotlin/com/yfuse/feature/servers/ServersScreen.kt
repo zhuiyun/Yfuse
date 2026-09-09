@@ -24,7 +24,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,6 +59,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.OfficialNavDisplay
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.formDivider
 import com.yfuse.core.designsystem.glass
@@ -67,6 +67,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.semanticPrimaryButtonShadow
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.touchTarget
+import com.yfuse.core.designsystem.waitingPulse
 import com.yfuse.core.model.MediaServerKind
 import com.yfuse.core.network.rememberLocalNetworkPermissionRequest
 import com.yfuse.core.network.validateEmbyServerEndpoint
@@ -321,15 +322,11 @@ private fun ManualConnectAction(
                     shape = AppShapes.pill,
                     fill = if (enabled) accent.accent else accent.container,
                     border = accent.border.copy(alpha = if (enabled) 1f else 0.38f),
-                ),
+                ).waitingPulse(active = form.submitting, shape = AppShapes.pill, color = accent.onAccent),
             contentAlignment = Alignment.Center,
         ) {
             if (form.submitting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = accent.onAccent,
-                )
+                OrbProgress(size = 18.dp, color = accent.onAccent)
             } else {
                 Text(
                     "连接并登录",
@@ -373,11 +370,7 @@ private fun QuickConnectPanel(
                     horizontalArrangement = Arrangement.spacedBy(9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = accent.accent,
-                    )
+                    OrbProgress(size = 18.dp, color = accent.accent)
                     Text("正在请求服务器…", style = AppTypography.caption.regular, color = palette.sub)
                 }
             is QuickConnectUiState.AwaitingApproval -> {
@@ -821,15 +814,11 @@ private fun OnboardingScreen(
                         shape = AppShapes.pill,
                         fill = if (enabled) accent.accent else accent.container,
                         border = accent.border.copy(alpha = if (enabled) 1f else 0.38f),
-                    ),
+                    ).waitingPulse(active = form.submitting, shape = AppShapes.pill, color = accent.onAccent),
                 contentAlignment = Alignment.Center,
             ) {
                 if (form.submitting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = accent.onAccent,
-                    )
+                    OrbProgress(size = 18.dp, color = accent.onAccent)
                 } else {
                     Text(
                         listOf("开始使用", "重新扫描", "登录", "进入媒体库")[step],

@@ -1,5 +1,6 @@
 package com.yfuse.feature.player
 
+import android.view.SurfaceView
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -20,6 +21,8 @@ internal fun ExoSurface(
     subtitlePosition: Float,
     subtitleAppearance: SubtitleAppearance,
     modifier: Modifier = Modifier,
+    /** 氛围光 reads PlayerView's own SurfaceView, which RESIZE_MODE_FIT sizes to the picture. */
+    ambientSampler: AmbientFrameSampler? = null,
 ) {
     AndroidView(
         factory = { context ->
@@ -33,6 +36,7 @@ internal fun ExoSurface(
         },
         update = { view ->
             if (view.player !== engine.player) view.player = engine.player
+            (view.videoSurfaceView as? SurfaceView)?.let { ambientSampler?.attach(it) }
             view.subtitleView?.apply {
                 setFractionalTextSize(0.0533f * subtitleScale.coerceIn(0.6f, 1.8f))
                 setBottomPaddingFraction((1f - subtitlePosition.coerceIn(0.60f, 0.96f)).coerceIn(0.04f, 0.40f))
@@ -62,6 +66,9 @@ internal fun ExoSurface(
                     VideoScaleMode.Fill -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     VideoScaleMode.Stretch -> AspectRatioFrameLayout.RESIZE_MODE_FILL
                 }
+        },
+        onRelease = { view ->
+            (view.videoSurfaceView as? SurfaceView)?.let { ambientSampler?.detach(it) }
         },
         modifier = modifier,
     )

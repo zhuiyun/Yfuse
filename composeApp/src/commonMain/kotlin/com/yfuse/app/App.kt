@@ -65,11 +65,13 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
@@ -92,6 +94,7 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalOverlayVisibility
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.LocalPulseSweepEnabled
 import com.yfuse.core.designsystem.LocalTabIdentity
 import com.yfuse.core.designsystem.LocalTabReselected
 import com.yfuse.core.designsystem.MinTouchTarget
@@ -103,9 +106,11 @@ import com.yfuse.core.designsystem.OverlayVisibility
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonPulseProvider
 import com.yfuse.core.designsystem.YfuseTheme
+import com.yfuse.core.designsystem.attentionSweep
 import com.yfuse.core.designsystem.backdropBlur
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.drawLensIsland
+import com.yfuse.core.designsystem.drawMotionSweep
 import com.yfuse.core.designsystem.liquidNavigationGlass
 import com.yfuse.core.designsystem.navigationGlass
 import com.yfuse.core.designsystem.overlayGlass
@@ -186,6 +191,7 @@ fun App(root: RootComponent) {
     val reduceTransparency by root.themePreferences.reduceTransparency.collectAsState()
     val largeText by root.themePreferences.largeText.collectAsState()
     val reduceMotion by root.themePreferences.reduceMotion.collectAsState()
+    val pulseSweep by root.themePreferences.pulseSweep.collectAsState()
     val dialogAnimation by root.themePreferences.dialogAnimation.collectAsState()
     val glassStyle by root.themePreferences.glassStyle.collectAsState()
     val backgroundImage by root.themePreferences.backgroundImage.collectAsState()
@@ -327,6 +333,7 @@ fun App(root: RootComponent) {
         // its own backdrop — see [backdropSource].
         val backdrop = rememberBackdropState()
         CompositionLocalProvider(
+            LocalPulseSweepEnabled provides pulseSweep,
             LocalOverlayVisibility provides overlays,
             LocalTabReselected provides root.tabReselected,
         ) {
@@ -432,6 +439,7 @@ fun App(root: RootComponent) {
                                     },
                                     onSearch = { onSelectTab(Tab.Search) },
                                     backdrop = backdrop,
+                                    cueKey = pendingInvite?.roomCode,
                                     modifier =
                                         Modifier
                                             .align(Alignment.BottomCenter)
@@ -783,6 +791,8 @@ private fun BottomNavigationDock(
     onSearch: () -> Unit,
     backdrop: BackdropState,
     modifier: Modifier = Modifier,
+    /** Changes to a non-null value when something arrives for the user — a 一起看 invite. */
+    cueKey: Any? = null,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     Row(
@@ -791,7 +801,10 @@ private fun BottomNavigationDock(
             .fillMaxWidth()
             .padding(horizontal = Dimens.tabBarInset)
             .padding(bottom = Dimens.tabBarInset)
-            .height(Dimens.tabBarHeight),
+            .height(Dimens.tabBarHeight)
+            // One accent sweep across the dock as the invite lands, before its sheet opens:
+            // the bar is where the user is looking, and it is the surface the invite belongs to.
+            .attentionSweep(cueKey),
         // The gap between the capsule and 搜索 is the same token as the margin to the screen
         // edge, so the three spaces across the row read as one rhythm.
         horizontalArrangement = Arrangement.spacedBy(Dimens.tabBarInset),
@@ -980,7 +993,7 @@ private fun SearchButton(
  * the horizontal inset so the two read as one continuous overlay.
  */
 @Composable
-private fun GlassTabBar(
+internal fun GlassTabBar(
     active: Tab,
     onSelect: (Tab) -> Unit,
     backdrop: BackdropState,
@@ -996,18 +1009,27 @@ private fun GlassTabBar(
     // be and is not drawn rather than parking under 首页 and claiming the user is there.
     val selectedIndex = tabs.indexOfFirst { it.tab == active }
     val hasSelection = selectedIndex >= 0
+    val enhanced = LocalPulseSweepEnabled.current
+    val highlights = !LocalAccessibilityOptions.current.reduceTransparency && !reduceMotion
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val liquidMotion =
+        if (enhanced) {
+            rememberLiquidTabMotion(selectedIndex, tabs.size, reduceMotion) { onSelect(tabs[it].tab) }
+        } else {
+            null
+        }
     // Two independently sprung edges make the selected glass pull slightly in the direction
     // of travel. The draw phase caps that stretch, so a jump across the bar never turns the
     // indicator into a stripe spanning unrelated icons.
     val initialIndex = selectedIndex.coerceAtLeast(0).toFloat()
     val indicatorLeft = remember { Animatable(tabPillTargetLeft(initialIndex)) }
     val indicatorRight = remember { Animatable(tabPillTargetRight(initialIndex)) }
-    LaunchedEffect(selectedIndex, reduceMotion) {
+    LaunchedEffect(selectedIndex, reduceMotion, enhanced) {
         if (selectedIndex < 0) return@LaunchedEffect
         val targetIndex = selectedIndex.toFloat()
         val targetLeft = tabPillTargetLeft(targetIndex)
         val targetRight = tabPillTargetRight(targetIndex)
-        if (reduceMotion) {
+        if (reduceMotion || enhanced) {
             indicatorLeft.snapTo(targetLeft)
             indicatorRight.snapTo(targetRight)
         } else {
@@ -1055,6 +1077,7 @@ private fun GlassTabBar(
             // One group of four, so a screen reader announces "第 2 项，共 4 项" rather than
             // reading four unrelated controls.
             .selectableGroup()
+            .then(liquidMotion?.gestures ?: Modifier)
             .height(Dimens.tabBarHeight)
             // A true capsule rather than a rounded rectangle, so the shell stays soft at the
             // taller bar height.
@@ -1069,13 +1092,15 @@ private fun GlassTabBar(
                 // quiet ones alike.
                 val bounds =
                     tabIndicatorBounds(
-                        rawLeft = indicatorLeft.value,
-                        rawRight = indicatorRight.value,
+                        rawLeft = liquidMotion?.left?.value ?: indicatorLeft.value,
+                        rawRight = liquidMotion?.right?.value ?: indicatorRight.value,
                         tabCount = tabs.size,
+                        maxScale = if (enhanced) 1.8f else TAB_PILL_MAX_SCALE,
                     )
                 val pillWidth = cell * bounds.width
-                val pillHeight = size.height * 0.86f
-                val left = cell * bounds.left
+                val stretch = (bounds.width / TAB_PILL_WIDTH_FRACTION - 1f).coerceIn(0f, 0.8f)
+                val pillHeight = size.height * 0.86f * (1f - if (enhanced) stretch * 0.12f else 0f)
+                val left = cell * if (rtl) tabs.size - bounds.left - bounds.width else bounds.left
                 val top = (size.height - pillHeight) / 2f
                 val alpha = indicatorAlpha.coerceIn(0f, 1f)
                 if (liquid) {
@@ -1092,6 +1117,14 @@ private fun GlassTabBar(
                         topLeft = Offset(left, top),
                         size = Size(pillWidth, pillHeight),
                         cornerRadius = CornerRadius(pillHeight / 2f),
+                    )
+                }
+                if (liquidMotion != null && highlights) {
+                    drawMotionSweep(
+                        Rect(left, top, left + pillWidth, top + pillHeight),
+                        accent.accent,
+                        liquidMotion.sweep.value,
+                        alpha,
                     )
                 }
             },
@@ -1275,6 +1308,7 @@ internal fun tabIndicatorBounds(
     rawLeft: Float,
     rawRight: Float,
     tabCount: Int,
+    maxScale: Float = TAB_PILL_MAX_SCALE,
 ): TabIndicatorBounds {
     require(tabCount > 0)
     val center = (rawLeft + rawRight) / 2f
@@ -1283,7 +1317,7 @@ internal fun tabIndicatorBounds(
             .abs(rawRight - rawLeft)
             .coerceIn(
                 TAB_PILL_WIDTH_FRACTION * TAB_PILL_MIN_SCALE,
-                TAB_PILL_WIDTH_FRACTION * TAB_PILL_MAX_SCALE,
+                (TAB_PILL_WIDTH_FRACTION * maxScale).coerceAtMost(tabCount.toFloat()),
             )
     val left = (center - width / 2f).coerceIn(0f, tabCount.toFloat() - width)
     return TabIndicatorBounds(left = left, width = width)

@@ -14,6 +14,17 @@ import kotlin.test.assertTrue
 
 class PlaybackPreferencesTest {
     @Test
+    fun ambient_light_defaults_on_and_persists_off() {
+        val settings = MapSettings()
+        val first = PlaybackPreferences(settings)
+
+        assertTrue(first.ambientLight.value)
+        first.setAmbientLight(false)
+
+        assertFalse(PlaybackPreferences(settings).ambientLight.value)
+    }
+
+    @Test
     fun smart_source_defaults_on_and_persists_off() {
         val settings = MapSettings()
         val first = PlaybackPreferences(settings)

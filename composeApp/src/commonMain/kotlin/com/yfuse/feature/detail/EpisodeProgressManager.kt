@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +37,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
 import com.yfuse.core.designsystem.overlayDismiss
 import com.yfuse.core.designsystem.pressable
@@ -263,7 +263,7 @@ private fun ProgressManagerActions(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (saving) {
-            CircularProgressIndicator(Modifier.size(20.dp), color = accent, strokeWidth = 2.dp)
+            OrbProgress(size = 20.dp, color = accent)
             Text(
                 savingLabel,
                 style = AppTypography.body.strong,

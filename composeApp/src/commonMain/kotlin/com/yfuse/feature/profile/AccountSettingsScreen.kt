@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,6 +71,7 @@ import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.WatchAvatar
@@ -119,7 +119,7 @@ internal fun AccountSettingsScreen(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                            OrbProgress(size = 22.dp)
                             Spacer(Modifier.width(10.dp))
                             Text("正在安全恢复账号…", style = AppTypography.body.medium, color = palette.sub)
                         }
@@ -1126,11 +1126,7 @@ private fun AccountActionRow(
         }
         Spacer(Modifier.width(10.dp))
         if (loading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                color = if (destructive) palette.error else accent.accent,
-                strokeWidth = 2.dp,
-            )
+            OrbProgress(size = 16.dp, color = if (destructive) palette.error else accent.accent)
         } else {
             trailingLabel?.let {
                 Text(

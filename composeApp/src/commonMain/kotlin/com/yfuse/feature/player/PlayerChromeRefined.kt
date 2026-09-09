@@ -3,6 +3,7 @@ package com.yfuse.feature.player
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -34,6 +35,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -44,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -67,6 +70,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AMBIENT_SCRIM_TINT
+import com.yfuse.core.designsystem.AmbientLight
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -76,6 +81,7 @@ import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalHaptics
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.PlayerTokens
+import com.yfuse.core.designsystem.ambientLightAccent
 import com.yfuse.core.designsystem.cssLinearGradient
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
@@ -104,17 +110,21 @@ internal fun RefinedTopBar(
     unreadChat: Boolean,
     onOpenChat: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 氛围光, read only inside the scrim's draw node; null keeps the plain black scrim. */
+    ambientLight: State<AmbientLight>? = null,
 ) {
     Row(
         modifier
             .fillMaxWidth()
-            .background(
-                cssLinearGradient(
-                    180f,
-                    0f to Color.Black.copy(alpha = 0.44f),
-                    1f to Color.Transparent,
-                ),
-            ).padding(horizontal = 22.dp, vertical = 14.dp),
+            .drawBehind {
+                drawRect(
+                    cssLinearGradient(
+                        180f,
+                        0f to ambientScrim(ambientLight?.value, alpha = 0.44f),
+                        1f to Color.Transparent,
+                    ),
+                )
+            }.padding(horizontal = 22.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -229,6 +239,8 @@ internal fun RefinedBottomBar(
     artworkUrl: String?,
     artworkIdentity: Any?,
     modifier: Modifier = Modifier,
+    /** 氛围光; the scrim reads it per frame, the seek accent follows its mean. Null keeps both plain. */
+    ambientLight: State<AmbientLight>? = null,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     var scrubbed by remember { mutableStateOf<Float?>(null) }
@@ -237,24 +249,36 @@ internal fun RefinedBottomBar(
     val bufferedFraction =
         playbackProgressFraction(state.bufferedPositionMs, state.durationMs)
     val shownPosition = scrubbed?.let { scrubPositionMs(it, state.durationMs) } ?: state.positionMs
-    val progressAccent =
+    val artworkAccent =
         rememberAnimatedArtworkAccent(
             url = artworkUrl,
             fallback = PlayerTokens.progressAccentFallback,
             darkTheme = true,
             identity = artworkIdentity,
         )
+    // The ambient accent already moves bucket by bucket; this tween only smooths the hand-over
+    // when the light switches on or off, or a dark frame drops it back to the artwork accent.
+    // Reading the light here recomposes only this bar, and only while it is shown.
+    val ambientAccent = ambientLight?.value?.let(::ambientLightAccent)
+    val progressAccent by
+        animateColorAsState(
+            targetValue = ambientAccent ?: artworkAccent,
+            animationSpec = tween(if (reduceMotion) 0 else Motion.ACCENT, easing = Motion.Curve),
+            label = "progress-accent",
+        )
 
     Column(
         modifier
             .fillMaxWidth()
-            .background(
-                cssLinearGradient(
-                    0f,
-                    0f to Color.Black.copy(alpha = 0.55f),
-                    1f to Color.Transparent,
-                ),
-            ).padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
+            .drawBehind {
+                drawRect(
+                    cssLinearGradient(
+                        0f,
+                        0f to ambientScrim(ambientLight?.value, alpha = 0.55f),
+                        1f to Color.Transparent,
+                    ),
+                )
+            }.padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 16.dp),
     ) {
         Row(
             verticalAlignment = Alignment.Bottom,
@@ -318,6 +342,7 @@ internal fun RefinedBottomBar(
                     progressMarkers = progressMarkers,
                     accent = progressAccent,
                     enabled = !seekLocked && state.durationMs > 0L,
+                    showTimeBubble = trickplay == null,
                     onScrubTo = {
                         scrubbed = it
                         onScrub()
@@ -507,6 +532,12 @@ private fun RefinedTimeText(timeMs: Long) {
     )
 }
 
+/** The scrim's dark end: black, warmed by 30% of the light's mean while the light is on. */
+private fun ambientScrim(
+    light: AmbientLight?,
+    alpha: Float,
+): Color = lerp(Color.Black, light?.mean ?: Color.Black, AMBIENT_SCRIM_TINT).copy(alpha = alpha)
+
 /**
  * Artwork-aware scrubber. The current still/poster supplies one restrained accent that is reused
  * for the played rail, thumb halo and semantic chapter markers. The unplayed rail stays neutral and
@@ -525,6 +556,8 @@ private fun StandardSeekBar(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    /** Without a trickplay preview, the scrubbed time rides above the thumb instead. */
+    showTimeBubble: Boolean = false,
 ) {
     val haptics = LocalHaptics.current
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
@@ -552,7 +585,9 @@ private fun StandardSeekBar(
     val playedStart = lerp(accent, Color.Black, 0.14f)
     val playedEnd = lerp(accent, Color.White, 0.24f)
     val bufferedTint = lerp(accent, Color.Gray, 0.62f)
-    val trackHeight = 3.dp + interaction.dp
+    // Under a finger the track thickens to nearly twice itself: the thing being dragged
+    // should look like it can take the weight.
+    val trackHeight = 3.5.dp + 2.5.dp * interaction
     val thumbDiameter = 10.dp + 3.dp * interaction
     val haloDiameter = 20.dp + 8.dp * interaction
     val keyStep = (5_000f / durationMs.coerceAtLeast(1L)).coerceIn(0.01f, 0.1f)
@@ -721,8 +756,42 @@ private fun StandardSeekBar(
                 .background(Color.White, CircleShape)
                 .border(2.dp, playedEnd, CircleShape),
         )
+
+        if (showTimeBubble) {
+            // Grows out of the thumb on the same spring as the track, and settles back into
+            // it on release — the preview bubble's smaller sibling.
+            Box(
+                Modifier
+                    .width(SeekTimeBubbleWidth)
+                    .height(SeekTimeBubbleHeight)
+                    .offset {
+                        val bubblePx = SeekTimeBubbleWidth.roundToPx()
+                        IntOffset(
+                            x =
+                                (widthPx * shownFraction - bubblePx / 2f)
+                                    .toInt()
+                                    .coerceIn(0, (widthPx - bubblePx).coerceAtLeast(0)),
+                            y = -SeekTimeBubbleRise.roundToPx(),
+                        )
+                    }.graphicsLayer {
+                        alpha = interaction
+                        val scale = 0.8f + 0.2f * interaction
+                        scaleX = scale
+                        scaleY = scale
+                        translationY = 6.dp.toPx() * (1f - interaction)
+                    }.background(Color.Black.copy(alpha = 0.58f), AppShapes.pill)
+                    .border(1.dp, Color.White.copy(alpha = 0.20f), AppShapes.pill),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(formatTime(positionMs), style = AppTypography.caption.medium, color = Color.White)
+            }
+        }
     }
 }
+
+private val SeekTimeBubbleWidth = 60.dp
+private val SeekTimeBubbleHeight = 22.dp
+private val SeekTimeBubbleRise = 26.dp
 
 internal data class MagneticSeekTarget(
     val fraction: Float,

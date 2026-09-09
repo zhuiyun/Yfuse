@@ -8,6 +8,25 @@ import kotlin.test.assertTrue
 
 class RootTabMotionTest {
     @Test
+    fun dragging_obeys_direction_and_bar_bounds() {
+        assertEquals(2f, draggedTabIndex(1f, 100f, 400f, 4, rtl = false))
+        assertEquals(0f, draggedTabIndex(1f, 100f, 400f, 4, rtl = true))
+        assertEquals(3f, draggedTabIndex(1f, 1000f, 400f, 4, rtl = false))
+        assertEquals(0f, draggedTabIndex(1f, -1000f, 400f, 4, rtl = false))
+        assertEquals(1f, draggedTabIndex(1f, 100f, 0f, 4, rtl = false))
+    }
+
+    @Test
+    fun liquid_drag_stretch_remains_inside_both_edges() {
+        for (center in listOf(-2f, 0.5f, 2f, 3.5f, 6f)) {
+            val bounds = tabIndicatorBounds(center - 3f, center + 3f, 4, maxScale = 1.8f)
+            assertTrue(bounds.width <= 0.82f * 1.8f + 0.0001f)
+            assertTrue(bounds.left >= 0f)
+            assertTrue(bounds.left + bounds.width <= 4f)
+        }
+    }
+
+    @Test
     fun ordinary_destinations_use_equal_level_tab_motion() {
         assertEquals(OfficialNavMotion.RootTab, rootTabMotion(Tab.Home, Tab.Browse))
         assertEquals(OfficialNavMotion.RootTab, rootTabMotion(Tab.Browse, Tab.Profile))

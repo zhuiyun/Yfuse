@@ -71,7 +71,11 @@ class SearchDisclosureMotionInstrumentedTest {
             awaitDraw(scenario)
             val compositions = metrics.compositions.get()
             val contentCompositions = metrics.contentCompositions.get()
-            val frames = observeAnimation(scenario) { phase.value = SearchResultsPhase.Results }
+            val frames =
+                observeAnimation(scenario, durationNs = 850_000_000L) {
+                    phase.value =
+                        SearchResultsPhase.Results
+                }
             assertTrue("The layer transition did not produce multiple host draws", frames >= 3)
             assertEquals("Animation frames recomposed the host", compositions + 1, metrics.compositions.get())
             assertTrue(
@@ -179,6 +183,7 @@ class SearchDisclosureMotionInstrumentedTest {
     /** Observe actual animation-driven View draws; the frame clock only bounds the observation window. */
     private fun observeAnimation(
         scenario: ActivityScenario<MainActivity>,
+        durationNs: Long = 260_000_000L,
         update: () -> Unit,
     ): Int {
         val frames = AtomicInteger()
@@ -189,7 +194,7 @@ class SearchDisclosureMotionInstrumentedTest {
             object : Choreographer.FrameCallback {
                 override fun doFrame(frameTimeNanos: Long) {
                     if (startedNs == 0L) startedNs = frameTimeNanos
-                    if (frameTimeNanos - startedNs >= 260_000_000L) {
+                    if (frameTimeNanos - startedNs >= durationNs) {
                         finished.countDown()
                     } else {
                         Choreographer.getInstance().postFrameCallback(this)
@@ -300,7 +305,7 @@ private fun SearchHandoffProbe(
     Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         SingleMotionBody(
             metrics,
-            Modifier.size(64.dp).then(handoff).onGloballyPositioned { metrics.bounds.set(it.boundsInWindow()) },
+            Modifier.size(64.dp).then(handoff.item()).onGloballyPositioned { metrics.bounds.set(it.boundsInWindow()) },
         )
     }
 }

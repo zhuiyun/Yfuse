@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,6 +24,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yfuse.core.designsystem.AppIcons
+import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberAccentColorsForSurface
@@ -50,8 +51,9 @@ internal fun PlayerPreparationContent(
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when {
             state.loading ->
-                CircularProgressIndicator(
-                    Modifier.align(Alignment.Center),
+                OrbProgress(
+                    modifier = Modifier.align(Alignment.Center),
+                    size = OrbProgressDefaults.Page,
                     color = Color.White,
                 )
 

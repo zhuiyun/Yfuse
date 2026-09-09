@@ -25,7 +25,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,6 +62,8 @@ import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.Motion
+import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.PageHint
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.pressable
@@ -185,11 +186,7 @@ fun CalendarScreen(component: CalendarComponent) {
                     contentAlignment = Alignment.Center,
                 ) {
                     if (state.loading) {
-                        CircularProgressIndicator(
-                            Modifier.size(15.dp),
-                            color = accent.accent,
-                            strokeWidth = 2.dp,
-                        )
+                        OrbProgress(size = 15.dp, color = accent.accent)
                     } else {
                         Icon(
                             AppIcons.Refresh,
@@ -295,7 +292,7 @@ fun CalendarScreen(component: CalendarComponent) {
                             Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
                         ) {
-                            CircularProgressIndicator(color = accent.accent)
+                            OrbProgress(size = OrbProgressDefaults.Page, color = accent.accent)
                         }
 
                     state.error != null && days.isEmpty() ->

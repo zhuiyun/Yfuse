@@ -28,6 +28,8 @@ import org.koin.core.context.GlobalContext
 fun MpvSurface(
     engine: MpvVideoEngine,
     modifier: Modifier = Modifier,
+    /** 氛围光 reads this surface; mpv letterboxes inside it, so the sampler is given the picture rect. */
+    ambientSampler: AmbientFrameSampler? = null,
 ) {
     val playbackPreferences = remember { GlobalContext.get().get<PlaybackPreferences>() }
     val frameRatePreference by playbackPreferences.frameRateMatch.collectAsState()
@@ -94,8 +96,10 @@ fun MpvSurface(
                             }
                         },
                     )
+                    ambientSampler?.attach(this, letterboxed = true)
                 }
             },
+            onRelease = { view -> ambientSampler?.detach(view) },
             modifier = Modifier.fillMaxSize(),
         )
 

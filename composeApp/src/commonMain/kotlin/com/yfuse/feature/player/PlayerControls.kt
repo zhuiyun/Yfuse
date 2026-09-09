@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,6 +43,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.yfuse.core.designsystem.AmbientLight
 import com.yfuse.core.designsystem.AppIcons
 import com.yfuse.core.designsystem.AppShapes
 import com.yfuse.core.designsystem.AppTypography
@@ -210,6 +212,10 @@ internal fun PlayerControls(
     watch: WatchRoomState = WatchRoomState(),
     watchActions: WatchRoomActions = WatchRoomActions(),
     remoteChrome: TvPlayerChromeBridge? = null,
+    /** 氛围光 for the scrims and seek accent; null while the light is off. */
+    ambientLight: State<AmbientLight>? = null,
+    ambientLightEnabled: Boolean = true,
+    onToggleAmbientLight: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var visible by remember { mutableStateOf(true) }
@@ -878,6 +884,7 @@ internal fun PlayerControls(
                 },
                 onOpenCast = { openSettingsPanel(SettingsPanelKind.Cast) },
                 onOpenMore = { openSettingsPanel(SettingsPanelKind.More) },
+                ambientLight = ambientLight,
                 watchConnected = watch.connected,
                 unreadChat =
                     watch.chatMessages.lastOrNull()?.id?.let { latest ->
@@ -932,6 +939,7 @@ internal fun PlayerControls(
                 onOpenSkipSettings = { openSettingsPanel(SettingsPanelKind.Skip) },
                 danmakuEnabled = danmaku.enabled,
                 onOpenDanmaku = { openSettingsPanel(SettingsPanelKind.Danmaku) },
+                ambientLight = ambientLight,
             )
         }
 
@@ -1072,6 +1080,8 @@ internal fun PlayerControls(
                     // the picture behind it, and often two of the three in one visit.
                     skipActions = skipActions,
                     trackPanelMode = trackPanelMode,
+                    ambientLightEnabled = ambientLightEnabled,
+                    onToggleAmbientLight = onToggleAmbientLight,
                     onDismiss = { settingsPanelKind = null },
                 )
             }

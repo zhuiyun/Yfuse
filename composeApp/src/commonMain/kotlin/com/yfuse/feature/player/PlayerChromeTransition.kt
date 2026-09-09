@@ -26,6 +26,9 @@ import com.yfuse.core.designsystem.Motion
  */
 private const val CHROME_MS = Motion.STANDARD
 
+/** How far the transport trails the title bar in, and leads it out. */
+private const val CHROME_STAGGER_MS = 40
+
 /**
  * Which edge a piece of player chrome belongs to, and therefore where it comes from.
  *
@@ -55,8 +58,15 @@ internal fun ChromeVisibility(
     content: @Composable AnimatedVisibilityScope.() -> Unit,
 ) {
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
-    val fade = tween<Float>(CHROME_MS, easing = Motion.Curve)
-    val slide = tween<IntOffset>(CHROME_MS, easing = Motion.Curve)
+    // The two bars are one gesture in two halves: the title bar leads on the way in and
+    // the transport follows a beat later; leaving, the transport goes first and the title
+    // bar lingers. The offset is small enough to read as sequence, not as lag.
+    val enterDelay = if (edge == ChromeEdge.Bottom) CHROME_STAGGER_MS else 0
+    val exitDelay = if (edge == ChromeEdge.Top) CHROME_STAGGER_MS else 0
+    val fade = tween<Float>(CHROME_MS, delayMillis = enterDelay, easing = Motion.Curve)
+    val slide = tween<IntOffset>(CHROME_MS, delayMillis = enterDelay, easing = Motion.Curve)
+    val fadeAway = tween<Float>(CHROME_MS, delayMillis = exitDelay, easing = Motion.Curve)
+    val slideAway = tween<IntOffset>(CHROME_MS, delayMillis = exitDelay, easing = Motion.Curve)
     val travel: (Int) -> Int = { full -> full / 6 }
     val moving = !reduceMotion
 
@@ -78,12 +88,12 @@ internal fun ChromeVisibility(
         }
     val exit =
         when {
-            !moving -> fadeOut(fade)
-            edge == ChromeEdge.Top -> fadeOut(fade) + slideOutVertically(slide) { -travel(it) }
-            edge == ChromeEdge.Bottom -> fadeOut(fade) + slideOutVertically(slide) { travel(it) }
-            edge == ChromeEdge.End -> fadeOut(fade) + slideOutHorizontally(slide) { travel(it) }
+            !moving -> fadeOut(fadeAway)
+            edge == ChromeEdge.Top -> fadeOut(fadeAway) + slideOutVertically(slideAway) { -travel(it) }
+            edge == ChromeEdge.Bottom -> fadeOut(fadeAway) + slideOutVertically(slideAway) { travel(it) }
+            edge == ChromeEdge.End -> fadeOut(fadeAway) + slideOutHorizontally(slideAway) { travel(it) }
             else ->
-                fadeOut(fade) +
+                fadeOut(fadeAway) +
                     scaleOut(
                         tween(CHROME_MS, easing = Motion.Curve),
                         targetScale = 0.94f,

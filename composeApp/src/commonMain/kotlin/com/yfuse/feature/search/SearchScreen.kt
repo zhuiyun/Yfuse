@@ -68,7 +68,9 @@ import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.MediaSharedElementKey
 import com.yfuse.core.designsystem.OfficialNavDisplay
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.Poster
+import com.yfuse.core.designsystem.SKELETON_PHASE_STEP_MS
 import com.yfuse.core.designsystem.ScrollToTopOnReselect
 import com.yfuse.core.designsystem.Shadows
 import com.yfuse.core.designsystem.SkeletonBlock
@@ -81,6 +83,7 @@ import com.yfuse.core.designsystem.pressable
 import com.yfuse.core.designsystem.rememberDisclosureProgress
 import com.yfuse.core.designsystem.shadow
 import com.yfuse.core.designsystem.skeletonFill
+import com.yfuse.core.designsystem.skeletonSweep
 import com.yfuse.core.designsystem.touchTarget
 import com.yfuse.core.model.MediaItem
 import com.yfuse.core.network.EmbyImages
@@ -137,7 +140,7 @@ private fun SearchHomeScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val routeVisible = LocalRouteVisible.current
-    val resultHandoff = rememberSearchResultsHandoff(state.resultsPhase())
+    val resultHandoff = rememberSearchResultsHandoff(state.resultsPhase(), loading = state.loading)
     var filterSheet by remember { mutableStateOf<SearchFilterSheet?>(null) }
     var coverageExpanded by remember(state.searchedQuery) { mutableStateOf(false) }
     StatusBarIconStyle(darkIcons = !palette.isDark)
@@ -153,7 +156,9 @@ private fun SearchHomeScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    // Page-level light, in order: the skeleton sweep while the first results load, then the
+    // handoff's own pulse and arrival sweep. Each draws only while its clock is running.
+    Box(Modifier.fillMaxSize().skeletonSweep().then(resultHandoff.page)) {
         LazyColumn(
             state = component.listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -168,6 +173,9 @@ private fun SearchHomeScreen(
                         onSubmit = { store.accept(SearchIntent.Submit) },
                         onClear = { store.accept(SearchIntent.Clear) },
                         focusRequester = fieldFocusRequester,
+                        motion = resultHandoff.field,
+                        iconMotion = resultHandoff.icon,
+                        loading = state.loading,
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -222,7 +230,7 @@ private fun SearchHomeScreen(
             if ((state.hasSearched || state.error != null) && !awaitingFirstResults) {
                 item(key = "search-results-heading") {
                     Column(
-                        Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff),
+                        Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item()),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         ResultsHeading(
@@ -252,24 +260,24 @@ private fun SearchHomeScreen(
                                     Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = Dimens.pageHorizontal)
-                                        .then(resultHandoff),
+                                        .then(resultHandoff.item()),
                             )
                         }
 
                     // 没有找到相关内容 — `400 12px Manrope`, `--pg-hint`, `padding:20px 0`.
                     state.visibleGroups.all { it.items.isEmpty() } && !state.loading ->
                         item(key = "search-results-empty") {
-                            Box(Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff)) {
+                            Box(Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff.item())) {
                                 EmptyResults(filtered = state.type != SearchType.All)
                             }
                         }
 
                     state.aggregated.isNotEmpty() ->
-                        items(
+                        itemsIndexed(
                             items = state.visibleAggregated,
-                            key = { it.identity },
-                            contentType = { "aggregated-search-result" },
-                        ) { group ->
+                            key = { _, group -> group.identity },
+                            contentType = { _, _ -> "aggregated-search-result" },
+                        ) { index, group ->
                             val recommended = group.recommended
                             ResultRow(
                                 baseUrl = component.serverBaseUrl(recommended.serverId),
@@ -289,16 +297,16 @@ private fun SearchHomeScreen(
                                     Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = Dimens.pageHorizontal)
-                                        .then(resultHandoff),
+                                        .then(resultHandoff.item(index + 1, key = group.identity)),
                             )
                         }
 
                     else ->
-                        items(
+                        itemsIndexed(
                             items = state.visibleGroups,
-                            key = { "server-results-${it.serverId}" },
-                            contentType = { "server-search-group" },
-                        ) { group ->
+                            key = { _, group -> "server-results-${group.serverId}" },
+                            contentType = { _, _ -> "server-search-group" },
+                        ) { index, group ->
                             ServerGroup(
                                 group = group,
                                 baseUrl = component.serverBaseUrl(group.serverId),
@@ -310,7 +318,12 @@ private fun SearchHomeScreen(
                                     store.accept(SearchIntent.LoadMore(group.serverId))
                                 },
                                 modifier =
-                                    Modifier.padding(horizontal = Dimens.pageHorizontal).then(resultHandoff),
+                                    Modifier.padding(horizontal = Dimens.pageHorizontal).then(
+                                        resultHandoff.item(
+                                            index + 1,
+                                            key = "server-results-${group.serverId}",
+                                        ),
+                                    ),
                             )
                         }
                 }
@@ -337,12 +350,15 @@ private fun SearchHomeScreen(
  * `padding:11px 16px`, `gap:8px`, `0 6px 18px rgba(90,120,180,.15)`.
  */
 @Composable
-private fun SearchField(
+internal fun SearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onClear: () -> Unit,
     focusRequester: FocusRequester,
+    motion: Modifier = Modifier,
+    iconMotion: Modifier = Modifier,
+    loading: Boolean = false,
 ) {
     val palette = LocalPalette.current
     val accent = LocalAccentColors.current
@@ -354,13 +370,14 @@ private fun SearchField(
             .heightIn(min = 50.dp)
             .shadow(Shadows.searchBarFocused, shape)
             .glass(shape, palette.card3, accent.border)
+            .then(motion)
             // The conditional clear action already owns a 48dp touch target. Vertical padding
             // here would add to that real layout height and make the field jump when text appears.
             .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(AppIcons.Search, null, tint = accent.accent, modifier = Modifier.size(15.dp))
+        Icon(AppIcons.Search, null, tint = accent.accent, modifier = Modifier.size(15.dp).then(iconMotion))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) {
                 Text("搜索电影、剧集、演员", style = AppTypography.body.regular, color = palette.sub2)
@@ -380,6 +397,9 @@ private fun SearchField(
                         .semantics { contentDescription = "搜索电影、剧集、演员" },
             )
         }
+        // The field itself says the search is running: the same orb as every other loader,
+        // at the end of the row where the answer will land.
+        if (loading) OrbProgress(size = SearchFieldOrbSize, contentDescription = "正在搜索")
         if (query.isNotEmpty()) {
             Icon(
                 AppIcons.Close,
@@ -810,11 +830,16 @@ private fun EmptyResults(filtered: Boolean) {
 @Composable
 private fun SearchSkeleton() {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = Dimens.pageHorizontal),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.pageHorizontal),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         SkeletonBlock(Modifier.width(72.dp).height(12.dp), shape = AppShapes.micro)
-        repeat(3) {
+        // Rows breathe one after another down the page, and the lines inside a row after
+        // its poster, so the placeholder reads as a wave rather than a blink.
+        repeat(3) { row ->
+            val phase = SKELETON_PHASE_STEP_MS * row
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -825,17 +850,22 @@ private fun SearchSkeleton() {
                 SkeletonBlock(
                     Modifier.width(SearchPosterWidth).height(SearchPosterHeight),
                     shape = AppShapes.thumb,
+                    phaseMs = phase,
                 )
                 Column(
                     Modifier.weight(1f).padding(top = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SkeletonBlock(Modifier.fillMaxWidth().height(13.dp), shape = AppShapes.micro)
-                    SkeletonBlock(Modifier.width(80.dp).height(10.dp), shape = AppShapes.micro)
+                    SkeletonBlock(Modifier.fillMaxWidth().height(13.dp), shape = AppShapes.micro, phaseMs = phase + 60)
+                    SkeletonBlock(Modifier.width(80.dp).height(10.dp), shape = AppShapes.micro, phaseMs = phase + 120)
                     // The synopsis the real row carries; without it the placeholder is a
                     // different shape from what replaces it and the list jumps.
-                    SkeletonBlock(Modifier.fillMaxWidth().height(10.dp), shape = AppShapes.micro)
-                    SkeletonBlock(Modifier.fillMaxWidth(0.7f).height(10.dp), shape = AppShapes.micro)
+                    SkeletonBlock(Modifier.fillMaxWidth().height(10.dp), shape = AppShapes.micro, phaseMs = phase + 180)
+                    SkeletonBlock(
+                        Modifier.fillMaxWidth(0.7f).height(10.dp),
+                        shape = AppShapes.micro,
+                        phaseMs = phase + 240,
+                    )
                 }
             }
         }
@@ -968,6 +998,9 @@ private fun ResultRow(
 
 /** Search-result poster. A 2:3 crop, large enough to be recognised rather than counted. */
 private val SearchPosterWidth = 76.dp
+
+/** The loader at the end of the field: the orb's ring needs a little more room than a 15dp glyph. */
+private val SearchFieldOrbSize = 18.dp
 private val SearchPosterHeight = 114.dp
 
 /**

@@ -28,6 +28,7 @@ class ThemePreferences(
         const val KEY_REDUCE_TRANSPARENCY = "accessibility.reduceTransparency"
         const val KEY_LARGE_TEXT = "accessibility.largeText"
         const val KEY_REDUCE_MOTION = "accessibility.reduceMotion"
+        const val KEY_PULSE_SWEEP = "appearance.pulseSweep"
         const val KEY_SPLASH_ANIMATION = "appearance.splashAnimation"
         const val KEY_SPLASH_VARIANT = "appearance.splashVariant.v2"
         const val KEY_STARTUP_TAB = "appearance.startupTab"
@@ -66,6 +67,14 @@ class ThemePreferences(
 
     private val _reduceMotion = MutableStateFlow(settings.getBoolean(KEY_REDUCE_MOTION, false))
     val reduceMotion: StateFlow<Boolean> = _reduceMotion.asStateFlow()
+
+    private val _pulseSweep = MutableStateFlow(settings.getBoolean(KEY_PULSE_SWEEP, true))
+    val pulseSweep: StateFlow<Boolean> = _pulseSweep.asStateFlow()
+
+    fun setPulseSweep(enabled: Boolean) {
+        _pulseSweep.value = enabled
+        settings.putBoolean(KEY_PULSE_SWEEP, enabled)
+    }
 
     private val _splashAnimation = MutableStateFlow(settings.getBoolean(KEY_SPLASH_ANIMATION, true))
     val splashAnimation: StateFlow<Boolean> = _splashAnimation.asStateFlow()

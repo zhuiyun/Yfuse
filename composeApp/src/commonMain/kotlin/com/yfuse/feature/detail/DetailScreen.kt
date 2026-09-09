@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,11 +47,14 @@ import com.yfuse.core.designsystem.HeroPageFade
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
 import com.yfuse.core.designsystem.LocalPalette
 import com.yfuse.core.designsystem.MediaSharedElementKey
+import com.yfuse.core.designsystem.OrbProgress
+import com.yfuse.core.designsystem.OrbProgressDefaults
 import com.yfuse.core.designsystem.StatusBarIconStyle
 import com.yfuse.core.designsystem.WindowWidthTier
 import com.yfuse.core.designsystem.backdropSource
 import com.yfuse.core.designsystem.liftOverHero
 import com.yfuse.core.designsystem.rememberAnimatedArtworkAccent
+import com.yfuse.core.designsystem.rememberArrivalReveal
 import com.yfuse.core.designsystem.rememberArtworkPageColor
 import com.yfuse.core.designsystem.rememberBackdropState
 import com.yfuse.core.designsystem.rememberRetainedArtworkPageColor
@@ -434,6 +436,9 @@ fun DetailScreen(component: DetailComponent) {
                         takeoverInset = captionLift + TopBarHeight,
                     )
                 val barSolid by remember(topBarProgress) { derivedStateOf { topBarProgress.value > 0.5f } }
+                // The skeleton's replacement rises into place in order: artwork, then the
+                // title sheet, then the synopsis. Already-loaded pages compose at rest.
+                val arrival = rememberArrivalReveal(arrived = detail != null)
 
                 StatusBarIconStyle(darkIcons = !pagePalette.isDark && (detail == null || barSolid))
 
@@ -462,16 +467,18 @@ fun DetailScreen(component: DetailComponent) {
                             contentPadding = PaddingValues(bottom = Dimens.contentBottom),
                         ) {
                             item(key = "hero") {
-                                Hero(
-                                    urls = heroUrls,
-                                    title = displayTitle,
-                                    height = heroHeight,
-                                    surfaceColor = detailSurface,
-                                    animationKey = "detail-hero-${detail.id}",
-                                    sharedKey = sharedHeroKey,
-                                    scroll = heroScroll,
-                                    onResolvedUrl = { resolvedHeroUrl = it },
-                                )
+                                Box(arrival.hero()) {
+                                    Hero(
+                                        urls = heroUrls,
+                                        title = displayTitle,
+                                        height = heroHeight,
+                                        surfaceColor = detailSurface,
+                                        animationKey = "detail-hero-${detail.id}",
+                                        sharedKey = sharedHeroKey,
+                                        scroll = heroScroll,
+                                        onResolvedUrl = { resolvedHeroUrl = it },
+                                    )
+                                }
                             }
 
                             item(key = "sheet") {
@@ -480,7 +487,8 @@ fun DetailScreen(component: DetailComponent) {
                                         .fillMaxWidth()
                                         .liftOverHero(captionLift)
                                         .padding(horizontal = Dimens.pageHorizontal)
-                                        .padding(top = SheetGap),
+                                        .padding(top = SheetGap)
+                                        .then(arrival.item(1)),
                                     verticalArrangement = Arrangement.spacedBy(SheetGap),
                                 ) {
                                     TitleBlock(
@@ -534,7 +542,7 @@ fun DetailScreen(component: DetailComponent) {
                                         expanded = overviewExpanded,
                                         onToggle = { overviewExpanded = !overviewExpanded },
                                         accent = detailAccent,
-                                        modifier = Modifier.sectionPadding(),
+                                        modifier = Modifier.sectionPadding().then(arrival.item(2)),
                                     )
                                 }
                             }
@@ -738,7 +746,7 @@ fun DetailScreen(component: DetailComponent) {
                 )
 
                 if (state.resolvingPlay) {
-                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    OrbProgress(modifier = Modifier.align(Alignment.Center), size = OrbProgressDefaults.Page)
                 }
 
                 if (moreSheetOpen && detail != null) {

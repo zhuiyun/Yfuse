@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.yfuse.BuildConfig
@@ -51,6 +52,11 @@ import com.yfuse.core.data.ServerRegistry
 import com.yfuse.core.data.SkipSegmentPreferences
 import com.yfuse.core.data.ThemePreferences
 import com.yfuse.core.data.WatchTogetherPreferences
+import com.yfuse.core.designsystem.AmbientLight
+import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.rememberAmbientLight
+import com.yfuse.core.designsystem.rememberDominantColor
+import com.yfuse.core.designsystem.toneAmbientLight
 import com.yfuse.core.logging.AppLog
 import com.yfuse.core.logging.playbackDiagnosticTrace
 import com.yfuse.core.model.DecoderMode
@@ -2460,6 +2466,48 @@ internal fun PlayerRoot(
         loadCastItem(deviceId, next, 0L)
     }
 
+    // 氛围光. Live frames are read only when the light is on, motion is not reduced, the source is
+    // not DRM-protected and the picture is actually rendering; otherwise the letterbox takes a
+    // still glow from this item's artwork, and switching the light off paints nothing at all.
+    val ambientLightEnabled by playbackPreferences.ambientLight.collectAsState()
+    val ambientSampler = remember { AmbientFrameSampler() }
+    val ambientProtected =
+        currentItem?.let { item ->
+            item.drmConfiguration != null || item.activeVersion?.drmConfiguration != null
+        } == true
+    val ambientLive =
+        ambientLightEnabled &&
+            !LocalAccessibilityOptions.current.reduceMotion &&
+            !ambientProtected &&
+            !inPictureInPicture &&
+            state.videoHeight > 0 &&
+            state.diagnostics.effectiveVideoReadiness == PlaybackOutputReadiness.Rendering
+    ambientSampler.Collect(
+        active = ambientLive,
+        playing = state.playing && !state.buffering,
+        pausedPositionMs = state.positionMs,
+        contentKey = listOf(engine, currentItem?.serverId, currentItem?.id, currentItem?.versionId),
+    )
+    val ambientSampled by ambientSampler.light.collectAsState()
+    val ambientArtwork =
+        rememberDominantColor(
+            url = currentItem?.stillUrl ?: currentItem?.posterUrl,
+            fallback = Color.Black,
+        )
+    val ambientLight =
+        rememberAmbientLight(
+            when {
+                !ambientLightEnabled -> null
+                ambientLive && ambientSampled != null -> ambientSampled
+                else -> AmbientLight.uniform(toneAmbientLight(ambientArtwork))
+            },
+        )
+    val ambientVideoSize =
+        IntSize(
+            state.diagnostics.videoWidth.takeIf { it > 0 } ?: currentItem?.activeVersion?.sourceWidth ?: 0,
+            state.videoHeight.takeIf { it > 0 } ?: currentItem?.activeVersion?.sourceHeight ?: 0,
+        )
+
     Box(
         Modifier
             .fillMaxSize()
@@ -2499,9 +2547,10 @@ internal fun PlayerRoot(
                     subtitlePosition = presentationSubtitleControls.position,
                     subtitleAppearance = presentationSubtitleControls.appearance,
                     modifier = Modifier.fillMaxSize(),
+                    ambientSampler = ambientSampler,
                 )
-            is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize())
-            is MpvVideoEngine -> MpvSurface(engine, Modifier.fillMaxSize())
+            is MdkVideoEngine -> MdkSurface(engine, Modifier.fillMaxSize(), ambientSampler = ambientSampler)
+            is MpvVideoEngine -> MpvSurface(engine, Modifier.fillMaxSize(), ambientSampler = ambientSampler)
             is ExoVideoEngine ->
                 ExoSurface(
                     engine = engine,
@@ -2511,8 +2560,19 @@ internal fun PlayerRoot(
                     subtitlePosition = presentationSubtitleControls.position,
                     subtitleAppearance = presentationSubtitleControls.appearance,
                     modifier = Modifier.fillMaxSize(),
+                    ambientSampler = ambientSampler,
                 )
         }
+
+        // Above the surface hosts so bars an engine paints inside its own surface are lit too;
+        // the picture rectangle is clipped out, so this never draws over the frame.
+        AmbientLightLayer(
+            light = ambientLight,
+            sampler = ambientSampler,
+            videoSize = ambientVideoSize,
+            scaleMode = scaleMode,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         PlaybackContinuityOverlay(
             artworkUrls = listOf(currentItem?.stillUrl, currentItem?.posterUrl),
@@ -2574,6 +2634,9 @@ internal fun PlayerRoot(
                 state = state,
                 episodes = activeItems.toEpisodeCards(),
                 filled = scaleMode != VideoScaleMode.Fit,
+                ambientLight = ambientLight.takeIf { ambientLightEnabled },
+                ambientLightEnabled = ambientLightEnabled,
+                onToggleAmbientLight = { playbackPreferences.setAmbientLight(!ambientLightEnabled) },
                 resumedFromMs = initialResumeNoticeMs,
                 onBack = onBack,
                 onEnterPictureInPicture = onEnterPictureInPicture,

@@ -74,6 +74,8 @@ internal fun Core2Surface(
     subtitlePosition: Float,
     subtitleAppearance: SubtitleAppearance,
     modifier: Modifier = Modifier,
+    /** 氛围光 reads this surface; the view is the picture, so no source rect is needed. */
+    ambientSampler: AmbientFrameSampler? = null,
 ) {
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
     val surfaceSize =
@@ -101,13 +103,18 @@ internal fun Core2Surface(
                 Core2SurfaceView(context).apply {
                     setProtectedContent(protectedContent)
                     bind(engine.player)
+                    ambientSampler?.attach(this)
                 }
             },
             update = { view ->
                 view.setProtectedContent(protectedContent)
                 view.bind(engine.player)
+                ambientSampler?.attach(view)
             },
-            onRelease = Core2SurfaceView::unbind,
+            onRelease = { view ->
+                ambientSampler?.detach(view)
+                view.unbind()
+            },
         )
         Core2SubtitleOverlay(
             engine = engine,

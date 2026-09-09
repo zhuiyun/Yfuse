@@ -1,5 +1,7 @@
 package com.yfuse.feature.search
 
+import com.yfuse.core.data.CrossServerMediaHit
+import com.yfuse.core.data.aggregateCrossServerMedia
 import com.yfuse.core.model.MediaItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -7,6 +9,83 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SearchResultsHandoffTest {
+    @Test
+    fun incremental_server_results_do_not_fade_an_existing_card_back_out() {
+        val order = SearchRevealOrder()
+        val firstHits = listOf(CrossServerMediaHit("first", "First", movie("original")))
+        val original = aggregateCrossServerMedia(firstHits).single()
+        val elapsed = 150f / 680f
+        val before = order.progress(elapsed, original.identity, index = 1)
+        assertTrue(before > 0.1f)
+
+        val laterHits =
+            listOf("A", "B").map { title ->
+                CrossServerMediaHit(
+                    "second",
+                    "Second",
+                    movie(title).copy(title = title, communityRating = 9.0),
+                )
+            }
+        val updated = aggregateCrossServerMedia(firstHits + laterHits)
+        val newIndex = updated.indexOfFirst { it.identity == original.identity } + 1
+        assertEquals(3, newIndex)
+        // The old position-based delay nearly hid this half-visible card again.
+        assertTrue(searchRevealProgress(elapsed, newIndex) < before / 10f)
+        assertEquals(before, order.progress(elapsed, original.identity, newIndex))
+        assertTrue(order.progress(200f / 680f, original.identity, newIndex) >= before)
+        assertEquals(1f, order.progress(1f, original.identity, newIndex))
+    }
+
+    @Test
+    fun server_groups_keep_their_delay_when_earlier_servers_finish() {
+        val order = SearchRevealOrder()
+        val elapsed = 150f / 680f
+        val before = order.progress(elapsed, "server-results-second", index = 1)
+        // Completion order differs from the configured server order.
+        order.progress(elapsed, "server-results-first", index = 1)
+        assertEquals(before, order.progress(elapsed, "server-results-second", index = 2))
+        // Moving the same group back toward the front cannot jump its progress either.
+        assertEquals(before, order.progress(elapsed, "server-results-second", index = 0))
+    }
+
+    @Test
+    fun later_rows_join_the_shared_clock_and_a_new_handoff_uses_the_new_order() {
+        val order = SearchRevealOrder()
+        val elapsed = 150f / 680f
+        order.progress(elapsed, "original", index = 1)
+        assertEquals(searchRevealProgress(elapsed, 5), order.progress(elapsed, "late", index = 5))
+        for (index in 1..20) {
+            assertEquals(1f, order.progress(1f, "page-$index", index))
+        }
+        val nextHandoff = SearchRevealOrder()
+        assertEquals(searchRevealProgress(elapsed, 3), nextHandoff.progress(elapsed, "original", index = 3))
+    }
+
+    @Test
+    fun first_result_is_visible_before_the_later_rows_begin_to_enter() {
+        val earlyTime = 150f / 680f
+        assertTrue(searchRevealProgress(earlyTime, 1) > 0.1f)
+        assertEquals(0f, searchRevealProgress(earlyTime, 5))
+        assertTrue(searchRevealProgress(400f / 680f, 5) > 0f)
+        for (index in listOf(0, 1, 5, 30)) {
+            assertEquals(1f, searchRevealProgress(1f, index))
+        }
+    }
+
+    @Test
+    fun sweep_is_only_for_loading_to_results_not_filtering_errors_or_restored_content() {
+        SearchResultsPhase.entries.forEach { before ->
+            SearchResultsPhase.entries.forEach { after ->
+                val handoff = SearchResultsHandoff(before)
+                assertEquals(
+                    before == SearchResultsPhase.Loading && after == SearchResultsPhase.Results,
+                    handoff.shouldSweep(after, moving = true),
+                )
+                assertFalse(handoff.shouldSweep(after, moving = false))
+            }
+        }
+    }
+
     @Test
     fun first_search_reveals_only_when_content_or_a_terminal_message_arrives() {
         val handoff = SearchResultsHandoff(SearchResultsPhase.Idle)

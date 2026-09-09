@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,6 +46,7 @@ import com.yfuse.core.designsystem.Dimens
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.YfButton
 import com.yfuse.core.designsystem.YfButtonTone
 import com.yfuse.core.designsystem.formDivider
@@ -377,11 +377,7 @@ private fun SessionsHeader(
             contentAlignment = Alignment.Center,
         ) {
             if (loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    color = palette.sub2,
-                    strokeWidth = 2.dp,
-                )
+                OrbProgress(size = 18.dp, color = palette.sub2)
             } else {
                 Icon(
                     imageVector = AppIcons.Refresh,
@@ -507,11 +503,7 @@ private fun CompactSessionAction(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (loading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(15.dp),
-                color = if (destructive) palette.error else accent.accent,
-                strokeWidth = 2.dp,
-            )
+            OrbProgress(size = 15.dp, color = if (destructive) palette.error else accent.accent)
         } else {
             Text(
                 label,
@@ -611,7 +603,7 @@ private fun LoadingLine(label: String) {
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp, color = palette.sub2)
+        OrbProgress(size = 19.dp, color = palette.sub2)
         Spacer(Modifier.width(9.dp))
         Text(label, style = AppTypography.body.medium, color = palette.sub2)
     }

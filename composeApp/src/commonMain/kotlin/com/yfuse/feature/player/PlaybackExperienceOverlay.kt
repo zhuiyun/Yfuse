@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +28,7 @@ import com.yfuse.core.designsystem.AppTypography
 import com.yfuse.core.designsystem.FallbackImage
 import com.yfuse.core.designsystem.HapticSignal
 import com.yfuse.core.designsystem.LocalAccessibilityOptions
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.glass
 import com.yfuse.core.designsystem.pressable
 import kotlinx.coroutines.delay
@@ -82,11 +82,7 @@ internal fun PlaybackContinuityOverlay(
                     horizontalArrangement = Arrangement.spacedBy(9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        strokeWidth = 1.5.dp,
-                        modifier = Modifier.size(15.dp),
-                    )
+                    OrbProgress(size = 15.dp, color = Color.White)
                     Text(message, style = AppTypography.caption.medium, color = Color.White)
                 }
             }
@@ -152,11 +148,7 @@ internal fun PlaybackStatusChip(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircularProgressIndicator(
-                color = Color.White,
-                strokeWidth = 1.5.dp,
-                modifier = Modifier.size(14.dp),
-            )
+            OrbProgress(size = 14.dp, color = Color.White)
             Text(message, style = AppTypography.caption.medium, color = Color.White)
         }
     }

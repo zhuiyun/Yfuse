@@ -15,7 +15,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +39,7 @@ import com.yfuse.core.designsystem.GlassDialog
 import com.yfuse.core.designsystem.GlassShapes
 import com.yfuse.core.designsystem.LocalAccentColors
 import com.yfuse.core.designsystem.LocalPalette
+import com.yfuse.core.designsystem.OrbProgress
 import com.yfuse.core.designsystem.OverlayButton
 import com.yfuse.core.designsystem.OverlayButtonTone
 import com.yfuse.core.designsystem.OverlayHeader
@@ -113,11 +113,7 @@ fun AddServerDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (state.scanning) {
-                        CircularProgressIndicator(
-                            Modifier.size(10.dp),
-                            color = accent.accent,
-                            strokeWidth = 1.5.dp,
-                        )
+                        OrbProgress(size = 10.dp, color = accent.accent)
                     }
                     Text(
                         if (state.scanning) "扫描中" else "扫描",
@@ -297,11 +293,7 @@ fun AddServerDialog(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        CircularProgressIndicator(
-                                            Modifier.size(14.dp),
-                                            color = accent.accent,
-                                            strokeWidth = 1.5.dp,
-                                        )
+                                        OrbProgress(size = 14.dp, color = accent.accent)
                                         Text(
                                             when (account) {
                                                 PlexAccountUiState.Starting -> "正在申请登录码…"
