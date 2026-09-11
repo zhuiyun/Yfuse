@@ -15,6 +15,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -32,7 +33,27 @@ enum class ParticleLight(
     Enhanced("增强"),
 }
 
-internal enum class LightEffect {
+/**
+ * How the light moves. [ParticleLight] decides how much of it there is; this decides its shape,
+ * and the two are chosen separately so a quiet 轻柔 星轨 is as valid as a full 增强 星尘.
+ *
+ * Entries only ever append — the choice persists by name.
+ */
+enum class ParticleStyle(
+    val label: String,
+    val description: String,
+) {
+    /** 光粒从四周被吸向目标 — the closest to the feedback the app already had. */
+    Stardust("星尘", "光粒从四周汇聚到目标，像被磁吸"),
+
+    /** 光粒绕目标环流 — rings of light that tighten or open around the control. */
+    Orbit("星轨", "光粒绕目标环流一圈，带一颗拖尾亮点"),
+
+    /** 光粒顺丝带路径流过 — curved lanes coloured from the mark's lavender and ice blue. */
+    Flow("流光", "光粒顺一条丝带流过，取自标志的薰衣草与冰蓝"),
+}
+
+enum class LightEffect {
     Trail,
     Converge,
     Edge,
@@ -42,9 +63,28 @@ internal enum class LightEffect {
 }
 
 internal val LocalParticleLight = staticCompositionLocalOf { ParticleLight.Gentle }
+internal val LocalParticleStyle = staticCompositionLocalOf { ParticleStyle.Stardust }
 internal val LocalParticleLimit = staticCompositionLocalOf { 64 }
 internal val LocalParticleActive = staticCompositionLocalOf { true }
 internal val LocalParticleBudget = staticCompositionLocalOf { LightParticleBudget() }
+
+/**
+ * 流光's two ends, from the 「Yfuse 水火 Logo」 lavender band and ice-blue band. Both are pastel
+ * by design: on the dark page they read as light, so on the light page they are pulled most of
+ * the way to the ink before they are drawn — see [flowLightColors].
+ */
+internal val FlowLightLavender = Color(0xFFC3B1F5)
+internal val FlowLightIce = Color(0xFF9FD6F3)
+
+internal fun flowLightColors(
+    ink: Color,
+    dark: Boolean,
+): Pair<Color, Color> =
+    if (dark) {
+        FlowLightLavender to FlowLightIce
+    } else {
+        lerp(FlowLightLavender, ink, 0.55f) to lerp(FlowLightIce, ink, 0.55f)
+    }
 
 /** Shared by the window, including its dialog subtree. No particle can bypass this cap. */
 internal class LightParticleBudget {
@@ -75,6 +115,14 @@ internal class LightParticlePool(
     private val startY = FloatArray(capacity)
     private val endX = FloatArray(capacity)
     private val endY = FloatArray(capacity)
+
+    // 星轨 keeps its two radii here; 流光 keeps its bend point. A linear particle ignores both.
+    private val controlX = FloatArray(capacity)
+    private val controlY = FloatArray(capacity)
+    private val angle = FloatArray(capacity)
+    private val spin = FloatArray(capacity)
+    val motion = IntArray(capacity)
+    val tint = FloatArray(capacity)
     val x = FloatArray(capacity)
     val y = FloatArray(capacity)
     val alpha = FloatArray(capacity)
@@ -95,6 +143,7 @@ internal class LightParticlePool(
         enhanced: Boolean,
         directionX: Float = 0f,
         directionY: Float = 0f,
+        style: ParticleStyle = ParticleStyle.Stardust,
     ): Boolean {
         if (width <= 0f ||
             height <= 0f ||
@@ -118,19 +167,28 @@ internal class LightParticlePool(
                 LightEffect.Dissolve -> 18f
                 LightEffect.Dust -> 9f
                 LightEffect.Converge -> 13f
-            } * density
+            } * density * style.spreadScale
         val ax = anchorX.coerceIn(0f, width)
         val ay = anchorY.coerceIn(0f, height)
+        val edge = effect == LightEffect.Edge || effect == LightEffect.Dust
+        val dirX = directionX.coerceIn(-1f, 1f)
+        val dirY = directionY.coerceIn(-1f, 1f)
+        val kind =
+            when {
+                edge -> MOTION_LINEAR
+                style == ParticleStyle.Orbit -> MOTION_ORBIT
+                style == ParticleStyle.Flow -> MOTION_FLOW
+                else -> MOTION_LINEAR
+            }
         var emitted = 0
         for (i in 0 until capacity) {
             if (emitted >= count) break
             if (age[i] >= 0f) continue
             if (!budget.acquire(limit)) break
-            val angle = ((emitted + seed % 7 * 0.13f) / count * 2f * PI).toFloat()
+            val theta = ((emitted + seed % 7 * 0.13f) / count * 2f * PI).toFloat()
             val spread = distance * (0.55f + ((seed + emitted * 7) % 9) / 20f)
-            val dx = cos(angle) * spread
-            val dy = sin(angle) * spread
-            val edge = effect == LightEffect.Edge || effect == LightEffect.Dust
+            val dx = cos(theta) * spread
+            val dy = sin(theta) * spread
             val ox = if (edge) width * (emitted + 0.5f) / count else ax
             val oy =
                 if (edge) {
@@ -142,21 +200,58 @@ internal class LightParticlePool(
                 } else {
                     ay
                 }
-            if (effect == LightEffect.Converge) {
-                startX[i] = ax + dx
-                startY[i] = ay + dy
-                endX[i] = ax
-                endY[i] = ay
-            } else {
-                startX[i] = ox
-                startY[i] = oy
-                endX[i] = ox + dx - directionX.coerceIn(-1f, 1f) * distance
-                endY[i] = oy + dy - directionY.coerceIn(-1f, 1f) * distance +
-                    if (effect == LightEffect.Dissolve) 8f * density else 0f
+            val sink = if (effect == LightEffect.Dissolve) 8f * density else 0f
+            motion[i] = kind
+            when (kind) {
+                MOTION_ORBIT -> {
+                    // The centre travels the way a linear particle would; the light rides a
+                    // ring around it whose radius opens or closes with the effect's meaning.
+                    startX[i] = ax
+                    startY[i] = ay
+                    endX[i] = ax - dirX * distance
+                    endY[i] = ay - dirY * distance + sink
+                    val (from, to) =
+                        when (effect) {
+                            LightEffect.Converge -> spread to spread * 0.12f
+                            LightEffect.Dissolve -> spread * 0.3f to spread * 1.3f
+                            LightEffect.Trail -> spread * 0.5f to spread * 0.95f
+                            else -> spread * 0.8f to spread * 1.05f
+                        }
+                    controlX[i] = from
+                    controlY[i] = to
+                    angle[i] = theta
+                    spin[i] = (if (emitted % 2 == 0) 1f else -1f) * (0.9f + emitted % 3 * 0.25f)
+                }
+                else -> {
+                    if (effect == LightEffect.Converge) {
+                        startX[i] = ax + dx
+                        startY[i] = ay + dy
+                        endX[i] = ax
+                        endY[i] = ay
+                    } else {
+                        startX[i] = ox
+                        startY[i] = oy
+                        endX[i] = ox + dx - dirX * distance
+                        endY[i] = oy + dy - dirY * distance + sink
+                    }
+                    if (kind == MOTION_FLOW) {
+                        // Bend each lane sideways so the batch reads as a ribbon rather than
+                        // a burst; alternating sides keep the ribbon from becoming an arc.
+                        val vx = endX[i] - startX[i]
+                        val vy = endY[i] - startY[i]
+                        val side = if (emitted % 2 == 0) 0.6f else -0.6f
+                        controlX[i] = (startX[i] + endX[i]) / 2f - vy * side
+                        controlY[i] = (startY[i] + endY[i]) / 2f + vx * side
+                    }
+                }
             }
             age[i] = 0f
-            lifetime[i] = (if (effect == LightEffect.Dust) 0.32f else 0.24f) + (emitted % 4) * 0.04f
-            radius[i] = (0.65f + emitted % 3 * 0.22f) * density
+            lifetime[i] =
+                (if (effect == LightEffect.Dust) 0.32f else 0.24f) +
+                (emitted % 4) * 0.04f +
+                (if (kind == MOTION_ORBIT) 0.04f else 0f)
+            radius[i] = (0.65f + emitted % 3 * 0.22f) * density * style.sizeScale
+            tint[i] = if (count > 1) emitted.toFloat() / (count - 1) else 0f
             x[i] = startX[i]
             y[i] = startY[i]
             alpha[i] = 0.15f
@@ -185,8 +280,25 @@ internal class LightParticlePool(
                 continue
             }
             val eased = 1f - (1f - t) * (1f - t)
-            x[i] = startX[i] + (endX[i] - startX[i]) * eased
-            y[i] = startY[i] + (endY[i] - startY[i]) * eased
+            when (motion[i]) {
+                MOTION_ORBIT -> {
+                    val cx = startX[i] + (endX[i] - startX[i]) * eased
+                    val cy = startY[i] + (endY[i] - startY[i]) * eased
+                    val r = controlX[i] + (controlY[i] - controlX[i]) * eased
+                    val a = angle[i] + spin[i] * TWO_PI * eased
+                    x[i] = cx + cos(a) * r
+                    y[i] = cy + sin(a) * r
+                }
+                MOTION_FLOW -> {
+                    val u = 1f - eased
+                    x[i] = u * u * startX[i] + 2f * u * eased * controlX[i] + eased * eased * endX[i]
+                    y[i] = u * u * startY[i] + 2f * u * eased * controlY[i] + eased * eased * endY[i]
+                }
+                else -> {
+                    x[i] = startX[i] + (endX[i] - startX[i]) * eased
+                    y[i] = startY[i] + (endY[i] - startY[i]) * eased
+                }
+            }
             alpha[i] = sin(t * PI.toFloat()).coerceAtLeast(0f) * (1f - t) * 0.8f
         }
     }
@@ -201,7 +313,31 @@ internal class LightParticlePool(
         elapsed = 0f
         lastEmission = -1f
     }
+
+    companion object {
+        const val MOTION_LINEAR = 0
+        const val MOTION_ORBIT = 1
+        const val MOTION_FLOW = 2
+        private const val TWO_PI = (2.0 * PI).toFloat()
+    }
 }
+
+/** 星尘 is the big, magnetic one; the other two are read by their path, not their size. */
+private val ParticleStyle.sizeScale: Float
+    get() =
+        when (this) {
+            ParticleStyle.Stardust -> 1.4f
+            ParticleStyle.Orbit -> 1.15f
+            ParticleStyle.Flow -> 1.2f
+        }
+
+private val ParticleStyle.spreadScale: Float
+    get() =
+        when (this) {
+            ParticleStyle.Stardust -> 1.5f
+            ParticleStyle.Orbit -> 1f
+            ParticleStyle.Flow -> 1.35f
+        }
 
 internal class LightBounds {
     var width = 0f
@@ -215,6 +351,7 @@ internal class LightFeedbackState(
     private val density: Float,
     private val enhanced: Boolean,
     val enabled: Boolean,
+    private val style: ParticleStyle = ParticleStyle.Stardust,
 ) {
     private var pool: LightParticlePool? = null
     private val wake = Channel<Unit>(Channel.CONFLATED)
@@ -244,7 +381,7 @@ internal class LightFeedbackState(
         val particles = pool ?: LightParticlePool(budget, limit).also { pool = it }
         val px = if (at.isSpecified) at.x else width * fractionX.coerceIn(0f, 1f)
         val py = if (at.isSpecified) at.y else height * fractionY.coerceIn(0f, 1f)
-        if (particles.emit(effect, px, py, width, height, density, enhanced, directionX, directionY)) {
+        if (particles.emit(effect, px, py, width, height, density, enhanced, directionX, directionY, style)) {
             revision.intValue++
             wake.trySend(Unit)
         }
@@ -273,6 +410,8 @@ internal class LightFeedbackState(
     fun draw(
         scope: DrawScope,
         color: Color,
+        flowStart: Color = color,
+        flowEnd: Color = color,
     ) {
         revision.intValue // Read only in drawing: particles never recompose the containing page.
         val particles = pool ?: return
@@ -281,8 +420,14 @@ internal class LightFeedbackState(
                 val a = particles.alpha[i]
                 if (a <= 0f) continue
                 val center = Offset(particles.x[i], particles.y[i])
-                drawCircle(color.copy(alpha = a * 0.14f), particles.radius[i] * 2.5f, center)
-                drawCircle(color.copy(alpha = a), particles.radius[i], center)
+                val ink =
+                    if (particles.motion[i] == LightParticlePool.MOTION_FLOW) {
+                        lerp(flowStart, flowEnd, particles.tint[i])
+                    } else {
+                        color
+                    }
+                drawCircle(ink.copy(alpha = a * 0.16f), particles.radius[i] * 2.8f, center)
+                drawCircle(ink.copy(alpha = a), particles.radius[i], center)
             }
         }
     }
@@ -306,6 +451,7 @@ internal fun rememberLightFeedback(
     enhancedOnly: Boolean = false,
 ): LightFeedbackState {
     val level = LocalParticleLight.current
+    val style = LocalParticleStyle.current
     val budget = LocalParticleBudget.current
     val limit = LocalParticleLimit.current
     val density = LocalDensity.current.density
@@ -319,8 +465,8 @@ internal fun rememberLightFeedback(
             (!enhancedOnly || level == ParticleLight.Enhanced)
     val bounds = remember { LightBounds() }
     val state =
-        remember(active, level, budget, limit, density) {
-            LightFeedbackState(bounds, budget, limit, density, level == ParticleLight.Enhanced, active)
+        remember(active, level, style, budget, limit, density) {
+            LightFeedbackState(bounds, budget, limit, density, level == ParticleLight.Enhanced, active, style)
         }
     LaunchedEffect(state) { if (active) state.run() }
     DisposableEffect(state) { onDispose { state.dispose() } }
@@ -330,12 +476,14 @@ internal fun rememberLightFeedback(
 /** Draw locally. Does not alter layout, semantics, pointer handling or video surfaces. */
 @Composable
 internal fun Modifier.lightFeedback(state: LightFeedbackState): Modifier {
-    val color = LocalPalette.current.text
+    val palette = LocalPalette.current
+    val color = palette.text
+    val (flowStart, flowEnd) = flowLightColors(color, palette.isDark)
     if (!state.enabled) return this
     return onSizeChanged { state.resize(it.width, it.height) }
         .drawWithContent {
             drawContent()
-            state.draw(this, color)
+            state.draw(this, color, flowStart, flowEnd)
         }
 }
 

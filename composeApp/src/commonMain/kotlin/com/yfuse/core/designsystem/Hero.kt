@@ -99,6 +99,7 @@ fun HeroActionDock(
                 .height(46.dp)
                 .pressable(
                     focusShape = AppShapes.pill,
+                    lightEffect = LightEffect.Converge,
                     onClickLabel = playActionLabel,
                     onClick = onPlay,
                 ).shadow(GlassLift.control, AppShapes.pill)

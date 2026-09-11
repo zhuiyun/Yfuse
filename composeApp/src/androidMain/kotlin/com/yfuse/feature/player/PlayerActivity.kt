@@ -56,6 +56,7 @@ import com.yfuse.core.designsystem.AccentColor
 import com.yfuse.core.designsystem.AccessibilityOptions
 import com.yfuse.core.designsystem.DialogAnimation
 import com.yfuse.core.designsystem.ParticleLight
+import com.yfuse.core.designsystem.ParticleStyle
 import com.yfuse.core.designsystem.YfuseTheme
 import com.yfuse.core.designsystem.platformAnimationsDisabled
 import com.yfuse.core.logging.AppLog
@@ -484,12 +485,14 @@ class PlayerActivity : ComponentActivity() {
             val reduceMotion = preferences?.reduceMotion?.collectAsState()?.value ?: false
             val systemMotionOff = platformAnimationsDisabled()
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
+            val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
             YfuseTheme(
                 dark = true,
                 accent = accent,
                 dialogAnimation = dialogAnimation,
                 accessibility = AccessibilityOptions(reduceMotion = reduceMotion || systemMotionOff),
                 particleLight = particleLight,
+                particleStyle = particleStyle,
                 particleLimit = 32,
                 particleActive = false,
             ) {
@@ -734,12 +737,14 @@ class PlayerActivity : ComponentActivity() {
             val reduceMotion = preferences?.reduceMotion?.collectAsState()?.value ?: false
             val systemMotionOff = platformAnimationsDisabled()
             val particleLight = preferences?.particleLight?.collectAsState()?.value ?: ParticleLight.Gentle
+            val particleStyle = preferences?.particleStyle?.collectAsState()?.value ?: ParticleStyle.Stardust
             YfuseTheme(
                 dark = true,
                 accent = accent,
                 dialogAnimation = dialogAnimation,
                 accessibility = AccessibilityOptions(reduceMotion = reduceMotion || systemMotionOff),
                 particleLight = particleLight,
+                particleStyle = particleStyle,
                 particleLimit = 32,
                 particleActive = !inPictureInPicture,
             ) {

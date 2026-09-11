@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -580,6 +581,18 @@ private fun HomeHeroCarousel(
     LaunchedEffect(carouselDragging, carouselLight) {
         if (carouselDragging) carouselLight.emit(LightEffect.Dust)
     }
+    // Every level gets the settle: a page that has just left sweeps a gathering light along
+    // the side it left from. Dust on the edges stays an 增强 detail.
+    val carouselSweep = rememberLightFeedback(enabled = visible)
+    LaunchedEffect(pagerState, carouselSweep) {
+        var previous = pagerState.settledPage
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            if (page != previous) {
+                carouselSweep.emit(LightEffect.Converge, fractionX = if (page > previous) 0.04f else 0.96f)
+                previous = page
+            }
+        }
+    }
     val reduceMotion = LocalAccessibilityOptions.current.reduceMotion
     val routeVisible = LocalRouteVisible.current
     // Touching the reel restarts its clock rather than stopping it for good. The pause
@@ -619,7 +632,8 @@ private fun HomeHeroCarousel(
             .fillMaxWidth()
             .height(height)
             .carouselTouchPause(carouselTouched)
-            .lightFeedback(carouselLight),
+            .lightFeedback(carouselLight)
+            .lightFeedback(carouselSweep),
     ) {
         val indicatorStart =
             if (showSidePreview) LivingPosterDefaults.LEADING_INSET else 0.dp

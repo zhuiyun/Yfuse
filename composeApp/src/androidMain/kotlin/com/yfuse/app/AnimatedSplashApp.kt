@@ -50,6 +50,7 @@ import com.yfuse.core.designsystem.LightPalette
 import com.yfuse.core.designsystem.LightParticleBudget
 import com.yfuse.core.designsystem.LocalParticleBudget
 import com.yfuse.core.designsystem.LocalParticleLight
+import com.yfuse.core.designsystem.LocalParticleStyle
 import com.yfuse.core.designsystem.LocalRouteVisible
 import com.yfuse.core.designsystem.Motion
 import com.yfuse.core.designsystem.SplashAnimation
@@ -170,8 +171,10 @@ fun AnimatedSplashApp(
 
         if (splashVisible) {
             val particleLight by root.themePreferences.particleLight.collectAsState()
+            val particleStyle by root.themePreferences.particleStyle.collectAsState()
             CompositionLocalProvider(
                 LocalParticleLight provides particleLight,
+                LocalParticleStyle provides particleStyle,
                 LocalParticleBudget provides remember { LightParticleBudget() },
             ) {
                 AnimatedSplashScreen(

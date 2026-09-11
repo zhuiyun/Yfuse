@@ -225,7 +225,7 @@ internal fun RefinedTopBar(
                 // disc fills through a crossfade instead of being swapped for a filled one.
                 AnimatedContent(
                     targetState = unreadChat,
-                    modifier = Modifier.lightOnChange(unreadChat, emitWhen = unreadChat),
+                    modifier = Modifier.lightOnChange(unreadChat, LightEffect.Converge, emitWhen = unreadChat),
                     contentKey = { it },
                     transitionSpec = { barSwapTransform(reduceMotion) },
                     label = "player-chat-unread",

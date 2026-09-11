@@ -51,6 +51,7 @@ internal val SplashAnimation.choreography: SplashChoreography
             SplashAnimation.CloudDrop -> SplashCloudDrop
             SplashAnimation.CloudWell -> SplashCloudWell
             SplashAnimation.AuroraDark, SplashAnimation.AuroraLight -> SplashAurora
+            SplashAnimation.Stardust -> SplashStardust
         }
 
 /**
@@ -67,6 +68,7 @@ internal fun SplashAnimation.markResource(): Int? =
         SplashAnimation.CloudDrop, SplashAnimation.CloudWell -> null
         SplashAnimation.AuroraDark -> R.drawable.yfuse_aurora_dark
         SplashAnimation.AuroraLight -> R.drawable.yfuse_aurora_light
+        SplashAnimation.Stardust -> R.drawable.yfuse_mark
     }
 
 /** How long every choreography leaves for the hand-off to the app. */

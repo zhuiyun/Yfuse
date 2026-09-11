@@ -35,3 +35,13 @@
 - 播放画面与字幕区域永不绘制粒子。
 - 浅色主题下粒子核心色改为 `palette.text`，并降低光晕强度。
 - 画布中的《深海回声》及演员、海报均为占位内容。
+
+## 实现状态（1.0.57）
+
+- `LightParticles.kt`：新增 `ParticleStyle`（星尘 / 星轨 / 流光），粒子池支持直线、环绕、贝塞尔三种运动；流光用标志的薰衣草与冰蓝配色。
+- `ThemePreferences.kt`：新增 `appearance.particleStyle`，与档位独立持久化；`YfuseTheme` 提供 `LocalParticleStyle`。
+- `ParticleLightSheet.kt`：档位下方新增「风格」三卡片，各自以自己的风格循环预览。
+- `SplashAnimationStardust.kt`：`SplashAnimation.Stardust`「光粒汇聚」编排。
+- `Hero.kt` / `Interaction.kt`：`pressable` 可指定 `lightEffect`，播放键按下时聚拢。
+- `HomeScreen.kt` / `LibraryHomeScreen.kt`：轮播 `settledPage` 变化时在离开侧扫光。
+- `PlayerChromeRefined.kt`：未读消息改为聚拢光；`WatchRoomInfoDialog.kt`：成员数变化时边缘扫光 / 消散。

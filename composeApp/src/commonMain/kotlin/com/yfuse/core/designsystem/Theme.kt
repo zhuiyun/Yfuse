@@ -84,6 +84,9 @@ enum class SplashAnimation(
     CloudWell("水漾成键", "水滴落进凹槽 → 沸腾冒泡 → 水花四溅成播放键", SplashMark.CloudPlayer),
     AuroraDark("极光浮现 · 深色", "深色极光折带渐显 → 字标浮起", SplashMark.AuroraDark),
     AuroraLight("极光浮现 · 浅色", "浅色极光折带渐显 → 字标浮起", SplashMark.AuroraLight),
+
+    // Appended, per the rule above: the 粒子光效 launch, built around the current mark.
+    Stardust("光粒汇聚", "光粒从四周汇聚成标志 → 标志亮起 → 字标浮起", SplashMark.WaterFire),
 }
 
 /** The choreographies drawn around this mark, in the order they are offered. */
@@ -310,6 +313,7 @@ fun YfuseTheme(
     dialogAnimation: DialogAnimation = DialogAnimation.Lift,
     dialogAnimationLab: Boolean = true,
     particleLight: ParticleLight = ParticleLight.Gentle,
+    particleStyle: ParticleStyle = ParticleStyle.Stardust,
     particleLimit: Int = 64,
     particleActive: Boolean = true,
     content: @Composable () -> Unit,
@@ -330,6 +334,7 @@ fun YfuseTheme(
         LocalDialogAnimation provides dialogAnimation,
         LocalDialogAnimationLab provides dialogAnimationLab,
         LocalParticleLight provides particleLight,
+        LocalParticleStyle provides particleStyle,
         LocalParticleLimit provides particleLimit.coerceIn(0, 64),
         LocalParticleActive provides particleActive,
         LocalParticleBudget provides remember { LightParticleBudget() },

@@ -35,6 +35,45 @@ class LightParticlesTest {
     }
 
     @Test
+    fun everyStyleExpiresAndStaysInsideTheBudget() {
+        for (style in ParticleStyle.entries) {
+            for (effect in LightEffect.entries) {
+                val budget = LightParticleBudget()
+                val pool = LightParticlePool(budget, 64)
+                assertTrue(pool.emit(effect, 40f, 24f, 80f, 48f, 2f, true, 0.5f, -0.5f, style))
+                assertTrue(budget.active <= 12)
+                repeat(8) {
+                    pool.advance(0.03f)
+                    for (i in 0 until pool.capacity) {
+                        if (pool.alpha[i] <= 0f) continue
+                        assertTrue(pool.x[i].isFinite() && pool.y[i].isFinite(), "$style $effect")
+                        assertTrue(pool.radius[i] > 0f)
+                    }
+                }
+                pool.advance(0.5f)
+                assertEquals(0, pool.active, "$style $effect")
+                assertEquals(0, budget.active)
+            }
+        }
+    }
+
+    @Test
+    fun orbitAndFlowMoveOffTheStraightLineStardustKeeps() {
+        fun midpoint(style: ParticleStyle): Pair<Float, Float> {
+            val pool = LightParticlePool(LightParticleBudget(), 64)
+            pool.emit(LightEffect.Converge, 50f, 50f, 100f, 100f, 1f, false, style = style)
+            pool.advance(0.1f)
+            return pool.x[0] to pool.y[0]
+        }
+        val straight = midpoint(ParticleStyle.Stardust)
+        val orbit = midpoint(ParticleStyle.Orbit)
+        val flow = midpoint(ParticleStyle.Flow)
+        assertTrue(straight != orbit)
+        assertTrue(straight != flow)
+        assertTrue(orbit != flow)
+    }
+
+    @Test
     fun badDimensionsAndRepeatedEventsDoNotConsumeBudget() {
         val budget = LightParticleBudget()
         val pool = LightParticlePool(budget, 64)
