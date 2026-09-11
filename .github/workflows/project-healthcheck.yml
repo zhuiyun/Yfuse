@@ -1,0 +1,59 @@
+name: Project healthcheck
+
+on:
+  push:
+    branches: ['audit/project-healthcheck-20260911']
+    paths: ['.github/workflows/project-healthcheck.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-healthcheck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Collect tracked source and inventory (no credentials or build outputs)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, subprocess, zipfile
+          root = pathlib.Path.cwd()
+          paths = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          inventory = []
+          with zipfile.ZipFile('healthcheck-source.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for name in filter(None, paths):
+                  path = root / name
+                  if not path.is_file() or path.is_symlink():
+                      continue
+                  size = path.stat().st_size
+                  entry = {'path': name, 'size': size, 'included': False}
+                  if size <= 8 * 1024 * 1024:
+                      data = path.read_bytes()
+                      entry['sha256'] = hashlib.sha256(data).hexdigest()
+                      try:
+                          text = data.decode('utf-8')
+                      except UnicodeDecodeError:
+                          text = None
+                      if text is not None and '\0' not in text:
+                          archive.writestr(name, data)
+                          entry['included'] = True
+                  inventory.append(entry)
+              metadata = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip(), 'files': inventory}
+              archive.writestr('_healthcheck_inventory.json', json.dumps(metadata, indent=2))
+          print(f'Tracked files: {len(inventory)}; included text files: {sum(x["included"] for x in inventory)}')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: healthcheck-source
+          path: healthcheck-source.zip
+          retention-days: 3
+          if-no-files-found: error
